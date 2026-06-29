@@ -1,0 +1,5 @@
+# Compiled binary (built via `go build -o tele-go .` or installed with `go install`)
+/tele-go
+
+# Local, machine-specific Claude Code settings
+.claude/settings.local.json

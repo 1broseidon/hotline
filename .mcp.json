@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tele-go": {
+      "command": "/home/george/Projects/mcp/tele/tele-go",
+      "args": ["run"]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "hotline",
+  "owner": {
+    "name": "1broseidon"
+  },
+  "description": "Plugins for hotline — a messaging channel for Claude Code. Talk to your sessions like texting a friend.",
+  "plugins": [
+    {
+      "name": "hotline",
+      "version": "0.1.0",
+      "source": "./plugins/hotline",
+      "description": "Wires up the hotline MCP server so Claude Code sessions get the Telegram channel: reply, react, edit_message, and download_attachment tools plus inbound message relay. Requires the hotline binary on PATH (go install github.com/1broseidon/hotline@latest) and a configured bot token — see the README quickstart.",
+      "author": {
+        "name": "1broseidon"
+      },
+      "homepage": "https://github.com/1broseidon/hotline",
+      "repository": "https://github.com/1broseidon/hotline",
+      "license": "MIT",
+      "category": "messaging",
+      "keywords": ["telegram", "messaging", "mcp", "channel", "notifications"]
+    }
+  ]
+}

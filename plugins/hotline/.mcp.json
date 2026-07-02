@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "hotline": {
+      "command": "hotline",
+      "args": ["run"]
+    }
+  }
+}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/1broseidon/hotline/internal/access"
 	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/discord"
 	"github.com/1broseidon/hotline/internal/lifecycle"
 	"github.com/1broseidon/hotline/internal/mcpchan"
 	"github.com/1broseidon/hotline/internal/provider"
@@ -32,6 +33,10 @@ func main() {
 	// appear anywhere and is stripped before subcommand parsing. Falls back to
 	// $HOTLINE_BOT (legacy: $TELE_GO_BOT). "" is the default/unnamed bot.
 	botName, args := resolveBotName(os.Args[1:])
+	// --provider <kind[:instance]> selects which provider's state pair / deny /
+	// status operate on (default: telegram). "run" ignores it — the run set
+	// comes from HOTLINE_PROVIDERS.
+	providerSel, args := resolveProviderFlag(args)
 	cmd := "run"
 	if len(args) > 0 {
 		cmd = args[0]
@@ -42,11 +47,11 @@ func main() {
 	case "run":
 		err = runChannel(botName)
 	case "pair":
-		err = cmdPair(botName, args[1:])
+		err = cmdPair(providerSel, botName, args[1:])
 	case "deny":
-		err = cmdDeny(botName, args[1:])
+		err = cmdDeny(providerSel, botName, args[1:])
 	case "status":
-		err = cmdStatus(botName)
+		err = cmdStatus(providerSel, botName)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -77,6 +82,9 @@ Options:
                        token from TELEGRAM_BOT_TOKEN_<NAME>). Omit for the
                        default bot. Also settable via $HOTLINE_BOT
                        (legacy: $TELE_GO_BOT).
+  --provider <sel>     for pair/deny/status: which provider's state to operate
+                       on, as kind[:instance] (default: telegram). Example:
+                       hotline pair a1b2c3 --provider discord
 `)
 }
 
@@ -106,6 +114,45 @@ func resolveBotName(args []string) (botName string, rest []string) {
 		}
 	}
 	return botName, rest
+}
+
+// resolveProviderFlag extracts "--provider <kind[:instance]>" /
+// "--provider=<kind[:instance]>" from args, returning the selection ("" means
+// the default, telegram) and the remaining args.
+func resolveProviderFlag(args []string) (sel string, rest []string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--provider":
+			if i+1 < len(args) {
+				sel = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "--provider="):
+			sel = strings.TrimPrefix(a, "--provider=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return sel, rest
+}
+
+// loadOpsConfig resolves the config that pair / deny / status operate on: the
+// telegram instance selected by --bot when --provider is absent or telegram,
+// or the discord instance for --provider discord[:instance].
+func loadOpsConfig(providerSel, botName string) (*config.Config, error) {
+	kind, instance, _ := strings.Cut(providerSel, ":")
+	switch kind {
+	case "", "telegram":
+		if instance == "" {
+			instance = botName
+		}
+		return config.Load(instance)
+	case "discord":
+		return config.LoadDiscord(instance)
+	default:
+		return nil, fmt.Errorf("unknown provider %q (supported: telegram, discord)", kind)
+	}
 }
 
 // runChannel is the main entry: it always runs the MCP handshake, then starts
@@ -146,8 +193,27 @@ func runChannel(botName string) error {
 			if cfg.Token != "" {
 				pidFiles = append(pidFiles, cfg.PidFile)
 			}
+		case "discord":
+			cfg, err := config.LoadDiscord(spec.Instance)
+			if err != nil {
+				return err
+			}
+			if err := cfg.EnsureDirs(); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "hotline: provider=%s state=%s\n", spec.Name(), cfg.StateDir)
+
+			log := transcript.New(cfg.TranscriptFile)
+			p, err := discord.NewProvider(spec.Name(), cfg, log)
+			if err != nil {
+				return err
+			}
+			providers = append(providers, p)
+			if cfg.Token != "" {
+				pidFiles = append(pidFiles, cfg.PidFile)
+			}
 		default:
-			return fmt.Errorf("unknown provider %q (supported: telegram)", spec.Kind)
+			return fmt.Errorf("unknown provider %q (supported: telegram, discord)", spec.Kind)
 		}
 	}
 
@@ -168,7 +234,10 @@ func runChannel(botName string) error {
 	// The transcript path baked into the channel instructions is the primary
 	// (first) provider's — with one provider configured this is exactly the old
 	// behavior.
-	transcriptPath := providers[0].(*telegram.Provider).TranscriptFile()
+	transcriptPath := ""
+	if tp, ok := providers[0].(interface{ TranscriptFile() string }); ok {
+		transcriptPath = tp.TranscriptFile()
+	}
 
 	transport := mcpchan.NewChannelTransport(onPerm)
 	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources())
@@ -190,12 +259,12 @@ func runChannel(botName string) error {
 	return lifecycle.Run(server, transport, cleanup, pollFn)
 }
 
-func cmdPair(botName string, args []string) error {
+func cmdPair(providerSel, botName string, args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: hotline pair <code>")
 	}
 	code := args[0]
-	cfg, err := config.Load(botName)
+	cfg, err := loadOpsConfig(providerSel, botName)
 	if err != nil {
 		return err
 	}
@@ -205,7 +274,10 @@ func cmdPair(botName string, args []string) error {
 	}
 	fmt.Printf("Paired sender %s.\n", p.SenderID)
 
-	// Best-effort confirmation DM (DM chat_id == sender_id).
+	// Best-effort confirmation DM (telegram only: DM chat_id == sender_id).
+	if strings.HasPrefix(providerSel, "discord") {
+		return nil
+	}
 	if cfg.Token != "" {
 		if b, err := telegram.NewBot(cfg.Token); err == nil {
 			if chatID, perr := strconv.ParseInt(p.ChatID, 10, 64); perr == nil {
@@ -218,11 +290,11 @@ func cmdPair(botName string, args []string) error {
 	return nil
 }
 
-func cmdDeny(botName string, args []string) error {
+func cmdDeny(providerSel, botName string, args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: hotline deny <code>")
 	}
-	cfg, err := config.Load(botName)
+	cfg, err := loadOpsConfig(providerSel, botName)
 	if err != nil {
 		return err
 	}
@@ -233,8 +305,8 @@ func cmdDeny(botName string, args []string) error {
 	return nil
 }
 
-func cmdStatus(botName string) error {
-	cfg, err := config.Load(botName)
+func cmdStatus(providerSel, botName string) error {
+	cfg, err := loadOpsConfig(providerSel, botName)
 	if err != nil {
 		return err
 	}

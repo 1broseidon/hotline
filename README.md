@@ -98,7 +98,7 @@ Configuration lives in `~/.claude/channels/tele-go/access.json` and is re-read o
 }
 ```
 
-Pairing codes expire after 24 hours. Approval happens only from your terminal: Claude never approves a pairing or edits access because a chat message asked it to. That request is exactly what a prompt injection looks like.
+Pairing codes expire after 24 hours. To remove an already-approved sender, run `hotline revoke <sender-id>` (the exact ID as shown by `hotline status`, or a unique prefix); it drops the sender from `allowFrom` and purges any pending pairing they still had. Approval happens only from your terminal: Claude never approves a pairing or edits access because a chat message asked it to. That request is exactly what a prompt injection looks like.
 
 Outbound is gated too. Every tool call checks the target chat against the same rules before touching the Telegram API, so Claude can only message chats that could message it. The channel also refuses to attach its own state files, and sanitizes uploader-controlled filenames before they enter the message metadata.
 
@@ -265,10 +265,11 @@ When a token is configured, hotline declares the `claude/channel/permission` cap
 hotline [run]        start the MCP server + Telegram poller (default)
 hotline pair <code>  approve a pending pairing code
 hotline deny <code>  reject a pending pairing code
+hotline revoke <id>  remove an approved sender from the allowlist
 hotline status       print state-dir / token / access summary
 ```
 
-`pair`, `deny`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
+`pair`, `deny`, `revoke`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
 
 ## State and environment
 

@@ -1,6 +1,7 @@
 package access
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -200,6 +201,115 @@ func TestDenyPairing(t *testing.T) {
 	}
 	if err := DenyPairing(file, code); err != ErrNotPending {
 		t.Fatalf("want ErrNotPending, got %v", err)
+	}
+}
+
+func TestRevokeSender(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "access.json")
+	if err := Save(&Access{AllowFrom: []string{"412587349", "987654"}}, file); err != nil {
+		t.Fatal(err)
+	}
+	// A pending pairing from the sender being revoked must be purged too.
+	if _, _, err := CreatePairing(file, "412587349", "412587349"); err != nil {
+		t.Fatal(err)
+	}
+	// A pending pairing from an unrelated sender must survive.
+	if _, _, err := CreatePairing(file, "555", "555"); err != nil {
+		t.Fatal(err)
+	}
+
+	id, remaining, err := RevokeSender(file, "412587349")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "412587349" || remaining != 1 {
+		t.Fatalf("RevokeSender = (%q, %d), want (412587349, 1)", id, remaining)
+	}
+	a, _ := Load(file)
+	if contains(a.AllowFrom, "412587349") {
+		t.Fatal("sender still in allowFrom after revoke")
+	}
+	if !contains(a.AllowFrom, "987654") {
+		t.Fatal("unrelated sender lost from allowFrom")
+	}
+	for code, p := range a.Pending {
+		if p.SenderID == "412587349" {
+			t.Fatalf("pending pairing %s from revoked sender survived", code)
+		}
+	}
+	if len(a.Pending) != 1 {
+		t.Fatalf("expected 1 surviving pending entry, got %d", len(a.Pending))
+	}
+}
+
+func TestRevokeSenderPrefix(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "access.json")
+	if err := Save(&Access{AllowFrom: []string{"412587349", "419999", "987654"}}, file); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ambiguous prefix errors and changes nothing.
+	if _, _, err := RevokeSender(file, "41"); err == nil {
+		t.Fatal("expected error for ambiguous prefix")
+	}
+	a, _ := Load(file)
+	if len(a.AllowFrom) != 3 {
+		t.Fatalf("ambiguous revoke mutated state: %v", a.AllowFrom)
+	}
+
+	// Unique prefix resolves.
+	id, remaining, err := RevokeSender(file, "98")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "987654" || remaining != 2 {
+		t.Fatalf("RevokeSender = (%q, %d), want (987654, 2)", id, remaining)
+	}
+
+	// Exact match wins even when it is also a prefix of another entry.
+	if err := Save(&Access{AllowFrom: []string{"41", "412587349"}}, file); err != nil {
+		t.Fatal(err)
+	}
+	id, _, err = RevokeSender(file, "41")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "41" {
+		t.Fatalf("exact match should win, revoked %q", id)
+	}
+}
+
+func TestRevokeSenderUnknown(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "access.json")
+	if err := Save(&Access{AllowFrom: []string{"7"}}, file); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RevokeSender(file, "999"); !errors.Is(err, ErrSenderNotAllowed) {
+		t.Fatalf("want ErrSenderNotAllowed, got %v", err)
+	}
+}
+
+func TestRevokeSenderConcurrentSerialized(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "access.json")
+	ids := []string{"A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9", "J0"}
+	if err := Save(&Access{AllowFrom: ids}, file); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if _, _, err := RevokeSender(file, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.AllowFrom) != 0 {
+		t.Fatalf("expected empty allowFrom, got %v", a.AllowFrom)
 	}
 }
 

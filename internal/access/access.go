@@ -171,3 +171,7 @@ func (a *Access) normalize() {
 // ErrNotPending is returned by ApprovePairing / DenyPairing when no pending
 // entry matches the supplied code.
 var ErrNotPending = errors.New("no pending pairing for that code")
+
+// ErrSenderNotAllowed is returned by RevokeSender when no allowFrom entry
+// matches the supplied sender id (or a unique prefix of one).
+var ErrSenderNotAllowed = errors.New("sender not in allowFrom")

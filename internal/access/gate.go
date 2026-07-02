@@ -3,8 +3,10 @@ package access
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -178,6 +180,44 @@ func DenyPairing(accessFile, code string) error {
 		delete(a.Pending, code)
 		return nil
 	})
+}
+
+// RevokeSender removes an approved sender from AllowFrom and purges any of
+// their pending pairings, so a revoked sender has no live code left. The id
+// may be the exact sender ID or a unique prefix of one; an ambiguous prefix
+// or an unknown id is an error listing the candidates. Returns the resolved
+// sender ID and how many allowlisted senders remain.
+func RevokeSender(accessFile, id string) (revoked string, remaining int, err error) {
+	err = Mutate(accessFile, func(a *Access) error {
+		match := ""
+		if contains(a.AllowFrom, id) {
+			match = id
+		} else {
+			var candidates []string
+			for _, s := range a.AllowFrom {
+				if strings.HasPrefix(s, id) {
+					candidates = append(candidates, s)
+				}
+			}
+			switch len(candidates) {
+			case 1:
+				match = candidates[0]
+			case 0:
+				return fmt.Errorf("%w: %q", ErrSenderNotAllowed, id)
+			default:
+				return fmt.Errorf("ambiguous sender %q: matches %s", id, strings.Join(candidates, ", "))
+			}
+		}
+		a.AllowFrom = slices.DeleteFunc(a.AllowFrom, func(s string) bool { return s == match })
+		for code, p := range a.Pending {
+			if p.SenderID == match {
+				delete(a.Pending, code)
+			}
+		}
+		revoked, remaining = match, len(a.AllowFrom)
+		return nil
+	})
+	return revoked, remaining, err
 }
 
 // PurgeExpired removes pending entries past their ExpiresAt.

@@ -7,6 +7,7 @@
 //	hotline [run]        start the MCP server + Telegram poller (default)
 //	hotline pair <code>  approve a pending pairing code
 //	hotline deny <code>  reject a pending pairing code
+//	hotline revoke <id>  remove an approved sender from the allowlist
 //	hotline status       print state-dir / token / access summary
 package main
 
@@ -35,7 +36,7 @@ func main() {
 	// $HOTLINE_BOT (legacy: $TELE_GO_BOT). "" is the default/unnamed bot.
 	botName, args := resolveBotName(os.Args[1:])
 	// --provider <kind[:instance]> selects which provider's state pair / deny /
-	// status operate on (default: telegram). "run" ignores it — the run set
+	// revoke / status operate on (default: telegram). "run" ignores it — the run set
 	// comes from HOTLINE_PROVIDERS.
 	providerSel, args := resolveProviderFlag(args)
 	cmd := "run"
@@ -51,6 +52,8 @@ func main() {
 		err = cmdPair(providerSel, botName, args[1:])
 	case "deny":
 		err = cmdDeny(providerSel, botName, args[1:])
+	case "revoke":
+		err = cmdRevoke(providerSel, botName, args[1:])
 	case "status":
 		err = cmdStatus(providerSel, botName)
 	case "-h", "--help", "help":
@@ -76,6 +79,8 @@ Usage:
   hotline [run]        start the MCP server + Telegram poller (default)
   hotline pair <code>  approve a pending pairing code
   hotline deny <code>  reject a pending pairing code
+  hotline revoke <id>  remove an approved sender from the allowlist
+                       (exact sender ID as shown by status, or a unique prefix)
   hotline status       print state-dir / token / access summary
 
 Options:
@@ -83,7 +88,8 @@ Options:
                        token from TELEGRAM_BOT_TOKEN_<NAME>). Omit for the
                        default bot. Also settable via $HOTLINE_BOT
                        (legacy: $TELE_GO_BOT).
-  --provider <sel>     for pair/deny/status: which provider's state to operate
+  --provider <sel>     for pair/deny/revoke/status: which provider's state to
+                       operate
                        on, as kind[:instance] (default: telegram). Example:
                        hotline pair a1b2c3 --provider discord
                        hotline status --provider signal
@@ -139,7 +145,8 @@ func resolveProviderFlag(args []string) (sel string, rest []string) {
 	return sel, rest
 }
 
-// loadOpsConfig resolves the config that pair / deny / status operate on: the
+// loadOpsConfig resolves the config that pair / deny / revoke / status operate
+// on: the
 // telegram instance selected by --bot when --provider is absent or telegram,
 // or the discord instance for --provider discord[:instance].
 func loadOpsConfig(providerSel, botName string) (*config.Config, error) {
@@ -325,6 +332,22 @@ func cmdDeny(providerSel, botName string, args []string) error {
 		return err
 	}
 	fmt.Printf("Denied pairing %s.\n", args[0])
+	return nil
+}
+
+func cmdRevoke(providerSel, botName string, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: hotline revoke <sender-id>")
+	}
+	cfg, err := loadOpsConfig(providerSel, botName)
+	if err != nil {
+		return err
+	}
+	id, remaining, err := access.RevokeSender(cfg.AccessFile, args[0])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Revoked %s. %d sender(s) remain.\n", id, remaining)
 	return nil
 }
 

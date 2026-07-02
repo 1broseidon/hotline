@@ -122,7 +122,8 @@ hotline is built on an internal provider interface with a source router. Telegra
 ```sh
 HOTLINE_PROVIDERS=telegram              # the default
 HOTLINE_PROVIDERS=telegram:work         # a named instance
-HOTLINE_PROVIDERS=telegram,discord      # both transports on one channel
+HOTLINE_PROVIDERS=telegram,discord      # two transports on one channel
+HOTLINE_PROVIDERS=telegram,discord,signal   # all three
 ```
 
 With one provider configured, the tool schemas are byte-identical to the single-provider ones above. With several, each tool takes a required `source` argument matching the `source` attribute on inbound messages.
@@ -184,6 +185,60 @@ Notes on behavior:
 - Inbound images download eagerly to the inbox; other attachments surface a CDN URL as `attachment_file_id` for `download_attachment` (Discord CDN hosts only, 50MB cap). Outbound files cap at 10MB, Discord's default bot upload limit.
 - Messages from bots (including itself) are never relayed.
 
+## Signal
+
+Signal runs as a provider next to Telegram and Discord, or on its own. Same tools, same access model. There is no bot API: hotline talks to a locally running [signal-cli](https://github.com/AsamK/signal-cli) daemon, linked to your Signal account as a secondary device. signal-cli is a third-party client, not an official Signal product.
+
+Setup:
+
+1. Install signal-cli. On macOS: `brew install signal-cli`. On Linux, download a release from https://github.com/AsamK/signal-cli/releases (it is not in apt) and put `signal-cli` on your PATH. Java 17+ required.
+2. Link it to your account as a secondary device. Run:
+
+```sh
+signal-cli link -n hotline
+```
+
+   It prints a `sgnl://linkdevice?...` URI. Render it as a QR code (`qrencode -t ansiutf8 'sgnl://...'`) and scan it from your phone under Settings → Linked Devices. Registration stays on your phone; hotline never touches it.
+
+3. Run the daemon (keep it running — tmux, or a systemd user service with `ExecStart=signal-cli -a +15551234567 daemon --http 127.0.0.1:8080`):
+
+```sh
+signal-cli -a +15551234567 daemon --http 127.0.0.1:8080
+```
+
+4. Point hotline at it in the shared `.env`:
+
+```sh
+# ~/.claude/channels/tele-go/.env
+SIGNAL_ACCOUNT=+15551234567           # the linked account, E.164
+SIGNAL_DAEMON_URL=http://127.0.0.1:8080   # optional, this is the default
+SIGNAL_ACCOUNT_WORK=…                 # signal:work, if you run named instances
+```
+
+5. Enable the provider and run:
+
+```sh
+HOTLINE_PROVIDERS=telegram,discord,signal hotline
+```
+
+6. Message the account from another Signal account. Unknown senders get a pairing code; approve it from your terminal:
+
+```sh
+hotline pair <code> --provider signal
+```
+
+`--provider signal` points pair/deny/status at the Signal state (`<stateDir>/signal/`); named instances use `--provider signal:work` with state under `<stateDir>/signal/instances/work/`.
+
+Notes on behavior:
+
+- Senders are identified by phone number (E.164); the allowlist holds numbers. DM chat_ids are the peer's number, group chat_ids are `group:<id>` — add those to `groups` in the Signal `access.json`.
+- Signal has no inline buttons. Buttons render as numbered text options, and replying with the number sends the chosen label back to Claude — same round trip, typed instead of tapped.
+- The permission relay is text-only: prompts arrive as a message, answer with `yes <code>` or `no <code>`.
+- Reactions and edits are native (signal-cli `sendReaction` and `send --edit-timestamp`). Bubbles are paced with Signal's typing indicator. Messages split at 2000 chars, where Signal clients switch to long-text attachments.
+- Message ids are Signal timestamps (Signal's message identity); inbound ids carry the author as `<timestamp>:<number>` so reactions target correctly.
+- Inbound images are fetched from the daemon into the inbox; other attachments surface an id for `download_attachment` (50MB cap both ways).
+- The daemon's HTTP endpoint has no authentication — keep it on 127.0.0.1.
+
 ## Permission relay
 
 When a token is configured, hotline declares the `claude/channel/permission` capability. Claude Code's permission prompts are relayed to allowlisted DMs (never groups) with **See more / Allow / Deny** buttons. You can also answer by text with `yes <code>` or `no <code>`; those replies are intercepted and converted to a verdict instead of being relayed as chat.
@@ -211,6 +266,8 @@ State lives in `~/.claude/channels/tele-go` (the directory keeps its pre-rename 
 | `HOTLINE_STATE_DIR` | State-dir override (legacy: `TELE_GO_STATE_DIR`, then `TELEGRAM_STATE_DIR`) |
 | `TELEGRAM_ACCESS_MODE` | `static` snapshots access at boot; use with `allowlist` (pairing needs live writes) |
 | `DISCORD_BOT_TOKEN` | Discord bot token; `DISCORD_BOT_TOKEN_<NAME>` per named instance (`DISCORD_ACCESS_MODE` mirrors the Telegram one) |
+| `SIGNAL_ACCOUNT` | Linked Signal account (E.164); `SIGNAL_ACCOUNT_<NAME>` per named instance (`SIGNAL_ACCESS_MODE` mirrors the Telegram one) |
+| `SIGNAL_DAEMON_URL` | signal-cli HTTP daemon base URL (default `http://127.0.0.1:8080`); `SIGNAL_DAEMON_URL_<NAME>` per named instance |
 
 Operationally, hotline holds its lane: a PID guard SIGTERMs a stale poller before starting (Telegram allows one `getUpdates` consumer per token), the poll loop backs off exponentially and honors 429s, and shutdown is unified across stdin EOF, signals, and an orphan watchdog.
 
@@ -222,4 +279,4 @@ The protocol is experimental and Claude Code's. Today that means hotline works w
 
 ## Roadmap
 
-Discord shipped as the second provider. Matrix is under consideration. No dates.
+Discord shipped as the second provider, Signal as the third. Matrix is under consideration. No dates.

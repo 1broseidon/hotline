@@ -35,7 +35,7 @@
 
 <main class="docs">
 <h1>Quickstart</h1>
-<p class="subtitle">From zero to texting your Claude Code session, on Telegram, in five steps.</p>
+<p class="subtitle">From zero to texting your Claude Code session, on Telegram, in four steps.</p>
 
 <h2>What hotline is</h2>
 <p>hotline is an MCP server that relays a Claude Code session to your messaging apps. Claude replies in short bubbles with a typing indicator, reacts with emoji, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. Telegram is the default provider; <a href="signal.html">Signal</a> and <a href="discord.html">Discord</a> run alongside it or on their own.</p>
@@ -48,26 +48,19 @@
 <h2>Set up Telegram</h2>
 <ol>
   <li>
-    <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>.</p>
+    <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>, then save it (once, machine-wide):</p>
+<pre><code>hotline setup --telegram-token 123456789:AA…</code></pre>
+    <p>Run <code>hotline setup</code> with no flags to be prompted, <code>hotline setup --show</code> to see what's configured.</p>
   </li>
   <li>
-    <p>Drop it in the channel's <code>.env</code>:</p>
-<pre><code>mkdir -p ~/.claude/channels/tele-go
-printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.claude/channels/tele-go/.env
-chmod 600 ~/.claude/channels/tele-go/.env</code></pre>
-    <p>A real <code>TELEGRAM_BOT_TOKEN</code> environment variable wins over the <code>.env</code> file.</p>
+    <p>Register the channel in the project you want to text with:</p>
+<pre><code>cd your-project
+hotline init</code></pre>
+    <p>This writes (or merges into) <code>.mcp.json</code>. Add <code>--providers telegram,signal</code> for extra transports, <code>--voice</code> for a starter <code>HOTLINE.md</code>.</p>
   </li>
   <li>
-    <p>Register hotline as an MCP server in the project you want to text with, via <code>.mcp.json</code>:</p>
-<pre><code>{
-  "mcpServers": {
-    "hotline": { "command": "hotline", "args": ["run"] }
-  }
-}</code></pre>
-  </li>
-  <li>
-    <p>Start Claude Code with the channel flag (channels are experimental and loaded by MCP server name):</p>
-<pre><code>claude --dangerously-load-development-channels server:hotline</code></pre>
+    <p>Launch Claude Code with the channel loaded:</p>
+<pre><code>hotline start   <span class="c"># extra claude flags go after --, e.g. hotline start -- --continue</span></code></pre>
   </li>
   <li>
     <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
@@ -75,6 +68,23 @@ chmod 600 ~/.claude/channels/tele-go/.env</code></pre>
   </li>
 </ol>
 <p>That's it. Your session is now a Telegram chat. The pairing step is part of the access model; read <a href="access.html">Access &amp; permissions</a> before you hand the bot's handle to anyone.</p>
+
+<details>
+<summary>By hand</summary>
+<p>The three commands wrap these steps:</p>
+<pre><code><span class="c"># setup: token in the channel's .env (a real TELEGRAM_BOT_TOKEN env var wins over the file)</span>
+mkdir -p ~/.claude/channels/tele-go
+printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.claude/channels/tele-go/.env
+chmod 600 ~/.claude/channels/tele-go/.env</code></pre>
+<pre><code><span class="c">// init: .mcp.json in the project</span>
+{
+  "mcpServers": {
+    "hotline": { "command": "hotline", "args": ["run"] }
+  }
+}</code></pre>
+<pre><code><span class="c"># start: channels are experimental and loaded by MCP server name</span>
+claude --dangerously-load-development-channels server:hotline</code></pre>
+</details>
 
 <h2>The tools Claude gets</h2>
 <div class="table-wrap">
@@ -96,7 +106,10 @@ One bubble unless the answer genuinely needs two.</code></pre>
 <p>The file is read once at startup; edit it, then restart Claude Code. A voice changes tone only. The tool contract, inbound message handling, and the safety rules are compiled in and apply under any voice. It carries the same trust boundary as <code>CLAUDE.md</code>: whoever writes to the repo shapes how the agent talks.</p>
 
 <h2>CLI</h2>
-<pre><code>hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
+<pre><code>hotline setup        <span class="c"># save credentials to the shared .env (run once)</span>
+hotline init         <span class="c"># register hotline in this repo's .mcp.json</span>
+hotline start        <span class="c"># launch Claude Code with the channel loaded</span>
+hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
 hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>
 hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span>
 hotline status       <span class="c"># print state-dir / token / access summary</span></code></pre>

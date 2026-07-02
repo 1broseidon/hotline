@@ -126,6 +126,22 @@ HOTLINE_PROVIDERS=telegram,discord      # two transports on one channel
 HOTLINE_PROVIDERS=telegram,discord,signal   # all three
 ```
 
+`HOTLINE_PROVIDERS` is read from the process environment, not the state `.env`. Set it where the MCP server is launched — the `env` block of your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "hotline": {
+      "command": "hotline",
+      "args": ["run"],
+      "env": { "HOTLINE_PROVIDERS": "telegram,signal" }
+    }
+  }
+}
+```
+
+Tokens and accounts stay in the state `.env` as shown below.
+
 With one provider configured, the tool schemas are byte-identical to the single-provider ones above. With several, each tool takes a required `source` argument matching the `source` attribute on inbound messages.
 
 Named instances are how you run several sessions at once. One bot token allows exactly one Telegram poller, so each concurrent session gets its own bot. `--bot work` is shorthand for `HOTLINE_PROVIDERS=telegram:work`. Each named bot keeps isolated state under `<stateDir>/bots/<name>/` and reads its token from `TELEGRAM_BOT_TOKEN_<NAME>` in the shared `.env`:

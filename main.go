@@ -1,4 +1,4 @@
-// Command hotline is a Telegram channel for Claude Code: an MCP server that
+// Command hotline is a messaging channel for Claude Code (Telegram, Discord, Signal): an MCP server that
 // relays Telegram DMs/groups to a Claude Code session and back, with access
 // control (pairing/allowlist/groups), media handling, and a permission relay.
 //
@@ -70,7 +70,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `hotline — Telegram channel for Claude Code
+	fmt.Fprint(os.Stderr, `hotline — messaging channel for Claude Code
 
 Usage:
   hotline [run]        start the MCP server + Telegram poller (default)

@@ -73,7 +73,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `hotline — messaging channel for Claude Code
+	fmt.Fprint(os.Stderr, `hotline - messaging channel for Claude Code
 
 Usage:
   hotline [run]        start the MCP server + Telegram poller (default)

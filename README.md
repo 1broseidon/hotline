@@ -126,7 +126,7 @@ HOTLINE_PROVIDERS=telegram,discord      # two transports on one channel
 HOTLINE_PROVIDERS=telegram,discord,signal   # all three
 ```
 
-`HOTLINE_PROVIDERS` is read from the process environment, not the state `.env`. Set it where the MCP server is launched — the `env` block of your `.mcp.json`:
+`HOTLINE_PROVIDERS` is read from the process environment, not the state `.env`. Set it where the MCP server is launched: the `env` block of your `.mcp.json`:
 
 ```json
 {
@@ -216,7 +216,7 @@ signal-cli link -n hotline
 
    It prints a `sgnl://linkdevice?...` URI. Render it as a QR code (`qrencode -t ansiutf8 'sgnl://...'`) and scan it from your phone under Settings → Linked Devices. Registration stays on your phone; hotline never touches it.
 
-3. Run the daemon (keep it running — tmux, or a systemd user service with `ExecStart=signal-cli -a +15551234567 daemon --http 127.0.0.1:8080`):
+3. Run the daemon (keep it running: tmux, or a systemd user service with `ExecStart=signal-cli -a +15551234567 daemon --http 127.0.0.1:8080`):
 
 ```sh
 signal-cli -a +15551234567 daemon --http 127.0.0.1:8080
@@ -247,13 +247,13 @@ hotline pair <code> --provider signal
 
 Notes on behavior:
 
-- Senders are identified by phone number (E.164); the allowlist holds numbers. DM chat_ids are the peer's number, group chat_ids are `group:<id>` — add those to `groups` in the Signal `access.json`.
-- Signal has no inline buttons. Buttons render as numbered text options, and replying with the number sends the chosen label back to Claude — same round trip, typed instead of tapped.
+- Senders are identified by phone number (E.164); the allowlist holds numbers. DM chat_ids are the peer's number, group chat_ids are `group:<id>`; add those to `groups` in the Signal `access.json`.
+- Signal has no inline buttons. Buttons render as numbered text options, and replying with the number sends the chosen label back to Claude. Same round trip, typed instead of tapped.
 - The permission relay is text-only: prompts arrive as a message, answer with `yes <code>` or `no <code>`.
 - Reactions and edits are native (signal-cli `sendReaction` and `send --edit-timestamp`). Bubbles are paced with Signal's typing indicator. Messages split at 2000 chars, where Signal clients switch to long-text attachments.
 - Message ids are Signal timestamps (Signal's message identity); inbound ids carry the author as `<timestamp>:<number>` so reactions target correctly.
 - Inbound images are fetched from the daemon into the inbox; other attachments surface an id for `download_attachment` (50MB cap both ways).
-- The daemon's HTTP endpoint has no authentication — keep it on 127.0.0.1.
+- The daemon's HTTP endpoint has no authentication; keep it on 127.0.0.1.
 
 ## Permission relay
 

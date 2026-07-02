@@ -4,7 +4,7 @@ project_name: hotline
 
 builds:
   - id: hotline
-    main: .
+    main: ./cmd/hotline
     binary: hotline
     env:
       - CGO_ENABLED=0

@@ -8,3 +8,4 @@
 # Test/coverage artifacts
 coverage.out
 *.coverprofile
+/dist/

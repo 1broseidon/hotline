@@ -5,13 +5,13 @@ BINARY := hotline
 # Build the binary into the repo (gitignored as /hotline).
 .PHONY: build
 build:
-	go build -o $(BINARY) .
+	go build -o $(BINARY) ./cmd/hotline
 
 # Install hotline system-wide to GOBIN (or $(go env GOPATH)/bin), on PATH.
 # This is what beastie-boy / rh-agent .mcp.json files invoke as bare `hotline`.
 .PHONY: install
 install:
-	go install .
+	go install ./cmd/hotline
 
 # Formatting, vet, and the full race-enabled test suite — the pre-commit gate.
 .PHONY: fmt

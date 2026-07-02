@@ -17,7 +17,7 @@ var (
 
 // versionInfo resolves version/commit/date, preferring linker-provided
 // values and falling back to runtime build info so
-// `go install github.com/1broseidon/hotline@vX.Y.Z` still reports correctly.
+// `go install github.com/1broseidon/hotline/cmd/hotline@vX.Y.Z` still reports correctly.
 func versionInfo() (v, c, d string) {
 	v, c, d = version, commit, date
 	if v != "dev" && v != "" {

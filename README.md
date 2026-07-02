@@ -122,6 +122,7 @@ hotline is built on an internal provider interface with a source router. Telegra
 ```sh
 HOTLINE_PROVIDERS=telegram              # the default
 HOTLINE_PROVIDERS=telegram:work         # a named instance
+HOTLINE_PROVIDERS=telegram,discord      # both transports on one channel
 ```
 
 With one provider configured, the tool schemas are byte-identical to the single-provider ones above. With several, each tool takes a required `source` argument matching the `source` attribute on inbound messages.
@@ -138,6 +139,51 @@ TELEGRAM_BOT_TOKEN_WORK=222:BB…       # telegram:work
 
 When a future transport lacks a feature, the adapter degrades it, never the agent: on a transport without inline buttons, buttons render as numbered text options and the numbered choice routes back the same way. The tool contract stays the same everywhere.
 
+## Discord
+
+Discord runs as a second provider next to Telegram, or on its own. Same tools, same access model, native buttons.
+
+Setup:
+
+1. Create an application at https://discord.com/developers/applications, then add a Bot under it.
+2. On the Bot page, enable the **Message Content Intent** under Privileged Gateway Intents. Without it the bot receives empty message bodies.
+3. Copy the bot token into the shared `.env`:
+
+```sh
+# ~/.claude/channels/tele-go/.env
+DISCORD_BOT_TOKEN=your-bot-token
+DISCORD_BOT_TOKEN_WORK=…              # discord:work, if you run named instances
+```
+
+4. Invite the bot with an OAuth2 URL using the `bot` scope. For DMs no extra permissions are needed. For guild channels grant Send Messages, Read Message History, Add Reactions, and Attach Files:
+
+```
+https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot&permissions=100416
+```
+
+5. Enable the provider and run:
+
+```sh
+HOTLINE_PROVIDERS=telegram,discord hotline
+```
+
+6. DM the bot. It replies with a pairing code; approve it from your terminal:
+
+```sh
+hotline pair <code> --provider discord
+```
+
+`--provider discord` points pair/deny/status at the Discord state (`<stateDir>/discord/`); named instances use `--provider discord:work` with state under `<stateDir>/discord/instances/work/`.
+
+Notes on behavior:
+
+- Buttons are native Discord message components. A tap comes back as an inbound message with the tapped label, and the buttons are cleared so a question can't be answered twice.
+- The permission relay works exactly like Telegram's: allow/deny/more buttons DM'd to allowlisted users, `yes <code>` / `no <code>` text replies also accepted.
+- Bubbles are paced with Discord's typing indicator. Messages split at Discord's 2000-char cap.
+- Guild channels gate as groups keyed by channel ID: add the channel to `groups` in the Discord `access.json`, with `requireMention` to only wake the bot on @-mention.
+- Inbound images download eagerly to the inbox; other attachments surface a CDN URL as `attachment_file_id` for `download_attachment` (Discord CDN hosts only, 50MB cap). Outbound files cap at 10MB, Discord's default bot upload limit.
+- Messages from bots (including itself) are never relayed.
+
 ## Permission relay
 
 When a token is configured, hotline declares the `claude/channel/permission` capability. Claude Code's permission prompts are relayed to allowlisted DMs (never groups) with **See more / Allow / Deny** buttons. You can also answer by text with `yes <code>` or `no <code>`; those replies are intercepted and converted to a verdict instead of being relayed as chat.
@@ -151,6 +197,8 @@ hotline deny <code>  reject a pending pairing code
 hotline status       print state-dir / token / access summary
 ```
 
+`pair`, `deny`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
+
 ## State and environment
 
 State lives in `~/.claude/channels/tele-go` (the directory keeps its pre-rename name, so existing pairings, transcripts, and inboxes carry over). hotline was formerly `tele-go`; `TELE_GO_*` variables keep working as fallbacks for one release.
@@ -162,6 +210,7 @@ State lives in `~/.claude/channels/tele-go` (the directory keeps its pre-rename 
 | `HOTLINE_BOT` | Named-bot selector, same as `--bot` (legacy: `TELE_GO_BOT`) |
 | `HOTLINE_STATE_DIR` | State-dir override (legacy: `TELE_GO_STATE_DIR`, then `TELEGRAM_STATE_DIR`) |
 | `TELEGRAM_ACCESS_MODE` | `static` snapshots access at boot; use with `allowlist` (pairing needs live writes) |
+| `DISCORD_BOT_TOKEN` | Discord bot token; `DISCORD_BOT_TOKEN_<NAME>` per named instance (`DISCORD_ACCESS_MODE` mirrors the Telegram one) |
 
 Operationally, hotline holds its lane: a PID guard SIGTERMs a stale poller before starting (Telegram allows one `getUpdates` consumer per token), the poll loop backs off exponentially and honors 429s, and shutdown is unified across stdin EOF, signals, and an orphan watchdog.
 
@@ -173,4 +222,4 @@ The protocol is experimental and Claude Code's. Today that means hotline works w
 
 ## Roadmap
 
-Discord is next as a second provider. Matrix is under consideration. No dates.
+Discord shipped as the second provider. Matrix is under consideration. No dates.

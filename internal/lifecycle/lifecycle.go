@@ -30,7 +30,11 @@ func ReleasePollerSlot(pidFile string) { releasePollerSlot(pidFile) }
 // from poll is a give-up signal: it is routed through shutdown and returned so
 // the process can exit non-zero for a supervisor to distinguish from a clean
 // stop.
-func Run(server *mcp.Server, transport mcp.Transport, pidFile string, poll func(ctx context.Context) error) error {
+//
+// cleanup (may be nil) runs on the force-exit path — os.Exit skips deferred
+// cleanup, so callers pass their poller-slot releases here to avoid leaving
+// stale PID files behind.
+func Run(server *mcp.Server, transport mcp.Transport, cleanup func(), poll func(ctx context.Context) error) error {
 	// The SDK owns stdio; connect with a non-cancellable context so closing the
 	// session is our explicit decision, not a side effect of ctx cancellation.
 	ss, err := server.Connect(context.Background(), transport, nil)
@@ -46,10 +50,13 @@ func Run(server *mcp.Server, transport mcp.Transport, pidFile string, poll func(
 			fmt.Fprintf(os.Stderr, "hotline: shutting down (%s)\n", reason)
 			// The current getUpdates request may take up to its long-poll
 			// timeout to return; force-exit after 2s regardless. os.Exit skips
-			// deferred cleanup, so release the poller slot here too — otherwise a
-			// stalled shutdown leaves a stale PID file behind.
+			// deferred cleanup, so run the caller's cleanup (poller-slot
+			// releases) here too — otherwise a stalled shutdown leaves stale
+			// PID files behind.
 			time.AfterFunc(2*time.Second, func() {
-				releasePollerSlot(pidFile)
+				if cleanup != nil {
+					cleanup()
+				}
 				os.Exit(0)
 			})
 			cancel()

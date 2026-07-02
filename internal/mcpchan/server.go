@@ -21,6 +21,7 @@ type ToolSet interface {
 // preferred path: a burst of short consecutive messages. Text is the
 // single-message fallback. When Bubbles is non-empty, Text is ignored.
 type ReplyInput struct {
+	Source  string   `json:"source"`
 	ChatID  string   `json:"chat_id"`
 	Bubbles []string `json:"bubbles"`
 	Text    string   `json:"text"`
@@ -32,6 +33,7 @@ type ReplyInput struct {
 
 // ReactInput is the decoded argument set for the react tool.
 type ReactInput struct {
+	Source    string `json:"source"`
 	ChatID    string `json:"chat_id"`
 	MessageID string `json:"message_id"`
 	Emoji     string `json:"emoji"`
@@ -39,6 +41,7 @@ type ReactInput struct {
 
 // EditInput is the decoded argument set for the edit_message tool.
 type EditInput struct {
+	Source    string `json:"source"`
 	ChatID    string `json:"chat_id"`
 	MessageID string `json:"message_id"`
 	Text      string `json:"text"`
@@ -47,6 +50,7 @@ type EditInput struct {
 
 // DownloadInput is the decoded argument set for the download_attachment tool.
 type DownloadInput struct {
+	Source string `json:"source"`
 	FileID string `json:"file_id"`
 }
 
@@ -61,11 +65,46 @@ const (
 	downloadSchema = `{"type":"object","properties":{"file_id":{"type":"string","description":"The attachment_file_id from inbound meta"}},"required":["file_id"]}`
 )
 
+// withSourceProperty returns the schema unchanged when at most one provider is
+// configured (the router defaults source to it), and otherwise injects a
+// required "source" property enumerating the configured provider names.
+func withSourceProperty(schema string, sources []string) string {
+	if len(sources) < 2 {
+		return schema
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(schema), &m); err != nil {
+		return schema // schemas are compile-time literals; never happens
+	}
+	props, _ := m["properties"].(map[string]any)
+	if props == nil {
+		props = map[string]any{}
+		m["properties"] = props
+	}
+	props["source"] = map[string]any{
+		"type":        "string",
+		"enum":        sources,
+		"description": "Which channel to act on — echo the source attribute from the inbound <channel> message. Required because multiple channels are connected.",
+	}
+	req, _ := m["required"].([]any)
+	m["required"] = append(req, "source")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return schema
+	}
+	return string(out)
+}
+
 // NewServer builds the MCP server: identity, instructions, experimental
 // capabilities, and the four tools. When permission is true the
 // claude/channel/permission capability is declared (asserting we authenticate
 // the replier — the access gate does this).
-func NewServer(ts ToolSet, permission bool, transcriptPath string) *mcp.Server {
+//
+// sources lists the configured provider names. With zero or one, the tool
+// schemas are byte-identical to the single-provider originals (source is
+// implicit — it defaults to the sole provider). With two or more, every tool
+// schema grows a required "source" property enumerating the choices.
+func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string) *mcp.Server {
 	s := mcp.NewServer(
 		&mcp.Implementation{Name: "hotline", Version: "0.1.0"},
 		&mcp.ServerOptions{
@@ -76,9 +115,11 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string) *mcp.Server {
 		},
 	)
 
+	schema := func(base string) string { return withSourceProperty(base, sources) }
+
 	addTool(s, "reply",
 		"Send a reply to Telegram. Prefer the bubbles array — a short burst of consecutive messages, the way people text — over one long block of text. Pass chat_id from the inbound message. Optionally attach files, quote an earlier message with reply_to, or set format for MarkdownV2/HTML.",
-		replySchema,
+		schema(replySchema),
 		func(ctx context.Context, raw json.RawMessage) (string, bool) {
 			var in ReplyInput
 			if err := json.Unmarshal(raw, &in); err != nil {
@@ -89,7 +130,7 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string) *mcp.Server {
 
 	addTool(s, "react",
 		"Add an emoji reaction to a Telegram message. Telegram only accepts a fixed whitelist (👍 👎 ❤ 🔥 👀 🎉 etc) — non-whitelisted emoji are rejected.",
-		reactSchema,
+		schema(reactSchema),
 		func(ctx context.Context, raw json.RawMessage) (string, bool) {
 			var in ReactInput
 			if err := json.Unmarshal(raw, &in); err != nil {
@@ -100,7 +141,7 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string) *mcp.Server {
 
 	addTool(s, "edit_message",
 		"Edit a message the bot previously sent. Useful for interim progress updates. Edits don't trigger push notifications — send a fresh reply when a long task completes so the user's device pings.",
-		editSchema,
+		schema(editSchema),
 		func(ctx context.Context, raw json.RawMessage) (string, bool) {
 			var in EditInput
 			if err := json.Unmarshal(raw, &in); err != nil {
@@ -111,7 +152,7 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string) *mcp.Server {
 
 	addTool(s, "download_attachment",
 		"Download a file attachment from a Telegram message to the local inbox. Use when the inbound <channel> meta shows attachment_file_id. Returns the local file path ready to Read. Telegram caps bot downloads at 20MB.",
-		downloadSchema,
+		schema(downloadSchema),
 		func(ctx context.Context, raw json.RawMessage) (string, bool) {
 			var in DownloadInput
 			if err := json.Unmarshal(raw, &in); err != nil {

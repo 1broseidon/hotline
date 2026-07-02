@@ -324,11 +324,26 @@ internal/
   access/      Access doc (load/save/flock-mutate), gate + pairing lifecycle
   mcpchan/     MCP server build, custom transport (channel notifications),
                notifier, permission relay types
+  provider/    transport-neutral Provider interface, capabilities, and the
+               source Router (multi-provider fan-in/fan-out; stubprovider
+               for tests)
   telegram/    bot wrapper, resilient poll loop, update dispatch, media,
                outbound tools, formatting/chunking
   lifecycle/   PID guard, unified shutdown, orphan watchdog
 ```
 
-The import direction is acyclic: `telegram` depends on `access`, `config`, and
-`mcpchan`; `mcpchan` never imports `telegram` (the permission fan-out is
-injected from `main` as a callback).
+The import direction is acyclic: `telegram` depends on `access`, `config`,
+`mcpchan`, and `provider`; `mcpchan` never imports `telegram` or `provider`
+(the permission fan-out is injected from `main` via the router).
+
+## Providers
+
+`hotline` is structured around a provider interface (`internal/provider`):
+Telegram is the first provider, and the tool surface is transport-neutral.
+`HOTLINE_PROVIDERS` is a comma-separated list of `kind[:instance]` entries
+(default `telegram`). `--bot work` is shorthand for
+`HOTLINE_PROVIDERS=telegram:work` — the named-bot semantics above are exactly
+a named instance of the telegram provider. With one provider configured the
+tools are unchanged; with several, each tool takes a required `source`
+argument (the `source` attribute on inbound `<channel>` messages) selecting
+the channel to act on.

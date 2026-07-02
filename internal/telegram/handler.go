@@ -16,6 +16,7 @@ import (
 	"github.com/1broseidon/hotline/internal/access"
 	"github.com/1broseidon/hotline/internal/config"
 	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/provider"
 	"github.com/1broseidon/hotline/internal/transcript"
 )
 
@@ -23,9 +24,12 @@ import (
 // messages to Claude, handles the permission text-reply / button paths, and
 // fans permission requests out to allowlisted DMs.
 type Handler struct {
-	Bot      *gotgbot.Bot
-	Cfg      *config.Config
-	Notifier *mcpchan.Notifier
+	Bot *gotgbot.Bot
+	Cfg *config.Config
+	// Notifier is the inbound sink (channel deliveries + permission verdicts).
+	// In production it is the router's source-tagging wrapper around the MCP
+	// notifier, bound by Provider.Start just before polling begins.
+	Notifier provider.InboundSink
 	Log      *transcript.Logger
 
 	mu        sync.Mutex
@@ -56,7 +60,7 @@ const permCacheTTL = 10 * time.Minute
 
 // NewHandler builds a Handler. Notifier is assigned later (after the transport
 // connects) by the lifecycle wiring.
-func NewHandler(bot *gotgbot.Bot, cfg *config.Config, n *mcpchan.Notifier, log *transcript.Logger) *Handler {
+func NewHandler(bot *gotgbot.Bot, cfg *config.Config, n provider.InboundSink, log *transcript.Logger) *Handler {
 	return &Handler{
 		Bot:             bot,
 		Cfg:             cfg,

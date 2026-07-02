@@ -22,6 +22,7 @@ import (
 	"github.com/1broseidon/hotline/internal/config"
 	"github.com/1broseidon/hotline/internal/lifecycle"
 	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/provider"
 	"github.com/1broseidon/hotline/internal/telegram"
 	"github.com/1broseidon/hotline/internal/transcript"
 )
@@ -107,74 +108,86 @@ func resolveBotName(args []string) (botName string, rest []string) {
 	return botName, rest
 }
 
-// runChannel is the main entry: it always runs the MCP handshake. If a token is
-// configured it also starts the Telegram poller (after claiming the single
-// poller slot) and declares the permission capability.
+// runChannel is the main entry: it always runs the MCP handshake, then starts
+// every configured provider (HOTLINE_PROVIDERS, default just "telegram") on
+// the shared channel stream. Providers with a token poll their transport; the
+// permission capability is declared when at least one provider can
+// authenticate the replier.
 func runChannel(botName string) error {
-	cfg, err := config.Load(botName)
+	specs, err := config.Providers(botName)
 	if err != nil {
 		return err
 	}
-	if err := cfg.EnsureDirs(); err != nil {
+
+	providers := make([]provider.Provider, 0, len(specs))
+	var pidFiles []string
+	for _, spec := range specs {
+		switch spec.Kind {
+		case "telegram":
+			cfg, err := config.Load(spec.Instance)
+			if err != nil {
+				return err
+			}
+			if err := cfg.EnsureDirs(); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "hotline: provider=%s bot=%s state=%s\n", spec.Name(), botLabel(cfg.BotName), cfg.StateDir)
+
+			// Durable conversation log, shared per-token in the state dir. Both
+			// inbound (handler) and outbound (tools) write to it so the assistant
+			// can recall the thread across restarts and context compaction.
+			log := transcript.New(cfg.TranscriptFile)
+
+			p, err := telegram.NewProvider(spec.Name(), cfg, log)
+			if err != nil {
+				return err
+			}
+			providers = append(providers, p)
+			if cfg.Token != "" {
+				pidFiles = append(pidFiles, cfg.PidFile)
+			}
+		default:
+			return fmt.Errorf("unknown provider %q (supported: telegram)", spec.Kind)
+		}
+	}
+
+	router, err := provider.NewRouter(providers...)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "hotline: bot=%s state=%s\n", botLabel(cfg.BotName), cfg.StateDir)
 
-	hasToken := cfg.Token != ""
-
-	// Durable conversation log, shared per-token in the state dir. Both inbound
-	// (handler) and outbound (tools) write to it so the assistant can recall the
-	// thread across restarts and context compaction.
-	log := transcript.New(cfg.TranscriptFile)
-
-	// Token-less mode still serves the MCP handshake; the tools report
-	// "no bot token configured" and no poller runs.
-	tools := telegram.NewTools(nil, cfg, log)
-	var handler *telegram.Handler
-	var pollFn func(ctx context.Context) error
-
-	if hasToken {
-		b, err := telegram.NewBot(cfg.Token)
-		if err != nil {
-			return fmt.Errorf("initializing bot: %w", err)
-		}
-		if err := lifecycle.ClaimPollerSlot(cfg.PidFile); err != nil {
-			return fmt.Errorf("claiming poller slot: %w", err)
-		}
-		defer lifecycle.ReleasePollerSlot(cfg.PidFile)
-
-		tools = telegram.NewTools(b, cfg, log)
-		handler = telegram.NewHandler(b, cfg, nil, log)
-
-		pollFn = func(ctx context.Context) error {
-			return telegram.Poll(ctx, b, handler.Dispatch)
-		}
-	}
-
-	// The permission capability is only declared when we can authenticate the
-	// replier (i.e. the access gate is active, which requires a running bot).
-	permission := hasToken
-
+	// The permission capability is only declared when some provider can
+	// authenticate the replier (for Telegram: the access gate is active, which
+	// requires a running bot).
+	permission := router.PermissionRelay()
 	var onPerm mcpchan.PermissionHandler
-	if handler != nil {
-		onPerm = handler.OnPermissionRequest
+	if permission {
+		onPerm = router.OnPermissionRequest
 	}
-	transport := mcpchan.NewChannelTransport(onPerm)
-	server := mcpchan.NewServer(tools, permission, cfg.TranscriptFile)
 
-	if handler != nil {
-		// Bind the notifier (valid after Connect) just before polling starts.
-		base := pollFn
-		pollFn = func(ctx context.Context) error {
-			handler.Notifier = transport.Notifier()
-			err := base(ctx)
-			// Drain any burst still in the coalescing window before teardown.
-			handler.FlushAll(context.Background())
-			return err
+	// The transcript path baked into the channel instructions is the primary
+	// (first) provider's — with one provider configured this is exactly the old
+	// behavior.
+	transcriptPath := providers[0].(*telegram.Provider).TranscriptFile()
+
+	transport := mcpchan.NewChannelTransport(onPerm)
+	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources())
+
+	// The poll fn starts every provider on the source-tagging router sink; the
+	// notifier is valid only after Connect, which lifecycle.Run performs first.
+	pollFn := func(ctx context.Context) error {
+		return router.Start(ctx, transport.Notifier())
+	}
+
+	// On force-exit (the 2s shutdown safety net skips deferred cleanup) release
+	// every claimed poller slot so no stale PID files survive.
+	cleanup := func() {
+		for _, pf := range pidFiles {
+			lifecycle.ReleasePollerSlot(pf)
 		}
 	}
 
-	return lifecycle.Run(server, transport, cfg.PidFile, pollFn)
+	return lifecycle.Run(server, transport, cleanup, pollFn)
 }
 
 func cmdPair(botName string, args []string) error {

@@ -24,6 +24,7 @@ import (
 	"github.com/1broseidon/hotline/internal/lifecycle"
 	"github.com/1broseidon/hotline/internal/mcpchan"
 	"github.com/1broseidon/hotline/internal/provider"
+	"github.com/1broseidon/hotline/internal/signal"
 	"github.com/1broseidon/hotline/internal/telegram"
 	"github.com/1broseidon/hotline/internal/transcript"
 )
@@ -85,6 +86,7 @@ Options:
   --provider <sel>     for pair/deny/status: which provider's state to operate
                        on, as kind[:instance] (default: telegram). Example:
                        hotline pair a1b2c3 --provider discord
+                       hotline status --provider signal
 `)
 }
 
@@ -150,8 +152,10 @@ func loadOpsConfig(providerSel, botName string) (*config.Config, error) {
 		return config.Load(instance)
 	case "discord":
 		return config.LoadDiscord(instance)
+	case "signal":
+		return config.LoadSignal(instance)
 	default:
-		return nil, fmt.Errorf("unknown provider %q (supported: telegram, discord)", kind)
+		return nil, fmt.Errorf("unknown provider %q (supported: telegram, discord, signal)", kind)
 	}
 }
 
@@ -212,8 +216,27 @@ func runChannel(botName string) error {
 			if cfg.Token != "" {
 				pidFiles = append(pidFiles, cfg.PidFile)
 			}
+		case "signal":
+			cfg, err := config.LoadSignal(spec.Instance)
+			if err != nil {
+				return err
+			}
+			if err := cfg.EnsureDirs(); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "hotline: provider=%s state=%s\n", spec.Name(), cfg.StateDir)
+
+			log := transcript.New(cfg.TranscriptFile)
+			p, err := signal.NewProvider(spec.Name(), cfg, log)
+			if err != nil {
+				return err
+			}
+			providers = append(providers, p)
+			if cfg.SignalAccount != "" {
+				pidFiles = append(pidFiles, cfg.PidFile)
+			}
 		default:
-			return fmt.Errorf("unknown provider %q (supported: telegram, discord)", spec.Kind)
+			return fmt.Errorf("unknown provider %q (supported: telegram, discord, signal)", spec.Kind)
 		}
 	}
 
@@ -275,7 +298,7 @@ func cmdPair(providerSel, botName string, args []string) error {
 	fmt.Printf("Paired sender %s.\n", p.SenderID)
 
 	// Best-effort confirmation DM (telegram only: DM chat_id == sender_id).
-	if strings.HasPrefix(providerSel, "discord") {
+	if strings.HasPrefix(providerSel, "discord") || strings.HasPrefix(providerSel, "signal") {
 		return nil
 	}
 	if cfg.Token != "" {
@@ -316,7 +339,12 @@ func cmdStatus(providerSel, botName string) error {
 	}
 	fmt.Printf("bot:         %s\n", botLabel(cfg.BotName))
 	fmt.Printf("state dir:   %s\n", cfg.StateDir)
-	fmt.Printf("token:       %s\n", presence(cfg.Token != ""))
+	if strings.HasPrefix(providerSel, "signal") {
+		fmt.Printf("account:     %s\n", presence(cfg.SignalAccount != ""))
+		fmt.Printf("daemon url:  %s\n", cfg.SignalDaemonURL)
+	} else {
+		fmt.Printf("token:       %s\n", presence(cfg.Token != ""))
+	}
 	fmt.Printf("access mode: %s\n", modeLabel(cfg.Static))
 	fmt.Printf("dmPolicy:    %s\n", acc.DMPolicy)
 	fmt.Printf("allowFrom:   %d user(s)\n", len(acc.AllowFrom))

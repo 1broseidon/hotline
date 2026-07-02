@@ -83,7 +83,7 @@ hotline deny &lt;code&gt; [--provider kind[:instance]]</code></pre>
 <p>Pairing authenticates a chat account, not a person. Whoever holds the paired phone can drive the agent and answer its permission prompts until you cut them off.</p>
 <div class="aside">
   <p><strong>Lost phone runbook</strong>, from any terminal on the box:</p>
-  <p>1. <code>hotline deny &lt;code&gt; --provider &lt;kind[:instance]&gt;</code> kills a pending pairing. For an already-approved sender there is no unpair command yet: remove their ID from <code>allowFrom</code> in the provider's <code>access.json</code>. It is re-read on every inbound message, so the edit takes effect immediately. Setting <code>"dmPolicy": "disabled"</code> drops everything, allowlisted senders included.</p>
+  <p>1. <code>hotline revoke &lt;sender-id&gt; --provider &lt;kind[:instance]&gt;</code> removes an already-approved sender from <code>allowFrom</code> and purges any pending pairing they still had; <code>hotline deny &lt;code&gt;</code> kills a pending pairing. <code>access.json</code> is re-read on every inbound message, so both take effect immediately. Setting <code>"dmPolicy": "disabled"</code> drops everything, allowlisted senders included.</p>
   <p>2. Lock the messenger itself: Signal registration PIN and screen lock, Telegram passcode.</p>
   <p>3. Telegram: rotate the bot token via @BotFather and update <code>.env</code>. The old token stops working everywhere.</p>
   <p>4. Signal: remove the linked device (or re-register the standalone account) so the daemon goes deaf.</p>

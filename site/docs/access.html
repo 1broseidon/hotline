@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access &amp; permissions · hotline docs</title>
+<meta name="description" content="hotline's security surface: pairing, allowlists, group gating, outbound checks, and the Claude Code permission relay.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">trust</p>
+  <a href="access.html" aria-current="page">Access &amp; permissions</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Access &amp; permissions</h1>
+<p class="subtitle">Nobody talks to your agent without your say-so.</p>
+
+<h2>The inbound gate</h2>
+<p>The gate decides on the <strong>sender</strong>, never the chat: a stranger in an allowed group is still dropped.</p>
+<div class="table-wrap">
+<table>
+  <tr><th>Policy</th><th>Behavior</th></tr>
+  <tr><td><code>pairing</code> (default)</td><td>Unknown DM sender gets a pairing code; you approve or deny from the terminal</td></tr>
+  <tr><td><code>allowlist</code></td><td>Only listed user IDs are delivered; everyone else is silent</td></tr>
+  <tr><td><code>disabled</code></td><td>No DMs at all</td></tr>
+</table>
+</div>
+
+<h2>Pairing</h2>
+<p>The first message from an unknown sender returns a 6-hex pairing code. Codes expire after 24 hours. Approve or reject from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt;
+hotline deny &lt;code&gt;</code></pre>
+<div class="aside">
+  <p>Approval happens only from your terminal. Claude never approves a pairing or edits access because a chat message asked it to. That request is exactly what a prompt injection looks like.</p>
+</div>
+
+<h2>Groups</h2>
+<p>Groups are opt-in per group ID, with optional <code>requireMention</code> (deliver only when the bot is mentioned, replied to, or a <code>mentionPatterns</code> regex matches) and an optional per-group sender allowlist.</p>
+
+<h2>access.json</h2>
+<p>Configuration lives in <code>~/.claude/channels/tele-go/access.json</code> and is re-read on every inbound message, so edits take effect live:</p>
+<pre><code>{
+  "dmPolicy": "pairing",          <span class="c">// pairing (default) | allowlist | disabled</span>
+  "allowFrom": ["412587349"],     <span class="c">// numeric user IDs</span>
+  "groups": {
+    "-1001234567890": { "requireMention": true, "allowFrom": [] }
+  },
+  "mentionPatterns": ["^hey claude"],
+  "ackReaction": "👀",            <span class="c">// emoji reaction on receipt ("" disables)</span>
+  "replyToMode": "first",         <span class="c">// first | all | off</span>
+  "textChunkLimit": 4096,
+  "chunkMode": "newline",         <span class="c">// newline | length</span>
+  "bubbleMode": "paced"           <span class="c">// paced | instant</span>
+}</code></pre>
+<p>Each provider keeps its own <code>access.json</code> in its own state directory. On Signal the allowlist holds phone numbers (E.164) and group ids look like <code>group:&lt;id&gt;</code>; on Discord, guild channels gate as groups keyed by channel ID.</p>
+
+<h2>Outbound is gated too</h2>
+<p>Every tool call checks the target chat against the same rules before touching the provider API, so Claude can only message chats that could message it. The channel also refuses to attach its own state files, and sanitizes uploader-controlled filenames before they enter the message metadata. Button-tap authorization mirrors the inbound gate.</p>
+
+<h2>The permission relay</h2>
+<p>When a token is configured, hotline declares the <code>claude/channel/permission</code> capability. Claude Code's permission prompts are relayed to allowlisted DMs (never groups) with <strong>See more / Allow / Deny</strong> buttons. You can also answer by text with <code>yes &lt;code&gt;</code> or <code>no &lt;code&gt;</code>; those replies are intercepted and converted to a verdict instead of being relayed as chat.</p>
+<p>This is the piece that makes leaving the terminal viable. The session doesn't stall on a permission prompt nobody is looking at; it asks your pocket. On transports without buttons (Signal), the relay is text-only.</p>
+
+<h2>The transcript</h2>
+<p>Every message in both directions is appended to <code>&lt;stateDir&gt;/transcript.jsonl</code>. Telegram has no history API and Claude Code sessions compact or restart, so the transcript is how the assistant recalls the thread across resets. It's written 0600 and currently unbounded.</p>
+
+<a class="next-link" href="protocol.html">next: The protocol →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

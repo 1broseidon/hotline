@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The protocol · hotline docs</title>
+<meta name="description" content="How hotline speaks Claude Code's experimental claude/channel protocol, and what experimental means in practice.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="protocol.html" aria-current="page">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>The protocol</h1>
+<p class="subtitle">Experimental, Claude Code's, and worth being honest about.</p>
+
+<h2>How it works</h2>
+<p>hotline is a stdio MCP server (official <code>github.com/modelcontextprotocol/go-sdk</code>) that additionally declares Claude Code's experimental <code>claude/channel</code> capability and, with a token configured, <code>claude/channel/permission</code>.</p>
+<ul>
+  <li>Inbound messages reach Claude as <code>notifications/claude/channel</code> with a <code>&lt;channel source="telegram" …&gt;</code> block.</li>
+  <li>Permission prompts flow the other way over the same connection; see <a href="access.html">the permission relay</a>.</li>
+</ul>
+
+<h2>The flag</h2>
+<p>Channels are experimental and loaded by MCP server name:</p>
+<pre><code>claude --dangerously-load-development-channels server:hotline</code></pre>
+<p>Read the flag name. It says <em>dangerously</em> and <em>development</em>, and both words are accurate. This is an unshipped surface of Claude Code that you are opting into.</p>
+
+<h2>What experimental means here</h2>
+<div class="aside">
+  <p>The protocol is Claude Code's, and Claude Code owes it nothing yet. Any Claude Code release can rename the flag, change the notification shape, or drop the channel surface entirely, and hotline will be broken until it catches up. Pin your Claude Code version if that risk bothers you, and expect to update hotline alongside Claude Code.</p>
+</div>
+<p>It also makes hotline Claude Code specific today: no other harness speaks <code>claude/channel</code>. If other harnesses adopt the channel protocol, or hotline grows adapters for theirs, that changes.</p>
+
+<h2>What stays ordinary</h2>
+<p>Everything except the channel capability is plain MCP. The four tools (<code>reply</code>, <code>react</code>, <code>edit_message</code>, <code>download_attachment</code>) are ordinary MCP tools over stdio, and the providers behind them don't care what harness is driving. The experimental surface is deliberately thin: how inbound messages wake the session, and how permission prompts leave it.</p>
+
+<h2>Roadmap</h2>
+<p>Discord shipped as the second provider, Signal as the third. Matrix is under consideration. No dates.</p>
+
+<a class="next-link" href="./">back to the quickstart →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

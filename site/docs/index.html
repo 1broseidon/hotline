@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart · hotline docs</title>
+<meta name="description" content="Install hotline and text your Claude Code session over Telegram in five steps.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./" aria-current="page">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./" aria-current="page">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Quickstart</h1>
+<p class="subtitle">From zero to texting your Claude Code session, on Telegram, in five steps.</p>
+
+<h2>What hotline is</h2>
+<p>hotline is an MCP server that relays a Claude Code session to your messaging apps. Claude replies in short bubbles with a typing indicator, reacts with emoji, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. Telegram is the default provider; <a href="signal.html">Signal</a> and <a href="discord.html">Discord</a> run alongside it or on their own.</p>
+<p>It speaks Claude Code's experimental two-way channel protocol (<code>claude/channel</code>), which makes it Claude Code specific today. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
+
+<h2>Install</h2>
+<pre><code>go install github.com/1broseidon/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
+<p>Requires Go 1.26+. No prebuilt binaries yet.</p>
+
+<h2>Set up Telegram</h2>
+<ol>
+  <li>
+    <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>.</p>
+  </li>
+  <li>
+    <p>Drop it in the channel's <code>.env</code>:</p>
+<pre><code>mkdir -p ~/.claude/channels/tele-go
+printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.claude/channels/tele-go/.env
+chmod 600 ~/.claude/channels/tele-go/.env</code></pre>
+    <p>A real <code>TELEGRAM_BOT_TOKEN</code> environment variable wins over the <code>.env</code> file.</p>
+  </li>
+  <li>
+    <p>Register hotline as an MCP server in the project you want to text with, via <code>.mcp.json</code>:</p>
+<pre><code>{
+  "mcpServers": {
+    "hotline": { "command": "hotline", "args": ["run"] }
+  }
+}</code></pre>
+  </li>
+  <li>
+    <p>Start Claude Code with the channel flag (channels are experimental and loaded by MCP server name):</p>
+<pre><code>claude --dangerously-load-development-channels server:hotline</code></pre>
+  </li>
+  <li>
+    <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt;</code></pre>
+  </li>
+</ol>
+<p>That's it. Your session is now a Telegram chat. The pairing step is part of the access model; read <a href="access.html">Access &amp; permissions</a> before you hand the bot's handle to anyone.</p>
+
+<h2>The tools Claude gets</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>reply</code></td><td>Send <code>bubbles</code> (array of short messages, paced) or <code>text</code> (single message, chunked past 4096 chars). Optional <code>reply_to</code>, <code>files</code> (images inline, others as documents, 50MB each), <code>buttons</code> (up to 12 inline options), <code>format</code> (<code>text</code>, <code>markdownv2</code>, <code>html</code>)</td></tr>
+  <tr><td><code>react</code></td><td>Set an emoji reaction (Telegram's fixed whitelist)</td></tr>
+  <tr><td><code>edit_message</code></td><td>Edit a message the bot sent, for interim progress. Edits don't push-notify</td></tr>
+  <tr><td><code>download_attachment</code></td><td>Fetch a non-photo attachment by <code>file_id</code> into the inbox; returns a local path (Telegram's 20MB download cap applies)</td></tr>
+</table>
+</div>
+<p>Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim. Tap authorization mirrors the inbound gate.</p>
+
+<h2>CLI</h2>
+<pre><code>hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
+hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>
+hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span>
+hotline status       <span class="c"># print state-dir / token / access summary</span></code></pre>
+<p><code>pair</code>, <code>deny</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
+
+<h2>Where things live</h2>
+<p>State lives in <code>~/.claude/channels/tele-go</code>. The directory keeps its pre-rename name, so existing pairings, transcripts, and inboxes carry over: hotline was formerly tele-go, and <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
+
+<a class="next-link" href="telegram.html">next: Telegram in depth →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

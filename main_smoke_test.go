@@ -21,7 +21,7 @@ func TestSmokeTokenless(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "tele-go")
+	bin := filepath.Join(dir, "hotline")
 
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -36,6 +36,7 @@ func TestSmokeTokenless(t *testing.T) {
 		"TELEGRAM_BOT_TOKEN=",
 		"TELEGRAM_STATE_DIR="+dir,
 		"TELE_GO_STATE_DIR="+dir,
+		"HOTLINE_STATE_DIR="+dir,
 	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

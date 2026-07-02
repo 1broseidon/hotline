@@ -5,7 +5,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
+	"github.com/1broseidon/hotline/internal/access"
 )
 
 func TestSanitizeButtons(t *testing.T) {

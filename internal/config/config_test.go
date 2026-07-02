@@ -7,14 +7,40 @@ import (
 )
 
 func TestStateDirPrecedence(t *testing.T) {
+	t.Setenv("HOTLINE_STATE_DIR", "/h")
 	t.Setenv("TELE_GO_STATE_DIR", "/a")
 	t.Setenv("TELEGRAM_STATE_DIR", "/b")
+	if got, _ := resolveStateDir(); got != "/h" {
+		t.Fatalf("HOTLINE_STATE_DIR should win, got %q", got)
+	}
+	os.Unsetenv("HOTLINE_STATE_DIR")
 	if got, _ := resolveStateDir(); got != "/a" {
-		t.Fatalf("TELE_GO_STATE_DIR should win, got %q", got)
+		t.Fatalf("legacy TELE_GO_STATE_DIR should win, got %q", got)
 	}
 	os.Unsetenv("TELE_GO_STATE_DIR")
 	if got, _ := resolveStateDir(); got != "/b" {
 		t.Fatalf("TELEGRAM_STATE_DIR should win, got %q", got)
+	}
+}
+
+// TestStateDirDefaultKeepsLegacyName pins the state-compat guarantee: with no
+// override envs set, the renamed binary still resolves the pre-rename
+// ~/.claude/channels/tele-go dir, so existing pairings/transcripts survive.
+func TestStateDirDefaultKeepsLegacyName(t *testing.T) {
+	t.Setenv("HOTLINE_STATE_DIR", "")
+	t.Setenv("TELE_GO_STATE_DIR", "")
+	t.Setenv("TELEGRAM_STATE_DIR", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	got, err := resolveStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, ".claude", "channels", "tele-go")
+	if got != want {
+		t.Fatalf("default state dir = %q, want legacy %q", got, want)
 	}
 }
 
@@ -71,7 +97,7 @@ func TestMergedEnvFallback(t *testing.T) {
 
 func TestLoadFull(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("TELE_GO_STATE_DIR", dir)
+	t.Setenv("HOTLINE_STATE_DIR", dir)
 	os.Unsetenv("TELEGRAM_STATE_DIR")
 	t.Setenv("TELEGRAM_ACCESS_MODE", "static")
 	os.Unsetenv("TELEGRAM_BOT_TOKEN")
@@ -103,7 +129,7 @@ func TestLoadFull(t *testing.T) {
 
 func TestLoadNamedBotIsolation(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("TELE_GO_STATE_DIR", dir)
+	t.Setenv("HOTLINE_STATE_DIR", dir)
 	os.Unsetenv("TELEGRAM_STATE_DIR")
 	os.Unsetenv("TELEGRAM_BOT_TOKEN")
 	os.Unsetenv("TELEGRAM_BOT_TOKEN_WORK")
@@ -152,7 +178,7 @@ func TestLoadNamedBotIsolation(t *testing.T) {
 
 func TestLoadUnknownBotTokenEmpty(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("TELE_GO_STATE_DIR", dir)
+	t.Setenv("HOTLINE_STATE_DIR", dir)
 	os.Unsetenv("TELEGRAM_STATE_DIR")
 	os.Unsetenv("TELEGRAM_BOT_TOKEN")
 	os.Unsetenv("TELEGRAM_BOT_TOKEN_GHOST")
@@ -177,7 +203,7 @@ func TestLoadInvalidBotName(t *testing.T) {
 		}
 	}
 	// Underscores and digits are allowed.
-	t.Setenv("TELE_GO_STATE_DIR", t.TempDir())
+	t.Setenv("HOTLINE_STATE_DIR", t.TempDir())
 	if _, err := Load("team_1"); err != nil {
 		t.Errorf("valid name team_1 rejected: %v", err)
 	}

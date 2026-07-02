@@ -74,7 +74,7 @@ func (c *chanConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 				go func() {
 					defer func() {
 						if r := recover(); r != nil {
-							fmt.Fprintf(os.Stderr, "tele-go: recovered from permission handler panic: %v\n", r)
+							fmt.Fprintf(os.Stderr, "hotline: recovered from permission handler panic: %v\n", r)
 						}
 					}()
 					c.onPerm(ctx, p)

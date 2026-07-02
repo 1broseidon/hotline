@@ -37,10 +37,10 @@ var ErrTokenContended = errors.New("409 Conflict persists — another poller hol
 func Poll(ctx context.Context, bot *gotgbot.Bot, dispatch func(ctx context.Context, u *gotgbot.Update)) error {
 	// Register commands once at startup (best-effort).
 	if err := SetCommands(bot); err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: setMyCommands failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: setMyCommands failed: %v\n", err)
 	}
 	if bot.User.Username != "" {
-		fmt.Fprintf(os.Stderr, "tele-go: polling as @%s\n", bot.User.Username)
+		fmt.Fprintf(os.Stderr, "hotline: polling as @%s\n", bot.User.Username)
 	}
 
 	var offset int64
@@ -68,12 +68,12 @@ func Poll(ctx context.Context, bot *gotgbot.Bot, dispatch func(ctx context.Conte
 			case errors.As(err, &tgErr) && tgErr.Code == 409:
 				conflicts++
 				if conflicts >= Max409 {
-					fmt.Fprintf(os.Stderr, "tele-go: 409 Conflict persists after %d attempts — another poller holds the bot token. Exiting poll loop.\n", conflicts)
+					fmt.Fprintf(os.Stderr, "hotline: 409 Conflict persists after %d attempts — another poller holds the bot token. Exiting poll loop.\n", conflicts)
 					return ErrTokenContended
 				}
 			case errors.As(err, &tgErr) && tgErr.Code == 429 && tgErr.ResponseParams != nil && tgErr.ResponseParams.RetryAfter > 0:
 				wait := time.Duration(tgErr.ResponseParams.RetryAfter) * time.Second
-				fmt.Fprintf(os.Stderr, "tele-go: 429 rate limited, retrying in %s\n", wait)
+				fmt.Fprintf(os.Stderr, "hotline: 429 rate limited, retrying in %s\n", wait)
 				if sleepCtx(ctx, wait) {
 					return nil
 				}
@@ -87,7 +87,7 @@ func Poll(ctx context.Context, bot *gotgbot.Bot, dispatch func(ctx context.Conte
 			if delay > MaxBackoff {
 				delay = MaxBackoff
 			}
-			fmt.Fprintf(os.Stderr, "tele-go: polling error: %v, retrying in %s\n", err, delay)
+			fmt.Fprintf(os.Stderr, "hotline: polling error: %v, retrying in %s\n", err, delay)
 			if sleepCtx(ctx, delay) {
 				return nil
 			}
@@ -113,7 +113,7 @@ func Poll(ctx context.Context, bot *gotgbot.Bot, dispatch func(ctx context.Conte
 func dispatchSafely(ctx context.Context, dispatch func(ctx context.Context, u *gotgbot.Update), u *gotgbot.Update) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "tele-go: recovered from handler panic: %v\n", r)
+			fmt.Fprintf(os.Stderr, "hotline: recovered from handler panic: %v\n", r)
 		}
 	}()
 	dispatch(ctx, u)

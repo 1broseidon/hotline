@@ -53,8 +53,11 @@ var botNameRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 // (uppercased), so multiple bots can run side by side from one .env. The .env
 // itself always lives in the base dir, holding every bot's token.
 //
-// State-dir precedence (the base dir): $TELE_GO_STATE_DIR, then
-// $TELEGRAM_STATE_DIR, then ~/.claude/channels/tele-go.
+// State-dir precedence (the base dir): $HOTLINE_STATE_DIR, then
+// $TELE_GO_STATE_DIR (legacy, kept for one release), then
+// $TELEGRAM_STATE_DIR, then ~/.claude/channels/tele-go. The default path
+// deliberately keeps the historical tele-go name so existing pairings,
+// allowlists, and transcripts survive the rename unchanged.
 func Load(botName string) (*Config, error) {
 	if botName != "" && !botNameRe.MatchString(botName) {
 		return nil, fmt.Errorf("invalid bot name %q: use letters, digits, and underscores only", botName)
@@ -108,6 +111,10 @@ func mergedEnv(key string, dotEnv map[string]string) string {
 }
 
 func resolveStateDir() (string, error) {
+	if v := os.Getenv("HOTLINE_STATE_DIR"); v != "" {
+		return v, nil
+	}
+	// Legacy fallback (pre-rename name), honored for one release.
 	if v := os.Getenv("TELE_GO_STATE_DIR"); v != "" {
 		return v, nil
 	}
@@ -118,6 +125,9 @@ func resolveStateDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolving home directory: %w", err)
 	}
+	// Kept as "tele-go" on purpose: this is where pre-rename state
+	// (access.json, transcripts, inbox) already lives, and the renamed binary
+	// must keep reading it.
 	return filepath.Join(home, ".claude", "channels", "tele-go"), nil
 }
 

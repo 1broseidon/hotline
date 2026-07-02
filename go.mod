@@ -1,4 +1,4 @@
-module example.com/tele-go
+module github.com/1broseidon/hotline
 
 go 1.26.3
 

@@ -43,7 +43,7 @@ func Run(server *mcp.Server, transport mcp.Transport, pidFile string, poll func(
 	var once sync.Once
 	shutdown := func(reason string) {
 		once.Do(func() {
-			fmt.Fprintf(os.Stderr, "tele-go: shutting down (%s)\n", reason)
+			fmt.Fprintf(os.Stderr, "hotline: shutting down (%s)\n", reason)
 			// The current getUpdates request may take up to its long-poll
 			// timeout to return; force-exit after 2s regardless. os.Exit skips
 			// deferred cleanup, so release the poller slot here too — otherwise a

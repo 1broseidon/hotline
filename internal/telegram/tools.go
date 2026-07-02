@@ -11,10 +11,10 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
-	"example.com/tele-go/internal/config"
-	"example.com/tele-go/internal/mcpchan"
-	"example.com/tele-go/internal/transcript"
+	"github.com/1broseidon/hotline/internal/access"
+	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/transcript"
 )
 
 const maxAttachmentBytes = 50 * 1024 * 1024
@@ -325,7 +325,7 @@ func (t *Tools) assertAllowedChat(chatID string) error {
 	if _, ok := acc.Groups[chatID]; ok {
 		return nil
 	}
-	return fmt.Errorf("chat %s is not allowlisted — pair via the tele-go pair command", chatID)
+	return fmt.Errorf("chat %s is not allowlisted — pair via the hotline pair command", chatID)
 }
 
 // assertSendable refuses to attach the channel's own state files (which Claude

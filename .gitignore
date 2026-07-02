@@ -1,4 +1,5 @@
-# Compiled binary (built via `go build -o tele-go .` or installed with `go install`)
+# Compiled binary (built via `go build -o hotline .` or installed with `go install`)
+/hotline
 /tele-go
 
 # Local, machine-specific Claude Code settings

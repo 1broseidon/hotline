@@ -1,6 +1,8 @@
-# tele-go
+# hotline
 
-A Telegram channel for Claude Code, written in Go. It is an MCP server that
+A Telegram channel for Claude Code, written in Go. (Formerly `tele-go`; the
+binary, MCP server name, and `HOTLINE_*` env vars are renamed, while the
+state directory and legacy `TELE_GO_*` env vars keep working.) It is an MCP server that
 relays Telegram DMs and group messages to a Claude Code session and sends
 Claude's replies back, with access control (pairing / allowlist / groups),
 media handling, message formatting, and a permission relay.
@@ -34,9 +36,9 @@ media (documents, voice, audio, video, video notes, stickers) are surfaced as
 
    ```sh
    cd /path/to/tele
-   go build -o tele-go .          # local build, for development
-   # or install it onto your PATH so any project's .mcp.json can just say "tele-go":
-   go install .                   # -> $(go env GOPATH)/bin/tele-go
+   go build -o hotline .          # local build, for development
+   # or install it onto your PATH so any project's .mcp.json can just say "hotline":
+   go install .                   # -> $(go env GOPATH)/bin/hotline
    ```
 
 2. Create the state directory and drop your token in a `.env` file matching the
@@ -58,14 +60,14 @@ media (documents, voice, audio, video, video notes, stickers) are surfaced as
 ## Run
 
 A development channel is loaded **by MCP-server name**, not by path, so the
-binary must first be registered as an MCP server called `tele-go`. This repo
+binary must first be registered as an MCP server called `hotline`. This repo
 ships a project-scoped [`.mcp.json`](./.mcp.json) that does exactly that:
 
 ```json
 {
   "mcpServers": {
-    "tele-go": {
-      "command": "/absolute/path/to/tele-go",
+    "hotline": {
+      "command": "/absolute/path/to/hotline",
       "args": ["run"]
     }
   }
@@ -75,21 +77,21 @@ ships a project-scoped [`.mcp.json`](./.mcp.json) that does exactly that:
 Then start Claude Code **from this directory** with the channel flag:
 
 ```sh
-claude --dangerously-load-development-channels server:tele-go
+claude --dangerously-load-development-channels server:hotline
 ```
 
 The first time Claude Code sees the `.mcp.json` server it asks you to approve
 it — accept once, then the channel connects on every launch. (Equivalent to
-registering it yourself with `claude mcp add tele-go /absolute/path/to/tele-go run`.)
+registering it yourself with `claude mcp add hotline /absolute/path/to/hotline run`.)
 
-> `server:tele-go` resolves the MCP server by name. If you pass a bare path or a
+> `server:hotline` resolves the MCP server by name. If you pass a bare path or a
 > name that isn't a configured server, Claude Code reports
 > `no MCP server configured with that name`.
 
 Or run it directly for testing (drives the MCP transport over stdin/stdout):
 
 ```sh
-./tele-go run        # default subcommand
+./hotline run        # default subcommand
 ```
 
 With no token configured the MCP handshake still runs (so tools/list works),
@@ -102,7 +104,7 @@ A single bot token allows exactly one Telegram poller, so one bot can only back
 one live conversation. To run several Claude Code sessions at once — each its own
 thread — give each its own **bot**. This is what the official channel doesn't do.
 
-Select a bot with `--bot <name>` (or `$TELE_GO_BOT`). Each named bot keeps fully
+Select a bot with `--bot <name>` (or `$HOTLINE_BOT`). Each named bot keeps fully
 isolated state under `<baseDir>/bots/<name>/` — its own `access.json`, `bot.pid`,
 `inbox/`, and `transcript.jsonl` — and reads its token from
 `TELEGRAM_BOT_TOKEN_<NAME>` (uppercased) in the shared base `.env`. With no
@@ -124,26 +126,26 @@ needs:
 ```json
 {
   "mcpServers": {
-    "tele-go-work":     { "command": "tele-go", "args": ["run", "--bot", "work"] },
-    "tele-go-personal": { "command": "tele-go", "args": ["run", "--bot", "personal"] }
+    "hotline-work":     { "command": "hotline", "args": ["run", "--bot", "work"] },
+    "hotline-personal": { "command": "hotline", "args": ["run", "--bot", "personal"] }
   }
 }
 ```
 
-(`"command": "tele-go"` assumes `go install` put it on your PATH; otherwise use
+(`"command": "hotline"` assumes `go install` put it on your PATH; otherwise use
 the absolute path to the binary.)
 
 ```sh
-claude --dangerously-load-development-channels server:tele-go-work      # in project A
-claude --dangerously-load-development-channels server:tele-go-personal  # in project B
+claude --dangerously-load-development-channels server:hotline-work      # in project A
+claude --dangerously-load-development-channels server:hotline-personal  # in project B
 ```
 
 Pair and inspect each bot independently — the `--bot` flag works on every
 subcommand:
 
 ```sh
-./tele-go pair <code> --bot work
-./tele-go status --bot work
+./hotline pair <code> --bot work
+./hotline status --bot work
 ```
 
 Because each bot is a distinct token, their pollers don't contend; the
@@ -155,9 +157,9 @@ With the default `pairing` policy, the first DM from an unknown user returns a
 6-hex pairing code. Approve or reject it from your terminal:
 
 ```sh
-./tele-go pair <code>   # approve: adds the sender to allowFrom, DMs a confirmation
-./tele-go deny <code>   # reject: removes the pending request
-./tele-go status        # print state dir, token presence, policy, allowlist, pending, groups
+./hotline pair <code>   # approve: adds the sender to allowFrom, DMs a confirmation
+./hotline deny <code>   # reject: removes the pending request
+./hotline status        # print state dir, token presence, policy, allowlist, pending, groups
 ```
 
 Pairing codes expire after 24 hours. A pending sender is re-prompted up to five
@@ -193,8 +195,10 @@ live. Writes (pairing) go through an flock-guarded read-modify-write.
 
 - **Static mode**: set `TELEGRAM_ACCESS_MODE=static` to snapshot access at boot
   (use with an `allowlist` policy; pairing requires runtime writes).
-- **State-dir override**: `TELE_GO_STATE_DIR` (then `TELEGRAM_STATE_DIR`, then
-  `~/.claude/channels/tele-go`).
+- **State-dir override**: `HOTLINE_STATE_DIR` (then the legacy
+  `TELE_GO_STATE_DIR`, then `TELEGRAM_STATE_DIR`, then
+  `~/.claude/channels/tele-go`). The default keeps the historical `tele-go`
+  name so state written before the rename keeps working.
 
 ## Texting style (bubbles)
 

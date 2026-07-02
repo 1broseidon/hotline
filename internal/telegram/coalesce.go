@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/tele-go/internal/transcript"
+	"github.com/1broseidon/hotline/internal/transcript"
 )
 
 // Inbound coalescing. People text in bursts — "ok so" / "the auth thing" /
@@ -147,7 +147,7 @@ func (h *Handler) flush(ctx context.Context, msgs []pendingMsg) {
 		return
 	}
 	if err := h.Notifier.SendChannel(ctx, content, meta); err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: deliver inbound failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: deliver inbound failed: %v\n", err)
 	}
 }
 

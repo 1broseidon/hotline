@@ -15,7 +15,8 @@ import (
 // populates Bot.User.Id and Bot.User.Username, needed for mention detection)
 // and a 10s request timeout for the GetMe check.
 //
-// If TELE_GO_SKIP_TOKEN_CHECK=1 the validity check is disabled (no network
+// If HOTLINE_SKIP_TOKEN_CHECK=1 (legacy: TELE_GO_SKIP_TOKEN_CHECK=1) the
+// validity check is disabled (no network
 // call): Bot.User.Id is parsed from the token. This lets the offline
 // integration smoke run without contacting Telegram.
 func NewBot(token string) (*gotgbot.Bot, error) {
@@ -24,7 +25,7 @@ func NewBot(token string) (*gotgbot.Bot, error) {
 			Timeout: 10 * time.Second,
 		},
 	}
-	if os.Getenv("TELE_GO_SKIP_TOKEN_CHECK") == "1" {
+	if os.Getenv("HOTLINE_SKIP_TOKEN_CHECK") == "1" || os.Getenv("TELE_GO_SKIP_TOKEN_CHECK") == "1" {
 		opts.DisableTokenCheck = true
 	}
 	return gotgbot.NewBot(token, opts)

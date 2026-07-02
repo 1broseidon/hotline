@@ -9,9 +9,9 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
-	"example.com/tele-go/internal/config"
-	"example.com/tele-go/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/access"
+	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/mcpchan"
 )
 
 func newTestCfg(t *testing.T) *config.Config {

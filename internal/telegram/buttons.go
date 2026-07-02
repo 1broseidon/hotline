@@ -12,7 +12,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
+	"github.com/1broseidon/hotline/internal/access"
 )
 
 // maxButtons caps how many inline buttons one reply can carry. Telegram permits
@@ -149,6 +149,6 @@ func (h *Handler) handleActionCallback(ctx context.Context, cb *gotgbot.Callback
 		"kind":    "button",
 	}
 	if err := h.relay(ctx, label, meta); err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: deliver button choice failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: deliver button choice failed: %v\n", err)
 	}
 }

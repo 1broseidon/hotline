@@ -5,7 +5,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
+	"github.com/1broseidon/hotline/internal/access"
 )
 
 func botHandler(id int64, username string) *Handler {
@@ -150,12 +150,12 @@ func TestIsAllowlisted(t *testing.T) {
 
 func TestPairingInstruction(t *testing.T) {
 	// Default bot: bare command.
-	if got := pairingInstruction("", "abc123"); got != "tele-go pair abc123" {
+	if got := pairingInstruction("", "abc123"); got != "hotline pair abc123" {
 		t.Errorf("default bot = %q", got)
 	}
 	// Named bot: must carry --bot so the code is approved against the right
 	// bot's access.json, not the default's.
-	if got := pairingInstruction("Ada", "abc123"); got != "tele-go pair abc123 --bot Ada" {
+	if got := pairingInstruction("Ada", "abc123"); got != "hotline pair abc123 --bot Ada" {
 		t.Errorf("named bot = %q", got)
 	}
 }

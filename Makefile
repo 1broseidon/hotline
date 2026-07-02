@@ -1,14 +1,14 @@
-BINARY := tele-go
+BINARY := hotline
 
 .DEFAULT_GOAL := build
 
-# Build the binary into the repo (gitignored as /tele-go).
+# Build the binary into the repo (gitignored as /hotline).
 .PHONY: build
 build:
 	go build -o $(BINARY) .
 
-# Install tele-go system-wide to GOBIN (or $(go env GOPATH)/bin), on PATH.
-# This is what beastie-boy / rh-agent .mcp.json files invoke as bare `tele-go`.
+# Install hotline system-wide to GOBIN (or $(go env GOPATH)/bin), on PATH.
+# This is what beastie-boy / rh-agent .mcp.json files invoke as bare `hotline`.
 .PHONY: install
 install:
 	go install .

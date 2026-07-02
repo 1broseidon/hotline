@@ -37,7 +37,7 @@ func claimPollerSlot(pidFile string) error {
 	if raw, err := os.ReadFile(pidFile); err == nil {
 		if stale, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
 			if stale > 1 && stale != os.Getpid() && processAlive(stale) {
-				fmt.Fprintf(os.Stderr, "tele-go: replacing stale poller pid=%d\n", stale)
+				fmt.Fprintf(os.Stderr, "hotline: replacing stale poller pid=%d\n", stale)
 				_ = syscall.Kill(stale, syscall.SIGTERM)
 				// Give it a moment to release the getUpdates slot.
 				time.Sleep(500 * time.Millisecond)

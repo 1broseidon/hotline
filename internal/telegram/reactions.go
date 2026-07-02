@@ -11,7 +11,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
+	"github.com/1broseidon/hotline/internal/access"
 )
 
 // handleReaction relays an inbound reaction — a user adding or removing an emoji
@@ -26,7 +26,7 @@ func (h *Handler) handleReaction(ctx context.Context, mr *gotgbot.MessageReactio
 
 	acc, err := access.Load(h.Cfg.AccessFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: access load failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: access load failed: %v\n", err)
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *Handler) handleReaction(ctx context.Context, mr *gotgbot.MessageReactio
 		"target_message_id": strconv.FormatInt(mr.MessageId, 10),
 	}
 	if err := h.relay(ctx, content, meta); err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: deliver reaction failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: deliver reaction failed: %v\n", err)
 	}
 }
 

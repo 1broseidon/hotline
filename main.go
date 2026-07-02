@@ -1,13 +1,13 @@
-// Command tele-go is a Telegram channel for Claude Code: an MCP server that
+// Command hotline is a Telegram channel for Claude Code: an MCP server that
 // relays Telegram DMs/groups to a Claude Code session and back, with access
 // control (pairing/allowlist/groups), media handling, and a permission relay.
 //
 // Subcommands:
 //
-//	tele-go [run]        start the MCP server + Telegram poller (default)
-//	tele-go pair <code>  approve a pending pairing code
-//	tele-go deny <code>  reject a pending pairing code
-//	tele-go status       print state-dir / token / access summary
+//	hotline [run]        start the MCP server + Telegram poller (default)
+//	hotline pair <code>  approve a pending pairing code
+//	hotline deny <code>  reject a pending pairing code
+//	hotline status       print state-dir / token / access summary
 package main
 
 import (
@@ -18,18 +18,18 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/tele-go/internal/access"
-	"example.com/tele-go/internal/config"
-	"example.com/tele-go/internal/lifecycle"
-	"example.com/tele-go/internal/mcpchan"
-	"example.com/tele-go/internal/telegram"
-	"example.com/tele-go/internal/transcript"
+	"github.com/1broseidon/hotline/internal/access"
+	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/lifecycle"
+	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/telegram"
+	"github.com/1broseidon/hotline/internal/transcript"
 )
 
 func main() {
 	// --bot <name> (or --bot=<name>) selects which bot to run/operate on; it may
 	// appear anywhere and is stripped before subcommand parsing. Falls back to
-	// $TELE_GO_BOT. "" is the default/unnamed bot.
+	// $HOTLINE_BOT (legacy: $TELE_GO_BOT). "" is the default/unnamed bot.
 	botName, args := resolveBotName(os.Args[1:])
 	cmd := "run"
 	if len(args) > 0 {
@@ -51,36 +51,38 @@ func main() {
 	default:
 		// Unknown first arg: treat as default "run" only if it's not clearly a
 		// subcommand typo. Be strict and show usage.
-		fmt.Fprintf(os.Stderr, "tele-go: unknown command %q\n\n", cmd)
+		fmt.Fprintf(os.Stderr, "hotline: unknown command %q\n\n", cmd)
 		usage()
 		os.Exit(2)
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `tele-go — Telegram channel for Claude Code
+	fmt.Fprint(os.Stderr, `hotline — Telegram channel for Claude Code
 
 Usage:
-  tele-go [run]        start the MCP server + Telegram poller (default)
-  tele-go pair <code>  approve a pending pairing code
-  tele-go deny <code>  reject a pending pairing code
-  tele-go status       print state-dir / token / access summary
+  hotline [run]        start the MCP server + Telegram poller (default)
+  hotline pair <code>  approve a pending pairing code
+  hotline deny <code>  reject a pending pairing code
+  hotline status       print state-dir / token / access summary
 
 Options:
   --bot <name>         select a named bot (isolated state under bots/<name>,
                        token from TELEGRAM_BOT_TOKEN_<NAME>). Omit for the
-                       default bot. Also settable via $TELE_GO_BOT.
+                       default bot. Also settable via $HOTLINE_BOT
+                       (legacy: $TELE_GO_BOT).
 `)
 }
 
 // resolveBotName extracts "--bot <name>" / "--bot=<name>" from args (wherever it
 // appears), returning the selected bot and the remaining args. When no flag is
-// present it falls back to $TELE_GO_BOT, then "" (the default bot).
+// present it falls back to $HOTLINE_BOT, then $TELE_GO_BOT (legacy, kept for
+// one release), then "" (the default bot).
 func resolveBotName(args []string) (botName string, rest []string) {
 	rest = make([]string, 0, len(args))
 	found := false
@@ -98,7 +100,9 @@ func resolveBotName(args []string) (botName string, rest []string) {
 		}
 	}
 	if !found {
-		botName = os.Getenv("TELE_GO_BOT")
+		if botName = os.Getenv("HOTLINE_BOT"); botName == "" {
+			botName = os.Getenv("TELE_GO_BOT") // legacy fallback
+		}
 	}
 	return botName, rest
 }
@@ -114,7 +118,7 @@ func runChannel(botName string) error {
 	if err := cfg.EnsureDirs(); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "tele-go: bot=%s state=%s\n", botLabel(cfg.BotName), cfg.StateDir)
+	fmt.Fprintf(os.Stderr, "hotline: bot=%s state=%s\n", botLabel(cfg.BotName), cfg.StateDir)
 
 	hasToken := cfg.Token != ""
 
@@ -175,7 +179,7 @@ func runChannel(botName string) error {
 
 func cmdPair(botName string, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: tele-go pair <code>")
+		return errors.New("usage: hotline pair <code>")
 	}
 	code := args[0]
 	cfg, err := config.Load(botName)
@@ -193,7 +197,7 @@ func cmdPair(botName string, args []string) error {
 		if b, err := telegram.NewBot(cfg.Token); err == nil {
 			if chatID, perr := strconv.ParseInt(p.ChatID, 10, 64); perr == nil {
 				if _, serr := b.SendMessage(chatID, "Paired! Say hi to Claude.", nil); serr != nil {
-					fmt.Fprintf(os.Stderr, "tele-go: could not send confirmation: %v\n", serr)
+					fmt.Fprintf(os.Stderr, "hotline: could not send confirmation: %v\n", serr)
 				}
 			}
 		}
@@ -203,7 +207,7 @@ func cmdPair(botName string, args []string) error {
 
 func cmdDeny(botName string, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: tele-go deny <code>")
+		return errors.New("usage: hotline deny <code>")
 	}
 	cfg, err := config.Load(botName)
 	if err != nil {

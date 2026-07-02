@@ -13,10 +13,10 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
-	"example.com/tele-go/internal/access"
-	"example.com/tele-go/internal/config"
-	"example.com/tele-go/internal/mcpchan"
-	"example.com/tele-go/internal/transcript"
+	"github.com/1broseidon/hotline/internal/access"
+	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/transcript"
 )
 
 // Handler dispatches Telegram updates: it gates on the sender, relays inbound
@@ -134,7 +134,7 @@ func (h *Handler) Dispatch(ctx context.Context, u *gotgbot.Update) {
 func (h *Handler) handleMessage(ctx context.Context, msg *gotgbot.Message) {
 	acc, err := access.Load(h.Cfg.AccessFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: access load failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: access load failed: %v\n", err)
 		return
 	}
 
@@ -167,7 +167,7 @@ func (h *Handler) handleMessage(ctx context.Context, msg *gotgbot.Message) {
 		}
 		if h.Notifier != nil {
 			if err := h.Notifier.SendVerdict(ctx, code, behavior); err != nil {
-				fmt.Fprintf(os.Stderr, "tele-go: send verdict failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "hotline: send verdict failed: %v\n", err)
 			}
 		}
 		emoji := "✅"
@@ -228,7 +228,7 @@ func (h *Handler) handleMessage(ctx context.Context, msg *gotgbot.Message) {
 		if ex.IsPhoto {
 			// Eager download photos so Claude can Read them immediately.
 			if path, err := DownloadToInbox(h.Bot, h.Cfg.InboxDir, ex.FileID); err != nil {
-				fmt.Fprintf(os.Stderr, "tele-go: photo download failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "hotline: photo download failed: %v\n", err)
 			} else {
 				meta["image_path"] = path
 			}
@@ -313,7 +313,7 @@ func (h *Handler) handlePermCallback(ctx context.Context, cb *gotgbot.CallbackQu
 	}
 	if h.Notifier != nil {
 		if err := h.Notifier.SendVerdict(ctx, code, action); err != nil {
-			fmt.Fprintf(os.Stderr, "tele-go: send verdict failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "hotline: send verdict failed: %v\n", err)
 		}
 	}
 
@@ -344,7 +344,7 @@ func (h *Handler) OnPermissionRequest(ctx context.Context, p mcpchan.PermissionR
 
 	acc, err := access.Load(h.Cfg.AccessFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: access load failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: access load failed: %v\n", err)
 		return
 	}
 	text := "🔐 Permission: " + p.ToolName
@@ -359,7 +359,7 @@ func (h *Handler) OnPermissionRequest(ctx context.Context, p mcpchan.PermissionR
 			continue
 		}
 		if _, err := h.Bot.SendMessageWithContext(ctx, chatID, text, &gotgbot.SendMessageOpts{ReplyMarkup: kb}); err != nil {
-			fmt.Fprintf(os.Stderr, "tele-go: permission_request send to %s failed: %v\n", id, err)
+			fmt.Fprintf(os.Stderr, "hotline: permission_request send to %s failed: %v\n", id, err)
 		}
 	}
 }
@@ -391,7 +391,7 @@ func (h *Handler) purgePermLocked() {
 func (h *Handler) replyPairing(ctx context.Context, msg *gotgbot.Message, senderID, chatID string) {
 	code, send, err := access.CreatePairing(h.Cfg.AccessFile, senderID, chatID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: create pairing failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: create pairing failed: %v\n", err)
 		return
 	}
 	if !send {
@@ -399,7 +399,7 @@ func (h *Handler) replyPairing(ctx context.Context, msg *gotgbot.Message, sender
 	}
 	body := "Pairing required — the operator runs in their terminal:\n\n" + pairingInstruction(h.Cfg.BotName, code)
 	if _, err := h.Bot.SendMessageWithContext(ctx, msg.Chat.Id, body, nil); err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: pairing reply failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hotline: pairing reply failed: %v\n", err)
 	}
 }
 
@@ -408,7 +408,7 @@ func (h *Handler) replyPairing(ctx context.Context, msg *gotgbot.Message, sender
 // lives in that bot's own access.json and a bare `pair` would approve against
 // the default bot instead.
 func pairingInstruction(botName, code string) string {
-	cmd := "tele-go pair " + code
+	cmd := "hotline pair " + code
 	if botName != "" {
 		cmd += " --bot " + botName
 	}

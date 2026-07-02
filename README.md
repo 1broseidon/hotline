@@ -32,41 +32,64 @@ Requires Go 1.26+. No prebuilt binaries yet.
 
 ## Quickstart
 
-1. Get a bot token from [@BotFather](https://t.me/BotFather).
-
-2. Drop it in the channel's `.env`:
+1. Get a bot token from [@BotFather](https://t.me/BotFather), then save it (once, machine-wide):
 
    ```sh
-   mkdir -p ~/.claude/channels/tele-go
-   printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' > ~/.claude/channels/tele-go/.env
-   chmod 600 ~/.claude/channels/tele-go/.env
+   hotline setup --telegram-token 123456789:AA…
    ```
 
-   A real `TELEGRAM_BOT_TOKEN` environment variable wins over the `.env` file.
+   Run `hotline setup` with no flags to be prompted, `hotline setup --show` to see what's configured.
 
-3. Register hotline as an MCP server in the project you want to text with, via `.mcp.json`:
-
-   ```json
-   {
-     "mcpServers": {
-       "hotline": { "command": "hotline", "args": ["run"] }
-     }
-   }
-   ```
-
-4. Start Claude Code with the channel flag (channels are experimental and loaded by MCP server name):
+2. Register the channel in the project you want to text with:
 
    ```sh
-   claude --dangerously-load-development-channels server:hotline
+   cd your-project
+   hotline init
    ```
 
-5. DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:
+   This writes (or merges into) `.mcp.json`. Add `--providers telegram,signal` for extra transports, `--voice` for a starter `HOTLINE.md`.
+
+3. Launch Claude Code with the channel loaded:
+
+   ```sh
+   hotline start              # extra claude flags go after --, e.g. hotline start -- --continue
+   ```
+
+4. DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:
 
    ```sh
    hotline pair <code>
    ```
 
 That's it. Your session is now a Telegram chat.
+
+<details>
+<summary>By hand</summary>
+
+The three commands wrap these steps:
+
+```sh
+# setup: token in the channel's .env (a real TELEGRAM_BOT_TOKEN env var wins over the file)
+mkdir -p ~/.claude/channels/tele-go
+printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' > ~/.claude/channels/tele-go/.env
+chmod 600 ~/.claude/channels/tele-go/.env
+```
+
+```json
+// init: .mcp.json in the project
+{
+  "mcpServers": {
+    "hotline": { "command": "hotline", "args": ["run"] }
+  }
+}
+```
+
+```sh
+# start: channels are experimental and loaded by MCP server name
+claude --dangerously-load-development-channels server:hotline
+```
+
+</details>
 
 ## Access model
 
@@ -288,6 +311,9 @@ When a token is configured, hotline declares the `claude/channel/permission` cap
 ## CLI
 
 ```
+hotline setup        save credentials to the shared .env (run once)
+hotline init         register hotline in this repo's .mcp.json
+hotline start        launch Claude Code with the channel loaded
 hotline [run]        start the MCP server + Telegram poller (default)
 hotline pair <code>  approve a pending pairing code
 hotline deny <code>  reject a pending pairing code

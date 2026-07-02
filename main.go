@@ -4,6 +4,9 @@
 //
 // Subcommands:
 //
+//	hotline setup        save credentials to the shared .env (run once)
+//	hotline init         register hotline in this repo's .mcp.json
+//	hotline start        launch Claude Code with the channel loaded
 //	hotline [run]        start the MCP server + Telegram poller (default)
 //	hotline pair <code>  approve a pending pairing code
 //	hotline deny <code>  reject a pending pairing code
@@ -34,7 +37,10 @@ func main() {
 	// --bot <name> (or --bot=<name>) selects which bot to run/operate on; it may
 	// appear anywhere and is stripped before subcommand parsing. Falls back to
 	// $HOTLINE_BOT (legacy: $TELE_GO_BOT). "" is the default/unnamed bot.
-	botName, args := resolveBotName(os.Args[1:])
+	// Everything after a bare "--" is passthrough (start forwards it to
+	// claude verbatim); split it off before any flag stripping touches it.
+	head, passthrough := splitPassthrough(os.Args[1:])
+	botName, args := resolveBotName(head)
 	// --provider <kind[:instance]> selects which provider's state pair / deny /
 	// revoke / status operate on (default: telegram). "run" ignores it — the run set
 	// comes from HOTLINE_PROVIDERS.
@@ -56,6 +62,22 @@ func main() {
 		err = cmdRevoke(providerSel, botName, args[1:])
 	case "status":
 		err = cmdStatus(providerSel, botName)
+	case "setup":
+		err = cmdSetup(botName, args[1:], os.Stdin, os.Stdout, stdinIsTTY())
+	case "init":
+		cwd, cerr := os.Getwd()
+		if cerr != nil {
+			err = cerr
+			break
+		}
+		err = cmdInit(botName, args[1:], cwd, os.Stdout)
+	case "start":
+		cwd, cerr := os.Getwd()
+		if cerr != nil {
+			err = cerr
+			break
+		}
+		err = cmdStart(botName, args[1:], passthrough, cwd, os.Stdout, os.Stderr)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -76,6 +98,13 @@ func usage() {
 	fmt.Fprint(os.Stderr, `hotline - messaging channel for Claude Code
 
 Usage:
+  hotline setup        save credentials to the shared .env (run once;
+                       --telegram-token, --discord-token, --signal-account,
+                       --signal-daemon-url; --show prints the current config)
+  hotline init         register hotline in this repo's .mcp.json
+                       (--providers telegram,signal; --voice writes HOTLINE.md)
+  hotline start        launch Claude Code with the channel loaded
+                       (args after -- go to claude: hotline start -- --continue)
   hotline [run]        start the MCP server + Telegram poller (default)
   hotline pair <code>  approve a pending pairing code
   hotline deny <code>  reject a pending pairing code
@@ -94,6 +123,17 @@ Options:
                        hotline pair a1b2c3 --provider discord
                        hotline status --provider signal
 `)
+}
+
+// splitPassthrough splits args at the first bare "--": everything before is
+// hotline's, everything after goes to the child process verbatim.
+func splitPassthrough(args []string) (head, tail []string) {
+	for i, a := range args {
+		if a == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+	return args, nil
 }
 
 // resolveBotName extracts "--bot <name>" / "--bot=<name>" from args (wherever it

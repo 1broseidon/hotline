@@ -58,7 +58,7 @@ Signal transport is end-to-end encrypted; hotline talks to a local signal-cli da
 
 **A stolen unlocked phone is the operator.** Pairing authenticates a chat account, not a person. Whoever holds the paired phone can drive the agent and answer its permission prompts until you cut them off. Runbook, from any terminal on the box:
 
-1. `hotline deny <code> --provider <kind[:instance]>` kills a pending pairing. For an already-approved sender there is no unpair command yet: remove their ID from `allowFrom` in the provider's `access.json`. It is re-read on every inbound message, so the edit takes effect immediately. Setting `"dmPolicy": "disabled"` drops everything, allowlisted senders included.
+1. `hotline revoke <sender-id> --provider <kind[:instance]>` removes an already-approved sender from `allowFrom` and purges any pending pairing they still had; `hotline deny <code>` kills a pending pairing. `access.json` is re-read on every inbound message, so both take effect immediately. Setting `"dmPolicy": "disabled"` drops everything, allowlisted senders included.
 2. Lock the messenger itself: Signal registration PIN and screen lock, Telegram passcode.
 3. Telegram: rotate the bot token via @BotFather and update `.env`. The old token stops working everywhere.
 4. Signal: remove the linked device (or re-register the standalone account) so the daemon goes deaf.

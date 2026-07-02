@@ -1,6 +1,6 @@
 # Security
 
-A paired phone is a remote control for a machine running an agent with real permissions. hotline's job is to make that legible and gated. It does not pretend the arrangement is risk-free, and neither should you.
+A paired phone is a remote control for a machine running an agent with real permissions. hotline's job is to make that legible and gated. The risk itself does not go away.
 
 ## Threat model
 
@@ -54,7 +54,7 @@ Tokens, allowlists, pending pairings, and transcripts live in the state director
 
 Signal transport is end-to-end encrypted; hotline talks to a local signal-cli daemon. If you link that daemon to your personal account as a secondary device, it receives everything your account receives, every conversation, not just the agent chat. Use a standalone Signal account for the agent instead. The daemon's HTTP endpoint has no authentication; keep it on `127.0.0.1`.
 
-## Honest gaps
+## Known gaps
 
 **A stolen unlocked phone is the operator.** Pairing authenticates a chat account, not a person. Whoever holds the paired phone can drive the agent and answer its permission prompts until you cut them off. Runbook, from any terminal on the box:
 

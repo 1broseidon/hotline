@@ -88,6 +88,13 @@ chmod 600 ~/.claude/channels/tele-go/.env</code></pre>
 </div>
 <p>Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim. Tap authorization mirrors the inbound gate.</p>
 
+<h2>Voice</h2>
+<p>The channel ships with a default persona: a sharp, warm friend texting in short bubbles. A <code>HOTLINE.md</code> file replaces it. First hit wins: <code>./HOTLINE.md</code> in the directory Claude Code runs in, then <code>HOTLINE.md</code> in the state dir as your global default, then the built-in voice.</p>
+<pre><code><span class="c">&lt;!-- HOTLINE.md --&gt;</span>
+Terse and professional. No emoji, no exclamation marks.
+One bubble unless the answer genuinely needs two.</code></pre>
+<p>The file is read once at startup; edit it, then restart Claude Code. A voice changes tone only. The tool contract, inbound message handling, and the safety rules are compiled in and apply under any voice. It carries the same trust boundary as <code>CLAUDE.md</code>: whoever writes to the repo shapes how the agent talks.</p>
+
 <h2>CLI</h2>
 <pre><code>hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
 hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>

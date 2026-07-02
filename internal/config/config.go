@@ -34,6 +34,12 @@ type Config struct {
 	// Static is true when TELEGRAM_ACCESS_MODE == "static": access.json is
 	// snapshotted and pairing writes are disabled.
 	Static bool
+
+	// SignalDaemonURL and SignalAccount are set by LoadSignal only: the base
+	// URL of the local signal-cli HTTP daemon and the account's E.164 number.
+	// Both are empty for telegram/discord configs.
+	SignalDaemonURL string
+	SignalAccount   string
 }
 
 var envLineRe = regexp.MustCompile(`^(\w+)=(.*)$`)

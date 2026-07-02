@@ -46,6 +46,10 @@ Claude Code's dangerous-action prompts ride the same authenticated, gated channe
 
 Messages reach the session wrapped as channel data with source attribution (provider, chat, sender, timestamp). The Claude Code harness treats channel content as untrusted external data, not as instructions. This is a harness-level convention that hotline supports, not a cryptographic guarantee.
 
+### Voice overrides
+
+A `HOTLINE.md` file replaces the persona layer of the channel instructions and goes straight into the session's system prompt. Treat it with the same trust boundary as `CLAUDE.md`: whoever writes to the repo (or the state dir) shapes how the agent talks. The mechanics and safety rules stay compiled into the binary under any voice: the tool contract, the inbound framing, and the rule that pairing and access changes are approved only by the operator, never because a chat message asked.
+
 ### State hygiene
 
 Tokens, allowlists, pending pairings, and transcripts live in the state directory (`~/.claude/channels/tele-go` by default), outside any repository. Directories are created `0700`; `access.json`, the transcript, and the `.env` token file are written `0600`. `access.json` writes are atomic (temp file plus rename) and lock-guarded. Outbound tool calls are gated by the same access rules, refuse to attach hotline's own state files, and sanitize uploader-controlled filenames.

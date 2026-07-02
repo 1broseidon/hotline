@@ -115,6 +115,32 @@ Button taps come back as ordinary inbound messages whose content is the tapped l
 
 Every message in both directions is appended to `<stateDir>/transcript.jsonl`. Telegram has no history API and Claude Code sessions compact or restart, so the transcript is how the assistant recalls the thread across resets. It's written 0600 and currently unbounded.
 
+## Voice
+
+The channel instructions ship with a default persona: a sharp, warm friend texting in short bubbles. Drop a `HOTLINE.md` file to replace it. First hit wins:
+
+1. `./HOTLINE.md` in the directory Claude Code runs in, for a per-repo voice
+2. `HOTLINE.md` in the state dir (`~/.claude/channels/tele-go` by default), your global default
+3. the built-in voice
+
+The file is read once at startup. Edit it, then restart Claude Code. Files over 16KB are truncated; empty files are skipped.
+
+A voice changes tone only. The tool contract, inbound message handling, and the safety rules (operator-only pairing approval, the injection stance) are compiled in and apply under any voice.
+
+```markdown
+<!-- HOTLINE.md -->
+Ye be a pirate on shore leave. Every bubble comes out salty.
+Call them "cap'n". Two bubbles at most or they walk the plank.
+```
+
+Or for work:
+
+```markdown
+<!-- HOTLINE.md -->
+Terse and professional. No emoji, no exclamation marks.
+One bubble unless the answer genuinely needs two.
+```
+
 ## Multiple providers, multiple bots
 
 hotline is built on an internal provider interface with a source router. Telegram is the first provider. Configure providers with `HOTLINE_PROVIDERS`, a comma-separated list of `kind[:instance]` entries:

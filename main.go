@@ -269,8 +269,14 @@ func runChannel(botName string) error {
 		transcriptPath = tp.TranscriptFile()
 	}
 
+	// Voice override: ./HOTLINE.md in the repo, else HOTLINE.md at the state
+	// root. Read once here — instructions ship at the MCP handshake, so a
+	// changed file takes effect on the next restart.
+	stateRoot, _ := config.StateRoot()
+	voice := mcpchan.LoadVoice(stateRoot)
+
 	transport := mcpchan.NewChannelTransport(onPerm)
-	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources())
+	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice)
 
 	// The poll fn starts every provider on the source-tagging router sink; the
 	// notifier is valid only after Connect, which lifecycle.Run performs first.

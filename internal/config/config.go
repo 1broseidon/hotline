@@ -116,6 +116,13 @@ func mergedEnv(key string, dotEnv map[string]string) string {
 	return dotEnv[key]
 }
 
+// StateRoot returns the shared state base dir (the one holding .env and every
+// provider's per-instance state). Callers that need a base-dir file outside
+// any one provider's config — like the global HOTLINE.md voice — use this.
+func StateRoot() (string, error) {
+	return resolveStateDir()
+}
+
 func resolveStateDir() (string, error) {
 	if v := os.Getenv("HOTLINE_STATE_DIR"); v != "" {
 		return v, nil

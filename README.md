@@ -152,9 +152,11 @@ The channel instructions ship with a default persona: a sharp, warm friend texti
 2. `HOTLINE.md` in the state dir (`~/.config/hotline` by default), your global default
 3. the built-in voice
 
-The file is read once at startup. Edit it, then restart Claude Code. Files over 16KB are truncated; empty files are skipped.
+The file is read once at startup. Edit it, then restart Claude Code. Empty files are skipped.
 
-A voice changes tone only. The tool contract, inbound message handling, and the safety rules (operator-only pairing approval, the injection stance) are compiled in and apply under any voice.
+Claude Code caps MCP server instructions at 2048 characters. hotline puts the mechanics first and gives the voice the remainder, about 630 characters; a longer voice is cut at a word boundary with a stderr warning.
+
+A voice changes tone only. The tool contract, inbound message handling, and the safety rules (operator-only pairing approval, the injection stance) are compiled in, always come first, and apply under any voice.
 
 ```markdown
 <!-- HOTLINE.md -->

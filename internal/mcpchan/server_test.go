@@ -41,7 +41,7 @@ func TestInstructionsNonEmpty(t *testing.T) {
 	if !strings.Contains(s, "prompt injection") {
 		t.Error("instructions should warn about prompt injection")
 	}
-	if !strings.Contains(s, "reply tool") {
+	if !strings.Contains(s, "call reply") {
 		t.Error("instructions should mention the reply tool")
 	}
 }

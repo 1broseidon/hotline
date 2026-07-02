@@ -30,6 +30,16 @@ type Handler struct {
 
 	mu        sync.Mutex
 	permCache map[string]permEntry
+
+	// Inbound coalescing (see coalesce.go): buffers texting bursts per chat so a
+	// rapid sequence reaches Claude as one turn instead of racing fragments.
+	coalMu          sync.Mutex
+	buffers         map[string]*chatBuffer
+	coalesceWindow  time.Duration
+	coalesceMaxWait time.Duration
+	// coalDeliver, when set, replaces flush as the burst sink (tests capture
+	// bursts without a live notifier).
+	coalDeliver func(context.Context, []pendingMsg)
 }
 
 // permEntry is a cached permission request plus the time it was received, so
@@ -48,11 +58,14 @@ const permCacheTTL = 10 * time.Minute
 // connects) by the lifecycle wiring.
 func NewHandler(bot *gotgbot.Bot, cfg *config.Config, n *mcpchan.Notifier, log *transcript.Logger) *Handler {
 	return &Handler{
-		Bot:       bot,
-		Cfg:       cfg,
-		Notifier:  n,
-		Log:       log,
-		permCache: make(map[string]permEntry),
+		Bot:             bot,
+		Cfg:             cfg,
+		Notifier:        n,
+		Log:             log,
+		permCache:       make(map[string]permEntry),
+		buffers:         make(map[string]*chatBuffer),
+		coalesceWindow:  defaultCoalesceWindow,
+		coalesceMaxWait: defaultCoalesceMaxWait,
 	}
 }
 
@@ -239,9 +252,10 @@ func (h *Handler) handleMessage(ctx context.Context, msg *gotgbot.Message) {
 		return
 	}
 
-	if err := h.relay(ctx, content, meta); err != nil {
-		fmt.Fprintf(os.Stderr, "tele-go: deliver inbound failed: %v\n", err)
-	}
+	// Buffer into the coalescing window instead of relaying immediately, so a
+	// burst of quick messages reaches Claude as one turn. Button/reaction paths
+	// still use relay directly — they're discrete events, not texting bubbles.
+	h.enqueue(ctx, content, meta)
 }
 
 // handlePermCallback processes inline permission buttons (perm:allow|deny|more).

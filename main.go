@@ -163,7 +163,10 @@ func runChannel(botName string) error {
 		base := pollFn
 		pollFn = func(ctx context.Context) error {
 			handler.Notifier = transport.Notifier()
-			return base(ctx)
+			err := base(ctx)
+			// Drain any burst still in the coalescing window before teardown.
+			handler.FlushAll(context.Background())
+			return err
 		}
 	}
 

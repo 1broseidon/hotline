@@ -78,6 +78,8 @@ func main() {
 			break
 		}
 		err = cmdStart(botName, args[1:], passthrough, cwd, os.Stdout, os.Stderr)
+	case "version", "--version":
+		cmdVersion()
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -111,6 +113,7 @@ Usage:
   hotline revoke <id>  remove an approved sender from the allowlist
                        (exact sender ID as shown by status, or a unique prefix)
   hotline status       print state-dir / token / access summary
+  hotline version      print the hotline version
 
 Options:
   --bot <name>         select a named bot (isolated state under bots/<name>,

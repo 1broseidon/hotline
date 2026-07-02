@@ -25,10 +25,16 @@ Inbound works the same way. You text in bursts, so hotline buffers consecutive m
 ## Install
 
 ```sh
+brew install 1broseidon/tap/hotline
+```
+
+Binaries ship with each tagged release. Or build from source:
+
+```sh
 go install github.com/1broseidon/hotline@latest   # -> $(go env GOPATH)/bin/hotline
 ```
 
-Requires Go 1.26+. No prebuilt binaries yet.
+Requires Go 1.26+ for the source build.
 
 ## Quickstart
 

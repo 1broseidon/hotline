@@ -1,0 +1,66 @@
+version: 2
+
+project_name: hotline
+
+builds:
+  - id: hotline
+    main: .
+    binary: hotline
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version=v{{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .Date }}
+
+archives:
+  - id: hotline
+    ids:
+      - hotline
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+brews:
+  - ids:
+      - hotline
+    repository:
+      owner: 1broseidon
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    commit_msg_template: "formula: update hotline to {{ .Tag }}"
+    homepage: https://github.com/1broseidon/hotline
+    description: Messaging channel for Claude Code. Talk to your sessions like texting a friend.
+    license: MIT
+    install: |
+      bin.install "hotline"
+    test: |
+      system "#{bin}/hotline", "--help"

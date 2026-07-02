@@ -119,6 +119,15 @@ func TestSmokeTokenless(t *testing.T) {
 			if name, ok := tm["name"].(string); ok {
 				got[name] = true
 			}
+			// Single-provider wire compat: the default (telegram-only) config
+			// must not grow a "source" property in any tool schema.
+			if schema, ok := tm["inputSchema"].(map[string]any); ok {
+				if props, ok := schema["properties"].(map[string]any); ok {
+					if _, has := props["source"]; has {
+						t.Errorf("tool %v schema must not expose source with a single provider", tm["name"])
+					}
+				}
+			}
 		}
 	}
 	for _, want := range []string{"reply", "react", "edit_message", "download_attachment"} {

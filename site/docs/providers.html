@@ -55,7 +55,7 @@ HOTLINE_PROVIDERS=telegram,discord,signal   <span class="c"># all three</span></
   }
 }</code></pre>
 <div class="aside">
-  <p>This trips people up. Adding <code>HOTLINE_PROVIDERS=…</code> to <code>~/.claude/channels/tele-go/.env</code> does nothing: that file holds tokens and accounts, and hotline reads the provider list before it ever opens it. If a provider isn't coming up, check the <code>env</code> block first.</p>
+  <p>This trips people up. Adding <code>HOTLINE_PROVIDERS=…</code> to <code>~/.config/hotline/.env</code> does nothing: that file holds tokens and accounts, and hotline reads the provider list before it ever opens it. If a provider isn't coming up, check the <code>env</code> block first.</p>
 </div>
 <p>Tokens and accounts stay in the state <code>.env</code>, as on the per-provider pages.</p>
 
@@ -64,7 +64,7 @@ HOTLINE_PROVIDERS=telegram,discord,signal   <span class="c"># all three</span></
 
 <h2>Named instances</h2>
 <p>Named instances are how you run several sessions at once. One bot token allows exactly one Telegram poller, so each concurrent session gets its own bot. <code>--bot work</code> is shorthand for <code>HOTLINE_PROVIDERS=telegram:work</code>. Each named bot keeps isolated state under <code>&lt;stateDir&gt;/bots/&lt;name&gt;/</code> and reads its token from <code>TELEGRAM_BOT_TOKEN_&lt;NAME&gt;</code> in the shared <code>.env</code>:</p>
-<pre><code><span class="c"># ~/.claude/channels/tele-go/.env</span>
+<pre><code><span class="c"># ~/.config/hotline/.env</span>
 TELEGRAM_BOT_TOKEN=111:AA…            <span class="c"># default bot</span>
 TELEGRAM_BOT_TOKEN_WORK=222:BB…       <span class="c"># telegram:work</span></code></pre>
 <p><code>--bot</code> works on every subcommand (<code>hotline status --bot work</code>, <code>hotline pair &lt;code&gt; --bot work</code>). Discord and Signal follow the same pattern: <code>DISCORD_BOT_TOKEN_&lt;NAME&gt;</code>, <code>SIGNAL_ACCOUNT_&lt;NAME&gt;</code>, <code>SIGNAL_DAEMON_URL_&lt;NAME&gt;</code>.</p>

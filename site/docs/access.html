@@ -60,7 +60,7 @@ hotline deny &lt;code&gt;</code></pre>
 <p>Groups are opt-in per group ID, with optional <code>requireMention</code> (deliver only when the bot is mentioned, replied to, or a <code>mentionPatterns</code> regex matches) and an optional per-group sender allowlist.</p>
 
 <h2>access.json</h2>
-<p>Configuration lives in <code>~/.claude/channels/tele-go/access.json</code> and is re-read on every inbound message, so edits take effect live:</p>
+<p>Configuration lives in <code>~/.config/hotline/access.json</code> and is re-read on every inbound message, so edits take effect live:</p>
 <pre><code>{
   "dmPolicy": "pairing",          <span class="c">// pairing (default) | allowlist | disabled</span>
   "allowFrom": ["412587349"],     <span class="c">// numeric user IDs</span>

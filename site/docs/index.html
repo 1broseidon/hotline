@@ -42,7 +42,7 @@
 <p>It speaks Claude Code's experimental two-way channel protocol (<code>claude/channel</code>), which makes it Claude Code specific today. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
 
 <h2>Install</h2>
-<pre><code>go install github.com/1broseidon/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
+<pre><code>go install github.com/1broseidon/hotline/cmd/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
 <p>Requires Go 1.26+. No prebuilt binaries yet.</p>
 
 <h2>Set up Telegram</h2>
@@ -73,9 +73,9 @@ hotline init</code></pre>
 <summary>By hand</summary>
 <p>The three commands wrap these steps:</p>
 <pre><code><span class="c"># setup: token in the channel's .env (a real TELEGRAM_BOT_TOKEN env var wins over the file)</span>
-mkdir -p ~/.claude/channels/tele-go
-printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.claude/channels/tele-go/.env
-chmod 600 ~/.claude/channels/tele-go/.env</code></pre>
+mkdir -p ~/.config/hotline
+printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.config/hotline/.env
+chmod 600 ~/.config/hotline/.env</code></pre>
 <pre><code><span class="c">// init: .mcp.json in the project</span>
 {
   "mcpServers": {
@@ -116,7 +116,7 @@ hotline status       <span class="c"># print state-dir / token / access summary<
 <p><code>pair</code>, <code>deny</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
 
 <h2>Where things live</h2>
-<p>State lives in <code>~/.claude/channels/tele-go</code>. The directory keeps its pre-rename name, so existing pairings, transcripts, and inboxes carry over: hotline was formerly tele-go, and <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
+<p>State lives in <code>~/.config/hotline</code> (or <code>$XDG_CONFIG_HOME/hotline</code>). On first run, state at the old <code>~/.claude/channels/tele-go</code> location is copied over automatically; the old directory is left in place so sessions still running an older binary keep working. hotline was formerly tele-go, and <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
 
 <a class="next-link" href="telegram.html">next: Telegram in depth →</a>
 </main>

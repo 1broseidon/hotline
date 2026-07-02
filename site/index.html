@@ -92,11 +92,11 @@
 <section class="section">
   <h2>Sixty seconds to a texting agent</h2>
   <pre><code><span class="c"># install (Go 1.26+)</span>
-<span class="p">$</span> go install github.com/1broseidon/hotline@latest
+<span class="p">$</span> go install github.com/1broseidon/hotline/cmd/hotline@latest
 
 <span class="c"># drop a bot token in the channel's .env</span>
-<span class="p">$</span> mkdir -p ~/.claude/channels/tele-go
-<span class="p">$</span> printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.claude/channels/tele-go/.env
+<span class="p">$</span> mkdir -p ~/.config/hotline
+<span class="p">$</span> printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.config/hotline/.env
 
 <span class="c"># register it in .mcp.json, then start Claude Code with the channel flag</span>
 <span class="p">$</span> claude --dangerously-load-development-channels server:hotline

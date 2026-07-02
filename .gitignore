@@ -4,3 +4,7 @@
 
 # Local, machine-specific Claude Code settings
 .claude/settings.local.json
+
+# Test/coverage artifacts
+coverage.out
+*.coverprofile

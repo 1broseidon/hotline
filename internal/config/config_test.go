@@ -23,24 +23,32 @@ func TestStateDirPrecedence(t *testing.T) {
 	}
 }
 
-// TestStateDirDefaultKeepsLegacyName pins the state-compat guarantee: with no
-// override envs set, the renamed binary still resolves the pre-rename
-// ~/.claude/channels/tele-go dir, so existing pairings/transcripts survive.
-func TestStateDirDefaultKeepsLegacyName(t *testing.T) {
+// TestStateDirDefault pins the hotline-owned default: with no override envs
+// set, state resolves to ${XDG_CONFIG_HOME:-~/.config}/hotline.
+func TestStateDirDefault(t *testing.T) {
+	home := t.TempDir()
 	t.Setenv("HOTLINE_STATE_DIR", "")
 	t.Setenv("TELE_GO_STATE_DIR", "")
 	t.Setenv("TELEGRAM_STATE_DIR", "")
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home dir")
-	}
+	t.Setenv("HOME", home)
+
+	t.Setenv("XDG_CONFIG_HOME", "")
 	got, err := resolveStateDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(home, ".claude", "channels", "tele-go")
-	if got != want {
-		t.Fatalf("default state dir = %q, want legacy %q", got, want)
+	if want := filepath.Join(home, ".config", "hotline"); got != want {
+		t.Fatalf("default state dir = %q, want %q", got, want)
+	}
+
+	xdg := filepath.Join(home, "xdg")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	got, err = resolveStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdg, "hotline"); got != want {
+		t.Fatalf("XDG state dir = %q, want %q", got, want)
 	}
 }
 

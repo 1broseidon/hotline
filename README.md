@@ -76,9 +76,9 @@ The three commands wrap these steps:
 
 ```sh
 # setup: token in the channel's .env (a real TELEGRAM_BOT_TOKEN env var wins over the file)
-mkdir -p ~/.claude/channels/tele-go
-printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' > ~/.claude/channels/tele-go/.env
-chmod 600 ~/.claude/channels/tele-go/.env
+mkdir -p ~/.config/hotline
+printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' > ~/.config/hotline/.env
+chmod 600 ~/.config/hotline/.env
 ```
 
 ```json
@@ -109,7 +109,7 @@ Nobody talks to your agent without your say-so. The inbound gate decides on the 
 
 Groups are opt-in per group ID, with optional `requireMention` (deliver only when the bot is mentioned, replied to, or a `mentionPatterns` regex matches) and an optional per-group sender allowlist.
 
-Configuration lives in `~/.claude/channels/tele-go/access.json` and is re-read on every inbound message, so edits take effect live:
+Configuration lives in `~/.config/hotline/access.json` and is re-read on every inbound message, so edits take effect live:
 
 ```jsonc
 {
@@ -149,7 +149,7 @@ Every message in both directions is appended to `<stateDir>/transcript.jsonl`. T
 The channel instructions ship with a default persona: a sharp, warm friend texting in short bubbles. Drop a `HOTLINE.md` file to replace it. First hit wins:
 
 1. `./HOTLINE.md` in the directory Claude Code runs in, for a per-repo voice
-2. `HOTLINE.md` in the state dir (`~/.claude/channels/tele-go` by default), your global default
+2. `HOTLINE.md` in the state dir (`~/.config/hotline` by default), your global default
 3. the built-in voice
 
 The file is read once at startup. Edit it, then restart Claude Code. Files over 16KB are truncated; empty files are skipped.
@@ -202,7 +202,7 @@ With one provider configured, the tool schemas are byte-identical to the single-
 Named instances are how you run several sessions at once. One bot token allows exactly one Telegram poller, so each concurrent session gets its own bot. `--bot work` is shorthand for `HOTLINE_PROVIDERS=telegram:work`. Each named bot keeps isolated state under `<stateDir>/bots/<name>/` and reads its token from `TELEGRAM_BOT_TOKEN_<NAME>` in the shared `.env`:
 
 ```sh
-# ~/.claude/channels/tele-go/.env
+# ~/.config/hotline/.env
 TELEGRAM_BOT_TOKEN=111:AA…            # default bot
 TELEGRAM_BOT_TOKEN_WORK=222:BB…       # telegram:work
 ```
@@ -222,7 +222,7 @@ Setup:
 3. Copy the bot token into the shared `.env`:
 
 ```sh
-# ~/.claude/channels/tele-go/.env
+# ~/.config/hotline/.env
 DISCORD_BOT_TOKEN=your-bot-token
 DISCORD_BOT_TOKEN_WORK=…              # discord:work, if you run named instances
 ```
@@ -280,7 +280,7 @@ signal-cli -a +15551234567 daemon --http 127.0.0.1:8080
 4. Point hotline at it in the shared `.env`:
 
 ```sh
-# ~/.claude/channels/tele-go/.env
+# ~/.config/hotline/.env
 SIGNAL_ACCOUNT=+15551234567           # the linked account, E.164
 SIGNAL_DAEMON_URL=http://127.0.0.1:8080   # optional, this is the default
 SIGNAL_ACCOUNT_WORK=…                 # signal:work, if you run named instances
@@ -331,7 +331,7 @@ hotline status       print state-dir / token / access summary
 
 ## State and environment
 
-State lives in `~/.claude/channels/tele-go` (the directory keeps its pre-rename name, so existing pairings, transcripts, and inboxes carry over). hotline was formerly `tele-go`; `TELE_GO_*` variables keep working as fallbacks for one release.
+State lives in `${XDG_CONFIG_HOME:-~/.config}/hotline`. On first run, state found at the old default `~/.claude/channels/tele-go` is copied over automatically; the old directory is left in place so sessions still running an older binary keep working. hotline was formerly `tele-go`; `TELE_GO_*` variables keep working as fallbacks for one release.
 
 | Variable | Purpose |
 |---|---|

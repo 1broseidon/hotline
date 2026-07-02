@@ -61,9 +61,10 @@ var botNameRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 //
 // State-dir precedence (the base dir): $HOTLINE_STATE_DIR, then
 // $TELE_GO_STATE_DIR (legacy, kept for one release), then
-// $TELEGRAM_STATE_DIR, then ~/.claude/channels/tele-go. The default path
-// deliberately keeps the historical tele-go name so existing pairings,
-// allowlists, and transcripts survive the rename unchanged.
+// $TELEGRAM_STATE_DIR, then ${XDG_CONFIG_HOME:-~/.config}/hotline. On first
+// resolve of the default path, state left at the pre-rename
+// ~/.claude/channels/tele-go location is copied over (the old dir is left in
+// place; see migrateState).
 func Load(botName string) (*Config, error) {
 	if botName != "" && !botNameRe.MatchString(botName) {
 		return nil, fmt.Errorf("invalid bot name %q: use letters, digits, and underscores only", botName)
@@ -134,14 +135,137 @@ func resolveStateDir() (string, error) {
 	if v := os.Getenv("TELEGRAM_STATE_DIR"); v != "" {
 		return v, nil
 	}
+	newDir, err := defaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	oldDir, err := legacyStateDir()
+	if err != nil {
+		return "", err
+	}
+	if err := migrateState(oldDir, newDir); err != nil {
+		return "", fmt.Errorf("migrating state from %s to %s: %w", oldDir, newDir, err)
+	}
+	return newDir, nil
+}
+
+// defaultStateDir is the hotline-owned default:
+// ${XDG_CONFIG_HOME:-~/.config}/hotline.
+func defaultStateDir() (string, error) {
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		return filepath.Join(v, "hotline"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving home directory: %w", err)
 	}
-	// Kept as "tele-go" on purpose: this is where pre-rename state
-	// (access.json, transcripts, inbox) already lives, and the renamed binary
-	// must keep reading it.
+	return filepath.Join(home, ".config", "hotline"), nil
+}
+
+// legacyStateDir is the pre-rename default (~/.claude/channels/tele-go),
+// where state from tele-go and hotline <= v0.1.0 lives.
+func legacyStateDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home directory: %w", err)
+	}
 	return filepath.Join(home, ".claude", "channels", "tele-go"), nil
+}
+
+// migrateState copies the legacy state dir to the new default, once. It is a
+// no-op when the new dir already exists (no clobber, no re-copy) or when the
+// old dir does not exist. The copy preserves file and directory permissions
+// and is staged next to the destination then renamed, so a failed copy never
+// leaves a half-populated new dir. The old dir is deliberately left in place:
+// a still-running older binary may be using it.
+func migrateState(oldDir, newDir string) error {
+	if _, err := os.Stat(newDir); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	oldInfo, err := os.Stat(oldDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !oldInfo.IsDir() {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(newDir), 0o755); err != nil {
+		return err
+	}
+	tmp := newDir + ".migrating"
+	if err := os.RemoveAll(tmp); err != nil {
+		return err
+	}
+	if err := copyTree(oldDir, tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, newDir); err != nil {
+		_ = os.RemoveAll(tmp)
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "hotline: migrated state from %s to %s\n", tildify(oldDir), tildify(newDir))
+	return nil
+}
+
+// copyTree recursively copies src to dst, preserving permissions on regular
+// files and directories. Non-regular files (sockets, symlinks, fifos — e.g. a
+// stale unix socket in the state dir) are skipped.
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
+				return err
+			}
+			// MkdirAll perms are subject to umask; pin the exact mode.
+			return os.Chmod(target, info.Mode().Perm())
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, data, info.Mode().Perm()); err != nil {
+			return err
+		}
+		// WriteFile perms are subject to umask; pin the exact mode.
+		return os.Chmod(target, info.Mode().Perm())
+	})
+}
+
+// tildify abbreviates the user's home dir prefix to ~ for display.
+func tildify(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(filepath.Separator)) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
 
 // EnsureDirs creates the state, inbox, and approved directories with 0700

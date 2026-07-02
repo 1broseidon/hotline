@@ -52,7 +52,7 @@ A `HOTLINE.md` file replaces the persona layer of the channel instructions and g
 
 ### State hygiene
 
-Tokens, allowlists, pending pairings, and transcripts live in the state directory (`~/.claude/channels/tele-go` by default), outside any repository. Directories are created `0700`; `access.json`, the transcript, and the `.env` token file are written `0600`. `access.json` writes are atomic (temp file plus rename) and lock-guarded. Outbound tool calls are gated by the same access rules, refuse to attach hotline's own state files, and sanitize uploader-controlled filenames.
+Tokens, allowlists, pending pairings, and transcripts live in the state directory (`${XDG_CONFIG_HOME:-~/.config}/hotline` by default; state at the pre-rename `~/.claude/channels/tele-go` is copied there on first run), outside any repository. Directories are created `0700`; `access.json`, the transcript, and the `.env` token file are written `0600`. `access.json` writes are atomic (temp file plus rename) and lock-guarded. Outbound tool calls are gated by the same access rules, refuse to attach hotline's own state files, and sanitize uploader-controlled filenames.
 
 ### Signal specifics
 

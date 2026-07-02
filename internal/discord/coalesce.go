@@ -122,10 +122,11 @@ func (h *Handler) flush(ctx context.Context, msgs []pendingMsg) {
 		})
 	}
 	content, meta := coalesce(msgs)
-	if h.Notifier == nil {
+	n := h.Notifier()
+	if n == nil {
 		return
 	}
-	if err := h.Notifier.SendChannel(ctx, content, meta); err != nil {
+	if err := n.SendChannel(ctx, content, meta); err != nil {
 		fmt.Fprintf(os.Stderr, "hotline: deliver inbound failed: %v\n", err)
 	}
 }

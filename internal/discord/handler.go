@@ -29,9 +29,12 @@ type Handler struct {
 	// BotUserID is the bot's own user ID (self-messages are dropped). Bound by
 	// Provider.Start once the gateway identifies; injectable in tests.
 	BotUserID string
-	// Notifier is the inbound sink (channel deliveries + permission verdicts).
-	Notifier provider.InboundSink
-	Log      *transcript.Logger
+	Log       *transcript.Logger
+
+	// notifier is the inbound sink (channel deliveries + permission verdicts),
+	// bound by Provider.Start (or tests) via BindNotifier.
+	notifierMu sync.RWMutex
+	notifier   provider.InboundSink
 
 	mu        sync.Mutex
 	permCache map[string]permEntry
@@ -67,6 +70,20 @@ func NewHandler(s Session, cfg *config.Config, log *transcript.Logger) *Handler 
 	}
 }
 
+// BindNotifier sets the inbound sink. Safe to call while events are flowing.
+func (h *Handler) BindNotifier(sink provider.InboundSink) {
+	h.notifierMu.Lock()
+	defer h.notifierMu.Unlock()
+	h.notifier = sink
+}
+
+// Notifier returns the currently bound inbound sink (nil before binding).
+func (h *Handler) Notifier() provider.InboundSink {
+	h.notifierMu.RLock()
+	defer h.notifierMu.RUnlock()
+	return h.notifier
+}
+
 // relay logs an inbound event to the transcript, then delivers it to Claude.
 func (h *Handler) relay(ctx context.Context, content string, meta map[string]string) error {
 	h.Log.Append(transcript.Record{
@@ -78,10 +95,11 @@ func (h *Handler) relay(ctx context.Context, content string, meta map[string]str
 		MessageID: meta["message_id"],
 		Text:      content,
 	})
-	if h.Notifier == nil {
+	n := h.Notifier()
+	if n == nil {
 		return nil
 	}
-	return h.Notifier.SendChannel(ctx, content, meta)
+	return n.SendChannel(ctx, content, meta)
 }
 
 // inboundKind classifies an inbound for the transcript.
@@ -128,8 +146,8 @@ func (h *Handler) HandleMessage(ctx context.Context, m *discordgo.Message) {
 			_ = h.Session.MessageReactionAdd(chatID, m.ID, "🤷")
 			return
 		}
-		if h.Notifier != nil {
-			if err := h.Notifier.SendVerdict(ctx, code, behavior); err != nil {
+		if n := h.Notifier(); n != nil {
+			if err := n.SendVerdict(ctx, code, behavior); err != nil {
 				fmt.Fprintf(os.Stderr, "hotline: send verdict failed: %v\n", err)
 			}
 		}
@@ -391,8 +409,8 @@ func (h *Handler) handlePermInteraction(ctx context.Context, i *discordgo.Intera
 		h.ackInteraction(i, "Already handled.")
 		return
 	}
-	if h.Notifier != nil {
-		if err := h.Notifier.SendVerdict(ctx, code, action); err != nil {
+	if n := h.Notifier(); n != nil {
+		if err := n.SendVerdict(ctx, code, action); err != nil {
 			fmt.Fprintf(os.Stderr, "hotline: send verdict failed: %v\n", err)
 		}
 	}

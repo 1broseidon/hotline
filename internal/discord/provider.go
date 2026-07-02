@@ -74,6 +74,11 @@ func (p *Provider) Capabilities() provider.Capabilities {
 // state dir, open the gateway websocket, bind the sink, and block until ctx is
 // cancelled. Without a token it blocks idle so the MCP handshake stays up.
 func (p *Provider) Start(ctx context.Context, sink provider.InboundSink) error {
+	// Bind the sink whenever a handler exists (tests inject one with a fake
+	// session); production always has one alongside dg.
+	if p.handler != nil {
+		p.handler.BindNotifier(sink)
+	}
 	if p.dg == nil {
 		<-ctx.Done()
 		return nil
@@ -82,8 +87,6 @@ func (p *Provider) Start(ctx context.Context, sink provider.InboundSink) error {
 		return fmt.Errorf("claiming gateway slot: %w", err)
 	}
 	defer lifecycle.ReleasePollerSlot(p.cfg.PidFile)
-
-	p.handler.Notifier = sink
 
 	p.dg.AddHandler(func(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		defer recoverPanic("message")

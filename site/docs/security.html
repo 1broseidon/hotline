@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Security · hotline docs</title>
-<meta name="description" content="hotline's threat model: what it defends against, how, and the gaps it will not pretend away.">
+<meta name="description" content="hotline's threat model: what it defends against, how, and the gaps that remain.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../hotline.css">
 </head>
@@ -37,7 +37,7 @@
 <h1>Security</h1>
 <p class="subtitle">A paired phone is a remote control for a machine running an agent with real permissions.</p>
 
-<p>hotline's job is to make that legible and gated. It does not pretend the arrangement is risk-free, and neither should you.</p>
+<p>hotline's job is to make that legible and gated. The risk itself does not go away.</p>
 
 <h2>Threat model</h2>
 <p>What hotline defends against:</p>
@@ -77,7 +77,7 @@ hotline deny &lt;code&gt; [--provider kind[:instance]]</code></pre>
 <h2>Signal specifics</h2>
 <p>Signal transport is end-to-end encrypted; hotline talks to a local signal-cli daemon. If you link that daemon to your personal account as a secondary device, it receives everything your account receives, every conversation, not just the agent chat. Use a standalone Signal account for the agent instead. The daemon's HTTP endpoint has no authentication; keep it on <code>127.0.0.1</code>.</p>
 
-<h2>Honest gaps</h2>
+<h2>Known gaps</h2>
 
 <h3>A stolen unlocked phone is the operator</h3>
 <p>Pairing authenticates a chat account, not a person. Whoever holds the paired phone can drive the agent and answer its permission prompts until you cut them off.</p>

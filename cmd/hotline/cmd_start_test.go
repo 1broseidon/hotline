@@ -40,24 +40,89 @@ func startTestState(t *testing.T) string {
 	return dir
 }
 
-func TestStartArgvDefaults(t *testing.T) {
+func TestStartWarnsWhenNothingConfigured(t *testing.T) {
 	startTestState(t)
+	fakeClaudeRunner(t)
 	argv, _ := fakeClaude(t)
 	var out, errOut bytes.Buffer
 	if err := cmdStart("", nil, nil, t.TempDir(), &out, &errOut); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	want := []string{"claude", "--dangerously-load-development-channels", "server:hotline"}
-	if strings.Join(*argv, " ") != strings.Join(want, " ") {
-		t.Errorf("argv = %v, want %v", *argv, want)
+	if strings.Join(*argv, " ") != "claude" {
+		t.Errorf("argv = %v, want plain claude", *argv)
 	}
 	if !strings.Contains(errOut.String(), "hotline init") {
-		t.Error("missing no-.mcp.json warning")
+		t.Error("missing not-set-up warning")
+	}
+}
+
+func TestStartPluginPathAllowlisted(t *testing.T) {
+	startTestState(t)
+	fakeClaudeRunner(t)
+	argv, _ := fakeClaude(t)
+	dir := t.TempDir()
+	writeProjectSettings(t, dir, `{"enabledPlugins": {"hotline@hotline": true}}`)
+	if err := os.WriteFile(claudeStateFile(), []byte(`{"cachedGrowthBookFeatures": {"tengu_harbor_ledger": [{"marketplace": "hotline", "plugin": "hotline"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if err := cmdStart("", nil, []string{"--continue"}, dir, &out, &errOut); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	want := "claude --channels plugin:hotline@hotline --continue"
+	if strings.Join(*argv, " ") != want {
+		t.Errorf("argv = %v, want %q", *argv, want)
+	}
+	if strings.Contains(errOut.String(), "dev-channel") {
+		t.Errorf("spurious dev-channel notice: %s", errOut.String())
+	}
+}
+
+func TestStartPluginPathNotAllowlistedFallsBack(t *testing.T) {
+	startTestState(t)
+	fakeClaudeRunner(t)
+	argv, _ := fakeClaude(t)
+	dir := t.TempDir()
+	writeProjectSettings(t, dir, `{"enabledPlugins": {"hotline@hotline": true}}`)
+	var out, errOut bytes.Buffer
+	if err := cmdStart("", nil, nil, dir, &out, &errOut); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	want := "claude --dangerously-load-development-channels plugin:hotline@hotline"
+	if strings.Join(*argv, " ") != want {
+		t.Errorf("argv = %v, want %q", *argv, want)
+	}
+	if !strings.Contains(errOut.String(), "approved channels list") {
+		t.Errorf("missing allowlist notice: %s", errOut.String())
+	}
+}
+
+func TestStartRawMCPJSONWinsOverPlugin(t *testing.T) {
+	startTestState(t)
+	fakeClaudeRunner(t)
+	argv, _ := fakeClaude(t)
+	dir := t.TempDir()
+	writeProjectSettings(t, dir, `{"enabledPlugins": {"hotline@hotline": true}}`)
+	mcp := `{"mcpServers": {"hotline": {"command": "hotline", "args": ["run"]}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(mcp), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if err := cmdStart("", nil, nil, dir, &out, &errOut); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	want := "claude --dangerously-load-development-channels server:hotline"
+	if strings.Join(*argv, " ") != want {
+		t.Errorf("argv = %v, want %q", *argv, want)
+	}
+	if !strings.Contains(errOut.String(), "raw .mcp.json") {
+		t.Errorf("missing raw-path notice: %s", errOut.String())
 	}
 }
 
 func TestStartPassthroughAndEnv(t *testing.T) {
 	startTestState(t)
+	fakeClaudeRunner(t)
 	argv, env := fakeClaude(t)
 	var out, errOut bytes.Buffer
 	err := cmdStart("work", []string{"--providers", "telegram:work"}, []string{"--continue"}, t.TempDir(), &out, &errOut)
@@ -78,6 +143,7 @@ func TestStartPassthroughAndEnv(t *testing.T) {
 
 func TestStartReadsServerNameFromMCPJSON(t *testing.T) {
 	startTestState(t)
+	fakeClaudeRunner(t)
 	argv, _ := fakeClaude(t)
 	dir := t.TempDir()
 	mcp := `{"mcpServers": {"my-channel": {"command": "hotline", "args": ["run"]}}}`
@@ -110,6 +176,7 @@ func TestStartWarnsMissingTokenAndSignal(t *testing.T) {
 	startTestState(t)
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("SIGNAL_ACCOUNT", "+15551234567")
+	fakeClaudeRunner(t)
 	fakeClaude(t)
 	origCheck := signalCheck
 	signalCheck = func(url string) error { return errors.New("connection refused") }

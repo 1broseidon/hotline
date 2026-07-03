@@ -38,7 +38,7 @@ func hotlineEntry(t *testing.T, m map[string]any, name string) map[string]any {
 func TestInitCreatesFresh(t *testing.T) {
 	dir := t.TempDir()
 	var out bytes.Buffer
-	if err := cmdInit("", nil, dir, &out); err != nil {
+	if err := cmdInit("", []string{"--mcp-json"}, dir, &out); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	entry := hotlineEntry(t, readMCP(t, dir), "hotline")
@@ -66,7 +66,7 @@ func TestInitPreservesOtherServersAndKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := cmdInit("", []string{"--providers", "telegram,signal"}, dir, &out); err != nil {
+	if err := cmdInit("", []string{"--mcp-json", "--providers", "telegram,signal"}, dir, &out); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	m := readMCP(t, dir)
@@ -95,7 +95,7 @@ func TestInitUpdatesExistingHotlineEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := cmdInit("work", nil, dir, &out); err != nil {
+	if err := cmdInit("work", []string{"--mcp-json"}, dir, &out); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	m := readMCP(t, dir)
@@ -123,7 +123,7 @@ func TestInitMalformedJSONErrorsWithoutClobber(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	err := cmdInit("", nil, dir, &out)
+	err := cmdInit("", []string{"--mcp-json"}, dir, &out)
 	if err == nil || !strings.Contains(err.Error(), "not valid JSON") {
 		t.Fatalf("want clear JSON error, got %v", err)
 	}
@@ -136,7 +136,7 @@ func TestInitMalformedJSONErrorsWithoutClobber(t *testing.T) {
 func TestInitVoiceWritesOnceNeverOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	var out bytes.Buffer
-	if err := cmdInit("", []string{"--voice"}, dir, &out); err != nil {
+	if err := cmdInit("", []string{"--mcp-json", "--voice"}, dir, &out); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	voicePath := filepath.Join(dir, "HOTLINE.md")
@@ -147,7 +147,7 @@ func TestInitVoiceWritesOnceNeverOverwrites(t *testing.T) {
 	if err := os.WriteFile(voicePath, []byte(custom), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdInit("", []string{"--voice"}, dir, &out); err != nil {
+	if err := cmdInit("", []string{"--mcp-json", "--voice"}, dir, &out); err != nil {
 		t.Fatalf("second init: %v", err)
 	}
 	data, _ := os.ReadFile(voicePath)

@@ -46,7 +46,12 @@ HOTLINE_PROVIDERS=telegram,discord      <span class="c"># two transports on one 
 HOTLINE_PROVIDERS=telegram,discord,signal   <span class="c"># all three</span></code></pre>
 
 <h2>Where the variable goes</h2>
-<p><code>HOTLINE_PROVIDERS</code> is read from the <strong>process environment</strong>, not the state <code>.env</code>. Set it where the MCP server is launched: the <code>env</code> block of your <code>.mcp.json</code>:</p>
+<p><code>HOTLINE_PROVIDERS</code> is read from the <strong>process environment</strong>, not the state <code>.env</code>. Set it where the MCP server is launched. On the plugin path that's the <code>env</code> block of the project's <code>.claude/settings.json</code> — Claude Code applies it to the session and the plugin-spawned server inherits it (<code>hotline init --providers telegram,signal</code> writes this for you):</p>
+<pre><code>{
+  "enabledPlugins": { "hotline@hotline": true },
+  "env": { "HOTLINE_PROVIDERS": "telegram,signal" }
+}</code></pre>
+<p>On the raw path it's the <code>env</code> block of your <code>.mcp.json</code>:</p>
 <pre><code>{
   "mcpServers": {
     "hotline": {

@@ -5,7 +5,7 @@
 // Subcommands:
 //
 //	hotline setup        save credentials to the shared .env (run once)
-//	hotline init         register hotline in this repo's .mcp.json
+//	hotline init         install the hotline plugin and enable it for this repo
 //	hotline start        launch Claude Code with the channel loaded
 //	hotline [run]        start the MCP server + Telegram poller (default)
 //	hotline pair <code>  approve a pending pairing code
@@ -103,8 +103,9 @@ Usage:
   hotline setup        save credentials to the shared .env (run once;
                        --telegram-token, --discord-token, --signal-account,
                        --signal-daemon-url; --show prints the current config)
-  hotline init         register hotline in this repo's .mcp.json
-                       (--providers telegram,signal; --voice writes HOTLINE.md)
+  hotline init         install the hotline plugin and enable it for this repo
+                       (--providers telegram,signal; --voice writes HOTLINE.md;
+                       --mcp-json registers a raw .mcp.json server instead)
   hotline start        launch Claude Code with the channel loaded
                        (args after -- go to claude: hotline start -- --continue)
   hotline [run]        start the MCP server + Telegram poller (default)

@@ -59,7 +59,7 @@
     <p>Register the channel in the project you want to text with:</p>
 <pre><code>cd your-project
 hotline init</code></pre>
-    <p>This writes (or merges into) <code>.mcp.json</code>. Add <code>--providers telegram,signal</code> for extra transports, <code>--voice</code> for a starter <code>HOTLINE.md</code>.</p>
+    <p>This installs the hotline Claude Code plugin and enables it for the project (<code>.claude/settings.json</code>). Add <code>--providers telegram,signal</code> for extra transports, <code>--voice</code> for a starter <code>HOTLINE.md</code>, <code>--mcp-json</code> to register a raw <code>.mcp.json</code> server instead.</p>
   </li>
   <li>
     <p>Launch Claude Code with the channel loaded:</p>
@@ -79,14 +79,19 @@ hotline init</code></pre>
 mkdir -p ~/.config/hotline
 printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.config/hotline/.env
 chmod 600 ~/.config/hotline/.env</code></pre>
-<pre><code><span class="c">// init: .mcp.json in the project</span>
-{
+<pre><code><span class="c"># init: install the plugin, enable it for the project</span>
+claude plugin marketplace add 1broseidon/hotline
+claude plugin install hotline@hotline -s project</code></pre>
+<pre><code><span class="c"># start: load the plugin channel</span>
+claude --dangerously-load-development-channels plugin:hotline@hotline</code></pre>
+<p>Claude Code gates channel registration on an allowlist of approved channel plugins; hotline isn't on it yet, so the dev-channel flag is still needed. <code>hotline start</code> checks the allowlist on every launch and drops the flag for plain <code>--channels plugin:hotline@hotline</code> the moment hotline is approved.</p>
+<p>Prefer a raw MCP server without the plugin? <code>hotline init --mcp-json</code> writes this into the project's <code>.mcp.json</code>:</p>
+<pre><code>{
   "mcpServers": {
     "hotline": { "command": "hotline", "args": ["run"] }
   }
 }</code></pre>
-<pre><code><span class="c"># start: channels are experimental and loaded by MCP server name</span>
-claude --dangerously-load-development-channels server:hotline</code></pre>
+<p>Raw servers always need the dev-channel flag, by name: <code>claude --dangerously-load-development-channels server:hotline</code>.</p>
 </details>
 
 <h2>The tools Claude gets</h2>
@@ -110,7 +115,7 @@ One bubble unless the answer genuinely needs two.</code></pre>
 
 <h2>CLI</h2>
 <pre><code>hotline setup        <span class="c"># save credentials to the shared .env (run once)</span>
-hotline init         <span class="c"># register hotline in this repo's .mcp.json</span>
+hotline init         <span class="c"># install the hotline plugin and enable it for this repo</span>
 hotline start        <span class="c"># launch Claude Code with the channel loaded</span>
 hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
 hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>

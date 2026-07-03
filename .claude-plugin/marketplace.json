@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "hotline",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./plugins/hotline",
       "description": "Wires up the hotline MCP server so Claude Code sessions get the Telegram channel: reply, react, edit_message, and download_attachment tools plus inbound message relay. Requires the hotline binary on PATH (go install github.com/1broseidon/hotline@latest) and a configured bot token — see the README quickstart.",
       "author": {

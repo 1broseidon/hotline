@@ -53,7 +53,7 @@ Requires Go 1.26+ for the source build.
    hotline init
    ```
 
-   This writes (or merges into) `.mcp.json`. Add `--providers telegram,signal` for extra transports, `--voice` for a starter `HOTLINE.md`.
+   This installs the hotline Claude Code plugin and enables it for the project (`.claude/settings.json`). Add `--providers telegram,signal` for extra transports, `--voice` for a starter `HOTLINE.md`, `--mcp-json` to register a raw `.mcp.json` server instead.
 
 3. Launch Claude Code with the channel loaded:
 
@@ -90,8 +90,22 @@ printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' > ~/.config/hotline/.env
 chmod 600 ~/.config/hotline/.env
 ```
 
+```sh
+# init: install the plugin, enable it for the project
+claude plugin marketplace add 1broseidon/hotline
+claude plugin install hotline@hotline -s project
+```
+
+```sh
+# start: load the plugin channel
+claude --dangerously-load-development-channels plugin:hotline@hotline
+```
+
+Claude Code gates channel registration on an allowlist of approved channel plugins; hotline isn't on it yet, so the dev-channel flag is still needed. `hotline start` checks the allowlist on every launch and drops the flag for plain `--channels plugin:hotline@hotline` the moment hotline is approved.
+
+Prefer a raw MCP server without the plugin? `hotline init --mcp-json` writes this into the project's `.mcp.json`:
+
 ```json
-// init: .mcp.json in the project
 {
   "mcpServers": {
     "hotline": { "command": "hotline", "args": ["run"] }
@@ -99,10 +113,7 @@ chmod 600 ~/.config/hotline/.env
 }
 ```
 
-```sh
-# start: channels are experimental and loaded by MCP server name
-claude --dangerously-load-development-channels server:hotline
-```
+Raw servers always need the dev-channel flag, by name: `claude --dangerously-load-development-channels server:hotline`.
 
 </details>
 
@@ -192,7 +203,16 @@ HOTLINE_PROVIDERS=telegram,discord      # two transports on one channel
 HOTLINE_PROVIDERS=telegram,discord,signal   # all three
 ```
 
-`HOTLINE_PROVIDERS` is read from the process environment, not the state `.env`. Set it where the MCP server is launched: the `env` block of your `.mcp.json`:
+`HOTLINE_PROVIDERS` is read from the process environment, not the state `.env`. Set it where the MCP server is launched. On the plugin path that's the `env` block of the project's `.claude/settings.json` — Claude Code applies it to the session, and the plugin-spawned server inherits it (`hotline init --providers telegram,signal` writes this for you):
+
+```json
+{
+  "enabledPlugins": { "hotline@hotline": true },
+  "env": { "HOTLINE_PROVIDERS": "telegram,signal" }
+}
+```
+
+On the raw path it's the `env` block of your `.mcp.json`:
 
 ```json
 {
@@ -329,7 +349,7 @@ When a token is configured, hotline declares the `claude/channel/permission` cap
 
 ```
 hotline setup        save credentials to the shared .env (run once)
-hotline init         register hotline in this repo's .mcp.json
+hotline init         install the hotline plugin and enable it for this repo
 hotline start        launch Claude Code with the channel loaded
 hotline [run]        start the MCP server + Telegram poller (default)
 hotline pair <code>  approve a pending pairing code

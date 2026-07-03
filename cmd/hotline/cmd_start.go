@@ -63,15 +63,32 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 		return fmt.Errorf("claude not found on PATH. Install Claude Code first: https://claude.com/claude-code")
 	}
 
-	serverName, found := mcpServerName(filepath.Join(dir, ".mcp.json"))
-	if !found {
-		fmt.Fprintf(stderr, "hotline: warning: no .mcp.json in %s — run `hotline init` first or claude won't see the channel\n", dir)
-	}
-
 	warnMissingCreds(botName, stderr)
 
-	argv := append([]string{"claude", "--dangerously-load-development-channels", "server:" + serverName}, passthrough...)
+	argv := append([]string{"claude"}, channelArgs(dir, stderr)...)
+	argv = append(argv, passthrough...)
 	return execProcess(bin, argv, os.Environ())
+}
+
+// channelArgs picks how the channel is handed to claude. A raw hotline entry
+// in the project's .mcp.json takes the dev-channel flag (the only form claude
+// accepts for plain servers). On the plugin path the safe --channels switch is
+// used when hotline is on Claude's approved channels allowlist; until then the
+// dev-channel flag registers the same plugin channel.
+func channelArgs(dir string, stderr io.Writer) []string {
+	if serverName, found := mcpServerName(filepath.Join(dir, ".mcp.json")); found {
+		fmt.Fprintf(stderr, "hotline: raw .mcp.json server — using the dev-channel flag; `hotline init` sets up the plugin path instead\n")
+		return []string{"--dangerously-load-development-channels", "server:" + serverName}
+	}
+	if !pluginPathActive(dir) {
+		fmt.Fprintf(stderr, "hotline: warning: hotline is not set up in %s — run `hotline init` first or claude won't see the channel\n", dir)
+		return nil
+	}
+	if channelAllowlisted() {
+		return []string{"--channels", channelRef}
+	}
+	fmt.Fprintf(stderr, "hotline: %s is not on Claude's approved channels list yet — using the dev-channel flag (switches to --channels automatically once approved)\n", pluginID)
+	return []string{"--dangerously-load-development-channels", channelRef}
 }
 
 // mcpServerName reads .mcp.json and returns the name of the entry whose

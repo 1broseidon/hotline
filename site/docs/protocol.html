@@ -47,9 +47,10 @@
 </ul>
 
 <h2>The flag</h2>
-<p>Channels are experimental and loaded by MCP server name:</p>
-<pre><code>claude --dangerously-load-development-channels server:hotline</code></pre>
-<p>Read the flag name. It says <em>dangerously</em> and <em>development</em>, and both words are accurate. This is an unshipped surface of Claude Code that you are opting into.</p>
+<p>Claude Code registers channels named on the command line. The safe form is <code>--channels</code>, but it only accepts plugins on Claude Code's approved channels allowlist, and hotline isn't on it yet. Until it is, the dev-channel flag loads it:</p>
+<pre><code>claude --dangerously-load-development-channels plugin:hotline@hotline   <span class="c"># plugin path</span>
+claude --dangerously-load-development-channels server:hotline           <span class="c"># raw .mcp.json server</span></code></pre>
+<p>Read the flag name. It says <em>dangerously</em> and <em>development</em>, and both words are accurate. This is an unshipped surface of Claude Code that you are opting into. <code>hotline start</code> checks the allowlist on every launch and switches to plain <code>--channels plugin:hotline@hotline</code> the moment hotline is approved.</p>
 
 <h2>What experimental means here</h2>
 <div class="aside">

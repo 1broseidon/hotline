@@ -115,6 +115,14 @@ hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span
 hotline status       <span class="c"># print state-dir / token / access summary</span></code></pre>
 <p><code>pair</code>, <code>deny</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
 
+<h2>Start from a template</h2>
+<p><a href="https://github.com/1broseidon/hotline/tree/main/templates/mission-control">mission-control</a> is our take on what makes a good texting agent: a filing system the agent keeps on disk, an operating playbook, a starter voice. Copy the folder into your project, or install it as a plugin and scaffold with one command:</p>
+<pre><code>claude plugin marketplace add 1broseidon/hotline
+claude plugin install mission-control@hotline
+<span class="c"># then, inside your project's Claude Code session:</span>
+/mission-control:init</code></pre>
+<p>Built your own setup around hotline? Open a PR with your template.</p>
+
 <h2>Where things live</h2>
 <p>State lives in <code>~/.config/hotline</code> (or <code>$XDG_CONFIG_HOME/hotline</code>). On first run, state at the old <code>~/.claude/channels/tele-go</code> location is copied over automatically; the old directory is left in place so sessions still running an older binary keep working. hotline was formerly tele-go, and <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
 

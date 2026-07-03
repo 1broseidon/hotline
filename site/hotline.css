@@ -166,14 +166,50 @@ pre .a { color: var(--color-accent); }
 .btn:not(.btn-primary):hover { background: var(--color-paper-3); color: var(--color-ink); }
 
 /* ---- conversation ---- */
+.phone {
+  max-width: 26rem;
+  width: 100%;
+  justify-self: end;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-paper-2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.phone-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-paper-3);
+}
+.phone-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex: none;
+  display: inline-block;
+}
+.phone-name {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.25;
+}
+.phone-status {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--color-ink-dim);
+}
 .convo {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
   font-size: var(--text-sm);
-  max-width: 26rem;
-  width: 100%;
-  justify-self: end;
+  padding: var(--space-md);
 }
 .convo .msg {
   padding: 0.55rem 0.9rem;
@@ -316,7 +352,7 @@ td:first-child code { white-space: normal; }
 /* ---- responsive ---- */
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding-top: var(--space-xl); }
-  .convo { justify-self: start; }
+  .phone { justify-self: start; }
   .cols-3 { grid-template-columns: minmax(0, 1fr); }
   .docs-shell { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
   .docs-nav { position: static; display: flex; flex-wrap: wrap; gap: 0 var(--space-md); border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-md); }

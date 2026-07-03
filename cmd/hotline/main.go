@@ -301,10 +301,6 @@ func runChannel(botName string) error {
 	// authenticate the replier (for Telegram: the access gate is active, which
 	// requires a running bot).
 	permission := router.PermissionRelay()
-	var onPerm mcpchan.PermissionHandler
-	if permission {
-		onPerm = router.OnPermissionRequest
-	}
 
 	// The transcript path baked into the channel instructions is the primary
 	// (first) provider's — with one provider configured this is exactly the old
@@ -320,14 +316,7 @@ func runChannel(botName string) error {
 	stateRoot, _ := config.StateRoot()
 	voice := mcpchan.LoadVoice(stateRoot)
 
-	transport := mcpchan.NewChannelTransport(onPerm)
 	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice)
-
-	// The poll fn starts every provider on the source-tagging router sink; the
-	// notifier is valid only after Connect, which lifecycle.Run performs first.
-	pollFn := func(ctx context.Context) error {
-		return router.Start(ctx, transport.Notifier())
-	}
 
 	// On force-exit (the 2s shutdown safety net skips deferred cleanup) release
 	// every claimed poller slot so no stale PID files survive.
@@ -335,6 +324,32 @@ func runChannel(botName string) error {
 		for _, pf := range pidFiles {
 			lifecycle.ReleasePollerSlot(pf)
 		}
+	}
+
+	// Harness selection. The messaging providers above are identical either way;
+	// only the inbound-push + permission-relay seam differs. Claude Code (the
+	// default) rides the MCP claude/channel notifications; OpenCode rides a
+	// separate HTTP+SSE control plane (see run_opencode.go).
+	harnessMode, err := config.Harness()
+	if err != nil {
+		return err
+	}
+	if harnessMode == "opencode" {
+		return runOpenCodeHarness(router, server, permission, cleanup)
+	}
+
+	// Claude Code: inbound + permission relay travel over the same stdio MCP
+	// connection as the tools, via the custom claude/channel notifications.
+	var onPerm mcpchan.PermissionHandler
+	if permission {
+		onPerm = router.OnPermissionRequest
+	}
+	transport := mcpchan.NewChannelTransport(onPerm)
+
+	// The poll fn starts every provider on the source-tagging router sink; the
+	// notifier is valid only after Connect, which lifecycle.Run performs first.
+	pollFn := func(ctx context.Context) error {
+		return router.Start(ctx, transport.Notifier())
 	}
 
 	return lifecycle.Run(server, transport, cleanup, pollFn)

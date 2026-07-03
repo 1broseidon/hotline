@@ -62,6 +62,21 @@ func (s *Stub) OnPermissionRequest(_ context.Context, p mcpchan.PermissionReques
 	s.PermRequests = append(s.PermRequests, p)
 }
 
+// PermRequestsLen returns the number of relayed permission prompts recorded, for
+// tests that race with the relay goroutine.
+func (s *Stub) PermRequestsLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.PermRequests)
+}
+
+// PermRequestsAt returns the i-th recorded permission prompt under the lock.
+func (s *Stub) PermRequestsAt(i int) mcpchan.PermissionRequestParams {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PermRequests[i]
+}
+
 // Reply implements mcpchan.ToolSet, degrading buttons to numbered text options
 // when the stub's capabilities lack native buttons — the same contract a real
 // button-less transport adapter must honor.

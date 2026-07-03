@@ -1,0 +1,18 @@
+[Unit]
+Description=email-sentry watcher (Gmail history poller -> run_sentry --live)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart={{PYTHON_BIN}} {{SENTRY_DIR}}/watch_sentry.py
+WorkingDirectory={{SENTRY_DIR}}
+Restart=always
+RestartSec=10
+SuccessExitStatus=143 SIGTERM
+TimeoutStopSec=30
+KillMode=mixed
+Environment=PATH={{PATH_LINE}}
+Environment=HOME=%h
+
+[Install]
+WantedBy=default.target

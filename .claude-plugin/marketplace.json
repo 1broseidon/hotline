@@ -32,6 +32,20 @@
       "license": "MIT",
       "category": "workflow",
       "keywords": ["workspace", "scaffold", "filing", "hotline", "telegram"]
+    },
+    {
+      "name": "email-sentry",
+      "version": "0.1.0",
+      "source": "./plugins/email-sentry",
+      "description": "Watches your Gmail and buzzes your hotline channel only for mail that matters: a human asking you something, money moving, real deadlines, security events. One skill, /email-sentry:init, scaffolds the watcher, the LLM judge, and a systemd service. Requires the gog CLI authenticated for your account(s) and a running hotline channel.",
+      "author": {
+        "name": "1broseidon"
+      },
+      "homepage": "https://github.com/1broseidon/hotline",
+      "repository": "https://github.com/1broseidon/hotline",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": ["gmail", "email", "triage", "notifications", "hotline", "telegram"]
     }
   ]
 }

@@ -76,6 +76,8 @@ claude plugin marketplace add 1broseidon/hotline
 claude plugin install mission-control@hotline
 ```
 
+The same marketplace also has `email-sentry`: a Gmail watcher that buzzes your hotline channel only for mail that matters (`claude plugin install email-sentry@hotline`, then `/email-sentry:init`).
+
 <details>
 <summary>By hand</summary>
 

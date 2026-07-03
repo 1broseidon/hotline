@@ -1,0 +1,57 @@
+{
+  "_comment": "Config for the email-sentry engine (run_sentry.py). The /email-sentry:init skill fills accounts, user_name, user_addresses, and timezone at setup. Tune vip_senders, quiet_hours, and claude.model. Everything here is read at runtime; no secrets live in this file.",
+
+  "user_name": "{{USER_NAME}}",
+  "_user_name_note": "First name is enough. Injected into the judge prompt so 'a human wrote to you personally' has a name to check against.",
+
+  "timezone": "{{TIMEZONE}}",
+  "_timezone_note": "IANA name, e.g. America/New_York. Check with: timedatectl",
+
+  "quiet_hours": "22:00-07:00",
+  "_quiet_hours_note": "Local to timezone above. During quiet hours the judge raises the bar to notify a PERSONAL account; a live WORK incident can still clear it. The judge enforces this from the injected CONTEXT.",
+
+  "lookback": "newer_than:2d",
+  "dedup_label": "Sentry/Triaged",
+  "per_account_max": 25,
+
+  "_search_query_note": "The engine builds the live query as: in:inbox is:unread <lookback> -label:<dedup_label>. Use --query on the CLI to override for testing (e.g. drop is:unread to judge already-read mail).",
+
+  "body_max_chars": 2500,
+
+  "accounts": [
+    { "email": "{{ACCOUNT_EMAIL}}", "role": "personal" }
+  ],
+  "_accounts_note": "One entry per gog-authenticated Gmail account. role is personal or work; role feeds the judge (work incidents clear the bar more easily, esp. in quiet hours).",
+
+  "user_addresses": [
+    "{{ACCOUNT_EMAIL}}"
+  ],
+  "_user_addresses_note": "What counts as mail addressed 'to you': the account addresses plus any aliases, group addresses, or plus-addresses that land in these inboxes.",
+
+  "vip_senders": {
+    "_comment": "STARTER LIST, tune it. An email from any of these biases the judge toward notify. Use lowercase. 'senders' = exact addresses; 'domains' = whole domains.",
+    "senders": [],
+    "domains": []
+  },
+
+  "claude": {
+    "_comment": "The LLM judge. model can be sonnet (default; balanced, good injection resistance) or haiku (cheaper, faster, less nuanced) or opus (most capable, priciest). The engine always adds --strict-mcp-config and --tools '' and runs from a neutral temp dir so no project/MCP context contaminates the judge.",
+    "bin": "claude",
+    "model": "sonnet",
+    "timeout_sec": 240
+  },
+
+  "notify": {
+    "_comment": "LIVE mode only. The bot token is read at runtime from hotline's state .env (NOT stored here). chat_id null = auto: the first allowlisted chat in hotline's access.json. Set it explicitly to pin a recipient.",
+    "chat_id": null,
+    "token_env_file": null,
+    "token_key": "TELEGRAM_BOT_TOKEN"
+  },
+
+  "gog": {
+    "bin": "gog",
+    "env_file": "~/.config/gogcli/env"
+  },
+
+  "log_file": "sentry-log.jsonl"
+}

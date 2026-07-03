@@ -69,6 +69,13 @@ Requires Go 1.26+ for the source build.
 
 That's it. Your session is now a Telegram chat.
 
+Starting fresh? [templates/mission-control](templates/mission-control/) is our take on what makes a good texting agent: a filing system the agent keeps on disk, an operating playbook, a starter voice. Copy the folder, or install it as a plugin and run `/mission-control:init` in your project:
+
+```sh
+claude plugin marketplace add 1broseidon/hotline
+claude plugin install mission-control@hotline
+```
+
 <details>
 <summary>By hand</summary>
 

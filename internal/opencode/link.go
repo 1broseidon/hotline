@@ -117,7 +117,13 @@ func (l *Link) PushInbound(ctx context.Context, in harness.Inbound) error {
 		l.setSession(id)
 		session = id
 	}
-	return l.client.PromptAsync(ctx, session, in.Content)
+	// Frame the turn as the <channel …> envelope so the agent reads chat_id and
+	// source off the tag and echoes them back into hotline_reply. Claude Code
+	// renders this same envelope client-side from the notification meta; here we
+	// render it into the prompt text since OpenCode only speaks plain text. Using
+	// in.Content alone would drop in.Meta — the routing keys — and the agent
+	// would have no chat_id to reply to.
+	return l.client.PromptAsync(ctx, session, harness.RenderChannel(in))
 }
 
 // AnswerPermission implements harness.Link: resolve the relay code back to the

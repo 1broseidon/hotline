@@ -184,6 +184,60 @@ func TestLinkPushResolvesLazily(t *testing.T) {
 	}
 }
 
+// TestLinkPushRendersChannelEnvelope proves PushInbound frames the turn as the
+// <channel …> envelope carrying the routing meta (chat_id, source, …) — not the
+// bare content. This is the routing-metadata fix: before it, PushInbound pushed
+// only in.Content and dropped in.Meta, so the agent never saw the real chat_id
+// and hallucinated one into hotline_reply. This test fails against that old
+// in.Content-only behavior.
+func TestLinkPushRendersChannelEnvelope(t *testing.T) {
+	mock := &mockServer{sessionsJSON: `[{"id":"ses_only","time":{"created":1,"updated":5}}]`}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	link := NewLink(srv.URL, "", "")
+	in := harness.Inbound{
+		Content: "hey are you there",
+		Meta: map[string]string{
+			"chat_id":    "412407481",
+			"source":     "telegram",
+			"user":       "George",
+			"user_id":    "412407481",
+			"message_id": "88",
+		},
+	}
+	if err := link.PushInbound(context.Background(), in); err != nil {
+		t.Fatalf("PushInbound: %v", err)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.prompts) != 1 {
+		t.Fatalf("prompts: %+v", mock.prompts)
+	}
+	got := mock.prompts[0].body.Parts[0].Text
+
+	// The pushed text must carry the real chat_id and source so the agent can
+	// echo them back into hotline_reply verbatim.
+	if !strings.Contains(got, `chat_id="412407481"`) {
+		t.Fatalf("pushed text missing real chat_id; got:\n%s", got)
+	}
+	if !strings.Contains(got, `source="telegram"`) {
+		t.Fatalf("pushed text missing source; got:\n%s", got)
+	}
+	if !strings.Contains(got, "<channel") || !strings.Contains(got, "</channel>") {
+		t.Fatalf("pushed text is not a channel envelope; got:\n%s", got)
+	}
+	// The user's actual message must still be present.
+	if !strings.Contains(got, "hey are you there") {
+		t.Fatalf("pushed text dropped the content; got:\n%s", got)
+	}
+	// Guard against regression to the old bare-content behavior.
+	if got == in.Content {
+		t.Fatalf("pushed text is bare content — meta was dropped (the bug)")
+	}
+}
+
 // TestLinkPinnedSession keeps the pinned session even when SSE events name a
 // different one.
 func TestLinkPinnedSession(t *testing.T) {

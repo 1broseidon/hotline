@@ -340,7 +340,7 @@ hotline status       print state-dir / token / access summary
 
 ## State and environment
 
-State lives in `${XDG_CONFIG_HOME:-~/.config}/hotline`. On first run, state found at the old default `~/.claude/channels/tele-go` is copied over automatically; the old directory is left in place so sessions still running an older binary keep working. hotline was formerly `tele-go`; `TELE_GO_*` variables keep working as fallbacks for one release.
+State lives in `${XDG_CONFIG_HOME:-~/.config}/hotline`. On first run, state found at the old default `~/.config/hotline` is copied over automatically; the old directory is left in place so sessions still running an older binary keep working. hotline was formerly `tele-go`; `TELE_GO_*` variables keep working as fallbacks for one release.
 
 | Variable | Purpose |
 |---|---|

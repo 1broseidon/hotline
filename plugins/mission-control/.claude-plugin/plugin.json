@@ -1,0 +1,13 @@
+{
+  "name": "mission-control",
+  "version": "0.1.0",
+  "description": "One skill, /mission-control:init, that scaffolds a mission-control workspace into the current project: a filing system (INDEX.md, threads/, inbox/, archive/), an agent playbook (CLAUDE.md), and a starter texting voice (HOTLINE.md). Never overwrites existing files.",
+  "author": {
+    "name": "1broseidon",
+    "url": "https://github.com/1broseidon"
+  },
+  "homepage": "https://github.com/1broseidon/hotline",
+  "repository": "https://github.com/1broseidon/hotline",
+  "license": "MIT",
+  "keywords": ["workspace", "scaffold", "filing", "hotline", "telegram"]
+}

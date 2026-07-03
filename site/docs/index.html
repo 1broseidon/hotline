@@ -37,11 +37,11 @@
 
 <main class="docs">
 <h1>Quickstart</h1>
-<p class="subtitle">From zero to texting your Claude Code session, on Telegram, in four steps.</p>
+<p class="subtitle">From zero to texting your coding-agent session, on Telegram, in four steps.</p>
 
 <h2>What hotline is</h2>
-<p>hotline is an MCP server that relays a Claude Code session to your messaging apps. Claude replies in short bubbles with a typing indicator, reacts with emoji, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. Telegram is the default provider; <a href="signal.html">Signal</a> and <a href="discord.html">Discord</a> run alongside it or on their own.</p>
-<p>It speaks Claude Code's experimental two-way channel protocol (<code>claude/channel</code>), which makes it Claude Code specific today. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
+<p>hotline is an MCP server that relays a coding-agent session to your messaging apps. It replies in short bubbles with a typing indicator, reacts with emoji, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. Telegram is the default provider; <a href="signal.html">Signal</a> and <a href="discord.html">Discord</a> run alongside it or on their own.</p>
+<p>It drives two harnesses: Claude Code over its experimental two-way channel protocol (<code>claude/channel</code>), and OpenCode over a separate HTTP+SSE adapter. Pick yours in the setup below. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
 
 <h2>Install</h2>
 <pre><code>brew install 1broseidon/tap/hotline</code></pre>
@@ -49,32 +49,43 @@
 <pre><code>go install github.com/1broseidon/hotline/cmd/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
 
 <h2>Set up Telegram</h2>
-<ol>
-  <li>
-    <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>, then save it (once, machine-wide):</p>
+<p>Pick your harness. The texting experience is the same either way.</p>
+
+<div class="tabs">
+  <input type="radio" name="harness" id="tab-claude" class="tab-radio" checked>
+  <input type="radio" name="harness" id="tab-opencode" class="tab-radio">
+  <div class="tab-list" role="tablist">
+    <label class="tab" for="tab-claude">Claude Code</label>
+    <label class="tab" for="tab-opencode">OpenCode</label>
+  </div>
+
+  <div class="tab-panel" id="panel-claude">
+    <ol>
+      <li>
+        <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>, then save it (once, machine-wide):</p>
 <pre><code>hotline setup --telegram-token 123456789:AA…</code></pre>
-    <p>Run <code>hotline setup</code> with no flags to be prompted, <code>hotline setup --show</code> to see what's configured.</p>
-  </li>
-  <li>
-    <p>Register the channel in the project you want to text with:</p>
+        <p>Run <code>hotline setup</code> with no flags to be prompted, <code>hotline setup --show</code> to see what's configured.</p>
+      </li>
+      <li>
+        <p>Register the channel in the project you want to text with:</p>
 <pre><code>cd your-project
 hotline init</code></pre>
-    <p>This installs the hotline Claude Code plugin and enables it for the project (<code>.claude/settings.json</code>). Add <code>--providers telegram,signal</code> for extra transports, <code>--voice</code> for a starter <code>HOTLINE.md</code>, <code>--mcp-json</code> to register a raw <code>.mcp.json</code> server instead.</p>
-  </li>
-  <li>
-    <p>Launch Claude Code with the channel loaded:</p>
+        <p>This installs the hotline Claude Code plugin and enables it for the project (<code>.claude/settings.json</code>). Add <code>--providers telegram,signal</code> for extra transports, <code>--voice</code> for a starter <code>HOTLINE.md</code>, <code>--mcp-json</code> to register a raw <code>.mcp.json</code> server instead.</p>
+      </li>
+      <li>
+        <p>Launch Claude Code with the channel loaded:</p>
 <pre><code>hotline start   <span class="c"># extra claude flags go after --, e.g. hotline start -- --continue</span></code></pre>
-  </li>
-  <li>
-    <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
+      </li>
+      <li>
+        <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
 <pre><code>hotline pair &lt;code&gt;</code></pre>
-  </li>
-</ol>
-<p>That's it. Your session is now a Telegram chat. The pairing step is part of the access model; read <a href="access.html">Access &amp; permissions</a> before you hand the bot's handle to anyone.</p>
+      </li>
+    </ol>
+    <p>That's it. Your session is now a Telegram chat. The pairing step is part of the access model; read <a href="access.html">Access &amp; permissions</a> before you hand the bot's handle to anyone.</p>
 
-<details>
-<summary>By hand</summary>
-<p>The three commands wrap these steps:</p>
+    <details>
+    <summary>By hand</summary>
+    <p>The three commands wrap these steps:</p>
 <pre><code><span class="c"># setup: token in the channel's .env (a real TELEGRAM_BOT_TOKEN env var wins over the file)</span>
 mkdir -p ~/.config/hotline
 printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.config/hotline/.env
@@ -84,15 +95,58 @@ claude plugin marketplace add 1broseidon/hotline
 claude plugin install hotline@hotline -s project</code></pre>
 <pre><code><span class="c"># start: load the plugin channel</span>
 claude --dangerously-load-development-channels plugin:hotline@hotline</code></pre>
-<p>Claude Code gates channel registration on an allowlist of approved channel plugins; hotline isn't on it yet, so the dev-channel flag is still needed. <code>hotline start</code> checks the allowlist on every launch and drops the flag for plain <code>--channels plugin:hotline@hotline</code> the moment hotline is approved.</p>
-<p>Prefer a raw MCP server without the plugin? <code>hotline init --mcp-json</code> writes this into the project's <code>.mcp.json</code>:</p>
+    <p>Claude Code gates channel registration on an allowlist of approved channel plugins; hotline isn't on it yet, so the dev-channel flag is still needed. <code>hotline start</code> checks the allowlist on every launch and drops the flag for plain <code>--channels plugin:hotline@hotline</code> the moment hotline is approved.</p>
+    <p>Prefer a raw MCP server without the plugin? <code>hotline init --mcp-json</code> writes this into the project's <code>.mcp.json</code>:</p>
 <pre><code>{
   "mcpServers": {
     "hotline": { "command": "hotline", "args": ["run"] }
   }
 }</code></pre>
-<p>Raw servers always need the dev-channel flag, by name: <code>claude --dangerously-load-development-channels server:hotline</code>.</p>
-</details>
+    <p>Raw servers always need the dev-channel flag, by name: <code>claude --dangerously-load-development-channels server:hotline</code>.</p>
+    </details>
+  </div>
+
+  <div class="tab-panel" id="panel-opencode">
+    <p>OpenCode has no channel protocol, so the wiring splits in two. hotline runs as a stdio MCP server that OpenCode launches for the outbound tools, and dials OpenCode's local server for your inbound texts and permission prompts.</p>
+    <ol>
+      <li>
+        <p>Point OpenCode at hotline. Drop an <code>opencode.json</code> in your project with an <code>mcp</code> entry that launches the hotline binary in OpenCode mode:</p>
+<pre><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "your-provider/your-model",
+  "permission": { "bash": "ask" },
+  "mcp": {
+    "hotline": {
+      "type": "local",
+      "command": ["hotline"],
+      "environment": {
+        "HOTLINE_HARNESS": "opencode",
+        "HOTLINE_PROVIDERS": "telegram",
+        "TELEGRAM_BOT_TOKEN": "123456789:AA…",
+        "OPENCODE_SERVER_URL": "http://127.0.0.1:4096",
+        "OPENCODE_SESSION": "ses_your_pinned_session"
+      }
+    }
+  }
+}</code></pre>
+        <p><code>HOTLINE_HARNESS=opencode</code> selects the harness; an unknown value is rejected at startup. Keep the token out of the config with <code>hotline setup --telegram-token</code> instead, which writes the shared <code>.env</code>; a real env var wins over the file.</p>
+      </li>
+      <li>
+        <p>Run OpenCode's server. hotline dials it for inbound and answers permission prompts against it:</p>
+<pre><code>opencode serve   <span class="c"># default http://127.0.0.1:4096</span></code></pre>
+        <p>Set <code>OPENCODE_SERVER_URL</code> if you moved it, <code>OPENCODE_SERVER_PASSWORD</code> if it sits behind basic auth (empty means no auth).</p>
+      </li>
+      <li>
+        <p>Pin the session. OpenCode sessions are server-wide, so set <code>OPENCODE_SESSION</code> to the one you are driving. Leave it empty and hotline targets the most-recently-active session and re-pins onto whichever session emits live events.</p>
+      </li>
+      <li>
+        <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt;</code></pre>
+      </li>
+    </ol>
+    <p>Same providers, same access model. Permission prompts relay as <strong>See more / Allow / Deny</strong> buttons, or <code>yes &lt;code&gt;</code> by text. What gets gated is OpenCode's own <code>permission</code> block: leave <code>bash</code> auto-approved for a yolo session, or set <code>"bash": "ask"</code> to route each shell command through the relay. Verified against opencode 1.17.11.</p>
+  </div>
+</div>
 
 <h2>The tools Claude gets</h2>
 <div class="table-wrap">

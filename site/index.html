@@ -113,6 +113,31 @@
 </section>
 
 <section class="section">
+  <h2>Official plugins</h2>
+  <p>The marketplace carries the capabilities hosted agent products rent back to you as features: maintained in this repo, installed with one command, running on your box.</p>
+  <div class="cols-3">
+    <div>
+      <h3>hotline</h3>
+      <p>The channel itself as a plugin. Wires the hotline MCP server into a session: <code>reply</code>, <code>react</code>, <code>edit_message</code>, <code>download_attachment</code>, and the inbound relay.</p>
+    </div>
+    <div>
+      <h3>mission-control</h3>
+      <p>Scaffolds a texting-agent workspace in one command: a filing system the agent keeps on disk, an operating playbook, a starter voice.</p>
+    </div>
+    <div>
+      <h3>email-sentry</h3>
+      <p>A Gmail watcher that buzzes your channel only for mail that matters: a human asking you something, money moving, real deadlines, security events.</p>
+    </div>
+  </div>
+  <pre><code><span class="c"># add the marketplace once</span>
+<span class="p">$</span> claude plugin marketplace add 1broseidon/hotline
+
+<span class="c"># then install what you want</span>
+<span class="p">$</span> claude plugin install mission-control@hotline</code></pre>
+  <p>What each one scaffolds, prerequisites, and the init skills are on the <a href="docs/plugins.html">plugins page</a>.</p>
+</section>
+
+<section class="section">
   <h2>Built like a tool, not a service</h2>
   <p>One static Go binary. No daemon of its own, no account, no cloud relay. State lives in a directory you own, permissions are files you can read, and nobody talks to your agent without your say-so. Pairing approval happens only from your terminal, because a chat message asking for access is exactly what a prompt injection looks like.</p>
   <p>It speaks Claude Code's experimental <code>claude/channel</code> protocol, and the site says so plainly: <a href="docs/protocol.html">what that means and what can break</a>.</p>

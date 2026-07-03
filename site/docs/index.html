@@ -124,7 +124,7 @@ claude plugin install mission-control@hotline
 <p>Built your own setup around hotline? Open a PR with your template.</p>
 
 <h2>Where things live</h2>
-<p>State lives in <code>~/.config/hotline</code> (or <code>$XDG_CONFIG_HOME/hotline</code>). On first run, state at the old <code>~/.claude/channels/tele-go</code> location is copied over automatically; the old directory is left in place so sessions still running an older binary keep working. hotline was formerly tele-go, and <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
+<p>State lives in <code>~/.config/hotline</code> (or <code>$XDG_CONFIG_HOME/hotline</code>): tokens, access rules, transcripts, inboxes. Older installs are migrated there automatically on first run, and legacy <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
 
 <a class="next-link" href="telegram.html">next: Telegram in depth →</a>
 </main>

@@ -1,8 +1,8 @@
 # hotline
 
-A messaging channel for Claude Code. hotline is an MCP server that relays a Claude Code session to Telegram, so you talk to your agent the way you text a friend: short bubbles, reactions, tappable buttons, photos.
+A messaging channel for Claude Code and OpenCode. hotline is an MCP server that relays your agent session to Telegram, so you talk to it the way you text a friend: short bubbles, reactions, tappable buttons, photos.
 
-It speaks Claude Code's experimental two-way channel protocol (`claude/channel`). That makes it Claude Code specific today. Other harnesses work if they adopt the protocol, or when hotline adds support for them.
+It drives two harnesses: Claude Code over its experimental two-way channel protocol (`claude/channel`), and OpenCode over a separate HTTP+SSE adapter. The texting experience is the same either way. More harnesses work if they adopt the protocol or when hotline adds support.
 
 ## The texting experience
 

@@ -246,15 +246,17 @@ func instructionSegments(transcriptPath string) []instructionSegment {
 	return []instructionSegment{
 		{text: `If you didn't call reply (or react / edit_message), you said nothing; they see nothing else.`},
 
-		{text: `Reply in bubbles: pass reply's "bubbles" array, one thought per bubble; each lands as its own message with a typing pause.`},
+		{text: `Reply in bubbles: pass reply's "bubbles" array, one thought each; each lands as a message with a typing pause.`},
 
-		{text: `Pick-one question? Pass reply's "buttons" array (short labels like ["ship it","not yet"]); the tap comes back as a normal message. Still ask in the text.`},
+		{text: `Pick-one? Pass reply's "buttons" array (short labels like ["ship it","not yet"]); the tap returns as a message.`},
 
-		{text: `edit_message turns a sent bubble into a live status for slow work; edits don't buzz, so send a fresh bubble when done.`},
+		{text: `Never call tools that block on a local terminal prompt (multiple-choice question, plan approval). The person is remote and can't answer; the session freezes. Ask as a normal message; for a pick-one use reply's buttons.`},
 
-		{text: `Inbound arrives in the <channel> block. image_path means Read that file; attachment_file_id means call download_attachment, then Read the path it returns. Quick bursts coalesce into one block (bubbles="N"; attachments inline as [image: /path] or [attachment: id=…]) — read it all, reply once. Pass chat_id on every reply; reply_to only for older messages. No history API — ask them to paste it.`},
+		{text: `edit_message turns a bubble into a live status for slow work; edits don't buzz, so send a fresh bubble when done.`},
 
-		{text: `reply_to_from/reply_to_text show what they replied to ("you" = your own message). A kind="reaction" block is an emoji reaction — respond only if it invites one.`},
+		{text: `Inbound arrives in the <channel> block. image_path means Read that file; attachment_file_id means call download_attachment, then Read the path it returns. Quick bursts coalesce into one block (bubbles="N"; attachments inline as [image: /path] or [attachment: id=…]); read it all, reply once. Pass chat_id each reply; reply_to only for older ones. No history API; ask them to paste it.`},
+
+		{text: `reply_to_from/reply_to_text show what they replied to ("you" = your own). A kind="reaction" block is an emoji reaction; respond only if it invites one.`},
 
 		{text: `Memory across restarts: ` + transcriptPath + `, a JSONL log of both sides. Grep or tail it; don't read it whole.`},
 

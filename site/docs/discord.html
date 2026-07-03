@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord · hotline docs</title>
+<meta name="description" content="Discord setup for hotline: bot application, Message Content Intent, invite permissions, pairing, and behavior notes.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html" aria-current="page">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Discord</h1>
+<p class="subtitle">A second provider next to Telegram, or on its own. Same tools, same access model, native buttons.</p>
+
+<h2>Setup</h2>
+<ol>
+  <li>
+    <p>Create an application at <a href="https://discord.com/developers/applications">discord.com/developers/applications</a>, then add a Bot under it.</p>
+  </li>
+  <li>
+    <p>On the Bot page, enable the <strong>Message Content Intent</strong> under Privileged Gateway Intents. Without it the bot receives empty message bodies.</p>
+  </li>
+  <li>
+    <p>Copy the bot token into the shared <code>.env</code>:</p>
+<pre><code><span class="c"># ~/.config/hotline/.env</span>
+DISCORD_BOT_TOKEN=your-bot-token
+DISCORD_BOT_TOKEN_WORK=…              <span class="c"># discord:work, if you run named instances</span></code></pre>
+  </li>
+  <li>
+    <p>Invite the bot with an OAuth2 URL using the <code>bot</code> scope. For DMs no extra permissions are needed. For guild channels grant Send Messages, Read Message History, Add Reactions, and Attach Files:</p>
+<pre><code>https://discord.com/oauth2/authorize?client_id=&lt;APP_ID&gt;&amp;scope=bot&amp;permissions=100416</code></pre>
+  </li>
+  <li>
+    <p>Enable the provider and run:</p>
+<pre><code>HOTLINE_PROVIDERS=telegram,discord hotline</code></pre>
+    <p>In a Claude Code setup, <code>HOTLINE_PROVIDERS</code> belongs in the <code>env</code> block of your <code>.mcp.json</code>; see <a href="providers.html">Multiple providers</a>.</p>
+  </li>
+  <li>
+    <p>DM the bot. It replies with a pairing code; approve it from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt; --provider discord</code></pre>
+  </li>
+</ol>
+<p><code>--provider discord</code> points pair/deny/status at the Discord state (<code>&lt;stateDir&gt;/discord/</code>); named instances use <code>--provider discord:work</code> with state under <code>&lt;stateDir&gt;/discord/instances/work/</code>.</p>
+
+<h2>Behavior notes</h2>
+<ul>
+  <li>Buttons are native Discord message components. A tap comes back as an inbound message with the tapped label, and the buttons are cleared so a question can't be answered twice.</li>
+  <li>The permission relay works exactly like Telegram's: allow/deny/more buttons DM'd to allowlisted users, <code>yes &lt;code&gt;</code> / <code>no &lt;code&gt;</code> text replies also accepted.</li>
+  <li>Bubbles are paced with Discord's typing indicator. Messages split at Discord's 2000-char cap.</li>
+  <li>Guild channels gate as groups keyed by channel ID: add the channel to <code>groups</code> in the Discord <code>access.json</code>, with <code>requireMention</code> to only wake the bot on @-mention.</li>
+  <li>Inbound images download eagerly to the inbox; other attachments surface a CDN URL as <code>attachment_file_id</code> for <code>download_attachment</code> (Discord CDN hosts only, 50MB cap). Outbound files cap at 10MB, Discord's default bot upload limit.</li>
+  <li>Messages from bots (including itself) are never relayed.</li>
+</ul>
+
+<a class="next-link" href="providers.html">next: Multiple providers →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

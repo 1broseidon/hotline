@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiple providers · hotline docs</title>
+<meta name="description" content="Run Telegram, Signal, and Discord on one hotline channel: HOTLINE_PROVIDERS, named instances, capability degradation.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html" aria-current="page">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Multiple providers, multiple bots</h1>
+<p class="subtitle">One session, many transports. Ask on Signal, tap a button on Telegram, the thread follows you.</p>
+
+<p>hotline is built on an internal provider interface with a source router. Telegram is the first provider. Configure providers with <code>HOTLINE_PROVIDERS</code>, a comma-separated list of <code>kind[:instance]</code> entries:</p>
+<pre><code>HOTLINE_PROVIDERS=telegram              <span class="c"># the default</span>
+HOTLINE_PROVIDERS=telegram:work         <span class="c"># a named instance</span>
+HOTLINE_PROVIDERS=telegram,discord      <span class="c"># two transports on one channel</span>
+HOTLINE_PROVIDERS=telegram,discord,signal   <span class="c"># all three</span></code></pre>
+
+<h2>Where the variable goes</h2>
+<p><code>HOTLINE_PROVIDERS</code> is read from the <strong>process environment</strong>, not the state <code>.env</code>. Set it where the MCP server is launched: the <code>env</code> block of your <code>.mcp.json</code>:</p>
+<pre><code>{
+  "mcpServers": {
+    "hotline": {
+      "command": "hotline",
+      "args": ["run"],
+      "env": { "HOTLINE_PROVIDERS": "telegram,signal" }
+    }
+  }
+}</code></pre>
+<div class="aside">
+  <p>This trips people up. Adding <code>HOTLINE_PROVIDERS=…</code> to <code>~/.config/hotline/.env</code> does nothing: that file holds tokens and accounts, and hotline reads the provider list before it ever opens it. If a provider isn't coming up, check the <code>env</code> block first.</p>
+</div>
+<p>Tokens and accounts stay in the state <code>.env</code>, as on the per-provider pages.</p>
+
+<h2>Tool schemas with several providers</h2>
+<p>With one provider configured, the tool schemas are byte-identical to the single-provider ones. With several, each tool takes a required <code>source</code> argument matching the <code>source</code> attribute on inbound messages.</p>
+
+<h2>Named instances</h2>
+<p>Named instances are how you run several sessions at once. One bot token allows exactly one Telegram poller, so each concurrent session gets its own bot. <code>--bot work</code> is shorthand for <code>HOTLINE_PROVIDERS=telegram:work</code>. Each named bot keeps isolated state under <code>&lt;stateDir&gt;/bots/&lt;name&gt;/</code> and reads its token from <code>TELEGRAM_BOT_TOKEN_&lt;NAME&gt;</code> in the shared <code>.env</code>:</p>
+<pre><code><span class="c"># ~/.config/hotline/.env</span>
+TELEGRAM_BOT_TOKEN=111:AA…            <span class="c"># default bot</span>
+TELEGRAM_BOT_TOKEN_WORK=222:BB…       <span class="c"># telegram:work</span></code></pre>
+<p><code>--bot</code> works on every subcommand (<code>hotline status --bot work</code>, <code>hotline pair &lt;code&gt; --bot work</code>). Discord and Signal follow the same pattern: <code>DISCORD_BOT_TOKEN_&lt;NAME&gt;</code>, <code>SIGNAL_ACCOUNT_&lt;NAME&gt;</code>, <code>SIGNAL_DAEMON_URL_&lt;NAME&gt;</code>.</p>
+
+<h2>Capability degradation</h2>
+<p>When a transport lacks a feature, the adapter degrades it, never the agent: on a transport without inline buttons, buttons render as numbered text options and the numbered choice routes back the same way. The tool contract stays the same everywhere. Signal is the live example: no inline buttons, so a <code>buttons</code> call becomes a numbered list and your reply with the number sends the chosen label back to Claude.</p>
+
+<h2>Environment reference</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Variable</th><th>Purpose</th></tr>
+  <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>Bot token (real env wins over <code>.env</code>); <code>TELEGRAM_BOT_TOKEN_&lt;NAME&gt;</code> per named instance</td></tr>
+  <tr><td><code>HOTLINE_PROVIDERS</code></td><td>Provider list, <code>kind[:instance]</code> comma-separated (default <code>telegram</code>)</td></tr>
+  <tr><td><code>HOTLINE_BOT</code></td><td>Named-bot selector, same as <code>--bot</code> (legacy: <code>TELE_GO_BOT</code>)</td></tr>
+  <tr><td><code>HOTLINE_STATE_DIR</code></td><td>State-dir override (legacy: <code>TELE_GO_STATE_DIR</code>, then <code>TELEGRAM_STATE_DIR</code>)</td></tr>
+  <tr><td><code>TELEGRAM_ACCESS_MODE</code></td><td><code>static</code> snapshots access at boot; use with <code>allowlist</code> (pairing needs live writes)</td></tr>
+  <tr><td><code>DISCORD_BOT_TOKEN</code></td><td>Discord bot token; <code>DISCORD_BOT_TOKEN_&lt;NAME&gt;</code> per named instance (<code>DISCORD_ACCESS_MODE</code> mirrors the Telegram one)</td></tr>
+  <tr><td><code>SIGNAL_ACCOUNT</code></td><td>Linked Signal account (E.164); <code>SIGNAL_ACCOUNT_&lt;NAME&gt;</code> per named instance (<code>SIGNAL_ACCESS_MODE</code> mirrors the Telegram one)</td></tr>
+  <tr><td><code>SIGNAL_DAEMON_URL</code></td><td>signal-cli HTTP daemon base URL (default <code>http://127.0.0.1:8080</code>); <code>SIGNAL_DAEMON_URL_&lt;NAME&gt;</code> per named instance</td></tr>
+</table>
+</div>
+<p>hotline was formerly tele-go; <code>TELE_GO_*</code> variables keep working as fallbacks for one release.</p>
+
+<a class="next-link" href="plugins.html">next: Plugins →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

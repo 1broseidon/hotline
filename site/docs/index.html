@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart · hotline docs</title>
+<meta name="description" content="Install hotline and text your Claude Code session over Telegram in five steps.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./" aria-current="page">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./" aria-current="page">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Quickstart</h1>
+<p class="subtitle">From zero to texting your Claude Code session, on Telegram, in four steps.</p>
+
+<h2>What hotline is</h2>
+<p>hotline is an MCP server that relays a Claude Code session to your messaging apps. Claude replies in short bubbles with a typing indicator, reacts with emoji, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. Telegram is the default provider; <a href="signal.html">Signal</a> and <a href="discord.html">Discord</a> run alongside it or on their own.</p>
+<p>It speaks Claude Code's experimental two-way channel protocol (<code>claude/channel</code>), which makes it Claude Code specific today. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
+
+<h2>Install</h2>
+<pre><code>brew install 1broseidon/tap/hotline</code></pre>
+<p>Binaries ship with each tagged release. Or build from source (Go 1.26+):</p>
+<pre><code>go install github.com/1broseidon/hotline/cmd/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
+
+<h2>Set up Telegram</h2>
+<ol>
+  <li>
+    <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>, then save it (once, machine-wide):</p>
+<pre><code>hotline setup --telegram-token 123456789:AA…</code></pre>
+    <p>Run <code>hotline setup</code> with no flags to be prompted, <code>hotline setup --show</code> to see what's configured.</p>
+  </li>
+  <li>
+    <p>Register the channel in the project you want to text with:</p>
+<pre><code>cd your-project
+hotline init</code></pre>
+    <p>This writes (or merges into) <code>.mcp.json</code>. Add <code>--providers telegram,signal</code> for extra transports, <code>--voice</code> for a starter <code>HOTLINE.md</code>.</p>
+  </li>
+  <li>
+    <p>Launch Claude Code with the channel loaded:</p>
+<pre><code>hotline start   <span class="c"># extra claude flags go after --, e.g. hotline start -- --continue</span></code></pre>
+  </li>
+  <li>
+    <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt;</code></pre>
+  </li>
+</ol>
+<p>That's it. Your session is now a Telegram chat. The pairing step is part of the access model; read <a href="access.html">Access &amp; permissions</a> before you hand the bot's handle to anyone.</p>
+
+<details>
+<summary>By hand</summary>
+<p>The three commands wrap these steps:</p>
+<pre><code><span class="c"># setup: token in the channel's .env (a real TELEGRAM_BOT_TOKEN env var wins over the file)</span>
+mkdir -p ~/.config/hotline
+printf 'TELEGRAM_BOT_TOKEN=123456789:AA…\n' &gt; ~/.config/hotline/.env
+chmod 600 ~/.config/hotline/.env</code></pre>
+<pre><code><span class="c">// init: .mcp.json in the project</span>
+{
+  "mcpServers": {
+    "hotline": { "command": "hotline", "args": ["run"] }
+  }
+}</code></pre>
+<pre><code><span class="c"># start: channels are experimental and loaded by MCP server name</span>
+claude --dangerously-load-development-channels server:hotline</code></pre>
+</details>
+
+<h2>The tools Claude gets</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>reply</code></td><td>Send <code>bubbles</code> (array of short messages, paced) or <code>text</code> (single message, chunked past 4096 chars). Optional <code>reply_to</code>, <code>files</code> (images inline, others as documents, 50MB each), <code>buttons</code> (up to 12 inline options), <code>format</code> (<code>text</code>, <code>markdownv2</code>, <code>html</code>)</td></tr>
+  <tr><td><code>react</code></td><td>Set an emoji reaction (Telegram's fixed whitelist)</td></tr>
+  <tr><td><code>edit_message</code></td><td>Edit a message the bot sent, for interim progress. Edits don't push-notify</td></tr>
+  <tr><td><code>download_attachment</code></td><td>Fetch a non-photo attachment by <code>file_id</code> into the inbox; returns a local path (Telegram's 20MB download cap applies)</td></tr>
+</table>
+</div>
+<p>Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim. Tap authorization mirrors the inbound gate.</p>
+
+<h2>Voice</h2>
+<p>The channel ships with a default persona: a sharp, warm friend texting in short bubbles. A <code>HOTLINE.md</code> file replaces it. First hit wins: <code>./HOTLINE.md</code> in the directory Claude Code runs in, then <code>HOTLINE.md</code> in the state dir as your global default, then the built-in voice.</p>
+<pre><code><span class="c">&lt;!-- HOTLINE.md --&gt;</span>
+Terse and professional. No emoji, no exclamation marks.
+One bubble unless the answer genuinely needs two.</code></pre>
+<p>The file is read once at startup; edit it, then restart Claude Code. Claude Code caps MCP server instructions at 2048 characters; hotline puts the mechanics first and gives the voice the remainder, about 630 characters. A longer voice is cut at a word boundary with a stderr warning. A voice changes tone only. The tool contract, inbound message handling, and the safety rules are compiled in and apply under any voice. It carries the same trust boundary as <code>CLAUDE.md</code>: whoever writes to the repo shapes how the agent talks.</p>
+
+<h2>CLI</h2>
+<pre><code>hotline setup        <span class="c"># save credentials to the shared .env (run once)</span>
+hotline init         <span class="c"># register hotline in this repo's .mcp.json</span>
+hotline start        <span class="c"># launch Claude Code with the channel loaded</span>
+hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
+hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>
+hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span>
+hotline revoke &lt;id&gt;  <span class="c"># remove an approved sender from the allowlist</span>
+hotline status       <span class="c"># print state-dir / token / access summary</span>
+hotline version      <span class="c"># print the build's version info</span></code></pre>
+<p><code>pair</code>, <code>deny</code>, <code>revoke</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
+
+<h2>Start from a template</h2>
+<p><a href="https://github.com/1broseidon/hotline/tree/main/templates/mission-control">mission-control</a> is our take on what makes a good texting agent: a filing system the agent keeps on disk, an operating playbook, a starter voice. Copy the folder into your project, or install it as a plugin and scaffold with one command:</p>
+<pre><code>claude plugin marketplace add 1broseidon/hotline
+claude plugin install mission-control@hotline
+<span class="c"># then, inside your project's Claude Code session:</span>
+/mission-control:init</code></pre>
+<p>Built your own setup around hotline? Open a PR with your template.</p>
+
+<h2>Where things live</h2>
+<p>State lives in <code>~/.config/hotline</code> (or <code>$XDG_CONFIG_HOME/hotline</code>): tokens, access rules, transcripts, inboxes. Older installs are migrated there automatically on first run, and legacy <code>TELE_GO_*</code> variables keep working as fallbacks for one release. The full environment variable table is on <a href="providers.html">Multiple providers</a>.</p>
+
+<a class="next-link" href="telegram.html">next: Telegram in depth →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

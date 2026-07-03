@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hotline · text your Claude Code session</title>
+<meta name="description" content="hotline is an MCP server that relays a Claude Code session to Telegram, Signal, and Discord. Your agent, reachable from your pocket.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="/">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="docs/">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div>
+    <p class="kicker">$ claude, but reachable</p>
+    <h1>Your session keeps working.<br>Now it can <em>reach you</em>.</h1>
+    <p class="lede">Claude Code lives in a terminal. Close the laptop and the agent is alone in a room. hotline wires the session to your messaging apps, so it can ping you when it's done, ask permission when it's blocked, and take your next instruction from wherever you are.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="docs/">Get started</a>
+      <a class="btn" href="https://github.com/1broseidon/hotline">Source on GitHub</a>
+    </div>
+  </div>
+
+  <div class="phone" aria-label="Example conversation with a Claude Code session">
+  <div class="phone-bar">
+    <span class="phone-avatar"></span>
+    <span class="phone-name">hotline<span class="phone-status">your session · online</span></span>
+  </div>
+  <div class="convo">
+    <p class="meta">14:02 · telegram</p>
+    <div class="msg you">how's the migration going?</div>
+    <div class="msg claude">about halfway, 6 of 13 tables done</div>
+    <div class="msg claude">hit a gate, need your ok for the next batch</div>
+    <div class="perm">
+      <p class="perm-title">Permission request</p>
+      <code>psql -f migrate_007.sql</code>
+      <div class="chip-row">
+        <span class="chip">See more</span>
+        <span class="chip tapped">Allow</span>
+        <span class="chip">Deny</span>
+      </div>
+    </div>
+    <div class="msg you">Allow</div>
+    <p class="meta">14:31</p>
+    <div class="msg claude">done ✅ all 13 tables migrated, checks pass</div>
+    <div class="msg claude">log is at ~/migrations/run-07.log if you want it</div>
+  </div>
+  </div>
+</header>
+
+<section class="section">
+  <h2>Presence</h2>
+  <p>An agent that can only talk while you watch it type has no autonomy. Real autonomy needs two things. The agent must be able to reach you: a ping when the job lands, a question when it hits a wall. And you must be able to reach it: a follow-up from the couch, a course correction from the train.</p>
+  <p>The permission relay is the piece that makes it work. Claude Code's permission prompts land in your DMs with <strong>See more / Allow / Deny</strong> buttons, or as text you answer with <code>yes &lt;code&gt;</code>. The session stops asking a locked terminal and starts asking you.</p>
+</section>
+
+<section class="section">
+  <h2>The unbundle</h2>
+  <p>Hosted agent-texting products bundle three things and rent them back to you: the harness, the model, the channel. hotline splits the bundle.</p>
+  <div class="cols-3">
+    <div>
+      <h3>harness</h3>
+      <p>Claude Code, running on your machine, with your files, your tools, your MCP servers. hotline is one more MCP server in the list.</p>
+    </div>
+    <div>
+      <h3>model</h3>
+      <p>The model layer stays yours. Claude subscription, API key, or any third-party endpoint that speaks the Anthropic API schema.</p>
+    </div>
+    <div>
+      <h3>channel</h3>
+      <p>Whichever app you live in. Telegram, Signal, and Discord today. Same tools, same access model on every one.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>One session, many transports</h2>
+  <p>Run several providers on one channel and the thread follows you. Ask on Signal over lunch, tap a button on Telegram on the walk home, read the result on Discord at your desk. Every message in both directions is appended to a transcript, so the assistant recalls the conversation across session restarts.</p>
+  <p>When a transport lacks a feature, the adapter degrades it, never the agent. Signal has no inline buttons, so buttons render as numbered text options and your reply routes back the same way.</p>
+</section>
+
+<section class="section">
+  <h2>If you only want Telegram</h2>
+  <div class="aside">
+    <p>The official Claude Code Telegram plugin is good. If Telegram is your whole answer, use it.</p>
+    <p>hotline exists for everywhere it can't go. Signal has no bot API; talking to it means an unofficial client and linking a secondary device, which an official product structurally can't ship. Self-hosted open source can. That, plus multiple transports on one session, is the pitch.</p>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Sixty seconds to a texting agent</h2>
+  <pre><code><span class="c"># install (or: go install github.com/1broseidon/hotline/cmd/hotline@latest)</span>
+<span class="p">$</span> brew install 1broseidon/tap/hotline
+
+<span class="c"># save the bot token once, machine-wide</span>
+<span class="p">$</span> hotline setup --telegram-token 123456789:AA…
+
+<span class="c"># register the channel in your project, then launch Claude Code with it loaded</span>
+<span class="p">$</span> hotline init
+<span class="p">$</span> hotline start
+
+<span class="c"># DM your bot, approve the pairing code from your terminal</span>
+<span class="p">$</span> hotline pair <span class="a">a3f21c</span></code></pre>
+  <p>Full walkthrough, including the <code>.mcp.json</code> block, in the <a href="docs/">quickstart</a>.</p>
+</section>
+
+<section class="section">
+  <h2>Official plugins</h2>
+  <p>The marketplace carries the capabilities hosted agent products rent back to you as features: maintained in this repo, installed with one command, running on your box.</p>
+  <div class="cols-3">
+    <div>
+      <h3>hotline</h3>
+      <p>The channel itself as a plugin. Wires the hotline MCP server into a session: <code>reply</code>, <code>react</code>, <code>edit_message</code>, <code>download_attachment</code>, and the inbound relay.</p>
+    </div>
+    <div>
+      <h3>mission-control</h3>
+      <p>Scaffolds a texting-agent workspace in one command: a filing system the agent keeps on disk, an operating playbook, a starter voice.</p>
+    </div>
+    <div>
+      <h3>email-sentry</h3>
+      <p>A Gmail watcher that buzzes your channel only for mail that matters: a human asking you something, money moving, real deadlines, security events.</p>
+    </div>
+  </div>
+  <pre><code><span class="c"># add the marketplace once</span>
+<span class="p">$</span> claude plugin marketplace add 1broseidon/hotline
+
+<span class="c"># then install what you want</span>
+<span class="p">$</span> claude plugin install mission-control@hotline</code></pre>
+  <p>What each one scaffolds, prerequisites, and the init skills are on the <a href="docs/plugins.html">plugins page</a>.</p>
+</section>
+
+<section class="section">
+  <h2>Built like a tool, not a service</h2>
+  <p>One static Go binary. No daemon of its own, no account, no cloud relay. State lives in a directory you own, permissions are files you can read, and nobody talks to your agent without your say-so. Pairing approval happens only from your terminal, because a chat message asking for access is exactly what a prompt injection looks like.</p>
+  <p>It speaks Claude Code's experimental <code>claude/channel</code> protocol, and the site says so plainly: <a href="docs/protocol.html">what that means and what can break</a>.</p>
+</section>
+
+<footer class="footer">
+  <p class="line">the agent works. you live your life. it texts you when it matters.</p>
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="docs/">docs</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

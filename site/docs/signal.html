@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signal · hotline docs</title>
+<meta name="description" content="Signal setup for hotline via signal-cli: linking a secondary device, running the daemon, pairing, and behavior notes.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html" aria-current="page">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Signal</h1>
+<p class="subtitle">Same tools, same access model. No bot API, so the plumbing is different.</p>
+
+<p>Signal runs as a provider next to Telegram and Discord, or on its own. There is no bot API: hotline talks to a locally running <a href="https://github.com/AsamK/signal-cli">signal-cli</a> daemon, linked to your Signal account as a secondary device.</p>
+<div class="aside">
+  <p>signal-cli is a third-party client, not an official Signal product. This is the part an official hosted product structurally can't ship, and the reason hotline covers Signal at all.</p>
+</div>
+
+<h2>Setup</h2>
+<ol>
+  <li>
+    <p>Install signal-cli. On macOS: <code>brew install signal-cli</code>. On Linux, download a release from <a href="https://github.com/AsamK/signal-cli/releases">github.com/AsamK/signal-cli/releases</a> (it is not in apt) and put <code>signal-cli</code> on your PATH. Java 17+ required.</p>
+  </li>
+  <li>
+    <p>Link it to your account as a secondary device:</p>
+<pre><code>signal-cli link -n hotline</code></pre>
+    <p>It prints a <code>sgnl://linkdevice?...</code> URI. Render it as a QR code (<code>qrencode -t ansiutf8 'sgnl://...'</code>) and scan it from your phone under Settings → Linked Devices. Registration stays on your phone; hotline never touches it.</p>
+  </li>
+  <li>
+    <p>Run the daemon and keep it running (tmux, or a systemd user service with <code>ExecStart=signal-cli -a +15551234567 daemon --http 127.0.0.1:8080</code>):</p>
+<pre><code>signal-cli -a +15551234567 daemon --http 127.0.0.1:8080</code></pre>
+  </li>
+  <li>
+    <p>Point hotline at it in the shared <code>.env</code>:</p>
+<pre><code><span class="c"># ~/.config/hotline/.env</span>
+SIGNAL_ACCOUNT=+15551234567           <span class="c"># the linked account, E.164</span>
+SIGNAL_DAEMON_URL=http://127.0.0.1:8080   <span class="c"># optional, this is the default</span>
+SIGNAL_ACCOUNT_WORK=…                 <span class="c"># signal:work, if you run named instances</span></code></pre>
+  </li>
+  <li>
+    <p>Enable the provider and run:</p>
+<pre><code>HOTLINE_PROVIDERS=telegram,discord,signal hotline</code></pre>
+    <p>In a Claude Code setup, <code>HOTLINE_PROVIDERS</code> belongs in the <code>env</code> block of your <code>.mcp.json</code>; see <a href="providers.html">Multiple providers</a>.</p>
+  </li>
+  <li>
+    <p>Message the account from another Signal account. Unknown senders get a pairing code; approve it from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt; --provider signal</code></pre>
+  </li>
+</ol>
+<p><code>--provider signal</code> points pair/deny/status at the Signal state (<code>&lt;stateDir&gt;/signal/</code>); named instances use <code>--provider signal:work</code> with state under <code>&lt;stateDir&gt;/signal/instances/work/</code>.</p>
+
+<h2>Behavior notes</h2>
+<ul>
+  <li>Senders are identified by phone number (E.164); the allowlist holds numbers. DM chat_ids are the peer's number, group chat_ids are <code>group:&lt;id&gt;</code>. Add those to <code>groups</code> in the Signal <code>access.json</code>.</li>
+  <li>Signal has no inline buttons. Buttons render as numbered text options, and replying with the number sends the chosen label back to Claude. Same round trip, typed instead of tapped.</li>
+  <li>The permission relay is text-only: prompts arrive as a message, answer with <code>yes &lt;code&gt;</code> or <code>no &lt;code&gt;</code>.</li>
+  <li>Reactions and edits are native (signal-cli <code>sendReaction</code> and <code>send --edit-timestamp</code>). Bubbles are paced with Signal's typing indicator. Messages split at 2000 chars, where Signal clients switch to long-text attachments.</li>
+  <li>Message ids are Signal timestamps (Signal's message identity); inbound ids carry the author as <code>&lt;timestamp&gt;:&lt;number&gt;</code> so reactions target correctly.</li>
+  <li>Inbound images are fetched from the daemon into the inbox; other attachments surface an id for <code>download_attachment</code> (50MB cap both ways).</li>
+  <li>The daemon's HTTP endpoint has no authentication. Keep it on 127.0.0.1.</li>
+</ul>
+
+<a class="next-link" href="discord.html">next: Discord →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

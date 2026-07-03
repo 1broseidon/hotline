@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telegram · hotline docs</title>
+<meta name="description" content="Telegram setup and behavior for hotline: bot token, pairing, bubbles, buttons, reactions, attachments.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html" aria-current="page">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Telegram</h1>
+<p class="subtitle">The first provider and the default. Native buttons, reactions, and edits.</p>
+
+<h2>Setup</h2>
+<p>Telegram setup is the <a href="./">quickstart</a>: token from <a href="https://t.me/BotFather">@BotFather</a>, <code>.env</code>, <code>.mcp.json</code>, the channel flag, pair. This page covers how the provider behaves once it's running.</p>
+
+<h2>The texting experience</h2>
+<p>Claude replies in bubbles, one thought each, delivered with a typing indicator and a natural pause between them. It reacts with an emoji when a 👍 says it, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. You tap a button, the choice lands back in the session as if you had typed it, and the keyboard clears so it can't be answered twice.</p>
+<p>Inbound works the same way. You text in bursts, so hotline buffers consecutive messages per chat (1.2s window, 8s max wait) and delivers them as one coherent turn instead of interrupting Claude three times.</p>
+
+<h2>Attachments</h2>
+<p>Photos are downloaded eagerly and handed to Claude as a local path. Documents, voice notes, video, and stickers are surfaced as metadata and fetched on demand with <code>download_attachment</code> (Telegram's 20MB download cap applies). Outbound files go up to 50MB each: images inline, everything else as documents.</p>
+
+<h2>Message plumbing</h2>
+<ul>
+  <li>Bubbles are paced by default (<code>bubbleMode</code> in <code>access.json</code> switches to <code>instant</code>).</li>
+  <li>Single <code>text</code> messages are chunked past 4096 chars; <code>chunkMode</code> picks <code>newline</code> or <code>length</code> splitting.</li>
+  <li><code>format</code> accepts <code>text</code>, <code>markdownv2</code>, or <code>html</code>.</li>
+  <li>Reactions come from Telegram's fixed emoji whitelist.</li>
+  <li>Button taps come back as ordinary inbound messages carrying the tapped label verbatim, so values are never truncated by Telegram's callback-data limit.</li>
+</ul>
+
+<h2>Groups</h2>
+<p>Groups are opt-in per group ID, with optional <code>requireMention</code> (deliver only when the bot is mentioned, replied to, or a <code>mentionPatterns</code> regex matches) and an optional per-group sender allowlist. The inbound gate always decides on the sender, never the chat: a stranger in an allowed group is still dropped. Full model on <a href="access.html">Access &amp; permissions</a>.</p>
+
+<h2>Operational notes</h2>
+<p>Telegram allows one <code>getUpdates</code> consumer per token, so a PID guard SIGTERMs a stale poller before starting. The poll loop backs off exponentially and honors 429s, and shutdown is unified across stdin EOF, signals, and an orphan watchdog. One bot token allows exactly one poller: to run several concurrent sessions, give each its own bot via <a href="providers.html">named instances</a>.</p>
+
+<a class="next-link" href="signal.html">next: Signal →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

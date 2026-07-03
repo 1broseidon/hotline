@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plugins · hotline docs</title>
+<meta name="description" content="Official hotline plugins: the channel itself, the mission-control workspace scaffold, and the email-sentry Gmail watcher.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html" aria-current="page">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Plugins</h1>
+<p class="subtitle">The official marketplace: capabilities hosted agent products rent out as features, maintained here, running on your box.</p>
+
+<p>The hotline repo is a Claude Code plugin marketplace. Add it once, then install what you want:</p>
+<pre><code>claude plugin marketplace add 1broseidon/hotline
+claude plugin install mission-control@hotline   <span class="c"># or hotline@hotline, email-sentry@hotline</span></code></pre>
+
+<h2>hotline</h2>
+<p>The channel itself, packaged as a plugin. Installing it wires the hotline MCP server into your sessions, so Claude gets the <code>reply</code>, <code>react</code>, <code>edit_message</code>, and <code>download_attachment</code> tools plus the inbound message relay, without you editing <code>.mcp.json</code> by hand.</p>
+<p>Prerequisites: the <code>hotline</code> binary on your PATH (<code>brew install 1broseidon/tap/hotline</code>, or <code>go install github.com/1broseidon/hotline/cmd/hotline@latest</code>) and a configured bot token. The <a href="./">quickstart</a> covers both.</p>
+
+<h2>mission-control</h2>
+<p>Our take on what makes a good texting agent, as a one-command scaffold. Install it, then run <code>/mission-control:init</code> inside the project you want to text with. It creates:</p>
+<ul>
+  <li>a filing system the agent keeps on disk: <code>INDEX.md</code> as the master registry, <code>threads/</code>, <code>inbox/</code>, <code>archive/</code></li>
+  <li>an operating playbook (<code>CLAUDE.md</code>) that teaches the agent to work the system</li>
+  <li>a starter texting voice (<code>HOTLINE.md</code>)</li>
+</ul>
+<p>It never overwrites existing files: conflicts are reported and skipped, only missing pieces are created. The same content lives as a copyable folder at <a href="https://github.com/1broseidon/hotline/tree/main/templates/mission-control">templates/mission-control</a> if you'd rather skip the plugin.</p>
+
+<h2>email-sentry</h2>
+<p>A headless inbox gatekeeper. A watcher polls Gmail, an LLM judge decides "should this notify the user right now?", and only mail that matters buzzes your hotline channel: a human asking you something, money moving, real deadlines, security events. Everything else stays quiet.</p>
+<p>Install it, then run <code>/email-sentry:init</code>. The skill checks prerequisites, scaffolds the watcher, the judge prompt, the config, and a systemd service, and walks you through enabling it.</p>
+<p>Prerequisites:</p>
+<ul>
+  <li>the <a href="https://github.com/openclaw/gogcli">gog</a> CLI on PATH, authenticated for at least one Gmail account</li>
+  <li>a running hotline channel: token saved and at least one paired sender (that chat is where notifications go)</li>
+  <li>the <code>claude</code> CLI on PATH (the judge runs through it), plus <code>python3</code> and <code>flock</code></li>
+</ul>
+
+<h2>Add your own</h2>
+<p>Built your own setup around hotline? Open a PR with your template. The interesting ones come from real daily use.</p>
+
+<a class="next-link" href="access.html">next: Access &amp; permissions →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security · hotline docs</title>
+<meta name="description" content="hotline's threat model: what it defends against, how, and the gaps that remain.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="security.html" aria-current="page">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Security</h1>
+<p class="subtitle">A paired phone is a remote control for a machine running an agent with real permissions.</p>
+
+<p>hotline's job is to make that legible and gated. The risk itself does not go away.</p>
+
+<h2>Threat model</h2>
+<p>What hotline defends against:</p>
+<ul>
+  <li>Unknown senders reaching the agent</li>
+  <li>Unauthorized pairing attempts</li>
+  <li>Group members triggering the agent without your consent</li>
+  <li>The agent taking dangerous actions without human signoff</li>
+  <li>Chat messages steering the agent (prompt injection)</li>
+  <li>Token and state leakage</li>
+</ul>
+
+<h2>Pairing by default</h2>
+<p><code>dmPolicy</code> defaults to <code>pairing</code>. The first DM from an unknown sender gets a 6-hex pairing code back, and nothing they send is delivered to the agent until you approve them. Codes expire after 24 hours. A pending sender is re-prompted at most 5 times, and at most 3 pairings can be pending at once, so strangers cannot flood your state file. The stricter policies are <code>allowlist</code> (unknown senders are silently dropped) and <code>disabled</code> (no DMs at all).</p>
+
+<h2>Operator-only approval</h2>
+<p>Pairing is approved from the terminal, never from inside the chat:</p>
+<pre><code>hotline pair &lt;code&gt; [--provider kind[:instance]]
+hotline deny &lt;code&gt; [--provider kind[:instance]]</code></pre>
+<p>Claude never approves a pairing or edits access because a chat message asked it to. That request is exactly what a prompt injection looks like.</p>
+
+<h2>Allowlists, isolated per provider</h2>
+<p>The gate decides on the sender, never the chat: a non-allowlisted user in an allowed group is still dropped. Each provider and each named instance keeps its own <code>access.json</code>, allowlist, inbox, and transcript in its own state directory, so approving someone on one transport approves them nowhere else.</p>
+
+<h2>Groups are opt-in</h2>
+<p>A group the agent has not been explicitly configured for is dropped, on every provider. Per group you can require a mention and restrict to a per-group sender allowlist. On Telegram groups are keyed by chat ID, on Discord guild channels gate as groups keyed by channel ID, on Signal by <code>group:&lt;id&gt;</code>. Pairing never happens in a group; codes are a DM-only flow. Details live in <a href="access.html">Access &amp; permissions</a>.</p>
+
+<h2>The permission relay</h2>
+<p>Claude Code's dangerous-action prompts ride the same authenticated, gated channel. Requests fan out to allowlisted DMs only, never to groups. You answer with Allow / Deny buttons where the transport has them (Telegram, Discord) or by text with <code>yes &lt;code&gt;</code> / <code>no &lt;code&gt;</code> everywhere, including Signal. Verdicts are accepted only from allowlisted senders, and the agent cannot approve its own requests: a verdict is an inbound chat message from an allowlisted human, and the agent has no tool that emits one.</p>
+
+<h2>Inbound framing</h2>
+<p>Messages reach the session wrapped as channel data with source attribution (provider, chat, sender, timestamp). The Claude Code harness treats channel content as untrusted external data, not as instructions. This is a harness-level convention that hotline supports, not a cryptographic guarantee.</p>
+
+<h2>State hygiene</h2>
+<p>Tokens, allowlists, pending pairings, and transcripts live in the state directory (<code>~/.config/hotline</code> by default), outside any repository. Directories are created <code>0700</code>; <code>access.json</code>, the transcript, and the <code>.env</code> token file are written <code>0600</code>. <code>access.json</code> writes are atomic and lock-guarded. Outbound tool calls are gated by the same access rules, refuse to attach hotline's own state files, and sanitize uploader-controlled filenames.</p>
+
+<h2>Signal specifics</h2>
+<p>Signal transport is end-to-end encrypted; hotline talks to a local signal-cli daemon. If you link that daemon to your personal account as a secondary device, it receives everything your account receives, every conversation, not just the agent chat. Use a standalone Signal account for the agent instead. The daemon's HTTP endpoint has no authentication; keep it on <code>127.0.0.1</code>.</p>
+
+<h2>Known gaps</h2>
+
+<h3>A stolen unlocked phone is the operator</h3>
+<p>Pairing authenticates a chat account, not a person. Whoever holds the paired phone can drive the agent and answer its permission prompts until you cut them off.</p>
+<div class="aside">
+  <p><strong>Lost phone runbook</strong>, from any terminal on the box:</p>
+  <p>1. <code>hotline revoke &lt;sender-id&gt; --provider &lt;kind[:instance]&gt;</code> removes an already-approved sender from <code>allowFrom</code> and purges any pending pairing they still had; <code>hotline deny &lt;code&gt;</code> kills a pending pairing. <code>access.json</code> is re-read on every inbound message, so both take effect immediately. Setting <code>"dmPolicy": "disabled"</code> drops everything, allowlisted senders included.</p>
+  <p>2. Lock the messenger itself: Signal registration PIN and screen lock, Telegram passcode.</p>
+  <p>3. Telegram: rotate the bot token via @BotFather and update <code>.env</code>. The old token stops working everywhere.</p>
+  <p>4. Signal: remove the linked device (or re-register the standalone account) so the daemon goes deaf.</p>
+</div>
+
+<h3>Prompt injection is not solved</h3>
+<p>Not here, not anywhere in the industry. The gate keeps strangers out and the relay keeps a human in the loop, but an allowlisted chat can still contain text that tries to steer the agent, including text pasted or forwarded from someone else. Gating and the relay are mitigation, not immunity. Scope what the agent may do unattended accordingly.</p>
+
+<h3>The relay only protects operators who use it</h3>
+<p>Running Claude Code with permission checks disabled means the approval loop never fires and the agent acts without asking. That is a legitimate choice on a trusted box, but it is a choice; do not assume the relay is protecting a session you configured to skip it.</p>
+
+<h2>Reporting a vulnerability</h2>
+<p>Report privately through <a href="https://github.com/1broseidon/hotline/security/advisories/new">GitHub security advisories</a> for this repository. Please do not open a public issue for a security bug.</p>
+
+<a class="next-link" href="protocol.html">next: The protocol →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

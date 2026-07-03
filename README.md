@@ -382,7 +382,58 @@ Operationally, hotline holds its lane: a PID guard SIGTERMs a stale poller befor
 
 hotline is a stdio MCP server (official `github.com/modelcontextprotocol/go-sdk`) that additionally declares Claude Code's experimental `claude/channel` capability and, with a token configured, `claude/channel/permission`. Inbound messages reach Claude as `notifications/claude/channel` with a `<channel source="telegram" …>` block; permission prompts flow the other way over the same connection.
 
-The protocol is experimental and Claude Code's. Today that means hotline works with Claude Code and nothing else. If other harnesses adopt the channel protocol, or hotline grows adapters for theirs, that changes.
+The protocol is experimental and Claude Code's. It is one of two harnesses hotline drives: OpenCode rides a separate HTTP+SSE adapter that needs no channel protocol. See [OpenCode harness](#opencode-harness).
+
+## OpenCode harness
+
+hotline drives two coding-agent harnesses. Select with `HOTLINE_HARNESS`:
+
+| Value | Harness |
+|---|---|
+| `claude` (default) | Claude Code over the `claude/channel` protocol |
+| `opencode` | OpenCode over its HTTP+SSE control plane |
+
+An unknown value is rejected at startup instead of falling back to Claude Code.
+
+OpenCode has no channel protocol, so the wiring splits in two. hotline runs as a plain stdio MCP server that OpenCode launches for the outbound tools (`reply`, `react`, `edit_message`, `download_attachment`). For inbound, hotline dials OpenCode's local server: it injects your texts as a user turn with `POST /session/:id/prompt_async`, tails `GET /event` for `permission.asked` events, and answers them with `POST /session/:id/permissions/:id`. The messaging providers and access model are unchanged.
+
+Config comes from the environment, real env winning over the shared `.env`:
+
+| Variable | Purpose |
+|---|---|
+| `HOTLINE_HARNESS` | `claude` (default) or `opencode` |
+| `OPENCODE_SERVER_URL` | `opencode serve` root (default `http://127.0.0.1:4096`) |
+| `OPENCODE_SERVER_PASSWORD` | Basic-auth secret; empty means no auth |
+| `OPENCODE_SESSION` | Pinned session id; empty auto-resolves |
+
+With `OPENCODE_SESSION` empty, hotline targets the most-recently-active session from `GET /session` and re-pins onto whichever session emits live events. OpenCode sessions are server-wide, so pin `OPENCODE_SESSION` to the session you are driving rather than trust the auto-resolve.
+
+Wiring is one `opencode.json`: your model and provider, a `permission` block, and an `mcp` entry that launches the hotline binary with the harness env. A minimal working config:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "your-provider/your-model",
+  "permission": { "bash": "ask" },
+  "mcp": {
+    "hotline": {
+      "type": "local",
+      "command": ["hotline"],
+      "environment": {
+        "HOTLINE_HARNESS": "opencode",
+        "HOTLINE_PROVIDERS": "telegram",
+        "TELEGRAM_BOT_TOKEN": "123456789:AA…",
+        "OPENCODE_SERVER_URL": "http://127.0.0.1:4096",
+        "OPENCODE_SESSION": "ses_your_pinned_session"
+      }
+    }
+  }
+}
+```
+
+Permission prompts relay over the messaging channel exactly like Claude Code's: **See more / Allow / Deny** buttons to allowlisted DMs, or `yes <code>` / `no <code>` by text. What gets gated is OpenCode's own `permission` config: leave `bash` auto-approved for a yolo-style session, or set `"bash": "ask"` to route each shell command through the relay.
+
+OpenCode support is new. The API shapes were verified against opencode 1.17.11.
 
 ## Roadmap
 

@@ -55,9 +55,11 @@ func NewClient(baseURL, password string) *Client {
 // newRequest builds a request with the base URL, JSON content type (when body
 // is non-nil), and basic auth (when a password is set).
 //
-// UNCERTAIN (needs a live server to confirm): the basic-auth username. OpenCode
-// documents only OPENCODE_SERVER_PASSWORD, so the username is sent empty here;
-// if the server expects a specific username this is the line to change.
+// Verified against opencode 1.17.11: when OPENCODE_SERVER_PASSWORD is set the
+// server requires HTTP Basic auth with the literal username "opencode" and the
+// password as the secret. An empty username (or any other username) yields 401;
+// only "opencode:<password>" is accepted. When no password is set the server is
+// unsecured and no Authorization header is sent.
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
 	if err != nil {
@@ -67,7 +69,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if c.Password != "" {
-		req.SetBasicAuth("", c.Password)
+		req.SetBasicAuth("opencode", c.Password)
 	}
 	return req, nil
 }
@@ -114,9 +116,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) e
 // sessionInfo is the subset of a GET /session entry we use for target
 // resolution.
 //
-// UNCERTAIN (needs a live server to confirm): the exact field names. OpenCode's
-// session objects expose an id and a nested time object; created/updated are
-// unix-ish timestamps. If the live shape differs, only these tags change.
+// Verified against opencode 1.17.11: each entry exposes a string "id" (pattern
+// ^ses) and a nested "time" object with integer "created"/"updated" epoch-ms
+// timestamps (both required). JSON numbers decode cleanly into float64.
 type sessionInfo struct {
 	ID   string `json:"id"`
 	Time struct {
@@ -177,10 +179,12 @@ type promptPart struct {
 
 // promptRequest is the POST /session/:id/prompt_async body.
 //
-// UNCERTAIN (needs a live server to confirm): the request schema. OpenCode
-// models a message as a list of typed parts; a single text part is the minimal
-// user turn. If the endpoint wants a flat {"text": …} or extra required fields
-// (agent/model/messageID), adjust here.
+// Verified against opencode 1.17.11: the body is an object whose only required
+// field is "parts" (an array of typed parts). agent/model/messageID/noReply are
+// all optional — omitting them lets the session's configured agent+model handle
+// the turn. A text part is {"type":"text","text":…} (both required). A live POST
+// with just {"parts":[{"type":"text","text":…}]} returns HTTP 204 and the turn
+// is processed by the default agent.
 type promptRequest struct {
 	Parts []promptPart `json:"parts"`
 }
@@ -195,10 +199,14 @@ func (c *Client) PromptAsync(ctx context.Context, sessionID, text string) error 
 
 // permissionAnswer is the POST /session/:id/permissions/:permID body.
 //
-// UNCERTAIN (needs a live server to confirm): the response enum values. This
-// maps allow -> "once" and deny -> "reject"; if OpenCode expects
-// "always"/"allow"/"deny" or different tokens, change the constants in
-// answerResponse. `remember` is omitted (our seam has no remember bit).
+// Verified against opencode 1.17.11: the body is {"response": …} where response
+// is one of exactly "once", "always", or "reject" (there is no "allow"/"deny").
+// We map allow -> "once" (approve this one call) and deny -> "reject"; "always"
+// is unused (our seam has no remember bit). A live POST with {"response":"once"}
+// returns HTTP 200 with body `true` and emits a "permission.replied" event.
+// NOTE: this endpoint is marked deprecated in the OpenAPI spec (superseded by
+// POST /session/:id/permission/:requestID/reply under the /api prefix) but is
+// still fully functional in 1.17.11.
 type permissionAnswer struct {
 	Response string `json:"response"`
 }

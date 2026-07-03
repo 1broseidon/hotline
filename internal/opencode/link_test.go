@@ -83,7 +83,10 @@ func TestLinkFullFlow(t *testing.T) {
 		// GET /session lists an older session; the live SSE event re-pins onto
 		// ses_live, so pushes and answers must target THAT session.
 		sessionsJSON: `[{"id":"ses_list","time":{"created":10,"updated":10}}]`,
-		permEvent:    `{"type":"permission.asked","properties":{"id":"perm_xyz","sessionID":"ses_live","title":"Run rm -rf","type":"bash","metadata":{"command":"rm -rf /tmp/x"}}}`,
+		// Real permission.asked shape (verified against opencode 1.17.11): fields
+		// sit directly under "properties"; the permission NAME is "permission",
+		// match patterns are a "patterns" array, and there is no "title".
+		permEvent: `{"id":"evt_1","type":"permission.asked","properties":{"id":"per_xyz","sessionID":"ses_live","permission":"bash","patterns":["rm -rf /tmp/x"],"metadata":{"command":"rm -rf /tmp/x"},"always":["rm *"],"tool":{"messageID":"msg_1","callID":"call_1"}}}`,
 	}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
@@ -108,8 +111,8 @@ func TestLinkFullFlow(t *testing.T) {
 	if req.ToolName != "bash" {
 		t.Fatalf("tool name %q, want bash", req.ToolName)
 	}
-	if req.Description != "Run rm -rf" {
-		t.Fatalf("description %q", req.Description)
+	if req.Description != "rm -rf /tmp/x" {
+		t.Fatalf("description %q, want the first pattern", req.Description)
 	}
 	if !strings.Contains(req.InputPreview, "rm -rf") {
 		t.Fatalf("preview %q missing metadata", req.InputPreview)
@@ -134,7 +137,7 @@ func TestLinkFullFlow(t *testing.T) {
 	if len(mock.permAnswers) != 1 {
 		t.Fatalf("permission answers: %+v", mock.permAnswers)
 	}
-	if mock.permAnswers[0].path != "/session/ses_live/permissions/perm_xyz" {
+	if mock.permAnswers[0].path != "/session/ses_live/permissions/per_xyz" {
 		t.Fatalf("answer path %q (session re-pin failed?)", mock.permAnswers[0].path)
 	}
 	if mock.permAnswers[0].body.Response != "once" {
@@ -186,7 +189,7 @@ func TestLinkPushResolvesLazily(t *testing.T) {
 func TestLinkPinnedSession(t *testing.T) {
 	mock := &mockServer{
 		sessionsJSON: `[{"id":"ses_list","time":{"created":1,"updated":9}}]`,
-		permEvent:    `{"type":"permission.asked","properties":{"id":"perm_1","sessionID":"ses_other","title":"x","type":"bash"}}`,
+		permEvent:    `{"id":"evt_2","type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_other","permission":"bash","patterns":["x"],"metadata":{}}}`,
 	}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()

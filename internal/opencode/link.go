@@ -98,6 +98,15 @@ func (l *Link) Start(ctx context.Context) error {
 
 // PushInbound implements harness.Link: inject a user turn via prompt_async into
 // the current session, resolving one lazily if none is set yet.
+//
+// Verified against opencode 1.17.11: an injected prompt_async turn becomes a
+// first-class user message in the session — it appears in the message stream
+// (message.updated / message.part.updated events) and the session's configured
+// agent processes it, running tools and going idle as usual. RESIDUAL RISK
+// (unverified): whether an interactive opencode TUI attached to the same session
+// re-renders a server-injected turn live could not be confirmed from a headless
+// box (no TUI). Since the turn is persisted to the session's message list, a TUI
+// that reads that list should show it, but real-time repaint is untested.
 func (l *Link) PushInbound(ctx context.Context, in harness.Inbound) error {
 	session := l.currentSession()
 	if session == "" {
@@ -135,19 +144,24 @@ type busEvent struct {
 
 // permissionAskedProps is the payload of a permission.asked event.
 //
-// UNCERTAIN (needs a live server to confirm): the exact JSON shape. OpenCode's
-// permission object is documented with id, sessionID, a human title, and a
-// type/metadata pair; the SSE event wraps it under "properties". If the live
-// event nests the permission one level deeper (e.g. properties.permission) or
-// renames fields, this struct and the decode in handleEvent are the only places
-// to change.
+// Verified against opencode 1.17.11 (OpenAPI EventPermissionAsked + a live
+// event). The SSE envelope is {"id":"evt_…","type":"permission.asked",
+// "properties":{…}} and the permission fields sit DIRECTLY under "properties"
+// (not nested one level deeper). A real event:
+//
+//	{"id":"evt_…","type":"permission.asked","properties":{
+//	  "id":"per_…","sessionID":"ses_…","permission":"bash",
+//	  "patterns":["echo perm-check-2"],"metadata":{"command":"echo perm-check-2"},
+//	  "always":["echo *"],"tool":{"messageID":"msg_…","callID":"call_…"}}}
+//
+// The permission NAME is "permission" (not "type"), the match patterns are a
+// "patterns" ARRAY (not a scalar "pattern"), and there is NO "title" field.
 type permissionAskedProps struct {
-	ID        string          `json:"id"`
-	SessionID string          `json:"sessionID"`
-	Title     string          `json:"title"`
-	Type      string          `json:"type"`
-	Pattern   string          `json:"pattern"`
-	Metadata  json.RawMessage `json:"metadata"`
+	ID         string          `json:"id"`
+	SessionID  string          `json:"sessionID"`
+	Permission string          `json:"permission"`
+	Patterns   []string        `json:"patterns"`
+	Metadata   json.RawMessage `json:"metadata"`
 }
 
 // sessionRef is the minimal shape of events that carry a session id, used to
@@ -197,10 +211,14 @@ func (l *Link) handlePermissionAsked(ctx context.Context, raw json.RawMessage) {
 	l.setSession(p.SessionID)
 
 	code := l.remember(p.SessionID, p.ID)
+	firstPattern := ""
+	if len(p.Patterns) > 0 {
+		firstPattern = p.Patterns[0]
+	}
 	req := harness.PermissionRequest{
 		ID:           code,
-		ToolName:     firstNonEmpty(p.Type, p.Pattern, "permission"),
-		Description:  firstNonEmpty(p.Title, p.Pattern),
+		ToolName:     firstNonEmpty(p.Permission, firstPattern, "permission"),
+		Description:  firstNonEmpty(firstPattern, p.Permission),
 		InputPreview: previewMetadata(p.Metadata),
 	}
 	select {

@@ -121,15 +121,18 @@ func TestAnswerPermissionPayload(t *testing.T) {
 	}
 }
 
-// TestBasicAuthHeader confirms the basic-auth password is sent when configured,
-// and omitted when not.
+// TestBasicAuthHeader confirms basic auth is sent when a password is configured
+// and omitted when not. Verified against opencode 1.17.11: the server accepts
+// ONLY the literal username "opencode" with the password as the secret, so the
+// client must send exactly that pair.
 func TestBasicAuthHeader(t *testing.T) {
 	for _, password := range []string{"", "s3cret"} {
 		var sawAuth bool
-		var gotPass string
+		var gotUser, gotPass string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, pass, ok := r.BasicAuth()
+			user, pass, ok := r.BasicAuth()
 			sawAuth = ok
+			gotUser = user
 			gotPass = pass
 			_, _ = w.Write([]byte(`[]`))
 		}))
@@ -140,8 +143,8 @@ func TestBasicAuthHeader(t *testing.T) {
 				t.Fatalf("no password set but Authorization header present")
 			}
 		} else {
-			if !sawAuth || gotPass != password {
-				t.Fatalf("basic auth: ok=%v pass=%q, want pass=%q", sawAuth, gotPass, password)
+			if !sawAuth || gotUser != "opencode" || gotPass != password {
+				t.Fatalf("basic auth: ok=%v user=%q pass=%q, want user=opencode pass=%q", sawAuth, gotUser, gotPass, password)
 			}
 		}
 		srv.Close()

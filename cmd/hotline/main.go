@@ -107,6 +107,7 @@ Usage:
                        (--providers telegram,signal; --voice writes HOTLINE.md;
                        --mcp-json registers a raw .mcp.json server instead)
   hotline start        launch Claude Code with the channel loaded
+                       (--yolo adds --dangerously-skip-permissions)
                        (args after -- go to claude: hotline start -- --continue)
   hotline [run]        start the MCP server + Telegram poller (default)
   hotline pair <code>  approve a pending pairing code

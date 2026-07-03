@@ -59,6 +59,7 @@ Requires Go 1.26+ for the source build.
 
    ```sh
    hotline start              # extra claude flags go after --, e.g. hotline start -- --continue
+   hotline start --yolo       # adds --dangerously-skip-permissions; the permission relay never fires
    ```
 
 4. DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:

@@ -46,6 +46,7 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stdout)
 	providers := fs.String("providers", "", "comma-separated provider list (exported as HOTLINE_PROVIDERS)")
+	yolo := fs.Bool("yolo", false, "start claude with --dangerously-skip-permissions (the permission relay never fires)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -66,6 +67,10 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 	warnMissingCreds(botName, stderr)
 
 	argv := append([]string{"claude"}, channelArgs(dir, stderr)...)
+	if *yolo {
+		argv = append(argv, "--dangerously-skip-permissions")
+		fmt.Fprintln(stderr, "hotline: yolo mode. Permission checks are off; the relay never fires (see SECURITY.md).")
+	}
 	argv = append(argv, passthrough...)
 	return execProcess(bin, argv, os.Environ())
 }

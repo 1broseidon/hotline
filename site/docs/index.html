@@ -44,8 +44,9 @@
 <p>It speaks Claude Code's experimental two-way channel protocol (<code>claude/channel</code>), which makes it Claude Code specific today. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
 
 <h2>Install</h2>
+<pre><code>brew install 1broseidon/tap/hotline</code></pre>
+<p>Binaries ship with each tagged release. Or build from source (Go 1.26+):</p>
 <pre><code>go install github.com/1broseidon/hotline/cmd/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
-<p>Requires Go 1.26+. No prebuilt binaries yet.</p>
 
 <h2>Set up Telegram</h2>
 <ol>
@@ -114,8 +115,10 @@ hotline start        <span class="c"># launch Claude Code with the channel loade
 hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
 hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>
 hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span>
-hotline status       <span class="c"># print state-dir / token / access summary</span></code></pre>
-<p><code>pair</code>, <code>deny</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
+hotline revoke &lt;id&gt;  <span class="c"># remove an approved sender from the allowlist</span>
+hotline status       <span class="c"># print state-dir / token / access summary</span>
+hotline version      <span class="c"># print the build's version info</span></code></pre>
+<p><code>pair</code>, <code>deny</code>, <code>revoke</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
 
 <h2>Start from a template</h2>
 <p><a href="https://github.com/1broseidon/hotline/tree/main/templates/mission-control">mission-control</a> is our take on what makes a good texting agent: a filing system the agent keeps on disk, an operating playbook, a starter voice. Copy the folder into your project, or install it as a plugin and scaffold with one command:</p>

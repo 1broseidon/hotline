@@ -303,6 +303,36 @@ func instructions(transcriptPath, voice string) string {
 	return mechanics + "\n\n" + voice
 }
 
+// AgentInstructions renders the full channel instruction block as markdown
+// paragraphs with NO budget cap — the companion file it feeds (an OpenCode
+// agent definition) is unbounded, unlike Claude Code's 2048-char MCP
+// instructions field.
+//
+// It draws from the SAME instructionSegments(transcriptPath) as instructions()
+// so the two can never drift: every mechanics segment plus the voice, joined by
+// blank lines. Voice handling mirrors instructions() — an empty voice uses the
+// built-in voice paragraphs; a non-empty voice (a HOTLINE.md override) replaces
+// those default voice paragraphs, and the mechanics are always included in full.
+// Nothing here is ever truncated.
+func AgentInstructions(transcriptPath, voice string) string {
+	segs := instructionSegments(transcriptPath)
+	paras := make([]string, 0, len(segs))
+	def := make([]string, 0, len(segs))
+	for _, seg := range segs {
+		if seg.voice {
+			def = append(def, seg.text)
+		} else {
+			paras = append(paras, seg.text)
+		}
+	}
+	if voice == "" {
+		paras = append(paras, def...)
+	} else {
+		paras = append(paras, voice)
+	}
+	return strings.Join(paras, "\n\n")
+}
+
 // truncateAtWord cuts s to at most n bytes, backing up to the last word
 // boundary so the cut never lands mid-word (or mid-rune).
 func truncateAtWord(s string, n int) string {

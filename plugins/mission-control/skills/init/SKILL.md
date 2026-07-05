@@ -67,4 +67,14 @@ Grep, Glob, LS, …) in `.claude/settings.json` so a remote texting user isn't
 buzzed for every navigation step — edits and commands still ask. They can widen
 or narrow that allowlist in `.claude/settings.json` to taste.
 
+If they drive OpenCode instead of Claude Code, they run
+`hotline init --harness opencode`. That scaffolds a dedicated primary agent at
+`.opencode/agents/hotline.md` whose system prompt is hotline's texting mechanics
+and voice (OpenCode ignores the MCP `instructions` field, so the agent is how
+those rules — including the anti-prompt-injection pairing rule — reach it), and
+merges `opencode.json` with the hotline MCP server pinned to that agent
+(`HOTLINE_OPENCODE_AGENT=hotline`) plus a default `permission` block. Re-running
+regenerates the managed agent file but never clobbers a `hotline.md` they wrote
+themselves. The voice still comes from `HOTLINE.md`.
+
 Do not run `hotline` commands yourself; the user runs them.

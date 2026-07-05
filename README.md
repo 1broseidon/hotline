@@ -395,7 +395,7 @@ hotline drives two coding-agent harnesses. Select with `HOTLINE_HARNESS`:
 
 An unknown value is rejected at startup instead of falling back to Claude Code.
 
-OpenCode has no channel protocol, so the wiring splits in two. hotline runs as a plain stdio MCP server that OpenCode launches for the outbound tools (`reply`, `react`, `edit_message`, `download_attachment`). For inbound, hotline dials OpenCode's local server: it injects your texts as a user turn with `POST /session/:id/prompt_async`, tails `GET /event` for `permission.asked` events, and answers them with `POST /session/:id/permissions/:id`. The messaging providers and access model are unchanged.
+OpenCode has no channel protocol, so the wiring splits in two. hotline runs as a plain stdio MCP server that OpenCode launches for the outbound tools (`reply`, `react`, `edit_message`, `download_attachment`). For inbound, hotline dials OpenCode's local server: it injects your texts as a user turn with `POST /session/:id/prompt_async`, tails `GET /event` for `permission.asked` events, and answers them with `POST /session/:id/permissions/:id`. When `HOTLINE_OPENCODE_AGENT` is set, each injected turn is pinned to that agent (the `agent` field on `prompt_async`) so it runs hotline's dedicated agent rather than OpenCode's default `build` assistant; empty leaves the field off and the session's default agent handles the turn. The messaging providers and access model are unchanged.
 
 Config comes from the environment, real env winning over the shared `.env`:
 
@@ -405,10 +405,13 @@ Config comes from the environment, real env winning over the shared `.env`:
 | `OPENCODE_SERVER_URL` | `opencode serve` root (default `http://127.0.0.1:4096`) |
 | `OPENCODE_SERVER_PASSWORD` | Basic-auth secret; empty means no auth |
 | `OPENCODE_SESSION` | Pinned session id; empty auto-resolves |
+| `HOTLINE_OPENCODE_AGENT` | Agent every inbound turn runs as; empty uses the session's default agent |
 
 With `OPENCODE_SESSION` empty, hotline targets the most-recently-active session from `GET /session` and re-pins onto whichever session emits live events. OpenCode sessions are server-wide, so pin `OPENCODE_SESSION` to the session you are driving rather than trust the auto-resolve.
 
-Wiring is one `opencode.json`: your model and provider, a `permission` block, and an `mcp` entry that launches the hotline binary with the harness env. A minimal working config:
+Scaffold the wiring with `hotline init --harness opencode`. It writes a dedicated primary agent to `.opencode/agents/hotline.md` whose entire system prompt is hotline's mechanics + texting voice — the same reply discipline, image/download guidance, and anti-prompt-injection pairing rule the Claude Code path ships. OpenCode ignores the MCP `instructions` field, so a dedicated agent is how those rules reach it: `opencode.json` pins hotline's inbound turns to this agent (`HOTLINE_OPENCODE_AGENT=hotline`) so your voice wins instead of the default `build` coding assistant. The agent file carries a `hotline-managed` marker; re-running `init` regenerates it in place, but a `hotline.md` you wrote yourself (no marker) is left untouched — and `build.md` / `AGENTS.md` are never touched. `init` also creates or merges `opencode.json` with the hotline `mcp` server (`HOTLINE_HARNESS=opencode`, `HOTLINE_OPENCODE_AGENT=hotline`, plus `--providers` if given) and a default `permission` block (`edit`/`bash` ask, `webfetch`/`external_directory` allow); an existing `permission` block or unrelated keys are left as-is. `--voice` drops a starter `HOTLINE.md`, whose contents become the agent's voice. Note opencode's permission model is coarser than Claude Code's — there is no per-tool read-allow equivalent to the plugin path's `Read`/`Grep`/`Glob` pre-approval.
+
+Or wire it by hand. It's one `opencode.json`: your model and provider, a `permission` block, and an `mcp` entry that launches the hotline binary with the harness env. A minimal working config:
 
 ```json
 {

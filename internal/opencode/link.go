@@ -19,6 +19,10 @@ import (
 type Link struct {
 	client *Client
 	pinned string // OPENCODE_SESSION; empty means auto-resolve
+	// agent is the opencode agent every inbound turn (and the reply nudge) is
+	// pinned to (HOTLINE_OPENCODE_AGENT). Empty omits the agent field, so the
+	// session's default agent handles the turn — the backward-compatible default.
+	agent string
 
 	sessMu  sync.RWMutex
 	session string // currently targeted session id (resolved / re-pinned)
@@ -98,11 +102,14 @@ type pendingPerm struct {
 const permCacheTTL = 10 * time.Minute
 
 // NewLink builds an OpenCode Link. pinnedSession, when non-empty, fixes the
-// target session (OPENCODE_SESSION) and disables event-driven re-pinning.
-func NewLink(serverURL, password, pinnedSession string) *Link {
+// target session (OPENCODE_SESSION) and disables event-driven re-pinning. agent,
+// when non-empty, pins every pushed turn to a named opencode agent
+// (HOTLINE_OPENCODE_AGENT); "" preserves the pre-agent default-agent behavior.
+func NewLink(serverURL, password, pinnedSession, agent string) *Link {
 	return &Link{
 		client: NewClient(serverURL, password),
 		pinned: pinnedSession,
+		agent:  agent,
 		perms:  make(chan harness.PermissionRequest, 16),
 		codes:  make(map[string]pendingPerm),
 		turns:  make(map[string]*turnState),
@@ -222,7 +229,7 @@ func (l *Link) PushInbound(ctx context.Context, in harness.Inbound) error {
 	// render it into the prompt text since OpenCode only speaks plain text. Using
 	// in.Content alone would drop in.Meta — the routing keys — and the agent
 	// would have no chat_id to reply to.
-	return l.client.PromptAsync(ctx, session, harness.RenderChannel(in))
+	return l.client.PromptAsync(ctx, session, l.agent, harness.RenderChannel(in))
 }
 
 // AnswerPermission implements harness.Link: resolve the relay code back to the
@@ -458,7 +465,7 @@ func (l *Link) evaluateFallback(ctx context.Context, session string) {
 	if !ts.nudged {
 		ts.nudged = true
 		l.turnMu.Unlock()
-		if err := l.client.PromptAsync(ctx, session, replyNudge); err != nil {
+		if err := l.client.PromptAsync(ctx, session, l.agent, replyNudge); err != nil {
 			// The nudge could not even be delivered — skip to the backstop so the
 			// answer still reaches the user.
 			fmt.Fprintf(os.Stderr, "hotline: opencode reply nudge failed: %v — forwarding directly\n", err)

@@ -25,7 +25,7 @@ func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath
 	if err != nil {
 		return err
 	}
-	link := opencode.NewLink(ocfg.ServerURL, ocfg.Password, ocfg.Session)
+	link := opencode.NewLink(ocfg.ServerURL, ocfg.Password, ocfg.Session, ocfg.Agent)
 	sink := &opencodeSink{link: link}
 
 	// Reply-delivery fallback: opencode's reply is a manual tool call, so a model

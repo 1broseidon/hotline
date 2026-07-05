@@ -91,7 +91,7 @@ func TestLinkFullFlow(t *testing.T) {
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
-	link := NewLink(srv.URL, "", "") // auto-resolve session
+	link := NewLink(srv.URL, "", "", "") // auto-resolve session
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -173,7 +173,7 @@ func TestLinkPushResolvesLazily(t *testing.T) {
 	defer srv.Close()
 
 	// Don't run Start: exercise PushInbound's lazy resolution directly.
-	link := NewLink(srv.URL, "", "")
+	link := NewLink(srv.URL, "", "", "")
 	if err := link.PushInbound(context.Background(), harness.Inbound{Content: "hi"}); err != nil {
 		t.Fatalf("PushInbound: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestLinkPushRendersChannelEnvelope(t *testing.T) {
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
-	link := NewLink(srv.URL, "", "")
+	link := NewLink(srv.URL, "", "", "")
 	in := harness.Inbound{
 		Content: "hey are you there",
 		Meta: map[string]string{
@@ -238,6 +238,46 @@ func TestLinkPushRendersChannelEnvelope(t *testing.T) {
 	}
 }
 
+// TestLinkPushSendsConfiguredAgent proves the agent set at construction
+// (HOTLINE_OPENCODE_AGENT -> Link.agent) rides every prompt_async push, so
+// inbound turns run the dedicated hotline agent rather than opencode's default.
+func TestLinkPushSendsConfiguredAgent(t *testing.T) {
+	mock := &mockServer{sessionsJSON: `[{"id":"ses_only","time":{"created":1,"updated":5}}]`}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	link := NewLink(srv.URL, "", "", "hotline") // agent pinned to "hotline"
+	if err := link.PushInbound(context.Background(), harness.Inbound{Content: "hi"}); err != nil {
+		t.Fatalf("PushInbound: %v", err)
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.prompts) != 1 {
+		t.Fatalf("prompts: %+v", mock.prompts)
+	}
+	if mock.prompts[0].body.Agent != "hotline" {
+		t.Fatalf("pushed agent = %q, want hotline", mock.prompts[0].body.Agent)
+	}
+}
+
+// TestLinkPushOmitsAgentByDefault proves the backward-compatible default: with
+// no agent configured, prompt_async carries no agent field at all.
+func TestLinkPushOmitsAgentByDefault(t *testing.T) {
+	mock := &mockServer{sessionsJSON: `[{"id":"ses_only","time":{"created":1,"updated":5}}]`}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	link := NewLink(srv.URL, "", "", "") // no agent
+	if err := link.PushInbound(context.Background(), harness.Inbound{Content: "hi"}); err != nil {
+		t.Fatalf("PushInbound: %v", err)
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.prompts) != 1 || mock.prompts[0].body.Agent != "" {
+		t.Fatalf("default push must omit agent, got %+v", mock.prompts)
+	}
+}
+
 // TestLinkPinnedSession keeps the pinned session even when SSE events name a
 // different one.
 func TestLinkPinnedSession(t *testing.T) {
@@ -248,7 +288,7 @@ func TestLinkPinnedSession(t *testing.T) {
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
-	link := NewLink(srv.URL, "", "ses_pinned")
+	link := NewLink(srv.URL, "", "ses_pinned", "")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = link.Start(ctx) }()

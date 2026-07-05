@@ -23,11 +23,17 @@ type OpenCodeConfig struct {
 	// Session pins the target session id (OPENCODE_SESSION). Empty lets the
 	// adapter resolve the most-recently-active session from GET /session.
 	Session string
+	// Agent pins every inbound turn to a named opencode agent
+	// (HOTLINE_OPENCODE_AGENT). `hotline init --harness opencode` sets it to
+	// "hotline" (the scaffolded agent). Empty omits the agent field on
+	// prompt_async, preserving the pre-agent default-agent behavior.
+	Agent string
 }
 
 // LoadOpenCode resolves the OpenCode harness settings from the real environment
 // (which wins) merged with the shared base-dir .env, mirroring LoadSignal's
-// env-key style: OPENCODE_SERVER_URL, OPENCODE_SERVER_PASSWORD, OPENCODE_SESSION.
+// env-key style: OPENCODE_SERVER_URL, OPENCODE_SERVER_PASSWORD, OPENCODE_SESSION,
+// HOTLINE_OPENCODE_AGENT.
 func LoadOpenCode() (*OpenCodeConfig, error) {
 	baseDir, err := resolveStateDir()
 	if err != nil {
@@ -43,6 +49,7 @@ func LoadOpenCode() (*OpenCodeConfig, error) {
 		ServerURL: mergedEnv("OPENCODE_SERVER_URL", dotEnv),
 		Password:  mergedEnv("OPENCODE_SERVER_PASSWORD", dotEnv),
 		Session:   mergedEnv("OPENCODE_SESSION", dotEnv),
+		Agent:     mergedEnv("HOTLINE_OPENCODE_AGENT", dotEnv),
 	}
 	if c.ServerURL == "" {
 		c.ServerURL = DefaultOpenCodeServerURL

@@ -90,7 +90,7 @@ func TestReplyFallbackNudgeThenForward(t *testing.T) {
 	}
 	fwdCh := make(chan forwarded, 4)
 
-	link := NewLink(srv.URL, "", "")
+	link := NewLink(srv.URL, "", "", "")
 	link.SetForwarder(func(_ context.Context, text string, meta map[string]string) error {
 		fwdCh <- forwarded{text: text, meta: meta}
 		return nil
@@ -158,7 +158,7 @@ func TestReplyFallbackSkippedWhenReplied(t *testing.T) {
 	defer srv.Close()
 
 	fwded := make(chan struct{}, 2)
-	link := NewLink(srv.URL, "", "")
+	link := NewLink(srv.URL, "", "", "")
 	link.SetForwarder(func(_ context.Context, _ string, _ map[string]string) error {
 		fwded <- struct{}{}
 		return nil

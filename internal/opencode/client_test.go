@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,21 +62,29 @@ func TestResolveSessionEmpty(t *testing.T) {
 
 // TestPromptAsyncPayload asserts the path and JSON body of an inbound push, and
 // that an EMPTY response body (the sst/opencode#2168 caveat) is not an error —
-// results come from SSE, never this call.
+// results come from SSE, never this call. It also proves the agent field:
+// present when set, and ABSENT from the raw JSON when "" (the omitempty backward
+// compatibility contract — no agent key means opencode's default agent handles
+// the turn, exactly as before the agent plumbing existed).
 func TestPromptAsyncPayload(t *testing.T) {
 	var gotPath, gotCT string
 	var gotBody promptRequest
+	var gotRaw map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotCT = r.Header.Get("Content-Type")
-		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_ = json.Unmarshal(raw, &gotRaw)
 		// Deliberately return an empty 200 body (the known-empty-response build).
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "")
-	if err := c.PromptAsync(context.Background(), "ses_42", "hello from telegram"); err != nil {
+
+	// No agent: the field must be omitted entirely (backward compatible).
+	if err := c.PromptAsync(context.Background(), "ses_42", "", "hello from telegram"); err != nil {
 		t.Fatalf("PromptAsync: %v", err)
 	}
 	if gotPath != "/session/ses_42/prompt_async" {
@@ -86,6 +95,20 @@ func TestPromptAsyncPayload(t *testing.T) {
 	}
 	if len(gotBody.Parts) != 1 || gotBody.Parts[0].Type != "text" || gotBody.Parts[0].Text != "hello from telegram" {
 		t.Fatalf("body %+v", gotBody)
+	}
+	if _, ok := gotRaw["agent"]; ok {
+		t.Fatalf("empty agent must omit the JSON key, got %v", gotRaw)
+	}
+
+	// With an agent: the field is present and carries the name.
+	if err := c.PromptAsync(context.Background(), "ses_42", "hotline", "hey"); err != nil {
+		t.Fatalf("PromptAsync with agent: %v", err)
+	}
+	if gotRaw["agent"] != "hotline" {
+		t.Fatalf("agent key = %v, want hotline", gotRaw["agent"])
+	}
+	if gotBody.Agent != "hotline" {
+		t.Fatalf("decoded agent = %q, want hotline", gotBody.Agent)
 	}
 }
 

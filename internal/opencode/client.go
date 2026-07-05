@@ -185,15 +185,25 @@ type promptPart struct {
 // the turn. A text part is {"type":"text","text":…} (both required). A live POST
 // with just {"parts":[{"type":"text","text":…}]} returns HTTP 204 and the turn
 // is processed by the default agent.
+//
+// Agent, when non-empty, pins the turn to a named agent (opencode's optional
+// "agent" field). hotline sets it to the scaffolded "hotline" agent so inbound
+// turns run hotline's mechanics+voice instead of the session's default "build"
+// agent. The omitempty tag keeps the key ABSENT when Agent is "" — that is the
+// backward-compatible default-agent behavior, and tests assert the key is gone.
 type promptRequest struct {
 	Parts []promptPart `json:"parts"`
+	Agent string       `json:"agent,omitempty"`
 }
 
 // PromptAsync fires a user turn into a session (fire-and-forget). The response
 // body is intentionally discarded (sst/opencode#2168): a build is known to
 // return empty here, so results are taken from the SSE stream, never this call.
-func (c *Client) PromptAsync(ctx context.Context, sessionID, text string) error {
-	body := promptRequest{Parts: []promptPart{{Type: "text", Text: text}}}
+//
+// agent pins the turn to a named opencode agent; pass "" to omit the field
+// entirely and let the session's default agent handle the turn.
+func (c *Client) PromptAsync(ctx context.Context, sessionID, agent, text string) error {
+	body := promptRequest{Parts: []promptPart{{Type: "text", Text: text}}, Agent: agent}
 	return c.doJSON(ctx, http.MethodPost, "/session/"+sessionID+"/prompt_async", body, nil)
 }
 

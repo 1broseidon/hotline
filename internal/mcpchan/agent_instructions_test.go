@@ -68,6 +68,19 @@ func TestAgentInstructionsCustomVoiceReplacesDefault(t *testing.T) {
 	assertMechanics(t, got)
 }
 
+// TestOpenCodeOnlyNudge pins the ocOnly segment routing: the edit-tool nudge
+// must reach the OpenCode agent file (AgentInstructions) but never the capped
+// Claude MCP instructions block (instructions), where it would eat budget.
+func TestOpenCodeOnlyNudge(t *testing.T) {
+	const nudge = "Write and edit files with your edit tool"
+	if agent := AgentInstructions("/state/transcript.jsonl", ""); !strings.Contains(agent, nudge) {
+		t.Errorf("AgentInstructions must carry the OpenCode edit-tool nudge %q", nudge)
+	}
+	if mcp := instructions("/state/transcript.jsonl", ""); strings.Contains(mcp, nudge) {
+		t.Errorf("capped MCP instructions must NOT carry the OpenCode-only nudge %q", nudge)
+	}
+}
+
 // TestAgentInstructionsNoMechanicsDrift is the anti-drift guard: every MECHANICS
 // segment from instructionSegments() must appear verbatim in the companion
 // render, so the OpenCode agent file can never silently lose the safety rule or

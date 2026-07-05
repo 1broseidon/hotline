@@ -403,8 +403,13 @@ func (h *Handler) handlePermInteraction(ctx context.Context, i *discordgo.Intera
 		return
 	}
 
-	// allow / deny verdict. Claim atomically so only the first answerer (button
-	// or text reply, here or on another provider's relay) emits a verdict.
+	// allow / deny verdict. Peek the params (for a context-preserving outcome)
+	// before claiming atomically so only the first answerer (button or text reply,
+	// here or on another provider's relay) emits a verdict.
+	h.mu.Lock()
+	entry, hadEntry := h.permCache[code]
+	h.mu.Unlock()
+
 	if !h.claimPerm(code) {
 		h.ackInteraction(i, "Already handled.")
 		return
@@ -414,11 +419,23 @@ func (h *Handler) handlePermInteraction(ctx context.Context, i *discordgo.Intera
 			fmt.Fprintf(os.Stderr, "hotline: send verdict failed: %v\n", err)
 		}
 	}
-	label := "✅ Allowed"
-	if action == "deny" {
-		label = "❌ Denied"
+	allow := action == "allow"
+	// Keep the prompt's lead line so scrollback shows what was approved.
+	outcome := "✅ Allowed"
+	if !allow {
+		outcome = "❌ Denied"
 	}
-	_ = h.updateInteractionMessage(i, label)
+	if hadEntry {
+		outcome = mcpchan.PermVerdictLine(mcpchan.PermPromptText(entry.params), allow)
+	}
+	_ = h.updateInteractionMessage(i, outcome)
+}
+
+// permPromptText renders the collapsed permission prompt as a warm, plain-language
+// ask that still surfaces the concrete target. Shared with telegram via mcpchan so
+// both channels read the same. Full detail stays behind "See more".
+func permPromptText(p mcpchan.PermissionRequestParams) string {
+	return mcpchan.PermPromptText(p)
 }
 
 // OnPermissionRequest fans a permission request out to allowlisted DMs only.
@@ -437,7 +454,7 @@ func (h *Handler) OnPermissionRequest(ctx context.Context, p mcpchan.PermissionR
 		return
 	}
 	send := &discordgo.MessageSend{
-		Content: "🔐 Permission: " + p.ToolName,
+		Content: permPromptText(p),
 		Components: []discordgo.MessageComponent{discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
 				discordgo.Button{Label: "See more", Style: discordgo.SecondaryButton, CustomID: "perm:more:" + p.RequestID},

@@ -41,6 +41,84 @@ func writeProjectSettings(t *testing.T, dir string, content string) {
 	}
 }
 
+func readAllowList(t *testing.T, dir string) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	perms, _ := root["permissions"].(map[string]any)
+	raw, _ := perms["allow"].([]any)
+	var out []string
+	for _, a := range raw {
+		if s, ok := a.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func TestMergeProjectSettingsAllow(t *testing.T) {
+	// Fresh project: all safe tools get added.
+	dir := t.TempDir()
+	added, err := mergeProjectSettingsAllow(dir, safeAutoAllowTools)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(added) != len(safeAutoAllowTools) {
+		t.Fatalf("expected all %d added, got %v", len(safeAutoAllowTools), added)
+	}
+	got := readAllowList(t, dir)
+	for _, tool := range safeAutoAllowTools {
+		if !contains(got, tool) {
+			t.Errorf("missing %q in allow list %v", tool, got)
+		}
+	}
+
+	// Idempotent: a second merge adds nothing and does not duplicate.
+	added, err = mergeProjectSettingsAllow(dir, safeAutoAllowTools)
+	if err != nil {
+		t.Fatalf("merge2: %v", err)
+	}
+	if len(added) != 0 {
+		t.Errorf("expected no new adds, got %v", added)
+	}
+	if again := readAllowList(t, dir); len(again) != len(got) {
+		t.Errorf("allow list changed on re-merge: %v -> %v", got, again)
+	}
+
+	// Existing user permissions + other keys are preserved; existing allow kept.
+	dir2 := t.TempDir()
+	writeProjectSettings(t, dir2, `{"env":{"HOTLINE_BOT":"mybot"},"permissions":{"allow":["Bash(git diff:*)"],"deny":["Read(./secrets/**)"]}}`)
+	if _, err := mergeProjectSettingsAllow(dir2, safeAutoAllowTools); err != nil {
+		t.Fatalf("merge3: %v", err)
+	}
+	got2 := readAllowList(t, dir2)
+	if !contains(got2, "Bash(git diff:*)") {
+		t.Errorf("dropped pre-existing allow entry: %v", got2)
+	}
+	if !contains(got2, "Read") {
+		t.Errorf("did not add safe tool alongside existing: %v", got2)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir2, ".claude", "settings.json"))
+	if !strings.Contains(string(data), `"HOTLINE_BOT"`) || !strings.Contains(string(data), `"deny"`) {
+		t.Errorf("merge clobbered unrelated keys: %s", data)
+	}
+}
+
+func contains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestInitPluginInstallsMarketplaceAndPlugin(t *testing.T) {
 	calls := fakeClaudeRunner(t)
 	dir := t.TempDir()

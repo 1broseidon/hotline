@@ -306,3 +306,15 @@ func TestCoalesceBurst(t *testing.T) {
 		t.Fatalf("meta %v", sink.Metas[0])
 	}
 }
+
+func TestPermPromptText(t *testing.T) {
+	// Delegates to mcpchan.PermPromptText (canonical tests live there).
+	got := permPromptText(mcpchan.PermissionRequestParams{ToolName: "Bash", InputPreview: "ls"})
+	if !strings.Contains(got, "run") || !strings.Contains(got, "ls") {
+		t.Fatalf("expected humanized ask with target, got %q", got)
+	}
+	got = permPromptText(mcpchan.PermissionRequestParams{ToolName: "external_directory"})
+	if !strings.Contains(got, "external_directory") {
+		t.Fatalf("expected tool name for unknown tool, got %q", got)
+	}
+}

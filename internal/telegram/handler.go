@@ -308,9 +308,14 @@ func (h *Handler) handlePermCallback(ctx context.Context, cb *gotgbot.CallbackQu
 		return
 	}
 
-	// allow / deny verdict. Claim the request atomically so only the first
-	// answerer emits a verdict; a second press (or a racing text reply) finds
-	// the entry gone and is told it was already handled.
+	// allow / deny verdict. Peek the request's params (for a context-preserving
+	// outcome line) before claiming, then claim atomically so only the first
+	// answerer emits a verdict; a second press (or a racing text reply) finds the
+	// entry gone and is told it was already handled.
+	h.mu.Lock()
+	entry, hadEntry := h.permCache[code]
+	h.mu.Unlock()
+
 	if !h.claimPerm(code) {
 		_, _ = h.Bot.AnswerCallbackQueryWithContext(ctx, cb.Id, &gotgbot.AnswerCallbackQueryOpts{Text: "Already handled."})
 		return
@@ -321,18 +326,31 @@ func (h *Handler) handlePermCallback(ctx context.Context, cb *gotgbot.CallbackQu
 		}
 	}
 
-	label := "✅ Allowed"
-	if action == "deny" {
-		label = "❌ Denied"
+	allow := action == "allow"
+	toast := "✅ Allowed"
+	if !allow {
+		toast = "❌ Denied"
 	}
-	_, _ = h.Bot.AnswerCallbackQueryWithContext(ctx, cb.Id, &gotgbot.AnswerCallbackQueryOpts{Text: label})
-	// Replace the buttons with the outcome so it can't be answered twice.
+	_, _ = h.Bot.AnswerCallbackQueryWithContext(ctx, cb.Id, &gotgbot.AnswerCallbackQueryOpts{Text: toast})
+	// Replace the buttons with the outcome so it can't be answered twice, keeping
+	// the prompt's lead line so scrollback shows what was approved, not bare toast.
+	outcome := toast
+	if hadEntry {
+		outcome = mcpchan.PermVerdictLine(mcpchan.PermPromptText(entry.params), allow)
+	}
 	if msg := cb.Message; msg != nil {
-		_, _, _ = h.Bot.EditMessageTextWithContext(ctx, label, &gotgbot.EditMessageTextOpts{
+		_, _, _ = h.Bot.EditMessageTextWithContext(ctx, outcome, &gotgbot.EditMessageTextOpts{
 			ChatId:    msg.GetChat().Id,
 			MessageId: msg.GetMessageId(),
 		})
 	}
+}
+
+// permPromptText renders the collapsed permission prompt as a warm, plain-language
+// ask that still surfaces the concrete target. Shared with discord via mcpchan so
+// both channels read the same. Full detail stays behind "See more".
+func permPromptText(p mcpchan.PermissionRequestParams) string {
+	return mcpchan.PermPromptText(p)
 }
 
 // OnPermissionRequest fans a permission request out to allowlisted DMs only.
@@ -351,7 +369,7 @@ func (h *Handler) OnPermissionRequest(ctx context.Context, p mcpchan.PermissionR
 		fmt.Fprintf(os.Stderr, "hotline: access load failed: %v\n", err)
 		return
 	}
-	text := "🔐 Permission: " + p.ToolName
+	text := permPromptText(p)
 	kb := gotgbot.InlineKeyboardMarkup{InlineKeyboard: [][]gotgbot.InlineKeyboardButton{{
 		{Text: "See more", CallbackData: "perm:more:" + p.RequestID},
 		{Text: "✅ Allow", CallbackData: "perm:allow:" + p.RequestID},

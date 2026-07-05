@@ -267,3 +267,22 @@ func TestLinkPinnedSession(t *testing.T) {
 		t.Fatalf("pinned push went to wrong session: %+v", mock.prompts)
 	}
 }
+
+func TestPreviewMetadataUnwrap(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"bash command", `{"command":"echo hello-perm-test"}`, "echo hello-perm-test"},
+		{"edit filePath", `{"filePath":"internal/config.go"}`, "internal/config.go"},
+		{"webfetch url", `{"url":"https://x.com/y"}`, "https://x.com/y"},
+		{"multi-field sorted", `{"path":"b.go","command":"go build"}`, "go build"}, // 'command' preferred
+		{"no known key sorted join", `{"alpha":"one","beta":"two"}`, "one two"},
+		{"non-object falls back raw", `["a","b"]`, `["a","b"]`},
+		{"empty", ``, ""},
+		{"null", `null`, ""},
+	}
+	for _, c := range cases {
+		got := previewMetadata([]byte(c.in))
+		if got != c.want {
+			t.Errorf("%s: previewMetadata(%s) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}

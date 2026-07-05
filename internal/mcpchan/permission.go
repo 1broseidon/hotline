@@ -14,6 +14,79 @@ type PermissionRequestParams struct {
 	InputPreview string `json:"input_preview"`
 }
 
+// permLead maps common Claude Code tools to a friendly verb + emoji so the prompt
+// reads like a person asking ("✏️ edit config.go?") instead of a raw tool dump. The
+// concrete target from the preview is always shown alongside (see PermPromptText),
+// so humanizing never hides what an action touches.
+// Matched case-insensitively so both harnesses humanize: Claude Code sends
+// capitalized tool names ("Edit", "Bash"), the OpenCode permission relay sends
+// lowercase permission types ("edit", "bash").
+func permLead(tool string) (emoji, verb string, ok bool) {
+	switch strings.ToLower(tool) {
+	case "edit", "write", "multiedit", "notebookedit", "patch":
+		return "✏️", "edit", true
+	case "read", "notebookread":
+		return "📖", "read", true
+	case "bash", "bashoutput", "killshell":
+		return "⚙️", "run", true
+	case "grep", "glob", "ls":
+		return "🔍", "search", true
+	case "webfetch":
+		return "🌐", "fetch", true
+	case "websearch":
+		return "🌐", "search the web for", true
+	case "task":
+		return "🤖", "run a subagent on", true
+	}
+	return "", "", false
+}
+
+// PermPromptText renders the collapsed permission prompt as a warm, plain-language
+// ask ("✏️ edit config.go?") while always surfacing the concrete target (file /
+// command / url), so the person can decide without tapping "See more" and a
+// humanized prompt can never make a destructive action look innocuous. Unknown
+// tools keep the explicit 🔐 <ToolName> form. Full detail stays behind "See more".
+func PermPromptText(p PermissionRequestParams) string {
+	preview := strings.Join(strings.Fields(p.InputPreview), " ")
+	if preview == "" {
+		preview = strings.Join(strings.Fields(p.Description), " ")
+	}
+	if r := []rune(preview); len(r) > 200 {
+		preview = strings.TrimSpace(string(r[:200])) + "…"
+	}
+	emoji, verb, ok := permLead(p.ToolName)
+	if !ok {
+		lead := "🔐 " + p.ToolName
+		if preview == "" {
+			return lead
+		}
+		return lead + "\n" + preview
+	}
+	if preview == "" {
+		return emoji + " " + verb + "?"
+	}
+	return emoji + " " + verb + " " + preview + "?"
+}
+
+// PermVerdictLine folds an allow/deny outcome back onto the original prompt's lead
+// line so an answered bubble keeps its context ("✏️ edit config.go? — ✅ Allowed")
+// instead of collapsing to a bare verdict. promptText is the message text as sent
+// (possibly "See more"-expanded); only its first line is kept.
+func PermVerdictLine(promptText string, allow bool) string {
+	verdict := "✅ Allowed"
+	if !allow {
+		verdict = "❌ Denied"
+	}
+	lead := strings.TrimSpace(promptText)
+	if i := strings.IndexByte(lead, '\n'); i >= 0 {
+		lead = strings.TrimSpace(lead[:i])
+	}
+	if lead == "" {
+		return verdict
+	}
+	return lead + " — " + verdict
+}
+
 // PermissionVerdictParams is the payload of an outbound permission verdict.
 type PermissionVerdictParams struct {
 	RequestID string `json:"request_id"`

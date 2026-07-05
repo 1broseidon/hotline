@@ -120,6 +120,64 @@ func writeProjectSettingsEnv(dir string, kv map[string]string) error {
 	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
+// safeAutoAllowTools are read-only Claude Code tools that hotline pre-approves on
+// init so a remote user — who can't reach the terminal to approve — isn't buzzed
+// for routine navigation. Anything that writes or executes (Edit, Write, Bash, …)
+// still prompts, so the permission gate keeps its value where it matters.
+var safeAutoAllowTools = []string{"Read", "Grep", "Glob", "LS", "NotebookRead", "TodoWrite"}
+
+// mergeProjectSettingsAllow adds tools to permissions.allow in .claude/settings.json
+// additively: every existing allow entry and every other key is preserved, and a
+// tool already present is never duplicated. It returns the tools it actually added
+// (nil if all were already allowed) so the caller can tell the user, and never
+// clobbers a malformed file (readJSONMap surfaces that as an error).
+func mergeProjectSettingsAllow(dir string, tools []string) ([]string, error) {
+	path := filepath.Join(dir, ".claude", "settings.json")
+	root, err := readJSONMap(path)
+	if err != nil {
+		return nil, err
+	}
+	perms, _ := root["permissions"].(map[string]any)
+	if perms == nil {
+		perms = map[string]any{}
+	}
+	rawAllow, _ := perms["allow"].([]any)
+	have := make(map[string]bool, len(rawAllow))
+	allow := make([]any, 0, len(rawAllow)+len(tools))
+	for _, a := range rawAllow {
+		allow = append(allow, a)
+		if s, ok := a.(string); ok {
+			have[s] = true
+		}
+	}
+	var added []string
+	for _, tool := range tools {
+		if have[tool] {
+			continue
+		}
+		allow = append(allow, tool)
+		added = append(added, tool)
+	}
+	if len(added) == 0 {
+		return nil, nil
+	}
+	perms["allow"] = allow
+	root["permissions"] = perms
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(root); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		return nil, err
+	}
+	return added, nil
+}
+
 // channelAllowlisted reports whether hotline@hotline is on Claude Code's
 // approved channel-plugin allowlist, in which case the non-dangerous
 // `--channels plugin:hotline@hotline` form registers the channel. Two

@@ -4,11 +4,11 @@ go 1.26.3
 
 require (
 	github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.35
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 )
 
 require (
-	github.com/bwmarrin/discordgo v0.29.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect

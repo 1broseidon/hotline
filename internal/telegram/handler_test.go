@@ -1,12 +1,27 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
 	"github.com/1broseidon/hotline/internal/access"
+	"github.com/1broseidon/hotline/internal/mcpchan"
 )
+
+func TestPermPromptText(t *testing.T) {
+	// Delegates to mcpchan.PermPromptText (canonical tests live there). Known tools
+	// read as a warm ask that still surfaces the target; unknown tools keep 🔐 name.
+	got := permPromptText(mcpchan.PermissionRequestParams{ToolName: "Bash", InputPreview: "ls"})
+	if !strings.Contains(got, "run") || !strings.Contains(got, "ls") {
+		t.Fatalf("expected humanized ask with target, got %q", got)
+	}
+	got = permPromptText(mcpchan.PermissionRequestParams{ToolName: "external_directory"})
+	if !strings.Contains(got, "external_directory") {
+		t.Fatalf("expected tool name for unknown tool, got %q", got)
+	}
+}
 
 func botHandler(id int64, username string) *Handler {
 	return &Handler{Bot: &gotgbot.Bot{User: gotgbot.User{Id: id, Username: username}}}

@@ -62,4 +62,9 @@ Then: DM the bot, approve the pairing code with `hotline pair <code>`, and
 they're in. Point them at `README.md` in the new workspace for the full guide,
 and mention that `HOTLINE.md` sets the texting voice and is meant to be edited.
 
+Also mention that `hotline init` pre-approves routine read-only tools (Read,
+Grep, Glob, LS, …) in `.claude/settings.json` so a remote texting user isn't
+buzzed for every navigation step — edits and commands still ask. They can widen
+or narrow that allowlist in `.claude/settings.json` to taste.
+
 Do not run `hotline` commands yourself; the user runs them.

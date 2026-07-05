@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const voiceTemplate = `<!-- HOTLINE.md: per-repo voice override for the hotline channel.
@@ -88,6 +89,13 @@ func initPlugin(botName, providers, dir string, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "Wrote env block to %s.\n", filepath.Join(dir, ".claude", "settings.json"))
+	}
+	// Pre-approve routine read-only tools so a remote texting user isn't buzzed for
+	// every navigation step; edits and commands still prompt.
+	if added, err := mergeProjectSettingsAllow(dir, safeAutoAllowTools); err != nil {
+		return err
+	} else if len(added) > 0 {
+		fmt.Fprintf(stdout, "Pre-approved read-only tools (%s) in .claude/settings.json — edits and commands still prompt.\n", strings.Join(added, ", "))
 	}
 	return nil
 }

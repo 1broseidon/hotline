@@ -316,8 +316,6 @@ func runChannel(botName string) error {
 	stateRoot, _ := config.StateRoot()
 	voice := mcpchan.LoadVoice(stateRoot)
 
-	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice)
-
 	// On force-exit (the 2s shutdown safety net skips deferred cleanup) release
 	// every claimed poller slot so no stale PID files survive.
 	cleanup := func() {
@@ -329,14 +327,17 @@ func runChannel(botName string) error {
 	// Harness selection. The messaging providers above are identical either way;
 	// only the inbound-push + permission-relay seam differs. Claude Code (the
 	// default) rides the MCP claude/channel notifications; OpenCode rides a
-	// separate HTTP+SSE control plane (see run_opencode.go).
+	// separate HTTP+SSE control plane (see run_opencode.go) and builds its own
+	// server (it wraps the tool surface to observe reply calls for its fallback).
 	harnessMode, err := config.Harness()
 	if err != nil {
 		return err
 	}
 	if harnessMode == "opencode" {
-		return runOpenCodeHarness(router, server, permission, cleanup)
+		return runOpenCodeHarness(router, permission, transcriptPath, voice, cleanup)
 	}
+
+	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice)
 
 	// Claude Code: inbound + permission relay travel over the same stdio MCP
 	// connection as the tools, via the custom claude/channel notifications.

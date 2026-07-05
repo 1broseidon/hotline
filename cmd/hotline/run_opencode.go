@@ -20,13 +20,33 @@ import (
 // MCP server; inbound push + permission relay ride a SEPARATE HTTP+SSE control
 // plane (the harness.Link), not MCP notifications. The messaging providers are
 // unchanged — they fan in through a sink backed by the Link.
-func runOpenCodeHarness(router *provider.Router, server *mcp.Server, permission bool, cleanup func()) error {
+func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath, voice string, cleanup func()) error {
 	ocfg, err := config.LoadOpenCode()
 	if err != nil {
 		return err
 	}
 	link := opencode.NewLink(ocfg.ServerURL, ocfg.Password, ocfg.Session)
 	sink := &opencodeSink{link: link}
+
+	// Reply-delivery fallback: opencode's reply is a manual tool call, so a model
+	// that answers in plain text drops the message. The Link nudges once on
+	// session-idle and, failing that, forwards the assistant's text itself. Two
+	// wires make that work — the reply tool must tell the Link a reply landed, and
+	// the Link needs a send path for the backstop. Both are opencode-only; the
+	// Claude Code path (main.go) uses the bare router and is untouched.
+	observed := &replyObserver{ToolSet: router, onReply: link.MarkReplied}
+	link.SetForwarder(func(ctx context.Context, text string, meta map[string]string) error {
+		msg, isErr := router.Reply(ctx, mcpchan.ReplyInput{
+			Source: meta["source"],
+			ChatID: meta["chat_id"],
+			Text:   text,
+		})
+		if isErr {
+			return fmt.Errorf("%s", msg)
+		}
+		return nil
+	})
+	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice)
 
 	fmt.Fprintf(os.Stderr, "hotline: harness=opencode server=%s session=%s\n", ocfg.ServerURL, sessionLabel(ocfg.Session))
 
@@ -81,6 +101,27 @@ func pumpPermissions(ctx context.Context, router *provider.Router, link harness.
 			})
 		}
 	}
+}
+
+// replyObserver wraps the provider router's ToolSet so the OpenCode Link learns
+// when a reply actually lands. Only the reply tool signals a delivered turn;
+// react/edit_message/download_attachment pass straight through to the embedded
+// ToolSet. This wrapper is opencode-only — the Claude Code path uses the bare
+// router.
+type replyObserver struct {
+	mcpchan.ToolSet
+	onReply func()
+}
+
+// Reply forwards to the router and, on success, signals the Link that a reply
+// was delivered for the active turn. A tool-level error (isErr) is not a
+// delivery, so the fallback ladder still fires.
+func (r *replyObserver) Reply(ctx context.Context, in mcpchan.ReplyInput) (string, bool) {
+	msg, isErr := r.ToolSet.Reply(ctx, in)
+	if !isErr {
+		r.onReply()
+	}
+	return msg, isErr
 }
 
 // opencodeSink adapts the provider inbound sink to a harness.Link: inbound

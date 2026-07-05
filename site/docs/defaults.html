@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sane defaults · hotline docs</title>
+<meta name="description" content="An opt-in permission setup that auto-approves safe, everyday work and keeps a gate on the risky rest. The middle ground between asking every time and skipping every check.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../hotline.css?v=2">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="wordmark" href="../">hotline<span class="tld">.dev</span></a>
+  <div class="nav-links">
+    <a href="./">docs</a>
+    <a href="https://github.com/1broseidon/hotline">github</a>
+  </div>
+</nav>
+
+<div class="docs-shell">
+<aside class="docs-nav" aria-label="Docs navigation">
+  <p class="group">start</p>
+  <a href="./">Quickstart</a>
+  <p class="group">providers</p>
+  <a href="telegram.html">Telegram</a>
+  <a href="signal.html">Signal</a>
+  <a href="discord.html">Discord</a>
+  <a href="providers.html">Multiple providers</a>
+  <p class="group">extend</p>
+  <a href="plugins.html">Plugins</a>
+  <p class="group">trust</p>
+  <a href="access.html">Access &amp; permissions</a>
+  <a href="defaults.html" aria-current="page">Sane defaults</a>
+  <a href="security.html">Security</a>
+  <a href="protocol.html">The protocol</a>
+</aside>
+
+<main class="docs">
+<h1>Sane defaults</h1>
+<p class="subtitle">A middle ground between asking every time and skipping every check.</p>
+
+<p>Out of the box your agent asks before it edits a file or runs a command. That is safe, but chatty over text, where every prompt is a buzz on your phone. At the other end, yolo mode skips every check. Sane defaults sit in between: auto-approve the safe, everyday work and keep a gate on the rest. They are opt-in, and you can widen or narrow them whenever you like.</p>
+
+<h2>The idea</h2>
+<p>Auto-allow the safe majority. Gate the risky minority. The working directory is treated as the sandbox: writing inside it is fine, and the moment anything reaches outside, the gate returns.</p>
+<div class="table-wrap">
+<table>
+  <tr><th>Goes through</th><th>Still asks</th></tr>
+  <tr><td>Reading and navigating files</td><td>Writing or reading outside the working directory</td></tr>
+  <tr><td>Editing files inside the working directory</td><td>Arbitrary shell commands</td></tr>
+  <tr><td>Read-only shell commands (<code>ls</code>, <code>cat</code>, <code>grep</code>, <code>find</code>…)</td><td>Deleting, moving, or overwriting files</td></tr>
+  <tr><td>Web search and fetch</td><td>Reading secrets (<code>.env</code>, ssh and cloud keys): denied outright</td></tr>
+</table>
+</div>
+
+<h2>OpenCode</h2>
+<p>OpenCode reads its permissions from <code>opencode.json</code>. Reads, globs, and greps are already free; this block opens up in-directory edits and a read-only shell list, and keeps the gate on everything else:</p>
+<pre><code>{
+  "permission": {
+    "edit": "allow",               <span class="c">// writes inside the project, no prompt</span>
+    "external_directory": "ask",   <span class="c">// anything outside the project stops and asks</span>
+    "webfetch": "allow",
+    "bash": {
+      "*": "ask",                  <span class="c">// unknown commands ask</span>
+      "ls": "allow", "ls *": "allow",
+      "cat *": "allow",
+      "grep *": "allow", "find *": "allow",
+      "head *": "allow", "tail *": "allow",
+      "wc *": "allow", "stat *": "allow",
+      "pwd": "allow", "which *": "allow"
+    }
+  }
+}</code></pre>
+<p><code>edit: allow</code> lets the agent write and edit files in the project without tapping you. <code>external_directory: ask</code> is the fence: a write or read that lands outside the project brings back the prompt. The <code>bash</code> map pre-approves read-only commands so routine poking around (checking a path exists, grepping a file) runs quietly, while everything else still asks.</p>
+
+<div class="aside">
+  <p>A safelisted command only clears when the whole line qualifies. Chain something onto it and the gate comes back: <code>ls .; rm -rf build</code> still stops for approval, because <code>rm</code> is not on the list. The list is read-only on purpose; nothing that deletes, moves, or overwrites belongs on it.</p>
+</div>
+
+<h2>Claude Code</h2>
+<p>Claude Code reads <code>.claude/settings.json</code>. Same shape, different syntax: allow the read-only tools and in-project editing, deny the secrets, and leave <code>Bash</code> asking except for a read-only handful.</p>
+<pre><code>{
+  "permissions": {
+    "allow": [
+      "Read", "Grep", "Glob", "Edit", "Write", "WebFetch", "WebSearch",
+      "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(find:*)",
+      "Bash(head:*)", "Bash(tail:*)", "Bash(pwd)", "Bash(which:*)"
+    ],
+    "ask": ["Bash"],
+    "deny": [
+      "Read(./.env)", "Read(./**/.env*)",
+      "Read(~/.ssh/**)", "Read(~/.aws/**)"
+    ]
+  }
+}</code></pre>
+<p>Claude Code checks each part of a chained command on its own, so the same guarantee holds: a read-only allow cannot carry a write past the gate.</p>
+
+<h2>The other end: yolo</h2>
+<p>Starting with <code>-yolo</code> (Claude Code's <code>--dangerously-skip-permissions</code>) drops every prompt. That is the right call for a throwaway sandbox where nothing on the box matters. It is the wrong call anywhere real credentials live, because a single bad instruction has nothing left to stop it. Sane defaults exist so you rarely need to reach for it. See <a href="security.html">Security</a> for the full threat model.</p>
+
+<a class="next-link" href="security.html">next: Security →</a>
+</main>
+</div>
+
+<footer class="footer">
+  <p><a href="https://github.com/1broseidon/hotline">github.com/1broseidon/hotline</a> · <a href="../">hotline.dev</a> · <a href="https://github.com/1broseidon/hotline/blob/main/LICENSE">MIT license</a></p>
+</footer>
+
+</body>
+</html>

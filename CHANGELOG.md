@@ -4,6 +4,24 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [0.5.0] - 2026-07-06
+
+### Removed
+- **Codex harness support**, added in 0.4.0. Live use surfaced enough rough
+  edges to pull it rather than ship it half-working: no MCP tool surface in
+  Phase 1 (replies only forward directly, no `react`/`edit_message`/
+  attachments), denying a command approval ends the whole turn instead of
+  letting the agent try something else, `codex app-server`'s sandbox
+  doesn't initialize on some Linux setups (a bubblewrap/AppArmor-
+  unprivileged-userns restriction), and — the one with no workaround —
+  `thread/resume` ignores any updated `developerInstructions`, so a voice or
+  behavior fix can't reach an already-running thread without abandoning its
+  context. `HOTLINE_HARNESS=codex`, `hotline init --harness codex`, and
+  `hotline start --harness codex` are gone; `claude` and `opencode` remain
+  the two supported harnesses. The removed code lives on the
+  `experiment/codex-harness` branch for whenever `codex app-server` (or
+  hotline's Phase 2 design for it) is further along.
+
 ## [0.4.0] - 2026-07-06
 
 ### Added

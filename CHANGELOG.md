@@ -4,6 +4,48 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [0.3.0] - 2026-07-06
+
+### Added
+- **OpenCode harness support**: hotline now drives OpenCode alongside Claude
+  Code. `hotline init --harness opencode` scaffolds a dedicated primary agent
+  (`.opencode/agents/hotline.md`) whose system prompt is hotline's mechanics
+  and voice — OpenCode ignores the MCP `instructions` field, so this is how
+  the channel's safety rules and register reach it. `HOTLINE_HARNESS` selects
+  the harness; inbound messages push in via OpenCode's session API and render
+  through a shared `<channel>` envelope so the agent gets `chat_id`/`source`
+  regardless of harness.
+- `publish`: an MCP tool that hosts a local artifact (a folder or a single
+  HTML file) at a public, temporary link — a static server plus a quick
+  tunnel, zero accounts, zero config. The exposure backend is pluggable and
+  operator-selected (`HOTLINE_PUBLISH_EXPOSURE`): `localhostrun` (default,
+  zero-install), `cloudflared` (if the binary is present), or `local`
+  (loopback only, for operators who front it themselves). A safe-path guard
+  refuses to publish the filesystem root, the home directory, the working
+  directory or its parents, or a directory containing `.git`/`.env`/ssh or
+  cloud credentials. Tunnel subprocesses die with hotline (`Pdeathsig`)
+  instead of orphaning, and a shutdown hook tears down every published
+  artifact at once.
+- `docs/defaults` on hotline.dev: a documented "sane defaults" permission
+  profile for both harnesses — auto-allow reads and in-project edits, keep
+  external writes and shell commands gated, deny secrets outright. The
+  middle ground between asking every time and `--yolo`.
+- A steering guardrail against tools that block on a local terminal prompt
+  (a multiple-choice question, a plan approval): the channel's remote user
+  can't answer them, so the session freezes. Agents are told to ask as a
+  normal message and use `reply`'s buttons for a pick-one instead.
+
+### Changed
+- Default voice is friendlier and more casual out of the box (a "register"
+  pass on the built-in persona), and the default permission posture is less
+  chatty: safe, everyday work (reads, in-project edits, read-only navigation)
+  goes through without a prompt; anything reaching outside the project or
+  running an arbitrary command still asks.
+- OpenCode-specific steering (write with the edit tool rather than shell,
+  prefer hotline's own tools like `publish` over a general skill that does
+  something similar) ships in the OpenCode agent file only — it doesn't cost
+  any of Claude Code's instruction budget.
+
 ## [0.2.0] - 2026-07-03
 
 ### Added

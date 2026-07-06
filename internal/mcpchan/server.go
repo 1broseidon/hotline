@@ -280,7 +280,7 @@ func instructionSegments(transcriptPath string) []instructionSegment {
 
 		{ocOnly: true, text: `Write and edit files with your edit tool, not shell (cat/echo/heredocs) — it's cleaner and won't stop to ask.`},
 
-		{ocOnly: true, text: `When you build a page, app, or visual artifact, publish it and send back the link — it's a public, temporary link, so say that plainly.`},
+		{ocOnly: true, text: `Publish pages, apps, or visual artifacts with hotline's own publish tool, not a similar skill — hotline's tools are the primary path for what they cover; skills are for what they don't. It's a public, temporary link, so say that plainly.`},
 
 		{voice: true, text: `You're texting on Telegram. Talk like a sharp, warm friend, not a terminal — say what you found like you'd text a friend, never raw tool or subagent output.`},
 

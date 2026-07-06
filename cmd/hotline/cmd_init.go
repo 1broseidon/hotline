@@ -33,7 +33,7 @@ func cmdInit(botName string, args []string, dir string, stdout io.Writer) error 
 	providers := fs.String("providers", "", "comma-separated provider list (sets HOTLINE_PROVIDERS)")
 	voice := fs.Bool("voice", false, "also write a starter HOTLINE.md")
 	mcpJSON := fs.Bool("mcp-json", false, "register a raw MCP server in .mcp.json instead of installing the plugin")
-	harness := fs.String("harness", "claude", "coding-agent harness to wire up: claude (default) or opencode")
+	harness := fs.String("harness", "claude", "coding-agent harness to wire up: claude (default), opencode, or codex")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -64,8 +64,17 @@ func cmdInit(botName string, args []string, dir string, stdout io.Writer) error 
 		if err := initOpenCode(botName, *providers, dir, stdout); err != nil {
 			return err
 		}
+	case "codex":
+		if *voice {
+			if err := writeVoiceStarter(dir, stdout); err != nil {
+				return err
+			}
+		}
+		if err := initCodex(*providers, stdout); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("unknown --harness %q (supported: claude, opencode)", *harness)
+		return fmt.Errorf("unknown --harness %q (supported: claude, opencode, codex)", *harness)
 	}
 	return nil
 }
@@ -385,4 +394,18 @@ func hotlineOpenCodeCommand(botName string) []any {
 		cmd = append(cmd, "--bot", botName)
 	}
 	return cmd
+}
+
+// initCodex has no Codex-side project file to write in Phase 1: hotline owns
+// `codex app-server` and injects developerInstructions at thread/start. Keep it
+// explicit so `hotline init --harness codex` is still a useful setup checkpoint
+// and does not silently install a Claude/OpenCode integration.
+func initCodex(providers string, stdout io.Writer) error {
+	fmt.Fprintln(stdout, "Codex harness needs no project MCP/agent file; hotline will spawn `codex app-server` itself.")
+	if providers != "" {
+		fmt.Fprintf(stdout, "Run with: HOTLINE_HARNESS=codex HOTLINE_PROVIDERS=%s hotline run\n", providers)
+	} else {
+		fmt.Fprintln(stdout, "Run with: HOTLINE_HARNESS=codex hotline run")
+	}
+	return nil
 }

@@ -96,3 +96,41 @@ func TestAgentInstructionsNoMechanicsDrift(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexDeveloperInstructionsDirectForward(t *testing.T) {
+	got := CodexDeveloperInstructions("/state/transcript.jsonl", "")
+	for _, want := range []string{
+		"completed assistant messages are sent directly",
+		pairingSafetyRule,
+		registerVoiceLine,
+		"/state/transcript.jsonl",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("CodexDeveloperInstructions missing line: %q", want)
+		}
+	}
+	for _, notWant := range []string{
+		"If you didn't call reply",
+		"Pass chat_id each reply",
+		"call download_attachment",
+		"hotline's own publish tool",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Errorf("CodexDeveloperInstructions carried reply-tool text %q", notWant)
+		}
+	}
+}
+
+func TestCodexDeveloperInstructionsCustomVoice(t *testing.T) {
+	voice := "Be terse. No emoji."
+	got := CodexDeveloperInstructions("/state/transcript.jsonl", voice)
+	if !strings.HasSuffix(got, "\n\n"+voice) {
+		t.Fatal("custom voice should be the trailing paragraph")
+	}
+	if strings.Contains(got, registerVoiceLine) {
+		t.Fatal("custom voice should replace built-in voice")
+	}
+	if !strings.Contains(got, pairingSafetyRule) {
+		t.Fatal("mechanics must remain with custom voice")
+	}
+}

@@ -59,10 +59,10 @@ func LoadOpenCode() (*OpenCodeConfig, error) {
 }
 
 // Harness resolves which coding-agent harness hotline drives, from
-// HOTLINE_HARNESS (real env wins over .env), defaulting to "claude". The only
-// other supported value is "opencode", which selects the OpenCode HTTP+SSE
-// control plane. Unknown values are rejected so a typo fails loudly instead of
-// silently falling back to Claude Code.
+// HOTLINE_HARNESS (real env wins over .env), defaulting to "claude". Supported
+// non-default values select the OpenCode or Codex control planes. Unknown
+// values are rejected so a typo fails loudly instead of silently falling back to
+// Claude Code.
 func Harness() (string, error) {
 	baseDir, err := resolveStateDir()
 	if err != nil {
@@ -77,9 +77,9 @@ func Harness() (string, error) {
 	switch h {
 	case "", "claude":
 		return "claude", nil
-	case "opencode":
-		return "opencode", nil
+	case "opencode", "codex":
+		return h, nil
 	default:
-		return "", fmt.Errorf("unknown HOTLINE_HARNESS %q (supported: claude, opencode)", h)
+		return "", fmt.Errorf("unknown HOTLINE_HARNESS %q (supported: claude, opencode, codex)", h)
 	}
 }

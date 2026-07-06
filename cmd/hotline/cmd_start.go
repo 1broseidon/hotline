@@ -39,18 +39,14 @@ var signalCheck = func(daemonURL string) error {
 	return nil
 }
 
-// runChannelFn is the seam start goes through for harnesses owned by hotline.
-var runChannelFn = runChannel
-
-// cmdStart launches the selected coding-agent harness with the hotline channel
-// wired up. Everything after -- (already split off in main) is passed to claude
-// verbatim; owned harnesses warn and ignore it.
+// cmdStart launches Claude Code with the hotline channel wired up.
+// Everything after -- (already split off in main) is passed to claude
+// verbatim.
 func cmdStart(botName string, args, passthrough []string, dir string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stdout)
 	providers := fs.String("providers", "", "comma-separated provider list (exported as HOTLINE_PROVIDERS)")
-	yolo := fs.Bool("yolo", false, "disable harness safety checks (Claude skips permissions; Codex runs unconfined)")
-	harness := fs.String("harness", "claude", "coding-agent harness to wire up: claude (default), opencode, or codex")
+	yolo := fs.Bool("yolo", false, "start claude with --dangerously-skip-permissions (the permission relay never fires)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -60,30 +56,6 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 	}
 	if botName != "" {
 		os.Setenv("HOTLINE_BOT", botName)
-	}
-
-	switch *harness {
-	case "claude":
-	case "codex":
-		_, err := exec.LookPath("codex")
-		if err != nil {
-			return fmt.Errorf("codex not found on PATH. Install Codex CLI first: https://developers.openai.com/codex/cli")
-		}
-		warnMissingCreds(botName, stderr)
-		os.Setenv("HOTLINE_HARNESS", "codex")
-		if *yolo {
-			os.Setenv("HOTLINE_CODEX_APPROVAL_POLICY", "never")
-			os.Setenv("HOTLINE_CODEX_SANDBOX", "danger-full-access")
-			fmt.Fprintln(stderr, "hotline: yolo mode. Codex runs unconfined: no sandbox and no approval prompts; it can run anything with zero confinement. See SECURITY.md.")
-		}
-		if len(passthrough) > 0 {
-			fmt.Fprintf(stderr, "hotline: warning: ignoring passthrough args for codex harness: %v\n", passthrough)
-		}
-		return runChannelFn(botName)
-	case "opencode":
-		return fmt.Errorf("hotline start does not apply to the opencode harness: opencode is the process that spawns hotline, not the other way around. Run `opencode serve` yourself, with hotline registered as its MCP server (see `hotline init --harness opencode`).")
-	default:
-		return fmt.Errorf("unknown --harness %q (supported: claude, opencode, codex)", *harness)
 	}
 
 	// Preflight. Only a missing claude binary blocks; the rest warns.

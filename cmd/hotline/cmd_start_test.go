@@ -30,60 +30,11 @@ func fakeClaude(t *testing.T) (gotArgv *[]string, gotEnv *[]string) {
 	return &argv, &env
 }
 
-func fakeCodex(t *testing.T) {
-	t.Helper()
-	binDir := t.TempDir()
-	stub := filepath.Join(binDir, "codex")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
-func stubRunChannel(t *testing.T) *string {
-	t.Helper()
-	var gotBot string
-	orig := runChannelFn
-	runChannelFn = func(botName string) error {
-		gotBot = botName
-		return nil
-	}
-	t.Cleanup(func() { runChannelFn = orig })
-	return &gotBot
-}
-
-func forbidRunChannel(t *testing.T) *bool {
-	t.Helper()
-	var called bool
-	orig := runChannelFn
-	runChannelFn = func(botName string) error {
-		called = true
-		return nil
-	}
-	t.Cleanup(func() { runChannelFn = orig })
-	return &called
-}
-
-func forbidExecProcess(t *testing.T) *bool {
-	t.Helper()
-	var called bool
-	orig := execProcess
-	execProcess = func(bin string, argv []string, env []string) error {
-		called = true
-		return nil
-	}
-	t.Cleanup(func() { execProcess = orig })
-	return &called
-}
-
 func startTestState(t *testing.T) string {
 	t.Helper()
 	dir := setupTestState(t)
 	t.Setenv("HOTLINE_PROVIDERS", "")
 	t.Setenv("HOTLINE_BOT", "")
-	t.Setenv("HOTLINE_HARNESS", "")
-	t.Setenv("HOTLINE_CODEX_APPROVAL_POLICY", "")
-	t.Setenv("HOTLINE_CODEX_SANDBOX", "")
 	t.Setenv("TELE_GO_BOT", "")
 	t.Setenv("TELEGRAM_BOT_TOKEN", goodToken)
 	return dir
@@ -218,98 +169,6 @@ func TestStartBlocksWithoutClaude(t *testing.T) {
 	err := cmdStart("", nil, nil, t.TempDir(), &out, &errOut)
 	if err == nil || !strings.Contains(err.Error(), "claude not found") {
 		t.Errorf("want missing-binary error, got %v", err)
-	}
-}
-
-func TestStartCodexRunsHotlineHarness(t *testing.T) {
-	startTestState(t)
-	fakeCodex(t)
-	gotBot := stubRunChannel(t)
-	execCalled := forbidExecProcess(t)
-
-	var out, errOut bytes.Buffer
-	err := cmdStart("work", []string{"--harness", "codex"}, []string{"--continue"}, t.TempDir(), &out, &errOut)
-	if err != nil {
-		t.Fatalf("start --harness codex: %v", err)
-	}
-	if os.Getenv("HOTLINE_HARNESS") != "codex" {
-		t.Fatalf("HOTLINE_HARNESS = %q, want codex", os.Getenv("HOTLINE_HARNESS"))
-	}
-	if *gotBot != "work" {
-		t.Fatalf("runChannel bot = %q, want work", *gotBot)
-	}
-	if *execCalled {
-		t.Fatal("codex start should not call execProcess")
-	}
-	if !strings.Contains(errOut.String(), "ignoring passthrough args for codex harness") {
-		t.Fatalf("missing passthrough warning:\n%s", errOut.String())
-	}
-}
-
-func TestStartCodexYoloSetsBothKnobsAndWarns(t *testing.T) {
-	startTestState(t)
-	fakeCodex(t)
-	stubRunChannel(t)
-	execCalled := forbidExecProcess(t)
-
-	var out, errOut bytes.Buffer
-	err := cmdStart("", []string{"--harness", "codex", "--yolo"}, nil, t.TempDir(), &out, &errOut)
-	if err != nil {
-		t.Fatalf("start --harness codex --yolo: %v", err)
-	}
-	if os.Getenv("HOTLINE_CODEX_APPROVAL_POLICY") != "never" {
-		t.Fatalf("HOTLINE_CODEX_APPROVAL_POLICY = %q, want never", os.Getenv("HOTLINE_CODEX_APPROVAL_POLICY"))
-	}
-	if os.Getenv("HOTLINE_CODEX_SANDBOX") != "danger-full-access" {
-		t.Fatalf("HOTLINE_CODEX_SANDBOX = %q, want danger-full-access", os.Getenv("HOTLINE_CODEX_SANDBOX"))
-	}
-	warn := errOut.String()
-	if !strings.Contains(warn, "unconfined") || !strings.Contains(warn, "no sandbox") || !strings.Contains(warn, "zero confinement") {
-		t.Fatalf("yolo warning should mention unconfined/no sandbox/zero confinement, got:\n%s", warn)
-	}
-	if *execCalled {
-		t.Fatal("codex start should not call execProcess")
-	}
-}
-
-func TestStartCodexBlocksWithoutCodex(t *testing.T) {
-	startTestState(t)
-	t.Setenv("PATH", t.TempDir()) // empty PATH: no codex
-	runCalled := forbidRunChannel(t)
-	execCalled := forbidExecProcess(t)
-
-	var out, errOut bytes.Buffer
-	err := cmdStart("", []string{"--harness", "codex"}, nil, t.TempDir(), &out, &errOut)
-	want := "codex not found on PATH. Install Codex CLI first: https://developers.openai.com/codex/cli"
-	if err == nil || err.Error() != want {
-		t.Fatalf("want %q, got %v", want, err)
-	}
-	if *execCalled {
-		t.Fatal("codex missing-binary path should not call execProcess")
-	}
-	if *runCalled {
-		t.Fatal("codex missing-binary path should not call runChannel")
-	}
-}
-
-func TestStartOpenCodeRejected(t *testing.T) {
-	startTestState(t)
-	runCalled := forbidRunChannel(t)
-	execCalled := forbidExecProcess(t)
-
-	var out, errOut bytes.Buffer
-	err := cmdStart("", []string{"--harness", "opencode"}, nil, t.TempDir(), &out, &errOut)
-	if err == nil || !strings.Contains(err.Error(), "hotline start does not apply to the opencode harness") {
-		t.Fatalf("want opencode rejection error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "opencode serve") || !strings.Contains(err.Error(), "hotline init --harness opencode") {
-		t.Fatalf("opencode rejection should tell the operator what to run, got %v", err)
-	}
-	if *runCalled {
-		t.Fatal("opencode rejection should not call runChannel")
-	}
-	if *execCalled {
-		t.Fatal("opencode rejection should not call execProcess")
 	}
 }
 

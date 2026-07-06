@@ -4,6 +4,34 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [0.4.0] - 2026-07-06
+
+### Added
+- **Codex harness support**: hotline now drives OpenAI Codex CLI's experimental
+  `app-server` as a third harness (`HOTLINE_HARNESS=codex`), alongside Claude
+  Code and OpenCode. Unlike OpenCode's daemon, `codex app-server` has no
+  dial-back address over stdio, so hotline owns it as a spawned subprocess and
+  is its sole JSON-RPC client: one thread per hotline instance, persisted and
+  resumed across restarts (including a full process restart, not just a
+  client reconnect), with the approval relay reusing the same code/TTL-cache
+  pattern as the OpenCode adapter. Persona and safety instructions ride
+  `thread/start`'s `developerInstructions` field, so `hotline init --harness
+  codex` needs no scaffolded project file. This is a Phase 1 adapter: replies
+  forward directly to the channel rather than through hotline's MCP tools, so
+  `react`, `edit_message`, and attachment downloads aren't available yet, and
+  denying a command approval ends the whole turn rather than letting Codex
+  try something else.
+- `hotline start --harness codex`, with full `--yolo` parity: it sets both
+  `HOTLINE_CODEX_APPROVAL_POLICY=never` and `HOTLINE_CODEX_SANDBOX=danger-full-
+  access` together, since they're independent knobs — approval policy alone
+  only skips the confirmation prompt, while commands can still fail outright
+  wherever the sandbox itself can't initialize (a bubblewrap/AppArmor-
+  unprivileged-userns restriction seen on Ubuntu 23.10+). `--harness opencode`
+  now returns a clear rejection instead of silently doing nothing, since
+  OpenCode spawns hotline rather than the other way around.
+- Codex added to the quickstart docs as a third tab (Claude Code, Codex,
+  OpenCode) on [hotline.dev](https://hotline.dev/docs/).
+
 ## [0.3.0] - 2026-07-06
 
 ### Added

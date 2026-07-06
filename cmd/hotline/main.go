@@ -316,12 +316,22 @@ func runChannel(botName string) error {
 	stateRoot, _ := config.StateRoot()
 	voice := mcpchan.LoadVoice(stateRoot)
 
+	// Which exposure backend the publish tool uses (localhost.run default,
+	// cloudflared, or local/off). Resolved once here so a bad value fails loudly
+	// at startup, like the harness selection above/below.
+	publishExposure, err := config.PublishExposure()
+	if err != nil {
+		return err
+	}
+
 	// On force-exit (the 2s shutdown safety net skips deferred cleanup) release
-	// every claimed poller slot so no stale PID files survive.
+	// every claimed poller slot so no stale PID files survive, and tear down any
+	// published artifacts (stop their loopback servers, kill their tunnels).
 	cleanup := func() {
 		for _, pf := range pidFiles {
 			lifecycle.ReleasePollerSlot(pf)
 		}
+		mcpchan.CloseAllPublished()
 	}
 
 	// Harness selection. The messaging providers above are identical either way;
@@ -334,10 +344,10 @@ func runChannel(botName string) error {
 		return err
 	}
 	if harnessMode == "opencode" {
-		return runOpenCodeHarness(router, permission, transcriptPath, voice, cleanup)
+		return runOpenCodeHarness(router, permission, transcriptPath, voice, publishExposure, cleanup)
 	}
 
-	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice)
+	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice, publishExposure)
 
 	// Claude Code: inbound + permission relay travel over the same stdio MCP
 	// connection as the tools, via the custom claude/channel notifications.

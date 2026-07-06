@@ -20,7 +20,7 @@ import (
 // MCP server; inbound push + permission relay ride a SEPARATE HTTP+SSE control
 // plane (the harness.Link), not MCP notifications. The messaging providers are
 // unchanged — they fan in through a sink backed by the Link.
-func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath, voice string, cleanup func()) error {
+func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath, voice, publishExposure string, cleanup func()) error {
 	ocfg, err := config.LoadOpenCode()
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath
 		}
 		return nil
 	})
-	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice)
+	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure)
 
 	fmt.Fprintf(os.Stderr, "hotline: harness=opencode server=%s session=%s\n", ocfg.ServerURL, sessionLabel(ocfg.Session))
 

@@ -108,7 +108,11 @@ func withSourceProperty(schema string, sources []string) string {
 // schemas are byte-identical to the single-provider originals (source is
 // implicit — it defaults to the sole provider). With two or more, every tool
 // schema grows a required "source" property enumerating the choices.
-func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string, voice string) *mcp.Server {
+func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string, voice, exposureName string) *mcp.Server {
+	// The exposure backend for the publish tool is operator-selected and fixed
+	// for the process lifetime. exposureName is already validated in config; an
+	// unrecognized value defensively resolves to the localhost.run default.
+	exp := newExposure(exposureName)
 	s := mcp.NewServer(
 		&mcp.Implementation{Name: "hotline", Version: "0.1.0"},
 		&mcp.ServerOptions{
@@ -173,7 +177,7 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []str
 			if err := json.Unmarshal(raw, &in); err != nil {
 				return "publish failed: " + err.Error(), true
 			}
-			return publish(ctx, in)
+			return publish(ctx, in, exp)
 		})
 
 	return s

@@ -1,16 +1,13 @@
 package mcpchan
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,17 +25,10 @@ const publishSchema = `{"type":"object","properties":{"path":{"type":"string","d
 // URL before giving up and killing the process.
 const publishURLTimeout = 20 * time.Second
 
-// tunnelURLRe matches the public URL a tunnel provider prints for the tunnel
-// itself. It is deliberately scoped to the real tunnel hosts — localhost.run's
-// free tunnels resolve to *.lhr.life and cloudflared quick tunnels to
-// *.trycloudflare.com — because localhost.run's welcome banner is full of decoy
-// https links (twitter.com, admin.localhost.run, docs pages) that a generic
-// "first https URL" match would grab instead.
-var tunnelURLRe = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.(?:lhr\.life|trycloudflare\.com)\b`)
-
 // publishRegistry keeps published servers and tunnels alive for the lifetime of
 // the process. v1 is ephemeral with no unpublish/TTL: entries are added and
-// never removed, so nothing here is garbage-collected and ports stay up.
+// never removed during normal operation, so nothing is garbage-collected and
+// ports stay up. closeAll (invoked at shutdown) tears everything down at once.
 type publishRegistry struct {
 	mu      sync.Mutex
 	entries []*publishEntry
@@ -61,6 +51,32 @@ func (r *publishRegistry) add(e *publishEntry) {
 	defer r.mu.Unlock()
 	r.entries = append(r.entries, e)
 }
+
+// closeAll shuts down every published static server and kills every tracked
+// tunnel subprocess. It is idempotent (entries are cleared) and safe to call on
+// a registry that was never used. Pdeathsig already reaps tunnels when hotline
+// exits on Linux; closeAll is the explicit, cross-platform teardown for a
+// graceful shutdown and the belt-and-suspenders kill for the http listeners.
+func (r *publishRegistry) closeAll() {
+	r.mu.Lock()
+	entries := r.entries
+	r.entries = nil
+	r.mu.Unlock()
+
+	for _, e := range entries {
+		if e.server != nil {
+			_ = e.server.Close()
+		}
+		if e.tunnel != nil && e.tunnel.Process != nil {
+			_ = e.tunnel.Process.Kill()
+		}
+	}
+}
+
+// CloseAllPublished tears down every artifact published this session: it stops
+// the loopback servers and kills the tunnel subprocesses. Wire it into the
+// graceful-shutdown path (see cmd/hotline: the lifecycle cleanup hook).
+func CloseAllPublished() { publishReg.closeAll() }
 
 // safePublishPath refuses to serve paths that would expose the whole system,
 // the user's home, or a source tree. abs must already be absolute and
@@ -159,10 +175,12 @@ func sensitiveEntry(dir string) (string, bool) {
 }
 
 // publish resolves and vets path, starts a static server rooted at the
-// artifact, opens a public tunnel to it, and returns the public URL with an
-// explicit note that the link is public and temporary. On any failure it
-// returns a descriptive message and true (isError).
-func publish(ctx context.Context, in PublishInput) (string, bool) {
+// artifact, and exposes it via the operator-selected backend, returning the URL
+// to share. The returned message tells the truth about reachability: the tunnel
+// backends say the link is public and temporary; the local backend says it is
+// reachable only on this machine (or via the operator's own exposure). On any
+// failure it returns a descriptive message and true (isError).
+func publish(ctx context.Context, in PublishInput, exp exposure) (string, bool) {
 	if strings.TrimSpace(in.Path) == "" {
 		return "publish failed: path is required", true
 	}
@@ -196,20 +214,28 @@ func publish(ctx context.Context, in PublishInput) (string, bool) {
 	}
 
 	port := entry.listener.Addr().(*net.TCPAddr).Port
-	url, err := openTunnel(ctx, port)
+	url, cmd, err := exp.expose(ctx, port)
 	if err != nil {
 		_ = entry.server.Close()
 		return "publish failed: " + err.Error(), true
 	}
+	// One entry now backs the whole publication: the loopback server plus the
+	// tunnel subprocess (nil for the local backend). closeAll tears both down.
 	entry.url = url
+	entry.tunnel = cmd
 	publishReg.add(entry)
 
 	if target != "" {
 		url = strings.TrimRight(url, "/") + "/" + target
 	}
 
-	msg := fmt.Sprintf("Published: %s\n\nThis is a PUBLIC, TEMPORARY link — anyone with the URL can open it, and it stays up only while this session runs. Tell the user that plainly when you share it.", url)
-	return msg, false
+	var note string
+	if exp.public() {
+		note = "This is a PUBLIC, TEMPORARY link — anyone with the URL can open it, and it stays up only while this session runs. Tell the user that plainly when you share it."
+	} else {
+		note = "This is a LOCAL url, reachable only on this machine (or via whatever exposure the operator has set up — a proxy, SSH port-forward, or LAN). It is NOT public; don't imply anyone with the link can open it. It stays up only while this session runs."
+	}
+	return fmt.Sprintf("Published: %s\n\n%s", url, note), false
 }
 
 // startStaticServer binds an http.FileServer to an ephemeral loopback port and
@@ -223,128 +249,4 @@ func startStaticServer(root string) (*publishEntry, error) {
 	srv := &http.Server{Handler: http.FileServer(http.Dir(root))}
 	go func() { _ = srv.Serve(ln) }()
 	return &publishEntry{listener: ln, server: srv}, nil
-}
-
-// openTunnel exposes localhost:port to the public internet and returns the
-// first https URL the provider prints. It prefers cloudflared when the binary
-// is on PATH (no account needed for a quick tunnel) and otherwise uses
-// localhost.run over ssh. The spawned process is kept in the registry so the
-// tunnel stays up; on timeout or early exit the process is killed and an error
-// returned.
-func openTunnel(ctx context.Context, port int) (string, error) {
-	if entry, err := cloudflaredTunnel(port); err == nil {
-		return entry, nil
-	}
-	return localhostRunTunnel(ctx, port)
-}
-
-// cloudflaredTunnel is the optional preferred path: it only runs when a
-// cloudflared binary is present. It returns an error (so the caller falls back)
-// when cloudflared is missing or fails to print a URL in time.
-func cloudflaredTunnel(port int) (string, error) {
-	bin, err := exec.LookPath("cloudflared")
-	if err != nil {
-		return "", fmt.Errorf("cloudflared not found")
-	}
-	cmd := exec.Command(bin, "tunnel", "--url", fmt.Sprintf("http://localhost:%d", port))
-	url, err := runTunnelCmd(cmd)
-	if err != nil {
-		return "", err
-	}
-	publishReg.add(&publishEntry{url: url, tunnel: cmd})
-	return url, nil
-}
-
-// localhostRunTunnel opens a localhost.run tunnel over ssh, non-interactively,
-// and returns the public URL it prints (currently an *.lhr.life address).
-func localhostRunTunnel(ctx context.Context, port int) (string, error) {
-	cmd := exec.Command("ssh",
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ServerAliveInterval=30",
-		"-R", fmt.Sprintf("80:localhost:%d", port),
-		"nokey@localhost.run",
-	)
-	url, err := runTunnelCmd(cmd)
-	if err != nil {
-		return "", fmt.Errorf("localhost.run tunnel failed: %v", err)
-	}
-	publishReg.add(&publishEntry{url: url, tunnel: cmd})
-	return url, nil
-}
-
-// runTunnelCmd starts cmd and scans its stdout and stderr concurrently for the
-// tunnel's public URL. The two streams must be read independently, not merged:
-// localhost.run prints its URL to stderr while stdout stays open and empty, so a
-// serialized read of stdout-then-stderr would block forever. It waits up to
-// publishURLTimeout; on timeout, or when both streams end without a URL, it
-// kills the process and returns an error. On success the process is left
-// running and both pipes keep draining so they never block it.
-func runTunnelCmd(cmd *exec.Cmd) (string, error) {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", err
-	}
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-
-	// Buffered for both scanners so a goroutine never blocks sending after we
-	// have already returned.
-	found := make(chan string, 2)
-	go scanForURL(stdout, found)
-	go scanForURL(stderr, found)
-
-	deadline := time.After(publishURLTimeout)
-	ended := 0
-	for {
-		select {
-		case url := <-found:
-			if url != "" {
-				return url, nil
-			}
-			// A stream ended without a URL; only give up once both have.
-			if ended++; ended >= 2 {
-				_ = cmd.Process.Kill()
-				return "", fmt.Errorf("tunnel exited before printing a public URL")
-			}
-		case <-deadline:
-			_ = cmd.Process.Kill()
-			return "", fmt.Errorf("timed out after %s waiting for the tunnel URL", publishURLTimeout)
-		}
-	}
-}
-
-// scanForURL reads lines from r and sends the first tunnel URL it finds on ch.
-// If the stream ends first, it sends "" so the waiter can count it as done.
-// After a match it keeps draining r so the pipe never blocks the running
-// process.
-func scanForURL(r io.Reader, ch chan<- string) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		if url, ok := parseTunnelURL(sc.Text()); ok {
-			ch <- url
-			for sc.Scan() {
-			}
-			return
-		}
-	}
-	ch <- ""
-}
-
-// parseTunnelURL extracts the first https URL from a line of tunnel output,
-// trimming trailing punctuation that providers sometimes append. It returns
-// false when the line has no URL.
-func parseTunnelURL(line string) (string, bool) {
-	m := tunnelURLRe.FindString(line)
-	if m == "" {
-		return "", false
-	}
-	m = strings.TrimRight(m, ".,;:!)\"'")
-	return m, true
 }

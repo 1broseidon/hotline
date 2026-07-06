@@ -166,14 +166,11 @@ func TestLinkPushInboundStartsTurnAndForwardsCompletedAgentMessage(t *testing.T)
 	defer cancel()
 	server.handshake("thread_1")
 
-	var forwardsMu sync.Mutex
 	var forwards []struct {
 		text string
 		meta map[string]string
 	}
 	link.SetForwarder(func(_ context.Context, text string, meta map[string]string) error {
-		forwardsMu.Lock()
-		defer forwardsMu.Unlock()
 		forwards = append(forwards, struct {
 			text string
 			meta map[string]string
@@ -234,21 +231,13 @@ func TestLinkPushInboundStartsTurnAndForwardsCompletedAgentMessage(t *testing.T)
 		},
 	})
 	deadline := time.After(5 * time.Second)
-	for {
-		forwardsMu.Lock()
-		n := len(forwards)
-		forwardsMu.Unlock()
-		if n > 0 {
-			break
-		}
+	for len(forwards) == 0 {
 		select {
 		case <-deadline:
 			t.Fatal("timed out waiting for forward")
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	forwardsMu.Lock()
-	defer forwardsMu.Unlock()
 	if forwards[0].text != "hello back" || forwards[0].meta["chat_id"] != "42" {
 		t.Fatalf("forwards %+v", forwards)
 	}

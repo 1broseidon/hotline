@@ -243,23 +243,3 @@ func TestInitUnknownHarness(t *testing.T) {
 		t.Fatalf("want unknown-harness error, got %v", err)
 	}
 }
-
-func TestInitCodexNoProjectFiles(t *testing.T) {
-	dir := t.TempDir()
-	var out bytes.Buffer
-	if err := cmdInit("", []string{"--harness", "codex", "--providers", "telegram,signal", "--voice"}, dir, &out); err != nil {
-		t.Fatalf("init --harness codex: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "HOTLINE.md")); err != nil {
-		t.Fatal("HOTLINE.md not written")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "opencode.json")); !os.IsNotExist(err) {
-		t.Fatalf("codex init should not write opencode.json, stat err=%v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".mcp.json")); !os.IsNotExist(err) {
-		t.Fatalf("codex init should not write .mcp.json, stat err=%v", err)
-	}
-	if !strings.Contains(out.String(), "HOTLINE_HARNESS=codex HOTLINE_PROVIDERS=telegram,signal hotline run") {
-		t.Fatalf("missing codex run hint:\n%s", out.String())
-	}
-}

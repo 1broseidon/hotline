@@ -337,17 +337,14 @@ func runChannel(botName string) error {
 	// Harness selection. The messaging providers above are identical either way;
 	// only the inbound-push + permission-relay seam differs. Claude Code (the
 	// default) rides the MCP claude/channel notifications; OpenCode rides a
-	// separate HTTP+SSE control plane (see run_opencode.go); Codex is an owned
-	// app-server subprocess over JSONL stdio with direct-forward delivery.
+	// separate HTTP+SSE control plane (see run_opencode.go) and builds its own
+	// server (it wraps the tool surface to observe reply calls for its fallback).
 	harnessMode, err := config.Harness()
 	if err != nil {
 		return err
 	}
 	if harnessMode == "opencode" {
 		return runOpenCodeHarness(router, permission, transcriptPath, voice, publishExposure, cleanup)
-	}
-	if harnessMode == "codex" {
-		return runCodexHarness(botName, router, permission, transcriptPath, voice, cleanup)
 	}
 
 	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice, publishExposure)

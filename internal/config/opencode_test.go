@@ -13,9 +13,7 @@ func withState(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("HOTLINE_STATE_DIR", dir)
 	for _, k := range []string{
-		"OPENCODE_SERVER_URL", "OPENCODE_SERVER_PASSWORD", "OPENCODE_SESSION", "HOTLINE_OPENCODE_AGENT",
-		"HOTLINE_CODEX_CWD", "HOTLINE_CODEX_THREAD_ID", "HOTLINE_CODEX_APPROVAL_POLICY", "HOTLINE_CODEX_SANDBOX",
-		"HOTLINE_HARNESS",
+		"OPENCODE_SERVER_URL", "OPENCODE_SERVER_PASSWORD", "OPENCODE_SESSION", "HOTLINE_HARNESS",
 	} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
@@ -77,10 +75,6 @@ func TestHarnessDefaultAndOverride(t *testing.T) {
 	t.Setenv("HOTLINE_HARNESS", "opencode")
 	if h, err := Harness(); err != nil || h != "opencode" {
 		t.Fatalf("override harness = %q, %v; want opencode", h, err)
-	}
-	t.Setenv("HOTLINE_HARNESS", "codex")
-	if h, err := Harness(); err != nil || h != "codex" {
-		t.Fatalf("codex harness = %q, %v; want codex", h, err)
 	}
 	t.Setenv("HOTLINE_HARNESS", "CLAUDE") // case-insensitive
 	if h, err := Harness(); err != nil || h != "claude" {

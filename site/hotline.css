@@ -369,7 +369,6 @@ td:first-child code { white-space: normal; }
 .tab::before { content: "\25CB\00a0"; color: var(--color-ink-faint); }
 .tab:hover { color: var(--color-ink); background: var(--color-paper-2); }
 #tab-claude:checked ~ .tab-list label[for="tab-claude"],
-#tab-codex:checked ~ .tab-list label[for="tab-codex"],
 #tab-opencode:checked ~ .tab-list label[for="tab-opencode"] {
   color: var(--color-ink);
   background: var(--color-paper-2);
@@ -377,13 +376,11 @@ td:first-child code { white-space: normal; }
   border-bottom-color: var(--color-paper-2);
 }
 #tab-claude:checked ~ .tab-list label[for="tab-claude"]::before,
-#tab-codex:checked ~ .tab-list label[for="tab-codex"]::before,
 #tab-opencode:checked ~ .tab-list label[for="tab-opencode"]::before {
   content: "\25CF\00a0";
   color: var(--color-accent);
 }
 #tab-claude:focus-visible ~ .tab-list label[for="tab-claude"],
-#tab-codex:focus-visible ~ .tab-list label[for="tab-codex"],
 #tab-opencode:focus-visible ~ .tab-list label[for="tab-opencode"] {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
@@ -391,7 +388,6 @@ td:first-child code { white-space: normal; }
 }
 .tab-panel { display: none; padding-top: var(--space-md); }
 #tab-claude:checked ~ #panel-claude,
-#tab-codex:checked ~ #panel-codex,
 #tab-opencode:checked ~ #panel-opencode { display: block; }
 
 /* ---- footer ---- */

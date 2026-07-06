@@ -6,7 +6,7 @@
 <title>Quickstart · hotline docs</title>
 <meta name="description" content="Install hotline and text your Claude Code session over Telegram in five steps.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23181820'/%3E%3Ctext x='2' y='12' font-family='monospace' font-size='11' fill='%23e05a4e'%3E%26gt;%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="../hotline.css?v=2">
+<link rel="stylesheet" href="../hotline.css?v=3">
 </head>
 <body>
 
@@ -42,7 +42,7 @@
 
 <h2>What hotline is</h2>
 <p>hotline is an MCP server that relays a coding-agent session to your messaging apps. It replies in short bubbles with a typing indicator, reacts with emoji, edits its own messages to show progress, and offers inline buttons when it wants you to pick one thing. Telegram is the default provider; <a href="signal.html">Signal</a> and <a href="discord.html">Discord</a> run alongside it or on their own.</p>
-<p>It drives two harnesses: Claude Code over its experimental two-way channel protocol (<code>claude/channel</code>), and OpenCode over a separate HTTP+SSE adapter. Pick yours in the setup below. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
+<p>It drives three harnesses: Claude Code over its experimental two-way channel protocol (<code>claude/channel</code>), Codex as an owned <code>codex app-server</code> subprocess speaking JSON-RPC over stdio, and OpenCode over a separate HTTP+SSE adapter. Pick yours in the setup below. Details and caveats on <a href="protocol.html">the protocol page</a>.</p>
 
 <h2>Install</h2>
 <pre><code>brew install 1broseidon/tap/hotline</code></pre>
@@ -50,13 +50,15 @@
 <pre><code>go install github.com/1broseidon/hotline/cmd/hotline@latest   <span class="c"># -&gt; $(go env GOPATH)/bin/hotline</span></code></pre>
 
 <h2>Set up Telegram</h2>
-<p>Pick your harness. The texting experience is the same either way.</p>
+<p>Pick your harness. The texting experience is the same across all three.</p>
 
 <div class="tabs">
   <input type="radio" name="harness" id="tab-claude" class="tab-radio" checked>
+  <input type="radio" name="harness" id="tab-codex" class="tab-radio">
   <input type="radio" name="harness" id="tab-opencode" class="tab-radio">
   <div class="tab-list" role="tablist">
     <label class="tab" for="tab-claude">Claude Code</label>
+    <label class="tab" for="tab-codex">Codex</label>
     <label class="tab" for="tab-opencode">OpenCode</label>
   </div>
 
@@ -105,6 +107,30 @@ claude --dangerously-load-development-channels plugin:hotline@hotline</code></pr
 }</code></pre>
     <p>Raw servers always need the dev-channel flag, by name: <code>claude --dangerously-load-development-channels server:hotline</code>.</p>
     </details>
+  </div>
+
+  <div class="tab-panel" id="panel-codex">
+    <p>Codex has no channel protocol either, and no server of its own to dial: hotline <em>is</em> the standalone process. It spawns <code>codex app-server</code> as its own subprocess and speaks JSON-RPC to it over stdio, forwarding the agent's replies straight to the channel.</p>
+    <ol>
+      <li>
+        <p>Get a bot token from <a href="https://t.me/BotFather">@BotFather</a>, then save it (once, machine-wide):</p>
+<pre><code>hotline setup --telegram-token 123456789:AA…</code></pre>
+      </li>
+      <li>
+        <p>Check your setup. Codex needs no scaffolded project file — voice and safety instructions ride a <code>developerInstructions</code> string at runtime instead of a dropped-in agent file — so this step is a checkpoint, not a write:</p>
+<pre><code>hotline init --harness codex</code></pre>
+      </li>
+      <li>
+        <p>Launch. Codex CLI must be on your <code>PATH</code>; hotline owns its whole lifecycle, so there's no separate server to start first:</p>
+<pre><code>hotline start --harness codex   <span class="c"># --yolo drops both the approval prompts and the sandbox</span></code></pre>
+        <p><code>--yolo</code> sets two independent things at once: no approval prompts, <em>and</em> no command sandbox. On some Linux setups <code>codex app-server</code>'s sandbox (bubblewrap) can't initialize at all — commonly an AppArmor restriction on unprivileged user namespaces (Ubuntu 23.10+) — in which case commands fail outright even with prompts off, and <code>--yolo</code>'s full-access mode is what actually lets them run.</p>
+      </li>
+      <li>
+        <p>DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:</p>
+<pre><code>hotline pair &lt;code&gt;</code></pre>
+      </li>
+    </ol>
+    <p>Same providers, same access model. Approval prompts relay as <strong>See more / Allow / Deny</strong> buttons, or <code>yes &lt;code&gt;</code> by text — denying one stops the whole turn rather than letting Codex try something else, so expect to re-prompt after a no. Codex threads persist to disk and resume across a hotline restart, including a full process restart, not just a reconnect. This is a Phase 1 adapter: no <code>react</code>, <code>edit_message</code>, or attachment downloads yet, and bubbles arrive as one message rather than a paced burst. Verified against codex-cli 0.142.5.</p>
   </div>
 
   <div class="tab-panel" id="panel-opencode">
@@ -170,8 +196,8 @@ One bubble unless the answer genuinely needs two.</code></pre>
 
 <h2>CLI</h2>
 <pre><code>hotline setup        <span class="c"># save credentials to the shared .env (run once)</span>
-hotline init         <span class="c"># install the hotline plugin and enable it for this repo</span>
-hotline start        <span class="c"># launch Claude Code with the channel loaded</span>
+hotline init         <span class="c"># wire up a harness: --harness claude (default), codex, or opencode</span>
+hotline start        <span class="c"># launch the harness with the channel loaded (--harness claude|codex)</span>
 hotline [run]        <span class="c"># start the MCP server + Telegram poller (default)</span>
 hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</span>
 hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span>

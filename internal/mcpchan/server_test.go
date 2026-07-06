@@ -136,7 +136,7 @@ func TestServerInProcess(t *testing.T) {
 		t.Error("instructions should be advertised")
 	}
 
-	// tools/list — exactly the four tools, with verbatim schemas.
+	// tools/list — exactly the channel tools plus publish, with verbatim schemas.
 	lr, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -146,6 +146,7 @@ func TestServerInProcess(t *testing.T) {
 		"react":               reactSchema,
 		"edit_message":        editSchema,
 		"download_attachment": downloadSchema,
+		"publish":             publishSchema,
 	}
 	if len(lr.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(lr.Tools), len(want))

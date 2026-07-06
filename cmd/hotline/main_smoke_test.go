@@ -130,13 +130,13 @@ func TestSmokeTokenless(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"reply", "react", "edit_message", "download_attachment"} {
+	for _, want := range []string{"reply", "react", "edit_message", "download_attachment", "publish"} {
 		if !got[want] {
 			t.Errorf("tools/list missing %q; got %v", want, got)
 		}
 	}
-	if len(got) != 4 {
-		t.Errorf("expected exactly 4 tools, got %d: %v", len(got), got)
+	if len(got) != 5 {
+		t.Errorf("expected exactly 5 tools, got %d: %v", len(got), got)
 	}
 
 	// 4. tools/call reply -> isError result, but a successful JSON-RPC response.

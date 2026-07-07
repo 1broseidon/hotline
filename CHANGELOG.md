@@ -4,7 +4,7 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
-## [Unreleased]
+## [0.8.0] - 2026-07-07
 
 ### Added
 - **Passcode gate on public publishes.** `publish` links exposed through a

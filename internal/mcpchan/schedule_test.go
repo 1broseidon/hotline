@@ -166,7 +166,7 @@ func TestScheduleToolRegistration(t *testing.T) {
 	toolNames := func(schedulesPath string) map[string]string {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		server := NewServer(&fakeToolSet{}, false, "/state/transcript.jsonl", []string{"telegram"}, "", "", schedulesPath)
+		server := NewServer(&fakeToolSet{}, false, "/state/transcript.jsonl", []string{"telegram"}, "", "", schedulesPath, "")
 		st, ct := mcp.NewInMemoryTransports()
 		if _, err := server.Connect(ctx, st, nil); err != nil {
 			t.Fatal(err)

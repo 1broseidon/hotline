@@ -62,6 +62,12 @@ Requires Go 1.26+ for the source build.
    hotline start --yolo       # adds --dangerously-skip-permissions; the permission relay never fires
    ```
 
+   Or make it always-on — supervised, detached from the terminal, restarted on crash:
+
+   ```sh
+   hotline up                 # same flags as start; stop with hotline down
+   ```
+
 4. DM your bot. The first message from an unknown sender returns a 6-hex pairing code. Approve it from your terminal:
 
    ```sh
@@ -161,6 +167,7 @@ Outbound is gated too. Every tool call checks the target chat against the same r
 | `edit_message` | Edit a message the bot sent, for interim progress. Edits don't push-notify |
 | `download_attachment` | Fetch a non-photo attachment by `file_id` into the inbox; returns a local path (Telegram's 20MB download cap applies) |
 | `schedule` | `create`, `list`, or `cancel` a scheduled task. At the scheduled time the stored prompt is injected back into the session as an inbound turn (`kind="schedule"`), so the agent acts on it with full tool access and normal permission gating. Recurrence is a preset: `once`, `daily`, `weekly`, `every_n_hours`, `every_n_days`. A one-off's fire time takes a relative offset (`+2m`, `+1h30m`) or an absolute time; the rest are server-local |
+| `restart` | Only under `hotline up`: asks the supervisor to relaunch the session (it writes the supervisor's control file), so the paired user can say "restart yourself". In-flight context is lost; the transcript, schedules, and access state persist |
 
 Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim, so values are never truncated by Telegram's callback-data limit. Tap authorization mirrors the inbound gate.
 
@@ -353,6 +360,8 @@ When a token is configured, hotline declares the `claude/channel/permission` cap
 hotline setup        save credentials to the shared .env (run once)
 hotline init         install the hotline plugin and enable it for this repo
 hotline start        launch Claude Code with the channel loaded
+hotline up           launch Claude Code supervised (always-on; see below)
+hotline down         stop the supervised session
 hotline [run]        start the MCP server + Telegram poller (default)
 hotline pair <code>  approve a pending pairing code
 hotline deny <code>  reject a pending pairing code
@@ -365,6 +374,33 @@ hotline schedule     operator view of scheduled tasks
 `pair`, `deny`, `revoke`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
 
 Schedules are created from chat via the `schedule` tool; the `hotline schedule` CLI is the operator's view over them. `list` shows every schedule with its next fire time; `remove` deletes one by id (or unique prefix); `pause`/`resume` are the operator kill-switch (resuming a recurring schedule recomputes its next fire from now, so a long pause never triggers a stale catch-up burst). Schedules live in `schedules.json` at the state root and are re-read live by a running daemon, so CLI edits take effect without a restart.
+
+## Always-on: hotline up
+
+`hotline start` lives and dies with your terminal. `hotline up` is its always-on sibling: a small supervisor that owns the harness process — Claude Code by default, `opencode serve` under `HOTLINE_HARNESS=opencode` — and keeps it alive until you say otherwise.
+
+```sh
+hotline up            # detached: supervisor + harness survive this terminal
+hotline up --yolo     # claude path: same flags as start, passthrough after -- included
+hotline down          # graceful stop (harness first, then supervisor)
+hotline status        # gains a supervisor block: phase, pids, restarts, logs
+```
+
+What it does:
+
+- **Owns the harness.** On the claude path, Claude Code needs a real terminal (with a non-tty stdin it drops into print mode and exits), so the supervisor allocates a pty and runs claude on it, in its own session and process group. On the opencode path, `opencode serve` is a headless daemon: the supervisor runs it on plain pipes — same session/process-group discipline, no pty — binding the port and hostname from `OPENCODE_SERVER_URL` (default `http://127.0.0.1:4096`), the same source the hotline MCP child reads, so daemon and client always agree. Linux and macOS.
+- **Restarts on any exit** with exponential backoff: 2s doubling to a 10-minute ceiling, reset after 5 minutes of healthy uptime. It never gives up — a persistently failing harness costs at most six attempts an hour, each with a logged breadcrumb. Together with the scheduler's catch-up scan, a 3am crash no longer eats your 9am schedule: the session comes back and the overdue fire happens exactly once.
+- **Restart from chat.** Under `hotline up` the session gains a `restart` MCP tool, so the paired user can say "restart yourself". The tool only writes the supervisor's control file — what runs (argv, env, cwd) was fixed by you at `up` time, and the reason string is only ever logged — so a prompt-injected restart is at worst a bounced session, a smaller blast radius than tools the channel already has. `kill -HUP <supervisor pid>` does the same from the machine.
+- **Logs in the state dir.** `supervisor/supervisor.log` holds the supervisor's event lines (starts, exits, backoff, restart reasons); `supervisor/harness.log` captures claude's pty output (raw, ANSI escapes and all), size-rotated at 5MB with one older generation kept.
+
+`--foreground` skips the detach and runs the supervisor in your terminal — that's the shape a tmux pane or a systemd unit wants (`ExecStart=hotline up --foreground`). A flock under `supervisor/` guarantees one supervisor per state root; liveness is the held lock, not a pid file, so a stale `state.json` can never wedge `up` or `down`.
+
+Restarted sessions start fresh by default: cross-restart memory is the transcript and `schedules.json`, by design. On the claude path, if you want claude itself to resume its conversation, `hotline up -- --continue` re-applies on every respawn (careful: `--continue` with no prior session, or a corrupted one, can crash-loop into the backoff ceiling). On the opencode path, args after `--` go to `opencode serve` verbatim, and session state survives a bounce on its own: opencode persists sessions on disk, and hotline's session pinning / most-recent selection re-attaches after the restart.
+
+Per-harness honesty notes:
+
+- **Claude path:** unattended restarts are only truly unattended once hotline is on Claude's approved channels allowlist (`--channels`). Until then `hotline start`/`up` fall back to `--dangerously-load-development-channels`, whose confirmation prompt is per-launch by design — so each supervised respawn parks on that prompt until someone attaches to the pty (e.g. via the harness log you can see it waiting) and confirms. The supervisor machinery is correct today; the allowlist switch (automatic in `channelArgs`) is what makes it hands-off.
+- **OpenCode path:** `--yolo` errors instead of being silently ignored — it maps to a claude flag with no opencode equivalent; opencode's permission policy lives in `opencode.json`'s `permission` block. And the supervisor watches `opencode serve` only: if the hotline MCP child opencode spawns dies while serve stays up, the supervisor doesn't see it (a serve bounce — `restart` tool, SIGHUP, `down`/`up` — recovers it).
 
 ## State and environment
 

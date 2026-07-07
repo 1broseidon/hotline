@@ -48,7 +48,14 @@ func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, perm
 		return nil
 	})
 	schedulesPath := sched.Path()
-	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath)
+	// Under `hotline up` the supervisor exports HOTLINE_SUPERVISOR_DIR into
+	// `opencode serve`'s environment, and opencode passes its process env
+	// through to the MCP children it spawns (verified; merged with any
+	// explicit environment block in opencode.json) — so a supervised session
+	// gains the restart tool here exactly like the claude path, and an
+	// unsupervised one never sees it.
+	supervisorDir := os.Getenv("HOTLINE_SUPERVISOR_DIR")
+	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath, supervisorDir)
 
 	fmt.Fprintf(os.Stderr, "hotline: harness=opencode server=%s session=%s\n", ocfg.ServerURL, sessionLabel(ocfg.Session))
 

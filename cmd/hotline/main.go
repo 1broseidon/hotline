@@ -7,6 +7,8 @@
 //	hotline setup        save credentials to the shared .env (run once)
 //	hotline init         install the hotline plugin and enable it for this repo
 //	hotline start        launch Claude Code with the channel loaded
+//	hotline up           launch the harness supervised: always-on, restarted on crash
+//	hotline down         stop the supervised session
 //	hotline [run]        start the MCP server + Telegram poller (default)
 //	hotline pair <code>  approve a pending pairing code
 //	hotline deny <code>  reject a pending pairing code
@@ -83,6 +85,15 @@ func main() {
 			break
 		}
 		err = cmdStart(botName, args[1:], passthrough, cwd, os.Stdout, os.Stderr)
+	case "up":
+		cwd, cerr := os.Getwd()
+		if cerr != nil {
+			err = cerr
+			break
+		}
+		err = cmdUp(botName, args[1:], passthrough, cwd, os.Stdout, os.Stderr)
+	case "down":
+		err = cmdDown(os.Stdout)
 	case "version", "--version":
 		cmdVersion()
 	case "-h", "--help", "help":
@@ -114,6 +125,15 @@ Usage:
   hotline start        launch Claude Code with the channel loaded
                        (--yolo adds --dangerously-skip-permissions)
                        (args after -- go to claude: hotline start -- --continue)
+  hotline up           launch the harness supervised: always-on, restarted on
+                       crash with backoff, until hotline down. Detaches by
+                       default; --foreground stays attached (tmux/systemd).
+                       HOTLINE_HARNESS picks what runs: claude (default, on a
+                       supervisor pty, start's flags apply) or opencode
+                       (supervises "opencode serve"; --yolo errors — set
+                       opencode.json's permission block instead).
+                       Logs live under <state>/supervisor/.
+  hotline down         stop the supervised session
   hotline [run]        start the MCP server + Telegram poller (default)
   hotline pair <code>  approve a pending pairing code
   hotline deny <code>  reject a pending pairing code
@@ -369,7 +389,12 @@ func runChannel(botName string) error {
 		return runOpenCodeHarness(router, sched, permission, transcriptPath, voice, publishExposure, cleanup)
 	}
 
-	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath)
+	// Under `hotline up` the supervisor exports HOTLINE_SUPERVISOR_DIR into the
+	// harness environment (we are its grandchild), which enables the restart
+	// tool; an unsupervised session never sees it.
+	supervisorDir := os.Getenv("HOTLINE_SUPERVISOR_DIR")
+
+	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath, supervisorDir)
 
 	// Claude Code: inbound + permission relay travel over the same stdio MCP
 	// connection as the tools, via the custom claude/channel notifications.
@@ -499,6 +524,9 @@ func cmdStatus(providerSel, botName string) error {
 	fmt.Printf("pending:     %d pairing(s)\n", len(acc.Pending))
 	for code, p := range acc.Pending {
 		fmt.Printf("  - %s -> sender %s (expires %s)\n", code, p.SenderID, p.ExpiresAt)
+	}
+	if root, err := config.StateRoot(); err == nil {
+		printSupervisorStatus(root)
 	}
 	return nil
 }

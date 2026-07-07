@@ -103,7 +103,7 @@ func TestServerInProcess(t *testing.T) {
 	defer cancel()
 
 	fts := &fakeToolSet{}
-	server := NewServer(fts, true, "/state/transcript.jsonl", nil, "", "", "")
+	server := NewServer(fts, true, "/state/transcript.jsonl", nil, "", "", "", "")
 
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, st, nil); err != nil {
@@ -195,7 +195,7 @@ func TestServerNoPermissionCap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	server := NewServer(&fakeToolSet{}, false, "/state/transcript.jsonl", nil, "", "", "")
+	server := NewServer(&fakeToolSet{}, false, "/state/transcript.jsonl", nil, "", "", "", "")
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)

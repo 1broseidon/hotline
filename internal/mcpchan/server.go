@@ -108,7 +108,11 @@ func withSourceProperty(schema string, sources []string) string {
 // schemas are byte-identical to the single-provider originals (source is
 // implicit — it defaults to the sole provider). With two or more, every tool
 // schema grows a required "source" property enumerating the choices.
-func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string, voice, exposureName, schedulesPath string) *mcp.Server {
+//
+// supervisorDir is non-empty only when the session runs under `hotline up`
+// (the supervisor exports it as $HOTLINE_SUPERVISOR_DIR); it enables the
+// restart tool, which writes the supervisor's control file.
+func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string, voice, exposureName, schedulesPath, supervisorDir string) *mcp.Server {
 	// The exposure backend for the publish tool is operator-selected and fixed
 	// for the process lifetime. exposureName is already validated in config; an
 	// unrecognized value defensively resolves to the localhost.run default.
@@ -190,6 +194,19 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []str
 					return "schedule failed: " + err.Error(), true
 				}
 				return handleSchedule(in, schedulesPath, sources)
+			})
+	}
+
+	if supervisorDir != "" {
+		addTool(s, "restart",
+			"Restart this agent session. The hotline supervisor relaunches the harness: in-flight context is lost, but the conversation transcript, schedules, and access state persist (an overdue schedule fires once on the way back up). Use it when the user asks for a restart or the session is clearly degraded. Send any parting reply BEFORE calling this — nothing after it will be delivered.",
+			restartSchema,
+			func(ctx context.Context, raw json.RawMessage) (string, bool) {
+				var in RestartInput
+				if err := json.Unmarshal(raw, &in); err != nil {
+					return "restart failed: " + err.Error(), true
+				}
+				return handleRestart(in, supervisorDir)
 			})
 	}
 

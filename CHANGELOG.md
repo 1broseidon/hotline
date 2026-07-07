@@ -4,6 +4,49 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Always-on supervisor: `hotline up` / `hotline down`.** `hotline start`'s
+  always-on sibling: a self-contained supervisor (no systemd required) that
+  owns the Claude Code process and keeps the agent alive until explicitly
+  brought down. Claude runs on a supervisor-allocated pty (interactive Claude
+  Code needs a controlling terminal; pure syscalls, Linux and macOS, zero new
+  dependencies) in its own session/process group, and is restarted on any
+  exit with exponential backoff — 2s doubling to a 10-minute ceiling, reset
+  after 5 minutes of healthy uptime, never giving up — so a 3am crash no
+  longer silently eats a 9am schedule: the restarted session's catch-up scan
+  fires the overdue schedule exactly once. `hotline up` detaches by default;
+  `--foreground` runs attached (the tmux/systemd shape) and it takes start's
+  flags (`--yolo`, `--providers`, `--` passthrough re-applied on every
+  respawn, so `-- --continue` resumes across restarts). A supervised session
+  gains a `restart` MCP tool so the paired user can say "restart yourself":
+  it only writes the supervisor's control file (argv/env/cwd stay fixed by
+  the operator; the reason is only logged), the same path SIGHUP uses.
+  State lives under `<state>/supervisor/` with the house flock/atomic-write
+  discipline — liveness is the held lock, not a pid file — plus
+  `supervisor.log` (event breadcrumbs) and `harness.log` (harness output,
+  size-rotated at 5MB). `hotline status` reports the supervisor phase, pids,
+  restart count, and last exit.
+- **`hotline up` supervises both harnesses.** `HOTLINE_HARNESS` picks what
+  runs, exactly like `hotline run`: claude (the default) on the supervisor
+  pty, or `opencode serve` headless on plain pipes — no pty, same
+  session/process-group and restart discipline. The serve port and hostname
+  are derived from `OPENCODE_SERVER_URL` (default `http://127.0.0.1:4096`),
+  the same source the hotline MCP child dials, so daemon and client always
+  agree; `HOTLINE_SUPERVISOR_DIR` rides opencode's environment into the
+  spawned hotline (verified: opencode passes its process env through to MCP
+  children, merged with opencode.json's explicit env block), so the
+  `restart` tool works on this path too — a restart bounces serve, and
+  opencode's on-disk sessions re-attach via hotline's session pinning /
+  most-recent selection. `--yolo` on the opencode path errors instead of
+  being silently ignored (it maps to a claude-only flag; set opencode.json's
+  `permission` block instead). Claude-path caveat, found live: until hotline
+  is on Claude's approved channels allowlist, the dev-channel flag's
+  per-launch confirmation makes each unattended respawn park on a prompt;
+  the allowlist switch (automatic in `channelArgs`) is what makes claude
+  always-on hands-off.
+
 ## [0.6.0] - 2026-07-07
 
 ### Added

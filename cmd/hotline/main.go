@@ -408,10 +408,41 @@ func runChannel(botName string) error {
 	// schedule ticker; the notifier is valid only after Connect, which
 	// lifecycle.Run performs first.
 	pollFn := func(ctx context.Context) error {
-		return runPollers(ctx, router, sched, transport.Notifier())
+		var sink provider.InboundSink = transport.Notifier()
+		if len(router.Sources()) > 1 {
+			sink = &sourceLabelSink{next: sink}
+		}
+		return runPollers(ctx, router, sched, sink)
 	}
 
 	return lifecycle.Run(server, transport, cleanup, pollFn)
+}
+
+// sourceLabelSink decorates the display name with the provider on the Claude
+// Code path when several providers are configured: Claude Code's inbound
+// quick view renders only "<server> · <user>", dropping meta.source, so
+// "George" from telegram and "George" from signal are indistinguishable at a
+// glance. Decorating user ("George · signal") is display-only — pairing and
+// access decisions key on user_id, and the OpenCode path renders its own
+// <channel> envelope (source attribute included) without this wrapper.
+type sourceLabelSink struct {
+	next provider.InboundSink
+}
+
+func (s *sourceLabelSink) SendChannel(ctx context.Context, content string, meta map[string]string) error {
+	if meta["user"] != "" && meta["source"] != "" {
+		decorated := make(map[string]string, len(meta))
+		for k, v := range meta {
+			decorated[k] = v
+		}
+		decorated["user"] = decorated["user"] + " · " + decorated["source"]
+		meta = decorated
+	}
+	return s.next.SendChannel(ctx, content, meta)
+}
+
+func (s *sourceLabelSink) SendVerdict(ctx context.Context, requestID, behavior string) error {
+	return s.next.SendVerdict(ctx, requestID, behavior)
 }
 
 // runPollers runs the provider fan-in and the schedule ticker concurrently,

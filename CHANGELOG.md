@@ -4,6 +4,17 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Multi-provider quick-view labels on the Claude Code path: with several
+  providers configured, the inbound display name carries the provider
+  ("George · signal"), so Claude Code's quick view — which renders only the
+  server and user, dropping `meta.source` — shows where a message came from.
+  Display-only: pairing and access key on `user_id`, single-provider setups
+  are unchanged, and the OpenCode envelope (which already renders `source`)
+  is untouched.
+
 ## [0.8.0] - 2026-07-07
 
 ### Added

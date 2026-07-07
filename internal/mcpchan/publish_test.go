@@ -2,8 +2,14 @@ package mcpchan
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -160,8 +166,163 @@ func TestPublishLocalBackendMessage(t *testing.T) {
 	if strings.Contains(msg, "PUBLIC") {
 		t.Errorf("local backend message must not claim the link is PUBLIC: %q", msg)
 	}
+	if strings.Contains(msg, "Passcode") {
+		t.Errorf("local backend must not be passcode-gated: %q", msg)
+	}
+	// The local backend is ungated: the artifact is served bare, no form.
+	url := regexp.MustCompile(`http://127\.0\.0\.1:\d+`).FindString(msg)
+	resp, err := http.Get(url + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), "<h1>hi</h1>") {
+		t.Errorf("local publish should serve content directly, got: %q", body)
+	}
 	// Clean up the loopback server this test started.
 	publishReg.closeAll()
+}
+
+// stubPublicExposure exposes the loopback port as-is but reports itself
+// public, so tests can drive the full passcode-gated flow with no tunnel.
+type stubPublicExposure struct{}
+
+func (stubPublicExposure) name() string { return "stub" }
+func (stubPublicExposure) public() bool { return true }
+func (stubPublicExposure) expose(_ context.Context, port int) (string, *exec.Cmd, error) {
+	return fmt.Sprintf("http://127.0.0.1:%d", port), nil, nil
+}
+
+// publishResultRe pins the documented result format: one tappable link line
+// and one clean standalone digit-run passcode line. The format is functional
+// — phones read the code out of the pasted chat message for one-time-code
+// autofill — so this test is a contract, not cosmetics.
+var publishLinkRe = regexp.MustCompile(`(?m)^Link: (https?://\S+)$`)
+var publishCodeRe = regexp.MustCompile(`(?m)^Passcode: (\d{6})$`)
+
+// TestPublishPublicGatedEndToEnd publishes a directory through a fake public
+// exposure and walks the whole validated UX: result format, form on first
+// GET, unlock with the returned code, session cookie (not the code), then
+// content and relative assets.
+func TestPublishPublicGatedEndToEnd(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.html"), `<link rel="stylesheet" href="./style.css"><h1>gated-content</h1>`)
+	writeFile(t, filepath.Join(dir, "style.css"), "body{color:blue}")
+
+	msg, isErr := publish(context.Background(), PublishInput{Path: dir}, stubPublicExposure{})
+	if isErr {
+		t.Fatalf("publish errored: %s", msg)
+	}
+	t.Cleanup(publishReg.closeAll)
+
+	linkM := publishLinkRe.FindStringSubmatch(msg)
+	codeM := publishCodeRe.FindStringSubmatch(msg)
+	if linkM == nil || codeM == nil {
+		t.Fatalf("result missing Link/Passcode lines in the documented format: %q", msg)
+	}
+	link, code := linkM[1], codeM[1]
+	if !strings.Contains(msg, "PUBLIC") {
+		t.Errorf("public message should say PUBLIC plainly: %q", msg)
+	}
+
+	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// Unauthed → the form, not the artifact.
+	resp, err := c.Get(link + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), `autocomplete="one-time-code"`) || strings.Contains(string(body), "gated-content") {
+		t.Fatalf("unauthed GET should serve the form only, got: %.120q", body)
+	}
+
+	// Unlock with the code from the tool result.
+	resp, err = c.PostForm(link+"/index.html", url.Values{"code": {code}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("unlock status = %d, want 303", resp.StatusCode)
+	}
+	var session string
+	for _, ck := range resp.Cookies() {
+		if ck.Name == gateCookieName {
+			session = ck.Value
+		}
+	}
+	if session == "" || session == code {
+		t.Fatalf("session cookie %q must exist and must not be the passcode", session)
+	}
+
+	// Authed → content, and relative assets resolve (no prefix in play).
+	for path, want := range map[string]string{
+		"/":          "gated-content",
+		"/style.css": "body{color:blue}",
+	} {
+		req, _ := http.NewRequest(http.MethodGet, link+path, nil)
+		req.Header.Set("Cookie", gateCookieName+"="+session)
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(body), want) {
+			t.Errorf("authed GET %s missing %q: %.120q", path, want, body)
+		}
+	}
+}
+
+// TestPublishSingleFileServesOnlyThatFile publishes one file with the local
+// backend and asserts the fix for the sibling-exposure bug: the returned URL
+// is the bare origin, the root serves the file, and siblings 404.
+func TestPublishSingleFileServesOnlyThatFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "page.html"), "<h1>only-this</h1>")
+	writeFile(t, filepath.Join(dir, "sibling.txt"), "must-not-leak")
+
+	msg, isErr := publish(context.Background(), PublishInput{Path: filepath.Join(dir, "page.html")}, localExposure{})
+	if isErr {
+		t.Fatalf("publish errored: %s", msg)
+	}
+	t.Cleanup(publishReg.closeAll)
+
+	base := regexp.MustCompile(`http://127\.0\.0\.1:\d+`).FindString(msg)
+	if base == "" {
+		t.Fatalf("no loopback URL in message: %q", msg)
+	}
+	if strings.Contains(msg, "page.html") {
+		t.Errorf("single-file URL should be the bare origin, no basename: %q", msg)
+	}
+
+	fetch := func(path string) (int, string) {
+		resp, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, string(body)
+	}
+
+	if status, body := fetch("/"); status != http.StatusOK || !strings.Contains(body, "only-this") {
+		t.Errorf("GET / = %d %q, want the published file", status, body)
+	}
+	for _, path := range []string{"/sibling.txt", "/page.html", "/sub/"} {
+		if status, body := fetch(path); status != http.StatusNotFound || strings.Contains(body, "must-not-leak") {
+			t.Errorf("GET %s = %d, want 404 with no sibling content", path, status)
+		}
+	}
 }
 
 // TestPdeathsigSetOnTunnelCommands asserts the tunnel subprocesses are built

@@ -3,6 +3,8 @@ package mcpchan
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -176,10 +178,13 @@ func sensitiveEntry(dir string) (string, bool) {
 
 // publish resolves and vets path, starts a static server rooted at the
 // artifact, and exposes it via the operator-selected backend, returning the URL
-// to share. The returned message tells the truth about reachability: the tunnel
-// backends say the link is public and temporary; the local backend says it is
-// reachable only on this machine (or via the operator's own exposure). On any
-// failure it returns a descriptive message and true (isError).
+// to share. Public exposures are gated behind a 6-digit passcode (gate.go);
+// the result carries a Link line and a Passcode line whose exact format is
+// part of the feature — pasted into the chat, it feeds the phone's
+// one-time-code autofill. The local backend stays bare and its message says
+// the link is reachable only on this machine (or via the operator's own
+// exposure). On any failure it returns a descriptive message and true
+// (isError).
 func publish(ctx context.Context, in PublishInput, exp exposure) (string, bool) {
 	if strings.TrimSpace(in.Path) == "" {
 		return "publish failed: path is required", true
@@ -200,15 +205,29 @@ func publish(ctx context.Context, in PublishInput, exp exposure) (string, bool) 
 		return "publish refused: " + err.Error(), true
 	}
 
-	// Determine the served root and, for a single file, the path to open.
-	root := abs
-	var target string
+	// A directory publish serves the tree; a single-file publish serves
+	// exactly that file at "/" and nothing else — never the parent directory,
+	// so siblings are not enumerable and no listing is ever rendered.
+	var handler http.Handler = http.FileServer(http.Dir(abs))
 	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
-		root = filepath.Dir(abs)
-		target = filepath.Base(abs)
+		handler = singleFileHandler(abs)
 	}
 
-	entry, err := startStaticServer(root)
+	// Public exposures get the passcode gate (see gate.go for the threat
+	// model). The local backend stays bare: loopback is the operator's own
+	// machine, and operators who front the port themselves bring their own
+	// auth. A passcode-generation failure is a hard publish failure — never
+	// fall back to serving unguarded.
+	var code string
+	if exp.public() {
+		code, err = newPasscode()
+		if err != nil {
+			return "publish failed: " + err.Error(), true
+		}
+		handler = newPasscodeGate(code, abs, handler)
+	}
+
+	entry, err := startStaticServer(handler)
 	if err != nil {
 		return "publish failed: could not start local server: " + err.Error(), true
 	}
@@ -225,28 +244,45 @@ func publish(ctx context.Context, in PublishInput, exp exposure) (string, bool) 
 	entry.tunnel = cmd
 	publishReg.add(entry)
 
-	if target != "" {
-		url = strings.TrimRight(url, "/") + "/" + target
-	}
-
-	var note string
 	if exp.public() {
-		note = "This is a PUBLIC, TEMPORARY link — anyone with the URL can open it, and it stays up only while this session runs. Tell the user that plainly when you share it."
-	} else {
-		note = "This is a LOCAL url, reachable only on this machine (or via whatever exposure the operator has set up — a proxy, SSH port-forward, or LAN). It is NOT public; don't imply anyone with the link can open it. It stays up only while this session runs."
+		// The message format is part of the feature, not cosmetics: phones
+		// parse recent MESSAGE NOTIFICATIONS for one-time codes, so the code
+		// must be its own standalone bubble — "Passcode: NNNNNN" and nothing
+		// else — sent LAST (a fresh notification, trivially parseable). A code
+		// buried mid-message next to a URL is exactly what defeats the parser
+		// (live-tested both ways on iOS).
+		note := "This is a PUBLIC, TEMPORARY link protected by the passcode. Relay it as TWO bubbles: first the link (with any framing you like), then a final bubble that is exactly \"Passcode: " + code + "\" and nothing else — phones read the code out of that message's notification and offer it as one-tap autofill on the unlock page; burying it mid-message defeats the parser. If the user is inside the chat when it lands (no notification), they can copy the code from the bubble. Sharing link + passcode is sharing the artifact. Ten wrong guesses lock this publish for good (republish for a fresh link and code). It stays up only while this session runs."
+		return fmt.Sprintf("Link: %s\nPasscode: %s\n\n%s", url, code, note), false
 	}
+	note := "This is a LOCAL url, reachable only on this machine (or via whatever exposure the operator has set up — a proxy, SSH port-forward, or LAN). It is NOT public; don't imply anyone with the link can open it. It stays up only while this session runs."
 	return fmt.Sprintf("Published: %s\n\n%s", url, note), false
 }
 
-// startStaticServer binds an http.FileServer to an ephemeral loopback port and
-// begins serving root. The listener and server are returned in a registry entry
-// so the caller can keep them alive.
-func startStaticServer(root string) (*publishEntry, error) {
+// singleFileHandler serves exactly one file: "/" answers with the file (the
+// Content-Type comes from its on-disk extension), every other path is 404.
+// The published URL is the bare origin — no basename path segment.
+func singleFileHandler(path string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, path)
+	})
+}
+
+// startStaticServer binds handler to an ephemeral loopback port and begins
+// serving. The listener and server are returned in a registry entry so the
+// caller can keep them alive. ErrorLog is discarded on purpose: Go's default
+// http error logger writes to stderr and some of its messages quote request
+// state — discarding keeps the package's zero-logging posture (no request
+// data, no secrets, ever reaches the supervisor's captured stderr).
+func startStaticServer(handler http.Handler) (*publishEntry, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
-	srv := &http.Server{Handler: http.FileServer(http.Dir(root))}
+	srv := &http.Server{Handler: handler, ErrorLog: log.New(io.Discard, "", 0)}
 	go func() { _ = srv.Serve(ln) }()
 	return &publishEntry{listener: ln, server: srv}, nil
 }

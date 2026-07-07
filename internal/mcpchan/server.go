@@ -174,7 +174,7 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []str
 		})
 
 	addTool(s, "publish",
-		"Publish a local artifact (a directory or a single HTML file) to a temporary PUBLIC URL. It serves the path over a local static server and opens a throwaway tunnel, returning a public link that stays up for this session only. Use it to share a page, app, or visual artifact you built. Not channel-specific; no source needed.",
+		"Publish a local artifact (a directory or a single HTML file) to a temporary PUBLIC URL. It serves the path over a local static server and opens a throwaway tunnel; the link stays up for this session only and is gated by a 6-digit passcode. Relay the returned Link and Passcode lines exactly as given, in one message — the recipient taps the link and their phone offers the code from the message. Use it to share a page, app, or visual artifact you built. Not channel-specific; no source needed.",
 		publishSchema,
 		func(ctx context.Context, raw json.RawMessage) (string, bool) {
 			var in PublishInput
@@ -310,7 +310,7 @@ func instructionSegments(transcriptPath string) []instructionSegment {
 
 		{ocOnly: true, text: `Write and edit files with your edit tool, not shell (cat/echo/heredocs) — it's cleaner and won't stop to ask.`},
 
-		{ocOnly: true, text: `Publish pages, apps, or visual artifacts with hotline's own publish tool, not a similar skill — hotline's tools are the primary path for what they cover; skills are for what they don't. It's a public, temporary link, so say that plainly.`},
+		{ocOnly: true, text: `Publish pages, apps, or visual artifacts with hotline's own publish tool, not a similar skill — hotline's tools are the primary path for what they cover; skills are for what they don't. It's a public, temporary, passcode-gated link: send the link first, then a FINAL bubble that is exactly the "Passcode: NNNNNN" line and nothing else — phones read the code from that notification for one-tap autofill; burying it mid-message defeats the parser.`},
 
 		{voice: true, text: `You're texting on Telegram. Talk like a sharp, warm friend, not a terminal — say what you found like you'd text a friend, never raw tool or subagent output.`},
 

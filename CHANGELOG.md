@@ -4,6 +4,28 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [0.6.0] - 2026-07-07
+
+### Added
+- **Proactive scheduling.** hotline can now fire scheduled prompts at future
+  times, delivered as synthetic inbound turns through the same message path a
+  real message uses (tagged `kind="schedule"`), so the agent acts on them with
+  full tool access and normal permission gating — reminders, recurring
+  check-ins, deferred work. A new `schedule` MCP tool lets the agent
+  `create`/`list`/`cancel` schedules from chat; recurrence is a preset enum
+  (`once`, `daily`, `weekly`, `every_n_hours`, `every_n_days`), not cron. A
+  one-off's fire time accepts a relative offset (`+2m`, `+1h30m`, units h/m/s)
+  as well as an absolute time, so "remind me in 5 minutes" never requires the
+  agent to check the clock itself first. State persists to `schedules.json` at
+  the state root under the same flock/atomic write discipline as
+  `access.json`, so mutations apply live to a running daemon. A 10s ticker
+  plus one eager catch-up scan at startup means an overdue schedule fires
+  exactly once (persist-before-inject: the next fire time is advanced under
+  the lock before the turn is injected, preventing double-fires). Operators
+  get a `hotline schedule list|remove|pause|resume` CLI (pause/resume are the
+  operator kill-switch and are deliberately not agent-accessible). Times are
+  server-local (`time.Local`); a configurable timezone is deferred.
+
 ## [0.5.0] - 2026-07-06
 
 ### Removed

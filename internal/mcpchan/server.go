@@ -108,7 +108,7 @@ func withSourceProperty(schema string, sources []string) string {
 // schemas are byte-identical to the single-provider originals (source is
 // implicit — it defaults to the sole provider). With two or more, every tool
 // schema grows a required "source" property enumerating the choices.
-func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string, voice, exposureName string) *mcp.Server {
+func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []string, voice, exposureName, schedulesPath string) *mcp.Server {
 	// The exposure backend for the publish tool is operator-selected and fixed
 	// for the process lifetime. exposureName is already validated in config; an
 	// unrecognized value defensively resolves to the localhost.run default.
@@ -179,6 +179,19 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []str
 			}
 			return publish(ctx, in, exp)
 		})
+
+	if schedulesPath != "" {
+		addTool(s, "schedule",
+			"Schedule a task for your future self: at the scheduled time the prompt is injected back into this session as an inbound turn (kind=\"schedule\") and you act on it with full tool access — reminders, recurring check-ins, deferred work. Times are server-local. Actions: create, list, cancel. The operator can also list/pause/remove schedules via the hotline CLI.",
+			scheduleSchema,
+			func(ctx context.Context, raw json.RawMessage) (string, bool) {
+				var in ScheduleInput
+				if err := json.Unmarshal(raw, &in); err != nil {
+					return "schedule failed: " + err.Error(), true
+				}
+				return handleSchedule(in, schedulesPath, sources)
+			})
+	}
 
 	return s
 }

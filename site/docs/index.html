@@ -157,6 +157,8 @@ claude --dangerously-load-development-channels plugin:hotline@hotline</code></pr
   <tr><td><code>react</code></td><td>Set an emoji reaction (Telegram's fixed whitelist)</td></tr>
   <tr><td><code>edit_message</code></td><td>Edit a message the bot sent, for interim progress. Edits don't push-notify</td></tr>
   <tr><td><code>download_attachment</code></td><td>Fetch a non-photo attachment by <code>file_id</code> into the inbox; returns a local path (Telegram's 20MB download cap applies)</td></tr>
+  <tr><td><code>publish</code></td><td>Host a local artifact (a folder or a single HTML file) at a public, temporary link — a static server plus a quick tunnel, zero accounts. Exposure backend is operator-selected via <code>HOTLINE_PUBLISH_EXPOSURE</code>: <code>localhostrun</code> (default), <code>cloudflared</code>, or <code>local</code> (loopback only)</td></tr>
+  <tr><td><code>schedule</code></td><td><code>create</code>, <code>list</code>, or <code>cancel</code> a scheduled task. At the scheduled time the stored prompt is injected back into the session as an inbound turn, so the agent acts on it with full tool access and normal permission gating — reminders, recurring check-ins, deferred work. Recurrence: <code>once</code> (relative like <code>+2m</code>/<code>+1h30m</code>, or absolute), <code>daily</code>, <code>weekly</code>, <code>every_n_hours</code>, <code>every_n_days</code></td></tr>
 </table>
 </div>
 <p>Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim. Tap authorization mirrors the inbound gate.</p>
@@ -177,8 +179,9 @@ hotline pair &lt;code&gt;  <span class="c"># approve a pending pairing code</spa
 hotline deny &lt;code&gt;  <span class="c"># reject a pending pairing code</span>
 hotline revoke &lt;id&gt;  <span class="c"># remove an approved sender from the allowlist</span>
 hotline status       <span class="c"># print state-dir / token / access summary</span>
+hotline schedule     <span class="c"># list | remove &lt;id&gt; | pause &lt;id&gt; | resume &lt;id&gt; — schedules are created from chat</span>
 hotline version      <span class="c"># print the build's version info</span></code></pre>
-<p><code>pair</code>, <code>deny</code>, <code>revoke</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram).</p>
+<p><code>pair</code>, <code>deny</code>, <code>revoke</code>, and <code>status</code> take <code>--provider kind[:instance]</code> to select which provider's state they operate on (default: telegram). Schedules are created from chat via the <code>schedule</code> tool; <code>hotline schedule</code> is the operator's view over them — <code>list</code> shows next fire times, <code>remove</code> deletes by id (or unique prefix), <code>pause</code>/<code>resume</code> is the kill-switch. Schedules live in <code>schedules.json</code> at the state root and are re-read live, so CLI edits apply without a restart.</p>
 
 <h2>Start from a template</h2>
 <p><a href="https://github.com/1broseidon/hotline/tree/main/templates/mission-control">mission-control</a> is our take on what makes a good texting agent: a filing system the agent keeps on disk, an operating playbook, a starter voice. Copy the folder into your project, or install it as a plugin and scaffold with one command:</p>

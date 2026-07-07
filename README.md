@@ -160,6 +160,7 @@ Outbound is gated too. Every tool call checks the target chat against the same r
 | `react` | Set an emoji reaction (Telegram's fixed whitelist) |
 | `edit_message` | Edit a message the bot sent, for interim progress. Edits don't push-notify |
 | `download_attachment` | Fetch a non-photo attachment by `file_id` into the inbox; returns a local path (Telegram's 20MB download cap applies) |
+| `schedule` | `create`, `list`, or `cancel` a scheduled task. At the scheduled time the stored prompt is injected back into the session as an inbound turn (`kind="schedule"`), so the agent acts on it with full tool access and normal permission gating. Recurrence is a preset: `once`, `daily`, `weekly`, `every_n_hours`, `every_n_days`. A one-off's fire time takes a relative offset (`+2m`, `+1h30m`) or an absolute time; the rest are server-local |
 
 Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim, so values are never truncated by Telegram's callback-data limit. Tap authorization mirrors the inbound gate.
 
@@ -357,9 +358,13 @@ hotline pair <code>  approve a pending pairing code
 hotline deny <code>  reject a pending pairing code
 hotline revoke <id>  remove an approved sender from the allowlist
 hotline status       print state-dir / token / access summary
+hotline schedule     operator view of scheduled tasks
+                     (list | remove <id> | pause <id> | resume <id>)
 ```
 
 `pair`, `deny`, `revoke`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
+
+Schedules are created from chat via the `schedule` tool; the `hotline schedule` CLI is the operator's view over them. `list` shows every schedule with its next fire time; `remove` deletes one by id (or unique prefix); `pause`/`resume` are the operator kill-switch (resuming a recurring schedule recomputes its next fire from now, so a long pause never triggers a stale catch-up burst). Schedules live in `schedules.json` at the state root and are re-read live by a running daemon, so CLI edits take effect without a restart.
 
 ## State and environment
 

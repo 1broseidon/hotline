@@ -12,6 +12,7 @@
 //	hotline deny <code>  reject a pending pairing code
 //	hotline revoke <id>  remove an approved sender from the allowlist
 //	hotline status       print state-dir / token / access summary
+//	hotline schedule     operator view of scheduled tasks (list/remove/pause/resume)
 package main
 
 import (
@@ -19,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/1broseidon/hotline/internal/lifecycle"
 	"github.com/1broseidon/hotline/internal/mcpchan"
 	"github.com/1broseidon/hotline/internal/provider"
+	"github.com/1broseidon/hotline/internal/schedule"
 	"github.com/1broseidon/hotline/internal/signal"
 	"github.com/1broseidon/hotline/internal/telegram"
 	"github.com/1broseidon/hotline/internal/transcript"
@@ -62,6 +65,8 @@ func main() {
 		err = cmdRevoke(providerSel, botName, args[1:])
 	case "status":
 		err = cmdStatus(providerSel, botName)
+	case "schedule":
+		err = cmdSchedule(args[1:])
 	case "setup":
 		err = cmdSetup(botName, args[1:], os.Stdin, os.Stdout, stdinIsTTY())
 	case "init":
@@ -115,6 +120,9 @@ Usage:
   hotline revoke <id>  remove an approved sender from the allowlist
                        (exact sender ID as shown by status, or a unique prefix)
   hotline status       print state-dir / token / access summary
+  hotline schedule     operator view of scheduled tasks
+                       (schedule list | remove <id> | pause <id> | resume <id>;
+                       schedules are created from chat via the schedule tool)
   hotline version      print the hotline version
 
 Options:
@@ -313,8 +321,22 @@ func runChannel(botName string) error {
 	// Voice override: ./HOTLINE.md in the repo, else HOTLINE.md at the state
 	// root. Read once here — instructions ship at the MCP handshake, so a
 	// changed file takes effect on the next restart.
-	stateRoot, _ := config.StateRoot()
+	stateRoot, err := config.StateRoot()
+	if err != nil {
+		return err
+	}
 	voice := mcpchan.LoadVoice(stateRoot)
+
+	// Proactive scheduling: schedules.json lives at the shared state root (one
+	// process = one harness session, whichever provider delivers the reply — the
+	// same tier as the global HOTLINE.md voice). Fires ride the primary
+	// provider's transcript.
+	schedulesPath := filepath.Join(stateRoot, "schedules.json")
+	var schedLog *transcript.Logger
+	if transcriptPath != "" {
+		schedLog = transcript.New(transcriptPath)
+	}
+	sched := schedule.NewScheduler(schedulesPath, router.Sources(), schedLog)
 
 	// Which exposure backend the publish tool uses (localhost.run default,
 	// cloudflared, or local/off). Resolved once here so a bad value fails loudly
@@ -344,10 +366,10 @@ func runChannel(botName string) error {
 		return err
 	}
 	if harnessMode == "opencode" {
-		return runOpenCodeHarness(router, permission, transcriptPath, voice, publishExposure, cleanup)
+		return runOpenCodeHarness(router, sched, permission, transcriptPath, voice, publishExposure, cleanup)
 	}
 
-	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice, publishExposure)
+	server := mcpchan.NewServer(router, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath)
 
 	// Claude Code: inbound + permission relay travel over the same stdio MCP
 	// connection as the tools, via the custom claude/channel notifications.
@@ -357,13 +379,32 @@ func runChannel(botName string) error {
 	}
 	transport := mcpchan.NewChannelTransport(onPerm)
 
-	// The poll fn starts every provider on the source-tagging router sink; the
-	// notifier is valid only after Connect, which lifecycle.Run performs first.
+	// The poll fn starts every provider on the source-tagging router sink and the
+	// schedule ticker; the notifier is valid only after Connect, which
+	// lifecycle.Run performs first.
 	pollFn := func(ctx context.Context) error {
-		return router.Start(ctx, transport.Notifier())
+		return runPollers(ctx, router, sched, transport.Notifier())
 	}
 
 	return lifecycle.Run(server, transport, cleanup, pollFn)
+}
+
+// runPollers runs the provider fan-in and the schedule ticker concurrently,
+// returning the first exit — the same first-error-wins fan-in runOpenCodeLoop
+// uses. sched.Run only exits on ctx cancellation (nil), so in practice the
+// providers' exit decides shutdown, exactly as before. The scheduler gets the
+// bare Notifier sink (not a taggedSink): it stamps its stored source itself.
+func runPollers(ctx context.Context, router *provider.Router, sched *schedule.Scheduler, sink provider.InboundSink) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, 2)
+	go func() { errCh <- router.Start(ctx, sink) }()
+	go func() { errCh <- sched.Run(ctx, sink) }()
+
+	err := <-errCh
+	cancel()
+	return err
 }
 
 func cmdPair(providerSel, botName string, args []string) error {

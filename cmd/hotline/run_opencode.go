@@ -13,6 +13,7 @@ import (
 	"github.com/1broseidon/hotline/internal/mcpchan"
 	"github.com/1broseidon/hotline/internal/opencode"
 	"github.com/1broseidon/hotline/internal/provider"
+	"github.com/1broseidon/hotline/internal/schedule"
 )
 
 // runOpenCodeHarness wires hotline to an OpenCode harness. The outbound MCP tool
@@ -20,7 +21,7 @@ import (
 // MCP server; inbound push + permission relay ride a SEPARATE HTTP+SSE control
 // plane (the harness.Link), not MCP notifications. The messaging providers are
 // unchanged — they fan in through a sink backed by the Link.
-func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath, voice, publishExposure string, cleanup func()) error {
+func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, permission bool, transcriptPath, voice, publishExposure string, cleanup func()) error {
 	ocfg, err := config.LoadOpenCode()
 	if err != nil {
 		return err
@@ -46,7 +47,8 @@ func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath
 		}
 		return nil
 	})
-	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure)
+	schedulesPath := sched.Path()
+	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath)
 
 	fmt.Fprintf(os.Stderr, "hotline: harness=opencode server=%s session=%s\n", ocfg.ServerURL, sessionLabel(ocfg.Session))
 
@@ -55,23 +57,26 @@ func runOpenCodeHarness(router *provider.Router, permission bool, transcriptPath
 	transport := &mcp.StdioTransport{}
 
 	pollFn := func(ctx context.Context) error {
-		return runOpenCodeLoop(ctx, router, link, permission, sink)
+		return runOpenCodeLoop(ctx, router, sched, link, permission, sink)
 	}
 	return lifecycle.Run(server, transport, cleanup, pollFn)
 }
 
-// runOpenCodeLoop runs the three concurrent halves of OpenCode mode — the Link's
-// SSE control plane, the permission pump (Link -> providers), and the providers'
-// inbound loop — returning the first that errors or exits. A clean ctx-cancel
-// returns nil.
-func runOpenCodeLoop(ctx context.Context, router *provider.Router, link harness.Link, permission bool, sink provider.InboundSink) error {
+// runOpenCodeLoop runs the four concurrent halves of OpenCode mode — the Link's
+// SSE control plane, the permission pump (Link -> providers), the providers'
+// inbound loop, and the schedule ticker — returning the first that errors or
+// exits. A clean ctx-cancel returns nil. The scheduler shares the same
+// opencodeSink, so a fire renders as the same <channel kind="schedule" …>
+// envelope an inbound message does.
+func runOpenCodeLoop(ctx context.Context, router *provider.Router, sched *schedule.Scheduler, link harness.Link, permission bool, sink provider.InboundSink) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, 3)
+	errCh := make(chan error, 4)
 	go func() { errCh <- link.Start(ctx) }()
 	go func() { errCh <- pumpPermissions(ctx, router, link, permission) }()
 	go func() { errCh <- router.Start(ctx, sink) }()
+	go func() { errCh <- sched.Run(ctx, sink) }()
 
 	err := <-errCh
 	cancel()

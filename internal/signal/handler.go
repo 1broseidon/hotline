@@ -130,9 +130,9 @@ func (h *Handler) HandleEvent(ctx context.Context, ev sseEvent) {
 }
 
 // HandleEnvelope normalizes and relays one envelope. Receipts, typing
-// notifications, sync messages, and reactions carry no dataMessage.message —
-// they are ignored (except attachments-only messages, which relay a
-// synthetic marker).
+// notifications, and sync messages carry no dataMessage.message — they are
+// ignored (except reactions, relayed as kind=reaction events, and
+// attachments-only messages, which relay a synthetic marker).
 func (h *Handler) HandleEnvelope(ctx context.Context, e *envelope) {
 	dm := e.DataMessage
 	if dm == nil {
@@ -151,6 +151,15 @@ func (h *Handler) HandleEnvelope(ctx context.Context, e *envelope) {
 
 	chatID := e.chatID()
 	isGroup := strings.HasPrefix(chatID, groupChatPrefix)
+
+	// Inbound reaction: relayed as kind=reaction, gated like a button tap
+	// (never starts a pairing). Handled before the text paths — reaction
+	// envelopes carry no dataMessage.message.
+	if dm.Reaction != nil {
+		h.handleReaction(ctx, e, acc, chatID, isGroup, senderID)
+		return
+	}
+
 	text := dm.Message
 
 	// Permission text-reply intercept: a gate-approved sender answering a

@@ -32,7 +32,18 @@ type dataMessage struct {
 	Message     string       `json:"message"`
 	GroupInfo   *groupInfo   `json:"groupInfo"`
 	Quote       *quote       `json:"quote"`
+	Reaction    *reaction    `json:"reaction"`
 	Attachments []attachment `json:"attachments"`
+}
+
+// reaction is signal-cli's JsonReaction: an emoji added to (or removed from)
+// the message sent by targetAuthor* at targetSentTimestamp.
+type reaction struct {
+	Emoji               string `json:"emoji"`
+	TargetAuthor        string `json:"targetAuthor"` // legacy identifier (deprecated upstream)
+	TargetAuthorNumber  string `json:"targetAuthorNumber"`
+	TargetSentTimestamp int64  `json:"targetSentTimestamp"`
+	IsRemove            bool   `json:"isRemove"`
 }
 
 type groupInfo struct {

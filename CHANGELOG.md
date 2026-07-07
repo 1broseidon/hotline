@@ -4,6 +4,42 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Passcode gate on public publishes.** `publish` links exposed through a
+  public tunnel (`localhostrun`, `cloudflared`) are no longer open to anyone
+  who finds the hostname: visitors get a self-contained unlock page and enter
+  a 6-digit code once, then hold a random 128-bit session cookie (HttpOnly,
+  Secure, SameSite=Lax — never the code itself) for the life of the publish.
+  The tool result is now a `Link:` line plus a `Passcode:` line, and that
+  format is part of the feature: relayed into the chat verbatim, phones offer
+  the code as one-time-code autofill from the recent message, so unlocking is
+  tap link → tap code. The code is generated with crypto/rand, compared in
+  constant time, and guarded by a global per-publish attempt limiter: ten
+  wrong guesses hard-lock the publish (every request 404s from then on,
+  correct code included, with one line on stderr; republish for a fresh link
+  and code). Nothing secret rides the URL — link previews, browser history,
+  and intermediary logs carry no token — and forwarding link + code together
+  is sharing the artifact, exactly like forwarding the file. The `local`
+  backend stays ungated: loopback is the operator's own machine. Neither the
+  passcode nor session tokens are ever logged, and the publish server's error
+  log is discarded so request state can never reach stderr.
+
+### Fixed
+- **Single-file publish no longer serves its parent directory.** Publishing
+  one file used to expose every sibling in its directory (enumerable, with
+  directory listings rendered). It now serves exactly that file at the link
+  root and 404s every other path; the returned URL is the bare origin with no
+  basename segment.
+- **Signal: inbound reactions are no longer dropped.** Reacting to a message
+  on Signal now reaches the agent as a `kind="reaction"` channel event (emoji
+  as content, `reaction="added"|"removed"`, `target_message_id` in the
+  adapter's timestamp-based id shape), matching the Telegram provider. Gated
+  like a button tap: unpaired senders are dropped and a reaction never starts
+  a pairing. Previously the receive path silently discarded reaction
+  envelopes.
+
 ## [0.7.0] - 2026-07-07
 
 ### Added

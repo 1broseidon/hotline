@@ -11,6 +11,7 @@ import (
 	"github.com/1broseidon/hotline/internal/harness"
 	"github.com/1broseidon/hotline/internal/lifecycle"
 	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/notify"
 	"github.com/1broseidon/hotline/internal/opencode"
 	"github.com/1broseidon/hotline/internal/provider"
 	"github.com/1broseidon/hotline/internal/schedule"
@@ -21,7 +22,7 @@ import (
 // MCP server; inbound push + permission relay ride a SEPARATE HTTP+SSE control
 // plane (the harness.Link), not MCP notifications. The messaging providers are
 // unchanged — they fan in through a sink backed by the Link.
-func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, permission bool, transcriptPath, voice, publishExposure string, cleanup func()) error {
+func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, notifyDisp *notify.Dispatcher, permission bool, transcriptPath, voice, publishExposure string, cleanup func()) error {
 	ocfg, err := config.LoadOpenCode()
 	if err != nil {
 		return err
@@ -64,26 +65,27 @@ func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, perm
 	transport := &mcp.StdioTransport{}
 
 	pollFn := func(ctx context.Context) error {
-		return runOpenCodeLoop(ctx, router, sched, link, permission, sink)
+		return runOpenCodeLoop(ctx, router, sched, notifyDisp, link, permission, sink)
 	}
 	return lifecycle.Run(server, transport, cleanup, pollFn)
 }
 
-// runOpenCodeLoop runs the four concurrent halves of OpenCode mode — the Link's
+// runOpenCodeLoop runs the five concurrent halves of OpenCode mode — the Link's
 // SSE control plane, the permission pump (Link -> providers), the providers'
-// inbound loop, and the schedule ticker — returning the first that errors or
-// exits. A clean ctx-cancel returns nil. The scheduler shares the same
-// opencodeSink, so a fire renders as the same <channel kind="schedule" …>
-// envelope an inbound message does.
-func runOpenCodeLoop(ctx context.Context, router *provider.Router, sched *schedule.Scheduler, link harness.Link, permission bool, sink provider.InboundSink) error {
+// inbound loop, the schedule ticker, and the notify dispatcher — returning the
+// first that errors or exits. A clean ctx-cancel returns nil. The scheduler and
+// dispatcher share the same opencodeSink, so a fire renders as the same
+// <channel kind="schedule"|"notify" …> envelope an inbound message does.
+func runOpenCodeLoop(ctx context.Context, router *provider.Router, sched *schedule.Scheduler, notifyDisp *notify.Dispatcher, link harness.Link, permission bool, sink provider.InboundSink) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, 4)
+	errCh := make(chan error, 5)
 	go func() { errCh <- link.Start(ctx) }()
 	go func() { errCh <- pumpPermissions(ctx, router, link, permission) }()
 	go func() { errCh <- router.Start(ctx, sink) }()
 	go func() { errCh <- sched.Run(ctx, sink) }()
+	go func() { errCh <- notifyDisp.Run(ctx, sink) }()
 
 	err := <-errCh
 	cancel()

@@ -31,6 +31,7 @@ import (
 	"github.com/1broseidon/hotline/internal/discord"
 	"github.com/1broseidon/hotline/internal/lifecycle"
 	"github.com/1broseidon/hotline/internal/mcpchan"
+	"github.com/1broseidon/hotline/internal/notify"
 	"github.com/1broseidon/hotline/internal/provider"
 	"github.com/1broseidon/hotline/internal/schedule"
 	"github.com/1broseidon/hotline/internal/signal"
@@ -69,6 +70,13 @@ func main() {
 		err = cmdStatus(providerSel, botName)
 	case "schedule":
 		err = cmdSchedule(args[1:])
+	case "notify":
+		// The send path returns a script-facing exit code (0 accepted, 3 queued,
+		// 4 rejected, 2 usage, 1 internal); exit directly, bypassing the generic
+		// error handler below.
+		os.Exit(cmdNotify(args[1:], os.Stdin, os.Stdout, os.Stderr))
+	case "source":
+		err = cmdSource(args[1:], os.Stdout)
 	case "setup":
 		err = cmdSetup(botName, args[1:], os.Stdin, os.Stdout, stdinIsTTY())
 	case "init":
@@ -143,6 +151,13 @@ Usage:
   hotline schedule     operator view of scheduled tasks
                        (schedule list | remove <id> | pause <id> | resume <id>;
                        schedules are created from chat via the schedule tool)
+  hotline notify       enqueue a machine event from a local script for the agent
+                       to triage (--source <key> [--level urgent|normal|low]
+                       ["message"|stdin]; exit 0 accepted, 3 queued, 4 rejected).
+                       "hotline notify list" shows the spool
+  hotline source       manage notify capability keys
+                       (source add <label> [--cap L] [--burst N] [--refill-mins M]
+                       [--chat-id ID] | source list | source revoke <label>)
   hotline version      print the hotline version
 
 Options:
@@ -252,6 +267,9 @@ func runChannel(botName string) error {
 
 	providers := make([]provider.Provider, 0, len(specs))
 	var pidFiles []string
+	// The primary (first) provider's access.json is the last-resort chat_id
+	// fallback for notify (its first AllowFrom entry — the paired user).
+	var primaryAccessFile string
 	for _, spec := range specs {
 		switch spec.Kind {
 		case "telegram":
@@ -261,6 +279,9 @@ func runChannel(botName string) error {
 			}
 			if err := cfg.EnsureDirs(); err != nil {
 				return err
+			}
+			if primaryAccessFile == "" {
+				primaryAccessFile = cfg.AccessFile
 			}
 			fmt.Fprintf(os.Stderr, "hotline: provider=%s bot=%s state=%s\n", spec.Name(), botLabel(cfg.BotName), cfg.StateDir)
 
@@ -285,6 +306,9 @@ func runChannel(botName string) error {
 			if err := cfg.EnsureDirs(); err != nil {
 				return err
 			}
+			if primaryAccessFile == "" {
+				primaryAccessFile = cfg.AccessFile
+			}
 			fmt.Fprintf(os.Stderr, "hotline: provider=%s state=%s\n", spec.Name(), cfg.StateDir)
 
 			log := transcript.New(cfg.TranscriptFile)
@@ -303,6 +327,9 @@ func runChannel(botName string) error {
 			}
 			if err := cfg.EnsureDirs(); err != nil {
 				return err
+			}
+			if primaryAccessFile == "" {
+				primaryAccessFile = cfg.AccessFile
 			}
 			fmt.Fprintf(os.Stderr, "hotline: provider=%s state=%s\n", spec.Name(), cfg.StateDir)
 
@@ -358,6 +385,14 @@ func runChannel(botName string) error {
 	}
 	sched := schedule.NewScheduler(schedulesPath, router.Sources(), schedLog)
 
+	// Event-driven notifies: spool.json/sources.json live under <state root>/notify/
+	// (same shared tier as schedules). The CLI gate enqueues; this dispatcher
+	// injects, riding the primary provider's transcript and, as a last resort,
+	// its access.json for chat_id.
+	notifyDisp := notify.NewDispatcher(
+		notify.SpoolPath(stateRoot), notify.SourcesPath(stateRoot),
+		primaryAccessFile, router.Sources(), schedLog)
+
 	// Which exposure backend the publish tool uses (localhost.run default,
 	// cloudflared, or local/off). Resolved once here so a bad value fails loudly
 	// at startup, like the harness selection above/below.
@@ -386,7 +421,7 @@ func runChannel(botName string) error {
 		return err
 	}
 	if harnessMode == "opencode" {
-		return runOpenCodeHarness(router, sched, permission, transcriptPath, voice, publishExposure, cleanup)
+		return runOpenCodeHarness(router, sched, notifyDisp, permission, transcriptPath, voice, publishExposure, cleanup)
 	}
 
 	// Under `hotline up` the supervisor exports HOTLINE_SUPERVISOR_DIR into the
@@ -412,7 +447,7 @@ func runChannel(botName string) error {
 		if len(router.Sources()) > 1 {
 			sink = &sourceLabelSink{next: sink}
 		}
-		return runPollers(ctx, router, sched, sink)
+		return runPollers(ctx, router, sched, notifyDisp, sink)
 	}
 
 	return lifecycle.Run(server, transport, cleanup, pollFn)
@@ -445,18 +480,20 @@ func (s *sourceLabelSink) SendVerdict(ctx context.Context, requestID, behavior s
 	return s.next.SendVerdict(ctx, requestID, behavior)
 }
 
-// runPollers runs the provider fan-in and the schedule ticker concurrently,
-// returning the first exit — the same first-error-wins fan-in runOpenCodeLoop
-// uses. sched.Run only exits on ctx cancellation (nil), so in practice the
-// providers' exit decides shutdown, exactly as before. The scheduler gets the
-// bare Notifier sink (not a taggedSink): it stamps its stored source itself.
-func runPollers(ctx context.Context, router *provider.Router, sched *schedule.Scheduler, sink provider.InboundSink) error {
+// runPollers runs the provider fan-in, the schedule ticker, and the notify
+// dispatcher concurrently, returning the first exit — the same first-error-wins
+// fan-in runOpenCodeLoop uses. sched.Run and notifyDisp.Run only exit on ctx
+// cancellation (nil), so in practice the providers' exit decides shutdown,
+// exactly as before. Both get the bare Notifier sink (not a sourceLabelSink):
+// they stamp their own source and don't set user.
+func runPollers(ctx context.Context, router *provider.Router, sched *schedule.Scheduler, notifyDisp *notify.Dispatcher, sink provider.InboundSink) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() { errCh <- router.Start(ctx, sink) }()
 	go func() { errCh <- sched.Run(ctx, sink) }()
+	go func() { errCh <- notifyDisp.Run(ctx, sink) }()
 
 	err := <-errCh
 	cancel()

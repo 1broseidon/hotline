@@ -7,6 +7,31 @@ All notable changes to hotline are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Event-driven notifies: `hotline notify` + `hotline source`.** A third
+  ingress leg beside messages and schedules: local scripts and daemons (backup
+  jobs, the email sentry, CI, watchers) hand hotline an event with
+  `... | hotline notify --source <key>`, and the agent — not the script —
+  decides whether it is worth buzzing you. Each source is a capability key
+  minted by `hotline source add <label>` (a UUIDv4 bearer credential, compared
+  in constant time; `source list` re-shows it, `source revoke` kills it
+  instantly since every call reads the registry fresh). The CLI runs the whole
+  gate inside a flock'd critical section — key lookup, level clamp to the
+  source's cap, payload sanitization (control-char strip and `</channel`
+  neutralization so a script-authored line can't forge the envelope), 10-minute
+  dedup coalescing, a per-source token-bucket rate limit (burst 5, refill
+  1/5min, overridable), and quiet hours (`"HH:MM-HH:MM"`, only urgent bypasses;
+  held events release together as one digest at window end). stdin is
+  first-class (`tail -1 backup.log | hotline notify --source $KEY --level low`);
+  a positional message wins over the pipe. Exit codes are the script contract:
+  0 accepted, 3 queued, 4 rejected/suppressed, 2 usage, 1 internal. Accepted
+  events land in `notify/spool.json` and inject on the daemon's next tick as
+  `kind="notify"` turns — durable across restarts (the eager startup scan is the
+  catch-up), framed by a compiled-in preamble as an untrusted machine report,
+  explicitly not operator instructions, with silence stated as a valid outcome.
+  Wired into both the Claude Code and OpenCode dispatch loops exactly like
+  schedules; `hotline notify list` and `hotline source list` are the operator
+  views. v1 is local-only: no network listener, no port — writing a file
+  through a CLI on a box you are already on is the whole transport.
 - Multi-provider quick-view labels on the Claude Code path: with several
   providers configured, the inbound display name carries the provider
   ("George · signal"), so Claude Code's quick view — which renders only the

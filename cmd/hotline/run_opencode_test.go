@@ -9,10 +9,38 @@ import (
 	"time"
 
 	"github.com/1broseidon/hotline/internal/harness"
+	"github.com/1broseidon/hotline/internal/notify"
 	"github.com/1broseidon/hotline/internal/provider"
 	"github.com/1broseidon/hotline/internal/provider/stubprovider"
 	"github.com/1broseidon/hotline/internal/schedule"
 )
+
+// emptyNotifyDispatcher builds a dispatcher over an empty spool for wiring tests
+// that only care about the schedule/permission paths.
+func emptyNotifyDispatcher(t *testing.T, sources []string) *notify.Dispatcher {
+	t.Helper()
+	dir := robustSchedDir(t)
+	return notify.NewDispatcher(
+		filepath.Join(dir, "spool.json"), filepath.Join(dir, "sources.json"),
+		"", sources, nil)
+}
+
+// seedReadyNotify builds a dispatcher over a spool holding one ready notify, so
+// its eager startup scan delivers it at once (real clock, like seedDueSchedule).
+func seedReadyNotify(t *testing.T, sources []string) *notify.Dispatcher {
+	t.Helper()
+	dir := robustSchedDir(t)
+	spoolPath := filepath.Join(dir, "spool.json")
+	now := time.Now().UTC().Format(time.RFC3339)
+	doc := &notify.SpoolDoc{Pending: []notify.Entry{{
+		ID: "n00001", Label: "backups", Level: notify.LevelLow, Message: "backup failed",
+		Hash: "h1", Status: "ready", Count: 1, FirstAt: now, LastAt: now,
+	}}}
+	if err := notify.SaveSpool(doc, spoolPath); err != nil {
+		t.Fatal(err)
+	}
+	return notify.NewDispatcher(spoolPath, filepath.Join(dir, "sources.json"), "", sources, nil)
+}
 
 // robustSchedDir returns a temp dir whose cleanup retries RemoveAll: the
 // fan-in loops (runPollers/runOpenCodeLoop) return on the first goroutine exit,
@@ -156,7 +184,7 @@ func TestRunPollersDeliversScheduleFire(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runPollers(ctx, router, sched, sink) }()
+	go func() { done <- runPollers(ctx, router, sched, emptyNotifyDispatcher(t, router.Sources()), sink) }()
 
 	deadline := time.After(5 * time.Second)
 	for sink.len() == 0 {
@@ -184,6 +212,50 @@ func TestRunPollersDeliversScheduleFire(t *testing.T) {
 	}
 }
 
+// TestRunPollersDeliversNotify proves the Claude-path fan-in also starts the
+// notify dispatcher and its eager catch-up scan delivers a ready notify into the
+// shared sink, tagged kind=notify.
+func TestRunPollersDeliversNotify(t *testing.T) {
+	stub := &stubprovider.Stub{ProviderName: "stub"}
+	router, err := provider.NewRouter(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sched := schedule.NewScheduler(filepath.Join(robustSchedDir(t), "schedules.json"), router.Sources(), nil)
+	disp := seedReadyNotify(t, router.Sources())
+	sink := &captureInbound{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runPollers(ctx, router, sched, disp, sink) }()
+
+	deadline := time.After(5 * time.Second)
+	for sink.len() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("notify not delivered through runPollers")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	sink.mu.Lock()
+	meta := sink.channels[0]
+	sink.mu.Unlock()
+	if meta["kind"] != "notify" || meta["notify_source"] != "backups" || meta["source"] != "stub" {
+		t.Errorf("notify meta wrong: %+v", meta)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runPollers returned %v, want nil on cancel", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runPollers did not return on cancel")
+	}
+}
+
 // TestRunOpenCodeLoopExitsCleanly wires the OpenCode fan-in (with a scheduler
 // over an empty store) and asserts it returns nil on ctx cancel.
 func TestRunOpenCodeLoopExitsCleanly(t *testing.T) {
@@ -198,7 +270,9 @@ func TestRunOpenCodeLoopExitsCleanly(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runOpenCodeLoop(ctx, router, sched, link, false, sink) }()
+	go func() {
+		done <- runOpenCodeLoop(ctx, router, sched, emptyNotifyDispatcher(t, router.Sources()), link, false, sink)
+	}()
 	cancel()
 	select {
 	case err := <-done:

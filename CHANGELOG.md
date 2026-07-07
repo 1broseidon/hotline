@@ -4,7 +4,7 @@ All notable changes to hotline are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-07-07
 
 ### Added
 - **Always-on supervisor: `hotline up` / `hotline down`.** `hotline start`'s

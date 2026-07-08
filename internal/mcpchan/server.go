@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/1broseidon/hotline/internal/notify"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -185,6 +187,7 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []str
 		})
 
 	if schedulesPath != "" {
+		stateRoot := filepath.Dir(schedulesPath)
 		addTool(s, "schedule",
 			"Schedule a task for your future self: at the scheduled time the prompt is injected back into this session as an inbound turn (kind=\"schedule\") and you act on it with full tool access — reminders, recurring check-ins, deferred work. Times are server-local. Actions: create, list, cancel. The operator can also list/pause/remove schedules via the hotline CLI.",
 			scheduleSchema,
@@ -194,6 +197,28 @@ func NewServer(ts ToolSet, permission bool, transcriptPath string, sources []str
 					return "schedule failed: " + err.Error(), true
 				}
 				return handleSchedule(in, schedulesPath, sources)
+			})
+
+		addTool(s, "setup_loop",
+			"Create a supervised local script loop. The command may run arbitrary local code, so non-yolo sessions create it pending operator approval; yolo sessions create it live and notify the operator. There is intentionally no approve flag here.",
+			setupLoopSchema,
+			func(ctx context.Context, raw json.RawMessage) (string, bool) {
+				var in SetupLoopInput
+				if err := json.Unmarshal(raw, &in); err != nil {
+					return "setup_loop failed: " + err.Error(), true
+				}
+				return handleSetupLoop(in, stateRoot)
+			})
+
+		addTool(s, "setup_notify",
+			"Create a notify source for local scripts and daemons. Sources mint capability keys but cannot execute code, so this is not approval-gated. The key is not returned here; the operator can manage it with hotline source list/revoke.",
+			setupNotifySchema,
+			func(ctx context.Context, raw json.RawMessage) (string, bool) {
+				var in SetupNotifyInput
+				if err := json.Unmarshal(raw, &in); err != nil {
+					return "setup_notify failed: " + err.Error(), true
+				}
+				return handleSetupNotify(in, notify.SourcesPath(stateRoot))
 			})
 	}
 

@@ -67,12 +67,14 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 	warnMissingCreds(botName, stderr)
 
 	argv := append([]string{"claude"}, channelArgs(dir, stderr)...)
+	env := os.Environ()
 	if *yolo {
 		argv = append(argv, "--dangerously-skip-permissions")
+		env = append(env, "HOTLINE_YOLO=1")
 		fmt.Fprintln(stderr, "hotline: yolo mode. Permission checks are off; the relay never fires (see SECURITY.md).")
 	}
 	argv = append(argv, passthrough...)
-	return execProcess(bin, argv, os.Environ())
+	return execProcess(bin, argv, env)
 }
 
 // channelArgs picks how the channel is handed to claude. A raw hotline entry

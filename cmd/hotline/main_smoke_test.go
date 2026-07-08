@@ -121,10 +121,10 @@ func TestSmokeTokenless(t *testing.T) {
 			}
 			// Single-provider wire compat: the default (telegram-only) config
 			// must not grow a "source" property in any tool schema via
-			// withSourceProperty. The schedule tool is exempt: it declares an
-			// optional source natively (only meaningful for action=create) and
-			// enforces it in its handler, not through withSourceProperty.
-			if name, _ := tm["name"].(string); name != "schedule" {
+			// withSourceProperty. Tools that own their own "source" fields are
+			// exempt: schedule routes provider source; setup_loop routes notify
+			// source labels.
+			if name, _ := tm["name"].(string); name != "schedule" && name != "setup_loop" {
 				if schema, ok := tm["inputSchema"].(map[string]any); ok {
 					if props, ok := schema["properties"].(map[string]any); ok {
 						if _, has := props["source"]; has {
@@ -135,13 +135,13 @@ func TestSmokeTokenless(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"reply", "react", "edit_message", "download_attachment", "publish", "schedule"} {
+	for _, want := range []string{"reply", "react", "edit_message", "download_attachment", "publish", "schedule", "setup_loop", "setup_notify"} {
 		if !got[want] {
 			t.Errorf("tools/list missing %q; got %v", want, got)
 		}
 	}
-	if len(got) != 6 {
-		t.Errorf("expected exactly 6 tools, got %d: %v", len(got), got)
+	if len(got) != 8 {
+		t.Errorf("expected exactly 8 tools, got %d: %v", len(got), got)
 	}
 
 	// 4. tools/call reply -> isError result, but a successful JSON-RPC response.

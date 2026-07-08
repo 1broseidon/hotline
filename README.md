@@ -370,11 +370,20 @@ hotline revoke <id>  remove an approved sender from the allowlist
 hotline status       print state-dir / token / access summary
 hotline schedule     operator view of scheduled tasks
                      (list | remove <id> | pause <id> | resume <id>)
+hotline notify       enqueue a machine event from a local script for the agent
+                     to triage (--source <key> [--level urgent|normal|low]
+                     ["message"|stdin]; exit 0 accepted, 3 queued, 4 rejected).
+                     "hotline notify list" shows the spool
+hotline source       manage notify capability keys
+                     (source add <label> [--cap L] [--burst N] [--refill-mins M]
+                     [--chat-id ID] | source list | source revoke <label>)
 ```
 
 `pair`, `deny`, `revoke`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
 
 Schedules are created from chat via the `schedule` tool; the `hotline schedule` CLI is the operator's view over them. `list` shows every schedule with its next fire time; `remove` deletes one by id (or unique prefix); `pause`/`resume` are the operator kill-switch (resuming a recurring schedule recomputes its next fire from now, so a long pause never triggers a stale catch-up burst). Schedules live in `schedules.json` at the state root and are re-read live by a running daemon, so CLI edits take effect without a restart.
+
+Notify is the third ingress leg, beside messages and schedules: event-driven, from local scripts and daemons (backup jobs, an email watcher, CI, monitors) rather than a human or a timer. Unlike schedules, it has no chat-side tool — sources are minted and wired up entirely from the CLI, by design; an external script has no business calling into the agent's own tools. `hotline source add <label>` mints a UUIDv4 capability key (a bearer credential — every human-facing surface shows the label, never the key) with an optional level cap, rate-limit override, and default chat id; `revoke` kills it instantly, since every `notify` call reads the registry fresh. `hotline notify --source <key>` runs the full gate inline before durably enqueuing: level clamp to the source's cap, payload sanitization (control-character stripping, envelope-close neutralization), a 10-minute dedup window, a per-source token-bucket rate limit (burst 5, refill 1 per 5 minutes by default), and quiet hours (`"HH:MM-HH:MM"`, only `urgent` bypasses; events held during the window release together as one digest). Exit codes are the script-facing contract: `0` accepted, `3` queued, `4` rejected or rate-limited, `2` usage error, `1` internal error. stdin is first-class, so `tail -1 backup.log | hotline notify --source $KEY --level low` works. Accepted events inject on the dispatcher's next tick as `kind="notify"` turns, framed by a compiled-in preamble as an untrusted machine report — never operator instructions, and silence is a valid, correct outcome. `hotline notify list` and `hotline source list` are the operator's views into the spool and the key registry; notify's state lives in `notify/spool.json` and `notify/sources.json` at the state root, guarded by the same flock/atomic-write pattern as `schedules.json`.
 
 ## Always-on: hotline up
 

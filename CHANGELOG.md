@@ -6,6 +6,8 @@ All notable changes to hotline are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-08
+
 ### Added
 - **Event-driven notifies: `hotline notify` + `hotline source`.** A third
   ingress leg beside messages and schedules: local scripts and daemons (backup

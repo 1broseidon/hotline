@@ -181,6 +181,18 @@ func (r *Runner) RunOnce(ctx context.Context, l Loop) (Result, error) {
 	defer r.clearInFlight(l.Label)
 
 	start := r.now()
+	// Panic barrier: a latent panic in a single loop run must never take down
+	// the hosting `hotline up` process. Recover, log it, and record a failed
+	// run. clearInFlight is a separate defer, so the in-flight flag is cleared
+	// on this path too.
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.logf("loop %s panicked: %v", l.Label, rec)
+			if recErr := RecordRun(r.Path, l.Label, start, 1, r.now().Sub(start)); recErr != nil {
+				r.logf("loop %s status update failed: %v", l.Label, recErr)
+			}
+		}
+	}()
 	res, err := r.runCommand(ctx, l, start)
 	res.Duration = r.now().Sub(start)
 	if recErr := RecordRun(r.Path, l.Label, start, res.ExitCode, res.Duration); recErr != nil {
@@ -235,11 +247,20 @@ func (r *Runner) runCommand(ctx context.Context, l Loop, start time.Time) (Resul
 	)
 	if l.Source != "" {
 		key, err := r.sourceKey(l.Source)
-		if err != nil {
+		switch {
+		case err != nil && l.NotifyLLM:
+			// Fail-closed: the notify sink genuinely needs the source key.
 			fmt.Fprintf(logw, "[%s] source resolve failed: %v\n", r.now().UTC().Format(time.RFC3339), err)
 			return Result{ExitCode: 1}, err
+		case err != nil:
+			// Best-effort: --source only populates the HOTLINE_NOTIFY_SOURCE
+			// convenience env var here, so a revoked source must not stop the
+			// script from running. Leave the var unset and carry on.
+			fmt.Fprintf(logw, "[%s] source resolve failed (best-effort, HOTLINE_NOTIFY_SOURCE unset): %v\n", r.now().UTC().Format(time.RFC3339), err)
+			r.logf("loop %s source resolve failed; running without HOTLINE_NOTIFY_SOURCE: %v", l.Label, err)
+		default:
+			cmd.Env = append(cmd.Env, "HOTLINE_NOTIFY_SOURCE="+key)
 		}
-		cmd.Env = append(cmd.Env, "HOTLINE_NOTIFY_SOURCE="+key)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error {

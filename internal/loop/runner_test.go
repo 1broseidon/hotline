@@ -119,6 +119,85 @@ func TestRunnerExportsNotifySourceKey(t *testing.T) {
 	}
 }
 
+func TestRunnerContainsPanic(t *testing.T) {
+	r := testRunner(t)
+	// Inject a panic mid-run via the now seam: the first call sets start, the
+	// second (inside runCommand's exit log) panics.
+	calls := 0
+	r.now = func() time.Time {
+		calls++
+		if calls == 2 {
+			panic("boom")
+		}
+		return time.Now()
+	}
+	l, err := Add(r.Path, Loop{Label: "boom", Every: "10s", Cmd: "true"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Must not propagate: the barrier contains the panic and returns normally.
+	if _, err := r.RunOnce(context.Background(), l); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	inflight := r.inflight[l.Label]
+	r.mu.Unlock()
+	if inflight {
+		t.Fatal("in-flight flag not cleared after panic")
+	}
+	d, _ := Load(r.Path)
+	if d.Loops[0].Runs != 1 || d.Loops[0].LastExit != 1 {
+		t.Errorf("panic not recorded as failed run: %+v", d.Loops[0])
+	}
+	if buf := r.Log.(*bytes.Buffer); !strings.Contains(buf.String(), "boom") {
+		t.Errorf("panic not logged with label + value: %q", buf.String())
+	}
+}
+
+func TestRunnerUnresolvableSource(t *testing.T) {
+	cases := []struct {
+		name      string
+		label     string
+		notifyLLM bool
+		wantErr   bool
+	}{
+		{name: "non-llm best-effort still runs", label: "besteffort", notifyLLM: false, wantErr: false},
+		{name: "llm fail-closed blocks", label: "failclosed", notifyLLM: true, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := testRunner(t)
+			// "ghost" is never registered, so the source cannot resolve.
+			l, err := Add(r.Path, Loop{
+				Label:     tc.label,
+				Every:     "10s",
+				Cmd:       "printf 'ran src=[%s]' \"$HOTLINE_NOTIFY_SOURCE\"",
+				Source:    "ghost",
+				NotifyLLM: tc.notifyLLM,
+			}, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := r.RunOnce(context.Background(), l)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("notify_llm=true must fail closed on an unresolvable source")
+				}
+				if strings.Contains(res.Stdout, "ran") {
+					t.Errorf("cmd ran despite fail-closed source: %q", res.Stdout)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("best-effort run errored: %v", err)
+			}
+			if !strings.Contains(res.Stdout, "ran src=[]") {
+				t.Errorf("cmd stdout = %q, want run with empty HOTLINE_NOTIFY_SOURCE", res.Stdout)
+			}
+		})
+	}
+}
+
 func TestLoopLogPath(t *testing.T) {
 	root := t.TempDir()
 	if got, want := filepath.Dir(LogPath(root, "a")), Dir(root); got != want {

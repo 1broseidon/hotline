@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/loop"
 	"github.com/1broseidon/hotline/internal/supervise"
 )
 
@@ -150,6 +151,8 @@ func cmdUp(botName string, args, passthrough []string, dir string, stdout, stder
 	sup.Log = stderr
 	sup.Argv = supervisedArgvLabel(harnessMode, *yolo, passthrough)
 	sup.WorkDir = dir
+	loopRunner := loop.NewRunner(stateRoot)
+	loopRunner.Log = stderr
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -169,6 +172,11 @@ func cmdUp(botName string, args, passthrough []string, dir string, stdout, stder
 		}
 	}()
 
+	go func() {
+		if err := loopRunner.Run(ctx); err != nil {
+			fmt.Fprintf(stderr, "hotline: loop runner exited: %v\n", err)
+		}
+	}()
 	return sup.Run(ctx)
 }
 

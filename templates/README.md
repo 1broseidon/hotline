@@ -4,4 +4,4 @@ Templates are starting points for a hotline setup. Each one is a folder you can 
 
 To use one today, copy the template folder's contents into the project you want to text with (or make the folder itself the project), then run `hotline init` there and `hotline start` as usual. The agent picks up the `CLAUDE.md` and `HOTLINE.md` on launch and starts working the system from the first message. Mission-control also ships as a plugin: `claude plugin marketplace add 1broseidon/hotline`, then `claude plugin install mission-control@hotline`, then `/mission-control:init` in the target folder.
 
-There is one template for now: [mission-control](mission-control/), our take on what makes a good texting agent. Built your own setup around hotline? Open a PR with your template. The interesting ones come from real daily use.
+Templates currently include [mission-control](mission-control/), our take on what makes a good texting agent, plus [loop command forms](loops/) for watchers like reddit sub-sweeps and email sentry. Built your own setup around hotline? Open a PR with your template. The interesting ones come from real daily use.

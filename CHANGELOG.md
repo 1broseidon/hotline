@@ -6,6 +6,18 @@ All notable changes to hotline are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Script loops: `hotline loop`.** Operators can register local shell commands
+  on intervals (`loop add <label> --every <dur> --cmd "<shell>"`) and have
+  `hotline up` run them eagerly at supervisor start and then per-loop on their
+  tick. Loops get a private durable state dir via `HOTLINE_LOOP_STATE_DIR`,
+  skip overlapping runs, enforce `--timeout` with a process-group kill, write
+  size-rotated logs under `<state>/loops/`, and record advisory last-run status
+  in `loops.json`. With `--notify-llm`, non-empty stdout is routed through the
+  existing notify gate by source label (auto-minted when omitted); empty stdout
+  wakes nothing. Without it, the script owns escalation and hotline only logs.
+  `loop run <label> --once` provides the foreground/cron escape hatch.
+
 ## [0.9.0] - 2026-07-08
 
 ### Added

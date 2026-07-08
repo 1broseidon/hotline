@@ -41,8 +41,9 @@ except Exception:  # pragma: no cover
     ZoneInfo = None
 
 # ----------------------------- configuration -----------------------------
-# All state (config, judge prompt, verdict log, lock) lives next to this
-# script, in the directory /email-sentry:init scaffolded.
+# Config, judge prompt, and verdict log live next to this script, in the
+# directory /email-sentry:init scaffolded. The outer polling state/log belongs
+# to `hotline loop`.
 HERE = Path(__file__).resolve().parent
 JUDGE_PROMPT_PATH = HERE / "sentry-judge.md"
 DEFAULT_CONFIG_PATH = HERE / "sentry-config.json"

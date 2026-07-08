@@ -1,10 +1,9 @@
 # email-sentry
 
-A headless inbox gatekeeper. It watches your Gmail account(s), asks an LLM
-judge "should this notify you right now?", and buzzes your hotline channel only
-for mail that matters: a human asking you something, money moving, real
-deadlines, security events. Notified threads get a Gmail label so they are
-never re-judged.
+A headless inbox gatekeeper. It checks your Gmail account(s), asks an LLM judge
+"should this notify you right now?", and buzzes your hotline channel only for
+mail that matters: a human asking you something, money moving, real deadlines,
+security events. Notified threads get a Gmail label so they are never re-judged.
 
 **Default is dry-run.** Nothing is sent and nothing in Gmail changes unless you
 pass `--live`.
@@ -14,15 +13,13 @@ pass `--live`.
 | File | What it is |
 |------|------------|
 | `run_sentry.py` | the engine: search, fetch, judge, notify, label |
-| `watch_sentry.py` | the trigger: polls the Gmail History API and runs the engine on change |
 | `sentry-judge.md` | the judge prompt (importance classifier, the I/O contract) |
 | `sentry-config.json` | accounts, addresses, VIPs, quiet hours, model, knobs |
-| `email-sentry.service` | systemd user unit for the watcher |
 | `sentry-log.jsonl` | append-only verdict log (one line per email per run; for calibration) |
-| `watcher.log`, `cron.log` | runtime logs |
 | `debug/` | only created if the judge returns unparseable output (raw dump, no secrets) |
 
-All state lives here, in this directory.
+The engine configuration and calibration logs live here. The outer polling
+state and run log are owned by `hotline loop`.
 
 ## How a run works
 
@@ -42,14 +39,6 @@ For each account in the config:
 The judge defaults to silence: a wrong buzz costs more than a missed one. Most
 runs notify nothing. That is expected.
 
-## Where notifications go
-
-The engine reads the bot token from hotline's state env file
-(`${XDG_CONFIG_HOME:-~/.config}/hotline/.env`, key `TELEGRAM_BOT_TOKEN`) and
-sends to `notify.chat_id` from the config. If `chat_id` is null it uses the
-first allowlisted chat in hotline's `access.json`, i.e. you, the person who
-paired with the bot. No secrets are stored in this directory.
-
 ## Running by hand
 
 ```sh
@@ -62,58 +51,40 @@ paired with the bot. No secrets are stored in this directory.
 
 `--live` is the only flag with side effects. `--dry-run` wins over `--live`.
 
-## Going live
+## Going live with hotline loop
 
 1. Sanity-check a few dry runs, then a `--live` run by hand.
-2. Baseline the watcher to NOW so no backlog is judged:
+2. Register the managed loop:
    ```sh
-   ./watch_sentry.py --init
+   hotline loop add email-sentry --every 60s --timeout 25m \
+     --cmd "python3 <SENTRY_DIR>/run_sentry.py --live"
    ```
-3. Install and start the watcher (the unit file is pre-filled by the init skill):
-   ```sh
-   cp email-sentry.service ~/.config/systemd/user/
-   systemctl --user daemon-reload
-   systemctl --user enable --now email-sentry
-   ```
-4. Add the hourly cron backstop (`:07` past the hour, same flock lock, so it
-   can never overlap the watcher):
-   ```cron
-   7 * * * * flock -n -E 99 <SENTRY_DIR>/.sentry.lock python3 <SENTRY_DIR>/run_sentry.py --live >> <SENTRY_DIR>/cron.log 2>&1
-   ```
-   Replace `<SENTRY_DIR>` with this directory's absolute path. If `flock`,
-   `python3`, or `claude` are not on cron's default PATH, use absolute paths or
-   add a `PATH=` header line to the crontab.
+   Replace `<SENTRY_DIR>` with this directory's absolute path.
+3. Run `hotline up` if it is not already running. The supervisor will run the
+   loop eagerly on startup and then every 60 seconds.
+
+The loop runner skips a tick if the previous pass is still running, kills the
+whole process group after the timeout, exports `HOTLINE_LOOP_STATE_DIR` for any
+future durable watcher state, and writes the run log to
+`<state>/loops/email-sentry.log`.
 
 ## Operating
 
 ```sh
-# health
-systemctl --user is-active email-sentry
-systemctl --user status email-sentry --no-pager
-tail -f watcher.log
-crontab -l | grep run_sentry
-
-# restart after editing watch_sentry.py or the unit
-systemctl --user restart email-sentry
-
-# re-baseline to NOW (e.g. after a long downtime, to skip backlog)
-systemctl --user stop email-sentry
-./watch_sentry.py --init
-systemctl --user start email-sentry
+hotline loop list
+hotline loop logs email-sentry -n 100
+hotline loop pause email-sentry
+hotline loop resume email-sentry
+hotline loop run email-sentry --once
 ```
 
 ### Kill switch
 
 ```sh
-# 1. stop and disable the always-on watcher
-systemctl --user disable --now email-sentry
-
-# 2. remove the hourly cron line (keeps any other crontab entries)
-crontab -l | grep -v 'run_sentry.py' | crontab -
+hotline loop pause email-sentry
 ```
 
-To pause temporarily without disabling: `systemctl --user stop email-sentry`
-and comment out the cron line.
+Remove it entirely with `hotline loop remove email-sentry`.
 
 ## Calibration
 

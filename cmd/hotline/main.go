@@ -15,6 +15,7 @@
 //	hotline revoke <id>  remove an approved sender from the allowlist
 //	hotline status       print state-dir / token / access summary
 //	hotline schedule     operator view of scheduled tasks (list/remove/pause/resume)
+//	hotline loop         operator view of script loops (add/list/remove/pause/resume/logs/run)
 package main
 
 import (
@@ -70,6 +71,8 @@ func main() {
 		err = cmdStatus(providerSel, botName)
 	case "schedule":
 		err = cmdSchedule(args[1:])
+	case "loop":
+		err = cmdLoop(args[1:], os.Stdout, os.Stderr)
 	case "notify":
 		// The send path returns a script-facing exit code (0 accepted, 3 queued,
 		// 4 rejected, 2 usage, 1 internal); exit directly, bypassing the generic
@@ -115,6 +118,9 @@ func main() {
 	}
 
 	if err != nil {
+		if coder, ok := err.(interface{ Code() int }); ok {
+			os.Exit(coder.Code())
+		}
 		fmt.Fprintf(os.Stderr, "hotline: %v\n", err)
 		os.Exit(1)
 	}
@@ -151,6 +157,11 @@ Usage:
   hotline schedule     operator view of scheduled tasks
                        (schedule list | remove <id> | pause <id> | resume <id>;
                        schedules are created from chat via the schedule tool)
+  hotline loop         manage script loops
+                       (loop add <label> --every <dur> --cmd "<shell>"
+                       [--notify-llm] [--source <notify-label>] [--level L]
+                       [--timeout <dur>] | list | remove | pause | resume |
+                       logs | run)
   hotline notify       enqueue a machine event from a local script for the agent
                        to triage (--source <key> [--level urgent|normal|low]
                        ["message"|stdin]; exit 0 accepted, 3 queued, 4 rejected).

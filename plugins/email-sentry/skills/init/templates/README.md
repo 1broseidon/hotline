@@ -8,6 +8,25 @@ security events. Notified threads get a Gmail label so they are never re-judged.
 **Default is dry-run.** Nothing is sent and nothing in Gmail changes unless you
 pass `--live`.
 
+## Requires gogcli
+
+email-sentry reads Gmail through **gogcli** (the `gog` command), a separate CLI
+it does not bundle. Install it from https://github.com/openclaw/gogcli and
+authenticate each account you want watched with `gog auth add <email>` (Gmail
+read access is enough).
+
+On a headless / SSH box, gog will hang waiting for a desktop keyring unless you
+point it at the file backend. Create `~/.config/gogcli/env` with:
+
+```sh
+export GOG_KEYRING_BACKEND=file
+export GOG_KEYRING_PASSWORD=<a-passphrase-you-choose>
+```
+
+and set `gog.env_file` in `sentry-config.json` to that path. `run_sentry.py`
+runs a preflight on startup and prints this guidance if gog is missing or its
+keyring is unconfigured.
+
 ## Files in this directory
 
 | File | What it is |

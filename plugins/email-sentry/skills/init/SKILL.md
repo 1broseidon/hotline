@@ -14,11 +14,36 @@ right now?", and only mail that matters buzzes the user's hotline channel.
 
 ## Step 1: Check prerequisites
 
+email-sentry reads Gmail through **gogcli** (the `gog` command) — a separate CLI
+it does NOT bundle. gog is the load-bearing dependency: without it there is no
+mail to judge. It is a Google CLI that holds each account's OAuth token in a
+system keyring. Check for it first and, if it is missing or unconfigured, walk
+the user through it before touching anything else.
+
 Check each of these and report anything missing before scaffolding:
 
-1. **gog on PATH and authenticated.** `which gog`, then `gog auth list` (add
-   `-j` for JSON). At least one Gmail account must be authenticated. Note every
-   account listed; you will offer them all in Step 3.
+1. **gog installed, authenticated, and its keyring usable.**
+   - `which gog` — is the binary on PATH? If not, gog is not installed. Tell the
+     user what gogcli is (the Gmail reader email-sentry depends on) and point
+     them at https://github.com/openclaw/gogcli to install it (Homebrew is one
+     option). Do not proceed without it.
+   - `gog auth list` (add `-j` for JSON) — at least one Gmail account must be
+     authenticated. If none, have the user run `gog auth add <email>` and grant
+     Gmail read access, once per account. Note every account listed; you will
+     offer them all in Step 3.
+   - **Keyring backend (critical on a headless / SSH box).** gog blocks waiting
+     on a desktop keyring (Secret Service) if one is not present, which hangs
+     every run. Check `gog auth status` (shows the active backend) or run
+     `gog auth doctor`. On a headless box the backend must be a non-Secret-Service
+     one — set it to `file`: either `gog auth keyring file`, or create an env
+     file (default `~/.config/gogcli/env`) containing:
+     ```sh
+     export GOG_KEYRING_BACKEND=file
+     export GOG_KEYRING_PASSWORD=<a-passphrase-the-user-chooses>
+     ```
+     and set `gog.env_file` in `sentry-config.json` to that path. If you skip
+     this on a headless box, `run_sentry.py`'s preflight will warn and every gog
+     call will hang.
 2. **hotline state exists.** `${XDG_CONFIG_HOME:-~/.config}/hotline/.env` must
    exist and contain `TELEGRAM_BOT_TOKEN`, and
    `${XDG_CONFIG_HOME:-~/.config}/hotline/access.json` should have at least one
@@ -84,8 +109,24 @@ config. Do not substitute them in `sentry-judge.md` yourself.
    the judge, or the config fails here, fix it before going further.
 2. Tell the user how to sanity-check one live pass:
    `cd <target dir> && ./run_sentry.py --live`
-3. Give the user this loop registration command, with the absolute python path
-   and target directory filled in:
+3. Register the triage loop. **Prefer the `setup_loop` MCP tool** if your hotline
+   exposes it (hotline ≥ v0.10.0) — that way you register it directly instead of
+   handing the user a command to paste. Call `setup_loop` with:
+   - `label`: `email-sentry`
+   - `every`: `60s`
+   - `timeout`: `25m`
+   - `cmd`: `{{PYTHON_BIN}} {{SENTRY_DIR}}/run_sentry.py --live` (absolute python
+     path + target dir filled in)
+
+   Leave `notify_llm` unset — the engine escalates through hotline itself, so the
+   loop does not route stdout through the notify gate. In normal (non-yolo) mode
+   `setup_loop` creates the loop **pending**: it will NOT tick until the operator
+   approves it. Relay exactly that to the user and tell them to approve it with
+   `hotline loop approve email-sentry` (the tool's own reply names the command).
+   In yolo mode it goes live immediately and the operator is notified.
+
+   **Fallback** (hotline without the `setup_loop` tool): give the user this
+   command to run themselves, absolute python path and target directory filled in:
    ```sh
    hotline loop add email-sentry --every 60s --timeout 25m \
      --cmd "{{PYTHON_BIN}} {{SENTRY_DIR}}/run_sentry.py --live"

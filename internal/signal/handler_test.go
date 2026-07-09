@@ -21,6 +21,7 @@ func TestHandleEnvelopeDMNormalization(t *testing.T) {
 	e := dmEnvelope("+15550002222", "George", "hello there.", 1782986400000)
 	e.DataMessage.Quote = &quote{ID: 1782986300000, AuthorNumber: testAccount, Text: "earlier text"}
 	h.HandleEnvelope(context.Background(), e)
+	h.FlushAll(context.Background()) // complete message now takes the grace hold; drain it
 
 	if len(*bursts) != 1 || len((*bursts)[0]) != 1 {
 		t.Fatalf("bursts %v", *bursts)
@@ -52,6 +53,7 @@ func TestHandleEnvelopeGroupNormalization(t *testing.T) {
 	bursts := captureBursts(h)
 
 	h.HandleEnvelope(context.Background(), groupEnvelope("+15550003333", "R2x2==", "group hi.", 1782986400000))
+	h.FlushAll(context.Background()) // complete message now takes the grace hold; drain it
 
 	if len(*bursts) != 1 {
 		t.Fatalf("bursts %v", *bursts)
@@ -249,6 +251,7 @@ func TestHandleEventFiltersOtherAccounts(t *testing.T) {
 		t.Fatal("foreign account relayed")
 	}
 	h.HandleEvent(context.Background(), mk(testAccount))
+	h.FlushAll(context.Background()) // complete message now takes the grace hold; drain it
 	if len(*bursts) != 1 {
 		t.Fatal("own account not relayed")
 	}

@@ -119,11 +119,14 @@ func TestCoalesceBurst(t *testing.T) {
 }
 
 // testHandler builds a Handler wired to capture bursts instead of sending them.
-func testHandler(window time.Duration) (*Handler, *burstSink) {
+// window drives the fragment hold; grace drives the complete-message hold — both
+// injectable so tests can pick small, deterministic durations.
+func testHandler(window, grace time.Duration) (*Handler, *burstSink) {
 	sink := &burstSink{done: make(chan struct{}, 16)}
 	h := &Handler{
 		buffers:         make(map[string]*chatBuffer),
 		coalesceWindow:  window,
+		graceWindow:     grace,
 		coalesceMaxWait: time.Second,
 		coalDeliver: func(_ context.Context, msgs []pendingMsg) {
 			sink.add(msgs)
@@ -156,7 +159,7 @@ func msg(chatID, text string) (context.Context, string, map[string]string) {
 }
 
 func TestEnqueueCoalescesFragments(t *testing.T) {
-	h, sink := testHandler(40 * time.Millisecond)
+	h, sink := testHandler(40*time.Millisecond, 20*time.Millisecond)
 	// Three fragments in quick succession (none "complete").
 	h.enqueue(msg("5", "ok so"))
 	h.enqueue(msg("5", "the auth thing"))
@@ -174,22 +177,66 @@ func TestEnqueueCoalescesFragments(t *testing.T) {
 	}
 }
 
-func TestEnqueueCompleteFlushesImmediately(t *testing.T) {
-	h, sink := testHandler(time.Hour)   // window long enough that only the fast-path can fire
-	h.enqueue(msg("5", "wait"))         // fragment, held
-	h.enqueue(msg("5", "fix auth.go?")) // complete -> flush both now
+// A complete-looking message no longer flushes synchronously inside enqueue; it
+// takes the grace hold, so a fast follow-up still merges into the same burst.
+func TestEnqueueCompleteTakesGraceHold(t *testing.T) {
+	h, sink := testHandler(time.Hour, 40*time.Millisecond) // full window can't fire; only grace can
+	h.enqueue(msg("5", "wait"))                            // fragment, held
+	h.enqueue(msg("5", "fix auth.go?"))                    // complete -> grace hold, not an instant flush
+	if sink.count() != 0 {
+		t.Fatalf("complete message flushed instantly instead of taking the grace hold: %d bursts", sink.count())
+	}
 	select {
 	case <-sink.done:
 	case <-time.After(time.Second):
-		t.Fatal("complete message did not flush immediately")
+		t.Fatal("complete message did not flush after the grace window")
 	}
 	if len(sink.bursts[0]) != 2 {
-		t.Fatalf("want both messages in the burst, got %d", len(sink.bursts[0]))
+		t.Fatalf("want both messages coalesced in the burst, got %d", len(sink.bursts[0]))
+	}
+}
+
+// Two complete-looking messages arriving within the grace window coalesce into
+// one burst (bubbles=2) — the bug this change fixes.
+func TestEnqueueTwoCompleteCoalesceUnderGrace(t *testing.T) {
+	h, sink := testHandler(time.Hour, 60*time.Millisecond)
+	h.enqueue(msg("5", "check auth.go please.")) // complete
+	h.enqueue(msg("5", "the login path is off.")) // complete, within grace
+	if sink.count() != 0 {
+		t.Fatalf("flushed before the grace window elapsed: %d bursts", sink.count())
+	}
+	<-sink.done
+	if sink.count() != 1 {
+		t.Fatalf("want 1 coalesced burst, got %d", sink.count())
+	}
+	if n := len(sink.bursts[0]); n != 2 {
+		t.Fatalf("burst should hold both complete messages, got %d", n)
+	}
+}
+
+// A single complete message flushes on its own after the grace window — not
+// synchronously, not held the full fragment window — delivering once with the
+// original single-message content preserved.
+func TestEnqueueSingleCompleteFlushesAfterGrace(t *testing.T) {
+	h, sink := testHandler(time.Hour, 30*time.Millisecond) // full window can't fire; only grace can
+	h.enqueue(msg("5", "ship it."))
+	if sink.count() != 0 {
+		t.Fatalf("single complete message flushed instantly instead of after grace: %d bursts", sink.count())
+	}
+	<-sink.done
+	if sink.count() != 1 {
+		t.Fatalf("want 1 delivery, got %d", sink.count())
+	}
+	if n := len(sink.bursts[0]); n != 1 {
+		t.Fatalf("single message should deliver alone, got %d in burst", n)
+	}
+	if got := sink.bursts[0][0].content; got != "ship it." {
+		t.Fatalf("single-message content changed: %q", got)
 	}
 }
 
 func TestEnqueueSeparateChatsDontMix(t *testing.T) {
-	h, sink := testHandler(30 * time.Millisecond)
+	h, sink := testHandler(30*time.Millisecond, 15*time.Millisecond)
 	h.enqueue(msg("5", "hi from five"))
 	h.enqueue(msg("9", "hi from nine"))
 	<-sink.done
@@ -205,7 +252,7 @@ func TestEnqueueSeparateChatsDontMix(t *testing.T) {
 }
 
 func TestEnqueueMaxMsgsCap(t *testing.T) {
-	h, sink := testHandler(time.Hour) // only the count cap can fire
+	h, sink := testHandler(time.Hour, time.Hour) // only the count cap can fire
 	for range coalesceMaxMsgs {
 		h.enqueue(msg("5", "x")) // all fragments
 	}
@@ -220,7 +267,7 @@ func TestEnqueueMaxMsgsCap(t *testing.T) {
 }
 
 func TestFlushAllDrains(t *testing.T) {
-	h, sink := testHandler(time.Hour)
+	h, sink := testHandler(time.Hour, time.Hour)
 	h.enqueue(msg("5", "buffered"))
 	h.enqueue(msg("9", "also buffered"))
 	if sink.count() != 0 {

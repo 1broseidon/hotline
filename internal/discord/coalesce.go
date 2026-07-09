@@ -17,8 +17,11 @@ import (
 const (
 	defaultCoalesceWindow  = 1200 * time.Millisecond
 	defaultCoalesceMaxWait = 8 * time.Second
-	coalesceMaxMsgs        = 6
-	coalesceLongRune       = 80
+	// defaultGraceWindow is the brief hold a complete-looking message gets
+	// instead of an instant flush, so a fast follow-up still coalesces.
+	defaultGraceWindow = 500 * time.Millisecond
+	coalesceMaxMsgs    = 6
+	coalesceLongRune   = 80
 )
 
 // pendingMsg is one buffered inbound message.
@@ -53,8 +56,10 @@ func (h *Handler) enqueue(ctx context.Context, content string, meta map[string]s
 		buf.timer = nil
 	}
 
-	if looksComplete(content) ||
-		len(buf.msgs) >= coalesceMaxMsgs ||
+	// Hard caps still flush right now. A complete-looking message no longer
+	// flushes instantly; it takes the short grace hold below so a fast follow-up
+	// still merges into the same burst.
+	if len(buf.msgs) >= coalesceMaxMsgs ||
 		time.Since(buf.firstAt) >= h.coalesceMaxWait {
 		msgs := buf.msgs
 		delete(h.buffers, chatID)
@@ -63,7 +68,13 @@ func (h *Handler) enqueue(ctx context.Context, content string, meta map[string]s
 		return
 	}
 
-	buf.timer = time.AfterFunc(h.coalesceWindow, func() {
+	// Arm the window by the just-arrived message's completeness: a complete
+	// thought gets the short grace hold, a fragment the full window.
+	window := h.coalesceWindow
+	if looksComplete(content) {
+		window = h.graceWindow
+	}
+	buf.timer = time.AfterFunc(window, func() {
 		h.coalMu.Lock()
 		b := h.buffers[chatID]
 		if b == nil {

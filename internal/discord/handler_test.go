@@ -45,6 +45,7 @@ func TestHandleMessageNormalization(t *testing.T) {
 		Author:  &discordgo.User{ID: "bot1"},
 	}
 	h.HandleMessage(context.Background(), m)
+	h.FlushAll(context.Background()) // complete message now takes the grace hold; drain it
 
 	if len(*bursts) != 1 || len((*bursts)[0]) != 1 {
 		t.Fatalf("bursts %v", *bursts)
@@ -131,6 +132,7 @@ func TestHandleMessageGuildGating(t *testing.T) {
 	m2.GuildID = "g1"
 	m2.Mentions = []*discordgo.User{{ID: "bot1"}}
 	h.HandleMessage(context.Background(), m2)
+	h.FlushAll(context.Background()) // complete message now takes the grace hold; drain it
 	if len(*bursts) != 1 {
 		t.Fatal("mentioned guild message not relayed")
 	}

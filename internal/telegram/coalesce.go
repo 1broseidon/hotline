@@ -20,12 +20,17 @@ import (
 // burst as ONE turn once they stop typing.
 //
 // The window is adaptive: a message that looks complete (terminal punctuation
-// or long) flushes immediately, so single messages stay snappy; only genuine
-// fragments pay the hold. Hard caps (message count, total wait) and a
-// flush-on-shutdown drain bound the worst case so nothing is stranded.
+// or long) gets only a short grace hold, so a fast follow-up still merges while
+// single messages stay snappy; genuine fragments pay the full hold. Hard caps
+// (message count, total wait) and a flush-on-shutdown drain bound the worst
+// case so nothing is stranded.
 const (
 	defaultCoalesceWindow  = 1200 * time.Millisecond
 	defaultCoalesceMaxWait = 8 * time.Second
+	// defaultGraceWindow is the brief hold a complete-looking message gets
+	// instead of an instant flush, so a fast follow-up still coalesces into the
+	// same burst rather than racing its own turn.
+	defaultGraceWindow = 500 * time.Millisecond
 	// coalesceMaxMsgs flushes a burst once this many messages accumulate, so a
 	// fast typist never starves behind an ever-re-armed window.
 	coalesceMaxMsgs = 6
@@ -69,8 +74,10 @@ func (h *Handler) enqueue(ctx context.Context, content string, meta map[string]s
 		buf.timer = nil
 	}
 
-	if looksComplete(content) ||
-		len(buf.msgs) >= coalesceMaxMsgs ||
+	// Hard caps still flush right now. A complete-looking message no longer
+	// flushes instantly; it takes the short grace hold below so a fast follow-up
+	// still merges into the same burst.
+	if len(buf.msgs) >= coalesceMaxMsgs ||
 		time.Since(buf.firstAt) >= h.coalesceMaxWait {
 		msgs := buf.msgs
 		delete(h.buffers, chatID)
@@ -79,7 +86,13 @@ func (h *Handler) enqueue(ctx context.Context, content string, meta map[string]s
 		return
 	}
 
-	buf.timer = time.AfterFunc(h.coalesceWindow, func() {
+	// Arm the window by the just-arrived message's completeness: a complete
+	// thought gets the short grace hold, a fragment the full window.
+	window := h.coalesceWindow
+	if looksComplete(content) {
+		window = h.graceWindow
+	}
+	buf.timer = time.AfterFunc(window, func() {
 		h.coalMu.Lock()
 		b := h.buffers[chatID]
 		if b == nil {

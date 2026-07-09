@@ -139,6 +139,7 @@ func cmdUp(botName string, args, passthrough []string, dir string, stdout, stder
 		argv := append([]string{bin}, channelArgs(dir, stderr)...)
 		if *yolo {
 			argv = append(argv, "--dangerously-skip-permissions")
+			env = append(env, "HOTLINE_YOLO=1")
 		}
 		argv = append(argv, passthrough...)
 		if os.Getenv("TERM") == "" {

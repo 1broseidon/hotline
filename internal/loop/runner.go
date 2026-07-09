@@ -78,7 +78,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 		want := map[string]Loop{}
 		for _, l := range d.Loops {
-			if l.Paused {
+			if l.Paused || !l.Approved {
 				continue
 			}
 			if err := normalizeLoop(&l); err != nil {
@@ -132,7 +132,8 @@ func sameRunnable(a, b Loop) bool {
 		a.Sink == b.Sink &&
 		a.Source == b.Source &&
 		a.Level == b.Level &&
-		a.Timeout == b.Timeout
+		a.Timeout == b.Timeout &&
+		a.Approved == b.Approved
 }
 
 func (r *Runner) runWorker(ctx context.Context, l Loop) {
@@ -173,6 +174,10 @@ func (r *Runner) RunOnce(ctx context.Context, l Loop) (Result, error) {
 	}
 	if err := normalizeLoop(&l); err != nil {
 		return Result{ExitCode: 1}, err
+	}
+	if !l.Approved {
+		r.logf("loop %s skipped: pending approval", l.Label)
+		return Result{Skipped: true}, nil
 	}
 	if !r.markInFlight(l.Label) {
 		r.logf("loop %s skipped: still running", l.Label)

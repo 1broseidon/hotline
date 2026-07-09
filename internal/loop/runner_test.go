@@ -119,6 +119,29 @@ func TestRunnerExportsNotifySourceKey(t *testing.T) {
 	}
 }
 
+func TestRunnerSkipsUnapprovedLoop(t *testing.T) {
+	r := testRunner(t)
+	t.Setenv("HOTLINE_STATE_DIR", r.StateRoot)
+	l, err := Add(r.Path, Loop{Label: "pending", Every: "10s", Cmd: "echo should-not-run"}, time.Now(), WithApprovalGate(r.StateRoot, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Approved {
+		t.Fatal("test setup created approved loop")
+	}
+	res, err := r.RunOnce(context.Background(), l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Skipped || strings.Contains(res.Stdout, "should-not-run") {
+		t.Fatalf("pending loop should skip without running: %+v", res)
+	}
+	d, _ := Load(r.Path)
+	if d.Loops[0].Runs != 0 {
+		t.Errorf("pending skip should not record a run: %+v", d.Loops[0])
+	}
+}
+
 func TestRunnerContainsPanic(t *testing.T) {
 	r := testRunner(t)
 	// Inject a panic mid-run via the now seam: the first call sets start, the

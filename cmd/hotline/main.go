@@ -159,8 +159,9 @@ Usage:
                        schedules are created from chat via the schedule tool)
   hotline loop         manage script loops
                        (loop add <label> --every <dur> --cmd "<shell>"
-                       [--notify-llm] [--source <notify-label>] [--level L]
-                       [--timeout <dur>] | list | remove | pause | resume |
+                       [-y|--approve] [--notify-llm]
+                       [--source <notify-label>] [--level L] [--timeout <dur>]
+                       | list | remove | pause | resume | approve | deny |
                        logs | run)
   hotline notify       enqueue a machine event from a local script for the agent
                        to triage (--source <key> [--level urgent|normal|low]

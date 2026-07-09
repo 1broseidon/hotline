@@ -63,6 +63,23 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoadBackfillsApprovedOnlyWhenOmitted(t *testing.T) {
+	path := tmpLoopPath(t)
+	if err := os.WriteFile(path, []byte(`{"loops":[{"label":"old","every":"1m","cmd":"true","createdAt":"2026-07-08T12:00:00Z"},{"label":"pending","every":"1m","cmd":"true","createdAt":"2026-07-08T12:00:00Z","approved":false}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Loops[0].Approved {
+		t.Error("omitted approved should backfill true")
+	}
+	if d.Loops[1].Approved {
+		t.Error("explicit approved=false should stay pending")
+	}
+}
+
 func TestAddValidatesAndFloorsEvery(t *testing.T) {
 	path := tmpLoopPath(t)
 	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
@@ -77,6 +94,9 @@ func TestAddValidatesAndFloorsEvery(t *testing.T) {
 	}
 	if stored.Timeout != "2m0s" || stored.Sink != "notify" {
 		t.Errorf("defaults not stored: %+v", stored)
+	}
+	if !stored.Approved {
+		t.Error("legacy Add caller should default to approved")
 	}
 	if stored.CreatedAt != now.Format(time.RFC3339) {
 		t.Errorf("CreatedAt = %q", stored.CreatedAt)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -138,6 +139,22 @@ func TestStartPassthroughAndEnv(t *testing.T) {
 	}
 	if !strings.Contains(joined, "HOTLINE_BOT=work") {
 		t.Error("HOTLINE_BOT not exported")
+	}
+}
+
+func TestStartYoloExportsPosture(t *testing.T) {
+	startTestState(t)
+	fakeClaudeRunner(t)
+	argv, env := fakeClaude(t)
+	var out, errOut bytes.Buffer
+	if err := cmdStart("", []string{"--yolo"}, nil, t.TempDir(), &out, &errOut); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !slices.Contains(*argv, "--dangerously-skip-permissions") {
+		t.Errorf("argv missing yolo flag: %v", *argv)
+	}
+	if !strings.Contains(strings.Join(*env, "\n"), "HOTLINE_YOLO=1") {
+		t.Errorf("env missing HOTLINE_YOLO: %v", *env)
 	}
 }
 

@@ -40,6 +40,7 @@ type Loop struct {
 	LastExit       int    `json:"lastExit,omitempty"`
 	LastDurationMs int64  `json:"lastDurationMs,omitempty"`
 	Runs           int64  `json:"runs,omitempty"`
+	Approved       bool   `json:"approved"`
 }
 
 // Doc is the full persisted loops.json document.
@@ -134,10 +135,66 @@ func (d *Doc) normalize() {
 	}
 }
 
+// UnmarshalJSON keeps pre-approval-gate loop files compatible: an omitted
+// approved field means "approved" for loops created before the gate existed.
+func (l *Loop) UnmarshalJSON(data []byte) error {
+	type alias Loop
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	aux := alias{Approved: true}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if _, ok := raw["approved"]; !ok {
+		aux.Approved = true
+	}
+	*l = Loop(aux)
+	return nil
+}
+
+type addConfig struct {
+	gated      bool
+	stateRoot  string
+	preApprove bool
+	notify     bool
+}
+
+// AddOption configures loop creation. Existing direct Add callers remain
+// legacy-approved; CLI/MCP setup paths pass WithApprovalGate.
+type AddOption func(*addConfig)
+
+// WithApprovalGate makes Add apply the posture-aware gate. preApprove is the
+// trusted operator CLI -y path; agents never pass it.
+func WithApprovalGate(stateRoot string, preApprove bool) AddOption {
+	return func(c *addConfig) {
+		c.gated = true
+		c.stateRoot = stateRoot
+		c.preApprove = preApprove
+		c.notify = true
+	}
+}
+
 // Add validates l, enforces maxLoops, appends it, and returns the stored copy.
-func Add(path string, l Loop, now time.Time) (Loop, error) {
+func Add(path string, l Loop, now time.Time, opts ...AddOption) (Loop, error) {
+	var cfg addConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	if err := normalizeLoop(&l); err != nil {
 		return Loop{}, err
+	}
+	yolo := false
+	if cfg.gated {
+		var err error
+		yolo, err = YoloEnabled(cfg.stateRoot)
+		if err != nil {
+			return Loop{}, err
+		}
+		l.Approved = cfg.preApprove || yolo
+	} else {
+		l.Approved = true
 	}
 
 	var stored Loop
@@ -157,6 +214,9 @@ func Add(path string, l Loop, now time.Time) (Loop, error) {
 	})
 	if err != nil {
 		return Loop{}, err
+	}
+	if cfg.gated && cfg.notify && !cfg.preApprove {
+		_ = notifyOperator(cfg.stateRoot, stored, yolo, now)
 	}
 	return stored, nil
 }
@@ -189,6 +249,26 @@ func SetPaused(path, label string, paused bool) (Loop, error) {
 		}
 		l := d.Loops[i]
 		l.Paused = paused
+		d.Loops[i] = l
+		updated = l
+		return nil
+	})
+	if err != nil {
+		return Loop{}, err
+	}
+	return updated, nil
+}
+
+// Approve flips a pending loop live.
+func Approve(path, label string) (Loop, error) {
+	var updated Loop
+	err := Mutate(path, func(d *Doc) error {
+		i, err := findIndex(d, label)
+		if err != nil {
+			return err
+		}
+		l := d.Loops[i]
+		l.Approved = true
 		d.Loops[i] = l
 		updated = l
 		return nil

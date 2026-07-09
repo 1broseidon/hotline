@@ -22,11 +22,10 @@ func (e exitCodeError) Error() string { return fmt.Sprintf("exit status %d", int
 func (e exitCodeError) Code() int     { return int(e) }
 
 // cmdLoop is the operator surface over loops.json: add/list/remove/pause/
-// resume/logs/run. Loop creation is CLI-first because the command is local
-// operator code, not chat-authored agent text.
+// resume/approve/deny/logs/run.
 func cmdLoop(args []string, out, errout io.Writer) error {
 	if len(args) < 1 {
-		return errors.New("usage: hotline loop <add|list|remove|pause|resume|logs|run> [args]")
+		return errors.New("usage: hotline loop <add|list|remove|pause|resume|approve|deny|logs|run> [args]")
 	}
 	stateRoot, err := config.StateRoot()
 	if err != nil {
@@ -79,6 +78,28 @@ func cmdLoop(args []string, out, errout io.Writer) error {
 		}
 		fmt.Fprintf(out, "Resumed loop %q.\n", l.Label)
 		return nil
+	case "approve":
+		label, err := needLabel()
+		if err != nil {
+			return err
+		}
+		l, err := loop.Approve(path, label)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Approved loop %q.\n", l.Label)
+		return nil
+	case "deny":
+		label, err := needLabel()
+		if err != nil {
+			return err
+		}
+		l, err := loop.Remove(path, label)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Denied loop %q and removed it.\n", l.Label)
+		return nil
 	case "logs":
 		label, err := needLabel()
 		if err != nil {
@@ -92,13 +113,14 @@ func cmdLoop(args []string, out, errout io.Writer) error {
 		}
 		return loopRun(stateRoot, label, args[2:], out, errout)
 	default:
-		return fmt.Errorf("unknown loop command %q (add, list, remove, pause, resume, logs, run)", args[0])
+		return fmt.Errorf("unknown loop command %q (add, list, remove, pause, resume, approve, deny, logs, run)", args[0])
 	}
 }
 
 func loopAdd(stateRoot, path string, args []string, out io.Writer) error {
 	var l loop.Loop
 	var sourceSet bool
+	var approve bool
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -160,6 +182,8 @@ func loopAdd(stateRoot, path string, args []string, out io.Writer) error {
 			l.Timeout = v
 		case strings.HasPrefix(a, "--timeout="):
 			l.Timeout = strings.TrimPrefix(a, "--timeout=")
+		case a == "-y" || a == "--approve":
+			approve = true
 		case strings.HasPrefix(a, "--"):
 			return fmt.Errorf("unknown flag %q", a)
 		default:
@@ -170,55 +194,27 @@ func loopAdd(stateRoot, path string, args []string, out io.Writer) error {
 		}
 	}
 	if l.Label == "" || l.Every == "" || l.Cmd == "" {
-		return errors.New("usage: hotline loop add <label> --every <dur> --cmd \"<shell>\" [--notify-llm] [--sink notify] [--source <notify-label>] [--level urgent|normal|low] [--timeout <dur>]")
+		return errors.New("usage: hotline loop add <label> --every <dur> --cmd \"<shell>\" [-y|--approve] [--notify-llm] [--sink notify] [--source <notify-label>] [--level urgent|normal|low] [--timeout <dur>]")
 	}
-	if _, err := notify.ParseLevel(l.Level); err != nil {
-		return fmt.Errorf("--level: %w", err)
-	}
-	sourcesPath := notify.SourcesPath(stateRoot)
-	autoSource := ""
-	if sourceSet {
-		if err := requireSourceLabel(sourcesPath, l.Source); err != nil {
-			return err
-		}
-	} else if l.NotifyLLM {
-		src, err := notify.AddSource(sourcesPath, l.Label, notify.LevelNormal, notify.Rate{}, "", time.Now())
-		if err != nil {
-			return fmt.Errorf("auto-adding notify source %q: %w", l.Label, err)
-		}
-		l.Source = src.Label
-		autoSource = src.Label
-		fmt.Fprintf(out, "Added notify source %q for loop %q.\n", src.Label, l.Label)
-		fmt.Fprintf(out, "Key (kept in sources.json; loops.json stores only the label): %s\n", src.Key)
-	}
-
-	stored, err := loop.Add(path, l, time.Now())
+	res, err := loop.Setup(stateRoot, l, sourceSet, approve, time.Now())
 	if err != nil {
-		if autoSource != "" {
-			_, _ = notify.RevokeSource(sourcesPath, autoSource)
-		}
 		return err
 	}
+	stored := res.Loop
+	if res.AutoSource != "" {
+		fmt.Fprintf(out, "Added notify source %q for loop %q.\n", res.AutoSource, stored.Label)
+		fmt.Fprintf(out, "Key is kept in sources.json; loops.json stores only the label.\n")
+	}
 	fmt.Fprintf(out, "Added loop %q every %s.\n", stored.Label, stored.Every)
+	if stored.Approved {
+		fmt.Fprintln(out, "Approval: approved.")
+	} else {
+		fmt.Fprintln(out, "Approval: pending. Approve with `hotline loop approve "+stored.Label+"` or deny with `hotline loop deny "+stored.Label+"`.")
+	}
 	if stored.NotifyLLM {
 		fmt.Fprintf(out, "Non-empty stdout routes to notify source %q at level %s.\n", stored.Source, levelOrDefault(stored.Level))
 	}
 	fmt.Fprintf(out, "State dir: %s\n", loop.StateDir(stateRoot, stored.Label))
-	return nil
-}
-
-func requireSourceLabel(path, label string) error {
-	label = strings.TrimSpace(label)
-	if label == "" {
-		return fmt.Errorf("--source needs a notify source label")
-	}
-	reg, err := notify.LoadRegistry(path)
-	if err != nil {
-		return err
-	}
-	if _, ok := reg.FindByLabel(label); !ok {
-		return fmt.Errorf("notify source %q not found (create it with `hotline source add %s`)", label, label)
-	}
 	return nil
 }
 
@@ -233,8 +229,12 @@ func loopList(path string, out io.Writer) error {
 		if l.Paused {
 			flag = " [paused]"
 		}
-		fmt.Fprintf(out, "  - %-16s every %-8s last %s exit %-4d runs %-4d%s\n",
-			l.Label, l.Every, localTimeOrDash(l.LastRunAt), l.LastExit, l.Runs, flag)
+		approval := "approved"
+		if !l.Approved {
+			approval = "pending"
+		}
+		fmt.Fprintf(out, "  - %-16s %-8s every %-8s last %s exit %-4d runs %-4d%s\n",
+			l.Label, approval, l.Every, localTimeOrDash(l.LastRunAt), l.LastExit, l.Runs, flag)
 		route := "script-owned"
 		if l.NotifyLLM {
 			route = fmt.Sprintf("notify source %q level %s", l.Source, levelOrDefault(l.Level))
@@ -321,6 +321,9 @@ func loopRun(stateRoot, label string, args []string, out, errout io.Writer) erro
 	}
 	if l.Paused {
 		return fmt.Errorf("loop %q is paused", label)
+	}
+	if !l.Approved {
+		return fmt.Errorf("loop %q is pending approval", label)
 	}
 	r := loop.NewRunner(stateRoot)
 	r.Log = errout

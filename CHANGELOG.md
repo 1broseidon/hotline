@@ -16,6 +16,13 @@ All notable changes to hotline are documented here. The format follows
   in `loops.json`. With `--notify-llm`, non-empty stdout is routed through the
   existing notify gate by source label (auto-minted when omitted); empty stdout
   wakes nothing. Without it, the script owns escalation and hotline only logs.
+- Added loop approval posture: normal-mode loop creation is pending until
+  `hotline loop approve <label>` (or removed with `loop deny <label>`), while
+  direct CLI `loop add -y` pre-approves. Yolo sessions create loops approved and
+  enqueue an operator heads-up. The runner skips unapproved loops.
+- Added MCP tools `setup_loop` and `setup_notify`. They reuse the same loop and
+  notify registry surfaces as the CLI; `setup_loop` cannot self-approve, and
+  `setup_notify` returns the source label without exposing the minted key.
   `loop run <label> --once` provides the foreground/cron escape hatch.
 
 ## [0.9.0] - 2026-07-08

@@ -1,7 +1,7 @@
 {
   "name": "email-sentry",
   "version": "0.1.0",
-  "description": "Watches your Gmail and buzzes your hotline channel only for mail that matters: a human asking you something, money moving, real deadlines, security events. One skill, /email-sentry:init, scaffolds the watcher, the LLM judge, and a systemd service. Requires the gog CLI authenticated for your account(s) and a running hotline channel.",
+  "description": "Watches your Gmail and buzzes your hotline channel only for mail that matters: a human asking you something, money moving, real deadlines, security events. One skill, /email-sentry:init, scaffolds the watcher engine, the LLM judge, and a managed hotline loop. Requires the gogcli (gog) CLI authenticated for your account(s) and a running hotline channel.",
   "author": {
     "name": "1broseidon",
     "url": "https://github.com/1broseidon"

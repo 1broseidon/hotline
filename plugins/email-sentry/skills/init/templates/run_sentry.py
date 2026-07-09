@@ -28,6 +28,7 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -147,14 +148,60 @@ def clean_body(body, max_chars):
 
 # ----------------------------- gog plumbing -----------------------------
 
+# User-facing guidance printed by the preflight when gog is missing or unconfigured.
+# email-sentry reads Gmail through gogcli; it does not bundle it.
+GOG_REPO = "https://github.com/openclaw/gogcli"
+GOG_HELP = f"""\
+email-sentry reads your Gmail through gogcli (the `gog` command) — a separate CLI
+it does NOT bundle. gog is REQUIRED: without it the sentry cannot see any mail.
+
+To set it up:
+  1. Install gogcli — see {GOG_REPO} (this box installed it via Homebrew).
+  2. Authenticate the account(s) you want watched:  gog auth login
+     Grant Gmail read access; run once per account.
+  3. Headless / SSH box: gog stores its OAuth token in a system keyring. With no
+     desktop keyring (Secret Service) available it will HANG. Point it at the file
+     backend instead — put these in an env file (default ~/.config/gogcli/env):
+         export GOG_KEYRING_BACKEND=file
+         export GOG_KEYRING_PASSWORD=<a-passphrase-you-choose>
+     then set gog.env_file in sentry-config.json to that path.
+Verify with:  gog -a <you@example.com> gmail search 'in:inbox' --max 1"""
+
+
+def gog_preflight(cfg):
+    """Check the gog dependency is installed and its keyring is usable. Prints
+    actionable guidance on trouble. Returns True if gog is runnable at all,
+    False only when the binary is missing entirely (a hard stop). A configured-
+    but-risky keyring warns but does not stop — a box WITH a desktop keyring
+    works on gog's default backend."""
+    gcfg = cfg.get("gog", {}) or {}
+    gbin = gcfg.get("bin", "gog")
+    env_file = gcfg.get("env_file", "~/.config/gogcli/env")
+
+    resolved = shutil.which(gbin)
+    if not resolved and os.path.exists(expand(gbin)):
+        resolved = expand(gbin)
+    if not resolved:
+        log_err(f"MISSING DEPENDENCY: gogcli (`{gbin}`) is not installed or not on PATH.")
+        log_err(GOG_HELP)
+        return False
+
+    env = parse_env_file(env_file)
+    backend = os.environ.get("GOG_KEYRING_BACKEND") or env.get("GOG_KEYRING_BACKEND")
+    if not backend:
+        log_err(f"gog is installed but GOG_KEYRING_BACKEND is unset (checked env and {env_file}).")
+        log_err("On a headless / SSH box with no desktop keyring, gog will HANG waiting for one.")
+        log_err("Set GOG_KEYRING_BACKEND=file (+ GOG_KEYRING_PASSWORD) in the env file. See:")
+        log_err(GOG_HELP)
+    return True
+
+
 class Gog:
     def __init__(self, cfg):
         self.bin = cfg.get("gog", {}).get("bin", "gog")
         env_file = cfg.get("gog", {}).get("env_file", "~/.config/gogcli/env")
         self.env = dict(os.environ)
         self.env.update(parse_env_file(env_file))  # keyring backend + password
-        if "GOG_KEYRING_BACKEND" not in self.env:
-            log_err("NOTE: gog env file has no GOG_KEYRING_BACKEND; on a headless box gog may hang waiting for a keyring.")
 
     def _run(self, args, account, dry_run_flag=False, timeout=120):
         cmd = [self.bin, "-j"] + args + ["-a", account, "--no-input"]
@@ -555,6 +602,13 @@ def main():
     live = args.live and not args.dry_run
     cfg = load_config(args.config)
     tz = tzinfo_for(cfg["timezone"])
+
+    # Preflight the gog dependency before doing anything: a missing binary means
+    # there is no mail to read, so stop with clear guidance instead of failing
+    # opaquely per-account.
+    if not gog_preflight(cfg):
+        sys.exit(3)
+
     gog = Gog(cfg)
 
     if not JUDGE_PROMPT_PATH.exists():

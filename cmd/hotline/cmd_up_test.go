@@ -118,6 +118,67 @@ func TestUpSupervisesOpenCodeHarness(t *testing.T) {
 	}
 }
 
+// TestUpInjectsAnthropicProviderClaude: on the claude path, `up` folds the
+// allowlisted .env keys into the env handed to the supervised harness, alongside
+// HOTLINE_SUPERVISOR_DIR — without disturbing the opencode branch.
+func TestUpInjectsAnthropicProviderClaude(t *testing.T) {
+	dir := upTestState(t)
+	clearAnthropicEnv(t)
+	content := "ANTHROPIC_BASE_URL=https://alt.example/v1\nANTHROPIC_MODEL=alt-model\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stubBinary(t, "claude")
+	fakeClaudeRunner(t) // isolate channelArgs' reads of ~/.claude state
+
+	type spawn struct{ argv, env []string }
+	spawned := make(chan spawn, 1)
+	orig := startHarness
+	startHarness = func(argv []string, dir string, env []string, logw io.Writer) (supervise.Harness, error) {
+		select {
+		case spawned <- spawn{argv, env}:
+		default:
+		}
+		return &fakeUpHarness{done: make(chan struct{})}, nil
+	}
+	t.Cleanup(func() { startHarness = orig })
+
+	var out, errOut bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- cmdUp("", []string{"--foreground"}, nil, t.TempDir(), &out, &errOut)
+	}()
+
+	var got spawn
+	select {
+	case got = <-spawned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("claude harness was not spawned")
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("cmdUp: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cmdUp did not stop on SIGTERM")
+	}
+
+	joined := strings.Join(got.env, "\n")
+	if !strings.Contains(joined, "ANTHROPIC_BASE_URL=https://alt.example/v1") {
+		t.Error("ANTHROPIC_BASE_URL not injected into the supervised claude env")
+	}
+	if !strings.Contains(joined, "ANTHROPIC_MODEL=alt-model") {
+		t.Error("ANTHROPIC_MODEL not injected into the supervised claude env")
+	}
+	if !strings.Contains(joined, supervise.EnvDir+"=") {
+		t.Errorf("supervised env lost %s while injecting the provider", supervise.EnvDir)
+	}
+}
+
 // TestUpRejectsYoloOnOpenCode: --yolo is claude's
 // --dangerously-skip-permissions; opencode's permission policy lives in
 // opencode.json, so the flag must error, not be silently ignored.

@@ -433,6 +433,24 @@ State lives in `${XDG_CONFIG_HOME:-~/.config}/hotline`. On first run, state foun
 | `DISCORD_BOT_TOKEN` | Discord bot token; `DISCORD_BOT_TOKEN_<NAME>` per named instance (`DISCORD_ACCESS_MODE` mirrors the Telegram one) |
 | `SIGNAL_ACCOUNT` | Linked Signal account (E.164); `SIGNAL_ACCOUNT_<NAME>` per named instance (`SIGNAL_ACCESS_MODE` mirrors the Telegram one) |
 | `SIGNAL_DAEMON_URL` | signal-cli HTTP daemon base URL (default `http://127.0.0.1:8080`); `SIGNAL_DAEMON_URL_<NAME>` per named instance |
+| `ANTHROPIC_BASE_URL` | Alternate Anthropic-compatible API endpoint for the Claude Code harness (see below) |
+| `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` | Provider auth: bearer token (`Authorization: Bearer`) or `x-api-key` |
+| `ANTHROPIC_MODEL` | Primary model for the alternate provider; per-role overrides `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (`ANTHROPIC_SMALL_FAST_MODEL` is deprecated) |
+
+### Alternate Anthropic provider (Claude Code harness)
+
+Point the Claude Code harness at any Anthropic-API-compatible provider without exporting anything by hand. Configure it once into the shared `.env`:
+
+```sh
+hotline setup --anthropic-base-url https://provider.example/v1 \
+              --anthropic-token   sk-…            # bearer  → ANTHROPIC_AUTH_TOKEN
+              # or --anthropic-api-key sk-…       # x-api-key → ANTHROPIC_API_KEY
+              --anthropic-model   their-model     # → ANTHROPIC_MODEL
+```
+
+`hotline start` and `hotline up` (claude path only) inject these into the Claude Code child process on launch. Only an allowlist of provider keys crosses over — `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, the per-role `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` (and deprecated `ANTHROPIC_SMALL_FAST_MODEL`), `ANTHROPIC_CUSTOM_HEADERS`, `API_TIMEOUT_MS`, and `ENABLE_TOOL_SEARCH` — never the rest of your `.env`. `setup` writes the common four; add any of the others to the `.env` by hand and they're injected too. One alternate provider at a time, and your shell environment always wins over the `.env` per key (so you can override a single run). The opencode harness is unaffected — it does providers via `opencode.json`.
+
+> Gotcha: a non-`api.anthropic.com` base URL disables Claude Code's MCP tool search. Set `ENABLE_TOOL_SEARCH=true` in the `.env` to restore it.
 
 Operationally, hotline holds its lane: a PID guard SIGTERMs a stale poller before starting (Telegram allows one `getUpdates` consumer per token), the poll loop backs off exponentially and honors 429s, and shutdown is unified across stdin EOF, signals, and an orphan watchdog.
 

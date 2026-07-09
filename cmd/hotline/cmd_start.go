@@ -72,7 +72,16 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 		fmt.Fprintln(stderr, "hotline: yolo mode. Permission checks are off; the relay never fires (see SECURITY.md).")
 	}
 	argv = append(argv, passthrough...)
-	return execProcess(bin, argv, os.Environ())
+
+	// Inject the operator's alternate Anthropic provider (base URL + auth +
+	// model) from the shared .env, so `hotline start` can point Claude Code at a
+	// non-Anthropic endpoint without the operator exporting anything by hand. The
+	// real environment still wins per key.
+	env, err := config.AnthropicChildEnv(os.Environ())
+	if err != nil {
+		return err
+	}
+	return execProcess(bin, argv, env)
 }
 
 // channelArgs picks how the channel is handed to claude. A raw hotline entry

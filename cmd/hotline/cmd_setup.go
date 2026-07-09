@@ -55,6 +55,10 @@ func cmdSetup(botName string, args []string, stdin io.Reader, stdout io.Writer, 
 	signalAccount := fs.String("signal-account", "", "linked Signal account (E.164, e.g. +15551234567)")
 	signalDaemonURL := fs.String("signal-daemon-url", "", "signal-cli HTTP daemon URL")
 	discordToken := fs.String("discord-token", "", "Discord bot token")
+	anthropicBaseURL := fs.String("anthropic-base-url", "", "alternate Anthropic-compatible API base URL (ANTHROPIC_BASE_URL)")
+	anthropicToken := fs.String("anthropic-token", "", "bearer token for the alternate provider (ANTHROPIC_AUTH_TOKEN)")
+	anthropicAPIKey := fs.String("anthropic-api-key", "", "x-api-key for the alternate provider (ANTHROPIC_API_KEY)")
+	anthropicModel := fs.String("anthropic-model", "", "model to use with the alternate provider (ANTHROPIC_MODEL)")
 	show := fs.Bool("show", false, "print the current config, tokens masked")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -103,6 +107,18 @@ func cmdSetup(botName string, args []string, stdin io.Reader, stdout io.Writer, 
 	if *discordToken != "" {
 		updates["DISCORD_BOT_TOKEN"] = *discordToken
 	}
+	if *anthropicBaseURL != "" {
+		updates["ANTHROPIC_BASE_URL"] = *anthropicBaseURL
+	}
+	if *anthropicToken != "" {
+		updates["ANTHROPIC_AUTH_TOKEN"] = *anthropicToken
+	}
+	if *anthropicAPIKey != "" {
+		updates["ANTHROPIC_API_KEY"] = *anthropicAPIKey
+	}
+	if *anthropicModel != "" {
+		updates["ANTHROPIC_MODEL"] = *anthropicModel
+	}
 
 	if v, ok := updates[tokenKey]; ok && !validTelegramToken(v) {
 		return fmt.Errorf("telegram token doesn't look right (expected <digits>:<30+ chars>, like 123456789:AAAA…)")
@@ -112,7 +128,7 @@ func cmdSetup(botName string, args []string, stdin io.Reader, stdout io.Writer, 
 	}
 
 	if len(updates) == 0 {
-		fmt.Fprintln(stdout, "Nothing to write. Pass --telegram-token, --signal-account, --signal-daemon-url, or --discord-token.")
+		fmt.Fprintln(stdout, "Nothing to write. Pass --telegram-token, --signal-account, --signal-daemon-url, --discord-token, --anthropic-base-url, --anthropic-token, --anthropic-api-key, or --anthropic-model.")
 		return nil
 	}
 
@@ -142,18 +158,37 @@ func setupShow(botName string, envFile string, stdout io.Writer) error {
 	for _, k := range []string{"DISCORD_BOT_TOKEN", "SIGNAL_ACCOUNT", "SIGNAL_DAEMON_URL", "HOTLINE_PROVIDERS"} {
 		fmt.Fprintf(stdout, "%s: %s\n", k, maskSecret(env[k]))
 	}
+	// Alternate Anthropic provider: the two credentials are masked like tokens;
+	// the base URL and model are shown in the clear (they aren't secrets). Any
+	// other allowlisted key an operator hand-added to the .env (the per-role
+	// model overrides, custom headers, timeout, tool-search toggle) falls through
+	// to the generic loop below.
+	fmt.Fprintf(stdout, "ANTHROPIC_BASE_URL: %s\n", orNotSet(env["ANTHROPIC_BASE_URL"]))
+	fmt.Fprintf(stdout, "ANTHROPIC_AUTH_TOKEN: %s\n", maskSecret(env["ANTHROPIC_AUTH_TOKEN"]))
+	fmt.Fprintf(stdout, "ANTHROPIC_API_KEY: %s\n", maskSecret(env["ANTHROPIC_API_KEY"]))
+	fmt.Fprintf(stdout, "ANTHROPIC_MODEL: %s\n", orNotSet(env["ANTHROPIC_MODEL"]))
 	// Any other credential-looking keys (named bots, named instances).
 	for _, k := range sortedKeys(env) {
 		if k == tokenKey {
 			continue
 		}
 		switch k {
-		case "DISCORD_BOT_TOKEN", "SIGNAL_ACCOUNT", "SIGNAL_DAEMON_URL", "HOTLINE_PROVIDERS":
+		case "DISCORD_BOT_TOKEN", "SIGNAL_ACCOUNT", "SIGNAL_DAEMON_URL", "HOTLINE_PROVIDERS",
+			"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL":
 			continue
 		}
 		fmt.Fprintf(stdout, "%s: %s\n", k, maskSecret(env[k]))
 	}
 	return nil
+}
+
+// orNotSet renders a non-secret value for `setup --show`, or a placeholder when
+// it is unset.
+func orNotSet(v string) string {
+	if v == "" {
+		return "(not set)"
+	}
+	return v
 }
 
 // stateEnvFile resolves the shared .env path, creating the state dir (0700)

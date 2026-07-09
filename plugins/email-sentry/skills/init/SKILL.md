@@ -109,8 +109,24 @@ config. Do not substitute them in `sentry-judge.md` yourself.
    the judge, or the config fails here, fix it before going further.
 2. Tell the user how to sanity-check one live pass:
    `cd <target dir> && ./run_sentry.py --live`
-3. Give the user this loop registration command, with the absolute python path
-   and target directory filled in:
+3. Register the triage loop. **Prefer the `setup_loop` MCP tool** if your hotline
+   exposes it (hotline ≥ v0.10.0) — that way you register it directly instead of
+   handing the user a command to paste. Call `setup_loop` with:
+   - `label`: `email-sentry`
+   - `every`: `60s`
+   - `timeout`: `25m`
+   - `cmd`: `{{PYTHON_BIN}} {{SENTRY_DIR}}/run_sentry.py --live` (absolute python
+     path + target dir filled in)
+
+   Leave `notify_llm` unset — the engine escalates through hotline itself, so the
+   loop does not route stdout through the notify gate. In normal (non-yolo) mode
+   `setup_loop` creates the loop **pending**: it will NOT tick until the operator
+   approves it. Relay exactly that to the user and tell them to approve it with
+   `hotline loop approve email-sentry` (the tool's own reply names the command).
+   In yolo mode it goes live immediately and the operator is notified.
+
+   **Fallback** (hotline without the `setup_loop` tool): give the user this
+   command to run themselves, absolute python path and target directory filled in:
    ```sh
    hotline loop add email-sentry --every 60s --timeout 25m \
      --cmd "{{PYTHON_BIN}} {{SENTRY_DIR}}/run_sentry.py --live"

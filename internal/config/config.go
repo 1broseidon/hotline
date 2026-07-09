@@ -124,6 +124,62 @@ func StateRoot() (string, error) {
 	return resolveStateDir()
 }
 
+// AnthropicEnvKeys is the allowlist of keys carried from the shared .env into
+// the Claude Code child process to point it at an alternate Anthropic-compatible
+// provider. Only these keys ever cross over — never the whole .env (which holds
+// TELEGRAM_BOT_TOKEN and other credentials that claude has no business seeing).
+//
+// The list is deliberately broader than the `hotline setup` flags: setup writes
+// the common four (base URL, the two auth forms, the primary model), but a power
+// user can hand-add any of these to the .env — the per-role model overrides
+// (Claude Code's ANTHROPIC_SMALL_FAST_MODEL is deprecated in favor of the
+// per-role ANTHROPIC_DEFAULT_*_MODEL vars), custom headers, request timeout, and
+// the tool-search toggle (a non-Anthropic base URL disables Claude Code's MCP
+// tool search; ENABLE_TOOL_SEARCH=true restores it) — and have it injected too.
+var AnthropicEnvKeys = []string{
+	"ANTHROPIC_BASE_URL",
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"ANTHROPIC_SMALL_FAST_MODEL", // deprecated by Claude Code; kept for back-compat passthrough
+	"ANTHROPIC_CUSTOM_HEADERS",
+	"API_TIMEOUT_MS",
+	"ENABLE_TOOL_SEARCH",
+}
+
+// AnthropicChildEnv appends the operator's alternate-provider settings from the
+// shared .env onto base and returns the augmented environment for the Claude
+// Code child process. Only the allowlisted AnthropicEnvKeys are injected, and
+// only when the key is NOT already set in the real process environment — the
+// real environment wins, matching hotline's convention everywhere else and
+// letting an operator override any key for a single run. base is not mutated in
+// place beyond append's normal semantics; callers pass a slice they own (e.g.
+// os.Environ()).
+func AnthropicChildEnv(base []string) ([]string, error) {
+	baseDir, err := resolveStateDir()
+	if err != nil {
+		return nil, err
+	}
+	envFile := filepath.Join(baseDir, ".env")
+	dotEnv, err := loadDotEnv(envFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", envFile, err)
+	}
+	out := base
+	for _, k := range AnthropicEnvKeys {
+		if _, real := os.LookupEnv(k); real {
+			continue // real environment already carries it and wins
+		}
+		if v, ok := dotEnv[k]; ok && v != "" {
+			out = append(out, k+"="+v)
+		}
+	}
+	return out, nil
+}
+
 func resolveStateDir() (string, error) {
 	if v := os.Getenv("HOTLINE_STATE_DIR"); v != "" {
 		return v, nil

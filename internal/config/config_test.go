@@ -3,8 +3,98 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// envToMap collapses a KEY=VALUE environment slice into a map (last write wins,
+// matching exec semantics) for assertions.
+func envToMap(env []string) map[string]string {
+	m := make(map[string]string, len(env))
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			m[k] = v
+		}
+	}
+	return m
+}
+
+// anthropicTestState points state at a temp dir with the given .env content and
+// clears any allowlisted keys leaking in from the developer's real environment.
+func anthropicTestState(t *testing.T, dotenv string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("HOTLINE_STATE_DIR", dir)
+	t.Setenv("TELE_GO_STATE_DIR", "")
+	t.Setenv("TELEGRAM_STATE_DIR", "")
+	for _, k := range AnthropicEnvKeys {
+		t.Setenv(k, "") // register restore-on-cleanup
+		os.Unsetenv(k)  // then actually clear it for the duration of the test
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(dotenv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAnthropicChildEnv: the five allowlisted keys cross from .env into the
+// child env; a non-allowlisted key (the telegram token) does not.
+func TestAnthropicChildEnv(t *testing.T) {
+	anthropicTestState(t, "TELEGRAM_BOT_TOKEN=123:secret\n"+
+		"ANTHROPIC_BASE_URL=https://alt.example/v1\n"+
+		"ANTHROPIC_AUTH_TOKEN=bearer-xyz\n"+
+		"ANTHROPIC_API_KEY=key-abc\n"+
+		"ANTHROPIC_MODEL=alt-model\n"+
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=alt-haiku\n"+ // per-role override
+		"ANTHROPIC_SMALL_FAST_MODEL=alt-small\n"+ // deprecated, back-compat passthrough
+		"ENABLE_TOOL_SEARCH=true\n") // non-ANTHROPIC-prefixed allowlist key
+
+	got, err := AnthropicChildEnv(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := envToMap(got)
+	for k, want := range map[string]string{
+		"ANTHROPIC_BASE_URL":            "https://alt.example/v1",
+		"ANTHROPIC_AUTH_TOKEN":          "bearer-xyz",
+		"ANTHROPIC_API_KEY":             "key-abc",
+		"ANTHROPIC_MODEL":               "alt-model",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL": "alt-haiku",
+		"ANTHROPIC_SMALL_FAST_MODEL":    "alt-small",
+		"ENABLE_TOOL_SEARCH":            "true",
+	} {
+		if m[k] != want {
+			t.Errorf("%s = %q, want %q", k, m[k], want)
+		}
+	}
+	if _, ok := m["TELEGRAM_BOT_TOKEN"]; ok {
+		t.Error("TELEGRAM_BOT_TOKEN leaked into the child env — only the allowlist may cross over")
+	}
+}
+
+// TestAnthropicChildEnvRealEnvWins: a key already set in the real process
+// environment is not overridden by the .env, and the .env value is not appended
+// as a duplicate.
+func TestAnthropicChildEnvRealEnvWins(t *testing.T) {
+	anthropicTestState(t, "ANTHROPIC_MODEL=file-model\n")
+	t.Setenv("ANTHROPIC_MODEL", "real-model")
+
+	got, err := AnthropicChildEnv(os.Environ())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := envToMap(got); m["ANTHROPIC_MODEL"] != "real-model" {
+		t.Errorf("ANTHROPIC_MODEL = %q, want real-model (real env wins)", m["ANTHROPIC_MODEL"])
+	}
+	n := 0
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "ANTHROPIC_MODEL=") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("ANTHROPIC_MODEL appears %d times, want 1 (no .env duplicate appended)", n)
+	}
+}
 
 func TestStateDirPrecedence(t *testing.T) {
 	t.Setenv("HOTLINE_STATE_DIR", "/h")

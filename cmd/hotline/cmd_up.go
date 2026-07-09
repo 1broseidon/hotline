@@ -145,6 +145,13 @@ func cmdUp(botName string, args, passthrough []string, dir string, stdout, stder
 		if os.Getenv("TERM") == "" {
 			env = append(env, "TERM=xterm-256color") // detached env has no TERM; the TUI needs one
 		}
+		// Alternate Anthropic provider from the shared .env (claude path only;
+		// the opencode branch above does providers via opencode.json). Real
+		// environment wins per key.
+		env, err = config.AnthropicChildEnv(env)
+		if err != nil {
+			return nil, err
+		}
 		return startHarness(argv, dir, env, harnessLog)
 	}
 

@@ -132,6 +132,71 @@ func TestSetupShow(t *testing.T) {
 	}
 }
 
+// TestSetupWritesAnthropicKeys: the five alternate-provider flags land in the
+// shared .env, and the echo of what was written masks the two secrets.
+func TestSetupWritesAnthropicKeys(t *testing.T) {
+	dir := setupTestState(t)
+	var out bytes.Buffer
+	args := []string{
+		"--telegram-token", goodToken,
+		"--anthropic-base-url", "https://alt.example/v1",
+		"--anthropic-token", "bearer-supersecret-value",
+		"--anthropic-api-key", "apikey-supersecret-value",
+		"--anthropic-model", "alt-model",
+	}
+	if err := cmdSetup("", args, strings.NewReader(""), &out, false); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	env, _ := readEnvFile(filepath.Join(dir, ".env"))
+	for k, v := range map[string]string{
+		"ANTHROPIC_BASE_URL":   "https://alt.example/v1",
+		"ANTHROPIC_AUTH_TOKEN": "bearer-supersecret-value",
+		"ANTHROPIC_API_KEY":    "apikey-supersecret-value",
+		"ANTHROPIC_MODEL":      "alt-model",
+	} {
+		if env[k] != v {
+			t.Errorf("%s = %q, want %q", k, env[k], v)
+		}
+	}
+	if strings.Contains(out.String(), "bearer-supersecret-value") {
+		t.Error("setup output leaks ANTHROPIC_AUTH_TOKEN")
+	}
+	if strings.Contains(out.String(), "apikey-supersecret-value") {
+		t.Error("setup output leaks ANTHROPIC_API_KEY")
+	}
+}
+
+// TestSetupShowMasksAnthropicSecrets: --show masks the two credentials but
+// prints the base URL and model names in the clear.
+func TestSetupShowMasksAnthropicSecrets(t *testing.T) {
+	dir := setupTestState(t)
+	content := "TELEGRAM_BOT_TOKEN=" + goodToken + "\n" +
+		"ANTHROPIC_BASE_URL=https://alt.example/v1\n" +
+		"ANTHROPIC_AUTH_TOKEN=bearer-supersecret-value\n" +
+		"ANTHROPIC_API_KEY=apikey-supersecret-value\n" +
+		"ANTHROPIC_MODEL=alt-model\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdSetup("", []string{"--show"}, strings.NewReader(""), &out, false); err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	s := out.String()
+	if strings.Contains(s, "bearer-supersecret-value") {
+		t.Error("show leaks ANTHROPIC_AUTH_TOKEN")
+	}
+	if strings.Contains(s, "apikey-supersecret-value") {
+		t.Error("show leaks ANTHROPIC_API_KEY")
+	}
+	if !strings.Contains(s, "ANTHROPIC_BASE_URL: https://alt.example/v1") {
+		t.Errorf("show should print base URL in the clear:\n%s", s)
+	}
+	if !strings.Contains(s, "ANTHROPIC_MODEL: alt-model") {
+		t.Errorf("show should print model in the clear:\n%s", s)
+	}
+}
+
 func TestValidators(t *testing.T) {
 	if validTelegramToken("123:short") {
 		t.Error("short token passed")

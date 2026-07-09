@@ -8,7 +8,19 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/1broseidon/hotline/internal/config"
 )
+
+// clearAnthropicEnv removes the alternate-provider keys from the real process
+// environment so a .env-configured value actually injects (real env wins).
+func clearAnthropicEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range config.AnthropicEnvKeys {
+		t.Setenv(k, "") // register restore-on-cleanup
+		os.Unsetenv(k)  // then clear for the test
+	}
+}
 
 // fakeClaude puts a stub claude binary on PATH and captures execProcess calls
 // instead of launching anything.
@@ -155,6 +167,32 @@ func TestStartYoloExportsPosture(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(*env, "\n"), "HOTLINE_YOLO=1") {
 		t.Errorf("env missing HOTLINE_YOLO: %v", *env)
+	}
+}
+
+// TestStartInjectsAnthropicProvider: the allowlisted keys from the shared .env
+// reach the env handed to execProcess.
+func TestStartInjectsAnthropicProvider(t *testing.T) {
+	dir := startTestState(t)
+	clearAnthropicEnv(t)
+	content := "TELEGRAM_BOT_TOKEN=" + goodToken + "\n" +
+		"ANTHROPIC_BASE_URL=https://alt.example/v1\n" +
+		"ANTHROPIC_AUTH_TOKEN=bearer-xyz\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fakeClaudeRunner(t)
+	_, env := fakeClaude(t)
+	var out, errOut bytes.Buffer
+	if err := cmdStart("", nil, nil, t.TempDir(), &out, &errOut); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	joined := strings.Join(*env, "\n")
+	if !strings.Contains(joined, "ANTHROPIC_BASE_URL=https://alt.example/v1") {
+		t.Error("ANTHROPIC_BASE_URL not injected into the claude child env")
+	}
+	if !strings.Contains(joined, "ANTHROPIC_AUTH_TOKEN=bearer-xyz") {
+		t.Error("ANTHROPIC_AUTH_TOKEN not injected into the claude child env")
 	}
 }
 

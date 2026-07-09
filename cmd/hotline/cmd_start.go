@@ -67,7 +67,15 @@ func cmdStart(botName string, args, passthrough []string, dir string, stdout, st
 	warnMissingCreds(botName, stderr)
 
 	argv := append([]string{"claude"}, channelArgs(dir, stderr)...)
-	env := os.Environ()
+	// Inject the operator's alternate Anthropic provider (base URL + auth +
+	// model) from the shared .env, so `hotline start` can point Claude Code at a
+	// non-Anthropic endpoint without the operator exporting anything by hand. The
+	// real environment still wins per key. Yolo posture is layered on top so both
+	// the provider keys and HOTLINE_YOLO reach the child.
+	env, err := config.AnthropicChildEnv(os.Environ())
+	if err != nil {
+		return err
+	}
 	if *yolo {
 		argv = append(argv, "--dangerously-skip-permissions")
 		env = append(env, "HOTLINE_YOLO=1")

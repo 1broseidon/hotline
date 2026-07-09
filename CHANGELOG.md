@@ -6,7 +6,18 @@ All notable changes to hotline are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-09
+
 ### Added
+- **Alternate Anthropic-API provider for the Claude Code harness.** `hotline
+  setup` gains `--anthropic-base-url`, `--anthropic-token`
+  (→`ANTHROPIC_AUTH_TOKEN`), `--anthropic-api-key`, and `--anthropic-model`;
+  `hotline start` and `hotline up` inject the allowlisted `ANTHROPIC_*` keys
+  (base URL, auth, model, the three `ANTHROPIC_DEFAULT_*_MODEL` role vars,
+  custom headers, `API_TIMEOUT_MS`, and `ENABLE_TOOL_SEARCH`) from the shared
+  `.env` into Claude Code, with the real environment winning per key. The
+  opencode harness is unaffected. A non-`api.anthropic.com` base URL disables
+  Claude Code's MCP tool search unless `ENABLE_TOOL_SEARCH=true` is set.
 - **Script loops: `hotline loop`.** Operators can register local shell commands
   on intervals (`loop add <label> --every <dur> --cmd "<shell>"`) and have
   `hotline up` run them eagerly at supervisor start and then per-loop on their
@@ -24,6 +35,16 @@ All notable changes to hotline are documented here. The format follows
   notify registry surfaces as the CLI; `setup_loop` cannot self-approve, and
   `setup_notify` returns the source label without exposing the minted key.
   `loop run <label> --once` provides the foreground/cron escape hatch.
+
+### Changed
+- **Inbound coalescing holds a short grace window.** A complete-looking message
+  (terminal punctuation or long) now waits ~500ms before flushing instead of
+  firing immediately, so rapid complete-sentence bursts coalesce into a single
+  turn. Fragments keep the full window; the message-count and max-wait caps are
+  unchanged. Applies to the Telegram, Discord, and Signal adapters.
+- **email-sentry plugin.** Ported the live triage tuning, de-personalized the
+  templates, taught the init flow to check for the `gogcli` dependency, and
+  wired `setup_loop` into the watcher registration.
 
 ## [0.9.0] - 2026-07-08
 

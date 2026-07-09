@@ -40,6 +40,7 @@ type Handler struct {
 	coalMu          sync.Mutex
 	buffers         map[string]*chatBuffer
 	coalesceWindow  time.Duration
+	graceWindow     time.Duration
 	coalesceMaxWait time.Duration
 	// coalDeliver, when set, replaces flush as the burst sink (tests capture
 	// bursts without a live notifier).
@@ -69,6 +70,7 @@ func NewHandler(bot *gotgbot.Bot, cfg *config.Config, n provider.InboundSink, lo
 		permCache:       make(map[string]permEntry),
 		buffers:         make(map[string]*chatBuffer),
 		coalesceWindow:  defaultCoalesceWindow,
+		graceWindow:     defaultGraceWindow,
 		coalesceMaxWait: defaultCoalesceMaxWait,
 	}
 }

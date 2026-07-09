@@ -39,6 +39,7 @@ type Handler struct {
 	coalMu          sync.Mutex
 	buffers         map[string]*chatBuffer
 	coalesceWindow  time.Duration
+	graceWindow     time.Duration
 	coalesceMaxWait time.Duration
 	coalDeliver     func(context.Context, []pendingMsg)
 }
@@ -62,6 +63,7 @@ func NewHandler(c *Client, cfg *config.Config, log *transcript.Logger, opts *opt
 		permCache:       make(map[string]permEntry),
 		buffers:         make(map[string]*chatBuffer),
 		coalesceWindow:  defaultCoalesceWindow,
+		graceWindow:     defaultGraceWindow,
 		coalesceMaxWait: defaultCoalesceMaxWait,
 	}
 }

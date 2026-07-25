@@ -1,6 +1,9 @@
 {
   "name": "@1broseidon/hotline-harness-core",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "// private": "hotline ships as one signed binary from hotline.dev/install.sh; there is no registry in the distribution story. The harnesses are built from source in this repo and loaded by explicit path (HOTLINE_CLAUDE_SDK_ENTRY, or pi's extension path), so nothing here is meant to be published. private:true makes that structural \u2014 npm refuses to publish it \u2014 rather than a thing someone has to remember.",
   "private": true,
   "description": "Shared plumbing for hotline's TS harnesses (pi, claude-sdk): hotline-run child management, JSONL JSON-RPC framing, inbound envelope extraction, async queue, session persistence, auth report, logging. Zero runtime dependencies.",

@@ -60,7 +60,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install deps
         # Install at the WORKSPACE ROOT, not in harness/pi. Installing from a
@@ -98,7 +98,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install the workspace clean
         working-directory: harness

@@ -2,6 +2,9 @@
   "name": "@1broseidon/hotline-claude-sdk",
   "type": "module",
   "version": "0.2.0",
+  "engines": {
+    "node": ">=22"
+  },
   "// private": "Not published \u2014 see harness/core/package.json. Build it from source: cd harness/claude-sdk && npm install && npm run build, then point HOTLINE_CLAUDE_SDK_ENTRY at dist/index.js",
   "private": true,
   "description": "hotline Claude Agent SDK harness \u2014 the node child `hotline up` spawns (via HOTLINE_CLAUDE_SDK_ENTRY) to drive a Claude Agent SDK session over a hotline channel, with the turn-ledger delivery guarantee and auth containment.",

@@ -104,7 +104,7 @@ func TestReplyFallbackNudgeThenForward(t *testing.T) {
 	// backstop). This targets ses_live via GET /session.
 	in := harness.Inbound{
 		Content: "what subagents are available",
-		Meta:    map[string]string{"source": "telegram", "chat_id": "412407481"},
+		Meta:    map[string]string{"source": "telegram", "chat_id": "123456789"},
 	}
 	if err := link.PushInbound(ctx, in); err != nil {
 		t.Fatalf("PushInbound: %v", err)
@@ -136,7 +136,7 @@ func TestReplyFallbackNudgeThenForward(t *testing.T) {
 		if f.text != answer {
 			t.Fatalf("forwarded text = %q, want the assistant answer %q", f.text, answer)
 		}
-		if f.meta["chat_id"] != "412407481" || f.meta["source"] != "telegram" {
+		if f.meta["chat_id"] != "123456789" || f.meta["source"] != "telegram" {
 			t.Fatalf("forwarded meta = %+v, want the inbound routing keys", f.meta)
 		}
 	case <-time.After(3 * time.Second):

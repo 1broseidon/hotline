@@ -199,10 +199,10 @@ func TestLinkPushRendersChannelEnvelope(t *testing.T) {
 	in := harness.Inbound{
 		Content: "hey are you there",
 		Meta: map[string]string{
-			"chat_id":    "412407481",
+			"chat_id":    "123456789",
 			"source":     "telegram",
 			"user":       "George",
-			"user_id":    "412407481",
+			"user_id":    "123456789",
 			"message_id": "88",
 		},
 	}
@@ -219,7 +219,7 @@ func TestLinkPushRendersChannelEnvelope(t *testing.T) {
 
 	// The pushed text must carry the real chat_id and source so the agent can
 	// echo them back into hotline_reply verbatim.
-	if !strings.Contains(got, `chat_id="412407481"`) {
+	if !strings.Contains(got, `chat_id="123456789"`) {
 		t.Fatalf("pushed text missing real chat_id; got:\n%s", got)
 	}
 	if !strings.Contains(got, `source="telegram"`) {

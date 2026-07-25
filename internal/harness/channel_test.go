@@ -10,7 +10,7 @@ func TestRenderChannelIncludesRoutingKeys(t *testing.T) {
 		Content: "deploy the thing",
 		Meta: map[string]string{
 			"source":     "telegram",
-			"chat_id":    "412407481",
+			"chat_id":    "123456789",
 			"user":       "George",
 			"message_id": "42",
 		},
@@ -19,7 +19,7 @@ func TestRenderChannelIncludesRoutingKeys(t *testing.T) {
 
 	// source and chat_id lead, in that order — the routing keys the agent must
 	// echo into hotline_reply.
-	wantPrefix := `<channel source="telegram" chat_id="412407481"`
+	wantPrefix := `<channel source="telegram" chat_id="123456789"`
 	if !strings.HasPrefix(got, wantPrefix) {
 		t.Fatalf("envelope prefix = %q, want prefix %q", got, wantPrefix)
 	}

@@ -46,12 +46,9 @@ wires it up.
 
 Claude again, but managed: a headless node harness that drives a Claude Agent
 SDK session and owns the `hotline run` child itself, instead of Claude Code
-loading hotline as an MCP server. Two folders, because a rebuild is in flight:
-
-- [`claude-sdk/`](./claude-sdk) — 0.1, the one that runs today.
-- [`claude-sdk-v2/`](./claude-sdk-v2) — the 0.2.0 rebuild, built clean beside it.
-  Child identity stays `claude-sdk`; pointing `HOTLINE_CLAUDE_SDK_ENTRY` at its
-  `dist/index.js` IS the swap.
+loading hotline as an MCP server. One folder, [`claude-sdk/`](./claude-sdk), at
+0.2.0 — the turn-ledger delivery guarantee, reply enforcement, and auth
+containment.
 
 There is no registry install and no PATH lookup — the harness is repo-local, so
 you build it and name the entry point:
@@ -96,11 +93,11 @@ full Pi quickstart. Install docs live in [`pi/README.md`](./pi/README.md).
 
 ## core/ is not a harness
 
-[`core/`](./core) is the fourth subfolder and the odd one out: it is the shared
+[`core/`](./core) is the third subfolder and the odd one out: it is the shared
 TS library — child management, JSONL JSON-RPC, inbound extraction, queue,
-session, auth, logging — that claude-sdk, claude-sdk-v2, and pi all build on.
+session, auth, logging — that claude-sdk and pi both build on.
 Counting it as a harness gets you five; there are four. `harness/package.json`
-is the npm workspace tying the four packages together for local development.
+is the npm workspace tying the three packages together for local development.
 None of them is published: they all carry `"private": true` and are built from
 source in this checkout.
 

@@ -6,6 +6,19 @@ All notable changes to hotline are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **One claude-sdk harness.** The 0.1 implementation and the `claude-sdk-v2`
+  staging directory it was rebuilt beside are collapsed into a single package:
+  `harness/claude-sdk`, `@1broseidon/hotline-claude-sdk`, version 0.2.0, whose
+  contents are the 0.2.0 rebuild (turn ledger, fallback lane, Stop-hook reply
+  enforcement, auth containment). The 0.1 implementation is gone; nothing it had
+  was lost — the rebuild was a superset. Nothing named `v2` survives in a
+  package name, directory, or identifier. The child identity the harness spawns
+  is unchanged (`claude-sdk`), `HOTLINE_HARNESS=claude-sdk` is unchanged, and
+  `dist/.hotline-harness` still enforces the Go↔TS lockstep. Boxes pointing
+  `HOTLINE_CLAUDE_SDK_ENTRY` at `harness/claude-sdk-v2/dist/index.js` must
+  repoint at `harness/claude-sdk/dist/index.js`.
+
 ## [0.11.0] - 2026-07-25
 
 The v2 line. 318 commits since 0.10.0: a first-party mobile/web client and the

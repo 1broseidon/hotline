@@ -26,8 +26,28 @@ test("a row with no value is not selectable", () => {
   assert.equal(modelId({ displayName: "x" }), null);
   assert.equal(modelId({ value: "" }), null);
 });
-test("label prefers displayName", () => {
-  assert.equal(catalogLabel(SONNET, "sonnet"), "Sonnet");
+test("label prefers displayName, and names the generation it resolves to", () => {
+  assert.equal(catalogLabel(SONNET, "sonnet"), "Sonnet · sonnet-5");
+});
+test("an alias label says which model it actually is", () => {
+  // "default" and "opus[1m]" both point at opus-5; without the suffix the
+  // model row cannot tell the operator which generation it selects.
+  const DEFAULT = { value: "default", resolvedModel: "claude-opus-5[1m]", displayName: "Default (recommended)" };
+  assert.equal(catalogLabel(DEFAULT, "default"), "Default (recommended) · opus-5[1m]");
+  assert.ok([...catalogLabel(DEFAULT, "default")].length <= MAX_CATALOG_LABEL);
+});
+test("no suffix when resolvedModel is absent, equal to the id, or already shown", () => {
+  assert.equal(catalogLabel(OPUS, "claude-opus-4-8"), "Opus 4.8");
+  assert.equal(catalogLabel({ value: "sonnet", resolvedModel: "sonnet", displayName: "Sonnet" }, "sonnet"), "Sonnet");
+  assert.equal(
+    catalogLabel({ value: "x", resolvedModel: "claude-fable-5", displayName: "Fable · fable-5" }, "x"),
+    "Fable · fable-5",
+  );
+});
+test("a suffix that would not fit the cap is dropped, never truncated", () => {
+  // A truncated model name reads as a different model — worse than none.
+  const long = { value: "x", resolvedModel: "claude-some-very-long-model-name-5", displayName: "Some Long Display Name" };
+  assert.equal(catalogLabel(long, "x"), "Some Long Display Name");
 });
 test("label falls back to the id when displayName is absent", () => {
   assert.equal(catalogLabel(HAIKU, "claude-haiku-4-5-20251001"), "claude-haiku-4-5-20251001");
@@ -44,7 +64,7 @@ test("mapping: value -> id, displayName -> label, available always true", () => 
   assert.deepEqual(
     cat.models,
     [
-      { id: "sonnet", label: "Sonnet", available: true },
+      { id: "sonnet", label: "Sonnet · sonnet-5", available: true },
       { id: "claude-opus-4-8", label: "Opus 4.8", available: true },
     ],
   );

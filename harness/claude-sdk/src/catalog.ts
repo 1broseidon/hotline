@@ -83,10 +83,31 @@ export function modelId(model: SdkModelInfoLike): string | null {
 }
 
 /** Display label: `displayName` capped at 40, falling back to the bare id
- * when displayName is absent/blank. */
+ * when displayName is absent/blank.
+ *
+ * When `resolvedModel` names a different model than the row's own id/name,
+ * it is appended — aliases like "default" and "opus[1m]" otherwise hide
+ * which generation they point at, so the app's model row cannot show that
+ * "Opus (1M context)" is in fact claude-opus-5. The generation is the whole
+ * reason the operator opens that row.
+ *
+ * The suffix drops the constant "claude-" vendor prefix: verbatim,
+ * "Default (recommended) · claude-opus-5[1m]" is 41 code points against the
+ * 40-cap the box mirrors, so the row the session actually runs would be the
+ * one row to lose its generation. Eliding a fixed prefix keeps every row
+ * inside the cap and still names the model exactly. The row's `id` — the
+ * string setModel round-trips — is never touched. A suffix that still would
+ * not fit is dropped whole, since a truncated model name reads as a
+ * different model. */
 export function catalogLabel(model: SdkModelInfoLike, id: string): string {
   const name = typeof model.displayName === "string" ? model.displayName.trim() : "";
-  return line(name !== "" ? name : id, MAX_CATALOG_LABEL);
+  const base = line(name !== "" ? name : id, MAX_CATALOG_LABEL);
+  const resolved = typeof model.resolvedModel === "string" ? model.resolvedModel.trim() : "";
+  if (resolved === "" || resolved === id) return base;
+  const shown = resolved.startsWith("claude-") ? resolved.slice("claude-".length) : resolved;
+  if (shown === "" || base.includes(shown)) return base;
+  const withResolved = `${base} · ${shown}`;
+  return [...withResolved].length <= MAX_CATALOG_LABEL ? withResolved : base;
 }
 
 /**

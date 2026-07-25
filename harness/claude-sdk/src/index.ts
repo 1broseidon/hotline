@@ -1,20 +1,23 @@
 /**
- * hotline claude-sdk harness — entry point.
+ * hotline claude-sdk harness (0.2.0) — entry point.
  *
- * An alternate managed edition of the claude harness built on the Claude Agent
- * SDK. Shaped like the pi harness: a headless piped process under `hotline up`
- * that spawns one `hotline run` child (HOTLINE_HARNESS=claude-sdk — the Go
- * side's first-class injected-harness branch, run_claudesdk.go), injects
- * inbound channel notifications as user turns into a long-lived SDK session,
- * and proxies hotline's tools to the agent via an in-process MCP server. This
- * owns the two-way loop in our own code — no
- * --dangerously-load-development-channels, no pty, no consent UI.
+ * A managed edition of the claude harness built on the Claude Agent SDK, built
+ * around a turn ledger that guarantees delivery: it knows, for every inbound
+ * envelope, which SDK turn consumed it and whether that turn answered the
+ * channel. An operator turn that ends in bare assistant text (no reply call) is
+ * caught by the M1 fallback lane; a dead credential is contained by M2's auth
+ * watch instead of respawning forever in silence.
+ *
+ * The child identity it spawns is `claude-sdk` — the Go side's first-class
+ * injected-harness branch (run_claudesdk.go) — and dist/.hotline-harness
+ * records that so `hotline up` can refuse a stale build.
  *
  * Exit codes:
  *   0 clean shutdown (SIGTERM/SIGINT)
  *   1 agent stream ended/failed unexpectedly (supervisor respawns)
  *   3 fatal child condition (binary missing, box ownership conflict)
  *   4 child never became ready within the startup timeout
+ *   5 auth-fatal: credentials dead ≥3 times; supervisor cold-loops (M2)
  */
 
 import { spawn } from "node:child_process";
@@ -22,6 +25,7 @@ import type { Options, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-
 import { ChildManager } from "@1broseidon/hotline-harness-core/child";
 import {
   timeoutsFromEnv,
+  mcpCallTool,
   type InitializeResult,
   type McpTool,
   JsonRpcClient,
@@ -29,64 +33,101 @@ import {
 import { AsyncQueue } from "@1broseidon/hotline-harness-core/queue";
 import { sessionFilePath, loadSessionId } from "@1broseidon/hotline-harness-core/session";
 import { resolveAuth } from "@1broseidon/hotline-harness-core/auth";
-import { toUserMessage } from "./inbound.js";
+import { toInboundTurn, internalTurn } from "./inbound.js";
 import { buildHotlineProxy } from "./proxy.js";
 import { runAgent } from "./agent.js";
 import { createSdkApplyHandler } from "./sdkapply.js";
 import { createJobCards, autoJobsEnabled } from "./jobcards.js";
 import { buildSdkCatalog } from "./catalog.js";
 import { SdkMissionLoop, parseContextCap, usageFromSdk } from "./missionControl.js";
+import { TurnLedger } from "./ledger.js";
+import { createFallbackExecutor } from "./fallback.js";
+import {
+  createAuthWatch,
+  classifyAuthMessage,
+  classifyAuthThrow,
+  saveLastOperator,
+  loadLastOperator,
+} from "./authwatch.js";
+import { CONTRACT_REMINDER } from "./contract.js";
 import { log } from "./log.js";
 
 const READY_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 10_000;
 const HARNESS_CATALOG_NOTIFICATION = "notifications/hotline/harness_catalog";
 
-/** Wrap a plain string as a streaming-input user turn (same shape as
- * inbound.ts's toUserMessage output), for mission-control injected turns. */
-function sdkUserTurn(content: string): SDKUserMessage {
-  return { type: "user", message: { role: "user", content }, parent_tool_use_id: null };
+/** HOTLINE_SDK_FALLBACK, default ON; disabled by 0|false|off|no (the parser
+ * family autoJobsEnabled uses, jobcards.ts). */
+function fallbackKnobEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env.HOTLINE_SDK_FALLBACK ?? "").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "off" && v !== "no";
 }
 
+/** Attribution mode (design §3.5): uuid echo by default; pull-window is the
+ * conservative fallback if a runtime smoke shows the echo drops the client
+ * uuid. Selectable so M1 can ship either way; the boot log states which is
+ * live. */
+function attributionMode(env: NodeJS.ProcessEnv = process.env): "echo" | "pull-window" {
+  return (env.HOTLINE_SDK_ATTRIBUTION ?? "").trim().toLowerCase() === "pull-window"
+    ? "pull-window"
+    : "echo";
+}
+
+/** M1.1 enforcement mode. HOTLINE_SDK_ENFORCE=stop-hook (default) installs a
+ * Stop hook that blocks a turn from ending while it still owes the operator a
+ * reply — the locked door in front of the fallback lane's safety net. `off`
+ * removes the hook (fallback lane only). Independent of HOTLINE_SDK_FALLBACK. */
+function enforceMode(env: NodeJS.ProcessEnv = process.env): "stop-hook" | "off" {
+  return (env.HOTLINE_SDK_ENFORCE ?? "").trim().toLowerCase() === "off" ? "off" : "stop-hook";
+}
+
+/** Max Stop-hook blocks per turn before letting it end and delivering via the
+ * fallback lane (design §M1.1). */
+const MAX_STOP_BLOCKS = 2;
+
 async function main(): Promise<void> {
-  // 1. Auth report (never the value): the SDK resolves credentials itself; we
-  //    log which source wins so harness.log tells the truth. No env var set is
-  //    NOT an error — a stored `claude login` may exist.
   const auth = resolveAuth(process.env);
   log.info(`auth source: ${auth.source} — ${auth.note}`);
 
-  // 2. Start the hotline child and await its first ready (handshake + tools).
+  const supervisorDir = process.env.HOTLINE_SUPERVISOR_DIR || undefined;
+  const timeouts = timeoutsFromEnv("HOTLINE_SDK");
+  const fallbackEnabled = fallbackKnobEnabled();
+  const attribution = attributionMode();
+  const enforce = enforceMode();
+
   const queue = new AsyncQueue<SDKUserMessage>();
   let toolsSnapshot: McpTool[] = [];
   let shuttingDown = false;
 
-  // Wire metadata (spec §5.3): report harness kind + resolved model to the
-  // run child over the same stdio, so the box can stamp welcome/agent_state.
-  // The harness field is ALWAYS sent (the box needs no TS-version inference);
-  // the model rides along once the SDK init resolves it. Resent on every
-  // child ready — a respawned child starts with only its config seed.
-  //
-  // PRESENCE, not just value (hot-clear amendment). The box distinguishes three
-  // states per field: omitted = "not reported, leave it alone"; "" = "reported
-  // as CLEARED"; a value = the live one. Omitting a cleared field is what used
-  // to make the box keep advertising the old model after a clear — and keep its
-  // no-op check believing that model was live, so re-selecting it later was
-  // answered "already effective" and never applied.
-  //
-  // The `cleared` flags are only set by an explicit hot clear. At boot an unset
-  // knob is genuinely UNKNOWN, not cleared, so it stays omitted and the box's
-  // config seed survives — which is the pre-amendment behaviour, unchanged.
+  // The turn ledger (design §3.4): the single source of truth for delivery
+  // attribution, driven from the stream loop + hooks.
+  const ledger = new TurnLedger();
+
+  // Whether the box is multi-provider — the reply schema only carries a
+  // required `source` property then (server.go withSourceProperty). We read the
+  // live reply tool schema rather than guess, so the fallback and the auth
+  // notify pass `source` only when the wire actually needs it.
+  const multiProvider = (): boolean => {
+    const reply = toolsSnapshot.find((t) => t.name === "reply");
+    const schema = reply?.inputSchema as { required?: unknown } | undefined;
+    return Array.isArray(schema?.required) && (schema!.required as unknown[]).includes("source");
+  };
+
   let resolvedModel: string | undefined;
   let modelCleared = false;
   let effortCleared = false;
+  let laneFired = 0;
   const sendHarnessInfo = (): void => {
     const client = manager.getClient();
-    if (!client) return; // child down mid-respawn: dropped, resent on next ready
+    if (!client) return;
     const effort = process.env.HOTLINE_SDK_EFFORT || undefined;
     client.notify("notifications/hotline/harness_info", {
       harness: "claude-sdk",
       model: resolvedModel ?? (modelCleared ? "" : undefined),
       effort: effort ?? (effortCleared ? "" : undefined),
+      // Lane telemetry (design §3.7): the option-c decision input. Presence
+      // only when >0; old binaries unmarshal-ignore the unknown field.
+      fallback_count: laneFired > 0 ? laneFired : undefined,
     });
   };
 
@@ -95,22 +136,6 @@ async function main(): Promise<void> {
     readyResolve = resolve;
   });
 
-  // SDK hot-model apply (amendment 2026-07-19): the live Query handle, set by
-  // runAgent's onQuery hook (null between sessions). The box forwards a
-  // model-only set_sdk_config as a sdk_apply notification; the handler
-  // validates against the CLI's supportedModels, calls the setModel control
-  // on the live session (no restart, the wire never drops), restamps
-  // harness_info, and answers on sdk_apply_result — the box persists to .env
-  // only after that ok (persist-after-ok).
-  //
-  // sessionGeneration fences an in-flight apply against the session moving
-  // underneath it. An apply is several awaits long (supportedModels, then the
-  // control calls), and both things it depends on can be replaced mid-flight:
-  // runAgent ends one query and starts another (a stream end, or the
-  // retry-without-resume path), and ChildManager respawns the hotline child
-  // that carries the result notification. Bumping here on BOTH events lets
-  // sdkapply re-check after every await and refuse (no_session) rather than
-  // push a model onto a dead query and report success for the live one.
   let activeQuery: Query | null = null;
   let sessionGeneration = 0;
   const handleSdkApply = createSdkApplyHandler({
@@ -119,28 +144,15 @@ async function main(): Promise<void> {
     notifyResult: (result) => {
       const client = manager.getClient();
       if (!client) {
-        // Child down mid-respawn: the box's pending timer surfaces
-        // harness_unreachable; nothing was persisted, retry is safe.
         log.warn(`sdk_apply ${result.rid}: child down; result dropped`);
         return;
       }
       client.notify("notifications/hotline/sdk_apply_result", result);
     },
     onApplied: (applied) => {
-      // The harness env is what a harness-spawned respawned child would
-      // inherit, and buildOptions re-reads it on a same-process re-query — a
-      // respawn must not revert a confirmed hot apply even before the box's
-      // .env persist lands. Only the fields the request changed are touched.
       if (applied.model !== undefined) {
         if (applied.model === "") delete process.env.HOTLINE_SDK_MODEL;
         else process.env.HOTLINE_SDK_MODEL = applied.model;
-        // Clear-to-default: after setModel(undefined) no init message fires and
-        // there is no getModel, so the id the default resolves to is unknowable
-        // here. That is why the clear is reported as PRESENCE ("") rather than
-        // by omission — the box learns "there is no explicit model any more",
-        // which is true and useful, instead of nothing, which left it
-        // advertising the old id indefinitely. The next init message replaces
-        // it with the resolved truth.
         resolvedModel = applied.resolvedModel;
         modelCleared = applied.model === "";
       }
@@ -154,23 +166,12 @@ async function main(): Promise<void> {
     log,
   });
 
-  // Model catalog (spec workstream 3): the selectable set behind harness_info,
-  // so the app's model row shows THIS box's models rather than a compiled-in
-  // list. pi precedent: sent on child-ready. claude-sdk has a second edge — a
-  // live Query is required for supportedModels(), and the query is not up yet
-  // at the FIRST child-ready — so this no-ops unless BOTH the child and an
-  // active query exist, and is called again from onInit (once per query,
-  // right after the init message — same moment resolvedModel restamps
-  // harness_info). Fire-and-forget, pi posture: never throws, empty list = box
-  // keeps its curated fallback.
   const sendHarnessCatalog = (): void => {
     const client = manager.getClient();
     const q = activeQuery;
     if (!client || !q) return;
     q.supportedModels()
       .then((models) => {
-        // The client may have gone down mid-fetch (respawn); the notify
-        // guard below re-checks, same as pi's report-dropped path.
         const currentClient = manager.getClient();
         if (!currentClient) {
           log.warn("catalog: child down; report dropped");
@@ -186,23 +187,45 @@ async function main(): Promise<void> {
       .catch((err: unknown) => log.warn(`catalog: report failed: ${String(err)}`));
   };
 
-  // FB13 job cards (spec workstream 1): bridge task_started/task_updated
-  // stream messages to `hotline job`. Opt-out via HOTLINE_AUTO_JOBS; the
-  // binary is HOTLINE_BIN (the supervisor's own binary, pinned into the
-  // child env at cmd_up.go:443-444) falling back to "hotline" on PATH.
   const jobCards = autoJobsEnabled()
     ? createJobCards({ binary: process.env.HOTLINE_BIN || "hotline", log })
     : null;
 
-  // Mission control (spec workstream 2): the compaction/handoff loop. Reads
-  // HOTLINE_MC_CONTEXT_CAP from real env (D2: a .env-only cap reaches neither
-  // this harness nor pi — real-env-only, deliberately identical to pi). The
-  // loop is a pure state machine; these closures bridge it to the live session:
-  //   - armNudge  → pendingNudge, drained once by the UserPromptSubmit hook.
-  //   - sendHandoffTurn / queueCompact → queue.push, the SAME inbound path
-  //     operator turns take, so ordering with operator traffic is preserved.
-  //   - mechanicalHandoff → `hotline mission handoff --trigger auto …`; a
-  //     promise so the PreCompact hook can await it before compaction proceeds.
+  // M1 fallback lane executor: sends the buffered turn text via reply on the
+  // live child when an operator turn ended uncovered.
+  const fallbackExecutor = createFallbackExecutor({
+    getClient: () => manager.getClient(),
+    multiProvider,
+    log,
+    onFired: () => {
+      laneFired++;
+      sendHarnessInfo();
+    },
+  });
+
+  // M2 auth watch: the notify closure reads last-operator and speaks through the
+  // still-healthy channel child.
+  const authWatch = createAuthWatch({
+    supervisorDir,
+    log,
+    notify: async (errorText: string): Promise<boolean> => {
+      const client = manager.getClient();
+      const last = loadLastOperator(supervisorDir);
+      if (!client || !last) return false;
+      const args: Record<string, unknown> = {
+        chat_id: last.chat_id,
+        text: `my Claude credentials are dead (${errorText}) — I can't think until you run \`claude login\` on the box / fix the key. I'll keep checking every 10 minutes.`,
+      };
+      if (last.source && multiProvider()) args.source = last.source;
+      try {
+        const res = await mcpCallTool(client, "reply", args, timeouts.callTimeoutMs);
+        return res.isError !== true;
+      } catch {
+        return false;
+      }
+    },
+  });
+
   const hotlineBinary = process.env.HOTLINE_BIN || "hotline";
   const missionCap = parseContextCap(process.env);
   let pendingNudge = "";
@@ -228,20 +251,31 @@ async function main(): Promise<void> {
     armNudge: (line) => {
       pendingNudge = line;
     },
-    sendHandoffTurn: (prompt) => queue.push(sdkUserTurn(prompt)),
-    queueCompact: (instructions) => queue.push(sdkUserTurn(`/compact ${instructions}`)),
+    // Mission-injected turns are uuid-stamped and marked internal in the ledger
+    // so the settle procedure excludes them (no monologue leakage) while still
+    // feeding mission fencing.
+    sendHandoffTurn: (prompt) => {
+      const { msg, uuid } = internalTurn(prompt);
+      ledger.register(uuid, null, "handoff");
+      queue.push(msg);
+    },
+    queueCompact: (instructions) => {
+      const { msg, uuid } = internalTurn(`/compact ${instructions}`);
+      ledger.register(uuid, null, "compact");
+      queue.push(msg);
+    },
     mechanicalHandoff: (state, next) => runMechanicalHandoff(state, next),
     log: (msg) => log.info(`mission: ${msg}`),
     warn: (msg) => log.warn(`mission: ${msg}`),
   });
   log.info(`mission: handoff loop armed (cap ${missionCap ?? "unset"})`);
+  log.info(`lane: attribution=${attribution} fallback=${fallbackEnabled ? "on" : "off"} enforce=${enforce}`);
 
-  // The hooks half of mission control. Registered on Options.hooks; every
-  // callback is best-effort and never throws a session down.
   const missionHooks: NonNullable<Options["hooks"]> = {
-    // Layer 1: inject the armed 80% nudge as additionalContext, consumed once.
-    // Also capture the last REAL user prompt for the mechanical fallback's
-    // state note (skipping our own injected turns so it stays meaningful).
+    // Layer 1: ALWAYS re-inject the reply contract as additionalContext (design
+    // §2.3 — the per-turn recency the one-shot preset append lacked), plus the
+    // armed 80% nudge when present. Also capture the last REAL user prompt for
+    // the mechanical fallback's state note.
     UserPromptSubmit: [
       {
         hooks: [
@@ -250,21 +284,20 @@ async function main(): Promise<void> {
             if (prompt && !prompt.startsWith("/compact") && !prompt.startsWith("[mission-control]")) {
               missionLoop.noteUserPrompt(prompt);
             }
+            let additionalContext = CONTRACT_REMINDER;
             if (pendingNudge) {
-              const additionalContext = pendingNudge;
+              additionalContext = `${CONTRACT_REMINDER}\n\n${pendingNudge}`;
               pendingNudge = "";
-              return {
-                hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext },
-              };
             }
-            return { continue: true };
+            return {
+              hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext },
+            };
           },
         ],
       },
     ],
-    // The mission-handoff observation (equal to pi's tool_result seam): the
-    // result's error status is visible here.
     PostToolUse: [
+      // Mission handoff observation.
       {
         matcher: "mcp__hotline__mission",
         hooks: [
@@ -279,12 +312,26 @@ async function main(): Promise<void> {
           },
         ],
       },
+      // M1 T5: a reply that SUCCEEDED covers its (source, chat_id) group. A
+      // reply the proxy answered with the retryable channel-down isError covers
+      // nothing (success-only, design §3.4 T5).
+      {
+        matcher: "mcp__hotline__reply",
+        hooks: [
+          async (input) => {
+            const i = input as {
+              tool_input?: { source?: unknown; chat_id?: unknown };
+              tool_response?: { isError?: unknown };
+            };
+            if (i.tool_response?.isError === true) return { continue: true };
+            const source = typeof i.tool_input?.source === "string" ? i.tool_input.source : undefined;
+            const chatId = typeof i.tool_input?.chat_id === "string" ? i.tool_input.chat_id : undefined;
+            ledger.onReplySuccess(source, chatId);
+            return { continue: true };
+          },
+        ],
+      },
     ],
-    // The CLI-auto divergence (spec §2 resolution): PreCompact cannot cancel,
-    // but it is AWAITED — so on an automatic compaction with no fresh handoff we
-    // write the mechanical handoff synchronously and compaction proceeds only
-    // after it lands. A manual `/compact` (including our own cap-path one) is
-    // left alone.
     PreCompact: [
       {
         hooks: [
@@ -306,16 +353,49 @@ async function main(): Promise<void> {
     ],
   };
 
+  // M1.1: the locked door. When the ending turn still owes the operator a reply
+  // (an operator conversation is awaiting delivery and this turn wasn't covered
+  // by a successful reply call), block the stop and instruct an immediate reply
+  // in voice — the same `activeUncoveredGroups()` predicate the settle uses, so
+  // the door and the fallback net agree on "unanswered". Cap: MAX_STOP_BLOCKS
+  // per turn (epoch-scoped), then let it end and the fallback lane delivers.
+  if (enforce === "stop-hook") {
+    missionHooks.Stop = [
+      {
+        hooks: [
+          async () => {
+            try {
+              const pending = ledger.activeUncoveredGroups();
+              if (pending.length === 0) return { continue: true };
+              const chat = pending[0].chat_id;
+              if (ledger.stopBlockCount >= MAX_STOP_BLOCKS) {
+                log.info(
+                  `lane: settle blocked-by-hook exhausted (chat=${chat} blocks=${ledger.stopBlockCount}) — letting the turn end; fallback lane delivers`,
+                );
+                return { continue: true };
+              }
+              ledger.noteStopBlock();
+              log.info(
+                `stop-hook: blocked-by-hook (${ledger.stopBlockCount}/${MAX_STOP_BLOCKS} chat=${chat}) — operator turn ended without a reply call`,
+              );
+              return {
+                decision: "block",
+                reason:
+                  `You ended this turn without calling mcp__hotline__reply, so the operator has NOT seen anything you wrote — you are running headless, there is no terminal, your assistant text goes nowhere. Call mcp__hotline__reply now (chat_id="${chat}") with your answer, in your own voice, in bubbles. That tool is the only way to be heard.`,
+              };
+            } catch (err) {
+              log.warn(`stop-hook: enforcement threw: ${String(err)}`);
+              return { continue: true };
+            }
+          },
+        ],
+      },
+    ];
+  }
+
   const manager = new ChildManager({
     binary: process.env.HOTLINE_BIN || "hotline",
     args: ["run"],
-    // The Go child selects its injected-harness branch (run_claudesdk.go:
-    // pre-rendered <channel> envelope, permission relay off, uncapped
-    // instructions, replayCatchup) from HOTLINE_HARNESS. Set it explicitly —
-    // not merely inherited — so a stale value in an operator shell can never
-    // flip the child's identity; the child's ClaimBox must match the
-    // supervisor's claude-sdk reservation. HOTLINE_SUPERVISOR_DIR and the
-    // owner lease flow through untouched.
     env: { ...process.env, HOTLINE_HARNESS: "claude-sdk" },
     clientName: "hotline-claude-sdk",
     timeouts: timeoutsFromEnv("HOTLINE_SDK"),
@@ -323,8 +403,6 @@ async function main(): Promise<void> {
     log,
     onNotification: (method, params) => {
       if (method === "notifications/hotline/sdk_apply") {
-        // Hot model apply: async, never blocks the notification dispatcher;
-        // every path settles by notifying an sdk_apply_result.
         void handleSdkApply(params);
         return;
       }
@@ -332,17 +410,23 @@ async function main(): Promise<void> {
         log.info(`ignoring notification ${method}`);
         return;
       }
-      const msg = toUserMessage(params);
-      if (msg === null) {
+      const turn = toInboundTurn(params);
+      if (turn === null) {
         log.warn("dropping channel notification with no usable content");
         return;
       }
-      queue.push(msg);
+      // T1: register with the ledger BEFORE the push, so the attribution key
+      // exists before the SDK can echo it.
+      const klass = ledger.register(turn.uuid, turn.env);
+      if (klass === "operator" && turn.env?.chat_id) {
+        // M2 last-operator target (design §4.2): persisted on every operator
+        // envelope the ledger registers.
+        saveLastOperator(supervisorDir, turn.env.source, turn.env.chat_id);
+      }
+      queue.push(turn.msg);
     },
     onReady: (_client: JsonRpcClient, init: InitializeResult, tools: McpTool[]) => {
       toolsSnapshot = tools;
-      // A respawned child is a new result channel: any apply captured against
-      // the old one can no longer be answered, so fence it.
       sessionGeneration += 1;
       sendHarnessInfo();
       sendHarnessCatalog();
@@ -374,12 +458,10 @@ async function main(): Promise<void> {
   const instructions = init.instructions ?? "";
   if (instructions === "") log.warn("child initialize carried no instructions");
 
-  // 3. Session continuity.
   const sessionFile = sessionFilePath("claude-sdk-session.json");
   const savedSessionId = loadSessionId(sessionFile);
   if (savedSessionId) log.info(`resuming SDK session ${savedSessionId}`);
 
-  // 4. The SDK session, fed by the inbound queue.
   const proxy = buildHotlineProxy({
     getClient: () => manager.getClient(),
     getTools: () => toolsSnapshot,
@@ -391,8 +473,8 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info(`${sig} received; shutting down`);
-    // Close the generator; the SDK finishes the in-flight turn then ends the
-    // stream. A grace timer aborts a wedged turn.
+    const unsettled = ledger.unsettledCount();
+    if (unsettled > 0) log.warn(`lane: ${unsettled} envelope(s) unsettled at shutdown (no fallback on the abort path)`);
     queue.close();
     setTimeout(() => {
       log.warn(`shutdown grace period (${SHUTDOWN_GRACE_MS}ms) expired; aborting session`);
@@ -412,10 +494,8 @@ async function main(): Promise<void> {
     isShuttingDown: () => shuttingDown,
     onInit: (model) => {
       resolvedModel = model;
-      modelCleared = false; // the session resolved a real id; nothing is cleared
+      modelCleared = false;
       sendHarnessInfo();
-      // The second catalog edge (spec workstream 3): a live Query exists now,
-      // right after the init message — the earliest supportedModels() can run.
       sendHarnessCatalog();
     },
     onQuery: (q) => {
@@ -423,10 +503,36 @@ async function main(): Promise<void> {
       sessionGeneration += 1;
     },
     onMessage: jobCards ? (msg) => jobCards.onMessage(msg) : undefined,
-    // Mission control (spec workstream 2): hooks ride Options; onResult polls
-    // getContextUsage() per settle and steps the loop; onCompactBoundary resets
-    // the cycle once compaction lands.
     hooks: missionHooks,
+    // M1 ledger stream-side transitions.
+    onUserEcho: attribution === "echo" ? (uuid, isReplay) => ledger.onUserEcho(uuid, isReplay) : undefined,
+    onPull: attribution === "pull-window" ? (uuid) => ledger.onUserEcho(uuid, false) : undefined,
+    onAssistantText: (texts) => ledger.onAssistantText(texts),
+    onSettle: async (subtype) => {
+      const plan = ledger.onResult(subtype, fallbackEnabled);
+      // Goal 3: one log line per settle outcome — tonight's silent-miss
+      // debugging must never repeat. (fired is logged by the executor below;
+      // blocked-by-hook is logged by the Stop hook.)
+      if (plan.ambiguous) {
+        log.info(`lane: settle ambiguous-continuation (>1 conversation awaiting, none delivered this turn) — forwarding nothing`);
+      }
+      if (plan.multiTarget) {
+        log.info(`lane: lane_multi_target (groups settled together this turn)`);
+      }
+      for (const g of plan.replySatisfied) {
+        log.info(`lane: settle reply-satisfied (source=${g.source ?? "-"} chat=${g.chat_id})`);
+      }
+      for (const m of plan.misses) {
+        log.info(`lane: settle miss (source=${m.source ?? "-"} chat=${m.chat_id} why=${m.reason})`);
+      }
+      if (plan.fallbacks.length > 0) await fallbackExecutor.run(plan.fallbacks);
+    },
+    onTeardown: () => ledger.revertOnTeardown(),
+    // M2 auth containment.
+    classifyAuthFailure: classifyAuthMessage,
+    classifyAuthThrow: classifyAuthThrow,
+    onAuthReset: () => authWatch.onInit(),
+    onAuthFailure: (errorText) => authWatch.onAuthFailure(errorText),
     onResult: async (q) => {
       try {
         const res = await q.getContextUsage();

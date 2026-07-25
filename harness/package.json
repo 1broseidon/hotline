@@ -1,12 +1,12 @@
 {
   "name": "hotline-harnesses",
   "private": true,
-  "workspaces": ["core", "claude-sdk", "claude-sdk-v2", "pi"],
+  "workspaces": ["core", "claude-sdk", "pi"],
   "scripts": {
     "// prepare": "core and claude-sdk export from dist/, which is gitignored — a clean checkout has no code behind those exports until something builds. npm 11 does NOT run a WORKSPACE package's prepare on a root install, so the hook has to live here; core keeps its own prepare/prepack for the publish path.",
     "prepare": "npm run build",
-    "build": "npm run build -w core && npm run build -w claude-sdk && npm run build -w claude-sdk-v2",
-    "typecheck": "npm run typecheck -w core && npm run typecheck -w claude-sdk && npm run typecheck -w claude-sdk-v2 && npm run typecheck -w pi",
-    "test": "npm test -w core && npm test -w claude-sdk && npm test -w claude-sdk-v2 && npm test -w pi"
+    "build": "npm run build -w core && npm run build -w claude-sdk",
+    "typecheck": "npm run typecheck -w core && npm run typecheck -w claude-sdk && npm run typecheck -w pi",
+    "test": "npm test -w core && npm test -w claude-sdk && npm test -w pi"
   }
 }

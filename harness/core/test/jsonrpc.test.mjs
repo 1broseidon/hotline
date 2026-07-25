@@ -46,7 +46,18 @@ test("ids start at 1", () => {
 test("timeout rejects and a late response is dropped", async () => {
   const { client } = makeClient();
   const p = client.request("tools/call", {}, 20);
-  await assert.rejects(p, /timed out after 20ms/);
+  // The request timer is deliberately unref'd (jsonrpc.ts: a pending request
+  // must never hold the process open), so it cannot keep the event loop alive
+  // by itself. Without a ref'd timer here node drains the loop before the 20ms
+  // timeout fires, `p` never settles, and the runner reports "Promise
+  // resolution is still pending but the event loop has already resolved" —
+  // taking the rest of the file down with it as cancelledByParent.
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    await assert.rejects(p, /timed out after 20ms/);
+  } finally {
+    clearTimeout(keepAlive);
+  }
   // Late response: dropped as unknown id, no throw.
   client.feed(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }) + "\n");
 });

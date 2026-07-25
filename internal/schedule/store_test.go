@@ -261,3 +261,44 @@ func TestConcurrentMutateNoLostUpdates(t *testing.T) {
 		seen[s.ID] = true
 	}
 }
+
+// TestObserveFiresOnMutate verifies a registered observer runs after every
+// successful Mutate of ITS path only, and that unsubscribe stops it (the hook
+// the app agent_state emitter uses; P2-5).
+func TestObserveFiresOnMutate(t *testing.T) {
+	path := tmpPath(t)
+	otherPath := tmpPath(t)
+	var fired, otherFired int
+	unsub := Observe(path, func() { fired++ })
+	defer unsub()
+	unsubOther := Observe(otherPath, func() { otherFired++ })
+	defer unsubOther()
+
+	stored, err := Add(path, mkSchedule(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fired < 1 {
+		t.Fatalf("observer did not fire on Add")
+	}
+	if otherFired != 0 {
+		t.Fatalf("observer for a different path fired %d times; notifications must be path-scoped", otherFired)
+	}
+	before := fired
+	if _, err := Remove(path, stored.ID); err != nil {
+		t.Fatal(err)
+	}
+	if fired <= before {
+		t.Fatalf("observer did not fire on Remove")
+	}
+
+	// After unsubscribe, further mutations are silent.
+	unsub()
+	after := fired
+	if _, err := Add(path, mkSchedule(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if fired != after {
+		t.Fatalf("unsubscribed observer fired (was %d, now %d)", after, fired)
+	}
+}

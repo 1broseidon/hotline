@@ -2,6 +2,12 @@
 /hotline
 /tele-go
 
+# Scratch/experiment builds. `bin/` is where hand-built variants land while a
+# harness or feature is being proven; an 18MB Go binary is never a source artifact.
+/bin/
+/hotline-*
+*.test
+
 # Local, machine-specific Claude Code settings
 .claude/settings.local.json
 
@@ -10,3 +16,35 @@ coverage.out
 *.coverprofile
 /dist/
 .wrangler/
+
+# Node
+node_modules/
+
+# Credentials and box state — none of this has ever belonged in the repo, and
+# this is the fence that keeps a careless `git add -A` from putting it there.
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+credentials.json
+credentials/
+.npmrc
+.netrc
+id_rsa*
+id_ed25519*
+
+# Runtime box state (state dirs, identity, relay/mailbox journals, transcripts).
+box-key.json
+relay-state.json
+mailboxes.json
+outbox.jsonl
+transcript.jsonl
+fleet.log
+*-state/

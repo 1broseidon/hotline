@@ -43,3 +43,112 @@ jobs:
 
       - name: Test
         run: make test
+
+  harness-pi:
+    # review F2: the TS lane (@1broseidon/hotline-pi) and its cross-language
+    # goldens drift gate had NO CI coverage — a Go-side schema/instructions change
+    # could merge CI-green with stale goldens and a silently drifted TS contract.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # gen:goldens builds the real hotline binary, so the Go toolchain is needed.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        working-directory: harness/pi
+        # No lockfile (peers are floating "*"); npm 7+ installs peerDependencies.
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: harness/pi
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: harness/pi
+        run: npm test
+
+      - name: Goldens are up to date
+        # Regenerate from the real binary and fail if the tree drifts (design T9).
+        run: |
+          npm run gen:goldens --prefix harness/pi
+          git diff --exit-code -- harness/pi/test/goldens.json
+
+  harness-workspace:
+    # sol review F9: CI ran the pi lane ONLY. core and claude-sdk — the shared
+    # plumbing and the whole Agent SDK harness — had no coverage at all, and a
+    # locally-present (gitignored) dist/ masked the fact that a clean checkout
+    # cannot even resolve core's exports. This lane is deliberately a CLEAN
+    # workspace install: it is the only place the prepare/prepack build hook is
+    # actually exercised the way a fresh clone or a publish would exercise it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install the workspace clean
+        working-directory: harness
+        # No --ignore-scripts: the root `prepare` building core + both
+        # claude-sdk packages is
+        # precisely what is under test. If it regresses, the next step's import
+        # of @1broseidon/hotline-harness-core/* fails here rather than in
+        # someone's fresh clone.
+        run: npm install --no-audit --no-fund
+
+      - name: core exports resolve from a clean checkout
+        working-directory: harness
+        run: |
+          node -e "import('@1broseidon/hotline-harness-core/queue').then(m => {
+            if (typeof m.AsyncQueue !== 'function') { throw new Error('core/queue did not export AsyncQueue'); }
+            console.log('core exports resolve');
+          })"
+
+      - name: Typecheck (core, claude-sdk, claude-sdk-v2, pi)
+        working-directory: harness
+        run: npm run typecheck
+
+      - name: Test (core, claude-sdk, claude-sdk-v2, pi)
+        working-directory: harness
+        # core's `test` runs check:parity first, so the cross-language drift
+        # gate rides this lane too.
+        run: npm test
+
+      - name: core packs with its built dist
+        working-directory: harness/core
+        # Not a publish rehearsal — the harnesses are private and never ship to a
+        # registry. This is the packaging invariant that still bites: every export
+        # points at dist/, which is gitignored, so a pack without the prepack build
+        # produces an archive with no code in it. Same failure a consumer hits
+        # resolving those exports from a clean tree. `npm pack` works fine on a
+        # private package; only `npm publish` refuses.
+        run: |
+          rm -rf dist
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          grep -q "dist/queue.js" /tmp/pack.txt || { echo "prepack did not build dist/ — core's exports would resolve to nothing"; exit 1; }
+
+      - name: harness packages stay unpublishable
+        # hotline ships one signed binary from hotline.dev/install.sh; there is no
+        # registry in the distribution story, and the harnesses are built from
+        # source and loaded by explicit path. "private": true is what makes npm
+        # refuse to publish them. This replaces the old release-time guard that
+        # checked stamped versions against the tag — that guard policed a publish
+        # job that no longer exists, this one enforces the decision itself.
+        run: |
+          for p in harness/core harness/pi harness/claude-sdk harness/claude-sdk-v2; do
+            got=$(node -p "require('./$p/package.json').private === true")
+            if [ "$got" != "true" ]; then
+              echo "ERROR: $p/package.json is missing \"private\": true — it could be published to npm by accident." >&2
+              exit 1
+            fi
+            echo "ok: $p is private"
+          done

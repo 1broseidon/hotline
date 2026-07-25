@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestProvidersDefault(t *testing.T) {
 	t.Setenv("HOTLINE_PROVIDERS", "")
@@ -52,6 +55,36 @@ func TestProvidersBotNameConflict(t *testing.T) {
 	// Same instance is not a conflict.
 	if _, err := Providers("beta"); err != nil {
 		t.Fatalf("matching instance should be fine: %v", err)
+	}
+}
+
+func TestProviderStateDirMatchesLoaderLayouts(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOTLINE_STATE_DIR", root)
+	cases := []struct {
+		spec ProviderSpec
+		want string
+	}{
+		{ProviderSpec{Kind: "telegram"}, root},
+		{ProviderSpec{Kind: "telegram", Instance: "work"}, filepath.Join(root, "bots", "work")},
+		{ProviderSpec{Kind: "discord"}, filepath.Join(root, "discord")},
+		{ProviderSpec{Kind: "discord", Instance: "work"}, filepath.Join(root, "discord", "instances", "work")},
+		{ProviderSpec{Kind: "signal"}, filepath.Join(root, "signal")},
+		{ProviderSpec{Kind: "signal", Instance: "work"}, filepath.Join(root, "signal", "instances", "work")},
+		{ProviderSpec{Kind: "app"}, filepath.Join(root, "app")},
+		{ProviderSpec{Kind: "app", Instance: "work"}, filepath.Join(root, "app", "instances", "work")},
+	}
+	for _, tc := range cases {
+		got, err := ProviderStateDir(tc.spec)
+		if err != nil {
+			t.Fatalf("ProviderStateDir(%+v): %v", tc.spec, err)
+		}
+		if got != tc.want {
+			t.Errorf("ProviderStateDir(%+v) = %q, want %q", tc.spec, got, tc.want)
+		}
+	}
+	if _, err := ProviderStateDir(ProviderSpec{Kind: "unknown"}); err == nil {
+		t.Fatal("unknown provider state layout should fail")
 	}
 }
 

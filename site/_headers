@@ -1,0 +1,28 @@
+# Cloudflare Pages header rules for hotline.dev (project: hotline-site).
+# This file is parsed by Pages and is never served as an asset.
+#
+# `/install.sh` is a real file in this directory, so Pages matches it exactly and
+# it is served ahead of the not-found fallback that turns every other unmatched
+# path into index.html. That exact match is what keeps
+# `curl hotline.dev/install.sh | sh` from ever piping HTML into a shell.
+#
+# The extension is deliberate: it says what the script is, and leaves the door
+# open for an install.ps1 sibling without renaming the one people already have.
+#
+# Content-Type is pinned to text/plain so the URL is READABLE IN A BROWSER.
+# Left alone, a shell script is typed as a download (or as application/x-sh,
+# which browsers also download) — and the whole security argument for this
+# installer is that you read it before you pipe it into a shell. Do not drop
+# this header: curl does not care, people do.
+#
+# A future install.ps1 wants the same treatment — copy the block below:
+#
+#   /install.ps1
+#     Content-Type: text/plain; charset=utf-8
+#     Cache-Control: public, max-age=300, must-revalidate
+#     X-Content-Type-Options: nosniff
+
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=300, must-revalidate
+  X-Content-Type-Options: nosniff

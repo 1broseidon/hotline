@@ -25,14 +25,14 @@ const (
 // the send path distinguishes accepted/queued/rejected so cron jobs and the
 // email sentry can log outcomes. stdin is first-class (the email-sentry
 // integration is a pipe); a positional message wins over stdin when both exist.
-func cmdNotify(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func cmdNotify(botName string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "list" {
-		return notifyList(stdout, stderr)
+		return notifyList(botName, stdout, stderr)
 	}
-	return notifySend(args, stdin, stdout, stderr)
+	return notifySend(botName, args, stdin, stdout, stderr)
 }
 
-func notifySend(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func notifySend(botName string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var source, levelStr string
 	var positional []string
 
@@ -100,17 +100,17 @@ func notifySend(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return usageErr(stderr, "message is required (positional arg or piped stdin)")
 	}
 
-	stateRoot, err := config.StateRoot()
+	boxRoot, err := config.BoxRoot(botName)
 	if err != nil {
 		fmt.Fprintf(stderr, "hotline: %v\n", err)
 		return exitInternal
 	}
-	reg, err := notify.LoadRegistry(notify.SourcesPath(stateRoot))
+	reg, err := notify.LoadRegistry(notify.SourcesPath(boxRoot))
 	if err != nil {
 		fmt.Fprintf(stderr, "hotline: %v\n", err)
 		return exitInternal
 	}
-	out, err := notify.Enqueue(notify.SpoolPath(stateRoot), notify.RejectsPath(stateRoot), reg, source, level, msg, time.Now())
+	out, err := notify.Enqueue(notify.SpoolPath(boxRoot), notify.RejectsPath(boxRoot), reg, source, level, msg, time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "hotline: %v\n", err)
 		return exitInternal
@@ -146,13 +146,13 @@ func notifyOutcome(out notify.Outcome) (string, int) {
 
 // notifyList prints the operator's spool view: pending/queued entries and
 // per-source counters.
-func notifyList(stdout, stderr io.Writer) int {
-	stateRoot, err := config.StateRoot()
+func notifyList(botName string, stdout, stderr io.Writer) int {
+	boxRoot, err := config.BoxRoot(botName)
 	if err != nil {
 		fmt.Fprintf(stderr, "hotline: %v\n", err)
 		return exitInternal
 	}
-	sp, err := notify.LoadSpool(notify.SpoolPath(stateRoot))
+	sp, err := notify.LoadSpool(notify.SpoolPath(boxRoot))
 	if err != nil {
 		fmt.Fprintf(stderr, "hotline: %v\n", err)
 		return exitInternal

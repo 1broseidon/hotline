@@ -1,0 +1,79 @@
+{
+  "draft": {
+    "H": "SHA-512",
+    "K_hex": "e22b1ef7788f661478f3cddd4c600774fc0f41e6b711569190ff88fa0e607e09",
+    "Ya_hex": "d40fb265a7abeaee7939d91a585fe59f7053f982c296ec413c624c669308f87a",
+    "Yb_hex": "08bcf6e9777a9c313a3db6daa510f2d398403319c2341bd506a92e672eb7e307",
+    "ada_hex": "414461",
+    "adb_hex": "414462",
+    "ci_hex": "6f630b425f726573706f6e6465720b415f696e69746961746f72",
+    "dsi": "CPaceRistretto255",
+    "dsi_isk": "CPaceRistretto255_ISK",
+    "g_hex": "a6fc82c3b8968fbb2e06fee81ca858586dea50d248f0c7ca6a18b0902a30b36b",
+    "generator_string_hex": "11435061636552697374726574746f3235350850617373776f726464000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a6f630b425f726573706f6e6465720b415f696e69746961746f72107e4b4791d6a8ef019b936c79fb7f2c57",
+    "isk_ir_hex": "4c5469a16b2364c4b944ebc1a79e51d1674ad47db26e8718154f59faebfaa52d8346f30aa58377117eb20d527f2cbc5c76381f7fd372e89df8239f87f2e02ed1",
+    "isk_oc_hex": "980dcc5a1c52ceea031e75f38ed266586616488c5c5780285fcbcf79087c7bcdbd993502eee606b718ba31e840a000a7b7befe15ea427c5cfe88344fa1237f35",
+    "prs_hex": "50617373776f7264",
+    "s_in_bytes": 128,
+    "scalar_mult_vfy_invalid": {
+      "Y_i1_bad_encoding": "2b3c6b8c4f3800e7aef6864025b4ed79bd599117e427c41bd47d93d654b4a51c",
+      "Y_i2_identity": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "scalar_mult_vfy_valid": {
+      "X": "2c3c6b8c4f3800e7aef6864025b4ed79bd599117e427c41bd47d93d654b4a51c",
+      "result": "7c13645fe790a468f62c39beb7388e541d8405d1ade69d1778c5fe3e7f6b600e",
+      "s": "7cd0e075fa7955ba52c02759a6c90dbbfc10e6d40aea8d283e407d88cf538a05"
+    },
+    "sid_hex": "7e4b4791d6a8ef019b936c79fb7f2c57",
+    "sid_output_ir_hex": "2a76d3bbc499dfdc4dcacc9ff042f4e1a54e3843258e100ccd7c60f0a541f9d3ebf025e68a460dde218bd39f0711bc6fa11409c9d7b69d8ccf6b32fc51ddb699",
+    "sid_output_label": "CPaceSidOutput",
+    "sid_output_oc_hex": "ca4b50700c46203ccd10bc0e9f31095e508189cb59857537be561048d34b9ed9a9697af11c998f484c3d783b0b531434caa6835d4c32344fcd17160c9c348fc7",
+    "source": "draft-irtf-cfrg-cpace-15 Appendix B.3 (hand-transcribed anchor, see ref/draft_anchor.go)",
+    "suite": "CPACE-RISTRETTO255-SHA512",
+    "transcript_ir_hex": "20d40fb265a7abeaee7939d91a585fe59f7053f982c296ec413c624c669308f87a034144612008bcf6e9777a9c313a3db6daa510f2d398403319c2341bd506a92e672eb7e30703414462",
+    "transcript_oc_hex": "6f6320d40fb265a7abeaee7939d91a585fe59f7053f982c296ec413c624c669308f87a034144612008bcf6e9777a9c313a3db6daa510f2d398403319c2341bd506a92e672eb7e30703414462",
+    "ya_scalar_hex": "da3d23700a9e5699258aef94dc060dfda5ebb61f02a5ea77fad53f4ff0976d08",
+    "yb_scalar_hex": "d2316b454718c35362d83d69df6320f38578ed5984651435e2949762d900b80d"
+  },
+  "hotline_session": {
+    "box_scalar_seed": "11 x64 (SetUniformBytes input)",
+    "channel": "3YPJ",
+    "ci": "hotline/code-link-v1|relay.hotline.sh",
+    "client_scalar_seed": "22 x64 (SetUniformBytes input)",
+    "code": "3YPJ24B8K7QM",
+    "g_b64": "Lt0LuMuZJzvo3xZerDWPPIab3ckO94Ftm68nP0wjCk0",
+    "isk_hex": "d6d02431824c57347ebc34c5ac36542f04defc8397ae8f9017a1237ca8a1062c9af6e9d88d435aef88e9098b13bd0cc7d5852d8304007632dd0d388f95ea468f",
+    "msg_a_b64": "Jos_zEP0mRqz3rkFL_HwnF5W3Bz2a-ku9NcyUUg7yB4",
+    "msg_b_b64": "ghSS3dsm0nHBRRneXSEW9SFM3h-_1YMdFzvY0vYdIUQ",
+    "prs_ascii": "3YPJ24B8K7QM",
+    "relay_base_url": "https://relay.hotline.sh",
+    "relay_host": "relay.hotline.sh"
+  },
+  "negatives": [
+    {
+      "expect_error": "ErrPeerIdentity",
+      "name": "peer-identity",
+      "peer_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "reason": "peer element is the group identity (draft B.3.11 Y_i2)"
+    },
+    {
+      "expect_error": "ErrPeerEncoding",
+      "name": "peer-bad-encoding",
+      "peer_b64": "KzxrjE84AOeu9oZAJbTteb1ZkRfkJ8Qb1H2T1lS0pRw",
+      "reason": "not a canonical ristretto255 encoding (draft B.3.11 Y_i1, 2b3c…a51c)"
+    },
+    {
+      "expect_error": "ErrPeerEncoding",
+      "name": "peer-short",
+      "peer_b64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+      "reason": "31-byte peer element (wrong length)"
+    },
+    {
+      "expect_error": "ErrZeroScalar",
+      "name": "zero-local-scalar",
+      "reason": "a zero scalar would make the local element the identity; sampling must reject/resample",
+      "uniform_seed": "00 x64"
+    }
+  ],
+  "note": "CPace over ristretto255, CPACE-RISTRETTO255-SHA512. `draft` mirrors the hand-transcribed anchor (ref/draft_anchor.go); the impl is asserted against it by VerifyDraftVectors, not by self-regeneration. `hotline_session` is a full role run under hotline inputs (empty AD, initiator ordering, A=box)."
+}

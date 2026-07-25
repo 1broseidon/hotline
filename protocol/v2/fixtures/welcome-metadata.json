@@ -1,0 +1,57 @@
+{
+  "intent": "welcome and the transient agent_state snapshot optionally carry box identity metadata — harness kind, model id, effort knob — so clients can detect and display which model the box runs AND whether it is the SDK edition vs the TUI vs pi. All three fields are optional and additive: absent = unknown (old boxes render nothing new). welcome guarantees an idle box displays correctly on every (re)connect; agent_state gives live refresh when the claude-sdk harness resolves its model AFTER a device is already attached (harness_info over the run child's stdio). Old app + new box: unknown JSON keys are ignored. New app + old box: fields absent, chip renders nothing. The relay is a dumb pipe and never sees inside the encrypted envelope.",
+  "assertions": [
+    { "rule": "WM1", "statement": "harness is one of claude|claude-sdk|pi|opencode today, but clients accept any ^[a-z][a-z0-9-]{0,31}$ token for forward compatibility; claude means the TUI." },
+    { "rule": "WM2", "statement": "model is the resolved or configured model id (<=64 chars), omitted when unknown; effort is the operator effort knob verbatim (<=16 chars), omitted when unknown or numeric-custom." },
+    { "rule": "WM3", "statement": "a client sanitizes rather than rejects: an invalid metadata value is stripped from the parsed frame, never a reason to fail the connection handshake." },
+    { "rule": "WM4", "statement": "the same three fields ride agent_state.state next to name (FB21/FB35 precedent); each snapshot is a full replacement and restamps them when present." }
+  ],
+  "frames": [
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "welcome",
+        "v": 2,
+        "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+        "name": "Umibozu",
+        "device_id": "dev-af31fd290542",
+        "floor": "9007199254740993",
+        "head": "9007199254741007",
+        "harness": "claude-sdk",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh"
+      },
+      "expect": { "auth": "verified", "agent_identity": { "harness": "claude-sdk", "model": "claude-opus-4-8", "effort": "xhigh" } }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "welcome",
+        "v": 2,
+        "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+        "name": "pi",
+        "device_id": "dev-af31fd290542",
+        "floor": "9007199254740993",
+        "head": "9007199254741007"
+      },
+      "expect": { "auth": "verified", "agent_identity": null, "note": "old box: no metadata, chip renders nothing" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "agent_state",
+        "seq": 812,
+        "state": {
+          "name": "Umibozu",
+          "harness": "claude-sdk",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "runs": [],
+          "schedules": [],
+          "loops": []
+        }
+      },
+      "expect": { "agent_identity": { "harness": "claude-sdk", "model": "claude-opus-4-8", "effort": "xhigh" }, "note": "idle box still announces identity: an agent_state whose only content is harness identity is emitted, not suppressed" }
+    }
+  ]
+}

@@ -10,7 +10,7 @@ import (
 // with zero or one provider the schemas are byte-identical to the originals —
 // no source property leaks into the single-provider tool surface.
 func TestWithSourcePropertySingleProviderUnchanged(t *testing.T) {
-	for _, schema := range []string{replySchema, reactSchema, editSchema, downloadSchema} {
+	for _, schema := range []string{replySchema, reactSchema, editSchema, downloadSchema, publishSchema} {
 		if got := withSourceProperty(schema, nil); got != schema {
 			t.Errorf("nil sources must not change the schema")
 		}
@@ -24,7 +24,7 @@ func TestWithSourcePropertySingleProviderUnchanged(t *testing.T) {
 // required source property enumerating the configured providers.
 func TestWithSourcePropertyMultiProvider(t *testing.T) {
 	sources := []string{"telegram", "discord"}
-	for _, schema := range []string{replySchema, reactSchema, editSchema, downloadSchema} {
+	for _, schema := range []string{replySchema, reactSchema, editSchema, downloadSchema, publishSchema} {
 		out := withSourceProperty(schema, sources)
 		var m struct {
 			Properties map[string]struct {
@@ -56,5 +56,17 @@ func TestWithSourcePropertyMultiProvider(t *testing.T) {
 		if len(m.Required) < 2 && schema != replySchema {
 			t.Errorf("original required fields lost: %v", m.Required)
 		}
+	}
+}
+
+func TestResolvePublishSource(t *testing.T) {
+	if got, errMsg := resolvePublishSource("", []string{"app"}); got != "app" || errMsg != "" {
+		t.Fatalf("single-source default = %q, %q", got, errMsg)
+	}
+	if _, errMsg := resolvePublishSource("", []string{"app", "telegram"}); !strings.Contains(errMsg, "pass source") {
+		t.Fatalf("missing multi-source error = %q", errMsg)
+	}
+	if _, errMsg := resolvePublishSource("signal", []string{"app", "telegram"}); !strings.Contains(errMsg, "unknown source") {
+		t.Fatalf("unknown source error = %q", errMsg)
 	}
 }

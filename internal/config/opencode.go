@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -58,11 +59,52 @@ func LoadOpenCode() (*OpenCodeConfig, error) {
 	return c, nil
 }
 
+// HarnessValues lists the supported coding-agent harness identifiers, in the
+// order the docs use. It is the single source of truth for the `--harness` flag
+// help on `up` and `init` and the NormalizeHarness switch below.
+var HarnessValues = []string{"claude", "claude-sdk", "opencode", "pi"}
+
+// NormalizeHarness canonicalizes a raw harness identifier (case-insensitive,
+// trimmed). An empty value defaults to "claude". Unknown values are rejected so
+// a typo fails loudly instead of silently falling back to Claude Code. This is
+// the one switch shared by Harness (env resolution) and the `--harness` flag on
+// `up`/`init`, so the accepted set never drifts between them.
+func NormalizeHarness(raw string) (string, error) {
+	h := strings.ToLower(strings.TrimSpace(raw))
+	switch h {
+	case "", "claude":
+		return "claude", nil
+	case "opencode":
+		return "opencode", nil
+	case "pi":
+		return "pi", nil
+	case "claude-sdk":
+		return "claude-sdk", nil
+	default:
+		return "", fmt.Errorf("unknown harness %q (supported: %s)", h, strings.Join(HarnessValues, ", "))
+	}
+}
+
+// HarnessSource names where a resolved harness value came from, for the
+// launch-time attribution line `hotline up` prints. Its string form is the
+// parenthetical the operator sees, e.g. `hotline: harness claude (default)`.
+type HarnessSource string
+
+const (
+	HarnessSourceDefault HarnessSource = "default"
+	HarnessSourceFlag    HarnessSource = "from --harness"
+	HarnessSourceEnv     HarnessSource = "from HOTLINE_HARNESS"
+	HarnessSourceDotEnv  HarnessSource = "from state .env"
+)
+
 // Harness resolves which coding-agent harness hotline drives, from
-// HOTLINE_HARNESS (real env wins over .env), defaulting to "claude". The only
-// other supported value is "opencode", which selects the OpenCode HTTP+SSE
-// control plane. Unknown values are rejected so a typo fails loudly instead of
-// silently falling back to Claude Code.
+// HOTLINE_HARNESS (real env wins over .env), defaulting to "claude". Other
+// supported values are "opencode" (the OpenCode HTTP+SSE control plane),
+// "pi" (a supervised `pi --mode rpc` session driven by the hotline-pi
+// extension over stdio), and "claude-sdk" (the Agent-SDK managed claude
+// edition: a supervised node harness that spawns `hotline run` itself).
+// Unknown values are rejected so a typo fails loudly instead of silently
+// falling back to Claude Code.
 func Harness() (string, error) {
 	baseDir, err := resolveStateDir()
 	if err != nil {
@@ -73,13 +115,40 @@ func Harness() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", envFile, err)
 	}
-	h := strings.ToLower(strings.TrimSpace(mergedEnv("HOTLINE_HARNESS", dotEnv)))
-	switch h {
-	case "", "claude":
-		return "claude", nil
-	case "opencode":
-		return "opencode", nil
-	default:
-		return "", fmt.Errorf("unknown HOTLINE_HARNESS %q (supported: claude, opencode)", h)
+	return NormalizeHarness(mergedEnv("HOTLINE_HARNESS", dotEnv))
+}
+
+// HarnessResolved returns the same value as Harness plus where it came from, so
+// `hotline up` can announce the resolved harness AND why. The `--harness` flag
+// is not visible here — `up` exports it into HOTLINE_HARNESS first, so a
+// flag-set value surfaces as HarnessSourceEnv and the caller relabels it
+// HarnessSourceFlag. An empty HOTLINE_HARNESS is treated as unset for the source
+// label (it resolves to the claude default anyway).
+func HarnessResolved() (string, HarnessSource, error) {
+	baseDir, err := resolveStateDir()
+	if err != nil {
+		return "", "", err
 	}
+	envFile := filepath.Join(baseDir, ".env")
+	dotEnv, err := loadDotEnv(envFile)
+	if err != nil {
+		return "", "", fmt.Errorf("reading %s: %w", envFile, err)
+	}
+	h, err := NormalizeHarness(mergedEnv("HOTLINE_HARNESS", dotEnv))
+	if err != nil {
+		return "", "", err
+	}
+	// Attribution tracks the same mergedEnv precedence that produced the value:
+	// a present real env var wins (even empty — it shadows the .env, and an empty
+	// value resolves to the claude default), then the state .env, else the
+	// built-in default.
+	source := HarnessSourceDefault
+	if v, ok := os.LookupEnv("HOTLINE_HARNESS"); ok {
+		if strings.TrimSpace(v) != "" {
+			source = HarnessSourceEnv
+		}
+	} else if strings.TrimSpace(dotEnv["HOTLINE_HARNESS"]) != "" {
+		source = HarnessSourceDotEnv
+	}
+	return h, source, nil
 }

@@ -1,0 +1,49 @@
+{
+  "intent": "POST /v1/rooms/<room>/register (core-v1 SPEC §3.2): box-signed, idempotent, TOFU on first call. First register binds box_pub to the room; later calls must verify against the bound key and update name/auth_hash. The core stores reg = {box_pub, name, auth_hash, secret_hash_alg:'s256', created, updated} and never anything derivable to the secret.",
+  "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/register",
+  "signing": "headers per signing-core.json; register is exempt from 404 unknown_room because it creates the room state",
+  "cases": [
+    {
+      "name": "first-register-tofu",
+      "pre": "no reg stored for room",
+      "request": {
+        "box_pub": { "kty": "EC", "crv": "P-256", "x": "UVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A18", "y": "RTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q" },
+        "name": "pi",
+        "auth_hash": "hLLmFQG7twXeCpnA43Nrpnx6iXHSbRZ5142TBAvNE78",
+        "proto": "core-v1"
+      },
+      "expect": { "status": 200, "body": { "room": "Ab3dEf6hIj8lMn0pQr2tUv", "registered": true }, "stored": { "box_pub_bound": true, "secret_hash_alg": "s256" } }
+    },
+    {
+      "name": "re-register-same-key-updates",
+      "pre": "reg bound to the fixture key",
+      "request": {
+        "box_pub": { "kty": "EC", "crv": "P-256", "x": "UVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A18", "y": "RTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q" },
+        "name": "pi-renamed",
+        "auth_hash": "rotated-hash-after-new-link-000000000000000",
+        "proto": "core-v1"
+      },
+      "expect": { "status": 200, "body": { "room": "Ab3dEf6hIj8lMn0pQr2tUv", "registered": true }, "stored": { "name": "pi-renamed", "auth_hash_updated": true } }
+    },
+    {
+      "name": "re-register-different-key-refused",
+      "pre": "reg bound to the fixture key; request signed by (and carrying) a DIFFERENT valid P-256 key",
+      "expect": { "status": 403, "body": { "code": "key_mismatch" }, "stored": "unchanged" }
+    },
+    {
+      "name": "bad-room-id-in-path",
+      "path": "/v1/rooms/short/register",
+      "expect": { "status": 400, "body": { "code": "bad_request" }, "note": "room ids match [A-Za-z0-9_-]{22}, same regex as the pipe" }
+    },
+    {
+      "name": "missing-box-pub-refused",
+      "request": { "name": "pi", "auth_hash": "hLLmFQG7twXeCpnA43Nrpnx6iXHSbRZ5142TBAvNE78", "proto": "core-v1" },
+      "expect": { "status": 400, "body": { "code": "bad_request" } }
+    },
+    {
+      "name": "unsigned-request-refused",
+      "pre": "request omits X-Hotline-Signature",
+      "expect": { "status": 401, "body": { "code": "bad_signature" } }
+    }
+  ]
+}

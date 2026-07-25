@@ -1,0 +1,112 @@
+{
+  "intent": "A paired device resumes after seq 104: welcome reports the current cursor, then missed agent and user journal frames replay oldest-first.",
+  "frames": [
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "hello",
+        "v": 1,
+        "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "device_name": "Replay fixture phone",
+        "last_seq": 104
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "welcome",
+        "v": 1,
+        "seq": 108,
+        "device_id": "dev-6c86c6aac5fb",
+        "bot_name": "Sphinx"
+      },
+      "expect": {
+        "seq": 108,
+        "event": {
+          "type": "welcome",
+          "botName": "Sphinx",
+          "deviceId": "dev-6c86c6aac5fb",
+          "seq": 108
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 105,
+        "id": "a-105",
+        "text": "Deploy finished cleanly."
+      },
+      "expect": {
+        "seq": 105,
+        "event": {
+          "type": "bubble",
+          "id": "a-105",
+          "text": "Deploy finished cleanly."
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 106,
+        "id": "u-106",
+        "text": "Show me the smoke-test summary.",
+        "cid": "c-1783684800106-0",
+        "device": "dev-6c86c6aac5fb"
+      },
+      "expect": {
+        "seq": 106,
+        "event": {
+          "type": "sent",
+          "id": "u-106",
+          "text": "Show me the smoke-test summary.",
+          "cid": "c-1783684800106-0",
+          "device": "dev-6c86c6aac5fb"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 107,
+        "id": "a-107",
+        "text": "Build, vet, tests, and lint are green.",
+        "reply_to": "u-106"
+      },
+      "expect": {
+        "seq": 107,
+        "event": {
+          "type": "bubble",
+          "id": "a-107",
+          "text": "Build, vet, tests, and lint are green.",
+          "replyTo": "u-106"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 108,
+        "id": "u-108",
+        "text": "Ship it.",
+        "cid": "c-1783684800108-1",
+        "device": "dev-6c86c6aac5fb"
+      },
+      "expect": {
+        "seq": 108,
+        "event": {
+          "type": "sent",
+          "id": "u-108",
+          "text": "Ship it.",
+          "cid": "c-1783684800108-1",
+          "device": "dev-6c86c6aac5fb"
+        }
+      }
+    }
+  ]
+}

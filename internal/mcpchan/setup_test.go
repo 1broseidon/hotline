@@ -14,6 +14,10 @@ func setupState(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOTLINE_STATE_DIR", dir)
+	// Normal-posture tests must not inherit the operator's live YOLO/harness
+	// settings. Dedicated cases opt back into YOLO explicitly.
+	t.Setenv("HOTLINE_YOLO", "0")
+	t.Setenv("HOTLINE_HARNESS", "claude")
 	return dir
 }
 

@@ -1,0 +1,1217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hotline frames-v1 payload and mailbox-v1 transport contract",
+  "description": "The shared wire contract for frames-v1 JSON text payloads and the additive mailbox-v1 transport controls that carry them. Mailbox controls are routed outside the transcript reducer; payload remains verbatim frames-v1 text.",
+  "$comment": "Mailbox-v1 is frozen here for independent relay, box, and mobile implementations. Implementations remain hand-written and must conform to this schema and its protocol fixtures.",
+  "type": "object",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/clientToServerHello"
+    },
+    {
+      "$ref": "#/$defs/clientToServerSend"
+    },
+    {
+      "$ref": "#/$defs/clientToServerTap"
+    },
+    {
+      "$ref": "#/$defs/clientToServerReact"
+    },
+    {
+      "$ref": "#/$defs/relayPresence"
+    },
+    {
+      "$ref": "#/$defs/device_payload"
+    },
+    {
+      "$ref": "#/$defs/mailbox_provision"
+    },
+    {
+      "$ref": "#/$defs/mailbox_provisioned"
+    },
+    {
+      "$ref": "#/$defs/device_send"
+    },
+    {
+      "$ref": "#/$defs/mailbox_enqueue"
+    },
+    {
+      "$ref": "#/$defs/mailbox_enqueued"
+    },
+    {
+      "$ref": "#/$defs/mailbox_sync"
+    },
+    {
+      "$ref": "#/$defs/mailbox_state"
+    },
+    {
+      "$ref": "#/$defs/mailbox_item"
+    },
+    {
+      "$ref": "#/$defs/mailbox_signal"
+    },
+    {
+      "$ref": "#/$defs/mailbox_synced"
+    },
+    {
+      "$ref": "#/$defs/mailbox_ack"
+    },
+    {
+      "$ref": "#/$defs/mailbox_push_set"
+    },
+    {
+      "$ref": "#/$defs/mailbox_revoke"
+    },
+    {
+      "$ref": "#/$defs/mailbox_error"
+    },
+    {
+      "$ref": "#/$defs/serverToClientWelcome"
+    },
+    {
+      "$ref": "#/$defs/serverToClientPairing"
+    },
+    {
+      "$ref": "#/$defs/serverToClientError"
+    },
+    {
+      "$ref": "#/$defs/serverToClientAck"
+    },
+    {
+      "$ref": "#/$defs/serverToClientTyping"
+    },
+    {
+      "$ref": "#/$defs/serverToClientMsg"
+    },
+    {
+      "$ref": "#/$defs/serverToClientEdit"
+    },
+    {
+      "$ref": "#/$defs/serverToClientReact"
+    },
+    {
+      "$ref": "#/$defs/serverToClientSent"
+    }
+  ],
+  "$defs": {
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The server's monotonic journal/replay cursor."
+    },
+    "mailboxCursor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$",
+      "description": "Canonical non-negative base-10 mailbox cursor M. It is always a JSON string, including above 2^53; implementations compare it with BigInt or decimal-safe comparison and never Number(M) or parseInt(M)."
+    },
+    "mailboxId": {
+      "type": "string",
+      "description": "Opaque public mailbox routing identifier. It names exactly one bot/device mailbox and is never a wildcard, list, or broadcast selector."
+    },
+    "mailboxGrant": {
+      "type": "string",
+      "description": "Per-bot/device grant issued once after box pairing, then stored durably and reused. It carries at least 128 bits of entropy, is hash-verified on every mailbox_sync, and remains valid until revoked."
+    },
+    "envelopeId": {
+      "type": "string",
+      "description": "Opaque addressed-envelope identifier. For every journal-backed durable dispatch it is deterministic f(journal_seq, device_id), created inside the atomic journal-plus-dispatch write and never at send or retry time; retrying that recipient event therefore reuses it and unique (mailbox_id, envelope_id) insertion is idempotent. A non-journal ephemeral signal instead uses a sender-stable identifier because it has no J or dispatch row."
+    },
+    "plainV1Encoding": {
+      "const": "plain-v1",
+      "description": "TLS-only mailbox migration encoding for unchanged frames-v1 JSON text."
+    },
+    "plainV1Payload": {
+      "type": "string",
+      "description": "Opaque, verbatim frames-v1 JSON text. The relay stores and forwards these bytes as text without parsing, reducing, or rewriting the inner frame."
+    },
+    "device_payload": {
+      "title": "Relay and box: virtual device payload",
+      "description": "Carries one verbatim frames-v1 payload on the virtual device stream. Exactly one routing key is present: connection_id during bootstrap or mailbox_id after provisioning. On relay-to-box traffic, device_id is trusted only when supplied from the relay's connection/grant binding; client-supplied identity inside payload is ignored.",
+      "type": "object",
+      "required": [
+        "t",
+        "payload_encoding",
+        "payload"
+      ],
+      "properties": {
+        "t": {
+          "const": "device_payload"
+        },
+        "connection_id": {
+          "type": "string",
+          "description": "Relay-assigned bootstrap connection identifier."
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "device_id": {
+          "type": "string",
+          "description": "Relay-bound device metadata for relay-to-box traffic. This field is authoritative only after relay binding; an identically named client payload field never binds identity."
+        },
+        "payload_encoding": {
+          "$ref": "#/$defs/plainV1Encoding"
+        },
+        "payload": {
+          "$ref": "#/$defs/plainV1Payload"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "connection_id"
+          ]
+        },
+        {
+          "required": [
+            "mailbox_id"
+          ]
+        }
+      ],
+      "additionalProperties": true
+    },
+    "mailbox_provision": {
+      "title": "Box to relay: provision mailbox",
+      "description": "Binds a relay-assigned bootstrap connection to the device identity authenticated by the box after pairing succeeds. Client-supplied device fields are not an identity source.",
+      "type": "object",
+      "required": [
+        "t",
+        "connection_id",
+        "device_id"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_provision"
+        },
+        "connection_id": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string",
+          "description": "Box-authenticated device identifier."
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_provisioned": {
+      "title": "Relay to box and device: mailbox provisioned",
+      "description": "Returns the one-device mailbox route, current head, and newly issued durable grant to the box and bootstrap connection. The grant is issued once, not usable once.",
+      "type": "object",
+      "required": [
+        "t",
+        "connection_id",
+        "device_id",
+        "mailbox_id",
+        "head",
+        "grant"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_provisioned"
+        },
+        "connection_id": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string",
+          "description": "Device identity authenticated by the box during provisioning."
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "head": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "grant": {
+          "$ref": "#/$defs/mailboxGrant"
+        }
+      },
+      "additionalProperties": true
+    },
+    "device_send": {
+      "title": "Device to relay: send virtual device payload",
+      "description": "Queues one source-addressed device payload for the box. Its sender-stable envelope_id deduplicates offline copies; after forwarding, the box's durable inner CID result handles retries. This pre-journal identifier is distinct from the deterministic box-dispatch envelopeId definition.",
+      "type": "object",
+      "required": [
+        "t",
+        "envelope_id",
+        "payload_encoding",
+        "payload"
+      ],
+      "properties": {
+        "t": {
+          "const": "device_send"
+        },
+        "envelope_id": {
+          "type": "string",
+          "description": "Stable device-origin transport deduplication identifier."
+        },
+        "payload_encoding": {
+          "$ref": "#/$defs/plainV1Encoding"
+        },
+        "payload": {
+          "$ref": "#/$defs/plainV1Payload"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_enqueue": {
+      "title": "Box to relay: enqueue addressed envelope",
+      "description": "Offers one envelope to exactly one mailbox. Durable offers are inserted idempotently by (mailbox_id, envelope_id); ephemeral offers become signals and receive no M.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id",
+        "envelope_id",
+        "class",
+        "notify",
+        "payload_encoding",
+        "payload",
+        "created_at",
+        "expires_at"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_enqueue"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "envelope_id": {
+          "$ref": "#/$defs/envelopeId"
+        },
+        "class": {
+          "enum": [
+            "durable",
+            "ephemeral"
+          ]
+        },
+        "notify": {
+          "enum": [
+            "wake",
+            "silent"
+          ]
+        },
+        "payload_encoding": {
+          "$ref": "#/$defs/plainV1Encoding"
+        },
+        "payload": {
+          "$ref": "#/$defs/plainV1Payload"
+        },
+        "created_at": {
+          "type": "string",
+          "description": "Envelope creation timestamp."
+        },
+        "expires_at": {
+          "type": "string",
+          "description": "Envelope expiry timestamp; relay durable retention is capped at seven days."
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_enqueued": {
+      "title": "Relay to box: durable envelope accepted",
+      "description": "Reports durable dispatch acceptance, not chat receipt. A duplicate returns the original mailbox_seq and state without creating another push intent.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id",
+        "envelope_id",
+        "mailbox_seq",
+        "duplicate",
+        "state"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_enqueued"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "envelope_id": {
+          "$ref": "#/$defs/envelopeId"
+        },
+        "mailbox_seq": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "duplicate": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "acked"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_sync": {
+      "title": "Device to relay: synchronize mailbox",
+      "description": "First frame on a mailbox socket. Authenticates the durable grant and requests a bounded page strictly after the supplied mailbox cursor.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id",
+        "grant",
+        "after",
+        "limit"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_sync"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "grant": {
+          "$ref": "#/$defs/mailboxGrant"
+        },
+        "after": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive requested page size, bounded by the relay."
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_state": {
+      "title": "Relay to device: mailbox state",
+      "description": "Opens a sync snapshot with its retained floor and captured head. reset_required couples mailbox reset to journal recovery and clearing the local mailbox cursor.",
+      "type": "object",
+      "required": [
+        "t",
+        "floor",
+        "head",
+        "reset_required"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_state"
+        },
+        "floor": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "head": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "reset_required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_item": {
+      "title": "Relay to device: durable mailbox item",
+      "description": "Carries one durable addressed envelope and M. The client commits envelope/event dedup, its frames-v1 projection, J, and M before cumulatively acknowledging M.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id",
+        "envelope_id",
+        "mailbox_seq",
+        "notify",
+        "created_at",
+        "expires_at",
+        "payload_encoding",
+        "payload"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_item"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "envelope_id": {
+          "$ref": "#/$defs/envelopeId"
+        },
+        "mailbox_seq": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "notify": {
+          "enum": [
+            "wake",
+            "silent"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "payload_encoding": {
+          "$ref": "#/$defs/plainV1Encoding"
+        },
+        "payload": {
+          "$ref": "#/$defs/plainV1Payload"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_signal": {
+      "title": "Relay to device: ephemeral mailbox signal",
+      "description": "Carries one addressed ephemeral envelope. It has no mailbox_seq, durable storage, push intent, or acknowledgement.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id",
+        "envelope_id",
+        "payload_encoding",
+        "payload",
+        "expires_at"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_signal"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "envelope_id": {
+          "$ref": "#/$defs/envelopeId"
+        },
+        "payload_encoding": {
+          "$ref": "#/$defs/plainV1Encoding"
+        },
+        "payload": {
+          "$ref": "#/$defs/plainV1Payload"
+        },
+        "expires_at": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_synced": {
+      "title": "Relay to device: mailbox snapshot page complete",
+      "description": "Ends one snapshot page. Live mailbox_item delivery starts only after the captured snapshot is fully flushed; envelope dedup spans that boundary.",
+      "type": "object",
+      "required": [
+        "t",
+        "through",
+        "next",
+        "has_more"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_synced"
+        },
+        "through": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "next": {
+          "$ref": "#/$defs/mailboxCursor"
+        },
+        "has_more": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_ack": {
+      "title": "Device to relay: cumulative mailbox acknowledgement",
+      "description": "Cumulatively acknowledges committed delivery through M for exactly one mailbox. through is never a journal cursor J.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id",
+        "through"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_ack"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        },
+        "through": {
+          "$ref": "#/$defs/mailboxCursor"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_push_set": {
+      "title": "Device to relay: set mailbox push registration",
+      "description": "Registers generic relay push when enabled or unregisters it when disabled. Push carries only Hotline activity and the opaque local route.",
+      "type": "object",
+      "required": [
+        "t",
+        "enabled"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_push_set"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "token": {
+          "type": "string",
+          "description": "Expo push token, required when enabled is true."
+        },
+        "platform": {
+          "enum": [
+            "ios",
+            "android"
+          ]
+        },
+        "route": {
+          "type": "string",
+          "description": "Opaque local route, required when enabled is true."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "token",
+            "platform",
+            "route"
+          ],
+          "properties": {
+            "enabled": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": false
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "mailbox_revoke": {
+      "title": "Box to relay: revoke mailbox",
+      "description": "Revokes one mailbox's grant and push token and closes its bound socket. It has no wildcard form.",
+      "type": "object",
+      "required": [
+        "t",
+        "mailbox_id"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_revoke"
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        }
+      },
+      "additionalProperties": true
+    },
+    "mailbox_error": {
+      "title": "Relay mailbox transport error",
+      "description": "Mailbox-layer failure routed before frames-v1 payload parsing. It is not the frames-v1 error payload shape and never reaches parseFrame, the reducer, or the transcript. mailbox_full alone retries unchanged; mailbox_gap invokes journal recovery; other codes require credential or state repair.",
+      "type": "object",
+      "required": [
+        "t",
+        "code"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_error"
+        },
+        "code": {
+          "enum": [
+            "mailbox_gap",
+            "mailbox_unauthorized",
+            "mailbox_revoked",
+            "mailbox_cursor_ahead",
+            "mailbox_full"
+          ]
+        },
+        "mailbox_id": {
+          "$ref": "#/$defs/mailboxId"
+        }
+      },
+      "additionalProperties": true
+    },
+    "relayPresence": {
+      "title": "Relay to server: device presence",
+      "description": "A relay-owned, bot-inbound control carrying the current count of open device sockets. It is consumed only on the dialed relay transport and is never journaled or sent to app clients.",
+      "type": "object",
+      "required": [
+        "t",
+        "devices"
+      ],
+      "properties": {
+        "t": {
+          "const": "relay_presence"
+        },
+        "devices": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Current count of open device WebSockets at the relay."
+        }
+      },
+      "additionalProperties": true
+    },
+    "relayBlobRef": {
+      "title": "Relay blob capability reference",
+      "description": "A relative capability reference returned by the configured relay. Implementations derive the origin from local configuration and never trust this object as a request origin.",
+      "type": "object",
+      "required": [
+        "provider",
+        "key",
+        "url",
+        "expires_at"
+      ],
+      "properties": {
+        "provider": {
+          "const": "relay"
+        },
+        "key": {
+          "type": "string",
+          "description": "A 24-byte random capability encoded as 32 unpadded base64url characters."
+        },
+        "url": {
+          "type": "string",
+          "description": "Relative /blob/<slug>/device/<kind>/<key> path."
+        },
+        "expires_at": {
+          "type": "string",
+          "description": "Logical blob expiry as an RFC3339 timestamp."
+        }
+      },
+      "additionalProperties": true
+    },
+    "fileRef": {
+      "title": "Attachment file reference",
+      "description": "An attachment descriptor with a local authenticated URL and, when relay-backed, an additive relay blob capability for the same bytes.",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "url"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Server attachment identifier."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display filename."
+        },
+        "mime": {
+          "type": "string",
+          "description": "MIME media type, when known."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "File size in bytes, when known."
+        },
+        "url": {
+          "type": "string",
+          "description": "Authenticated attachment URL, normally relative to the app-channel server."
+        },
+        "blob": {
+          "$ref": "#/$defs/relayBlobRef",
+          "description": "Relay fetch capability for the same bytes; additive to the local /att/ URL."
+        }
+      },
+      "additionalProperties": true
+    },
+    "artifactRef": {
+      "title": "Static HTML artifact reference",
+      "description": "One self-contained HTML artifact rendered under the static-html-v1 sandbox policy.",
+      "type": "object",
+      "required": [
+        "title",
+        "mime",
+        "size",
+        "sandbox",
+        "blob"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Artifact display filename."
+        },
+        "mime": {
+          "const": "text/html"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Artifact size in bytes."
+        },
+        "sandbox": {
+          "const": "static-html-v1"
+        },
+        "blob": {
+          "$ref": "#/$defs/relayBlobRef"
+        }
+      },
+      "additionalProperties": true
+    },
+    "clientToServerHello": {
+      "title": "App to server: hello",
+      "description": "The first frame on a connection. It declares v1, authenticates the device, names it, and supplies its replay cursor.",
+      "type": "object",
+      "required": [
+        "t",
+        "v",
+        "secret",
+        "device_name",
+        "last_seq"
+      ],
+      "properties": {
+        "t": {
+          "const": "hello"
+        },
+        "v": {
+          "type": "integer",
+          "const": 1,
+          "description": "Wire protocol version."
+        },
+        "secret": {
+          "type": "string",
+          "description": "Device-held authentication secret."
+        },
+        "device_name": {
+          "type": "string",
+          "description": "Human-readable device label."
+        },
+        "last_seq": {
+          "$ref": "#/$defs/sequence",
+          "description": "Highest server sequence already seen by this client."
+        },
+        "capabilities": {
+          "const": [
+            "mailbox-v1"
+          ],
+          "description": "Optional mailbox capability offer. Legacy clients omit it; old servers ignore it as an unknown field."
+        }
+      },
+      "additionalProperties": true
+    },
+    "clientToServerSend": {
+      "title": "App to server: send",
+      "description": "A typed user message, optionally replying to an existing message.",
+      "type": "object",
+      "required": [
+        "t",
+        "cid",
+        "text"
+      ],
+      "properties": {
+        "t": {
+          "const": "send"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client-generated deduplication and acknowledgement identifier."
+        },
+        "text": {
+          "type": "string",
+          "description": "User message body."
+        },
+        "reply_to": {
+          "type": "string",
+          "description": "Server message identifier being answered."
+        },
+        "attachments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stored attachment identifier (content-addressed name) previously returned by a deferred upload."
+              },
+              "name": {
+                "type": "string",
+                "description": "Optional display filename for the attachment."
+              },
+              "mime": {
+                "type": "string",
+                "description": "Declared photo MIME for a relay blob attachment."
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Declared byte size for a relay blob attachment."
+              },
+              "blob": {
+                "$ref": "#/$defs/relayBlobRef",
+                "description": "Relay capability to materialize before sink delivery."
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "Staged attachments (up to ten) sent together as one harness turn. Direct attachments reference a prior defer=1 upload; relay photos add mime, size, and blob for box-side materialization."
+        },
+        "cids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Per-attachment client identifiers, aligned by index with attachments, so each server sent echo carries the originating client's cid for optimistic-bubble adoption."
+        }
+      },
+      "additionalProperties": true
+    },
+    "clientToServerTap": {
+      "title": "App to server: tap",
+      "description": "A selection from a message's button row.",
+      "type": "object",
+      "required": [
+        "t",
+        "cid",
+        "msg_id",
+        "label"
+      ],
+      "properties": {
+        "t": {
+          "const": "tap"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client-generated deduplication and acknowledgement identifier."
+        },
+        "msg_id": {
+          "type": "string",
+          "description": "Identifier of the message that owns the button row."
+        },
+        "label": {
+          "type": "string",
+          "description": "Selected button label."
+        }
+      },
+      "additionalProperties": true
+    },
+    "clientToServerReact": {
+      "title": "App to server: react",
+      "description": "A user reaction to an existing message.",
+      "type": "object",
+      "required": [
+        "t",
+        "cid",
+        "msg_id",
+        "emoji"
+      ],
+      "properties": {
+        "t": {
+          "const": "react"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client-generated deduplication and acknowledgement identifier."
+        },
+        "msg_id": {
+          "type": "string",
+          "description": "Identifier of the message receiving the reaction."
+        },
+        "emoji": {
+          "type": "string",
+          "description": "Reaction emoji."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientWelcome": {
+      "title": "Server to app: welcome",
+      "description": "Accepts a hello and identifies the authenticated device, bot, and current replay cursor.",
+      "type": "object",
+      "required": [
+        "t",
+        "v",
+        "seq",
+        "device_id",
+        "bot_name"
+      ],
+      "properties": {
+        "t": {
+          "const": "welcome"
+        },
+        "v": {
+          "type": "integer",
+          "const": 1,
+          "description": "Wire protocol version."
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "device_id": {
+          "type": "string",
+          "description": "Stable server-derived device identifier."
+        },
+        "bot_name": {
+          "type": "string",
+          "description": "Bot display name."
+        },
+        "capabilities": {
+          "const": [
+            "mailbox-v1"
+          ],
+          "description": "Optional echo of the negotiated mailbox capability. Legacy servers omit it; old clients ignore it as an unknown field."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientPairing": {
+      "title": "Server to app: pairing",
+      "description": "Reports that the device is awaiting operator approval.",
+      "type": "object",
+      "required": [
+        "t",
+        "code",
+        "hint"
+      ],
+      "properties": {
+        "t": {
+          "const": "pairing"
+        },
+        "code": {
+          "type": "string",
+          "description": "Operator pairing code."
+        },
+        "hint": {
+          "type": "string",
+          "description": "Operator-facing pairing instruction."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientError": {
+      "title": "Server to app: error",
+      "description": "Reports a protocol, authentication, pairing, or action-delivery failure.",
+      "type": "object",
+      "required": [
+        "t",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "t": {
+          "const": "error"
+        },
+        "code": {
+          "type": "string",
+          "description": "Machine-readable error code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message."
+        },
+        "cid": {
+          "type": "string",
+          "description": "For delivery_failed, correlates the rejected action so it can be retried."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientAck": {
+      "title": "Server to app: ack",
+      "description": "Acknowledges a sink-accepted inbound client frame and reports the server cursor that covers its accepted echoes.",
+      "type": "object",
+      "required": [
+        "t",
+        "cid",
+        "seq"
+      ],
+      "properties": {
+        "t": {
+          "const": "ack"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client identifier copied from the acknowledged frame."
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "message_id": {
+          "type": "string",
+          "description": "Turn message identifier, present only for a staged multi-photo send (the last echo's id); omitted for plain sends, taps, and reactions."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientTyping": {
+      "title": "Server to app: typing",
+      "description": "Toggles the agent typing indicator.",
+      "type": "object",
+      "required": [
+        "t",
+        "seq",
+        "on"
+      ],
+      "properties": {
+        "t": {
+          "const": "typing"
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "on": {
+          "type": "boolean",
+          "description": "Whether the typing indicator is on."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientMsg": {
+      "title": "Server to app: msg",
+      "description": "One agent message bubble. Buttons, reply target, and attachment are optional.",
+      "type": "object",
+      "required": [
+        "t",
+        "seq",
+        "id",
+        "text"
+      ],
+      "properties": {
+        "t": {
+          "const": "msg"
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "id": {
+          "type": "string",
+          "description": "Server message identifier."
+        },
+        "text": {
+          "type": "string",
+          "description": "Agent message body; empty for a file-only bubble."
+        },
+        "buttons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Flat button-label list; the selected label is returned in a tap frame."
+        },
+        "reply_to": {
+          "type": "string",
+          "description": "Identifier of the message being answered."
+        },
+        "file": {
+          "$ref": "#/$defs/fileRef"
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifactRef"
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientEdit": {
+      "title": "Server to app: edit",
+      "description": "Replaces the text of an existing message.",
+      "type": "object",
+      "required": [
+        "t",
+        "seq",
+        "id",
+        "text"
+      ],
+      "properties": {
+        "t": {
+          "const": "edit"
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "id": {
+          "type": "string",
+          "description": "Identifier of the message being edited."
+        },
+        "text": {
+          "type": "string",
+          "description": "Replacement message body."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientReact": {
+      "title": "Server to app: react",
+      "description": "Applies an emoji reaction to a message. Device is present on user-reaction echoes and absent on agent reactions.",
+      "type": "object",
+      "required": [
+        "t",
+        "seq",
+        "msg_id",
+        "emoji"
+      ],
+      "properties": {
+        "t": {
+          "const": "react"
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "msg_id": {
+          "type": "string",
+          "description": "Identifier of the message receiving the reaction."
+        },
+        "emoji": {
+          "type": "string",
+          "description": "Reaction emoji."
+        },
+        "device": {
+          "type": "string",
+          "description": "Originating device identifier for a user-reaction echo."
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverToClientSent": {
+      "title": "Server to app: sent",
+      "description": "Echoes a user-originated text, button tap, or attachment into the journal and to other connected screens.",
+      "type": "object",
+      "required": [
+        "t",
+        "seq",
+        "id",
+        "text",
+        "device"
+      ],
+      "properties": {
+        "t": {
+          "const": "sent"
+        },
+        "seq": {
+          "$ref": "#/$defs/sequence"
+        },
+        "id": {
+          "type": "string",
+          "description": "Server message identifier assigned to the user turn."
+        },
+        "text": {
+          "type": "string",
+          "description": "User text or button label; may be empty for an attachment."
+        },
+        "cid": {
+          "type": "string",
+          "description": "Originating client identifier, when one was supplied."
+        },
+        "device": {
+          "type": "string",
+          "description": "Originating device identifier."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Non-text turn kind. The current server emits button for button-tap echoes; absence denotes typed text or an attachment."
+        },
+        "file": {
+          "$ref": "#/$defs/fileRef"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

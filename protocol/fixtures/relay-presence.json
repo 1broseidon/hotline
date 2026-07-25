@@ -1,0 +1,27 @@
+{
+  "intent": "The relay reports only its open device-socket count to the box; zero makes relay-bound devices push-eligible and a later positive count marks them present again. The control is never journaled or exposed as an app event.",
+  "frames": [
+    {
+      "dir": "relay->server",
+      "frame": {
+        "t": "relay_presence",
+        "devices": 0
+      },
+      "expect": {
+        "event": null,
+        "seq": null
+      }
+    },
+    {
+      "dir": "relay->server",
+      "frame": {
+        "t": "relay_presence",
+        "devices": 2
+      },
+      "expect": {
+        "event": null,
+        "seq": null
+      }
+    }
+  ]
+}

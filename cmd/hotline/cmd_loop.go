@@ -23,15 +23,15 @@ func (e exitCodeError) Code() int     { return int(e) }
 
 // cmdLoop is the operator surface over loops.json: add/list/remove/pause/
 // resume/approve/deny/logs/run.
-func cmdLoop(args []string, out, errout io.Writer) error {
+func cmdLoop(botName string, args []string, out, errout io.Writer) error {
 	if len(args) < 1 {
 		return errors.New("usage: hotline loop <add|list|remove|pause|resume|approve|deny|logs|run> [args]")
 	}
-	stateRoot, err := config.StateRoot()
+	boxRoot, err := config.BoxRoot(botName)
 	if err != nil {
 		return err
 	}
-	path := loop.Path(stateRoot)
+	path := loop.Path(boxRoot)
 
 	needLabel := func() (string, error) {
 		if len(args) < 2 {
@@ -42,7 +42,7 @@ func cmdLoop(args []string, out, errout io.Writer) error {
 
 	switch args[0] {
 	case "add":
-		return loopAdd(stateRoot, path, args[1:], out)
+		return loopAdd(boxRoot, path, args[1:], out)
 	case "list":
 		return loopList(path, out)
 	case "remove":
@@ -105,13 +105,13 @@ func cmdLoop(args []string, out, errout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return loopLogs(stateRoot, label, args[2:], out)
+		return loopLogs(boxRoot, label, args[2:], out)
 	case "run":
 		label, err := needLabel()
 		if err != nil {
 			return err
 		}
-		return loopRun(stateRoot, label, args[2:], out, errout)
+		return loopRun(boxRoot, label, args[2:], out, errout)
 	default:
 		return fmt.Errorf("unknown loop command %q (add, list, remove, pause, resume, approve, deny, logs, run)", args[0])
 	}

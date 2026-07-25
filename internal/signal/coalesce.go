@@ -140,6 +140,12 @@ func (h *Handler) flush(ctx context.Context, msgs []pendingMsg) {
 	}
 	if err := n.SendChannel(ctx, content, meta); err != nil {
 		fmt.Fprintf(os.Stderr, "hotline: deliver inbound failed: %v\n", err)
+		return
+	}
+	// The burst reached a live harness: journal a delivered high-water for each
+	// coalesced message so catch-up never replays them (B-1).
+	for _, m := range msgs {
+		h.Log.MarkDelivered(m.meta["message_id"])
 	}
 }
 

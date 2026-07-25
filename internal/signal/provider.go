@@ -81,10 +81,11 @@ func (p *Provider) Start(ctx context.Context, sink provider.InboundSink) error {
 		<-ctx.Done()
 		return nil
 	}
-	if err := lifecycle.ClaimPollerSlot(p.cfg.PidFile); err != nil {
+	release, err := lifecycle.ClaimPollerSlot(p.cfg.PidFile)
+	if err != nil {
 		return fmt.Errorf("claiming event-stream slot: %w", err)
 	}
-	defer lifecycle.ReleasePollerSlot(p.cfg.PidFile)
+	defer release()
 
 	fmt.Fprintf(os.Stderr, "hotline: signal streaming events from %s (account %s)\n", p.client.BaseURL, p.client.Account)
 

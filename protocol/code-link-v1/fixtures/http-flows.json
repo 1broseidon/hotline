@@ -1,0 +1,81 @@
+{
+  "note": "Code-linking relay (WP-CL2) HTTP transcript. Canonical copy lives at protocol/code-link-v1/fixtures/http-flows.json; kept in lock-step here for the vitest conformance suite (link-codes.test.ts). All msg/confirm/payload values are OPAQUE to the relay (32-byte ristretto255 elements / HMAC-SHA256 tags / AEAD ciphertext); the relay never interprets or derives from them.",
+  "channel_regex": "^[0-9A-HJKMNP-TV-Z]{4}$",
+  "caps": { "claims": 10, "confirms": 3, "ttl_seconds": 300, "alarm_seconds": 330 },
+  "error_codes": {
+    "code_unknown": "404 — unknown / expired / exhausted / consumed (uniform, no oracle)",
+    "code_taken": "409 — a live session already exists on this channel",
+    "code_mismatch": "401 — box rejected the confirm (client re-types)",
+    "box_away": "504 — box never polled within the window (client may retry the same confirm)",
+    "bad_signature": "401 — box endpoint signature/headers missing or invalid",
+    "rate_limited": "429 — per-IP LINK_CODES (client) / CONTROL_PLANE (box) limit"
+  },
+  "flows": [
+    {
+      "name": "happy-path",
+      "steps": [
+        { "actor": "box", "signed": true, "method": "POST", "path": "/v1/link-codes/3YPJ", "req": { "box_pub": "<P-256 JWK>", "msg_a": "<b64url 32B>", "proto": "code-link-v1" }, "status": 200, "res": { "expires_in": 300 } },
+        { "actor": "client", "signed": false, "method": "POST", "path": "/v1/link-codes/3YPJ/claim", "req": {}, "status": 200, "res": { "msg_a": "<b64url 32B>", "expires_in": 300 } },
+        { "actor": "client", "signed": false, "method": "POST", "path": "/v1/link-codes/3YPJ/confirm", "req": { "msg_b": "<b64url 32B>", "confirm_b": "<b64url 32B>" }, "parks": "up to 25 s for the box finish" },
+        { "actor": "box", "signed": true, "method": "POST", "path": "/v1/link-codes/3YPJ/poll", "req": {}, "status": 200, "res": { "pending": { "msg_b": "<b64url 32B>", "confirm_b": "<b64url 32B>", "aid": 0 } }, "parks": "up to 20 s for a pending attempt" },
+        { "actor": "box", "signed": true, "method": "POST", "path": "/v1/link-codes/3YPJ/finish", "req": { "ok": true, "aid": 0, "confirm_a": "<b64url 32B>", "payload": { "n": "<b64url 24B>", "c": "<b64url>" } }, "status": 200, "res": { "ok": true } },
+        { "actor": "client", "note": "parked confirm wakes (or an identical retry lands)", "status": 200, "res": { "confirm_a": "<b64url 32B>", "payload": { "n": "<b64url 24B>", "c": "<b64url>" } }, "effect": "session DELETED (single-use)" }
+      ]
+    },
+    {
+      "name": "mismatch",
+      "steps": [
+        { "actor": "box", "signed": true, "path": "/v1/link-codes/3YPJ/finish", "req": { "ok": false, "aid": 0 }, "status": 200 },
+        { "actor": "client", "path": "/v1/link-codes/3YPJ/confirm", "status": 401, "res": { "code": "code_mismatch" }, "effect": "session survives for a re-typed attempt" }
+      ]
+    },
+    {
+      "name": "box-abort",
+      "steps": [
+        { "actor": "box", "signed": true, "path": "/v1/link-codes/3YPJ/finish", "req": { "ok": false, "final": true }, "status": 200, "effect": "session DELETED" }
+      ]
+    },
+    {
+      "name": "caps-and-ttl",
+      "cases": [
+        { "desc": "11th claim", "status": 404, "res": { "code": "code_unknown" }, "effect": "session deleted at the cap" },
+        { "desc": "4th distinct confirm", "status": 404, "res": { "code": "code_unknown" }, "effect": "session deleted at the cap" },
+        { "desc": "claim/confirm past created+300 s", "status": 404, "res": { "code": "code_unknown" } },
+        { "desc": "second live create on the same channel", "status": 409, "res": { "code": "code_taken" } }
+      ]
+    },
+    {
+      "name": "auth-and-edge",
+      "cases": [
+        { "desc": "box endpoint, bad signature", "status": 401, "res": { "code": "bad_signature" } },
+        { "desc": "box endpoint, replayed nonce", "status": 401, "res": { "code": "nonce_replayed" } },
+        { "desc": "box endpoint, missing signing headers (edge)", "status": 401, "res": { "code": "bad_signature" } },
+        { "desc": "bad channel shape (edge)", "status": 400, "res": { "code": "bad_request" } },
+        { "desc": "client claim/confirm flood from one IP", "status": 429, "res": { "code": "rate_limited" } }
+      ]
+    },
+    {
+      "name": "kill-switch",
+      "note": "CORE_CODES_ENABLED=0 sheds the whole plane at the EDGE, before signature verification and before the rate limiter. create → 503 provider_unavailable (box falls back to printing the pair URI); every other code-link route → uniform 404 code_unknown, for both signed and unsigned requests. NO 401 bad_signature and NO 429 rate_limited may leak.",
+      "cases": [
+        { "desc": "create route disabled", "status": 503, "res": { "code": "provider_unavailable" } },
+        { "desc": "claim route disabled", "status": 404, "res": { "code": "code_unknown" } },
+        { "desc": "poll route disabled", "status": 404, "res": { "code": "code_unknown" } },
+        { "desc": "confirm route disabled", "status": 404, "res": { "code": "code_unknown" } },
+        { "desc": "finish route disabled", "status": 404, "res": { "code": "code_unknown" } }
+      ]
+    },
+    {
+      "name": "interleaving",
+      "note": "Two DISTINCT concurrent confirms mint independent aids; a superseding confirm never consumes another attempt's result (attempt correlation by aid). Attempt A = first msg_b/confirm_b pair (aid 0), attempt B = a second distinct pair (aid 1).",
+      "steps": [
+        { "actor": "client", "path": "/v1/link-codes/3YPJ/confirm", "req": { "msg_b": "<A b64url 32B>", "confirm_b": "<A b64url 32B>" }, "status": 504, "res": { "code": "box_away" }, "note": "attempt A → aid 0, pending" },
+        { "actor": "box", "signed": true, "path": "/v1/link-codes/3YPJ/poll", "req": {}, "status": 200, "res": { "pending": { "msg_b": "<A b64url 32B>", "confirm_b": "<A b64url 32B>", "aid": 0 } }, "note": "aid 0 in-flight" },
+        { "actor": "client", "path": "/v1/link-codes/3YPJ/confirm", "req": { "msg_b": "<B b64url 32B>", "confirm_b": "<B b64url 32B>" }, "status": 504, "res": { "code": "box_away" }, "note": "attempt B → aid 1, must NOT touch aid 0" },
+        { "actor": "box", "signed": true, "path": "/v1/link-codes/3YPJ/finish", "req": { "ok": true, "aid": 0, "confirm_a": "<b64url 32B>", "payload": { "n": "<b64url 24B>", "c": "<b64url>" } }, "status": 200, "res": { "ok": true }, "note": "finishes A only" },
+        { "actor": "client", "path": "/v1/link-codes/3YPJ/confirm", "req": { "msg_b": "<B b64url 32B>", "confirm_b": "<B b64url 32B>" }, "status": 504, "res": { "code": "box_away" }, "note": "B retry: its own aid has no result — NOT A's payload" },
+        { "actor": "client", "path": "/v1/link-codes/3YPJ/confirm", "req": { "msg_b": "<A b64url 32B>", "confirm_b": "<A b64url 32B>" }, "status": 200, "res": { "confirm_a": "<b64url 32B>", "payload": { "n": "<b64url 24B>", "c": "<b64url>" } }, "effect": "A consumes its result once; session DELETED (single-use)" }
+      ]
+    }
+  ]
+}

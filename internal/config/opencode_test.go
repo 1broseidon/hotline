@@ -85,3 +85,57 @@ func TestHarnessDefaultAndOverride(t *testing.T) {
 		t.Fatal("expected error for unknown harness")
 	}
 }
+
+func TestNormalizeHarness(t *testing.T) {
+	cases := map[string]string{
+		"":           "claude",
+		"claude":     "claude",
+		"CLAUDE":     "claude",
+		"  pi  ":     "pi",
+		"opencode":   "opencode",
+		"claude-sdk": "claude-sdk",
+	}
+	for in, want := range cases {
+		got, err := NormalizeHarness(in)
+		if err != nil || got != want {
+			t.Errorf("NormalizeHarness(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := NormalizeHarness("bogus"); err == nil {
+		t.Error("NormalizeHarness(bogus) = nil error, want unknown-harness")
+	}
+}
+
+// TestHarnessResolvedSource covers the launch-time attribution precedence: the
+// real env wins over the state .env, which wins over the built-in default. (The
+// --harness flag rides in via HOTLINE_HARNESS, so it surfaces here as the env
+// source; up relabels it.)
+func TestHarnessResolvedSource(t *testing.T) {
+	dir := withState(t)
+
+	// Default: nothing set.
+	if h, src, err := HarnessResolved(); err != nil || h != "claude" || src != HarnessSourceDefault {
+		t.Fatalf("default = (%q, %q, %v); want (claude, default)", h, src, err)
+	}
+
+	// State .env only.
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("HOTLINE_HARNESS=pi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if h, src, err := HarnessResolved(); err != nil || h != "pi" || src != HarnessSourceDotEnv {
+		t.Fatalf("dotenv = (%q, %q, %v); want (pi, from state .env)", h, src, err)
+	}
+
+	// Real env wins over the state .env.
+	t.Setenv("HOTLINE_HARNESS", "opencode")
+	if h, src, err := HarnessResolved(); err != nil || h != "opencode" || src != HarnessSourceEnv {
+		t.Fatalf("env = (%q, %q, %v); want (opencode, from HOTLINE_HARNESS)", h, src, err)
+	}
+
+	// A present-but-empty real env shadows the .env (mergedEnv precedence), so the
+	// value is the claude default and the source is attributed as such.
+	t.Setenv("HOTLINE_HARNESS", "")
+	if h, src, err := HarnessResolved(); err != nil || h != "claude" || src != HarnessSourceDefault {
+		t.Fatalf("empty-env = (%q, %q, %v); want (claude, default)", h, src, err)
+	}
+}

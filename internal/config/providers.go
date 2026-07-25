@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -24,6 +25,39 @@ func (s ProviderSpec) Name() string {
 		return s.Kind
 	}
 	return s.Kind + ":" + s.Instance
+}
+
+// ProviderStateDir resolves only the state directory layout for spec. It does
+// not load credentials, create directories, seed state, or construct a
+// provider, so runtime ownership can be claimed before any of those effects.
+// The paths intentionally match Load, LoadDiscord, LoadSignal, and LoadApp.
+func ProviderStateDir(spec ProviderSpec) (string, error) {
+	if !providerKindRe.MatchString(spec.Kind) {
+		return "", fmt.Errorf("invalid provider %q", spec.Kind)
+	}
+	if spec.Instance != "" && !botNameRe.MatchString(spec.Instance) {
+		return "", fmt.Errorf("invalid provider instance %q: use letters, digits, and underscores only", spec.Instance)
+	}
+	base, err := StateRoot()
+	if err != nil {
+		return "", err
+	}
+
+	switch spec.Kind {
+	case "telegram":
+		if spec.Instance == "" {
+			return base, nil
+		}
+		return filepath.Join(base, "bots", spec.Instance), nil
+	case "discord", "signal", "app":
+		root := filepath.Join(base, spec.Kind)
+		if spec.Instance == "" {
+			return root, nil
+		}
+		return filepath.Join(root, "instances", spec.Instance), nil
+	default:
+		return "", fmt.Errorf("unknown provider %q (supported: telegram, discord, signal, app)", spec.Kind)
+	}
 }
 
 // providerKindRe constrains a provider kind to a simple lowercase word.

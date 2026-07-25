@@ -14,6 +14,7 @@ func seedSchedules(t *testing.T, schedules ...schedule.Schedule) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOTLINE_STATE_DIR", dir)
+	t.Setenv("HOTLINE_PROVIDERS", "")
 	path := filepath.Join(dir, "schedules.json")
 	if err := schedule.Save(&schedule.Doc{Schedules: schedules}, path); err != nil {
 		t.Fatal(err)
@@ -31,14 +32,14 @@ func sampleDaily(id string) schedule.Schedule {
 
 func TestCmdScheduleUsage(t *testing.T) {
 	seedSchedules(t)
-	if err := cmdSchedule(nil); err == nil {
+	if err := cmdSchedule("", nil); err == nil {
 		t.Error("no args should error with usage")
 	}
-	if err := cmdSchedule([]string{"bogus"}); err == nil {
+	if err := cmdSchedule("", []string{"bogus"}); err == nil {
 		t.Error("unknown subcommand should error")
 	}
 	for _, verb := range []string{"remove", "pause", "resume"} {
-		if err := cmdSchedule([]string{verb}); err == nil {
+		if err := cmdSchedule("", []string{verb}); err == nil {
 			t.Errorf("%s without id should error", verb)
 		}
 	}
@@ -46,35 +47,35 @@ func TestCmdScheduleUsage(t *testing.T) {
 
 func TestCmdScheduleList(t *testing.T) {
 	seedSchedules(t, sampleDaily("aaaaaa"), sampleDaily("bbbbbb"))
-	if err := cmdSchedule([]string{"list"}); err != nil {
+	if err := cmdSchedule("", []string{"list"}); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 }
 
 func TestCmdScheduleRemove(t *testing.T) {
 	path := seedSchedules(t, sampleDaily("aaaaaa"), sampleDaily("bbbbbb"))
-	if err := cmdSchedule([]string{"remove", "aaaaaa"}); err != nil {
+	if err := cmdSchedule("", []string{"remove", "aaaaaa"}); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	d, _ := schedule.Load(path)
 	if len(d.Schedules) != 1 || d.Schedules[0].ID != "bbbbbb" {
 		t.Errorf("after remove: %+v", d.Schedules)
 	}
-	if err := cmdSchedule([]string{"remove", "zzzzzz"}); err == nil {
+	if err := cmdSchedule("", []string{"remove", "zzzzzz"}); err == nil {
 		t.Error("removing missing id should error")
 	}
 }
 
 func TestCmdSchedulePauseResume(t *testing.T) {
 	path := seedSchedules(t, sampleDaily("aaaaaa"))
-	if err := cmdSchedule([]string{"pause", "aaaaaa"}); err != nil {
+	if err := cmdSchedule("", []string{"pause", "aaaaaa"}); err != nil {
 		t.Fatalf("pause: %v", err)
 	}
 	d, _ := schedule.Load(path)
 	if !d.Schedules[0].Paused {
 		t.Error("schedule should be paused")
 	}
-	if err := cmdSchedule([]string{"resume", "aaaaaa"}); err != nil {
+	if err := cmdSchedule("", []string{"resume", "aaaaaa"}); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	d, _ = schedule.Load(path)

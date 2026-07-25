@@ -135,7 +135,7 @@ func TestInitPluginInstallsMarketplaceAndPlugin(t *testing.T) {
 	if got := strings.Join((*calls)[1], " "); got != "plugin install hotline@hotline -s project" {
 		t.Errorf("second call = %q", got)
 	}
-	if !strings.Contains(out.String(), "hotline start") {
+	if !strings.Contains(out.String(), "hotline up") {
 		t.Error("missing next-step hint")
 	}
 }
@@ -231,5 +231,45 @@ func TestChannelAllowlisted(t *testing.T) {
 	}
 	if !channelAllowlisted() {
 		t.Error("org allowlist with hotline should pass")
+	}
+}
+
+// TestSettingsRoundTripPreservesData pins the fix for the settings.json
+// round-trip corruption: a map[string]any decode coerces large ints to float64
+// (losing precision) and the default encoder HTML-escapes <>&. readJSONMap now
+// decodes with UseNumber and writeJSONMap disables HTML escaping, so an
+// unrelated large int and an angle-bracket value survive a merge verbatim.
+func TestSettingsRoundTripPreservesData(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 9007199254740993 = 2^53 + 1, the smallest int a float64 cannot represent.
+	existing := `{
+  "bigint": 9007199254740993,
+  "note": "keep <angle> & brackets",
+  "env": {"URL": "https://x/?a=1&b=2"}
+}`
+	path := filepath.Join(dir, ".claude", "settings.json")
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Any merge triggers the read → rewrite round-trip.
+	if _, err := mergeProjectSettingsAllow(dir, []string{"Read"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, "9007199254740993") {
+		t.Errorf("large int corrupted on round-trip:\n%s", got)
+	}
+	if strings.Contains(got, "\\u003c") || strings.Contains(got, "\\u0026") || strings.Contains(got, "\\u003e") {
+		t.Errorf("values were HTML-escaped on round-trip:\n%s", got)
+	}
+	if !strings.Contains(got, "<angle>") || !strings.Contains(got, "a=1&b=2") {
+		t.Errorf("angle/ampersand values not preserved verbatim:\n%s", got)
 	}
 }

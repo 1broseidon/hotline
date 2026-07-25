@@ -186,6 +186,101 @@ func TestRestartsOnCrashWithBackoff(t *testing.T) {
 	}
 }
 
+// TestStopOnCleanExitStopsSupervisor: with StopOnCleanExit set (the attached
+// claude posture), the operator quitting the TUI (a status-0 exit) stops the
+// supervisor after a single spawn — no backoff, no respawn.
+func TestStopOnCleanExitStopsSupervisor(t *testing.T) {
+	rec := &recorder{
+		makeNext: func(n int) *fakeHarness {
+			h := &fakeHarness{pid: 100 + n, done: make(chan struct{}), exitOnTerm: true}
+			h.exit(CleanExitDesc) // operator quit claude cleanly
+			return h
+		},
+	}
+	s := newTestSupervisor(t, rec)
+	s.StopOnCleanExit = true
+	waitRun(t, runSupervisor(t, s, context.Background()))
+
+	if got := rec.spawnCount(); got != 1 {
+		t.Errorf("spawns = %d, want 1 (clean exit must not respawn)", got)
+	}
+	if got := rec.sleepDurations(); len(got) != 0 {
+		t.Errorf("backoff sleeps = %v, want none (clean exit stops immediately)", got)
+	}
+	st, err := ReadState(s.Dir)
+	if err != nil || st == nil {
+		t.Fatalf("state: %v, %v", st, err)
+	}
+	if st.Phase != PhaseStopped {
+		t.Errorf("final phase = %v, want stopped", st.Phase)
+	}
+}
+
+// TestStopOnCleanExitStillRespawnsOnCrash: StopOnCleanExit only short-circuits a
+// status-0 exit; a crash (non-zero) still backs off and respawns, so a claude
+// that dies mid-session recovers rather than dropping the operator.
+func TestStopOnCleanExitStillRespawnsOnCrash(t *testing.T) {
+	rec := &recorder{
+		makeNext: func(n int) *fakeHarness {
+			h := &fakeHarness{pid: 100 + n, done: make(chan struct{}), exitOnTerm: true}
+			if n == 0 {
+				h.exit("exit status 1") // crash
+			} else {
+				h.exit(CleanExitDesc) // second life: operator quits cleanly
+			}
+			return h
+		},
+	}
+	s := newTestSupervisor(t, rec)
+	s.StopOnCleanExit = true
+	waitRun(t, runSupervisor(t, s, context.Background()))
+
+	if got := rec.spawnCount(); got != 2 {
+		t.Errorf("spawns = %d, want 2 (crash respawns, then clean exit stops)", got)
+	}
+	if got := rec.sleepDurations(); len(got) != 1 {
+		t.Errorf("backoff sleeps = %v, want exactly one (only the crash backs off)", got)
+	}
+}
+
+// TestRestartRequestBeatsCleanExit: a restart written just before a status-0
+// exit must win over StopOnCleanExit. h.Done() is watched continuously but the
+// control file is only polled every Poll, so without consuming the pending
+// request at exit time the restart is lost and the supervisor stops. The first
+// generation files a restart and then exits cleanly; the supervisor must respawn
+// (not stop), and only the second clean exit — with nothing pending — stops it.
+func TestRestartRequestBeatsCleanExit(t *testing.T) {
+	var dir string
+	rec := &recorder{
+		makeNext: func(n int) *fakeHarness {
+			h := &fakeHarness{pid: 100 + n, done: make(chan struct{}), exitOnTerm: true}
+			if n == 0 {
+				// Filed BEFORE the clean exit is classified — the race this guards.
+				if err := RequestRestart(dir, "bounce me"); err != nil {
+					t.Error(err)
+				}
+			}
+			h.exit(CleanExitDesc)
+			return h
+		},
+	}
+	s := newTestSupervisor(t, rec)
+	dir = s.Dir
+	s.StopOnCleanExit = true
+	waitRun(t, runSupervisor(t, s, context.Background()))
+
+	if got := rec.spawnCount(); got != 2 {
+		t.Errorf("spawns = %d, want 2 (the pending restart must beat the clean-exit stop)", got)
+	}
+	if _, pending := consumeRestart(s.Dir); pending {
+		t.Error("restart request should have been consumed by the exit handler")
+	}
+	st, err := ReadState(s.Dir)
+	if err != nil || st == nil || st.Phase != PhaseStopped {
+		t.Errorf("final state = %+v (err %v), want stopped", st, err)
+	}
+}
+
 // TestShutdownTerminatesHarness: ctx cancel while the harness is healthy
 // stops it gracefully and finalizes state.
 func TestShutdownTerminatesHarness(t *testing.T) {

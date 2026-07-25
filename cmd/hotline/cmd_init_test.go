@@ -49,8 +49,46 @@ func TestInitCreatesFresh(t *testing.T) {
 	if len(args) != 1 || args[0] != "run" {
 		t.Errorf("args = %v, want [run]", args)
 	}
-	if !strings.Contains(out.String(), "hotline start") {
+	if !strings.Contains(out.String(), "hotline up") {
 		t.Error("missing next-step hint")
+	}
+}
+
+// TestInitHarnessPi: `--harness pi` is accepted (not rejected), scaffolds no
+// claude plugin path (no .mcp.json / .claude), and prints the pi next steps.
+func TestInitHarnessPi(t *testing.T) {
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if err := cmdInit("", []string{"--harness", "pi"}, dir, &out); err != nil {
+		t.Fatalf("init --harness pi: %v", err)
+	}
+	s := out.String()
+	for _, want := range []string{"pi install ./harness/pi", "hotline setup", "hotline up"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("output missing %q:\n%s", want, s)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".mcp.json")); err == nil {
+		t.Error("pi path scaffolded a .mcp.json — it should not touch the claude plugin path")
+	}
+}
+
+// TestInitHarnessClaudeSDK: `--harness claude-sdk` is accepted and prints the
+// build + HOTLINE_CLAUDE_SDK_ENTRY next steps without scaffolding the plugin.
+func TestInitHarnessClaudeSDK(t *testing.T) {
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if err := cmdInit("", []string{"--harness", "claude-sdk"}, dir, &out); err != nil {
+		t.Fatalf("init --harness claude-sdk: %v", err)
+	}
+	s := out.String()
+	for _, want := range []string{"npm run build", "HOTLINE_CLAUDE_SDK_ENTRY", "hotline setup"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("output missing %q:\n%s", want, s)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".mcp.json")); err == nil {
+		t.Error("claude-sdk path scaffolded a .mcp.json — it should not touch the claude plugin path")
 	}
 }
 

@@ -166,11 +166,11 @@ claude --dangerously-load-development-channels plugin:hotline@hotline</code></pr
 <p>Button taps come back as ordinary inbound messages whose content is the tapped label, verbatim. Tap authorization mirrors the inbound gate.</p>
 
 <h2>Voice</h2>
-<p>The channel ships with a default persona: a sharp, warm friend texting in short bubbles. A <code>HOTLINE.md</code> file replaces it. First hit wins: <code>./HOTLINE.md</code> in the directory Claude Code runs in, then <code>HOTLINE.md</code> in the state dir as your global default, then the built-in voice.</p>
+<p>The channel ships with a default persona: a sharp, funny friend texting in short bubbles. A <code>HOTLINE.md</code> file replaces it. First hit wins: <code>./HOTLINE.md</code> in the directory Claude Code runs in, then <code>HOTLINE.md</code> in the state dir as your global default, then the built-in voice.</p>
 <pre><code><span class="c">&lt;!-- HOTLINE.md --&gt;</span>
 Terse and professional. No emoji, no exclamation marks.
 One bubble unless the answer genuinely needs two.</code></pre>
-<p>The file is read once at startup; edit it, then restart Claude Code. Claude Code caps MCP server instructions at 2048 characters; hotline puts the mechanics first and gives the voice the remainder, about 630 characters. A longer voice is cut at a word boundary with a stderr warning. A voice changes tone only. The tool contract, inbound message handling, and the safety rules are compiled in and apply under any voice. It carries the same trust boundary as <code>CLAUDE.md</code>: whoever writes to the repo shapes how the agent talks.</p>
+<p>The file is read once at startup; edit it, then restart Claude Code. hotline budgets the channel instructions at 4096 characters; the mechanics come first and the voice gets the remainder, about 2,500 characters. A longer voice is cut at a word boundary with a stderr warning. A voice changes tone only. The tool contract, inbound message handling, and the safety rules are compiled in and apply under any voice. It carries the same trust boundary as <code>CLAUDE.md</code>: whoever writes to the repo shapes how the agent talks.</p>
 
 <h2>CLI</h2>
 <pre><code>hotline setup        <span class="c"># save credentials to the shared .env (run once)</span>

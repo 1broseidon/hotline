@@ -26,6 +26,17 @@ import (
 // Setsid process groups and group signalling for both).
 var ErrUnsupported = errors.New("hotline up is supported on linux and macOS only")
 
+// CleanExitDesc is the ExitDesc a harness reports when it exits with status 0.
+// The attached-claude path keys StopOnCleanExit off it: an operator who quits
+// the interactive TUI means "stop", not "respawn a TUI I just quit".
+const CleanExitDesc = "exit status 0"
+
+// authFatalExitDesc is the ExitDesc a claude-sdk harness reports when it
+// escalates an auth failure (exit code 5, design §4.2). The supervisor also
+// honors the auth.fatal marker, so a version that can't set the code still
+// cold-loops; the code is the belt.
+const authFatalExitDesc = "exit status 5"
+
 // Harness is one running harness process as the supervisor sees it. ExitDesc
 // is valid once Done is closed. Terminate/Kill signal the whole process
 // group, so the harness's own children (the hotline MCP server, its tunnels)
@@ -50,6 +61,15 @@ type Supervisor struct {
 	Log     io.Writer     // event log (stderr; the detached parent points stderr at supervisor.log)
 	Argv    []string      // recorded in state.json for status display
 	WorkDir string        // recorded in state.json
+
+	// StopOnCleanExit ends the supervisor when the harness exits with status 0
+	// instead of respawning it. Off by default (an always-on agent that exits
+	// cleanly at 3am is still down at 9am, so the default restarts on ANY exit);
+	// the attached-claude path turns it on so quitting the interactive TUI stops
+	// the supervisor rather than relaunching a TUI the operator just closed. A
+	// crash (non-zero exit) still respawns; `hotline down` and restart requests
+	// are unaffected.
+	StopOnCleanExit bool
 
 	now   func() time.Time
 	sleep func(ctx context.Context, d time.Duration) bool // false when ctx ended first
@@ -144,10 +164,42 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			st.LastExit = "restart requested: " + reason
 			continue
 		default: // harnessExited
+			// A restart filed just before this exit must win over StopOnCleanExit:
+			// h.Done() is watched continuously but restart.request is only polled
+			// every Poll, so a restart written moments before a status-0 exit would
+			// otherwise be dropped and the supervisor stopped. Consume it here,
+			// before classifying the exit as clean, so a requested bounce is honored
+			// as a restart rather than lost to the clean-stop path.
+			if reason, pending := consumeRestart(s.Dir); pending {
+				s.logf("restart requested (%s) raced a harness exit; honoring the restart", reason)
+				s.Backoff.Reset()
+				st.Restarts++
+				st.LastExit = "restart requested: " + reason
+				continue
+			}
 			uptime := s.now().Sub(started)
 			st.Restarts++
 			st.LastExit = fmt.Sprintf("%s after %s", h.ExitDesc(), uptime.Round(time.Second))
 			s.logf("harness exited: %s", st.LastExit)
+			if s.StopOnCleanExit && h.ExitDesc() == CleanExitDesc {
+				// Attached claude: the operator quit the TUI. That is the stop
+				// signal — do not respawn a session they just closed.
+				s.logf("harness exited cleanly and StopOnCleanExit is set; stopping supervisor")
+				return s.finalize(st)
+			}
+			// Auth-fatal cold-loop (design §4.2/§4.3): a claude-sdk harness that
+			// exits 5, or that left the auth.fatal marker, has dead credentials.
+			// Pin the backoff at Max instead of the uptime-reset logic — no
+			// give-up state (the marker clears on the harness's next successful
+			// init, restoring normal backoff), but no hot respawn loop either.
+			if h.ExitDesc() == authFatalExitDesc || AuthFatalPresent(s.Dir) {
+				st.LastExit = "auth failure — credentials need the operator (" + st.LastExit + ")"
+				s.logf("harness auth-fatal; pinning backoff at %s until credentials recover (run `claude login` on the box or fix the key)", s.Backoff.Max)
+				if !s.backoffWait(ctx, st, s.Backoff.Max) {
+					return s.finalize(st)
+				}
+				continue
+			}
 			if !s.backoffWait(ctx, st, s.Backoff.Next(uptime)) {
 				return s.finalize(st)
 			}

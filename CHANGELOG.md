@@ -6,6 +6,163 @@ All notable changes to hotline are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-25
+
+The v2 line. 318 commits since 0.10.0: a first-party mobile/web client and the
+app channel that feeds it, a hosted relay with three frozen wire contracts, a
+box-to-box fleet, Mission Control, and four harnesses behind one `hotline up`.
+
+### Added
+- **The app channel — a first-party client transport.** A direct WebSocket
+  channel beside Telegram/Signal/Discord, with a persisted outbox so replay
+  survives a restart, a full-thread journal, user-send echo, attachments,
+  history paging, images, and reactions. Provider-aware channel/formatting
+  instructions; markdownv2/HTML replies are down-converted to CommonMark for the
+  app. An inbound coalescer with a typing hold gate (window and grace unified at
+  3s, tunable via `HOTLINE_APP_COALESCE_WINDOW`) turns a burst of taps into one
+  turn.
+- **The hotline mobile client.** A separate closed-source app that speaks the
+  app channel: pairing by QR and deep link, a conversation switcher, staged
+  multi-photo compose, artifact cards in a no-network web sandbox, a per-bot
+  apps drawer, an agent page (NOW / SCHEDULED / LOOPS / APPS), and the hotline
+  mark (icon, adaptive icon, splash, favicon). It is developed and released
+  outside this repository.
+- **Push notifications, end to end.** Expo push for the app channel, the full
+  native lifecycle, per-device wake pre-gating, an explicit presence frame with
+  a 60s box-side liveness lease, a signed push-gateway path (ECDSA P-256, gated
+  behind `HOTLINE_PUSH_ENDPOINT`), optional clear previews
+  (`HOTLINE_PUSH_PREVIEW=clear`) and a per-device preview preference (FB23),
+  `mutableContent` so the iOS notification-service extension runs (FB56),
+  successful-job-completion pushes (FB44), and job Live Activity updates
+  delivered directly to APNs (FB64).
+- **The hosted relay is the default rendezvous.** `relay.hotline.dev` is baked
+  in: an outbound relay connector, relay photos and artifact publish, the full
+  relay client contract, room revocation by room id (FB27), a rolled
+  mythological-creature name for unnamed rooms, and
+  `HOTLINE_ASSISTANT_NAME` to override the display name.
+- **Three frozen wire contracts.** `protocol/v2` (spec, frame schema, goldens),
+  `protocol/core-v1` (envelope codec, box identity key, signed core client,
+  fixtures + schemas), and `protocol/mailbox-v1` — each frozen behind fixture
+  gates, with the generated artifacts checked against the code that implements
+  them.
+- **Durable mailbox delivery.** mailbox-v1 box dispatch, the client, and the
+  live box↔relay seam: messages survive a device being offline, resync from a
+  watermark, and reconcile orphans rather than silently dropping.
+- **Code-based device linking.** `protocol/code-link-v1` implements a CPace OTP
+  crypto core against the IETF draft's test vectors; `hotline relay new-link
+  --code` is the box side.
+- **Multi-device coexistence.** Additive minting, a room manager, per-device
+  push, a mailbox provisioned on every attach, and a box-brokered read-state
+  watermark so a message read on the phone is read on the desktop.
+- **Agent-native UX v1 — elements.** Typed inline UI (cards, progress,
+  decisions, checklists) over the wire, an `agent_state` frame, the `job` tool,
+  and the `/el` bridge; box-authored resolution edits keep settled element state
+  persisted and synced (FB92).
+- **Automatic job cards (FB13).** Subagent work opens, updates, and closes a
+  live card in the app — box core plus the Claude Code adapter and the pi
+  harness. Cards persist and recover across restarts (FB71), and a box-side
+  watcher auto-nudges and auto-closes orphaned cards (FB84).
+- **Mission Control.** A durable thread store with an index, handoff, and
+  render path; the `mission` MCP tool with index injection, a `hotline mission`
+  CLI twin, per-harness seeding and mounting, Claude Code `SessionStart` /
+  `PreCompact` hooks installed on `init`, and a pre-compact handoff loop with a
+  soft context cap for pi.
+- **Pi as a supervised harness, and bring-your-own-harness as the posture.**
+  The `@1broseidon/hotline-pi` extension, a hardened subagent tool co-loaded
+  with the channel, a four-agent starter pack (architect / implementer /
+  researcher / scout), the `hotline-setup` skill, an operator model knob, and
+  cross-language goldens generated from the real binary with a CI drift gate.
+- **The claude-sdk harness.** A Claude Agent SDK managed harness — child bridge,
+  proxy, session loop — first-class in Go, with a per-box config surface
+  (`HOTLINE_SDK_MODEL` / `_EFFORT` / `_MAX_TURNS`), a model catalog reported as
+  `harness_catalog`, FB13 job cards, and the Mission Control handoff loop.
+- **Live model and effort changes, no restart.** A `set_sdk_config` control and
+  `sdk_config_result` frame (protocol/v2 amendment), `sdk_apply` stdio
+  notifications, `setModel` on the live session, effort hot-apply, and a
+  two-tier model guard that applies a catalog-absent but valid id as unverified
+  rather than refusing. The app's model row is the box's own advertised list.
+  Pi joins the same hot-apply path with bidirectional TUI sync.
+- **`@1broseidon/hotline-harness-core`.** The plumbing pi and claude-sdk share —
+  child, queue, jsonrpc, session, auth, inbound, log — extracted into one
+  package.
+- **The fleet: box-to-box A2A (L1–L5).** An agent registry with a CLI and
+  serve-side fleet rooms (L1), the agent path with tools, refusals and acks
+  (L2), a dialer with a device-leg client and duplex state machine (L3),
+  observability — a `fleet_state` transient, live `fleet ls`, and journal
+  rotation (L4), and a box-attested capabilities manifest (L5). Delivery is
+  durable and exactly-once via a journal WAL.
+- **`hotline tail`** — a live harness event viewer.
+- **Read-only MCP introspection tools** `list_schedules` and `list_loops`.
+- **`curl -fsSL https://hotline.dev/install.sh | sh` — the install door.**
+  A POSIX `sh` installer (`site/install.sh`, served at `hotline.dev/install.sh`)
+  that resolves a release, downloads the matching goreleaser archive, verifies its
+  SHA-256 against `checksums.txt`, verifies the cosign signature on that
+  checksums file, and only then moves one binary into `~/.local/bin`. No sudo,
+  no package manager, no lifecycle scripts, nothing written until every check
+  passes. `HOTLINE_VERSION` pins a release, `HOTLINE_INSTALL_DIR` retargets, and
+  a re-run is an atomic in-place upgrade that works even while an old hotline is
+  running. An unsupported platform refuses with a source-build fallback; a
+  missing `cosign` degrades with a loud warning rather than skipping quietly.
+- **Signed releases.** goreleaser now signs `checksums.txt` with cosign in
+  keyless mode, publishing `checksums.txt.sig` and `checksums.txt.pem`.
+  Verifying that one signature transitively covers every archive in the release.
+  There is no private key: the signer identity is a tagged run of this repo's
+  `release.yml`, attested by GitHub's OIDC issuer and logged in Sigstore's
+  public transparency log.
+- **Fleet: orchestrator authority (F1).** A box can now be told, by its operator and only by its operator, that one fleet peer directs its work. `hotline fleet grant <peer> [--ttl <dur>]` records a grant on that edge's registry entry, bound to the peer's *pinned box-key fingerprint* (not the renameable alias); `hotline fleet revoke <peer>` drops it, and `fleet ls` shows `authority=granted[,expires_in=…]`. On a granted edge an inbound `task` (= assign), `cancel`, or `status_req` frame is framed to the agent as an **orchestrator directive** — act on it as work, or refuse with a reason — instead of the standing "untrusted peer data" marker; every other kind (`brief`/`result`/`ack`/`refuse`/`ping`), every other edge, and every frame after the grant expires or is revoked keeps that marker verbatim. The directive preamble still forbids approving pairings/access, changing permissions or capabilities, restarting, and anything destructive, on the peer's say-so. The grant is unreachable from the wire: no frame, tool call, or message body can create, extend, or refresh it (fleet_msg is rebuilt from validated fields, so a smuggled `authority` object is discarded), it is non-transitive (a grant on one edge confers nothing on another, even for the same peer key), one-way (what the box *sends* is unchanged, so a granted worker cannot steer its hub), and it stops applying the moment the peer's key pin changes. Revocation takes effect on the next inbound frame — the framing switch re-reads the registry rather than trusting the live session's captured edge. Directives received, and every grant/revoke, are journaled to `fleet.log` alongside the edge's existing durable frame journal.
+- **Fleet kinds `cancel`, `status_req`, `refuse`.** The closed `fleet_msg.kind` enum grows the orchestrator vocabulary: `cancel` (wind the work down, send a final result) and `status_req` (report state) join `task` as the down set, and `refuse` makes "outside my charter" a first-class answer up. There is deliberately **no `restart` kind** — restarts are operator-only, so a compromised orchestrator cannot even phrase the order. Both boxes need this binary before the new kinds are usable; a pre-F1 peer protocol-errors on an unknown kind, and `brief|task|result|ack|ping` are unchanged.
+- **claude-sdk harness 0.2.0 — reply enforcement + delivery re-arm (M1.1).** Closes a proven second-order leak observed on a live box: an operator turn's buffered text was forwarded by the fallback lane, then the SDK ran a *continuation* turn for the same inbound (a second `result`, no fresh user echo) that ended in new trailing text with no `mcp__hotline__reply` call — and slipped silently, because delivery was armed once per envelope. Now a conversation `(source, chat_id)` stays *awaiting-delivery* across turns until a SUCCESSFUL reply lands for it, so every continuation turn that produces operator-facing text is protected; the lane dedups per conversation so the same text is never sent twice, never attributes a continuation to an internal/schedule/notify/fleet turn, and forwards nothing (logging `ambiguous-continuation`) rather than cross-talk when it cannot tell which of several awaiting conversations a turn belongs to. A new `Stop` hook (`HOTLINE_SDK_ENFORCE=stop-hook|off`, default `stop-hook`, independent of `HOTLINE_SDK_FALLBACK`) is the locked door in front of that net: while the ending turn still owes the operator a reply it blocks the stop and tells the model to call `mcp__hotline__reply` now — the same "unanswered" predicate the lane uses — capped at two blocks per turn, after which the turn ends and the fallback lane delivers. Every settle now logs one line per outcome (`fired` / `reply-satisfied` / `miss why=…` / `blocked-by-hook`), so a silent miss can no longer happen without a trail.
+- **claude-sdk harness 0.2.0 — auth containment (M2).** A dead Claude credential no longer respawns the box forever in silence. The harness classifies auth failures (`auth_status`/assistant error/first-turn throw), and on the third consecutive one it notifies the last operator once through the still-healthy channel child, writes an `auth.fatal` marker, and exits with code 5. The supervisor pins its backoff at Max (a 10-minute cold loop, no give-up state) while the marker exists — cleared on the harness's next successful init, which restores normal backoff — and records "auth failure — credentials need the operator" in the status line.
+- **claude-sdk harness 0.2.0 — delivery guarantee + instruction profile (M1).** A ground-up rebuild of the Claude Agent SDK harness lives clean beside the 0.1 one in `harness/claude-sdk-v2` (child identity stays `claude-sdk`; point `HOTLINE_CLAUDE_SDK_ENTRY` at its `dist/index.js` to run it). A turn ledger uuid-stamps every inbound envelope and tracks which SDK turn consumes it, so an operator turn that ends without a `mcp__hotline__reply` call has its buffered text forwarded by a fallback lane (`HOTLINE_SDK_FALLBACK`, default on) instead of silently staying in the box — schedule/notify/fleet turns are excluded. The harness gets its own uncapped instruction profile (reply contract → preset neutralizer → Task-tool delegation doctrine, no pi Agent-tool doctrine) plus a per-turn reply-contract reminder, retiring the `run_claudesdk.go` instruction debt. A `fallback_count` lane counter rides `harness_info`.
+
+### Changed
+- **Homebrew ships as a Cask, not a Formula.** Formulas are meant to build from
+  source; hotline ships an already-built binary, which is what Casks are for.
+  goreleaser deprecated `brews:` in v2.10 and removes it in v3. The tap file
+  moves from `Formula/hotline.rb` to `Casks/hotline.rb`;
+  `brew install 1broseidon/tap/hotline` is unchanged. The cask strips the macOS
+  quarantine attribute on install, since the binaries are not notarized.
+- **`hotline up` is the unified operator launcher.** It now stays in the foreground by default. The headless Pi and OpenCode harnesses can detach with `--background` / `-d`; Claude rejects detached mode because its development-channel consent requires an attended terminal. The old `--foreground` flag is a deprecated no-op with a notice, `hotline start` is a deprecated alias for attached `hotline up`, and `hotline run` is the raw MCP-server/poller/ticker plumbing invoked by `.mcp.json`.
+- **Detached Claude prompt simulation was removed.** The `--ack-dev-channels` flag, persisted acknowledgement, folder-trust bootstrap, ANSI/VT dialog detector, and PTY write-back seam are gone. Hotline never auto-answers Claude terminal prompts. For a long-lived Claude box, run `tmux new -s hotline -- hotline up`, detach with Ctrl-b d, and reattach with `tmux attach -t hotline`.
+- **Box state is isolated by provider identity.** The unnamed box keeps its existing state-root paths, while a named box stores Mission Control, schedules, loops, notify state, jobs, and supervisor state under `bots/<name>/`. Runtime and provider-consumer liveness now use lifetime filesystem locks: a second process that overlaps a live box or provider state refuses with an explicit ownership error instead of sharing it. `bot.pid` remains diagnostic and no longer decides liveness by PID probing.
+- **The Claude TUI attaches to the operator terminal on `hotline up`.** The
+  supervisor bridges the PTY across terminal-ownership edges and routes its own
+  diagnostics off the terminal while the TUI owns it.
+- **The instruction budget is 4096 bytes, and the voice comes first.** The
+  channel register tail carries the voice charter ahead of the Mission Control
+  block, fits Claude Code's real 2KB cap, and warns loudly at launch when it has
+  to truncate.
+- **Box-owned assistant identity (FB21).** The box owns the assistant name,
+  syncs it to devices, and lets a device rename it; a rename refreshes the push
+  title (relay re-register plus `botName`).
+
+### Fixed
+- **Fleet edge death is recoverable, and one-sided death is audible (F2).** A dial edge that failed 12 consecutive handshakes used to be tombstoned `unreachable` with its creds zeroed — terminal, with no revive verb in the CLI, so ~8 minutes of relay churn (54 × `code=1006 unexpected EOF` in 24h) permanently retired a known-good edge and cost an operator re-pair. It now drops to a **cold-retry tier** instead: the edge is flagged `unreachable` (a recoverable state, *not* a tombstone — creds retained, edge still live, still accepting inbound), keeps being dialed every ~5 minutes, and **revives itself on the next successful handshake**. `removed` (operator) and `revoked` (peer) stay terminal; only network-caused death is reversible. The handshake counter also got honest: a socket that dies *before* `welcome_fleet` no longer resets the streak as if the edge had connected. The other half of that failure — the serving side happily queueing frames for a peer that had written the edge off (`pending=2`, forever, silently) — now raises an alarm: a per-minute liveness sweep logs `STALE PENDING` to `fleet.log` (throttled per edge) whenever an edge holds queued outbound with no session and no contact for 10 minutes, and both `unreachable` and `stale_pending` surface in `fleet ls`, `fleet ls --json`, the fleet MCP tool, and the operator `fleet_state` snapshot. The sweep only ever reports — it never tombstones, drops frames, or tears an edge down.
+- **Project-scoped operator verbs stay on the current project's box.** `up`, `start`, `down`, `status`, `tail`, and the other box-state commands now adopt the nearest parent `.mcp.json` hotline identity before resolving paths. `down` can no longer stop the base supervisor from a named-box project, and implicit `status` follows the configured Telegram instance instead of reading base state. Malformed or ambiguous hotline entries and provider/bot conflicts refuse rather than guessing.
+- **Every channel-serving runtime now ticks its script loops.** The loop runner moved from the `hotline up` supervisor into the box-owning `hotline run` process, so plain `run` sessions tick and supervised Claude, OpenCode, and Pi sessions receive the ticker through their run child. The box's exclusive `active.lock` prevents a second runtime process from double-ticking; the in-process guard remains a backstop. Shutdown drains in-flight ticks before releasing the box lease, and each tick still persists its start watermark before executing.
+- **`go test` can no longer bounce a live box.** The supervisor directory is
+  resolved from config, never from ambient environment, so a test run that
+  inherits `HOTLINE_SUPERVISOR_DIR` cannot file a restart request against the
+  operator's running session.
+- **`hotline down` / `status` resolve the box the current directory owns** and
+  refuse to SIGTERM the wrong one.
+- **Soak fixes on the long-running box.** The harness is recycled when the relay
+  rotates its room, journaled-but-unanswered inbound is replayed on harness
+  restart (keyed on the delivered-marker high-water rather than the last
+  outbound), and connector `/c` lifecycle and close codes are persisted for
+  post-mortem.
+- **Relay and delivery hardening.** Reconnect races survive, case-variant
+  `relay_presence` spoofs are rejected, delivery truthfulness means sink
+  acceptance is the receipt, ping validation and a gap bad-frame limit are
+  enforced, push targets are set atomically, and a device more than
+  `maxDeviceHoles` behind escapes the deaf-mailbox trap instead of wedging.
+- **Job cards resolve by the card's message id**, log their start as well as
+  their done, and cookie→batch resolution covers batch-less done/update (FB13).
+- **The `.env` writer is serialized and replaces atomically**, `set_sdk_config`
+  is idempotent under replay, applies serialize, hot applies are fenced to the
+  live session, effort replaces rather than accumulates, and a cleared
+  model/effort is reported rather than merely absent.
+
 ## [0.10.0] - 2026-07-09
 
 ### Added

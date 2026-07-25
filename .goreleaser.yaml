@@ -32,6 +32,32 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Sign checksums.txt with cosign in keyless mode. Signing the checksum file
+# rather than each archive means one signature transitively covers every
+# artifact listed in it -- the same shape Claude Code ships.
+#
+# Keyless: there is no private key to store, leak, or rotate. The signer
+# identity IS a tagged run of .github/workflows/release.yml in this repo,
+# attested by GitHub's OIDC issuer and recorded in Sigstore's public
+# transparency log. The release job therefore needs `id-token: write` and the
+# cosign binary on PATH; both are wired in release.yml.
+#
+# Emits checksums.txt.sig and checksums.txt.pem as release assets.
+# site/install.sh downloads both and pins the same identity regexp + issuer.
+signs:
+  - id: cosign-checksum
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    output: true
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+
 snapshot:
   version_template: "{{ .Version }}-next"
 
@@ -44,23 +70,40 @@ changelog:
       - "^chore:"
       - "^ci:"
 
-brews:
-  - ids:
+# A Cask, not a Formula. Formulas are meant to build from source; we ship an
+# already-built binary, which is what Casks are for. GoReleaser deprecated
+# `brews:` in v2.10 and will delete it in v3, so this is both the correct
+# mechanism and the one that survives the next major.
+#
+# Note the directory move: Formula/ -> Casks/. The old Formula/hotline.rb stays
+# in 1broseidon/homebrew-tap until someone deletes it, and `brew install
+# 1broseidon/tap/hotline` resolves either way.
+homebrew_casks:
+  - name: hotline
+    binaries:
+      - hotline
+    ids:
       - hotline
     repository:
       owner: 1broseidon
       name: homebrew-tap
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
+    directory: Casks
     commit_author:
       name: github-actions[bot]
       email: 41898282+github-actions[bot]@users.noreply.github.com
-    commit_msg_template: "formula: update hotline to {{ .Tag }}"
-    homepage: https://github.com/1broseidon/hotline
+    commit_msg_template: "cask: update hotline to {{ .Tag }}"
+    homepage: https://hotline.dev
     description: Messaging channel for Claude Code. Talk to your sessions like texting a friend.
     license: MIT
-    install: |
-      bin.install "hotline"
-    test: |
-      system "#{bin}/hotline", "--help"
+    # Our binaries are not Apple-notarized, so macOS quarantines anything
+    # downloaded by a Cask and refuses to launch it. Stripping the quarantine
+    # xattr at install time is the documented GoReleaser recipe for this; on
+    # Linuxbrew xattr is absent and the guard makes it a no-op.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/hotline"]
+          end

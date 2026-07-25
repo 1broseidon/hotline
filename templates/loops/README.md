@@ -13,7 +13,7 @@ state under `$HOTLINE_LOOP_STATE_DIR`.
 ```sh
 hotline source add reddit-watch --cap low
 hotline loop add reddit-watch --every 6h --notify-llm --source reddit-watch --level low \
-  --cmd "python3 /home/george/Projects/agents/beastie-boy/threads/ketch/scripts/sub-sweep.py"
+  --cmd "python3 /path/to/reddit-watch/sub-sweep.py"
 ```
 
 ## Email Sentry

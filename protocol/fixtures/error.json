@@ -1,0 +1,69 @@
+{
+  "intent": "Pins the four fatal error shapes emitted for an unsupported version, missing authorization, pairing expiry, and pairing rate limiting.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "error",
+        "code": "version",
+        "message": "unsupported protocol version 2 (server speaks 1)"
+      },
+      "expect": {
+        "seq": null,
+        "event": {
+          "type": "bubble",
+          "text": "⚠️ unsupported protocol version 2 (server speaks 1)"
+        },
+        "eventIdPrefix": "err-"
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "error",
+        "code": "unauthorized",
+        "message": "missing device secret"
+      },
+      "expect": {
+        "seq": null,
+        "event": {
+          "type": "bubble",
+          "text": "⚠️ missing device secret"
+        },
+        "eventIdPrefix": "err-"
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "error",
+        "code": "pairing_timeout",
+        "message": "pairing not approved in time; reconnect to try again"
+      },
+      "expect": {
+        "seq": null,
+        "event": {
+          "type": "bubble",
+          "text": "⚠️ pairing not approved in time; reconnect to try again"
+        },
+        "eventIdPrefix": "err-"
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "error",
+        "code": "pairing_rate_limited",
+        "message": "too many pairing attempts; wait for the operator to approve, then retry"
+      },
+      "expect": {
+        "seq": null,
+        "event": {
+          "type": "bubble",
+          "text": "⚠️ too many pairing attempts; wait for the operator to approve, then retry"
+        },
+        "eventIdPrefix": "err-"
+      }
+    }
+  ]
+}

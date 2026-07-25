@@ -1,8 +1,8 @@
 # hotline
 
-A messaging channel for Claude Code and OpenCode. hotline is an MCP server that relays your agent session to Telegram, so you talk to it the way you text a friend: short bubbles, reactions, tappable buttons, photos.
+hotline is the messaging channel for your coding agent. Bring your own harness. It relays your agent session to Telegram, so you talk to it the way you text a friend: short bubbles, reactions, tappable buttons, photos.
 
-It drives two harnesses: Claude Code over its experimental two-way channel protocol (`claude/channel`), and OpenCode over a separate HTTP+SSE adapter. The texting experience is the same either way. More harnesses work if they adopt the protocol or when hotline adds support.
+It drives four harnesses today: Claude Code, claude-sdk, OpenCode, and Pi. The texting experience is the same on all four. They differ in how you wire them up and how much they can relay to your phone. The [harness guide](harness/README.md) lays them out side by side.
 
 ## The texting experience
 
@@ -22,21 +22,85 @@ You tap a button, the choice lands back in the session as if you had typed it, a
 
 Inbound works the same way. You text in bursts, so hotline buffers consecutive messages per chat (1.2s window, 8s max wait) and delivers them as one coherent turn instead of interrupting Claude three times. Photos are downloaded eagerly and handed to Claude as a local path; documents, voice notes, video, and stickers are surfaced as metadata and fetched on demand.
 
+## Harnesses
+
+hotline is the channel; you bring the coding agent. Four work today — the four values `--harness` and `HOTLINE_HARNESS` accept; an unknown one is rejected at startup. They wire up differently, but once running the texting experience is identical.
+
+- **Claude Code** speaks the channel protocol natively. `hotline init` installs the plugin, `hotline start` launches it. This is the flow the Quickstart below walks.
+- **claude-sdk** is Claude again, managed: a headless node harness driving a Claude Agent SDK session, which owns the `hotline run` child instead of being loaded by it. It is repo-local — build `harness/claude-sdk` and point `HOTLINE_CLAUDE_SDK_ENTRY` at its `dist/index.js`. Details in [harness/claude-sdk](harness/claude-sdk/README.md).
+- **OpenCode** rides an HTTP+SSE adapter. `hotline init --harness opencode` scaffolds a dedicated agent and `opencode.json`. Details in [OpenCode harness](#opencode-harness).
+- **Pi** loads a channel extension. `pi install ./harness/pi` from a checkout of this repo, then run the `hotline-setup` skill to finish setup. Details in [the Pi extension](harness/pi/README.md).
+
+The [harness guide](harness/README.md) has the full capability matrix. The honest difference today is the permission relay: Claude Code relays each permission prompt to your phone, OpenCode gates coarsely through its own `permission` block, and both claude-sdk and Pi run their tools unguarded for now — claude-sdk in the Agent SDK's `bypassPermissions`, Pi with no gate at all.
+
 ## Install
+
+```sh
+curl -fsSL https://hotline.dev/install.sh | sh
+```
+
+That is one statically linked binary into `~/.local/bin`. No sudo, no package
+manager, no install-time scripts. It verifies the download's SHA-256 against the
+release's `checksums.txt` and the signature on that checksums file before it
+writes anything, and it tells you loudly if it could not. Re-run it to upgrade
+in place.
+
+- `HOTLINE_VERSION=v0.11.0` pins a release instead of taking the latest.
+- `HOTLINE_INSTALL_DIR=$HOME/bin` puts the binary somewhere else.
+
+The script is [about 250 lines and mostly comments](site/install.sh) — read it
+before you pipe it into a shell. That it is readable is the security argument.
+
+Prefer a package manager, or want the upgrade to ride `brew upgrade`?
 
 ```sh
 brew install 1broseidon/tap/hotline
 ```
 
-Binaries ship with each tagged release. Or build from source:
+Or build from source (Go 1.26+):
 
 ```sh
 go install github.com/1broseidon/hotline/cmd/hotline@latest   # -> $(go env GOPATH)/bin/hotline
 ```
 
-Requires Go 1.26+ for the source build.
+Every tagged release also publishes plain `tar.gz` archives, `checksums.txt`,
+and its signature on the
+[Releases page](https://github.com/1broseidon/hotline/releases) — all three
+install paths above deliver the same bytes from there.
+
+To verify a release by hand:
+
+```sh
+cosign verify-blob \
+  --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github\.com/1broseidon/hotline/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
+<!--
+MAINTAINER NOTE — https://hotline.dev/install.sh is live only once BOTH of these
+are true:
+  1. `site/` has been redeployed to the hotline-site Pages project since the
+     `site/install.sh` + `site/_headers` files were added, and
+  2. a release at or after v0.11.0 exists on GitHub.
+Until (1), hotline.dev/install.sh falls through to the landing-page HTML; until
+(2), the script resolves a tag with no signature assets and warns. Deploy:
+    wrangler pages deploy site --project-name=hotline-site --branch=main
+Verify:
+    curl -sI https://hotline.dev/install.sh    # content-type: text/plain
+    curl -s  https://hotline.dev/install.sh | head -3   # a #!/bin/sh shebang
+
+Renamed from the extensionless `site/install`. The extension says what the script
+is and leaves room for an install.ps1 sibling. `site/` IS the Pages deploy unit,
+so the served path is the file path — no copy step, no redirect. Condition (1)
+was still open at rename time, so there should be no live `/install` to keep
+working; if it turns out one was deployed and handed out, add a redirect.
+-->
 
 ## Quickstart
+
+This is the Claude Code path, the default harness. OpenCode wires up with `hotline init --harness opencode` (see [OpenCode harness](#opencode-harness)); Pi with `pi install ./harness/pi` and the `hotline-setup` skill (see [the Pi extension](harness/pi/README.md)). Steps 1 and 4 below are the same on every harness.
 
 1. Get a bot token from [@BotFather](https://t.me/BotFather), then save it (once, machine-wide):
 
@@ -53,7 +117,7 @@ Requires Go 1.26+ for the source build.
    hotline init
    ```
 
-   This installs the hotline Claude Code plugin and enables it for the project (`.claude/settings.json`). Add `--providers telegram,signal` for extra transports, `--voice` for a starter `HOTLINE.md`, `--mcp-json` to register a raw `.mcp.json` server instead.
+   This installs the hotline Claude Code plugin and enables it for the project (`.claude/settings.json`). Add `--providers telegram,signal` for extra transports, `--voice` for a starter `HOTLINE.md`, `--mcp-json` to register a raw `.mcp.json` server instead. `--harness claude|claude-sdk|opencode|pi` picks the harness — `opencode` scaffolds its agent + `opencode.json`, while `pi` and `claude-sdk` skip the plugin and print their own wiring steps.
 
 3. Launch Claude Code with the channel loaded:
 
@@ -62,7 +126,7 @@ Requires Go 1.26+ for the source build.
    hotline start --yolo       # adds --dangerously-skip-permissions; the permission relay never fires
    ```
 
-   Or make it always-on — supervised, detached from the terminal, restarted on crash:
+   Or make it always-on — supervised and attached to your terminal, restarted on crash (park a long-lived Claude in tmux):
 
    ```sh
    hotline up                 # same flags as start; stop with hotline down
@@ -108,7 +172,7 @@ claude plugin install hotline@hotline -s project
 claude --dangerously-load-development-channels plugin:hotline@hotline
 ```
 
-Claude Code gates channel registration on an allowlist of approved channel plugins; hotline isn't on it yet, so the dev-channel flag is still needed. `hotline start` checks the allowlist on every launch and drops the flag for plain `--channels plugin:hotline@hotline` the moment hotline is approved.
+Claude Code gates channel registration on an allowlist of approved channel plugins; hotline isn't on it yet, so the dev-channel flag is still needed. `hotline up` checks the allowlist on every launch and drops the flag for plain `--channels plugin:hotline@hotline` the moment hotline is approved.
 
 Prefer a raw MCP server without the plugin? `hotline init --mcp-json` writes this into the project's `.mcp.json`:
 
@@ -166,7 +230,7 @@ Outbound is gated too. Every tool call checks the target chat against the same r
 | `react` | Set an emoji reaction (Telegram's fixed whitelist) |
 | `edit_message` | Edit a message the bot sent, for interim progress. Edits don't push-notify |
 | `download_attachment` | Fetch a non-photo attachment by `file_id` into the inbox; returns a local path (Telegram's 20MB download cap applies) |
-| `publish` | Serve a local artifact (a directory or a single HTML file) at a temporary link that dies with the session. The exposure backend is operator-selected via `HOTLINE_PUBLISH_EXPOSURE`: `localhostrun` (default), `cloudflared`, or `local` (loopback only). Public links are passcode-gated: the tool returns a `Link:` and a 6-digit `Passcode:` line to relay verbatim — visitors enter the code once on an unlock page (phones offer it as one-time-code autofill from the chat message) and get a session cookie; ten wrong guesses lock the publish until republished. A single-file publish serves exactly that file, never its parent directory |
+| `publish` | Publish an artifact through a selected channel (`source` is required with multiple providers). A relay-configured app target requires `chat_id`, accepts one UTF-8 `.html` file up to 2 MiB, and sends one in-app artifact card. Other targets preserve the exposure backend selected by `HOTLINE_PUBLISH_EXPOSURE`: `localhostrun` (default), `cloudflared`, or `local` (loopback only). Public links remain passcode-gated; a single-file direct publish serves exactly that file, never its parent directory |
 | `schedule` | `create`, `list`, or `cancel` a scheduled task. At the scheduled time the stored prompt is injected back into the session as an inbound turn (`kind="schedule"`), so the agent acts on it with full tool access and normal permission gating. Recurrence is a preset: `once`, `daily`, `weekly`, `every_n_hours`, `every_n_days`. A one-off's fire time takes a relative offset (`+2m`, `+1h30m`) or an absolute time; the rest are server-local |
 | `setup_loop` | Create a supervised local script loop. In normal mode it is pending until the operator runs `hotline loop approve <label>`; in yolo mode it is live immediately and the operator is notified. There is no self-approve flag in the tool |
 | `setup_notify` | Create a notify source for local scripts. It returns the label, not the capability key; the operator manages keys with `hotline source list` / `revoke` |
@@ -178,7 +242,7 @@ Every message in both directions is appended to `<stateDir>/transcript.jsonl`. T
 
 ## Voice
 
-The channel instructions ship with a default persona: a sharp, warm friend texting in short bubbles. Drop a `HOTLINE.md` file to replace it. First hit wins:
+The channel instructions ship with a default persona: a sharp, funny friend texting in short bubbles. Drop a `HOTLINE.md` file to replace it. First hit wins:
 
 1. `./HOTLINE.md` in the directory Claude Code runs in, for a per-repo voice
 2. `HOTLINE.md` in the state dir (`~/.config/hotline` by default), your global default
@@ -186,7 +250,7 @@ The channel instructions ship with a default persona: a sharp, warm friend texti
 
 The file is read once at startup. Edit it, then restart Claude Code. Empty files are skipped.
 
-Claude Code caps MCP server instructions at 2048 characters. hotline puts the mechanics first and gives the voice the remainder, about 630 characters; a longer voice is cut at a word boundary with a stderr warning.
+hotline budgets the channel instructions at 4096 characters (sessions run 300k+ token windows now; the old 2048 cap was silently cutting voices to ~400 bytes). Mechanics come first and the voice gets the remainder, about 2,500 characters; a longer voice is cut at a word boundary with a stderr warning.
 
 A voice changes tone only. The tool contract, inbound message handling, and the safety rules (operator-only pairing approval, the injection stance) are compiled in, always come first, and apply under any voice.
 
@@ -242,7 +306,7 @@ Tokens and accounts stay in the state `.env` as shown below.
 
 With one provider configured, the tool schemas are byte-identical to the single-provider ones above. With several, each tool takes a required `source` argument matching the `source` attribute on inbound messages.
 
-Named instances are how you run several sessions at once. One bot token allows exactly one Telegram poller, so each concurrent session gets its own bot. `--bot work` is shorthand for `HOTLINE_PROVIDERS=telegram:work`. Each named bot keeps isolated state under `<stateDir>/bots/<name>/` and reads its token from `TELEGRAM_BOT_TOKEN_<NAME>` in the shared `.env`:
+Named instances are how you run several sessions at once. One bot token allows exactly one Telegram poller, so each concurrent session gets its own bot. `--bot work` is shorthand for `HOTLINE_PROVIDERS=telegram:work`. The unnamed box keeps the legacy paths directly under `<stateDir>`; `telegram:work` keeps its Telegram state plus box-owned Mission Control, schedules, loops, notify queue, jobs, and supervisor state under `<stateDir>/bots/work/`. Other transports retain their provider-specific `.../instances/<name>/` state layout while the shared instance name selects the same box-owned root. The Telegram token still comes from `TELEGRAM_BOT_TOKEN_<NAME>` in the shared `.env`:
 
 ```sh
 # ~/.config/hotline/.env
@@ -250,7 +314,7 @@ TELEGRAM_BOT_TOKEN=111:AA…            # default bot
 TELEGRAM_BOT_TOKEN_WORK=222:BB…       # telegram:work
 ```
 
-`--bot` works on every subcommand (`hotline status --bot work`, `hotline pair <code> --bot work`).
+`--bot` works on every subcommand (`hotline status --bot work`, `hotline pair <code> --bot work`). At runtime, lifetime filesystem locks cover the selected box root, its provider state directories, and its Mission Control directory. A second process that targets any live-owned resource exits with a `state ownership conflict` instead of mounting it; disjoint named boxes can run concurrently.
 
 When a future transport lacks a feature, the adapter degrades it, never the agent: on a transport without inline buttons, buttons render as numbered text options and the numbered choice routes back the same way. The tool contract stays the same everywhere.
 
@@ -362,10 +426,11 @@ When a token is configured, hotline declares the `claude/channel/permission` cap
 ```
 hotline setup        save credentials to the shared .env (run once)
 hotline init         install the hotline plugin and enable it for this repo
-hotline start        launch Claude Code with the channel loaded
-hotline up           launch Claude Code supervised (always-on; see below)
+hotline up           launch any configured harness, attached by default
+hotline up -d        background a headless Pi/OpenCode harness (Claude: use tmux)
+hotline start        deprecated alias for attached `hotline up`
 hotline down         stop the supervised session
-hotline [run]        start the MCP server + Telegram poller (default)
+hotline [run]        MCP server/poller plumbing used by .mcp.json (default)
 hotline pair <code>  approve a pending pairing code
 hotline deny <code>  reject a pending pairing code
 hotline revoke <id>  remove an approved sender from the allowlist
@@ -388,37 +453,58 @@ hotline source       manage notify capability keys
 
 `pair`, `deny`, `revoke`, and `status` take `--provider kind[:instance]` to select which provider's state they operate on (default: telegram).
 
-Schedules are created from chat via the `schedule` tool; the `hotline schedule` CLI is the operator's view over them. `list` shows every schedule with its next fire time; `remove` deletes one by id (or unique prefix); `pause`/`resume` are the operator kill-switch (resuming a recurring schedule recomputes its next fire from now, so a long pause never triggers a stale catch-up burst). Schedules live in `schedules.json` at the state root and are re-read live by a running daemon, so CLI edits take effect without a restart.
+Schedules are created from chat via the `schedule` tool; the `hotline schedule` CLI is the operator's view over them. `list` shows every schedule with its next fire time; `remove` deletes one by id (or unique prefix); `pause`/`resume` are the operator kill-switch (resuming a recurring schedule recomputes its next fire from now, so a long pause never triggers a stale catch-up burst). Schedules live in `schedules.json` at the selected box root and are re-read live by a running daemon, so CLI edits take effect without a restart.
 
-Notify is the third ingress leg, beside messages and schedules: event-driven, from local scripts and daemons (backup jobs, an email watcher, CI, monitors) rather than a human or a timer. `hotline source add <label>` mints a UUIDv4 capability key (a bearer credential — every human-facing surface shows the label, never the key) with an optional level cap, rate-limit override, and default chat id; `setup_notify` can create the same source from chat but does not return the key. `revoke` kills a source instantly, since every `notify` call reads the registry fresh. `hotline notify --source <key>` runs the full gate inline before durably enqueuing: level clamp to the source's cap, payload sanitization (control-character stripping, envelope-close neutralization), a 10-minute dedup window, a per-source token-bucket rate limit (burst 5, refill 1 per 5 minutes by default), and quiet hours (`"HH:MM-HH:MM"`, only `urgent` bypasses; events held during the window release together as one digest). Exit codes are the script-facing contract: `0` accepted, `3` queued, `4` rejected or rate-limited, `2` usage error, `1` internal error. stdin is first-class, so `tail -1 backup.log | hotline notify --source $KEY --level low` works. Accepted events inject on the dispatcher's next tick as `kind="notify"` turns, framed by a compiled-in preamble as an untrusted machine report — never operator instructions, and silence is a valid, correct outcome. `hotline notify list` and `hotline source list` are the operator's views into the spool and the key registry; notify's state lives in `notify/spool.json` and `notify/sources.json` at the state root, guarded by the same flock/atomic-write pattern as `schedules.json`.
+Notify is the third ingress leg, beside messages and schedules: event-driven, from local scripts and daemons (backup jobs, an email watcher, CI, monitors) rather than a human or a timer. `hotline source add <label>` mints a UUIDv4 capability key (a bearer credential — every human-facing surface shows the label, never the key) with an optional level cap, rate-limit override, and default chat id; `setup_notify` can create the same source from chat but does not return the key. `revoke` kills a source instantly, since every `notify` call reads the registry fresh. `hotline notify --source <key>` runs the full gate inline before durably enqueuing: level clamp to the source's cap, payload sanitization (control-character stripping, envelope-close neutralization), a 10-minute dedup window, a per-source token-bucket rate limit (burst 5, refill 1 per 5 minutes by default), and quiet hours (`"HH:MM-HH:MM"`, only `urgent` bypasses; events held during the window release together as one digest). Exit codes are the script-facing contract: `0` accepted, `3` queued, `4` rejected or rate-limited, `2` usage error, `1` internal error. stdin is first-class, so `tail -1 backup.log | hotline notify --source $KEY --level low` works. Accepted events inject on the dispatcher's next tick as `kind="notify"` turns, framed by a compiled-in preamble as an untrusted machine report — never operator instructions, and silence is a valid, correct outcome. `hotline notify list` and `hotline source list` are the operator's views into the spool and the key registry; notify's state lives in `notify/spool.json` and `notify/sources.json` at the selected box root, guarded by the same flock/atomic-write pattern as `schedules.json`.
 
-Loops are the scheduler applied to local scripts. `hotline loop add <label> --every <dur> --cmd "<shell>"` registers a command; in normal mode it starts pending and the runner skips it until `hotline loop approve <label>`, while `hotline loop deny <label>` removes it. Direct operator CLI setup can pass `-y` / `--approve` to create it approved immediately. In yolo mode, loops created by CLI or `setup_loop` are approved immediately and hotline enqueues a non-blocking operator heads-up. Once approved, `hotline up` runs the loop eagerly at supervisor startup and then on its interval. The runner skips overlapping ticks, enforces `--timeout` with a process-group kill, writes a size-rotated per-loop log under `<state>/loops/<label>.log`, and records advisory last-run status in `loops.json`. Each run gets `HOTLINE_LOOP_STATE_DIR=<state>/loops/<label>/state`, `HOTLINE_LOOP_LABEL`, and, when `--source <notify-label>` is set, `HOTLINE_NOTIFY_SOURCE=<key>` in its environment. With `--notify-llm`, non-empty stdout is routed through the existing notify gate using the stored source label; empty stdout enqueues nothing. Without `--notify-llm`, hotline only logs the run and the script owns escalation, usually by calling `hotline notify --source "$HOTLINE_NOTIFY_SOURCE"` itself. If `--notify-llm` is set without `--source`, loop setup creates a notify source named after the loop and stores only that label in `loops.json`. `hotline loop run <label> --once` executes one approved registered tick in the foreground for cron/testing; `list`, `pause`, `resume`, `approve`, `deny`, `remove`, and `logs -n N` are the operator controls.
+Loops are the scheduler applied to local scripts. `hotline loop add <label> --every <dur> --cmd "<shell>"` registers a command; in normal mode it starts pending and the runner skips it until `hotline loop approve <label>`, while `hotline loop deny <label>` removes it. Direct operator CLI setup can pass `-y` / `--approve` to create it approved immediately. In yolo mode, loops created by CLI or `setup_loop` are approved immediately and hotline enqueues a non-blocking operator heads-up. Once approved, the box-owning `hotline run` process runs the loop when due and then on its interval, whether it was started directly or as an `up` harness child. A never-run or overdue loop ticks immediately; a restart resumes from its persisted last-run watermark instead of duplicating a recent tick. The runner skips overlapping ticks, enforces `--timeout` with a process-group kill, writes a size-rotated per-loop log under `<box-root>/loops/<label>.log`, and records advisory last-run status in `loops.json`. Each run gets `HOTLINE_LOOP_STATE_DIR=<box-root>/loops/<label>/state`, `HOTLINE_LOOP_LABEL`, and, when `--source <notify-label>` is set, `HOTLINE_NOTIFY_SOURCE=<key>` in its environment. With `--notify-llm`, non-empty stdout is routed through the existing notify gate using the stored source label; empty stdout enqueues nothing. Without `--notify-llm`, hotline only logs the run and the script owns escalation, usually by calling `hotline notify --source "$HOTLINE_NOTIFY_SOURCE"` itself. If `--notify-llm` is set without `--source`, loop setup creates a notify source named after the loop and stores only that label in `loops.json`. `hotline loop run <label> --once` executes one approved registered tick in the foreground for cron/testing; `list`, `pause`, `resume`, `approve`, `deny`, `remove`, and `logs -n N` are the operator controls.
 
-## Always-on: hotline up
+## Launcher: hotline up
 
-`hotline start` lives and dies with your terminal. `hotline up` is its always-on sibling: a small supervisor that owns the harness process — Claude Code by default, `opencode serve` under `HOTLINE_HARNESS=opencode` — and keeps it alive until you say otherwise.
+`hotline up` is the operator launcher for every harness. It owns the harness process — Claude Code by default, `opencode serve` under `HOTLINE_HARNESS=opencode`, or Pi RPC under `HOTLINE_HARNESS=pi` — and keeps it alive until you say otherwise. It stays attached to the current terminal by default. `--background` / `-d` is available only for the headless Pi and OpenCode harnesses.
+
+Pick the harness with `--harness claude|claude-sdk|opencode|pi` (mirrors `--providers`: it exports `HOTLINE_HARNESS` for this launch and every respawn). Precedence is flag > real shell env > state `.env`. On launch `up` announces what it resolved, why, and its posture — e.g. `hotline: harness pi (from --harness) — headless-capable (-d to detach)` versus `hotline: harness claude (default) — attached TUI, consent stays interactive (park it in tmux)`. That split is deliberate: `claude` runs as an attended Claude Code TUI so its folder-trust and dev-channel consent stay human-answered rather than auto-bypassed (why `--background` is refused for it), while `pi`, `opencode`, and `claude-sdk` are headless and can detach with `-d`.
 
 ```sh
-hotline up            # detached: supervisor + harness survive this terminal
-hotline up --yolo     # claude path: same flags as start, passthrough after -- included
-hotline down          # graceful stop (harness first, then supervisor)
-hotline status        # gains a supervisor block: phase, pids, restarts, logs
+hotline up                              # attached Claude, Pi, or OpenCode
+hotline up --harness pi -d              # detached Pi supervisor (flag form)
+HOTLINE_HARNESS=opencode hotline up -d  # detached OpenCode supervisor (env form)
+hotline down                            # graceful stop
+hotline status                          # supervisor phase, pids, restarts, logs
 ```
+
+Attached, `hotline up` puts the real Claude Code TUI on your terminal — your keystrokes reach Claude, its screen paints back, and every byte is still teed to `harness.log`. That is how you answer the interactive consent prompts (folder-trust, development-channel warning): they can't be answered detached and hotline never replays them, so Claude stays attended. The supervisor keeps running underneath — crash-respawn, `restart`, and signal handling all survive. Stop it with `hotline down` from another pane (in raw mode your `^C` goes to Claude, not the supervisor); or just quit Claude — a clean exit is read as "I'm done" and the supervisor stops instead of relaunching a session you closed (a crash still respawns). Park it in tmux for a long-lived session:
+
+```sh
+tmux new -s hotline -- hotline up
+```
+
+A supervised claude gets a fresh consent context, so the folder-trust and dev-channel prompts you already answered on a raw `claude` launch reappear the first time under `up` — expected, answer them once in that terminal. To have claude resume its prior conversation across respawns, add `hotline up -- --continue` (see the respawn note below).
+
+When stdin is not a terminal (CI, a pipe, a detached headless launch), there is nothing to attach to: claude runs on the supervisor's pty with output going to `harness.log` only, exactly as before.
+
+Detach with **Ctrl-b d** and reattach with:
+
+```sh
+tmux attach -t hotline
+```
+
+`hotline start` remains as a deprecated alias for attached `hotline up` and prints a notice. `hotline run` is plumbing: it starts the raw MCP server, provider pollers, and box loop ticker. It is the verb `.mcp.json` invokes, not the normal operator launcher.
 
 What it does:
 
-- **Owns the harness.** On the claude path, Claude Code needs a real terminal (with a non-tty stdin it drops into print mode and exits), so the supervisor allocates a pty and runs claude on it, in its own session and process group. On the opencode path, `opencode serve` is a headless daemon: the supervisor runs it on plain pipes — same session/process-group discipline, no pty — binding the port and hostname from `OPENCODE_SERVER_URL` (default `http://127.0.0.1:4096`), the same source the hotline MCP child reads, so daemon and client always agree. Linux and macOS.
-- **Restarts on any exit** with exponential backoff: 2s doubling to a 10-minute ceiling, reset after 5 minutes of healthy uptime. It never gives up — a persistently failing harness costs at most six attempts an hour, each with a logged breadcrumb. Together with the scheduler's catch-up scan, a 3am crash no longer eats your 9am schedule: the session comes back and the overdue fire happens exactly once.
+- **Owns the harness.** On the claude path, Claude Code needs a real terminal (with a non-tty stdin it drops into print mode and exits), so the supervisor allocates a pty and runs claude on it, in its own session and process group. Attached to a terminal it also bridges that pty to your terminal — raw-mode stdin in, output out, terminal-size (SIGWINCH) forwarded, restored on exit — so you drive the live TUI; each respawn re-bridges the new pty. On the opencode path, `opencode serve` is a headless daemon: the supervisor runs it on plain pipes — same session/process-group discipline, no pty — binding the port and hostname from `OPENCODE_SERVER_URL` (default `http://127.0.0.1:4096`), the same source the hotline MCP child reads, so daemon and client always agree. Linux and macOS.
+- **Restarts on exit** with exponential backoff: 2s doubling to a 10-minute ceiling, reset after 5 minutes of healthy uptime. The headless harnesses (and a non-tty claude) restart on ANY exit, clean or crash — an always-on agent that exits cleanly at 3am is still down at 9am, and `hotline down` is the intentional way to stop. The one exception is the attached Claude TUI: quitting it cleanly (a status-0 exit) is your stop signal, so the supervisor stops rather than relaunching a session you just closed; a crash still respawns. It never gives up on the restart-on-exit path — a persistently failing harness costs at most six attempts an hour, each with a logged breadcrumb. Together with the scheduler's catch-up scan, a 3am crash no longer eats your 9am schedule: the session comes back and the overdue fire happens exactly once.
 - **Restart from chat.** Under `hotline up` the session gains a `restart` MCP tool, so the paired user can say "restart yourself". The tool only writes the supervisor's control file — what runs (argv, env, cwd) was fixed by you at `up` time, and the reason string is only ever logged — so a prompt-injected restart is at worst a bounced session, a smaller blast radius than tools the channel already has. `kill -HUP <supervisor pid>` does the same from the machine.
-- **Logs in the state dir.** `supervisor/supervisor.log` holds the supervisor's event lines (starts, exits, backoff, restart reasons); `supervisor/harness.log` captures claude's pty output (raw, ANSI escapes and all), size-rotated at 5MB with one older generation kept.
+- **Logs in the box root.** `supervisor/supervisor.log` holds the supervisor's event lines (starts, exits, backoff, restart reasons); `supervisor/harness.log` captures claude's pty output (raw, ANSI escapes and all) — teed there even while it's also painting your attached terminal — size-rotated at 5MB with one older generation kept.
 
-`--foreground` skips the detach and runs the supervisor in your terminal — that's the shape a tmux pane or a systemd unit wants (`ExecStart=hotline up --foreground`). A flock under `supervisor/` guarantees one supervisor per state root; liveness is the held lock, not a pid file, so a stale `state.json` can never wedge `up` or `down`.
+Foreground is the default. Use the tmux recipe above for long-lived Claude; headless Pi and OpenCode can use `--background` or an external process manager. The old `--foreground` spelling remains as a deprecated no-op with a notice. A flock under `supervisor/` guarantees one supervisor per box root. The broader owner guard also holds lifetime flocks over the box and provider resources; stale JSON or reused PIDs are advisory and cannot wedge startup.
 
 Restarted sessions start fresh by default: cross-restart memory is the transcript and `schedules.json`, by design. On the claude path, if you want claude itself to resume its conversation, `hotline up -- --continue` re-applies on every respawn (careful: `--continue` with no prior session, or a corrupted one, can crash-loop into the backoff ceiling). On the opencode path, args after `--` go to `opencode serve` verbatim, and session state survives a bounce on its own: opencode persists sessions on disk, and hotline's session pinning / most-recent selection re-attaches after the restart.
 
 Per-harness honesty notes:
 
-- **Claude path:** unattended restarts are only truly unattended once hotline is on Claude's approved channels allowlist (`--channels`). Until then `hotline start`/`up` fall back to `--dangerously-load-development-channels`, whose confirmation prompt is per-launch by design — so each supervised respawn parks on that prompt until someone attaches to the pty (e.g. via the harness log you can see it waiting) and confirms. The supervisor machinery is correct today; the allowlist switch (automatic in `channelArgs`) is what makes it hands-off.
+- **Claude path:** until hotline is on Claude's approved channels allowlist, `up` falls back to `--dangerously-load-development-channels`, whose consent does not persist upstream. Hotline never auto-answers that dialog and always refuses `--background` / `-d` for Claude. Run attached, or use the tmux recipe above for a long-lived session; answer Claude's folder-trust and development-channel prompts in that terminal. When the allowlist enables safe `--channels`, hotline switches automatically, but Claude background mode remains intentionally unavailable.
 - **OpenCode path:** `--yolo` errors instead of being silently ignored — it maps to a claude flag with no opencode equivalent; opencode's permission policy lives in `opencode.json`'s `permission` block. And the supervisor watches `opencode serve` only: if the hotline MCP child opencode spawns dies while serve stays up, the supervisor doesn't see it (a serve bounce — `restart` tool, SIGHUP, `down`/`up` — recovers it).
 
 ## State and environment
@@ -460,18 +546,20 @@ Operationally, hotline holds its lane: a PID guard SIGTERMs a stale poller befor
 
 hotline is a stdio MCP server (official `github.com/modelcontextprotocol/go-sdk`) that additionally declares Claude Code's experimental `claude/channel` capability and, with a token configured, `claude/channel/permission`. Inbound messages reach Claude as `notifications/claude/channel` with a `<channel source="telegram" …>` block; permission prompts flow the other way over the same connection.
 
-The protocol is experimental and Claude Code's. It is one of two harnesses hotline drives: OpenCode rides a separate HTTP+SSE adapter that needs no channel protocol. See [OpenCode harness](#opencode-harness).
+The protocol is experimental and Claude Code's. It is one of four harnesses hotline drives: claude-sdk drives a Claude Agent SDK session and needs no channel protocol either, OpenCode rides a separate HTTP+SSE adapter, and Pi loads a channel extension that bridges the same binary over its own JSON-RPC. See [harness/claude-sdk](harness/claude-sdk/README.md), [OpenCode harness](#opencode-harness), and [the Pi extension](harness/pi/README.md).
 
 ## OpenCode harness
 
-hotline drives two coding-agent harnesses. Select with `HOTLINE_HARNESS`:
+`HOTLINE_HARNESS` selects the harness the binary drives:
 
 | Value | Harness |
 |---|---|
 | `claude` (default) | Claude Code over the `claude/channel` protocol |
+| `claude-sdk` | Claude via the Agent SDK — a headless node harness that owns the `hotline run` child (see [harness/claude-sdk](harness/claude-sdk/README.md)) |
 | `opencode` | OpenCode over its HTTP+SSE control plane |
+| `pi` | Pi over the hotline channel extension (see [the Pi package](harness/pi/README.md)) |
 
-An unknown value is rejected at startup instead of falling back to Claude Code.
+An unknown value is rejected at startup instead of falling back to Claude Code. The rest of this section covers OpenCode; the Pi extension has its own [package README](harness/pi/README.md).
 
 OpenCode has no channel protocol, so the wiring splits in two. hotline runs as a plain stdio MCP server that OpenCode launches for the outbound tools (`reply`, `react`, `edit_message`, `download_attachment`). For inbound, hotline dials OpenCode's local server: it injects your texts as a user turn with `POST /session/:id/prompt_async`, tails `GET /event` for `permission.asked` events, and answers them with `POST /session/:id/permissions/:id`. When `HOTLINE_OPENCODE_AGENT` is set, each injected turn is pinned to that agent (the `agent` field on `prompt_async`) so it runs hotline's dedicated agent rather than OpenCode's default `build` assistant; empty leaves the field off and the session's default agent handles the turn. The messaging providers and access model are unchanged.
 
@@ -479,7 +567,7 @@ Config comes from the environment, real env winning over the shared `.env`:
 
 | Variable | Purpose |
 |---|---|
-| `HOTLINE_HARNESS` | `claude` (default) or `opencode` |
+| `HOTLINE_HARNESS` | `claude` (default), `claude-sdk`, `opencode`, or `pi` (see the table above; `hotline up --harness` overrides it) |
 | `OPENCODE_SERVER_URL` | `opencode serve` root (default `http://127.0.0.1:4096`) |
 | `OPENCODE_SERVER_PASSWORD` | Basic-auth secret; empty means no auth |
 | `OPENCODE_SESSION` | Pinned session id; empty auto-resolves |

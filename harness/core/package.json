@@ -1,0 +1,35 @@
+{
+  "name": "@1broseidon/hotline-harness-core",
+  "version": "0.1.0",
+  "// private": "hotline ships as one signed binary from hotline.dev/install.sh; there is no registry in the distribution story. The harnesses are built from source in this repo and loaded by explicit path (HOTLINE_CLAUDE_SDK_ENTRY, or pi's extension path), so nothing here is meant to be published. private:true makes that structural — npm refuses to publish it — rather than a thing someone has to remember.",
+  "private": true,
+  "description": "Shared plumbing for hotline's TS harnesses (pi, claude-sdk): hotline-run child management, JSONL JSON-RPC framing, inbound envelope extraction, async queue, session persistence, auth report, logging. Zero runtime dependencies.",
+  "keywords": ["hotline"],
+  "license": "MIT",
+  "author": "1Broseidon",
+  "type": "module",
+  "files": ["dist", "README.md"],
+  "exports": {
+    "./child": { "types": "./dist/child.d.ts", "default": "./dist/child.js" },
+    "./jsonrpc": { "types": "./dist/jsonrpc.d.ts", "default": "./dist/jsonrpc.js" },
+    "./queue": { "types": "./dist/queue.d.ts", "default": "./dist/queue.js" },
+    "./session": { "types": "./dist/session.d.ts", "default": "./dist/session.js" },
+    "./auth": { "types": "./dist/auth.d.ts", "default": "./dist/auth.js" },
+    "./log": { "types": "./dist/log.d.ts", "default": "./dist/log.js" },
+    "./inbound": { "types": "./dist/inbound.d.ts", "default": "./dist/inbound.js" }
+  },
+  "scripts": {
+    "// prepare/prepack": "Every export in this package points at dist/, which is gitignored. Without a build hook a clean checkout resolves them to nothing (workspace consumers fail to import) and `npm pack` ships a package with no code in it. prepare covers install-from-a-clean-tree, prepack covers publish; both are the same build.",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "check:parity": "node scripts/check-parity.mjs",
+    "pretest": "npm run build",
+    "test": "npm run check:parity && node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  }
+}

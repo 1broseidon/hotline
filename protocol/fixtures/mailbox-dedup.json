@@ -1,0 +1,219 @@
+{
+  "intent": "A crash retry offers the same deterministic envelope twice. The relay returns the original M with duplicate true and no new push intent; repeated delivery of that envelope produces one logical apply before cumulative acknowledgement.",
+  "assertions": [
+    {
+      "rule": "F4",
+      "statement": "env-j520-d6c86c6aac5fb is f(520, dev-6c86c6aac5fb), is reused across the retry, and maps to the original M 9007199254741500."
+    },
+    {
+      "rule": "F4",
+      "statement": "Two mailbox_item deliveries with the same mailbox_id and envelope_id have logical_apply true then false, while both refer to the same committed local result."
+    }
+  ],
+  "frames": [
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_dedup_fixture",
+        "envelope_id": "env-j520-d6c86c6aac5fb",
+        "class": "durable",
+        "notify": "wake",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":520,\"id\":\"a-520\",\"text\":\"Apply this envelope once.\"}",
+        "created_at": "2026-07-11T16:10:00Z",
+        "expires_at": "2026-07-18T16:10:00Z"
+      },
+      "expect": {
+        "route": "transport",
+        "inserted": true,
+        "push_intents_created": 1
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_dedup_fixture",
+        "envelope_id": "env-j520-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254741500",
+        "duplicate": false,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport",
+        "original_mailbox_seq": "9007199254741500"
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_dedup_fixture",
+        "envelope_id": "env-j520-d6c86c6aac5fb",
+        "class": "durable",
+        "notify": "wake",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":520,\"id\":\"a-520\",\"text\":\"Apply this envelope once.\"}",
+        "created_at": "2026-07-11T16:10:00Z",
+        "expires_at": "2026-07-18T16:10:00Z"
+      },
+      "expect": {
+        "route": "transport",
+        "inserted": false,
+        "push_intents_created": 0
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_dedup_fixture",
+        "envelope_id": "env-j520-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254741500",
+        "duplicate": true,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport",
+        "returned_original_mailbox_seq": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_dedup_fixture",
+        "grant": "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4",
+        "after": "9007199254741499",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "9007199254741500",
+        "head": "9007199254741500",
+        "reset_required": false
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "socket": "attempt-1",
+      "phase": "snapshot",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_dedup_fixture",
+        "envelope_id": "env-j520-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254741500",
+        "notify": "wake",
+        "created_at": "2026-07-11T16:10:00Z",
+        "expires_at": "2026-07-18T16:10:00Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":520,\"id\":\"a-520\",\"text\":\"Apply this envelope once.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "logical_apply": true,
+        "dedup_key": "env-j520-d6c86c6aac5fb"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "socket": "attempt-1",
+      "frame": {
+        "t": "mailbox_synced",
+        "through": "9007199254741500",
+        "next": "9007199254741500",
+        "has_more": false
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_complete": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "socket": "attempt-2",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_dedup_fixture",
+        "grant": "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4",
+        "after": "9007199254741499",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "reconnect": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "socket": "attempt-2",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "9007199254741500",
+        "head": "9007199254741500",
+        "reset_required": false
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "socket": "attempt-2",
+      "phase": "redelivery",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_dedup_fixture",
+        "envelope_id": "env-j520-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254741500",
+        "notify": "wake",
+        "created_at": "2026-07-11T16:10:00Z",
+        "expires_at": "2026-07-18T16:10:00Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":520,\"id\":\"a-520\",\"text\":\"Apply this envelope once.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "logical_apply": false,
+        "reuse_committed_result": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "socket": "attempt-2",
+      "frame": {
+        "t": "mailbox_synced",
+        "through": "9007199254741500",
+        "next": "9007199254741500",
+        "has_more": false
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_complete": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_ack",
+        "mailbox_id": "mbx_dedup_fixture",
+        "through": "9007199254741500"
+      },
+      "expect": {
+        "route": "transport",
+        "cumulative": true,
+        "logical_applies": 1
+      }
+    }
+  ]
+}

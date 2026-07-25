@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Config holds resolved paths and the loaded bot token.
@@ -26,6 +27,24 @@ type Config struct {
 	PidFile        string
 	TranscriptFile string
 
+	// StateRoot is the box-owned root where cross-provider stores such as
+	// schedules.json and loops.json live. LoadApp defaults it to the shared base
+	// for standalone callers; runChannel replaces it with the resolved BoxRoot.
+	// Other loaders leave it empty and consumers fall back to StateDir.
+	StateRoot string
+
+	// SupervisorDir is the running `hotline up` supervisor's control dir
+	// (HOTLINE_SUPERVISOR_DIR), populated by LoadApp from the ambient
+	// environment at the CLI/composition boundary. It gates room-rotation
+	// restart requests: a non-empty value means a supervisor is present and
+	// the connector may ask it to recycle the harness. It is DELIBERATELY read
+	// only here, never inside internal/app: reading the ambient env inside
+	// NewServer made a bare `go test ./internal/app/` on a supervised operator
+	// box file a real restart.request into the live supervisor dir, bouncing
+	// the operator's live session. The zero-value (test) Config leaves it empty
+	// and inert. Empty for an unsupervised `hotline run`.
+	SupervisorDir string
+
 	// Token is the TELEGRAM_BOT_TOKEN after merging the real environment with
 	// the .env file. Empty if unset (the channel still runs the MCP handshake,
 	// but skips the poller and tools report "no bot token configured").
@@ -40,7 +59,103 @@ type Config struct {
 	// Both are empty for telegram/discord configs.
 	SignalDaemonURL string
 	SignalAccount   string
+
+	// AppBind, AppToken, and AppAllowAny are set by LoadApp only: the TCP
+	// bind address for the app-channel WebSocket server, an optional static
+	// token that bypasses pairing (token-mode auth), and the opt-in that
+	// permits binding a wide-open address (0.0.0.0 / ::). Empty/false for
+	// every other provider.
+	AppBind     string
+	AppToken    string
+	AppAllowAny bool
+
+	// AppRelay and AppRelayToken are set by LoadApp only: AppRelay is an
+	// optional ws(s)://host/b/<16-lowercase-hex> endpoint that the app channel
+	// dials in addition to serving its LAN listener, and AppRelayToken
+	// authenticates that outbound dial and fixed-origin blob HTTP requests.
+	AppRelay      string
+	AppRelayToken string
+
+	// AppPush and AppPushToken are set by LoadApp only: AppPush (HOTLINE_APP_PUSH=1)
+	// enables the remote push sender (default off), and AppPushToken
+	// (HOTLINE_APP_PUSH_TOKEN) is an optional Expo access token sent as a Bearer
+	// header when talking to the Expo push service (enhanced auth). Empty/false
+	// for every other provider.
+	AppPush      bool
+	AppPushToken string
+
+	// AppPushEndpoint is set by LoadApp only (HOTLINE_PUSH_ENDPOINT). When set to
+	// a non-empty base URL (e.g. https://push.hotline.dev) it switches the app
+	// channel from the legacy Expo push service to the signed hotline push
+	// gateway: the box generates/persists a P-256 key, registers device tokens
+	// via challenge/complete, and signs every /v1/push. Unset ⇒ the legacy Expo
+	// path is used unchanged. Empty for every other provider.
+	AppPushEndpoint string
+
+	// APNsKeyFile, APNsKeyID, APNsTeamID, APNsTopic, and APNsEnvironment are set
+	// by LoadApp only. Together they enable direct APNs ActivityKit updates,
+	// independently of the normal Expo/gateway push path. APNsTopic is the base
+	// app bundle id; the liveactivity suffix is added by the sender. Environment
+	// defaults to production and also accepts sandbox.
+	APNsKeyFile     string
+	APNsKeyID       string
+	APNsTeamID      string
+	APNsTopic       string
+	APNsEnvironment string
+
+	// CoreMode / CoreURL are set by LoadApp only (core-v1 SPEC §5). CoreMode
+	// (HOTLINE_CORE_MODE=1) routes the box through hotline-core: room registration
+	// on start/new-link, device-token forwarding, wake hints instead of
+	// Expo-direct, and e=1 envelope QRs. Unset ⇒ byte-for-byte today's behavior
+	// (the rollback contract). CoreURL (HOTLINE_CORE_URL) is the control-plane base
+	// URL, default https://relay.hotline.dev, overridable for dev/soak.
+	CoreMode bool
+	CoreURL  string
+
+	// PushPreviewClear (HOTLINE_PUSH_PREVIEW=clear) is a box-owner opt-in: in core
+	// mode the wake hint carries the message plaintext (truncated) and the core
+	// uses it as the notification body instead of the generic "New message".
+	// Unset or any other value ⇒ generic previews, wire-identical to today. The
+	// mailbox E2E envelope is untouched; only this preview snippet transits
+	// readable, by explicit choice.
+	PushPreviewClear bool
+
+	// UnifiedChatOff (HOTLINE_UNIFIED_CHAT=0) disables the multi-device chat_id
+	// unification. Default (unset) is ON: an app device_send is stamped
+	// chat_id="app" (one conversation across every device) with user/user_id
+	// still the originating deviceID. Setting the env to 0 restores the legacy
+	// per-device chat_id (chat_id=deviceID) for anyone who scripted against it.
+	// The "off" sense is stored so the zero value is the default-on behavior.
+	UnifiedChatOff bool
+
+	// ReadSyncOff (HOTLINE_READ_SYNC=0) disables box read-state sync (the `read`
+	// frame, max-merge, fan, and post-drain snapshot). Default (unset) is ON.
+	// Read-state is inert when unused, but the kill switch exists for soak
+	// hygiene. The "off" sense is stored so the zero value is default-on.
+	ReadSyncOff bool
+
+	// InboundCoalesce (HOTLINE_APP_COALESCE != 0) enables the app-channel inbound
+	// coalescer + typing hold gate: a texting burst lands as ONE SendChannel per
+	// harness instead of one-per-bubble (typing-signal design phase 1). Load()
+	// sets it ON by default; only an explicit "0" disables. UNLIKE the other app
+	// switches this stores the POSITIVE sense, so the zero-value Config (the test
+	// idiom) leaves it OFF: coalescing turns synchronous 1:1 delivery into
+	// windowed/merged delivery, and the existing synchronous unit tests assert the
+	// legacy contract — they keep exercising the (unchanged) accept path, while
+	// the coalescer's own tests enable it explicitly.
+	InboundCoalesce bool
+
+	// AppCoalesceWindow (HOTLINE_APP_COALESCE_WINDOW) overrides the app-channel
+	// inbound coalescer's quiet window AND its complete-looking grace (the two were
+	// deliberately unified). Accepts a Go duration ("3s", "1500ms") or a bare
+	// integer count of seconds ("3"). Zero (unset or invalid) ⇒ the built-in
+	// default. It does NOT touch HOTLINE_APP_COALESCE=0, the kill switch.
+	AppCoalesceWindow time.Duration
 }
+
+// DefaultCoreURL is the control-plane base URL a box registers/wakes against when
+// HOTLINE_CORE_URL is unset (core-v1 SPEC §5).
+const DefaultCoreURL = "https://relay.hotline.dev"
 
 var envLineRe = regexp.MustCompile(`^(\w+)=(.*)$`)
 

@@ -10,18 +10,33 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 )
 
-// PublishInput is the decoded argument set for the publish tool.
+// PublishInput is the decoded argument set for the publish tool. Source follows
+// the same single-provider default as the channel tools. ChatID is required
+// only when a relay-configured app provider handles the publication in-app.
 type PublishInput struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Source string `json:"source"`
+	ChatID string `json:"chat_id"`
 }
 
-// publishSchema is the verbatim InputSchema for the publish tool.
-const publishSchema = `{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to the artifact to publish — a directory or a single HTML file. It is served over a local static server and exposed via a temporary public tunnel."}},"required":["path"]}`
+// ArtifactPublisher is the narrow optional extension for providers that can
+// publish inside their own transport. handled=false asks the MCP layer to keep
+// the existing direct/LAN exposure behavior; ToolSet and other providers stay
+// unchanged.
+type ArtifactPublisher interface {
+	PublishArtifact(ctx context.Context, in PublishInput) (message string, isError, handled bool)
+}
+
+// publishSchema is the verbatim InputSchema for the publish tool. The source
+// property is injected (and required) by withSourceProperty only when multiple
+// providers are configured.
+const publishSchema = `{"type":"object","properties":{"path":{"type":"string","description":"Absolute path to publish. Relay app targets accept one self-contained .html file; direct/LAN targets retain directory or single-HTML-file publishing."},"chat_id":{"type":"string","description":"The chat_id from the inbound message. Required when publishing an in-app artifact through a relay-configured app provider."}},"required":["path"]}`
 
 // publishURLTimeout bounds how long we wait for the tunnel to print its public
 // URL before giving up and killing the process.
@@ -142,6 +157,71 @@ func safePublishPath(abs string) error {
 	}
 
 	return nil
+}
+
+// ResolveSafePublishPath resolves an agent-supplied path to its absolute,
+// symlink-resolved target and applies the same conservative guard used by the
+// direct publish backend. It is exported only for optional artifact providers.
+func ResolveSafePublishPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("path does not exist: %q", path)
+		}
+		return "", fmt.Errorf("cannot resolve path %q: %w", path, err)
+	}
+	if err := safePublishPath(abs); err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// publishForSource gives a configured provider first refusal after resolving
+// the source contract. Providers that do not handle artifacts fall through to
+// the byte-for-byte existing direct/LAN publish path.
+func publishForSource(ctx context.Context, in PublishInput, exp exposure, ts ToolSet, sources []string) (string, bool) {
+	// F11 (M6): a fleet peer is never a publish target. Precheck BEFORE
+	// resolvePublishSource so source="fleet" gets the EXACT refusal, not the
+	// generic "unknown source" (the router chat-id guard only covers reply/react/
+	// edit/download, never this handler). No side effects have run yet.
+	if in.Source == "fleet" || strings.HasPrefix(in.ChatID, "fleet:") {
+		return "use fleet_send for fleet peers", true
+	}
+	resolved, errMsg := resolvePublishSource(in.Source, sources)
+	if errMsg != "" {
+		return errMsg, true
+	}
+	in.Source = resolved
+	if publisher, ok := ts.(ArtifactPublisher); ok {
+		if msg, isErr, handled := publisher.PublishArtifact(ctx, in); handled {
+			return msg, isErr
+		}
+	}
+	return publish(ctx, in, exp)
+}
+
+func resolvePublishSource(source string, sources []string) (resolved, errMsg string) {
+	if source == "" {
+		switch len(sources) {
+		case 0:
+			return "", ""
+		case 1:
+			return sources[0], ""
+		default:
+			return "", "publish failed: multiple channels connected — pass source (one of: " + strings.Join(sources, ", ") + ")"
+		}
+	}
+	if len(sources) > 0 && !slices.Contains(sources, source) {
+		return "", fmt.Sprintf("publish failed: unknown source %q (configured: %s)", source, strings.Join(sources, ", "))
+	}
+	return source, ""
 }
 
 // sensitiveEntry reports whether dir contains a sensitive file or directory at

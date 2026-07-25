@@ -1,0 +1,22 @@
+{
+  "intent": "presence is an app→box control frame reporting foreground/background so the box can decide push at enqueue time instead of waiting for a heartbeat lease to expire. It is valid only after hello on the authenticated session; identity comes from the session (there is no device_id). It has no response, no cursor, no ack, no persistence, and never becomes a mailbox item, and it never enters content/transcript parsing. It is idempotent and last-write-wins per subscriber; unknown fields are ignored; a malformed presence is a bad_frame counted toward existing abuse handling. On background the app sends presence:background BEFORE its final ack and close (earliest queue slot); on foreground it sends presence:foreground on an open socket, or on a fresh socket sends hello first and reinforces presence:foreground after hydration. A 60s box-side lease (2×25s app ping + 10s margin) is the correctness backstop: a foreground subscriber whose ping has not refreshed within 60s is treated as away, and an explicit presence:background latches away immediately — a later ack or ping never reactivates it. Additive and backward-compatible: an old box ignores unknown t in steady state and an old app never sends presence, so DEPLOY THE BOX FIRST.",
+  "assertions": [
+    { "rule": "PR1", "statement": "presence is valid only post-hello on the authenticated session; state is exactly 'foreground' or 'background'; there is no device_id (identity is the session); unknown fields are ignored." },
+    { "rule": "PR2", "statement": "presence produces no response, no cursor movement, no ack, no persistence, and no mailbox item, and never enters content/transcript parsing." },
+    { "rule": "PR3", "statement": "presence:background latches the subscriber away immediately; the enqueue-time push fires when EVERY subscriber for the device is background, lease-expired (>=60s since last foreground ping), or absent, and any one foreground-and-fresh subscriber suppresses push (live delivery)." },
+    { "rule": "PR4", "statement": "the app ping refreshes the foreground lease; a ping or ack after an explicit presence:background does NOT reactivate the subscriber." },
+    { "rule": "PR5", "statement": "a malformed presence is a bad_frame counted toward abuse; presence is additive and backward-compatible, so the box is deployed before the app." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": { "t": "presence", "state": "background" },
+      "expect": { "subscriber_marked": "background", "response": false, "cursor_moved": false, "acked": false, "persisted": false, "mailbox_item": false, "push_now_eligible": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "presence", "state": "foreground" },
+      "expect": { "subscriber_marked": "foreground", "response": false, "cursor_moved": false, "acked": false, "persisted": false, "mailbox_item": false, "lease_refreshed": true, "push_now_eligible": false }
+    }
+  ]
+}

@@ -25,7 +25,12 @@ import (
 // (message count, total wait) and a flush-on-shutdown drain bound the worst
 // case so nothing is stranded.
 const (
-	defaultCoalesceWindow  = 1200 * time.Millisecond
+	// defaultCoalesceWindow is the fragment hold. Bumped from 1200ms to 2s per
+	// product-owner field feedback (2026-07-15): "telegram batching never really
+	// worked — 500ms is not enough for a human to type." A fragment now holds the
+	// window open ~2s for the next bubble; complete-looking messages still take
+	// only the short grace hold below.
+	defaultCoalesceWindow  = 2 * time.Second
 	defaultCoalesceMaxWait = 8 * time.Second
 	// defaultGraceWindow is the brief hold a complete-looking message gets
 	// instead of an instant flush, so a fast follow-up still coalesces into the
@@ -161,6 +166,12 @@ func (h *Handler) flush(ctx context.Context, msgs []pendingMsg) {
 	}
 	if err := h.Notifier.SendChannel(ctx, content, meta); err != nil {
 		fmt.Fprintf(os.Stderr, "hotline: deliver inbound failed: %v\n", err)
+		return
+	}
+	// The burst reached a live harness: journal a delivered high-water for each
+	// coalesced message so catch-up never replays them (B-1).
+	for _, m := range msgs {
+		h.Log.MarkDelivered(m.meta["message_id"])
 	}
 }
 

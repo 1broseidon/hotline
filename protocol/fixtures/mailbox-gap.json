@@ -1,0 +1,125 @@
+{
+  "intent": "A cursor below the retained floor yields a mailbox transport gap. The client keeps journal J=700, sends an inner hello.last_seq=700 for permanent-journal recovery, and later acknowledges M for a mailbox item at J=700 without applying that journal event twice.",
+  "assertions": [
+    {
+      "rule": "F11",
+      "statement": "mailbox_gap is a mailbox_error routed before parseFrame and never becomes a transcript event."
+    },
+    {
+      "rule": "F10",
+      "statement": "Mailbox M remains a decimal string independent of numeric journal J."
+    },
+    {
+      "rule": "F12",
+      "statement": "reset_required starts journal recovery and clears the stale mailbox cursor without discarding J=700."
+    }
+  ],
+  "frames": [
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_gap_fixture",
+        "grant": "MTIzNDU2Nzg5Ojs8PT4_QEFCQ0RFRkdI",
+        "after": "9007199254741200",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "local_journal_seq": 700
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "9007199254741300",
+        "head": "9007199254741302",
+        "reset_required": true
+      },
+      "expect": {
+        "route": "transport",
+        "keep_journal_seq": 700,
+        "clear_mailbox_cursor": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_error",
+        "code": "mailbox_gap",
+        "mailbox_id": "mbx_gap_fixture"
+      },
+      "expect": {
+        "route": "transport",
+        "parse_frame": false,
+        "transcript": false,
+        "keep_journal_seq": 700,
+        "recovery": "journal_hello"
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "device_send",
+        "envelope_id": "device-send-gap-recovery-700",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"hello\",\"v\":1,\"secret\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\",\"device_name\":\"Mailbox fixture phone\",\"last_seq\":700,\"capabilities\":[\"mailbox-v1\"]}"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_fallback_last_seq": 700
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "device_payload",
+        "mailbox_id": "mbx_gap_fixture",
+        "device_id": "dev-6c86c6aac5fb",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"hello\",\"v\":1,\"secret\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\",\"device_name\":\"Mailbox fixture phone\",\"last_seq\":700,\"capabilities\":[\"mailbox-v1\"]}"
+      },
+      "expect": {
+        "route": "transport",
+        "identity_source": "grant_binding",
+        "journal_fallback_last_seq": 700
+      }
+    },
+    {
+      "dir": "relay->device",
+      "phase": "mailbox_redelivery_after_journal_recovery",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_gap_fixture",
+        "envelope_id": "env-j700-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254741300",
+        "notify": "silent",
+        "created_at": "2026-07-11T16:20:00Z",
+        "expires_at": "2026-07-18T16:20:00Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":700,\"id\":\"a-700\",\"text\":\"Already represented at J=700.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 700,
+        "logical_apply": false,
+        "advance_mailbox_cursor": true,
+        "ack": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_ack",
+        "mailbox_id": "mbx_gap_fixture",
+        "through": "9007199254741300"
+      },
+      "expect": {
+        "route": "transport",
+        "cumulative": true,
+        "journal_seq_after_ack": 700
+      }
+    }
+  ]
+}

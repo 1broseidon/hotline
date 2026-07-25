@@ -1,0 +1,177 @@
+{
+  "intent": "remote SDK settings for claude-sdk boxes: the app sets model/effort from the bot settings panel via the nested text-payload control family (set_name, set_push_preview, set_job_completion_push — and now set_sdk_config), the box validates with the SAME caps as the welcome-metadata identity fields, persists the knobs into the shared state-dir .env (the mergedEnv source LoadSDK and the supervisor's respawn re-resolution both read), answers on a NEW transient per-device frame sdk_config_result, then bounces the harness through the existing supervisor restart control. Confirmation is NOT a new frame: the post-restart welcome / agent_state identity carrying the new model IS the confirmation (the SDK session --resumes across the bounce). Non-claude-sdk harnesses refuse. Old apps never send the control; on an old box the ride degrades to a literal JSON text message reaching the harness — the family's standing fail-open. Old apps ignore the unknown sdk_config_result t. HOT-APPLY AMENDMENT (SC6–SC9): a MODEL-only change on a hot-capable box applies to the LIVE SDK session (the harness's Query.setModel through the box→harness sdk_apply notification) with NO restart — the box defers the result until the harness confirms, persists AFTER the ok, and answers restart:false hot:true; confirmation is the next agent_state snapshot carrying the new model (the wire never drops, no welcome). EFFORT HOT AMENDMENT: effort hot-applies exactly like model (applyFlagSettings/setMaxThinkingTokens on claude-sdk, setThinkingLevel on pi), so the hot gate is 'forwarder bound AND (model or effort present)' and the restart path is now ONLY the forwarder-unbound fallback for older binaries (SC9).",
+  "assertions": [
+    { "rule": "SC1", "statement": "set_sdk_config rides as a nested text control: a NORMAL device_send whose 'send' text payload is the serialized control object; a box that recognizes the t consumes it silently at the inbound boundary — never delivered to the harness, never a transcript/journal event, no sent echo, no error frame." },
+    { "rule": "SC2", "statement": "box-side validation is authoritative and uses the welcome-metadata caps (WM1/WM2): model is '' (clear) or ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$ (<= 64 chars); effort is '' (clear) or, lowercased and trimmed, one of low|medium|high|xhigh|max or a positive integer string, <= 16 chars; rid is 1-64 chars of [A-Za-z0-9_-] — a control with a malformed/missing rid is still consumed but no result is routed (client times out); at least one of model/effort must be present else empty_request." },
+    { "rule": "SC3", "statement": "sdk_config_result is a transient content frame in the agent_state/typing family: seq'd, never durable, never acked, never replayed, sent only to the requesting device, correlated by rid. Success echoes the accepted post-trim values for exactly the fields the request carried ('' echoes as '' = cleared; absent stays absent) plus restart:true (persisted, supervisor bounce requested) or restart:false (no-op — or, with hot:true, SC6's live apply). Errors carry ok:false and a code from the closed set unsupported_harness|invalid_model|invalid_effort|empty_request|persist_failed|restart_failed plus SC8's hot-path codes unknown_model|apply_failed|no_session|harness_unreachable, with an optional single-line detail <= 200 chars." },
+    { "rule": "SC4", "statement": "a box whose harness is not claude-sdk (the claude TUI, pi, opencode, or an unknown/empty identity) refuses with unsupported_harness and touches nothing on disk." },
+    { "rule": "SC5", "statement": "confirmation closes over the ordinary identity loop: after ok+restart:true the supervisor consumes restart.request, the respawn re-resolves LoadSDK from the updated .env and re-exports HOTLINE_SDK_MODEL/_EFFORT into the child env, and the post-restart welcome (then agent_state / harness_info refinement) carries the new configured values. Caveat, by design: a real-environment HOTLINE_SDK_MODEL/_EFFORT exported by the shell that launched `hotline up` shadows the .env edit (mergedEnv is real-env-wins) — the client surfaces the persistent mismatch." },
+    { "rule": "SC6", "statement": "a model-only request on a hot-capable claude-sdk box hot-applies to the LIVE SDK session: the box forwards sdk_apply to the harness, the harness validates against the CLI's supportedModels() then calls Query.setModel on the live streaming session, restamps harness_info, and confirms; the box answers {ok, model, restart:false, hot:true} — no supervisor bounce, the wire stays up, the harness PID is unchanged. Confirmation is the next agent_state snapshot carrying the new model — no welcome involved. Old app + new box: the unknown hot field is dropped and the old parser treats the frame as a no-op success; the row updates when agent_state lands." },
+    { "rule": "SC7", "statement": "persistence follows confirmation on the hot path: nothing touches .env until the harness confirmed the applied model; every failure leaves .env untouched. NOTE (two-tier guard): 'confirmed' means the harness APPLIED it, not that the catalog vouched for it — a syntactically valid id the catalog does not list is applied and persisted carrying unverified:true, because the catalog under-enumerates live-valid ids and the API is the authority. So a bogus id CAN reach .env on the hot path; what it cannot do is crash-loop the harness, because the session is already running and the rejection surfaces as a next-turn API error the operator recovers from by switching back. Invariant on every outcome: live session model == persisted model, or the client got an explicit error saying which side is ahead (persist_failed after a live apply carries the applied-but-unsaved detail). A respawn therefore never reverts a confirmed hot apply." },
+    { "rule": "SC8", "statement": "hot-path failures are explicit errors, never a silent degrade to a restart: unknown_model (the harness's supportedModels() guard refused — setModel never called, the session doesn't blink), apply_failed (the live setModel control threw), no_session / harness_unreachable (the harness wasn't there to answer / the box's pending budget expired) — all ok:false, session untouched, nothing persisted." },
+    { "rule": "SC9", "statement": "a forwarder-unbound box (telegram-only wiring, older binaries that never bound the hot forwarder) keeps SC3/SC5 restart semantics verbatim for a model OR effort request: it persists, bounces, and answers restart:true. The client supports both the restart and the hot result shapes with no version negotiation." },
+    { "rule": "SC10", "statement": "effort hot-applies exactly like model on a hot-capable box (effort hot amendment): an effort-only (or combined model+effort) request forwards as sdk_apply, the harness applies it to the LIVE session — applyFlagSettings({effortLevel}) for a symbolic level, setMaxThinkingTokens for a raw budget (the same mapping the boot Options use, so a respawn preserves it) — restamps harness_info, and the box persists AFTER the ok and answers {ok, restart:false, hot:true} echoing only the fields the request carried. Confirmation is the next agent_state snapshot carrying the new effort. The hot gate is 'forwarder bound && (model or effort present)'; a combined apply is one restamp and one result." },
+    { "rule": "SC11", "statement": "the harness model guard is two-tier (unverified-model amendment): a syntactically valid model absent from the CLI's under-enumerating supportedModels() catalog is NOT rejected — the catalog is not the truth, the API is. The harness applies Query.setModel anyway (mirrors env, restamps harness_info with the requested id) and answers {ok, model, restart:false, hot:true, unverified:true}; the box persists AFTER the ok exactly like a verified hot apply. unverified is serialized only when true, so verified frames stay byte-identical and old apps drop the unknown field. A truly bogus id sticks here but surfaces as an API error on the NEXT turn, recoverable by flipping back. unknown_model is now reserved for the impossible (setModel-side) case; the ONLY pre-apply model rejection left is the box's syntactic invalid_model (SC2). The client confirms success with a gentle caution instead of the plain success state." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZK8Q0X6WYV9R3T5B7N4E2M",
+        "payload": { "t": "send", "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZKA0M3QW8XY7\",\"model\":\"claude-sonnet-4-6\",\"effort\":\"high\"}" }
+      },
+      "expect": { "consumed": "silently", "harness_delivery": false, "transcript_event": false, "sent_echo": false, "note": "SC1: the ride is a normal device_send; recognition happens on the inner text object's t. SC9: the request carries effort, so it takes the restart path even on a hot-capable box" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 813,
+        "rid": "01J2ZKA0M3QW8XY7",
+        "ok": true,
+        "model": "claude-sonnet-4-6",
+        "effort": "high",
+        "restart": true
+      },
+      "expect": { "transient": true, "per_device": true, "note": "SC3: persisted + supervisor restart requested; the wire will drop within seconds as the harness bounces" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 814,
+        "rid": "01J2ZKA1B7C9D2E4",
+        "ok": false,
+        "code": "invalid_effort",
+        "detail": "effort must be low|medium|high|xhigh|max or a positive integer (16 chars max)"
+      },
+      "expect": { "transient": true, "per_device": true, "note": "SC2: effort failed the LoadSDK acceptance rule; nothing persisted, nothing bounced" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 815,
+        "rid": "01J2ZKA2F8G1H3J5",
+        "ok": false,
+        "code": "unsupported_harness",
+        "detail": "this box runs the claude TUI; model/effort can't be set remotely"
+      },
+      "expect": { "transient": true, "per_device": true, "note": "SC4: non-sdk refusal, disk untouched" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "welcome",
+        "v": 2,
+        "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+        "name": "Umibozu",
+        "device_id": "dev-af31fd290542",
+        "floor": "9007199254740993",
+        "head": "9007199254741007",
+        "harness": "claude-sdk",
+        "model": "claude-sonnet-4-6",
+        "effort": "high"
+      },
+      "expect": { "auth": "verified", "agent_identity": { "harness": "claude-sdk", "model": "claude-sonnet-4-6", "effort": "high" }, "note": "SC5: the post-restart welcome carrying the newly configured model/effort IS the restart-path apply confirmation; no dedicated confirm frame exists" }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZKB4T7WXY2Z9R5N3E8M1QD",
+        "payload": { "t": "send", "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZKB5H2XW9YV3\",\"model\":\"claude-opus-4-8\"}" }
+      },
+      "expect": { "consumed": "silently", "harness_delivery": false, "transcript_event": false, "sent_echo": false, "note": "SC6: model-only on a hot-capable box — the box forwards sdk_apply to the harness and DEFERS the result until the harness confirms (or its ~10s pending budget expires into harness_unreachable)" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 816,
+        "rid": "01J2ZKB5H2XW9YV3",
+        "ok": true,
+        "model": "claude-opus-4-8",
+        "restart": false,
+        "hot": true
+      },
+      "expect": { "transient": true, "per_device": true, "no_bounce": true, "wire_stays_up": true, "note": "SC6+SC7: the harness confirmed setModel on the live session and the box persisted AFTER the ok; no supervisor bounce, harness PID unchanged. The client enters the short hot-applying wait for the agent_state restamp" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "agent_state",
+        "seq": 817,
+        "state": { "name": "Umibozu", "harness": "claude-sdk", "model": "claude-opus-4-8", "effort": "high", "runs": [], "schedules": [], "loops": [] }
+      },
+      "expect": { "transient": true, "note": "SC6: the next agent_state snapshot carrying the new model IS the hot-apply confirmation — no welcome involved (the wire never dropped). Effort keeps its prior value: the patch was model-only" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 818,
+        "rid": "01J2ZKB6K4PQ7RS9",
+        "ok": false,
+        "code": "unknown_model",
+        "detail": "model not in the CLI's supported list"
+      },
+      "expect": { "transient": true, "per_device": true, "session_untouched": true, "nothing_persisted": true, "note": "SC8: the harness's supportedModels() guard refused before setModel — the live session doesn't blink, .env still carries the real model, and the failure is an explicit error, never a silent degrade to a restart" }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZKC0T7WXY2Z9R5N3E8M1QD",
+        "payload": { "t": "send", "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZKC1H2XW9YV3\",\"effort\":\"xhigh\"}" }
+      },
+      "expect": { "consumed": "silently", "harness_delivery": false, "transcript_event": false, "sent_echo": false, "note": "SC10: effort-only on a hot-capable box — the box forwards sdk_apply (model omitted, effort set) and DEFERS the result until the harness confirms; no bounce" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 819,
+        "rid": "01J2ZKC1H2XW9YV3",
+        "ok": true,
+        "effort": "xhigh",
+        "restart": false,
+        "hot": true
+      },
+      "expect": { "transient": true, "per_device": true, "no_bounce": true, "wire_stays_up": true, "note": "SC10: effort hot-applied to the LIVE session (applyFlagSettings({effortLevel:'xhigh'})) and persisted AFTER the ok; only effort is echoed, the model knob is untouched" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "agent_state",
+        "seq": 820,
+        "state": { "name": "Umibozu", "harness": "claude-sdk", "model": "claude-opus-4-8", "effort": "xhigh", "runs": [], "schedules": [], "loops": [] }
+      },
+      "expect": { "transient": true, "note": "SC10: the next agent_state snapshot carrying the new effort IS the hot-apply confirmation — no welcome (the wire never dropped). Model keeps its prior hot-applied value (claude-opus-4-8)" }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZKD0T7WXY2Z9R5N3E8M1QD",
+        "payload": { "t": "send", "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZKD1H2XW9YV3\",\"model\":\"claude-opus-4-6\"}" }
+      },
+      "expect": { "consumed": "silently", "harness_delivery": false, "transcript_event": false, "sent_echo": false, "note": "SC11: model-only on a hot-capable box; the id is syntactically valid but absent from the live supportedModels() catalog (which under-enumerates). The box forwards sdk_apply and DEFERS as usual" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 821,
+        "rid": "01J2ZKD1H2XW9YV3",
+        "ok": true,
+        "model": "claude-opus-4-6",
+        "restart": false,
+        "hot": true,
+        "unverified": true
+      },
+      "expect": { "transient": true, "per_device": true, "no_bounce": true, "wire_stays_up": true, "unverified": true, "note": "SC11: Tier 2 — the harness applied setModel on the live session for a catalog-absent but well-formed id and the box persisted AFTER the ok; unverified:true tells the client to confirm success with a gentle caution. If the API rejects the id it surfaces on the next turn, recoverable by flipping back" }
+    }
+  ]
+}

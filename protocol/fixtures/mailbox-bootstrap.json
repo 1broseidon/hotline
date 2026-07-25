@@ -1,0 +1,227 @@
+{
+  "intent": "A capability-gated bootstrap is wrapped by connection_id, the box provisions only its authenticated device_id, and the relay returns one opaque mailbox plus a durable reusable grant. A spoofed client device_id is data, never identity.",
+  "assertions": [
+    {
+      "rule": "F6",
+      "statement": "The client-supplied dev-deadbeefcafe field is ignored; conn_01J2M0BOOTSTRAP and the box-authenticated dev-6c86c6aac5fb bind the mailbox."
+    },
+    {
+      "rule": "F7",
+      "statement": "The grant is issued once, delivered to the box and device, then reused unchanged by both mailbox_sync attempts until revocation."
+    }
+  ],
+  "frames": [
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "hello",
+        "v": 1,
+        "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "device_name": "Mailbox fixture phone",
+        "last_seq": 42,
+        "capabilities": [
+          "mailbox-v1"
+        ],
+        "device_id": "dev-deadbeefcafe"
+      },
+      "expect": {
+        "identity_binding": "ignored_client_field",
+        "authenticated_device_id": "dev-6c86c6aac5fb"
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "device_payload",
+        "connection_id": "conn_01J2M0BOOTSTRAP",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"hello\",\"v\":1,\"secret\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\",\"device_name\":\"Mailbox fixture phone\",\"last_seq\":42,\"capabilities\":[\"mailbox-v1\"],\"device_id\":\"dev-deadbeefcafe\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "identity_source": "connection_binding",
+        "ignored_payload_device_id": "dev-deadbeefcafe"
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_provision",
+        "connection_id": "conn_01J2M0BOOTSTRAP",
+        "device_id": "dev-6c86c6aac5fb"
+      },
+      "expect": {
+        "route": "transport",
+        "identity_source": "box_authenticated_device_id"
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_provisioned",
+        "connection_id": "conn_01J2M0BOOTSTRAP",
+        "device_id": "dev-6c86c6aac5fb",
+        "mailbox_id": "mbx_01J2M0BOOTSTRAP",
+        "head": "0",
+        "grant": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY"
+      },
+      "expect": {
+        "route": "transport",
+        "grant_issued": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_provisioned",
+        "connection_id": "conn_01J2M0BOOTSTRAP",
+        "device_id": "dev-6c86c6aac5fb",
+        "mailbox_id": "mbx_01J2M0BOOTSTRAP",
+        "head": "0",
+        "grant": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY"
+      },
+      "expect": {
+        "route": "transport",
+        "persist_grant": true,
+        "reusable": true
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "device_payload",
+        "mailbox_id": "mbx_01J2M0BOOTSTRAP",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"welcome\",\"v\":1,\"seq\":42,\"device_id\":\"dev-6c86c6aac5fb\",\"bot_name\":\"Sphinx\",\"capabilities\":[\"mailbox-v1\"]}"
+      },
+      "expect": {
+        "route": "transport",
+        "capability_echo": "mailbox-v1"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "welcome",
+        "v": 1,
+        "seq": 42,
+        "device_id": "dev-6c86c6aac5fb",
+        "bot_name": "Sphinx",
+        "capabilities": [
+          "mailbox-v1"
+        ]
+      },
+      "expect": {
+        "route": "payload",
+        "capability_echo": "mailbox-v1"
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_01J2M0BOOTSTRAP",
+        "grant": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY",
+        "after": "0",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "grant_use": 1
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "0",
+        "head": "0",
+        "reset_required": false
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_synced",
+        "through": "0",
+        "next": "0",
+        "has_more": false
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_complete": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_push_set",
+        "enabled": true,
+        "token": "ExponentPushToken[fixture-mailbox-bootstrap]",
+        "platform": "ios",
+        "route": "route_fixture_01J2M0"
+      },
+      "expect": {
+        "route": "transport",
+        "registered": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "device_send",
+        "envelope_id": "device-send-c-1783684800420-0",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"send\",\"cid\":\"c-1783684800420-0\",\"text\":\"Bootstrap complete.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "dedup_key": "device-send-c-1783684800420-0"
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "device_payload",
+        "mailbox_id": "mbx_01J2M0BOOTSTRAP",
+        "device_id": "dev-6c86c6aac5fb",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"send\",\"cid\":\"c-1783684800420-0\",\"text\":\"Bootstrap complete.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "identity_source": "grant_binding",
+        "payload_forwarded_verbatim": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_01J2M0BOOTSTRAP",
+        "grant": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY",
+        "after": "0",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "grant_use": 2,
+        "same_grant_accepted": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_push_set",
+        "enabled": false
+      },
+      "expect": {
+        "route": "transport",
+        "registered": false
+      }
+    }
+  ]
+}

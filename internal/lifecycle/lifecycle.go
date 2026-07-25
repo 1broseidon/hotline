@@ -12,11 +12,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// ClaimPollerSlot is the exported entry point for the PID guard. It is called
-// from main before the poller starts.
-func ClaimPollerSlot(pidFile string) error { return claimPollerSlot(pidFile) }
+// ClaimPollerSlot acquires the provider's lifetime poller guard. Callers must
+// defer the returned idempotent release function for the whole provider run.
+func ClaimPollerSlot(pidFile string) (func(), error) { return claimPollerSlot(pidFile) }
 
-// ReleasePollerSlot removes our pid file on a clean exit.
+// ReleasePollerSlot removes our PID advisory during force-exit cleanup. The
+// lifetime flock itself is released by the provider's closure or process exit.
 func ReleasePollerSlot(pidFile string) { releasePollerSlot(pidFile) }
 
 // Run connects the MCP server over the transport, runs the poller (if any), and

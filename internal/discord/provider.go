@@ -83,10 +83,11 @@ func (p *Provider) Start(ctx context.Context, sink provider.InboundSink) error {
 		<-ctx.Done()
 		return nil
 	}
-	if err := lifecycle.ClaimPollerSlot(p.cfg.PidFile); err != nil {
+	release, err := lifecycle.ClaimPollerSlot(p.cfg.PidFile)
+	if err != nil {
 		return fmt.Errorf("claiming gateway slot: %w", err)
 	}
-	defer lifecycle.ReleasePollerSlot(p.cfg.PidFile)
+	defer release()
 
 	p.dg.AddHandler(func(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		defer recoverPanic("message")

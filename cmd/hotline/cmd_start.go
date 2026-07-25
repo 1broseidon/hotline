@@ -2,31 +2,18 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/1broseidon/hotline/internal/config"
+	"github.com/1broseidon/hotline/internal/mcpchan"
 )
-
-// execProcess is the seam start goes through to launch claude. The default
-// replaces the hotline process via exec so signals and the tty pass straight
-// through; if exec fails it falls back to spawn+wait.
-var execProcess = func(bin string, argv []string, env []string) error {
-	if err := syscall.Exec(bin, argv, env); err == nil {
-		return nil
-	}
-	cmd := exec.Command(bin, argv[1:]...)
-	cmd.Env = env
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
-}
 
 // signalCheck probes the signal-cli daemon; swapped out in tests.
 var signalCheck = func(daemonURL string) error {
@@ -39,50 +26,15 @@ var signalCheck = func(daemonURL string) error {
 	return nil
 }
 
-// cmdStart launches Claude Code with the hotline channel wired up.
-// Everything after -- (already split off in main) is passed to claude
-// verbatim.
-func cmdStart(botName string, args, passthrough []string, dir string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("start", flag.ContinueOnError)
-	fs.SetOutput(stdout)
-	providers := fs.String("providers", "", "comma-separated provider list (exported as HOTLINE_PROVIDERS)")
-	yolo := fs.Bool("yolo", false, "start claude with --dangerously-skip-permissions (the permission relay never fires)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
+// routeStartToUp is the command seam used by the deprecated start alias.
+var routeStartToUp = cmdUp
 
-	if *providers != "" {
-		os.Setenv("HOTLINE_PROVIDERS", *providers)
-	}
-	if botName != "" {
-		os.Setenv("HOTLINE_BOT", botName)
-	}
-
-	// Preflight. Only a missing claude binary blocks; the rest warns.
-	bin, err := exec.LookPath("claude")
-	if err != nil {
-		return fmt.Errorf("claude not found on PATH. Install Claude Code first: https://claude.com/claude-code")
-	}
-
-	warnMissingCreds(botName, stderr)
-
-	argv := append([]string{"claude"}, channelArgs(dir, stderr)...)
-	// Inject the operator's alternate Anthropic provider (base URL + auth +
-	// model) from the shared .env, so `hotline start` can point Claude Code at a
-	// non-Anthropic endpoint without the operator exporting anything by hand. The
-	// real environment still wins per key. Yolo posture is layered on top so both
-	// the provider keys and HOTLINE_YOLO reach the child.
-	env, err := config.AnthropicChildEnv(os.Environ())
-	if err != nil {
-		return err
-	}
-	if *yolo {
-		argv = append(argv, "--dangerously-skip-permissions")
-		env = append(env, "HOTLINE_YOLO=1")
-		fmt.Fprintln(stderr, "hotline: yolo mode. Permission checks are off; the relay never fires (see SECURITY.md).")
-	}
-	argv = append(argv, passthrough...)
-	return execProcess(bin, argv, env)
+// cmdStart is the compatibility alias for the unified launcher. `hotline up`
+// is attached by default, so the old verb can route without maintaining a
+// second launch path.
+func cmdStart(botName string, botExplicit bool, args, passthrough []string, dir string, stdout, stderr io.Writer) error {
+	fmt.Fprintln(stderr, "hotline: `hotline start` is deprecated; use `hotline up` (foreground by default)")
+	return routeStartToUp(botName, botExplicit, args, passthrough, dir, stdout, stderr)
 }
 
 // channelArgs picks how the channel is handed to claude. A raw hotline entry
@@ -110,28 +62,90 @@ func channelArgs(dir string, stderr io.Writer) []string {
 // command is hotline, defaulting to "hotline". found reports whether a usable
 // .mcp.json with a hotline entry exists.
 func mcpServerName(path string) (name string, found bool) {
+	name, _, _, _, found, _ = mcpServerEntry(path)
+	return name, found
+}
+
+// mcpServerEntry reads .mcp.json and returns the hotline entry's name, env
+// block, and explicit --bot argument. Claude applies the env block on top of
+// the inherited environment and invokes the recorded args, so both surfaces
+// participate in box identity (see adoptMCPServerEnv).
+func mcpServerEntry(path string) (name string, env map[string]string, botName string, botSet, found bool, err error) {
 	name = "hotline"
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return name, false
+		if os.IsNotExist(err) {
+			return name, nil, "", false, false, nil
+		}
+		return name, nil, "", false, false, fmt.Errorf("reading %s: %w", path, err)
 	}
 	var root struct {
 		MCPServers map[string]struct {
-			Command string `json:"command"`
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &root); err != nil {
-		return name, false
+		return name, nil, "", false, false, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if _, ok := root.MCPServers["hotline"]; ok {
-		return "hotline", true
+
+	keys := make([]string, 0, len(root.MCPServers))
+	for key := range root.MCPServers {
+		keys = append(keys, key)
 	}
-	for k, v := range root.MCPServers {
-		if v.Command == "hotline" {
-			return k, true
+	sort.Strings(keys)
+	var matches []string
+	for _, key := range keys {
+		entry := root.MCPServers[key]
+		if filepath.Base(strings.TrimSpace(entry.Command)) == "hotline" {
+			matches = append(matches, key)
+			continue
+		}
+		if key == "hotline" {
+			return name, nil, "", false, false, fmt.Errorf("%s has an entry named %q whose command is %q, not hotline", path, key, entry.Command)
 		}
 	}
-	return name, false
+	if len(matches) == 0 {
+		return name, nil, "", false, false, nil
+	}
+	if len(matches) > 1 {
+		return name, nil, "", false, false, fmt.Errorf("%s has multiple hotline MCP entries (%s); keep exactly one before running a box-scoped command", path, strings.Join(matches, ", "))
+	}
+
+	name = matches[0]
+	entry := root.MCPServers[name]
+	head, _ := splitPassthrough(entry.Args)
+	botName, _, botSet = extractBotName(head)
+	return name, entry.Env, botName, botSet, true, nil
+}
+
+// warnVoiceOverflow is the launch pre-flight for the capped Claude
+// instruction path: it resolves the voice exactly like the MCP server will
+// (mcpchan.LoadVoice) and, when the assembled instruction block would hit the
+// budget and cut the voice, prints one clearly visible warning line. Purely
+// advisory — it never blocks the launch.
+func warnVoiceOverflow(botName string, stderr io.Writer) {
+	stateRoot, err := config.StateRoot()
+	if err != nil {
+		return
+	}
+	voice := mcpchan.LoadVoice(stateRoot)
+	if voice == "" {
+		return
+	}
+	var provs []string
+	if specs, err := config.Providers(botName); err == nil {
+		for _, spec := range specs {
+			provs = append(provs, spec.Name())
+		}
+	}
+	// A representative transcript path: same shape and tier the server bakes in.
+	transcriptPath := filepath.Join(stateRoot, "transcript.jsonl")
+	kept, total := mcpchan.VoiceFit(transcriptPath, voice, provs...)
+	if kept < total {
+		fmt.Fprintf(stderr, "hotline: HOTLINE.md is %d bytes but only %d fit the instruction budget — trailing content will be dropped\n", total, kept)
+	}
 }
 
 // warnMissingCreds checks each configured provider for its credential and the

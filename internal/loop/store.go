@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -126,7 +127,61 @@ func Mutate(path string, fn func(*Doc) error) error {
 	if err := fn(d); err != nil {
 		return err
 	}
-	return Save(d, path)
+	if err := Save(d, path); err != nil {
+		return err
+	}
+	notifyObservers(path)
+	return nil
+}
+
+// observers are callbacks fired after any successful Mutate of a specific
+// registry (keyed by its path) — the single write path for creates, removes,
+// pauses, approvals, and run-status updates. They let an in-process watcher
+// (the app channel's agent_state emitter) re-snapshot on change, and a
+// mutation in one state root never wakes watchers of another. Callbacks must
+// not block or re-enter Mutate.
+var (
+	observersMu sync.Mutex
+	observers   = map[string]map[int]func(){}
+	observerSeq int
+)
+
+// Observe registers fn to run after every successful Mutate of the registry at
+// path, returning the deregistration func. A nil fn is a registered no-op.
+func Observe(path string, fn func()) (unsubscribe func()) {
+	if fn == nil {
+		return func() {}
+	}
+	observersMu.Lock()
+	observerSeq++
+	id := observerSeq
+	if observers[path] == nil {
+		observers[path] = map[int]func(){}
+	}
+	observers[path][id] = fn
+	observersMu.Unlock()
+	return func() {
+		observersMu.Lock()
+		if m := observers[path]; m != nil {
+			delete(m, id)
+			if len(m) == 0 {
+				delete(observers, path)
+			}
+		}
+		observersMu.Unlock()
+	}
+}
+
+func notifyObservers(path string) {
+	observersMu.Lock()
+	fns := make([]func(), 0, len(observers[path]))
+	for _, fn := range observers[path] {
+		fns = append(fns, fn)
+	}
+	observersMu.Unlock()
+	for _, fn := range fns {
+		fn()
+	}
 }
 
 func (d *Doc) normalize() {
@@ -279,7 +334,39 @@ func Approve(path, label string) (Loop, error) {
 	return updated, nil
 }
 
-// RecordRun updates advisory status for label if the loop still exists.
+// RecordRunStart durably claims one tick before its command executes. The
+// watermark and count therefore survive a process crash and prevent an eager
+// duplicate when the next owning `hotline up` resumes the loop.
+func RecordRunStart(path, label string, now time.Time) error {
+	return Mutate(path, func(d *Doc) error {
+		for i := range d.Loops {
+			if d.Loops[i].Label == label {
+				d.Loops[i].LastRunAt = now.UTC().Format(time.RFC3339)
+				d.Loops[i].Runs++
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: %q", ErrNotFound, label)
+	})
+}
+
+// RecordRunResult updates the advisory outcome for an already-claimed tick.
+func RecordRunResult(path, label string, exit int, dur time.Duration) error {
+	return Mutate(path, func(d *Doc) error {
+		for i := range d.Loops {
+			if d.Loops[i].Label == label {
+				d.Loops[i].LastExit = exit
+				d.Loops[i].LastDurationMs = dur.Milliseconds()
+				return nil
+			}
+		}
+		return nil
+	})
+}
+
+// RecordRun records a completed tick in one mutation. It remains the compact
+// store API for callers that already have a result; the long-running Runner
+// uses RecordRunStart then RecordRunResult around the command.
 func RecordRun(path, label string, now time.Time, exit int, dur time.Duration) error {
 	return Mutate(path, func(d *Doc) error {
 		for i := range d.Loops {

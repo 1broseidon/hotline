@@ -17,21 +17,21 @@ import (
 // spool's lifetime counters, revoke removes a key (instantly failing the gate,
 // since every notify call reads the registry fresh). Keys are held by scripts;
 // every human-facing surface shows the label.
-func cmdSource(args []string, out io.Writer) error {
+func cmdSource(botName string, args []string, out io.Writer) error {
 	if len(args) < 1 {
 		return errors.New("usage: hotline source <add|list|revoke> [label]")
 	}
-	stateRoot, err := config.StateRoot()
+	boxRoot, err := config.BoxRoot(botName)
 	if err != nil {
 		return err
 	}
-	path := notify.SourcesPath(stateRoot)
+	path := notify.SourcesPath(boxRoot)
 
 	switch args[0] {
 	case "add":
 		return sourceAdd(path, args[1:], out)
 	case "list":
-		return sourceList(path, notify.SpoolPath(stateRoot), out)
+		return sourceList(path, notify.SpoolPath(boxRoot), out)
 	case "revoke":
 		if len(args) < 2 {
 			return errors.New("usage: hotline source revoke <label>")

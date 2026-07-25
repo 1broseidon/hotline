@@ -184,7 +184,7 @@ func TestRunPollersDeliversScheduleFire(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runPollers(ctx, router, sched, emptyNotifyDispatcher(t, router.Sources()), sink) }()
+	go func() { done <- runPollers(ctx, router, sched, emptyNotifyDispatcher(t, router.Sources()), nil, nil, sink) }()
 
 	deadline := time.After(5 * time.Second)
 	for sink.len() == 0 {
@@ -228,7 +228,7 @@ func TestRunPollersDeliversNotify(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runPollers(ctx, router, sched, disp, sink) }()
+	go func() { done <- runPollers(ctx, router, sched, disp, nil, nil, sink) }()
 
 	deadline := time.After(5 * time.Second)
 	for sink.len() == 0 {

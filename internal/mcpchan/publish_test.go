@@ -184,6 +184,27 @@ func TestPublishLocalBackendMessage(t *testing.T) {
 	publishReg.closeAll()
 }
 
+func TestPublishForSourceKeepsDirectLocalBehavior(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.html"), "<h1>direct</h1>")
+
+	msg, isErr := publishForSource(
+		context.Background(),
+		PublishInput{Path: dir},
+		localExposure{},
+		&fakeToolSet{},
+		[]string{"telegram"},
+	)
+	if isErr {
+		t.Fatalf("direct fallback failed: %s", msg)
+	}
+	t.Cleanup(publishReg.closeAll)
+	if !strings.Contains(msg, "http://127.0.0.1:") || !strings.Contains(msg, "LOCAL") || strings.Contains(msg, "Passcode") {
+		t.Fatalf("direct fallback changed: %q", msg)
+	}
+}
+
 // stubPublicExposure exposes the loopback port as-is but reports itself
 // public, so tests can drive the full passcode-gated flow with no tunnel.
 type stubPublicExposure struct{}

@@ -17,13 +17,51 @@ import (
 // Record is one line in the transcript. Empty optional fields are omitted.
 type Record struct {
 	TS        string `json:"ts"`
-	Dir       string `json:"dir"` // "in" (from the user) | "out" (from Claude)
+	Dir       string `json:"dir"` // "in" (from the user) | "out" (from Claude) | "meta" (bookkeeping)
 	ChatID    string `json:"chat_id,omitempty"`
 	User      string `json:"user,omitempty"`
 	UserID    string `json:"user_id,omitempty"`
-	Kind      string `json:"kind,omitempty"` // text | photo | reaction | button | reply | ...
+	Kind      string `json:"kind,omitempty"` // text | photo | reaction | button | reply | delivered | replay | ...
 	MessageID string `json:"message_id,omitempty"`
 	Text      string `json:"text"`
+}
+
+// Bookkeeping record shapes. A "meta" record is NOT a user-visible message: it
+// carries no Text and is invisible to transcript greps of real conversation, so
+// downstream consumers (and the owner tailing the log for a message) skip it.
+// Only catch-up (internal/catchup) reads these back.
+const (
+	// DirMeta marks a bookkeeping record (Dir field), distinct from in/out.
+	DirMeta = "meta"
+	// KindDelivered marks a "this inbound message_id was handed to a live
+	// harness" record. It is the catch-up high-water mark: an inbound with a
+	// delivered marker was seen by a running harness and is never replayed. This
+	// replaces the old "any outbound acks all prior inbound" heuristic, which a
+	// job/notify/schedule outbound falsely satisfied (round-2 review B-1).
+	KindDelivered = "delivered"
+	// KindReplay marks one catch-up replay ATTEMPT for an inbound message_id.
+	// Attempts are counted to cap redelivery of a turn the harness never answers
+	// (round-2 review S-1).
+	KindReplay = "replay"
+)
+
+// MarkDelivered journals a delivered marker for messageID: the inbound was
+// successfully handed to a live harness. Empty messageID is a no-op (nothing to
+// key catch-up on). A nil receiver is a no-op.
+func (l *Logger) MarkDelivered(messageID string) error {
+	if l == nil || messageID == "" {
+		return nil
+	}
+	return l.Append(Record{Dir: DirMeta, Kind: KindDelivered, MessageID: messageID})
+}
+
+// MarkReplay journals one catch-up replay-attempt marker for messageID. Empty
+// messageID is a no-op. A nil receiver is a no-op.
+func (l *Logger) MarkReplay(messageID string) error {
+	if l == nil || messageID == "" {
+		return nil
+	}
+	return l.Append(Record{Dir: DirMeta, Kind: KindReplay, MessageID: messageID})
 }
 
 // Logger appends records to a JSONL file. It is safe for concurrent use: the

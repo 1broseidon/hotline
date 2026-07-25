@@ -1,0 +1,48 @@
+{
+  "aad": "hotline/code-link-v1|payload|3YPJ",
+  "confirm_a": "uhsN32X9zP0mPdvxxd6D0QayFLTXSlsS1O-8lRoT5Gw",
+  "negatives": [
+    {
+      "expect": "Finish -\u003e ErrPayloadOpen",
+      "name": "tampered-ciphertext",
+      "reason": "one ciphertext byte flipped -\u003e Poly1305 tag mismatch",
+      "wire": {
+        "c": "jODC0kk3if51U76zsDREf3G_s9R_gKZ6xEb7d3Y5KGWp2C7Dl-jTwT-wpREdRF4u_HIwGTeq43Kt81Jneu7lOVHwIg9yrwSFfsjWx-26ZA1ILWumjX6ZQ4Rqi__zk8oD8QG4E-_T0ZJHFv0eROoQ4cX4v7VIlkXh9bGyTSpHpdaC9f1H-1JQ9NcIlPbCK6FUc8qOBf1gy-Hv5qaO6Q",
+        "n": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY"
+      }
+    },
+    {
+      "expect": "open -\u003e ErrPayloadOpen",
+      "name": "wrong-sid-aad",
+      "open_sid": "WRNG",
+      "reason": "different sid changes the AAD -\u003e tag mismatch",
+      "wire": {
+        "c": "jeDC0kk3if51U76zsDREf3G_s9R_gKZ6xEb7d3Y5KGWp2C7Dl-jTwT-wpREdRF4u_HIwGTeq43Kt81Jneu7lOVHwIg9yrwSFfsjWx-26ZA1ILWumjX6ZQ4Rqi__zk8oD8QG4E-_T0ZJHFv0eROoQ4cX4v7VIlkXh9bGyTSpHpdaC9f1H-1JQ9NcIlPbCK6FUc8qOBf1gy-Hv5qaO6Q",
+        "n": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY"
+      }
+    },
+    {
+      "expect": "open -\u003e ErrPayloadOpen",
+      "name": "bad-nonce-length",
+      "reason": "23-byte nonce (must be 24)",
+      "wire": {
+        "c": "jeDC0kk3if51U76zsDREf3G_s9R_gKZ6xEb7d3Y5KGWp2C7Dl-jTwT-wpREdRF4u_HIwGTeq43Kt81Jneu7lOVHwIg9yrwSFfsjWx-26ZA1ILWumjX6ZQ4Rqi__zk8oD8QG4E-_T0ZJHFv0eROoQ4cX4v7VIlkXh9bGyTSpHpdaC9f1H-1JQ9NcIlPbCK6FUc8qOBf1gy-Hv5qaO6Q",
+        "n": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "expect": "Finish -\u003e ErrConfirmFailed",
+      "name": "confirm-a-wrong",
+      "reason": "client must reject before decrypting",
+      "wrong_confirm_a": "uxsN32X9zP0mPdvxxd6D0QayFLTXSlsS1O-8lRoT5Gw"
+    }
+  ],
+  "nonce_hex": "0102030405060708090a0b0c0d0e0f101112131415161718",
+  "note": "XChaCha20-Poly1305 payload wrap under K_pay (SPEC §4.3), produced via the enforced role API (SealPayload only after confirm_b verifies; Finish verifies confirm_a before decrypt). Session = cpace-r255.json hotline_session.",
+  "plaintext": "{\"uri\":\"hotline://pair?v=1\u0026u=https%3A%2F%2Frelay.hotline.sh\u0026r=aBcDeFgHiJkLmNoPqRsTuv\u0026s=3q2-7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\u0026n=pi\u0026e=1\"}",
+  "sid": "3YPJ",
+  "wire": {
+    "c": "jeDC0kk3if51U76zsDREf3G_s9R_gKZ6xEb7d3Y5KGWp2C7Dl-jTwT-wpREdRF4u_HIwGTeq43Kt81Jneu7lOVHwIg9yrwSFfsjWx-26ZA1ILWumjX6ZQ4Rqi__zk8oD8QG4E-_T0ZJHFv0eROoQ4cX4v7VIlkXh9bGyTSpHpdaC9f1H-1JQ9NcIlPbCK6FUc8qOBf1gy-Hv5qaO6Q",
+    "n": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY"
+  }
+}

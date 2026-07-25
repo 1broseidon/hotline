@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -90,7 +91,61 @@ func Mutate(path string, fn func(*Doc) error) error {
 	if err := fn(d); err != nil {
 		return err
 	}
-	return Save(d, path)
+	if err := Save(d, path); err != nil {
+		return err
+	}
+	notifyObservers(path)
+	return nil
+}
+
+// observers are callbacks fired after any successful Mutate of a specific
+// document (keyed by its path) — the single write path for creates, cancels,
+// pauses, and scheduler fires. They let an in-process watcher (the app
+// channel's agent_state emitter) re-snapshot on change without polling, and a
+// mutation in one state root never wakes watchers of another. Callbacks must
+// not block or re-enter Mutate.
+var (
+	observersMu sync.Mutex
+	observers   = map[string]map[int]func(){}
+	observerSeq int
+)
+
+// Observe registers fn to run after every successful Mutate of the document at
+// path, returning the deregistration func. A nil fn is a registered no-op.
+func Observe(path string, fn func()) (unsubscribe func()) {
+	if fn == nil {
+		return func() {}
+	}
+	observersMu.Lock()
+	observerSeq++
+	id := observerSeq
+	if observers[path] == nil {
+		observers[path] = map[int]func(){}
+	}
+	observers[path][id] = fn
+	observersMu.Unlock()
+	return func() {
+		observersMu.Lock()
+		if m := observers[path]; m != nil {
+			delete(m, id)
+			if len(m) == 0 {
+				delete(observers, path)
+			}
+		}
+		observersMu.Unlock()
+	}
+}
+
+func notifyObservers(path string) {
+	observersMu.Lock()
+	fns := make([]func(), 0, len(observers[path]))
+	for _, fn := range observers[path] {
+		fns = append(fns, fn)
+	}
+	observersMu.Unlock()
+	for _, fn := range fns {
+		fn()
+	}
 }
 
 // normalize replaces a nil Schedules slice with an empty one so callers can

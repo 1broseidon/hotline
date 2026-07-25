@@ -1,0 +1,64 @@
+{
+  "intent": "device_send is idempotent by cid and has no ack frame: the journal echo IS the ack. The app renders optimistically from its pending outbox and reconciles by cid when the echo item arrives. A duplicate cid (outbox double-flush after reconnect) is accepted silently: no second journal event, no second echo.",
+  "assertions": [
+    { "rule": "V11", "statement": "the send becomes exactly one journal event j 815 regardless of how many times cid 01J2ZK8Q0X6WYV9R3T5B7N4E2M is transmitted." },
+    { "rule": "V12", "statement": "the echo payload t is 'sent' and carries the same cid; the app replaces its optimistic bubble instead of adding a new one, and trims the cid from its pending outbox." },
+    { "rule": "V13", "statement": "sends require no live socket: a queued send transmitted on the next connect behaves identically." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZK8Q0X6WYV9R3T5B7N4E2M",
+        "payload": { "t": "send", "text": "yo from the phone" }
+      },
+      "expect": { "journal_event_created": true, "journal_seq": "815", "optimistic_bubble_rendered": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741009",
+        "j": "815",
+        "id": "env-j815-daf31fd290542",
+        "payload": { "t": "sent", "seq": 815, "id": "u-815", "cid": "01J2ZK8Q0X6WYV9R3T5B7N4E2M", "text": "yo from the phone", "device": "dev-af31fd290542" }
+      },
+      "expect": { "reconciled_by_cid": true, "bubble_count_delta": 0, "outbox_trimmed": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "9007199254741009" },
+      "expect": {}
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZK8Q0X6WYV9R3T5B7N4E2M",
+        "payload": { "t": "send", "text": "yo from the phone" }
+      },
+      "expect": { "duplicate_cid": true, "journal_event_created": false, "echo_emitted": false, "no_error": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZK9A7T2QXW8V4C6D1F3G5H",
+        "payload": { "t": "send", "text": "second distinct send" }
+      },
+      "expect": { "journal_event_created": true, "journal_seq": "816" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741010",
+        "j": "816",
+        "id": "env-j816-daf31fd290542",
+        "payload": { "t": "sent", "seq": 816, "id": "u-816", "cid": "01J2ZK9A7T2QXW8V4C6D1F3G5H", "text": "second distinct send", "device": "dev-af31fd290542" }
+      },
+      "expect": { "reconciled_by_cid": true }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "intent": "Staged multi-photo compose: two attachments (uploaded earlier with defer=1) and a caption ride ONE send frame; the server answers with one sent echo per attachment (each its own u-<seq> id, cid, and fileRef), a final sent echo for the caption text, then a single ack whose message_id is the last echo's id.",
+  "frames": [
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "send",
+        "cid": "c-1783684800903-2",
+        "text": "trail shots from this morning",
+        "attachments": [
+          { "id": "e4da3b7fbbce2345.png", "name": "ridge.png" },
+          { "id": "a87ff679a2f3e71d.jpg" }
+        ],
+        "cids": ["c-1783684800900-0", "c-1783684800901-1"]
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 901,
+        "id": "u-901",
+        "text": "",
+        "cid": "c-1783684800900-0",
+        "device": "dev-6c86c6aac5fb",
+        "file": {
+          "id": "e4da3b7fbbce2345.png",
+          "name": "ridge.png",
+          "mime": "image/png",
+          "size": 512034,
+          "url": "/att/e4da3b7fbbce2345.png"
+        }
+      },
+      "expect": {
+        "seq": 901,
+        "event": {
+          "type": "sent",
+          "id": "u-901",
+          "text": "",
+          "cid": "c-1783684800900-0",
+          "device": "dev-6c86c6aac5fb",
+          "file": {
+            "id": "e4da3b7fbbce2345.png",
+            "name": "ridge.png",
+            "mime": "image/png",
+            "size": 512034,
+            "url": "/att/e4da3b7fbbce2345.png"
+          }
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 902,
+        "id": "u-902",
+        "text": "",
+        "cid": "c-1783684800901-1",
+        "device": "dev-6c86c6aac5fb",
+        "file": {
+          "id": "a87ff679a2f3e71d.jpg",
+          "name": "a87ff679a2f3e71d.jpg",
+          "mime": "image/jpeg",
+          "size": 738221,
+          "url": "/att/a87ff679a2f3e71d.jpg"
+        }
+      },
+      "expect": {
+        "seq": 902,
+        "event": {
+          "type": "sent",
+          "id": "u-902",
+          "text": "",
+          "cid": "c-1783684800901-1",
+          "device": "dev-6c86c6aac5fb",
+          "file": {
+            "id": "a87ff679a2f3e71d.jpg",
+            "name": "a87ff679a2f3e71d.jpg",
+            "mime": "image/jpeg",
+            "size": 738221,
+            "url": "/att/a87ff679a2f3e71d.jpg"
+          }
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 903,
+        "id": "u-903",
+        "text": "trail shots from this morning",
+        "cid": "c-1783684800903-2",
+        "device": "dev-6c86c6aac5fb"
+      },
+      "expect": {
+        "seq": 903,
+        "event": {
+          "type": "sent",
+          "id": "u-903",
+          "text": "trail shots from this morning",
+          "cid": "c-1783684800903-2",
+          "device": "dev-6c86c6aac5fb"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "ack",
+        "cid": "c-1783684800903-2",
+        "seq": 903,
+        "message_id": "u-903"
+      },
+      "expect": {
+        "seq": 903,
+        "event": {
+          "type": "ack",
+          "cid": "c-1783684800903-2"
+        }
+      }
+    }
+  ]
+}

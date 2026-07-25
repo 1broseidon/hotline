@@ -1,0 +1,46 @@
+{
+  "intent": "The pairing QR URI is the only pairing input. Valid URIs parse to a stored pairing; version mismatch refuses cleanly; missing params refuse; unknown params are ignored.",
+  "cases": [
+    {
+      "name": "valid",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frzv.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi",
+      "expect": {
+        "ok": true,
+        "pairing": {
+          "url": "wss://rzv.hotline.dev",
+          "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+          "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+          "name": "pi"
+        }
+      }
+    },
+    {
+      "name": "valid-dev-lan-url-and-unknown-param-ignored",
+      "uri": "hotline://pair?v=1&u=ws%3A%2F%2F172.16.30.90%3A8787&r=Zz9yXx7wVv5uTt3sRr1qPo&s=Zz9yXx7wVv5uTt3sRr1qPoNn8mLl6kJj4iHh2gFf0eD&n=dev%20bot&future=stuff",
+      "expect": {
+        "ok": true,
+        "pairing": {
+          "url": "ws://172.16.30.90:8787",
+          "room": "Zz9yXx7wVv5uTt3sRr1qPo",
+          "secret": "Zz9yXx7wVv5uTt3sRr1qPoNn8mLl6kJj4iHh2gFf0eD",
+          "name": "dev bot"
+        }
+      }
+    },
+    {
+      "name": "newer-version-refused",
+      "uri": "hotline://pair?v=2&u=wss%3A%2F%2Frzv.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi",
+      "expect": { "ok": false, "reason": "version", "no_partial_pairing_stored": true }
+    },
+    {
+      "name": "missing-secret-refused",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frzv.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&n=pi",
+      "expect": { "ok": false, "reason": "missing_param", "no_partial_pairing_stored": true }
+    },
+    {
+      "name": "malformed-room-refused",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frzv.hotline.dev&r=short&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi",
+      "expect": { "ok": false, "reason": "malformed_param", "no_partial_pairing_stored": true }
+    }
+  ]
+}

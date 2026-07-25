@@ -36,6 +36,12 @@ type Capabilities struct {
 	// PermissionRelay: the provider authenticates repliers and can relay
 	// claude/channel/permission prompts.
 	PermissionRelay bool
+	// JobCards: the transport renders job elements as live cards. Unlike the
+	// flags above there is NO degradation for this one — a text transport cannot
+	// show a card at all — so it gates routing rather than rendering: work that
+	// only makes sense next to a visible card (the jobspool check-in nudge) must
+	// address a channel that has this, or no channel at all.
+	JobCards bool
 }
 
 // InboundSink is where a provider delivers normalized inbound traffic. The

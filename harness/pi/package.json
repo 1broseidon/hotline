@@ -1,0 +1,35 @@
+{
+  "name": "@1broseidon/hotline-pi",
+  "version": "0.1.0",
+  "// private": "Not published — see harness/core/package.json. Install this extension from a local checkout: pi install ./harness/pi",
+  "private": true,
+  "description": "hotline channel extension for Pi — bridges a spawned `hotline run` child into a Pi session so you can drive Telegram/Discord/Signal from Pi.",
+  "keywords": ["pi-package", "hotline"],
+  "license": "MIT",
+  "author": "1Broseidon",
+  "type": "module",
+  "pi": {
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"]
+  },
+  "files": ["src", "agents", "skills", "README.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/run-unit.mjs",
+    "gen:goldens": "node test/gen-goldens.mjs"
+  },
+  "dependencies": {
+    "@1broseidon/hotline-harness-core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}

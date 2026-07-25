@@ -1,0 +1,134 @@
+{
+  "intent": "A relay photo send carries mime, size, and a relay blob capability; the materialized sent echo and bot photo msg retain the local /att URL plus the same additive device blob ref.",
+  "frames": [
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "send",
+        "cid": "c-1783684800901-1",
+        "text": "",
+        "attachments": [
+          {
+            "id": "MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+            "name": "ridge.png",
+            "mime": "image/png",
+            "size": 512034,
+            "blob": {
+              "provider": "relay",
+              "key": "MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+              "url": "/blob/6d77ec5a5050c99e/device/photo/MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+              "expires_at": "2026-07-18T12:00:00Z"
+            }
+          }
+        ],
+        "cids": ["c-1783684800900-0"]
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 901,
+        "id": "u-901",
+        "text": "",
+        "cid": "c-1783684800900-0",
+        "device": "dev-6c86c6aac5fb",
+        "file": {
+          "id": "e4da3b7fbbce2345.png",
+          "name": "ridge.png",
+          "mime": "image/png",
+          "size": 512034,
+          "url": "/att/e4da3b7fbbce2345.png",
+          "blob": {
+            "provider": "relay",
+            "key": "MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+            "url": "/blob/6d77ec5a5050c99e/device/photo/MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+            "expires_at": "2026-07-18T12:00:00Z"
+          }
+        }
+      },
+      "expect": {
+        "seq": 901,
+        "event": {
+          "type": "sent",
+          "id": "u-901",
+          "text": "",
+          "cid": "c-1783684800900-0",
+          "device": "dev-6c86c6aac5fb",
+          "file": {
+            "id": "e4da3b7fbbce2345.png",
+            "name": "ridge.png",
+            "mime": "image/png",
+            "size": 512034,
+            "url": "/att/e4da3b7fbbce2345.png",
+            "blob": {
+              "provider": "relay",
+              "key": "MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+              "url": "/blob/6d77ec5a5050c99e/device/photo/MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+              "expires_at": "2026-07-18T12:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "ack",
+        "cid": "c-1783684800901-1",
+        "seq": 901,
+        "message_id": "u-901"
+      },
+      "expect": {
+        "seq": 901,
+        "event": {
+          "type": "ack",
+          "cid": "c-1783684800901-1"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 902,
+        "id": "a-902",
+        "text": "",
+        "file": {
+          "id": "e4da3b7fbbce2345.png",
+          "name": "ridge.png",
+          "mime": "image/png",
+          "size": 512034,
+          "url": "/att/e4da3b7fbbce2345.png",
+          "blob": {
+            "provider": "relay",
+            "key": "MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+            "url": "/blob/6d77ec5a5050c99e/device/photo/MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+            "expires_at": "2026-07-18T12:00:00Z"
+          }
+        }
+      },
+      "expect": {
+        "seq": 902,
+        "event": {
+          "type": "bubble",
+          "id": "a-902",
+          "text": "",
+          "file": {
+            "id": "e4da3b7fbbce2345.png",
+            "name": "ridge.png",
+            "mime": "image/png",
+            "size": 512034,
+            "url": "/att/e4da3b7fbbce2345.png",
+            "blob": {
+              "provider": "relay",
+              "key": "MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+              "url": "/blob/6d77ec5a5050c99e/device/photo/MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1u",
+              "expires_at": "2026-07-18T12:00:00Z"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -3,9 +3,12 @@ package loop
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -122,6 +125,8 @@ func TestRunnerExportsNotifySourceKey(t *testing.T) {
 func TestRunnerSkipsUnapprovedLoop(t *testing.T) {
 	r := testRunner(t)
 	t.Setenv("HOTLINE_STATE_DIR", r.StateRoot)
+	t.Setenv("HOTLINE_YOLO", "0")
+	t.Setenv("HOTLINE_HARNESS", "claude")
 	l, err := Add(r.Path, Loop{Label: "pending", Every: "10s", Cmd: "echo should-not-run"}, time.Now(), WithApprovalGate(r.StateRoot, false))
 	if err != nil {
 		t.Fatal(err)
@@ -218,6 +223,166 @@ func TestRunnerUnresolvableSource(t *testing.T) {
 				t.Errorf("cmd stdout = %q, want run with empty HOTLINE_NOTIFY_SOURCE", res.Stdout)
 			}
 		})
+	}
+}
+
+func TestRunnerSingletonPerBoxRoot(t *testing.T) {
+	r1 := testRunner(t)
+	r1.scanTick = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r1.Run(ctx) }()
+
+	key, err := r1.singletonKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, active := activeRunners.Load(key); active {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first runner did not claim its box root")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	r2 := NewRunner(r1.StateRoot)
+	if err := r2.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "already active") {
+		t.Fatalf("second runner error = %v, want singleton refusal", err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("first runner exit: %v", err)
+	}
+}
+
+func TestRunnerCancellationDrainsInflightTick(t *testing.T) {
+	r := testRunner(t)
+	r.scanTick = time.Hour
+	const label = "shutdown"
+	pidPath := filepath.Join(StateDir(r.StateRoot, label), "pid")
+	if _, err := Add(r.Path, Loop{
+		Label: label,
+		Every: "10s",
+		Cmd:   "echo $$ > \"$HOTLINE_LOOP_STATE_DIR/pid\"; sleep 30",
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+
+	var pid int
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		raw, err := os.ReadFile(pidPath)
+		if err == nil {
+			pid, err = strconv.Atoi(strings.TrimSpace(string(raw)))
+			if err != nil {
+				t.Fatalf("parse loop pid %q: %v", raw, err)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("loop command did not start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runner shutdown: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runner did not drain cancelled tick")
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("loop process %d still exists after Runner.Run returned: %v", pid, err)
+	}
+}
+
+func TestRunnerResumesFromPersistedLastRun(t *testing.T) {
+	r := testRunner(t)
+	r.scanTick = time.Hour
+	marker := filepath.Join(r.StateRoot, "ran")
+	l, err := Add(r.Path, Loop{Label: "resume", Every: "10s", Cmd: "printf ran >> " + marker}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := RecordRun(r.Path, l.Label, now, 0, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("fresh persisted tick ran eagerly; stat err=%v", err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	// Once the persisted watermark is overdue, a replacement owner catches up
+	// immediately instead of waiting a fresh full interval.
+	if err := RecordRun(r.Path, l.Label, now.Add(-11*time.Second), 0, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	r2 := NewRunner(r.StateRoot)
+	r2.Log = &bytes.Buffer{}
+	r2.scanTick = time.Hour
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done2 := make(chan error, 1)
+	go func() { done2 <- r2.Run(ctx2) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel2()
+			t.Fatal("overdue persisted loop did not catch up")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel2()
+	if err := <-done2; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunnerPersistsStartBeforeCommand(t *testing.T) {
+	r := testRunner(t)
+	l, err := Add(r.Path, Loop{
+		Label: "durable-start",
+		Every: "10s",
+		Cmd:   "grep -q '\"lastRunAt\"' " + r.Path + " && grep -q '\"runs\": 1' " + r.Path,
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.RunOnce(context.Background(), l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("command could not observe persisted start: %+v", res)
+	}
+	d, err := Load(r.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Loops[0]; got.Runs != 1 || got.LastRunAt == "" {
+		t.Fatalf("run watermark = %+v, want one durable start", got)
 	}
 }
 

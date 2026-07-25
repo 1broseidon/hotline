@@ -4,17 +4,17 @@ package supervise
 
 import (
 	"io"
+	"os"
 	"os/exec"
 	"syscall"
 )
 
 // StartOnPTY launches argv in dir with env on a freshly allocated pty, its
-// output streamed to logw. The child gets the pty slave as stdin/stdout/
-// stderr and becomes a session leader with the slave as its controlling
-// terminal (interactive Claude Code requires a tty: with a non-tty stdin it
-// falls into print mode and exits immediately). Its own session also means
-// its own process group, so Terminate/Kill can take down the harness AND its
-// children (the hotline MCP server, tunnels) in one signal.
+// output streamed to logw. The child gets the pty slave as stdin/stdout/stderr
+// and becomes a session leader with the slave as its controlling terminal
+// (interactive Claude Code requires a tty). Its own session also means its own
+// process group, so Terminate/Kill can take down the harness and its children in
+// one signal. Hotline never writes input back to the pty master.
 func StartOnPTY(argv []string, dir string, env []string, logw io.Writer) (Harness, error) {
 	master, slave, err := openPTY()
 	if err != nil {
@@ -40,14 +40,26 @@ func StartOnPTY(argv []string, dir string, env []string, logw io.Writer) (Harnes
 	}
 	slave.Close() // child holds its own copy now
 
-	// Drain the master into the log until the pty returns EIO (last slave fd
-	// closed — the whole process group is gone). The drain goroutine owns
-	// closing the master.
+	// Drain the master until the pty returns EIO (last slave fd closed — the
+	// whole process group is gone). The drain goroutine owns closing the master.
 	go func() {
-		_, _ = io.Copy(logw, master)
+		drainPTY(master, logw)
 		master.Close()
 	}()
 	return watchCmd(cmd), nil
+}
+
+func drainPTY(master io.Reader, logw io.Writer) {
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := master.Read(buf)
+		if n > 0 {
+			_, _ = logw.Write(buf[:n])
+		}
+		if readErr != nil {
+			return
+		}
+	}
 }
 
 // StartPiped launches argv in dir with env on plain pipes: stdout and stderr
@@ -73,15 +85,55 @@ func StartPiped(argv []string, dir string, env []string, logw io.Writer) (Harnes
 	return watchCmd(cmd), nil
 }
 
+// StartPipedStdinOpen is StartPiped with one difference: the child's stdin is a
+// live pipe the supervisor holds open (never written, never EOF'd) for the
+// process lifetime, instead of /dev/null. `pi --mode rpc` reads JSONL commands
+// from stdin and treats stdin EOF as a shutdown signal; in hotline's topology no
+// RPC client ever writes to it (the extension injects turns in-process), so a
+// /dev/null stdin would EOF immediately and the session would exit. Holding the
+// write end open keeps the headless session alive until the supervisor signals
+// it. Output, session/process-group, and Pdeathsig discipline match StartPiped.
+func StartPipedStdinOpen(argv []string, dir string, env []string, logw io.Writer) (Harness, error) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdin = pr
+	cmd.Stdout, cmd.Stderr = logw, logw
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	setPdeathsig(cmd) // Linux: harness dies with the supervisor instead of orphaning
+
+	if err := cmd.Start(); err != nil {
+		pr.Close()
+		pw.Close()
+		return nil, err
+	}
+	pr.Close() // the child holds its own copy of the read end now
+	return watchCmdWithStdin(cmd, pw), nil
+}
+
 // watchCmd wraps a started cmd in the Harness the supervisor watches,
 // reaping it in the background.
 func watchCmd(cmd *exec.Cmd) *procHarness {
+	return watchCmdWithStdin(cmd, nil)
+}
+
+// watchCmdWithStdin is watchCmd plus an optional held-open stdin write end (see
+// StartPipedStdinOpen). The write end is closed once the process exits so its fd
+// never leaks across restarts.
+func watchCmdWithStdin(cmd *exec.Cmd, stdin io.Closer) *procHarness {
 	h := &procHarness{cmd: cmd, done: make(chan struct{})}
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			h.exitDesc = err.Error()
 		} else {
-			h.exitDesc = "exit status 0"
+			h.exitDesc = CleanExitDesc
+		}
+		if stdin != nil {
+			stdin.Close()
 		}
 		close(h.done) // exitDesc write happens-before Done
 	}()

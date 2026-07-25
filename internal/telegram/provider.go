@@ -72,13 +72,14 @@ func (p *Provider) Start(ctx context.Context, sink provider.InboundSink) error {
 		<-ctx.Done()
 		return nil
 	}
-	if err := lifecycle.ClaimPollerSlot(p.cfg.PidFile); err != nil {
+	release, err := lifecycle.ClaimPollerSlot(p.cfg.PidFile)
+	if err != nil {
 		return fmt.Errorf("claiming poller slot: %w", err)
 	}
-	defer lifecycle.ReleasePollerSlot(p.cfg.PidFile)
+	defer release()
 
 	p.handler.Notifier = sink
-	err := Poll(ctx, p.bot, p.handler.Dispatch)
+	err = Poll(ctx, p.bot, p.handler.Dispatch)
 	// Drain any burst still in the coalescing window before teardown.
 	p.handler.FlushAll(context.Background())
 	return err

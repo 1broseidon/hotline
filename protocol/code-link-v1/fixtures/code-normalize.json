@@ -1,0 +1,69 @@
+{
+  "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+  "invalid": [
+    {
+      "input": "3YPJ-24B8-K7Q",
+      "reason": "only 11 symbols"
+    },
+    {
+      "input": "3YPJ-24B8-K7QMM",
+      "reason": "13 symbols"
+    },
+    {
+      "input": "3YPU-24B8-K7QM",
+      "reason": "U is excluded from the alphabet and is not folded"
+    },
+    {
+      "input": "3YP!-24B8-K7QM",
+      "reason": "non-alphabet ASCII symbol"
+    },
+    {
+      "input": "ŁYPJ-24B8-K7QM",
+      "reason": "non-ASCII look-alike (Ł U+0141) must be rejected pre-narrowing, not folded to 'A'"
+    },
+    {
+      "input": "3YPJ-24B8-K7QⓂ",
+      "reason": "non-ASCII circled M (U+24C2)"
+    }
+  ],
+  "note": "Crockford base32 normalization (SPEC §2): strip ws/hyphens, uppercase, fold i/l-\u003e1 o-\u003e0, require exactly 12 symbols; reject non-ASCII BEFORE conversion. PRS = normalized 12 chars; channel/sid = first 4.",
+  "valid": [
+    {
+      "channel": "3YPJ",
+      "input": "3YPJ-24B8-K7QM",
+      "normalized": "3YPJ24B8K7QM",
+      "prs": "3YPJ24B8K7QM"
+    },
+    {
+      "channel": "3YPJ",
+      "input": "3ypj-24b8-k7qm",
+      "normalized": "3YPJ24B8K7QM",
+      "prs": "3YPJ24B8K7QM"
+    },
+    {
+      "channel": "3YPJ",
+      "input": "3YPJ 24B8 K7QM",
+      "normalized": "3YPJ24B8K7QM",
+      "prs": "3YPJ24B8K7QM"
+    },
+    {
+      "channel": "3YPJ",
+      "input": "3YPJ24B8K7QM",
+      "normalized": "3YPJ24B8K7QM",
+      "prs": "3YPJ24B8K7QM"
+    },
+    {
+      "channel": "3YPJ",
+      "input": "  3ypj24b8k7qm  ",
+      "normalized": "3YPJ24B8K7QM",
+      "prs": "3YPJ24B8K7QM"
+    },
+    {
+      "channel": "1111",
+      "input": "iIlL-oO01-2345",
+      "normalized": "111100012345",
+      "note": "Crockford folds: i/I/l/L -\u003e 1, o/O -\u003e 0",
+      "prs": "111100012345"
+    }
+  ]
+}

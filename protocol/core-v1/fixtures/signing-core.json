@@ -1,0 +1,86 @@
+{
+  "canonical_string": "METHOD\\npath\\ntimestamp\\nnonce\\nbase64url(SHA-256(exact body bytes)) — joined with single \\n, no trailing newline",
+  "headers": {
+    "X-Hotline-Nonce": "fresh per request; base64url, 8–64 chars; replay-checked per room over 300 s",
+    "X-Hotline-Signature": "base64url (no padding) of the 64-byte P1363 r||s, low-S MANDATORY",
+    "X-Hotline-Timestamp": "unix seconds, decimal, within ±300 s"
+  },
+  "intent": "Signed-header vectors for the core-v1 control plane (SPEC §3.1). Scheme is verbatim hotline-push-gateway PROTOCOL.md §1–2 / internal/app/pushsign.go. Verifiers MUST accept vectors[] and reject every case in reject[] with the named code. Signers are validated by sign→verify roundtrip plus the mandatory low-S assertion (ECDSA is randomized, so signer output is not byte-comparable).",
+  "key": {
+    "crv": "P-256",
+    "d": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+    "kty": "EC",
+    "x": "UVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A18",
+    "y": "RTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q"
+  },
+  "reject": [
+    {
+      "expect": "bad_signature",
+      "name": "high-s",
+      "note": "the malleable twin s' = n - s of the valid register signature; verify must enforce low-S explicitly",
+      "signature": "Fdv0nzG0BMBnczm4MUT5KkxHbzkMZyhc4AX1BuM9Qyn6Jzei9KYScro9r_DjKvKHeT0nZaQxZC7pSOs09wzC5w",
+      "vector": "register"
+    },
+    {
+      "body": "{\"auth_hash\":\"hLLmFQG7twXeCpnA43Nrpnx6iXHSbRZ5142TBAvNE78\",\"box_pub\":{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"UVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A18\",\"y\":\"RTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q\"},\"name\":\"pi\",\"proto\":\"core-v1\" }",
+      "expect": "bad_signature",
+      "name": "tampered-body",
+      "note": "same headers/signature, body bytes changed → body hash mismatch",
+      "vector": "register"
+    },
+    {
+      "expect": "bad_signature",
+      "name": "wrong-path",
+      "note": "signature bound to path via canonical string",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/wake",
+      "vector": "register"
+    },
+    {
+      "expect": "stale_timestamp",
+      "name": "stale-timestamp-past",
+      "note": "301 s after the signed timestamp; window is ±300 s inclusive",
+      "vector": "register",
+      "verify_at": 1752451501
+    },
+    {
+      "expect": "stale_timestamp",
+      "name": "stale-timestamp-future",
+      "vector": "register",
+      "verify_at": 1752450899
+    },
+    {
+      "expect": "nonce_replayed",
+      "name": "replayed-nonce",
+      "note": "presenting the exact register vector a second time within 300 s of the first must be rejected",
+      "vector": "register"
+    }
+  ],
+  "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+  "rules": {
+    "key_lookup": "no X-Hotline-Key-Id header: the verifying key is reg.box_pub for the room named in the path; first register is TOFU",
+    "nonce_window_seconds": 300,
+    "timestamp_window_seconds": 300
+  },
+  "vectors": [
+    {
+      "name": "register",
+      "method": "POST",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/register",
+      "timestamp": "1752451200",
+      "nonce": "fixture-nonce-0001",
+      "body": "{\"auth_hash\":\"hLLmFQG7twXeCpnA43Nrpnx6iXHSbRZ5142TBAvNE78\",\"box_pub\":{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"UVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A18\",\"y\":\"RTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q\"},\"name\":\"pi\",\"proto\":\"core-v1\"}",
+      "canonical": "POST\n/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/register\n1752451200\nfixture-nonce-0001\nYujtcoaQlSd_REHii-bkDvTJLY37V8HKp3YqdloXMgs",
+      "signature": "Fdv0nzG0BMBnczm4MUT5KkxHbzkMZyhc4AX1BuM9QykF2MhcC1ntjkXCUA8c1Q14Q6nTSALmOlYKcN-OBVZiag"
+    },
+    {
+      "name": "wake",
+      "method": "POST",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/wake",
+      "timestamp": "1752451200",
+      "nonce": "fixture-nonce-0002",
+      "body": "{\"device_id\":\"dev-af31fd290542\",\"kind\":\"message\",\"preview_c\":null}",
+      "canonical": "POST\n/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/wake\n1752451200\nfixture-nonce-0002\nwzITqls4rdixY67sms8SjkHsHKBnwdIlevtHynfi1qs",
+      "signature": "ODsIcjzSken_B6KkSX2Y6-gPNu1t4da4CZuo6tciXFJuMoDeqjRzOnQWIeIR3UNQi5S3XF0c-is3Dt5W3_fQng"
+    }
+  ]
+}

@@ -1,0 +1,302 @@
+{
+  "intent": "Two explicitly mapped owner devices receive one personal journal event through two single-recipient envelopes with distinct deterministic envelope IDs. A later ephemeral event addressed only to the first mailbox never appears in the second stream, and every operation names one mailbox rather than a broadcast selector.",
+  "mailboxes": [
+    {
+      "mailbox_id": "mbx_isolation_device_a",
+      "device_id": "dev-111111111111"
+    },
+    {
+      "mailbox_id": "mbx_isolation_device_b",
+      "device_id": "dev-222222222222"
+    }
+  ],
+  "assertions": [
+    {
+      "rule": "F2",
+      "statement": "The personal-deployment audience for J=810 is the explicit device list dev-111111111111 and dev-222222222222, so journal recovery replays it to both owner devices."
+    },
+    {
+      "rule": "F4",
+      "statement": "The same J=810 expands to env-j810-d111111111111 and env-j810-d222222222222 because envelope_id is a function of J and recipient device_id."
+    },
+    {
+      "rule": "F8",
+      "statement": "The non-journal typing signal signal-seq811-d111111111111 is addressed only to mbx_isolation_device_a and is absent from mbx_isolation_device_b; no wire frame has a wildcard, list, or broadcast recipient."
+    },
+    {
+      "rule": "F8",
+      "statement": "Both provisioned device streams remain mailbox-addressed; this fixture contains no raw app->server or server->app fallback path."
+    }
+  ],
+  "frames": [
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_isolation_device_a",
+        "grant": "QUJDREVGR0hJSktMTU5PUFFSU1RVVldY",
+        "after": "0",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "device_id": "dev-111111111111"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_a",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "0",
+        "head": "0",
+        "reset_required": false
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_a",
+      "frame": {
+        "t": "mailbox_synced",
+        "through": "0",
+        "next": "0",
+        "has_more": false
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_complete": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_isolation_device_b",
+        "grant": "WVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9w",
+        "after": "0",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "device_id": "dev-222222222222"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_b",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "0",
+        "head": "0",
+        "reset_required": false
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_b",
+      "frame": {
+        "t": "mailbox_synced",
+        "through": "0",
+        "next": "0",
+        "has_more": false
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_complete": true
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_isolation_device_a",
+        "envelope_id": "env-j810-d111111111111",
+        "class": "durable",
+        "notify": "wake",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":810,\"id\":\"a-810\",\"text\":\"Personal event for every owner device.\"}",
+        "created_at": "2026-07-11T16:30:00Z",
+        "expires_at": "2026-07-18T16:30:00Z"
+      },
+      "expect": {
+        "route": "transport",
+        "recipient_device_id": "dev-111111111111",
+        "recipient_count": 1
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_isolation_device_a",
+        "envelope_id": "env-j810-d111111111111",
+        "mailbox_seq": "1",
+        "duplicate": false,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_isolation_device_b",
+        "envelope_id": "env-j810-d222222222222",
+        "class": "durable",
+        "notify": "wake",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":810,\"id\":\"a-810\",\"text\":\"Personal event for every owner device.\"}",
+        "created_at": "2026-07-11T16:30:00Z",
+        "expires_at": "2026-07-18T16:30:00Z"
+      },
+      "expect": {
+        "route": "transport",
+        "recipient_device_id": "dev-222222222222",
+        "recipient_count": 1,
+        "previous_recipient_receipt_observed": true
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_isolation_device_b",
+        "envelope_id": "env-j810-d222222222222",
+        "mailbox_seq": "1",
+        "duplicate": false,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_a",
+      "phase": "live",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_isolation_device_a",
+        "envelope_id": "env-j810-d111111111111",
+        "mailbox_seq": "1",
+        "notify": "wake",
+        "created_at": "2026-07-11T16:30:00Z",
+        "expires_at": "2026-07-18T16:30:00Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":810,\"id\":\"a-810\",\"text\":\"Personal event for every owner device.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "logical_apply": true,
+        "device_id": "dev-111111111111"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_b",
+      "phase": "live",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_isolation_device_b",
+        "envelope_id": "env-j810-d222222222222",
+        "mailbox_seq": "1",
+        "notify": "wake",
+        "created_at": "2026-07-11T16:30:00Z",
+        "expires_at": "2026-07-18T16:30:00Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":810,\"id\":\"a-810\",\"text\":\"Personal event for every owner device.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "logical_apply": true,
+        "device_id": "dev-222222222222"
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_ack",
+        "mailbox_id": "mbx_isolation_device_a",
+        "through": "1"
+      },
+      "expect": {
+        "route": "transport",
+        "cumulative": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_ack",
+        "mailbox_id": "mbx_isolation_device_b",
+        "through": "1"
+      },
+      "expect": {
+        "route": "transport",
+        "cumulative": true
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_isolation_device_a",
+        "envelope_id": "signal-seq811-d111111111111",
+        "class": "ephemeral",
+        "notify": "silent",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"typing\",\"seq\":811,\"on\":true}",
+        "created_at": "2026-07-11T16:30:01Z",
+        "expires_at": "2026-07-11T16:30:11Z"
+      },
+      "expect": {
+        "route": "transport",
+        "recipient_device_id": "dev-111111111111",
+        "recipient_count": 1,
+        "mailbox_seq": null
+      }
+    },
+    {
+      "dir": "relay->device",
+      "stream": "mbx_isolation_device_a",
+      "phase": "live",
+      "frame": {
+        "t": "mailbox_signal",
+        "mailbox_id": "mbx_isolation_device_a",
+        "envelope_id": "signal-seq811-d111111111111",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"typing\",\"seq\":811,\"on\":true}",
+        "expires_at": "2026-07-11T16:30:11Z"
+      },
+      "expect": {
+        "route": "transport",
+        "device_id": "dev-111111111111",
+        "absent_from_mailbox_id": "mbx_isolation_device_b",
+        "ack": false,
+        "push": false
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_revoke",
+        "mailbox_id": "mbx_isolation_device_b"
+      },
+      "expect": {
+        "route": "transport",
+        "device_id": "dev-222222222222",
+        "grant_revoked": true,
+        "push_token_removed": true,
+        "socket_closed": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "intent": "The e=1 pair-URI param (core-v1 SPEC §2.4): additive to the FROZEN v2 pair URI (protocol/v2/fixtures/pair-uri.json stays normative). e=1 marks the pairing envelope-mode; a parser that predates the param ignores it per v2 rules (old app pairs, sends plaintext hello on the e-room, and gets silence — the QR error surface is 'update the app'). Envelope mode is per-room for the room's lifetime.",
+  "cases": [
+    {
+      "name": "e1-parses-envelope-mode",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frelay.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi&e=1",
+      "expect": {
+        "ok": true,
+        "pairing": {
+          "url": "wss://relay.hotline.dev",
+          "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+          "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+          "name": "pi",
+          "envelope": true
+        }
+      }
+    },
+    {
+      "name": "absent-e-means-plaintext",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frelay.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi",
+      "expect": {
+        "ok": true,
+        "pairing": {
+          "url": "wss://relay.hotline.dev",
+          "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+          "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+          "name": "pi",
+          "envelope": false
+        }
+      }
+    },
+    {
+      "name": "e0-means-plaintext",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frelay.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi&e=0",
+      "expect": { "ok": true, "pairing": { "envelope": false }, "note": "only the exact value '1' enables envelope mode; anything else is treated as absent (boring option)" }
+    },
+    {
+      "name": "e-unrecognized-value-plaintext",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frelay.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi&e=yes",
+      "expect": { "ok": true, "pairing": { "envelope": false } }
+    },
+    {
+      "name": "old-app-ignores-e",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frelay.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi&e=1",
+      "parser": "v2-frozen (pre-e)",
+      "expect": {
+        "ok": true,
+        "pairing": {
+          "url": "wss://relay.hotline.dev",
+          "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+          "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+          "name": "pi"
+        },
+        "note": "v2 rule: unknown params are ignored; the old app pairs successfully, then its plaintext hello on the e-room gets silence"
+      }
+    },
+    {
+      "name": "e1-with-other-unknown-params",
+      "uri": "hotline://pair?v=1&u=wss%3A%2F%2Frelay.hotline.dev&r=Ab3dEf6hIj8lMn0pQr2tUv&s=Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ&n=pi&e=1&future=stuff",
+      "expect": { "ok": true, "pairing": { "envelope": true } }
+    }
+  ]
+}

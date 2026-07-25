@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/1broseidon/hotline/internal/config"
@@ -228,55 +227,15 @@ func readEnvFile(path string) (map[string]string, error) {
 }
 
 // writeEnvFile merges updates into the .env file, preserving every existing
-// line (comments, blanks, keys it isn't setting) in place. Updated keys keep
-// their position; new keys append at the end. The file is written 0600.
+// line (comments, blanks, keys it isn't setting) in place. The merge-writer
+// itself lives in internal/config (WriteEnvFile) so the app channel's
+// set_sdk_config persistence shares it; setup never removes keys.
 func writeEnvFile(path string, updates map[string]string) error {
-	var lines []string
-	if data, err := os.ReadFile(path); err == nil {
-		lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-		if len(lines) == 1 && lines[0] == "" {
-			lines = nil
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	written := map[string]bool{}
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		k, _, ok := strings.Cut(trimmed, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		if v, has := updates[k]; has {
-			lines[i] = k + "=" + v
-			written[k] = true
-		}
-	}
-	for _, k := range sortedKeys(updates) {
-		if !written[k] {
-			lines = append(lines, k+"="+updates[k])
-		}
-	}
-
-	content := strings.Join(lines, "\n") + "\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return config.WriteEnvFile(path, updates, nil)
 }
 
 func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
+	return config.SortedEnvKeys(m)
 }
 
 // promptLine prints a prompt and reads one trimmed line.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestGateMatrix(t *testing.T) {
@@ -185,6 +186,32 @@ func TestPairingRateLimit(t *testing.T) {
 	}
 	if c != code {
 		t.Fatalf("expected same code at limit")
+	}
+}
+
+func TestPendingCodeFor(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "access.json")
+	code, _, err := CreatePairing(file, "sender-A", "sender-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := Load(file)
+
+	if got, ok := PendingCodeFor(a, "sender-A"); !ok || got != code {
+		t.Fatalf("PendingCodeFor(sender-A) = %q,%v; want %q,true", got, ok, code)
+	}
+	if _, ok := PendingCodeFor(a, "sender-B"); ok {
+		t.Fatal("PendingCodeFor(sender-B) should be false: no pending entry")
+	}
+
+	// An expired entry must not be reported as live.
+	for c, p := range a.Pending {
+		p.ExpiresAt = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+		a.Pending[c] = p
+	}
+	if _, ok := PendingCodeFor(a, "sender-A"); ok {
+		t.Fatal("PendingCodeFor should skip an expired pending entry")
 	}
 }
 

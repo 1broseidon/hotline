@@ -1,0 +1,742 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hotline://protocol/v2/frames",
+  "title": "hotline v2 transport frames (CLI<->app, end-to-end through the dumb pipe)",
+  "description": "Every frame is a JSON object with exact-lowercase key 't'. Receivers match 't' by exact byte comparison, ignore unknown 't' values, and ignore unknown fields on known frames. All cursors are decimal strings (BigInt-safe). Two families live here: the durable/session frames, and the TRANSIENT content family (agent_state, agent_catalog, typing, read, sdk_config_result, fleet_state) - seq'd, never durable, never acked, never replayed, and additive, so an app that does not know one drops it. The transient seq is drawn from the box's shared server->app sequence, so emitting a transient advances the counter the next DURABLE frame will use; it never writes a durable record, moves a mailbox head, or queues a mailbox item.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/welcome"
+    },
+    {
+      "$ref": "#/$defs/mailbox_item"
+    },
+    {
+      "$ref": "#/$defs/mailbox_ack"
+    },
+    {
+      "$ref": "#/$defs/mailbox_gap"
+    },
+    {
+      "$ref": "#/$defs/device_send"
+    },
+    {
+      "$ref": "#/$defs/presence"
+    },
+    {
+      "$ref": "#/$defs/live_activity_token"
+    },
+    {
+      "$ref": "#/$defs/ping"
+    },
+    {
+      "$ref": "#/$defs/pong"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/blob_begin"
+    },
+    {
+      "$ref": "#/$defs/blob_chunk"
+    },
+    {
+      "$ref": "#/$defs/blob_end"
+    },
+    {
+      "$ref": "#/$defs/blob_req"
+    },
+    {
+      "$ref": "#/$defs/agent_state"
+    },
+    {
+      "$ref": "#/$defs/agent_catalog"
+    },
+    {
+      "$ref": "#/$defs/typing"
+    },
+    {
+      "$ref": "#/$defs/read"
+    },
+    {
+      "$ref": "#/$defs/sdk_config_result"
+    },
+    {
+      "$ref": "#/$defs/fleet_state"
+    }
+  ],
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^dev-[0-9a-f]{6,32}$"
+    },
+    "roomId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "secret": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "envelopeId": {
+      "type": "string",
+      "pattern": "^env-j(0|[1-9][0-9]*)-d[0-9a-f]{6,32}$"
+    },
+    "cid": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64
+    },
+    "jobId": {
+      "type": "string",
+      "pattern": "^job-[1-9][0-9]*$",
+      "maxLength": 64
+    },
+    "activityToken": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2}){0,100}$",
+      "maxLength": 200
+    },
+    "xfer": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 64
+    },
+    "hello": {
+      "type": "object",
+      "required": [
+        "t",
+        "v",
+        "device_id",
+        "secret",
+        "resume_from"
+      ],
+      "properties": {
+        "t": {
+          "const": "hello"
+        },
+        "v": {
+          "const": 2
+        },
+        "device_id": {
+          "$ref": "#/$defs/deviceId"
+        },
+        "secret": {
+          "$ref": "#/$defs/secret"
+        },
+        "resume_from": {
+          "$ref": "#/$defs/cursor"
+        },
+        "push": {
+          "type": "object",
+          "required": [
+            "token",
+            "platform"
+          ],
+          "properties": {
+            "token": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "platform": {
+              "enum": [
+                "ios",
+                "android"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "welcome": {
+      "type": "object",
+      "required": [
+        "t",
+        "v",
+        "room",
+        "name",
+        "device_id",
+        "floor",
+        "head"
+      ],
+      "properties": {
+        "t": {
+          "const": "welcome"
+        },
+        "v": {
+          "const": 2
+        },
+        "room": {
+          "$ref": "#/$defs/roomId"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "device_id": {
+          "$ref": "#/$defs/deviceId"
+        },
+        "floor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "head": {
+          "$ref": "#/$defs/cursor"
+        },
+        "harness": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "description": "optional box identity metadata: harness kind (claude = the TUI, claude-sdk, pi, opencode); absent = unknown (old boxes)"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "optional: resolved or configured model id, e.g. claude-opus-4-8; absent = unknown"
+        },
+        "effort": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "optional: operator effort knob verbatim, e.g. xhigh; absent = unknown/numeric-custom"
+        }
+      }
+    },
+    "mailbox_item": {
+      "type": "object",
+      "required": [
+        "t",
+        "m",
+        "j",
+        "id",
+        "payload"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_item"
+        },
+        "m": {
+          "$ref": "#/$defs/cursor"
+        },
+        "j": {
+          "$ref": "#/$defs/cursor"
+        },
+        "id": {
+          "$ref": "#/$defs/envelopeId"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "optional original journal append time; absent on records written by older boxes"
+        },
+        "payload": {
+          "type": "object",
+          "description": "content frame; shapes normed by protocol/fixtures (v1 content family) + blob xfer refs"
+        }
+      }
+    },
+    "mailbox_ack": {
+      "type": "object",
+      "required": [
+        "t",
+        "m"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_ack"
+        },
+        "m": {
+          "$ref": "#/$defs/cursor"
+        }
+      }
+    },
+    "mailbox_gap": {
+      "type": "object",
+      "required": [
+        "t",
+        "floor"
+      ],
+      "properties": {
+        "t": {
+          "const": "mailbox_gap"
+        },
+        "floor": {
+          "$ref": "#/$defs/cursor"
+        }
+      }
+    },
+    "device_send": {
+      "type": "object",
+      "required": [
+        "t",
+        "cid",
+        "payload"
+      ],
+      "properties": {
+        "t": {
+          "const": "device_send"
+        },
+        "cid": {
+          "$ref": "#/$defs/cid"
+        },
+        "payload": {
+          "type": "object"
+        }
+      }
+    },
+    "presence": {
+      "type": "object",
+      "description": "app \u2192 CLI control frame reporting foreground/background. Post-hello only; identity is the authenticated session (no device_id). No response, cursor, ack, persistence, or mailbox item.",
+      "required": [
+        "t",
+        "state"
+      ],
+      "properties": {
+        "t": {
+          "const": "presence"
+        },
+        "state": {
+          "enum": [
+            "foreground",
+            "background"
+          ]
+        }
+      }
+    },
+    "live_activity_token": {
+      "type": "object",
+      "description": "app \u2192 CLI authenticated post-hello ActivityKit registration. Device and room identity come from the session. An empty token idempotently unregisters job_id; a valid unknown or finished job is ignored.",
+      "required": [
+        "t",
+        "job_id",
+        "token"
+      ],
+      "properties": {
+        "t": {
+          "const": "live_activity_token"
+        },
+        "job_id": {
+          "$ref": "#/$defs/jobId"
+        },
+        "token": {
+          "$ref": "#/$defs/activityToken"
+        }
+      }
+    },
+    "ping": {
+      "type": "object",
+      "required": [
+        "t",
+        "n"
+      ],
+      "properties": {
+        "t": {
+          "const": "ping"
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "pong": {
+      "type": "object",
+      "required": [
+        "t",
+        "n"
+      ],
+      "properties": {
+        "t": {
+          "const": "pong"
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "t",
+        "code"
+      ],
+      "properties": {
+        "t": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "unauthorized",
+            "revoked",
+            "cursor_ahead",
+            "full",
+            "bad_frame"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    },
+    "blob_begin": {
+      "type": "object",
+      "required": [
+        "t",
+        "xfer",
+        "mime",
+        "size",
+        "chunks"
+      ],
+      "properties": {
+        "t": {
+          "const": "blob_begin"
+        },
+        "xfer": {
+          "$ref": "#/$defs/xfer"
+        },
+        "mime": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 52428800
+        },
+        "chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      }
+    },
+    "blob_chunk": {
+      "type": "object",
+      "required": [
+        "t",
+        "xfer",
+        "i",
+        "data"
+      ],
+      "properties": {
+        "t": {
+          "const": "blob_chunk"
+        },
+        "xfer": {
+          "$ref": "#/$defs/xfer"
+        },
+        "i": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 199
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "maxLength": 349528
+        }
+      }
+    },
+    "blob_end": {
+      "type": "object",
+      "required": [
+        "t",
+        "xfer"
+      ],
+      "properties": {
+        "t": {
+          "const": "blob_end"
+        },
+        "xfer": {
+          "$ref": "#/$defs/xfer"
+        }
+      }
+    },
+    "blob_req": {
+      "type": "object",
+      "required": [
+        "t",
+        "xfer"
+      ],
+      "properties": {
+        "t": {
+          "const": "blob_req"
+        },
+        "xfer": {
+          "$ref": "#/$defs/xfer"
+        }
+      }
+    },
+    "agent_state": {
+      "type": "object",
+      "description": "Transient live-state snapshot. Additive: `state` carries whatever the box knows (harness/model/effort identity, runs, schedules); a client reads the fields it understands and ignores the rest.",
+      "required": [
+        "t",
+        "seq",
+        "state"
+      ],
+      "properties": {
+        "t": {
+          "const": "agent_state"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transient sequence. NOT a journal cursor - never acked, never resumed from."
+        },
+        "state": {
+          "type": "object"
+        }
+      }
+    },
+    "agent_catalog": {
+      "type": "object",
+      "description": "Transient list of the models this box's harness can actually select (model catalog amendment 2026-07-20). Sent to a device on subscribe and re-broadcast on change. A box that sends none leaves the client on its curated fallback - absence IS the compatibility story, so there is no version flag.",
+      "required": [
+        "t",
+        "seq",
+        "models"
+      ],
+      "properties": {
+        "t": {
+          "const": "agent_catalog"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "harness": {
+          "type": "string",
+          "description": "Which harness enumerated the list."
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Which precedence branch the harness took: an operator scope, the harness's own setting, or everything with a credential."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "The list was cut at the box's cap. The free-text escape still reaches the rest."
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "CANONICAL id, exactly as it must be sent back in a set_sdk_config (pi: provider/id)."
+              },
+              "label": {
+                "type": "string",
+                "description": "Short display name."
+              },
+              "available": {
+                "type": "boolean",
+                "description": "The box holds a usable credential for it. Absent reads as false."
+              }
+            }
+          }
+        }
+      }
+    },
+    "typing": {
+      "type": "object",
+      "description": "Transient typing hint from the box.",
+      "required": [
+        "t",
+        "seq",
+        "on"
+      ],
+      "properties": {
+        "t": {
+          "const": "typing"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "on": {
+          "type": "boolean"
+        }
+      }
+    },
+    "read": {
+      "type": "object",
+      "description": "Transient read cursor, fanned out to every device. Best-effort; max-merged by the box.",
+      "required": [
+        "t",
+        "j"
+      ],
+      "properties": {
+        "t": {
+          "const": "read"
+        },
+        "j": {
+          "$ref": "#/$defs/cursor"
+        }
+      }
+    },
+    "sdk_config_result": {
+      "type": "object",
+      "description": "Transient, per-device answer to a set_sdk_config control (SDK-settings amendment 2026-07-19). Sent ONLY to the device whose control it answers, correlated by `rid` - there is no other correlation and no confirm frame. Success echoes the accepted post-trim values for exactly the fields the request carried (\"\" echoes as \"\" = cleared; an absent field stays absent). `restart:true` means persisted plus a supervisor bounce, and the post-restart welcome identity is the confirmation; `hot:true` means applied to the LIVE session and persisted after the harness confirmed, and the next agent_state carrying the new value is the confirmation. Neither flag = a no-op (already effective). Old apps ignore the unknown `t`, so this is additive.",
+      "required": [
+        "t",
+        "seq",
+        "rid",
+        "ok"
+      ],
+      "properties": {
+        "t": {
+          "const": "sdk_config_result"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rid": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "description": "Echoes the request id. Device-scoped and CSPRNG-random from a current app, so it names one operation unambiguously."
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Present iff the request carried model. \"\" = cleared to the harness default."
+        },
+        "effort": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Present iff the request carried effort. \"\" = cleared."
+        },
+        "restart": {
+          "type": "boolean",
+          "description": "Persisted and a supervisor bounce was requested."
+        },
+        "hot": {
+          "type": "boolean",
+          "description": "Applied to the live session, no bounce. Serialized only when true."
+        },
+        "unverified": {
+          "type": "boolean",
+          "description": "The applied model was syntactically valid but ABSENT from the harness's catalog, which under-enumerates live-valid ids. The apply landed; an API rejection may surface on the next turn and is recoverable by switching back. Present only on an ok hot result, and only when true."
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "On ok:false. Closed set: unsupported_harness | invalid_model | invalid_effort | empty_request | persist_failed | restart_failed | apply_in_progress, plus the hot-path additions unknown_model | no_api_key | apply_failed | no_session | harness_unreachable."
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional single line."
+        }
+      }
+    },
+    "fleet_state": {
+      "type": "object",
+      "description": "Transient operator-awareness snapshot of the box's fleet (a2a-design-v2 §6, Lane L4). Same transient family as agent_state: seq'd, never durable, never acked, never replayed. A FULL SNAPSHOT - the app replaces its whole fleet view with `state.edges` each frame (add/remove/liveness all converge). Sent ONLY to active operator devices (a device right after its mailbox drains, and every active device on a throttled >=30s change); NEVER to a fleet-session peer. Carries counts/liveness/flags ONLY - never peer message text, cid, kind, from, peer name/fp, room, url, or secret. A box that has never held a fleet edge emits nothing. Old apps ignore the unknown `t`, so it is additive.",
+      "required": [
+        "t",
+        "seq",
+        "state"
+      ],
+      "properties": {
+        "t": {
+          "const": "fleet_state"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transient sequence. NOT a journal cursor - never acked, never resumed from."
+        },
+        "state": {
+          "type": "object",
+          "required": [
+            "edges"
+          ],
+          "properties": {
+            "edges": {
+              "type": "array",
+              "description": "Always an array (never null). Empty means no edges to show.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "edge_id",
+                  "alias",
+                  "direction",
+                  "connected",
+                  "sent_24h",
+                  "recv_24h",
+                  "pending",
+                  "dropped_24h"
+                ],
+                "properties": {
+                  "edge_id": {
+                    "type": "string",
+                    "description": "Durable edge address (not the renameable alias)."
+                  },
+                  "alias": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "type": "string"
+                  },
+                  "connected": {
+                    "type": "boolean",
+                    "description": "Real in-box liveness from the live serve/dial session map."
+                  },
+                  "last_seen": {
+                    "type": "string",
+                    "description": "Optional; absent when never seen."
+                  },
+                  "sent_24h": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "recv_24h": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "pending": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Unacked outbound depth derived from the durable journal WAL."
+                  },
+                  "dropped_24h": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "dead": {
+                    "type": "boolean",
+                    "description": "Tombstoned edge (removed | revoked | unreachable). Absent reads as false."
+                  },
+                  "dead_reason": {
+                    "type": "string"
+                  },
+                  "key_mismatch": {
+                    "type": "boolean",
+                    "description": "Trust-on-first-use safety signal: the peer's key changed. Absent reads as false."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

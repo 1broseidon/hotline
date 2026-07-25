@@ -30,6 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Keyless cosign signing (.goreleaser.yaml `signs:`) mints a short-lived
+      # certificate from GitHub's OIDC issuer. Without id-token: write the
+      # signing step fails and the release does not publish.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +46,9 @@ jobs:
           cache: true
 
       - run: go test ./...
+
+      # Puts `cosign` on PATH for the goreleaser `signs:` block.
+      - uses: sigstore/cosign-installer@v3
 
       - uses: goreleaser/goreleaser-action@v6
         with:

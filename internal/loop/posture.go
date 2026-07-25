@@ -31,10 +31,20 @@ func YoloEnabled(stateRoot string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if h != "opencode" {
+	switch h {
+	case "pi":
+		// The pi harness runs every tool unguarded, always — Pi has no
+		// permission prompts by design, so harness=pi is equivalent to
+		// `claude --dangerously-skip-permissions` (see cmd_up.go's loud warning
+		// and run_pi.go). Mirror HOTLINE_YOLO semantics here so loop approval
+		// posture matches: setup_loop under pi goes live immediately, exactly as
+		// it does under claude+yolo, instead of sitting pending-approval.
+		return true, nil
+	case "opencode":
+		return openCodeBashAllowed("."), nil
+	default:
 		return false, nil
 	}
-	return openCodeBashAllowed("."), nil
 }
 
 func truthy(s string) bool {

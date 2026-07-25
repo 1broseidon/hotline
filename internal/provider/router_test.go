@@ -155,6 +155,24 @@ func TestRouterRoutesBySource(t *testing.T) {
 	}
 }
 
+func TestRouterOptionalArtifactPublishing(t *testing.T) {
+	app := &artifactProvider{Stub: stubprovider.Stub{ProviderName: "app"}}
+	telegram := &stubprovider.Stub{ProviderName: "telegram"}
+	r, err := provider.NewRouter(app, telegram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, isErr, handled := r.PublishArtifact(context.Background(), mcpchan.PublishInput{
+		Source: "app", ChatID: "dev-1", Path: "/tmp/report.html",
+	})
+	if isErr || !handled || msg != "artifact sent" || app.last.ChatID != "dev-1" {
+		t.Fatalf("app publish = %q err=%v handled=%v input=%+v", msg, isErr, handled, app.last)
+	}
+	if _, isErr, handled := r.PublishArtifact(context.Background(), mcpchan.PublishInput{Source: "telegram", Path: "/tmp/report.html"}); isErr || handled {
+		t.Fatalf("non-artifact provider should fall through: err=%v handled=%v", isErr, handled)
+	}
+}
+
 // TestStubButtonDegradation exercises the degradation hook: a provider whose
 // capabilities lack buttons renders them as numbered text options, so the
 // agent-facing tool contract stays identical across transports.
@@ -259,3 +277,45 @@ type failingProvider struct {
 }
 
 func (f *failingProvider) Start(context.Context, provider.InboundSink) error { return f.err }
+
+type artifactProvider struct {
+	stubprovider.Stub
+	last mcpchan.PublishInput
+}
+
+func (a *artifactProvider) PublishArtifact(_ context.Context, in mcpchan.PublishInput) (string, bool, bool) {
+	a.last = in
+	return "artifact sent", false, true
+}
+
+// TestCardSourcesFiltersCardBlindChannels: CardSources is Sources() narrowed to
+// the channels that can actually render a job card, so callers that only make
+// sense next to a visible card never address a text-only transport. Empty when
+// none can — the caller must then stay silent rather than fall back.
+func TestCardSourcesFiltersCardBlindChannels(t *testing.T) {
+	tg := &stubprovider.Stub{ProviderName: "telegram", Caps: provider.Capabilities{Buttons: true}}
+	appish := &stubprovider.Stub{ProviderName: "app", Caps: provider.Capabilities{Buttons: true, JobCards: true}}
+
+	// Configuration order puts the card-blind provider first — the exact shape
+	// that made a job-card check-in route to telegram.
+	r, err := provider.NewRouter(tg, appish)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Sources(); len(got) != 2 {
+		t.Fatalf("Sources should still list every selectable provider, got %v", got)
+	}
+	got := r.CardSources()
+	if len(got) != 1 || got[0] != "app" {
+		t.Fatalf("CardSources = %v, want only the card-capable channel", got)
+	}
+
+	// A box with no card-capable channel yields nothing at all.
+	solo, err := provider.NewRouter(&stubprovider.Stub{ProviderName: "telegram", Caps: provider.Capabilities{Buttons: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := solo.CardSources(); len(got) != 0 {
+		t.Fatalf("CardSources on a card-blind box = %v, want none", got)
+	}
+}

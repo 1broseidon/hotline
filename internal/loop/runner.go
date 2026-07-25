@@ -24,7 +24,12 @@ const (
 	defaultLogMax    = 5 << 20
 )
 
-// Runner owns loop execution. It is hosted by `hotline up` and never
+// activeRunners is the in-process half of the loop-host singleton. `hotline
+// run`'s lifecycle.OwnerLease is the cross-process guard; this map catches an
+// accidental second Runner in the same owning process before it can tick.
+var activeRunners sync.Map
+
+// Runner owns loop execution. It is hosted by `hotline run` and never
 // auto-restarts a failed command; failures are logged and advisory state is
 // updated for the next operator list.
 type Runner struct {
@@ -62,14 +67,26 @@ func NewRunner(stateRoot string) *Runner {
 	return r
 }
 
-// Run reconciles loops.json until ctx is cancelled. Each active loop gets an
-// eager first tick and then its own interval ticker. Store read failures are
-// logged and retried on the next scan; they never stop the supervisor.
+// Run reconciles loops.json until ctx is cancelled. A never-run or overdue
+// loop ticks immediately; otherwise its first tick resumes from persisted
+// LastRunAt. Store read failures are logged and retried on the next scan; they
+// never stop the supervisor.
 func (r *Runner) Run(ctx context.Context) error {
+	key, err := r.singletonKey()
+	if err != nil {
+		return err
+	}
+	if _, loaded := activeRunners.LoadOrStore(key, struct{}{}); loaded {
+		return fmt.Errorf("loop runner already active for box root %s", key)
+	}
+	defer activeRunners.Delete(key)
+
 	if r.inflight == nil {
 		r.inflight = map[string]bool{}
 	}
 	workers := map[string]*loopWorker{}
+	var workerWG sync.WaitGroup
+	var tickWG sync.WaitGroup
 	reconcile := func() {
 		d, err := Load(r.Path)
 		if err != nil {
@@ -100,7 +117,11 @@ func (r *Runner) Run(ctx context.Context) error {
 			wctx, cancel := context.WithCancel(ctx)
 			w := &loopWorker{loop: l, cancel: cancel}
 			workers[label] = w
-			go r.runWorker(wctx, l)
+			workerWG.Add(1)
+			go func() {
+				defer workerWG.Done()
+				r.runWorker(wctx, l, &tickWG)
+			}()
 		}
 	}
 
@@ -113,6 +134,11 @@ func (r *Runner) Run(ctx context.Context) error {
 			for _, w := range workers {
 				w.cancel()
 			}
+			// Stop every worker before waiting for ticks, so no WaitGroup.Add can
+			// race with tickWG.Wait. RunOnce observes the cancelled context and
+			// kills its command process group before the box lease is released.
+			workerWG.Wait()
+			tickWG.Wait()
 			return nil
 		case <-t.C:
 			reconcile()
@@ -136,22 +162,69 @@ func sameRunnable(a, b Loop) bool {
 		a.Approved == b.Approved
 }
 
-func (r *Runner) runWorker(ctx context.Context, l Loop) {
-	r.launch(ctx, l)
-	t := time.NewTicker(l.EveryDuration())
-	defer t.Stop()
-	for {
+func (r *Runner) runWorker(ctx context.Context, l Loop, ticks *sync.WaitGroup) {
+	if delay := r.nextRunDelay(l); delay > 0 {
+		t := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
 		case <-t.C:
-			r.launch(ctx, l)
+		}
+	}
+
+	for {
+		r.launch(ctx, l, ticks)
+		t := time.NewTimer(l.EveryDuration())
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
 		}
 	}
 }
 
-func (r *Runner) launch(ctx context.Context, l Loop) {
+// nextRunDelay verifies and applies the persisted run watermark. Missing,
+// malformed, or overdue watermarks run now; a future watermark is capped to
+// one interval so clock skew cannot wedge a loop indefinitely.
+func (r *Runner) nextRunDelay(l Loop) time.Duration {
+	if strings.TrimSpace(l.LastRunAt) == "" {
+		return 0
+	}
+	last, err := time.Parse(time.RFC3339, l.LastRunAt)
+	if err != nil {
+		r.logf("loop %s has invalid lastRunAt %q; running now", l.Label, l.LastRunAt)
+		return 0
+	}
+	interval := l.EveryDuration()
+	delay := last.Add(interval).Sub(r.now())
+	if delay <= 0 {
+		return 0
+	}
+	if delay > interval {
+		r.logf("loop %s lastRunAt is in the future; retrying in %s", l.Label, interval)
+		return interval
+	}
+	return delay
+}
+
+func (r *Runner) singletonKey() (string, error) {
+	root := strings.TrimSpace(r.StateRoot)
+	if root == "" {
+		return "", fmt.Errorf("loop runner state root is required")
+	}
+	key, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("resolving loop runner state root %q: %w", root, err)
+	}
+	return key, nil
+}
+
+func (r *Runner) launch(ctx context.Context, l Loop, ticks *sync.WaitGroup) {
+	ticks.Add(1)
 	go func() {
+		defer ticks.Done()
 		if _, err := r.RunOnce(ctx, l); err != nil {
 			r.logf("loop %s run failed: %v", l.Label, err)
 		}
@@ -186,21 +259,27 @@ func (r *Runner) RunOnce(ctx context.Context, l Loop) (Result, error) {
 	defer r.clearInFlight(l.Label)
 
 	start := r.now()
+	// Persist the start watermark before executing. If the owning process dies
+	// mid-command, the next `up` resumes from this tick instead of immediately
+	// duplicating its effects. A persistence failure refuses the tick.
+	if recErr := RecordRunStart(r.Path, l.Label, start); recErr != nil {
+		return Result{ExitCode: 1}, fmt.Errorf("persisting loop %s start: %w", l.Label, recErr)
+	}
 	// Panic barrier: a latent panic in a single loop run must never take down
-	// the hosting `hotline up` process. Recover, log it, and record a failed
+	// the hosting `hotline run` process. Recover, log it, and record a failed
 	// run. clearInFlight is a separate defer, so the in-flight flag is cleared
 	// on this path too.
 	defer func() {
 		if rec := recover(); rec != nil {
 			r.logf("loop %s panicked: %v", l.Label, rec)
-			if recErr := RecordRun(r.Path, l.Label, start, 1, r.now().Sub(start)); recErr != nil {
+			if recErr := RecordRunResult(r.Path, l.Label, 1, r.now().Sub(start)); recErr != nil {
 				r.logf("loop %s status update failed: %v", l.Label, recErr)
 			}
 		}
 	}()
 	res, err := r.runCommand(ctx, l, start)
 	res.Duration = r.now().Sub(start)
-	if recErr := RecordRun(r.Path, l.Label, start, res.ExitCode, res.Duration); recErr != nil {
+	if recErr := RecordRunResult(r.Path, l.Label, res.ExitCode, res.Duration); recErr != nil {
 		r.logf("loop %s status update failed: %v", l.Label, recErr)
 	}
 	if err == nil && l.NotifyLLM && strings.TrimSpace(res.Stdout) != "" {

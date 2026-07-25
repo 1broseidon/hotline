@@ -1,0 +1,95 @@
+{
+  "encrypt": [
+    {
+      "name": "b2a-mailbox-item",
+      "dir": "b2a",
+      "key": "k_b2a",
+      "aad": "hotline/e1|Ab3dEf6hIj8lMn0pQr2tUv|b2a",
+      "inner": "{\"t\":\"mailbox_item\",\"m\":\"9007199254741009\",\"j\":\"815\",\"id\":\"env-j815-daf31fd290542\",\"payload\":{\"t\":\"sent\",\"seq\":815,\"id\":\"u-815\",\"cid\":\"01J2ZK8Q0X6WYV9R3T5B7N4E2M\",\"text\":\"yo from the phone\",\"device\":\"dev-af31fd290542\"}}",
+      "frame": {
+        "t": "e1",
+        "n": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+        "c": "3LtOKY6WghsSPSGDxnJ5ayTcUxQKzhDLdR_Lr34aDaK9L2dO_jbsrUSPlPaOBXkcIn2KB8JIpKgyXsYXaZ_fIi3LqOFvzPP0UWnrVTMp8NWVC4Wd4_Gr8YL4yFM3OOjVtoWoaCq9hhfxHs3jy1QeUNOA6sfRimZuTYAr-ajKq3YmZZZ-giMySdpzc0sNZm-WBFQw61uAJdls7u8rQG3aKtHr2iK8BRUdHd2X4DwI1Olu4J28DvIKHxK3rrbR_icE7bVLYSoX1qJJZCaNS5MOueb4ErXedt1C4Nlju7kI41ZqehZ8uWXuDRJckg"
+      }
+    },
+    {
+      "name": "a2b-hello",
+      "dir": "a2b",
+      "key": "k_a2b",
+      "aad": "hotline/e1|Ab3dEf6hIj8lMn0pQr2tUv|a2b",
+      "inner": "{\"t\":\"hello\",\"v\":2,\"device_id\":\"dev-af31fd290542\",\"secret\":\"Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ\",\"resume_from\":\"9007199254741005\",\"push\":{\"token\":\"ExponentPushToken[fixture-v2-drain]\",\"platform\":\"ios\"}}",
+      "frame": {
+        "t": "e1",
+        "n": "oKGio6SlpqeoqaqrrK2ur7CxsrO0tba3",
+        "c": "_6LXK4BHpjXp0yDbrtzjePooL4LyGUOnCknE2vRVLXFFY42SXOuSDDuJBSi5H6pKKvzAX25Iq6h8BRcZUfQ-_2Fww466FI6cq9X_mAn6skgYtZhhctOiOgFPoHtpD9mUD_ngZ0wVoFeoORgMq493XU_BBgDcOzXv--1h_bl7Xh_4lj39ZFItU9UIsf86z5ZWjUBnwkdaL8Pk4YNFXZFAYaxB2ss-2ftlBw6G_PZjG-xiELVB_2JI22orZPX04lc8zmPbv_hR1HrFLbv3BgcvByhSu4Klv-ioGMEzTgbGAcPcaA"
+      }
+    }
+  ],
+  "hkdf": {
+    "hash": "SHA-256",
+    "k_a2b": {
+      "info": "hotline-e2e-v1|a2b",
+      "key": "_yoBxL9KJ9lowUc3KcZQLOHRoeJcnkEMJbidvL2m_9M"
+    },
+    "k_b2a": {
+      "info": "hotline-e2e-v1|b2a",
+      "key": "GmwNim0tq16VrB8vFesDiyqt2sVbGHvcwgmbKodWH6Y"
+    },
+    "room_auth": {
+      "auth_hash": "hLLmFQG7twXeCpnA43Nrpnx6iXHSbRZ5142TBAvNE78",
+      "info": "hotline-room-auth-v1",
+      "key": "UNa3vOHCVc2_ZNMriJ3gJ20Jg4QjWnmtNwmax7MaNhM"
+    },
+    "salt": "hotline-e1"
+  },
+  "intent": "HKDF + XChaCha20-Poly1305 vectors for the e1 envelope (core-v1 SPEC §2.2–2.3). Byte-exact: an implementation must reproduce every derived key and ciphertext exactly, decrypt both directions, and DROP every frame in reject[].",
+  "reject": [
+    {
+      "aad": "hotline/e1|Ab3dEf6hIj8lMn0pQr2tUv|b2a",
+      "expect": "drop",
+      "frame": {
+        "t": "e1",
+        "n": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+        "c": "3LtOKY6WghsSPSGDxnJ5ayTcUxQKzhDLdR_Lr34aDaK9L2dO_jbsrUSPlPaOBXkcIn2KB8JIpKgyXsYXaZ_fIi3LqOFvzPP0UWnrVTMp8NWVC4Wd4_Gr8YL4yFM3OOjVtoWoaCq9hhfxHs3jy1QeUNOA6sfRimZuTYAr-ajKq3YmZZZ-giMySdpzc0sNZm-WBFQw61uAJdls7u8rQG3aKtHr2iK8BRUdHd2X4DwI1Olu4J28DvIKHxK3rrbR_icE7bVLYSoX1qJJZCaNS5MOueb4ErXedt1C4Nlju7kI41ZqehZ8uWXuDRJckA"
+      },
+      "key": "k_b2a",
+      "name": "tampered-ciphertext"
+    },
+    {
+      "aad": "hotline/e1|Ab3dEf6hIj8lMn0pQr2tUv|a2b",
+      "expect": "drop",
+      "frame": {
+        "t": "e1",
+        "n": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+        "c": "3LtOKY6WghsSPSGDxnJ5ayTcUxQKzhDLdR_Lr34aDaK9L2dO_jbsrUSPlPaOBXkcIn2KB8JIpKgyXsYXaZ_fIi3LqOFvzPP0UWnrVTMp8NWVC4Wd4_Gr8YL4yFM3OOjVtoWoaCq9hhfxHs3jy1QeUNOA6sfRimZuTYAr-ajKq3YmZZZ-giMySdpzc0sNZm-WBFQw61uAJdls7u8rQG3aKtHr2iK8BRUdHd2X4DwI1Olu4J28DvIKHxK3rrbR_icE7bVLYSoX1qJJZCaNS5MOueb4ErXedt1C4Nlju7kI41ZqehZ8uWXuDRJckg"
+      },
+      "key": "k_b2a",
+      "name": "wrong-aad-direction",
+      "note": "reflection defense: b2a ciphertext must not open under the a2b AAD"
+    },
+    {
+      "aad": "hotline/e1|Zz9yXx7wVv5uTt3sRr1qPo|b2a",
+      "expect": "drop",
+      "frame": {
+        "t": "e1",
+        "n": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+        "c": "3LtOKY6WghsSPSGDxnJ5ayTcUxQKzhDLdR_Lr34aDaK9L2dO_jbsrUSPlPaOBXkcIn2KB8JIpKgyXsYXaZ_fIi3LqOFvzPP0UWnrVTMp8NWVC4Wd4_Gr8YL4yFM3OOjVtoWoaCq9hhfxHs3jy1QeUNOA6sfRimZuTYAr-ajKq3YmZZZ-giMySdpzc0sNZm-WBFQw61uAJdls7u8rQG3aKtHr2iK8BRUdHd2X4DwI1Olu4J28DvIKHxK3rrbR_icE7bVLYSoX1qJJZCaNS5MOueb4ErXedt1C4Nlju7kI41ZqehZ8uWXuDRJckg"
+      },
+      "key": "k_b2a",
+      "name": "wrong-aad-room"
+    },
+    {
+      "aad": "hotline/e1|Ab3dEf6hIj8lMn0pQr2tUv|b2a",
+      "expect": "drop",
+      "frame": {
+        "t": "e1",
+        "n": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+        "c": "3LtOKY6WghsSPSGDxnJ5ayTcUxQKzhDLdR_Lr34aDaK9L2dO_jbsrUSPlPaOBXkcIn2KB8JIpKgyXsYXaZ_fIi3LqOFvzPP0UWnrVTMp8NWVC4Wd4_Gr8YL4yFM3OOjVtoWoaCq9hhfxHs3jy1QeUNOA6sfRimZuTYAr-ajKq3YmZZZ-giMySdpzc0sNZm-WBFQw61uAJdls7u8rQG3aKtHr2iK8BRUdHd2X4DwI1Olu4J28DvIKHxK3rrbR_icE7bVLYSoX1qJJZCaNS5MOueb4ErXedt1C4Nlju7kI41ZqehZ8uWXuDRJckg"
+      },
+      "key": "k_a2b",
+      "name": "wrong-key"
+    }
+  ],
+  "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+  "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ"
+}

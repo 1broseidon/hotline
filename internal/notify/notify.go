@@ -6,7 +6,7 @@
 // Dispatcher on the daemon side injects enqueued events as synthetic inbound
 // turns (kind="notify") through the same sink real messages and schedules use.
 //
-// State lives under <state root>/notify/: sources.json (the capability-key
+// State lives under <box root>/notify/: sources.json (the capability-key
 // registry, operator-owned) and spool.json (pending entries plus per-source gate
 // state), both guarded by the same flock/atomic-write pattern as schedules.json.
 // The design is deliberately the existing house patterns applied to a new noun.
@@ -231,7 +231,7 @@ func (d *SpoolDoc) stateFor(label string) *SourceState {
 	return st
 }
 
-// Path helpers: everything notify owns lives under <state root>/notify/.
+// Path helpers: everything notify owns lives under <box root>/notify/.
 func Dir(stateRoot string) string         { return filepath.Join(stateRoot, "notify") }
 func SourcesPath(stateRoot string) string { return filepath.Join(Dir(stateRoot), "sources.json") }
 func SpoolPath(stateRoot string) string   { return filepath.Join(Dir(stateRoot), "spool.json") }

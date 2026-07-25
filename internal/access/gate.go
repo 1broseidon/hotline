@@ -153,6 +153,25 @@ func CreatePairing(accessFile, senderID, chatID string) (code string, send bool,
 	return code, send, err
 }
 
+// PendingCodeFor returns the live (unexpired) pending pairing code for
+// senderID, if one exists. Read-only: it inspects the in-memory Access without
+// mutating or persisting anything. The app channel uses it to resend an
+// already-issued code when CreatePairing reports the re-prompt rate limit,
+// instead of surfacing that as a hard "device not allowed" rejection.
+func PendingCodeFor(a *Access, senderID string) (string, bool) {
+	now := time.Now()
+	for code, p := range a.Pending {
+		if p.SenderID != senderID {
+			continue
+		}
+		if exp, err := time.Parse(time.RFC3339, p.ExpiresAt); err == nil && now.After(exp) {
+			continue
+		}
+		return code, true
+	}
+	return "", false
+}
+
 // ApprovePairing moves a pending entry into AllowFrom and returns it.
 func ApprovePairing(accessFile, code string) (Pending, error) {
 	var approved Pending

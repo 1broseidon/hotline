@@ -1,0 +1,46 @@
+{
+  "intent": "A relay publication is one additive static-html-v1 artifact on a normal msg frame; feature-aware clients render its card while the text remains the fallback for older clients.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 42,
+        "id": "a-42",
+        "text": "Published artifact: report.html",
+        "artifact": {
+          "title": "report.html",
+          "mime": "text/html",
+          "size": 48123,
+          "sandbox": "static-html-v1",
+          "blob": {
+            "provider": "relay",
+            "key": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4",
+            "url": "/blob/6d77ec5a5050c99e/device/artifact/YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4",
+            "expires_at": "2026-07-18T12:00:00Z"
+          }
+        }
+      },
+      "expect": {
+        "seq": 42,
+        "event": {
+          "type": "bubble",
+          "id": "a-42",
+          "text": "Published artifact: report.html",
+          "artifact": {
+            "title": "report.html",
+            "mime": "text/html",
+            "size": 48123,
+            "sandbox": "static-html-v1",
+            "blob": {
+              "provider": "relay",
+              "key": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4",
+              "url": "/blob/6d77ec5a5050c99e/device/artifact/YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4",
+              "expires_at": "2026-07-18T12:00:00Z"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

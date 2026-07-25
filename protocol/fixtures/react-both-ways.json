@@ -1,0 +1,65 @@
+{
+  "intent": "An agent reaction has no device field; a user reaction is encoded with a cid, echoed with the originating device, and acknowledged.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "react",
+        "seq": 501,
+        "msg_id": "u-499",
+        "emoji": "👀"
+      },
+      "expect": {
+        "seq": 501,
+        "event": {
+          "type": "react",
+          "msgId": "u-499",
+          "emoji": "👀"
+        }
+      }
+    },
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "react",
+        "cid": "c-1783684800502-0",
+        "msg_id": "a-500",
+        "emoji": "👍"
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "react",
+        "seq": 502,
+        "msg_id": "a-500",
+        "emoji": "👍",
+        "device": "dev-6c86c6aac5fb"
+      },
+      "expect": {
+        "seq": 502,
+        "event": {
+          "type": "react",
+          "msgId": "a-500",
+          "emoji": "👍",
+          "device": "dev-6c86c6aac5fb"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "ack",
+        "cid": "c-1783684800502-0",
+        "seq": 502
+      },
+      "expect": {
+        "seq": 502,
+        "event": {
+          "type": "ack",
+          "cid": "c-1783684800502-0"
+        }
+      }
+    }
+  ]
+}

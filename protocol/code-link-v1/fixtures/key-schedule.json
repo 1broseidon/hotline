@@ -1,0 +1,39 @@
+{
+  "confirm_a": "uhsN32X9zP0mPdvxxd6D0QayFLTXSlsS1O-8lRoT5Gw",
+  "confirm_b": "SiLftR1fXrU7FUYrDpN_qjv3A339OcpzidmQmEQgl38",
+  "hkdf_salt": "hotline-code-link-v1",
+  "isk_hex": "d6d02431824c57347ebc34c5ac36542f04defc8397ae8f9017a1237ca8a1062c9af6e9d88d435aef88e9098b13bd0cc7d5852d8304007632dd0d388f95ea468f",
+  "keys": {
+    "k_ca": {
+      "info": "hcl-confirm-a",
+      "key_b64": "WyM_I98VkpxbT7NsAZQpXncDGEOjEDKQ3M2ZNDg705E"
+    },
+    "k_cb": {
+      "info": "hcl-confirm-b",
+      "key_b64": "oix9kDB4Q3Bv9QqsN7h6Cf8Rq6IJJ0sIUKiZ6Lk5wGw"
+    },
+    "k_pay": {
+      "info": "hcl-payload",
+      "key_b64": "RuK4bcBHspwyDgFfXlpEUp6HNkCp_-oOtD-CJIJ4-lI"
+    }
+  },
+  "msg_a_b64": "Jos_zEP0mRqz3rkFL_HwnF5W3Bz2a-ku9NcyUUg7yB4",
+  "msg_b_b64": "ghSS3dsm0nHBRRneXSEW9SFM3h-_1YMdFzvY0vYdIUQ",
+  "note": "HKDF-SHA256 key schedule + SHA-256 transcript hash + HMAC-SHA256 confirmations (SPEC §4.3). Session = cpace-r255.json hotline_session.",
+  "sid": "3YPJ",
+  "swapped_key_rejected": true,
+  "th_framing": "hotline/code-link-v1|3YPJ|Jos_zEP0mRqz3rkFL_HwnF5W3Bz2a-ku9NcyUUg7yB4|ghSS3dsm0nHBRRneXSEW9SFM3h-_1YMdFzvY0vYdIUQ",
+  "th_hex": "19fe6e7ea3baf6847bd693c3daabe7ee24ec33c83740a72c3eb18fceb4630667",
+  "wrong_prs_attempt": {
+    "box_scalar_seed": "11 x64",
+    "code": "3YPJ24B8K7QM",
+    "control_expect": "same seeds + right code -\u003e box.Verify succeeds (proves PRS drives the generator)",
+    "expect": "box.Verify -\u003e ErrConfirmFailed (IsFailedAttempt == true)",
+    "msg_a_b64": "Jos_zEP0mRqz3rkFL_HwnF5W3Bz2a-ku9NcyUUg7yB4",
+    "note": "REAL single attempt. Reproduce: box=NewBoxInit(code), client=NewClientResponder(wrong_code) over the box's msg_a; box.Verify MUST return a failed attempt. Control uses the same seeds with the right code and succeeds.",
+    "wrong_client_seed": "33 x64",
+    "wrong_code": "3YPJ24B8K7QN",
+    "wrong_confirm_b": "Dy7Y7yQzHPDVgP3WPPdoCRKBHXaA8M01lvL5gH2Jvfw",
+    "wrong_msg_b_b64": "frGp_138QLnPSbrCGjJCxr4Djb87zBWT0qEkVzQzMU0"
+  }
+}

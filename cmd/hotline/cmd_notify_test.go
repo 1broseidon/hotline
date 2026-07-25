@@ -14,6 +14,7 @@ func notifyState(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOTLINE_STATE_DIR", dir)
+	t.Setenv("HOTLINE_PROVIDERS", "")
 	return dir
 }
 
@@ -54,19 +55,19 @@ func TestCmdNotifyUsageErrors(t *testing.T) {
 	var out, errb bytes.Buffer
 
 	// Missing --source.
-	if code := cmdNotify([]string{"hello"}, strings.NewReader(""), &out, &errb); code != 2 {
+	if code := cmdNotify("", []string{"hello"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Errorf("missing --source: exit %d, want 2", code)
 	}
 	// Bad --level.
-	if code := cmdNotify([]string{"--source", "k", "--level", "boom", "msg"}, strings.NewReader(""), &out, &errb); code != 2 {
+	if code := cmdNotify("", []string{"--source", "k", "--level", "boom", "msg"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Errorf("bad --level: exit %d, want 2", code)
 	}
 	// Empty message (no positional, empty stdin).
-	if code := cmdNotify([]string{"--source", "k"}, strings.NewReader("   \n"), &out, &errb); code != 2 {
+	if code := cmdNotify("", []string{"--source", "k"}, strings.NewReader("   \n"), &out, &errb); code != 2 {
 		t.Errorf("empty message: exit %d, want 2", code)
 	}
 	// Unknown flag.
-	if code := cmdNotify([]string{"--source", "k", "--bogus"}, strings.NewReader(""), &out, &errb); code != 2 {
+	if code := cmdNotify("", []string{"--source", "k", "--bogus"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Errorf("unknown flag: exit %d, want 2", code)
 	}
 }
@@ -76,7 +77,7 @@ func TestCmdNotifyAcceptedFromStdin(t *testing.T) {
 	key := addSource(t, dir, "backups", notify.LevelNormal)
 
 	var out, errb bytes.Buffer
-	code := cmdNotify([]string{"--source", key, "--level", "low"}, strings.NewReader("backup finished\n"), &out, &errb)
+	code := cmdNotify("", []string{"--source", key, "--level", "low"}, strings.NewReader("backup finished\n"), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit %d, want 0; stderr=%q", code, errb.String())
 	}
@@ -94,7 +95,7 @@ func TestCmdNotifyPositionalWinsOverStdin(t *testing.T) {
 	key := addSource(t, dir, "s", notify.LevelNormal)
 
 	var out, errb bytes.Buffer
-	code := cmdNotify([]string{"--source", key, "POSITIONAL"}, strings.NewReader("PIPED"), &out, &errb)
+	code := cmdNotify("", []string{"--source", key, "POSITIONAL"}, strings.NewReader("PIPED"), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit %d, want 0", code)
 	}
@@ -109,7 +110,7 @@ func TestCmdNotifyDoubleDashEndsFlags(t *testing.T) {
 	key := addSource(t, dir, "s", notify.LevelNormal)
 
 	var out, errb bytes.Buffer
-	code := cmdNotify([]string{"--source", key, "--", "--looks-like-a-flag"}, strings.NewReader(""), &out, &errb)
+	code := cmdNotify("", []string{"--source", key, "--", "--looks-like-a-flag"}, strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit %d, want 0; stderr=%q", code, errb.String())
 	}
@@ -122,7 +123,7 @@ func TestCmdNotifyDoubleDashEndsFlags(t *testing.T) {
 func TestCmdNotifyUnknownKey(t *testing.T) {
 	notifyState(t)
 	var out, errb bytes.Buffer
-	code := cmdNotify([]string{"--source", "9f2c6a1e-dead-beef-cafe-2d5b8e1f4a6c", "hi"}, strings.NewReader(""), &out, &errb)
+	code := cmdNotify("", []string{"--source", "9f2c6a1e-dead-beef-cafe-2d5b8e1f4a6c", "hi"}, strings.NewReader(""), &out, &errb)
 	if code != 4 {
 		t.Fatalf("unknown key: exit %d, want 4", code)
 	}
@@ -135,11 +136,11 @@ func TestCmdNotifyList(t *testing.T) {
 	dir := notifyState(t)
 	key := addSource(t, dir, "s", notify.LevelNormal)
 	var out, errb bytes.Buffer
-	if code := cmdNotify([]string{"--source", key, "an event"}, strings.NewReader(""), &out, &errb); code != 0 {
+	if code := cmdNotify("", []string{"--source", key, "an event"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("enqueue exit %d", code)
 	}
 	out.Reset()
-	if code := cmdNotify([]string{"list"}, strings.NewReader(""), &out, &errb); code != 0 {
+	if code := cmdNotify("", []string{"list"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("list exit %d, want 0", code)
 	}
 	if !strings.Contains(out.String(), "1 pending") || !strings.Contains(out.String(), "s") {

@@ -1,0 +1,89 @@
+{
+  "intent": "Every connect is hello(resume_from) -> welcome(floor,head) -> drain (resume_from, head] -> live. Cursors are decimal strings above 2^53. Commit-before-ack. Ping/pong echoes n. The rendezvous forwards all of this verbatim and is invisible here.",
+  "assertions": [
+    { "rule": "V1", "statement": "hello is the first frame on the socket; nothing precedes it." },
+    { "rule": "V2", "statement": "drain delivers m 9007199254741006 and 9007199254741007 in ascending order: exactly the items above resume_from 9007199254741005 through head." },
+    { "rule": "V3", "statement": "the app persists its cursor before emitting mailbox_ack (kill between apply and ack must re-deliver, not lose)." },
+    { "rule": "V4", "statement": "a live item enqueued after the drain flows on the same socket with the next m 9007199254741008." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "hello",
+        "v": 2,
+        "device_id": "dev-af31fd290542",
+        "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+        "resume_from": "9007199254741005",
+        "push": { "token": "ExponentPushToken[fixture-v2-drain]", "platform": "ios" }
+      },
+      "expect": { "auth": "verified", "push_token_registered": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "welcome",
+        "v": 2,
+        "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+        "name": "pi",
+        "device_id": "dev-af31fd290542",
+        "floor": "9007199254741001",
+        "head": "9007199254741007"
+      },
+      "expect": { "drain_range": ["9007199254741006", "9007199254741007"] }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741006",
+        "j": "812",
+        "id": "env-j812-daf31fd290542",
+        "payload": { "t": "msg", "seq": 812, "id": "a-812", "text": "first undelivered" }
+      },
+      "expect": { "applied": true, "order": 1 }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741007",
+        "j": "813",
+        "id": "env-j813-daf31fd290542",
+        "payload": { "t": "msg", "seq": 813, "id": "a-813", "text": "second undelivered" }
+      },
+      "expect": { "applied": true, "order": 2 }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "9007199254741007" },
+      "expect": { "cursor_persisted_before_send": true, "cli_may_trim_through": "9007199254741007" }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "ping", "n": 7 },
+      "expect": {}
+    },
+    {
+      "dir": "cli->app",
+      "frame": { "t": "pong", "n": 7 },
+      "expect": { "echoed_n": 7 }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741008",
+        "j": "814",
+        "id": "env-j814-daf31fd290542",
+        "payload": { "t": "msg", "seq": 814, "id": "a-814", "text": "live item after drain" }
+      },
+      "expect": { "applied": true, "order": 3, "push_intent_exists_if_unacked_was_empty": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "9007199254741008" },
+      "expect": { "cumulative": true }
+    }
+  ]
+}

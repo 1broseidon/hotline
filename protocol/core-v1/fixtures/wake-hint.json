@@ -1,0 +1,114 @@
+{
+  "intent": "POST /v1/rooms/<room>/wake (core-v1 SPEC §3.4): the content-free wake hint. Core verifies the signature, throttles, resolves dev:<device_id>, builds the GENERIC notification (never any message content), routes via the provider router, and reports the gateway-vocabulary disposition. Includes the exact Expo POST body golden. push-test (§3.5) rides the same pipeline with its own 1/min cap and body 'Test push'.",
+  "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+  "registered_name": "pi",
+  "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/wake",
+  "request_golden": { "device_id": "dev-af31fd290542", "kind": "message", "preview_c": null },
+  "expo_post_golden": {
+    "note": "the exact JSON body the core POSTs to https://exp.host/--/api/v2/push/send for the request_golden above, with the device's registered expo token. title = registered room name; body is the fixed generic string; data carries exactly the fields the app's notification-tap routing and foreground-banner logic key off. sound/priority match the box's existing Expo-direct behavior (internal/app/push.go) so notifications are indistinguishable across modes.",
+    "body": {
+      "to": "ExponentPushToken[fixture-v2-drain]",
+      "title": "pi",
+      "body": "New message",
+      "data": { "url": "hotline://chat", "room": "Ab3dEf6hIj8lMn0pQr2tUv" },
+      "sound": "default",
+      "priority": "high"
+    }
+  },
+  "push_test_expo_golden": {
+    "body": {
+      "to": "ExponentPushToken[fixture-v2-drain]",
+      "title": "pi",
+      "body": "Test push",
+      "data": { "url": "hotline://chat", "room": "Ab3dEf6hIj8lMn0pQr2tUv" },
+      "sound": "default",
+      "priority": "high"
+    }
+  },
+  "preview_expo_golden": {
+    "note": "OPTIONAL CLEAR PUSH PREVIEWS (box knob HOTLINE_PUSH_PREVIEW=clear): when the wake request carries a non-empty 'preview' (message plaintext, box-truncated to 140 runes), the core uses it VERBATIM as the notification body. title stays the registered room name; data is unchanged. This is the exact Expo POST body for preview_request_golden. Privacy: only this snippet transits readable, by explicit box-owner choice; the mailbox E2E envelope is untouched. 'preview' is covered by the request signature (canonical string hashes the exact body bytes).",
+    "body": {
+      "to": "ExponentPushToken[fixture-v2-drain]",
+      "title": "pi",
+      "body": "yo from the phone",
+      "data": { "url": "hotline://chat", "room": "Ab3dEf6hIj8lMn0pQr2tUv" },
+      "sound": "default",
+      "priority": "high"
+    }
+  },
+  "preview_request_golden": { "device_id": "dev-af31fd290542", "kind": "message", "preview": "yo from the phone", "preview_c": null },
+  "truncation": {
+    "note": "box-side gate (SPEC §3.4 preview extension): the box truncates 'preview' to 140 runes BEFORE sending, rune-safe (never splitting a multibyte character), appending '\u2026' when it had to cut. The core does NOT re-truncate; it uses the received preview verbatim. Vectors: input the raw message text, expected the exact wire 'preview'.",
+    "limit": 140,
+    "vectors": [
+      { "name": "ascii-over-limit", "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u2026" },
+      { "name": "multibyte-rune-safe", "input": "\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89", "expected": "\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\ud83c\udf89\u2026" },
+      { "name": "under-limit-untouched", "input": "yo from the phone", "expected": "yo from the phone" },
+      { "name": "empty-yields-generic", "input": "   ", "expected": "" }
+    ]
+  },
+  "cases": [
+    {
+      "name": "wake-with-preview-clear",
+      "pre": "box has HOTLINE_PUSH_PREVIEW=clear; wake carries the plaintext snippet",
+      "request": { "device_id": "dev-af31fd290542", "kind": "message", "preview": "yo from the phone", "preview_c": null },
+      "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" }, "expo_body": "preview_expo_golden", "note": "notification body = preview text; title unchanged. Generic behavior is UNCHANGED when preview is absent/empty." }
+    },
+    {
+      "name": "both-preview-fields-refused",
+      "request": { "device_id": "dev-af31fd290542", "kind": "message", "preview": "yo from the phone", "preview_c": "c29tZS1mdXR1cmUtY2lwaGVydGV4dA" },
+      "expect": { "status": 400, "body": { "code": "bad_request" }, "note": "preview (clear) and preview_c (reserved NSE seam) are mutually exclusive; a non-null value for both is rejected" }
+    },
+    {
+      "name": "empty-preview-is-generic",
+      "request": { "device_id": "dev-af31fd290542", "kind": "message", "preview": "", "preview_c": null },
+      "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" }, "expo_body": "expo_post_golden", "note": "an empty preview is treated as absent: the generic 'New message' body, byte-identical to the no-preview wake" }
+    },
+    {
+      "name": "wake-happy-path",
+      "request": { "device_id": "dev-af31fd290542", "kind": "message", "preview_c": null },
+      "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } }
+    },
+    {
+      "name": "unknown-device-no-token",
+      "request": { "device_id": "dev-simulator-00001", "kind": "message", "preview_c": null },
+      "expect": { "status": 200, "body": { "pushed": false, "reason": "no_token" }, "note": "not an error; simulator devices have no token" }
+    },
+    {
+      "name": "unknown-kind-refused",
+      "request": { "device_id": "dev-af31fd290542", "kind": "carrier-pigeon", "preview_c": null },
+      "expect": { "status": 400, "body": { "code": "bad_request" }, "note": "kind is a closed set; only 'message' in v1" }
+    },
+    {
+      "name": "preview-c-accepted-and-ignored",
+      "request": { "device_id": "dev-af31fd290542", "kind": "message", "preview_c": "c29tZS1mdXR1cmUtY2lwaGVydGV4dA" },
+      "expect": { "status": 200, "note": "reserved NSE seam (§8.4): a non-null preview_c is accepted but MUST NOT alter the v1 generic notification and MUST NOT be logged or forwarded" }
+    },
+    {
+      "name": "token-invalid-deletes-and-reports",
+      "pre": "expo responds DeviceNotRegistered for the device's token",
+      "request": { "device_id": "dev-af31fd290542", "kind": "message", "preview_c": null },
+      "expect": { "status": 410, "body": { "code": "token_invalid" }, "stored": "dev:dev-af31fd290542 token record deleted", "note": "core deletes AND returns it so the box drops its local copy too" }
+    },
+    {
+      "name": "unknown-room-refused",
+      "path": "/v1/rooms/Zz9yXx7wVv5uTt3sRr1qPo/wake",
+      "pre": "room never registered",
+      "expect": { "status": 404, "body": { "code": "unknown_room" } }
+    }
+  ],
+  "throttle": {
+    "rules": { "per_device_min_interval_seconds": 10, "per_device_max_per_minute": 6, "push_test_max_per_minute": 1 },
+    "note": "throttled hints are 200 with pushed:false — never an error; the box treats them as success",
+    "sequence": [
+      { "at": 0, "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } } },
+      { "at": 5, "expect": { "status": 200, "body": { "pushed": false, "reason": "throttled" } } },
+      { "at": 10, "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } } },
+      { "at": 20, "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } } },
+      { "at": 30, "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } } },
+      { "at": 40, "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } } },
+      { "at": 50, "expect": { "status": 200, "body": { "pushed": true, "provider": "expo", "disposition": "none" } } },
+      { "at": 59, "expect": { "status": 200, "body": { "pushed": false, "reason": "throttled" }, "note": "6 pushes already sent inside this rolling minute" } }
+    ]
+  }
+}

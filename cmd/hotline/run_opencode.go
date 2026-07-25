@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -22,7 +23,7 @@ import (
 // MCP server; inbound push + permission relay ride a SEPARATE HTTP+SSE control
 // plane (the harness.Link), not MCP notifications. The messaging providers are
 // unchanged — they fan in through a sink backed by the Link.
-func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, notifyDisp *notify.Dispatcher, permission bool, transcriptPath, voice, publishExposure string, cleanup func()) error {
+func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, notifyDisp *notify.Dispatcher, loopRunner loopService, permission bool, transcriptPath, voice, publishExposure string, cleanup func(), mcOpts ...mcpchan.ServerOption) error {
 	ocfg, err := config.LoadOpenCode()
 	if err != nil {
 		return err
@@ -56,7 +57,25 @@ func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, noti
 	// gains the restart tool here exactly like the claude path, and an
 	// unsupervised one never sees it.
 	supervisorDir := os.Getenv("HOTLINE_SUPERVISOR_DIR")
-	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath, supervisorDir)
+	server := mcpchan.NewServer(observed, permission, transcriptPath, router.Sources(), voice, publishExposure, schedulesPath, supervisorDir, mcOpts...)
+
+	// Mission Control delivery for OpenCode (spec §2): OpenCode's real system
+	// prompt is the generated agent file, not the capped MCP instructions field,
+	// so the <mc-index> map is baked into .opencode/agents/hotline.md here at
+	// harness start rather than injected through NewServer's budget-capped field.
+	// Honest limitation: the current opencode session already loaded its agent
+	// file, so a freshly baked map lands on the NEXT session/restart — which is
+	// how opencode sessions cycle anyway. writeHotlineAgent respects the managed
+	// marker: a hand-owned agent file is left untouched.
+	if mcMech := mcpchan.MCMechanicsForOptions(mcOpts); len(mcMech) > 0 {
+		body := mcpchan.AgentInstructionsWithMC(transcriptPath, voice, mcMech, router.Sources()...)
+		agentPath := filepath.Join(".opencode", "agents", "hotline.md")
+		if action, err := writeHotlineAgent(agentPath, body); err != nil {
+			fmt.Fprintf(os.Stderr, "hotline: could not bake mission control into %s: %v\n", agentPath, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "hotline: mission control map baked into %s (%s; effective next session)\n", agentPath, action)
+		}
+	}
 
 	fmt.Fprintf(os.Stderr, "hotline: harness=opencode server=%s session=%s\n", ocfg.ServerURL, sessionLabel(ocfg.Session))
 
@@ -65,7 +84,10 @@ func runOpenCodeHarness(router *provider.Router, sched *schedule.Scheduler, noti
 	transport := &mcp.StdioTransport{}
 
 	pollFn := func(ctx context.Context) error {
-		return runOpenCodeLoop(ctx, router, sched, notifyDisp, link, permission, sink)
+		replayCatchup(ctx, sink, transcriptPath)
+		return runWithLoopRunner(ctx, loopRunner, func(ctx context.Context) error {
+			return runOpenCodeLoop(ctx, router, sched, notifyDisp, link, permission, sink)
+		})
 	}
 	return lifecycle.Run(server, transport, cleanup, pollFn)
 }
@@ -136,6 +158,17 @@ func (r *replyObserver) Reply(ctx context.Context, in mcpchan.ReplyInput) (strin
 		r.onReply()
 	}
 	return msg, isErr
+}
+
+// PublishArtifact preserves the router's optional artifact extension through
+// the OpenCode reply observer. Publications are not replies and do not trip the
+// fallback-reply latch.
+func (r *replyObserver) PublishArtifact(ctx context.Context, in mcpchan.PublishInput) (string, bool, bool) {
+	publisher, ok := r.ToolSet.(mcpchan.ArtifactPublisher)
+	if !ok {
+		return "", false, false
+	}
+	return publisher.PublishArtifact(ctx, in)
 }
 
 // opencodeSink adapts the provider inbound sink to a harness.Link: inbound

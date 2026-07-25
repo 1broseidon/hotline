@@ -18,15 +18,15 @@ import (
 // these mutations apply live without a restart — the same live-edit philosophy
 // as access.json. Worst case a pause lands one tick late; the flock guarantees
 // no lost update either way.
-func cmdSchedule(args []string) error {
+func cmdSchedule(botName string, args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: hotline schedule <list|remove|pause|resume> [id]")
 	}
-	stateRoot, err := config.StateRoot()
+	boxRoot, err := config.BoxRoot(botName)
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(stateRoot, "schedules.json")
+	path := filepath.Join(boxRoot, "schedules.json")
 
 	needID := func() (string, error) {
 		if len(args) < 2 {

@@ -45,6 +45,11 @@ func handleSchedule(in ScheduleInput, path string, sources []string) (string, bo
 }
 
 func scheduleCreate(in ScheduleInput, path string, sources []string) (string, bool) {
+	// F11: a schedule cannot target a fleet chat — a fired turn there would try to
+	// reply through an operator tool that refuses fleet.
+	if in.Source == "fleet" || strings.HasPrefix(in.ChatID, "fleet:") {
+		return "use fleet_send for fleet peers", true
+	}
 	if strings.TrimSpace(in.Prompt) == "" {
 		return "schedule failed: prompt is required", true
 	}

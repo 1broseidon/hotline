@@ -1,52 +1,87 @@
-// Package lifecycle owns process-level concerns: the single-poller PID guard,
+// Package lifecycle owns process-level concerns: lifetime filesystem guards,
 // graceful shutdown cooperating with the SDK's ownership of stdio, the orphan
 // watchdog, and the force-exit timer.
 package lifecycle
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-// claimPollerSlot ensures this process is the only Telegram poller for the
-// token. Telegram allows exactly one getUpdates consumer per token; a crashed
-// session can leave an orphan holding the slot forever (every new session then
-// sees 409 Conflict). If a live stale poller is recorded, it is SIGTERM'd
-// before we write our own pid (tmp + rename, 0644).
-//
-// The whole read-kill-write runs under a flock(LOCK_EX) on a sibling lock file
-// (mirroring access.Mutate) so two near-simultaneous starts can't both proceed:
-// the loser blocks until the winner has recorded its pid, then reads the
-// winner's live pid and SIGTERMs it, leaving exactly one recorded poller.
-func claimPollerSlot(pidFile string) error {
+// pollerUsurpWait bounds how long claimPollerSlot waits for a predecessor's
+// lifetime flock to drain before deciding the slot is genuinely contended. It
+// is a package var (not a const) so tests can shrink it.
+var pollerUsurpWait = 3 * time.Second
+
+// pollerUsurpPoll is the nonblocking flock retry interval during that wait.
+var pollerUsurpPoll = 50 * time.Millisecond
+
+// claimPollerSlot takes and returns a lifetime-held flock for one provider
+// consumer. bot.pid remains a diagnostic advisory only: PID liveness is never
+// checked, so a stale or PID-reused value cannot block a safe replacement.
+func claimPollerSlot(pidFile string) (func(), error) {
 	lockPath := pidFile + ".lock"
 	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer lf.Close()
-	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
-		return fmt.Errorf("locking %s: %w", lockPath, err)
-	}
-	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
 
-	if raw, err := os.ReadFile(pidFile); err == nil {
-		if stale, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
-			if stale > 1 && stale != os.Getpid() && processAlive(stale) {
-				fmt.Fprintf(os.Stderr, "hotline: replacing stale poller pid=%d\n", stale)
-				_ = syscall.Kill(stale, syscall.SIGTERM)
-				// Give it a moment to release the getUpdates slot.
-				time.Sleep(500 * time.Millisecond)
-			}
+	deadline := time.Now().Add(pollerUsurpWait)
+	for {
+		err = syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			_ = lf.Close()
+			return nil, fmt.Errorf("locking %s: %w", lockPath, err)
+		}
+		if pollerUsurpWait <= 0 || !time.Now().Before(deadline) {
+			detail := pollerPIDDetail(pidFile)
+			_ = lf.Close()
+			return nil, fmt.Errorf("poller slot already held by another hotline provider%s; refusing to start a second consumer", detail)
+		}
+		poll := pollerUsurpPoll
+		if poll <= 0 {
+			poll = 50 * time.Millisecond
+		}
+		remaining := time.Until(deadline)
+		if poll > remaining {
+			poll = remaining
+		}
+		if poll > 0 {
+			time.Sleep(poll)
 		}
 	}
 
-	// Per-process unique temp name so concurrent writers (should the lock ever
-	// be bypassed) never interleave on the same temp file before rename.
+	if err := writePollerPID(pidFile); err != nil {
+		_ = syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+		_ = lf.Close()
+		return nil, err
+	}
+
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			// Remove our advisory while the lifetime lock is still held. If another
+			// writer replaced it, releasePollerSlot deliberately preserves it.
+			releasePollerSlot(pidFile)
+			_ = syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+			_ = lf.Close()
+		})
+	}
+	return release, nil
+}
+
+func writePollerPID(pidFile string) error {
+	// Per-process unique temp name so a bypassed/legacy writer cannot interleave
+	// bytes with us. The lifetime flock, not this rename, is liveness truth.
 	tmp := fmt.Sprintf("%s.%d.tmp", pidFile, os.Getpid())
 	if err := os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return err
@@ -58,20 +93,21 @@ func claimPollerSlot(pidFile string) error {
 	return nil
 }
 
-// processAlive reports whether a process with the given pid exists (signal 0).
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
+func pollerPIDDetail(pidFile string) string {
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		return ""
 	}
-	err := syscall.Kill(pid, 0)
-	if err == nil {
-		return true
+	pid := strings.TrimSpace(string(raw))
+	if pid == "" {
+		return ""
 	}
-	// EPERM means the process exists but we can't signal it.
-	return err == syscall.EPERM
+	return fmt.Sprintf(" (bot.pid reports pid %s)", pid)
 }
 
-// releasePollerSlot removes the pid file if it still records this process.
+// releasePollerSlot removes the pid advisory if it still records this process.
+// It does not release the lifetime flock; the closure returned by
+// ClaimPollerSlot does that, and process exit is the final kernel backstop.
 func releasePollerSlot(pidFile string) {
 	if raw, err := os.ReadFile(pidFile); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid == os.Getpid() {

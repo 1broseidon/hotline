@@ -1,0 +1,61 @@
+{
+  "intent": "Reconnect is identical to cold start. A drain may overlap items the app already applied (crash between apply and ack); the app dedups by envelope id — acked, never re-applied. This is the kill-and-reopen-exactly-once guarantee.",
+  "assertions": [
+    { "rule": "V5", "statement": "the app crashed after applying m 9007199254741006 but before acking; its persisted cursor (resume_from) is 9007199254741005, so the CLI re-delivers 9007199254741006." },
+    { "rule": "V6", "statement": "env-j812-daf31fd290542 is already in the app's projection: it is NOT rendered a second time, but IS covered by the next cumulative ack." },
+    { "rule": "V7", "statement": "after the drain the transcript contains exactly one bubble per envelope id." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "hello",
+        "v": 2,
+        "device_id": "dev-af31fd290542",
+        "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+        "resume_from": "9007199254741005"
+      },
+      "expect": { "auth": "verified", "reconnect_equals_cold_start": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "welcome",
+        "v": 2,
+        "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+        "name": "pi",
+        "device_id": "dev-af31fd290542",
+        "floor": "9007199254741001",
+        "head": "9007199254741007"
+      },
+      "expect": { "drain_range": ["9007199254741006", "9007199254741007"] }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741006",
+        "j": "812",
+        "id": "env-j812-daf31fd290542",
+        "payload": { "t": "msg", "seq": 812, "id": "a-812", "text": "already applied before crash" }
+      },
+      "expect": { "already_present": true, "re_applied": false, "counted_for_ack": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741007",
+        "j": "813",
+        "id": "env-j813-daf31fd290542",
+        "payload": { "t": "msg", "seq": 813, "id": "a-813", "text": "genuinely new" }
+      },
+      "expect": { "applied": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "9007199254741007" },
+      "expect": { "transcript_has_exactly_one_bubble_per_id": true }
+    }
+  ]
+}

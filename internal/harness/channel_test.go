@@ -67,3 +67,31 @@ func TestRenderChannelEscapesValues(t *testing.T) {
 		t.Fatalf("expected escaped value in %q", got)
 	}
 }
+
+// TestRenderChannelDoesNotDoubleMarkFleet proves H3: RenderChannel no longer
+// injects the trust marker itself (the marker rides the injected CONTENT via
+// app.injectInbound so the default Claude path sees it too). A fleet turn whose
+// content already carries the marker passes it through EXACTLY ONCE — pi/opencode
+// are never double-marked — and RenderChannel adds no second copy of its own.
+func TestRenderChannelDoesNotDoubleMarkFleet(t *testing.T) {
+	const marker = "untrusted peer data"
+	// Content-borne marker (what injectInbound produces): survives once.
+	fleet := RenderChannel(Inbound{
+		Content: "[fleet peer message — " + marker + " …]\nhey peer",
+		Meta:    map[string]string{"source": "fleet", "chat_id": "fleet:abcd1234", "kind": "fleet"},
+	})
+	if n := strings.Count(fleet, marker); n != 1 {
+		t.Fatalf("marker count = %d, want exactly 1 (no double-mark):\n%s", n, fleet)
+	}
+	if !strings.Contains(fleet, "hey peer") {
+		t.Fatalf("fleet turn dropped its content:\n%s", fleet)
+	}
+	// Fleet meta but NO content marker: RenderChannel must not add one on its own.
+	bare := RenderChannel(Inbound{
+		Content: "hey peer",
+		Meta:    map[string]string{"source": "fleet", "chat_id": "fleet:abcd1234", "kind": "fleet"},
+	})
+	if strings.Contains(bare, marker) {
+		t.Fatalf("RenderChannel re-introduced the marker (double-mark risk):\n%s", bare)
+	}
+}

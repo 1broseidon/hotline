@@ -91,7 +91,12 @@ func (h *Handler) relay(ctx context.Context, content string, meta map[string]str
 	if h.Notifier == nil {
 		return nil
 	}
-	return h.Notifier.SendChannel(ctx, content, meta)
+	if err := h.Notifier.SendChannel(ctx, content, meta); err != nil {
+		return err
+	}
+	// Delivered to a live harness: journal the catch-up high-water (B-1).
+	h.Log.MarkDelivered(meta["message_id"])
+	return nil
 }
 
 // inboundKind classifies an inbound for the transcript: an explicit meta kind

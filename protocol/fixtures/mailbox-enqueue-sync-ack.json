@@ -1,0 +1,240 @@
+{
+  "intent": "One mailbox assigns ascending decimal-string M values to ascending journal J values. A new live item enqueued during sync is held until mailbox_synced closes the captured snapshot, then one cumulative ack commits through the live M.",
+  "assertions": [
+    {
+      "rule": "F1",
+      "statement": "Within mbx_order_fixture, M 9007199254740993, 9007199254740994, and 9007199254740995 carry J 410, 411, and 412 in the same order; the box waits for each mailbox_enqueued before offering the next J."
+    },
+    {
+      "rule": "F3",
+      "statement": "The live M 9007199254740995 is accepted while the snapshot is in progress but is not delivered until after mailbox_synced through the captured head 9007199254740994."
+    },
+    {
+      "rule": "F10",
+      "statement": "Every M is a decimal JSON string above 2^53 and the final mailbox_ack is cumulative through 9007199254740995."
+    }
+  ],
+  "frames": [
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j410-d6c86c6aac5fb",
+        "class": "durable",
+        "notify": "wake",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":410,\"id\":\"a-410\",\"text\":\"First retained item.\"}",
+        "created_at": "2026-07-11T16:00:00Z",
+        "expires_at": "2026-07-18T16:00:00Z"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 410,
+        "in_flight": 1
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j410-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254740993",
+        "duplicate": false,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 410
+      }
+    },
+    {
+      "dir": "box->relay",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j411-d6c86c6aac5fb",
+        "class": "durable",
+        "notify": "silent",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"sent\",\"seq\":411,\"id\":\"u-411\",\"text\":\"Second retained item.\",\"device\":\"dev-6c86c6aac5fb\"}",
+        "created_at": "2026-07-11T16:00:01Z",
+        "expires_at": "2026-07-18T16:00:01Z"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 411,
+        "previous_receipt_observed": true,
+        "in_flight": 1
+      }
+    },
+    {
+      "dir": "relay->box",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j411-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254740994",
+        "duplicate": false,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 411
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_sync",
+        "mailbox_id": "mbx_order_fixture",
+        "grant": "ERITFBUWFxgZGhscHR4fICEiIyQlJico",
+        "after": "9007199254740992",
+        "limit": 100
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_after": "9007199254740992"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "frame": {
+        "t": "mailbox_state",
+        "floor": "9007199254740993",
+        "head": "9007199254740994",
+        "reset_required": false
+      },
+      "expect": {
+        "route": "transport",
+        "captured_snapshot_head": "9007199254740994"
+      }
+    },
+    {
+      "dir": "relay->device",
+      "phase": "snapshot",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j410-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254740993",
+        "notify": "wake",
+        "created_at": "2026-07-11T16:00:00Z",
+        "expires_at": "2026-07-18T16:00:00Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":410,\"id\":\"a-410\",\"text\":\"First retained item.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 410,
+        "logical_apply": true
+      }
+    },
+    {
+      "dir": "box->relay",
+      "phase": "snapshot_in_progress",
+      "frame": {
+        "t": "mailbox_enqueue",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j412-d6c86c6aac5fb",
+        "class": "durable",
+        "notify": "wake",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":412,\"id\":\"a-412\",\"text\":\"Live after the snapshot.\"}",
+        "created_at": "2026-07-11T16:00:02Z",
+        "expires_at": "2026-07-18T16:00:02Z"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 412,
+        "delivery_held_until_snapshot_complete": true
+      }
+    },
+    {
+      "dir": "relay->box",
+      "phase": "snapshot_in_progress",
+      "frame": {
+        "t": "mailbox_enqueued",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j412-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254740995",
+        "duplicate": false,
+        "state": "queued"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 412,
+        "delivery_held_until_snapshot_complete": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "phase": "snapshot",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j411-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254740994",
+        "notify": "silent",
+        "created_at": "2026-07-11T16:00:01Z",
+        "expires_at": "2026-07-18T16:00:01Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"sent\",\"seq\":411,\"id\":\"u-411\",\"text\":\"Second retained item.\",\"device\":\"dev-6c86c6aac5fb\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 411,
+        "logical_apply": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "phase": "snapshot",
+      "frame": {
+        "t": "mailbox_synced",
+        "through": "9007199254740994",
+        "next": "9007199254740994",
+        "has_more": false
+      },
+      "expect": {
+        "route": "transport",
+        "snapshot_complete": true
+      }
+    },
+    {
+      "dir": "relay->device",
+      "phase": "live",
+      "frame": {
+        "t": "mailbox_item",
+        "mailbox_id": "mbx_order_fixture",
+        "envelope_id": "env-j412-d6c86c6aac5fb",
+        "mailbox_seq": "9007199254740995",
+        "notify": "wake",
+        "created_at": "2026-07-11T16:00:02Z",
+        "expires_at": "2026-07-18T16:00:02Z",
+        "payload_encoding": "plain-v1",
+        "payload": "{\"t\":\"msg\",\"seq\":412,\"id\":\"a-412\",\"text\":\"Live after the snapshot.\"}"
+      },
+      "expect": {
+        "route": "transport",
+        "journal_seq": 412,
+        "logical_apply": true,
+        "snapshot_was_complete": true
+      }
+    },
+    {
+      "dir": "device->relay",
+      "frame": {
+        "t": "mailbox_ack",
+        "mailbox_id": "mbx_order_fixture",
+        "through": "9007199254740995"
+      },
+      "expect": {
+        "route": "transport",
+        "cumulative": true,
+        "covers_mailbox_items": 3
+      }
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "intent": "An agent file bubble carries a fileRef; a later HTTP upload appears on the WebSocket as a user sent echo with its own fileRef and cid.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 701,
+        "id": "a-701",
+        "text": "",
+        "file": {
+          "id": "8f14e45fceea167a.pdf",
+          "name": "phase0-report.pdf",
+          "mime": "application/pdf",
+          "size": 48231,
+          "url": "/att/8f14e45fceea167a.pdf"
+        }
+      },
+      "expect": {
+        "seq": 701,
+        "event": {
+          "type": "bubble",
+          "id": "a-701",
+          "text": "",
+          "file": {
+            "id": "8f14e45fceea167a.pdf",
+            "name": "phase0-report.pdf",
+            "mime": "application/pdf",
+            "size": 48231,
+            "url": "/att/8f14e45fceea167a.pdf"
+          }
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 702,
+        "id": "u-702",
+        "text": "Latest phone screenshot",
+        "cid": "c-1783684800702-0",
+        "device": "dev-6c86c6aac5fb",
+        "file": {
+          "id": "e4da3b7fbbce2345.png",
+          "name": "hotline-screen.png",
+          "mime": "image/png",
+          "size": 284631,
+          "url": "/att/e4da3b7fbbce2345.png"
+        }
+      },
+      "expect": {
+        "seq": 702,
+        "event": {
+          "type": "sent",
+          "id": "u-702",
+          "text": "Latest phone screenshot",
+          "cid": "c-1783684800702-0",
+          "device": "dev-6c86c6aac5fb",
+          "file": {
+            "id": "e4da3b7fbbce2345.png",
+            "name": "hotline-screen.png",
+            "mime": "image/png",
+            "size": 284631,
+            "url": "/att/e4da3b7fbbce2345.png"
+          }
+        }
+      }
+    }
+  ]
+}

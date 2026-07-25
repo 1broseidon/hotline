@@ -16,3 +16,8 @@ func StartOnPTY(argv []string, dir string, env []string, logw io.Writer) (Harnes
 func StartPiped(argv []string, dir string, env []string, logw io.Writer) (Harness, error) {
 	return nil, ErrUnsupported
 }
+
+// StartPipedStdinOpen shares the same unix-only discipline as StartPiped.
+func StartPipedStdinOpen(argv []string, dir string, env []string, logw io.Writer) (Harness, error) {
+	return nil, ErrUnsupported
+}

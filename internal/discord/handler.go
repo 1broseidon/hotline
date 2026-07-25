@@ -101,7 +101,12 @@ func (h *Handler) relay(ctx context.Context, content string, meta map[string]str
 	if n == nil {
 		return nil
 	}
-	return n.SendChannel(ctx, content, meta)
+	if err := n.SendChannel(ctx, content, meta); err != nil {
+		return err
+	}
+	// Delivered to a live harness: journal the catch-up high-water (B-1).
+	h.Log.MarkDelivered(meta["message_id"])
+	return nil
 }
 
 // inboundKind classifies an inbound for the transcript.

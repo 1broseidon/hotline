@@ -15,13 +15,18 @@ func loopState(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOTLINE_STATE_DIR", dir)
+	t.Setenv("HOTLINE_PROVIDERS", "")
+	// These operator-surface tests exercise normal approval posture regardless
+	// of the environment running the suite.
+	t.Setenv("HOTLINE_YOLO", "0")
+	t.Setenv("HOTLINE_HARNESS", "claude")
 	return dir
 }
 
 func TestCmdLoopAddAutoMintsSource(t *testing.T) {
 	dir := loopState(t)
 	var out bytes.Buffer
-	if err := cmdLoop([]string{"add", "reddit-watch", "--every", "6h", "--notify-llm", "--level", "low", "--cmd", "echo hit"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"add", "reddit-watch", "--every", "6h", "--notify-llm", "--level", "low", "--cmd", "echo hit"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	d, err := loop.Load(loop.Path(dir))
@@ -64,7 +69,7 @@ func TestCmdLoopAddAutoMintsSource(t *testing.T) {
 func TestCmdLoopAddApproveFlagCreatesApproved(t *testing.T) {
 	dir := loopState(t)
 	var out bytes.Buffer
-	if err := cmdLoop([]string{"add", "watch", "--every", "1m", "--cmd", "true", "-y"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"add", "watch", "--every", "1m", "--cmd", "true", "-y"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := loop.Load(loop.Path(dir))
@@ -79,7 +84,7 @@ func TestCmdLoopAddApproveFlagCreatesApproved(t *testing.T) {
 func TestCmdLoopAddRequiresExistingSource(t *testing.T) {
 	loopState(t)
 	var out bytes.Buffer
-	err := cmdLoop([]string{"add", "watch", "--every=1m", "--cmd=true", "--notify-llm", "--source", "missing"}, &out, &bytes.Buffer{})
+	err := cmdLoop("", []string{"add", "watch", "--every=1m", "--cmd=true", "--notify-llm", "--source", "missing"}, &out, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "notify source") {
 		t.Fatalf("missing source should error, got %v", err)
 	}
@@ -88,27 +93,27 @@ func TestCmdLoopAddRequiresExistingSource(t *testing.T) {
 func TestCmdLoopListPauseResumeRemove(t *testing.T) {
 	dir := loopState(t)
 	var out bytes.Buffer
-	if err := cmdLoop([]string{"add", "watch", "--every", "1m", "--cmd", "echo hi"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"add", "watch", "--every", "1m", "--cmd", "echo hi"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := cmdLoop([]string{"list"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"list"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "watch") || !strings.Contains(out.String(), "pending") || !strings.Contains(out.String(), "script-owned") {
 		t.Errorf("list output = %q", out.String())
 	}
-	if err := cmdLoop([]string{"pause", "watch"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"pause", "watch"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := loop.Load(loop.Path(dir))
 	if !d.Loops[0].Paused {
 		t.Fatal("pause did not persist")
 	}
-	if err := cmdLoop([]string{"resume", "watch"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"resume", "watch"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdLoop([]string{"remove", "watch"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"remove", "watch"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ = loop.Load(loop.Path(dir))
@@ -120,17 +125,17 @@ func TestCmdLoopListPauseResumeRemove(t *testing.T) {
 func TestCmdLoopApproveAndDeny(t *testing.T) {
 	dir := loopState(t)
 	var out bytes.Buffer
-	if err := cmdLoop([]string{"add", "watch", "--every", "1m", "--cmd", "true"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"add", "watch", "--every", "1m", "--cmd", "true"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdLoop([]string{"approve", "watch"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"approve", "watch"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := loop.Load(loop.Path(dir))
 	if !d.Loops[0].Approved {
 		t.Fatal("approve did not flip approved")
 	}
-	if err := cmdLoop([]string{"deny", "watch"}, &out, &bytes.Buffer{}); err != nil {
+	if err := cmdLoop("", []string{"deny", "watch"}, &out, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ = loop.Load(loop.Path(dir))
@@ -142,10 +147,10 @@ func TestCmdLoopApproveAndDeny(t *testing.T) {
 func TestCmdLoopRunExitPassthrough(t *testing.T) {
 	loopState(t)
 	var out, errout bytes.Buffer
-	if err := cmdLoop([]string{"add", "fail", "--every", "1m", "--cmd", "exit 7", "-y"}, &out, &errout); err != nil {
+	if err := cmdLoop("", []string{"add", "fail", "--every", "1m", "--cmd", "exit 7", "-y"}, &out, &errout); err != nil {
 		t.Fatal(err)
 	}
-	err := cmdLoop([]string{"run", "fail", "--once"}, &out, &errout)
+	err := cmdLoop("", []string{"run", "fail", "--once"}, &out, &errout)
 	var coder interface{ Code() int }
 	if !errors.As(err, &coder) || coder.Code() != 7 {
 		t.Fatalf("run err = %v, want exit code 7", err)

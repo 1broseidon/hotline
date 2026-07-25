@@ -1,0 +1,64 @@
+{
+  "intent": "PUT|DELETE /v1/rooms/<room>/devices/<device_id> (core-v1 SPEC §3.3): box-signed token registry writes. The box forwards tokens it received on hello.push inside the E2E envelope; no device→core auth exists in v1. Core stores dev:<device_id> = {platform, tokens, updated}.",
+  "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+  "cases": [
+    {
+      "name": "put-ios-expo-token",
+      "method": "PUT",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-af31fd290542",
+      "request": { "platform": "ios", "tokens": { "expo": "ExponentPushToken[fixture-v2-drain]" } },
+      "expect": { "status": 200, "stored": { "platform": "ios", "tokens": { "expo": "ExponentPushToken[fixture-v2-drain]" } } }
+    },
+    {
+      "name": "put-both-tokens-additive",
+      "method": "PUT",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-af31fd290542",
+      "request": { "platform": "ios", "tokens": { "expo": "ExponentPushToken[fixture-v2-drain]", "native": "0af31fd290542abc0af31fd290542abc0af31fd290542abc0af31fd290542abc" } },
+      "expect": { "status": 200, "note": "native is optional and stored verbatim; only the router decides which token kind is used" }
+    },
+    {
+      "name": "put-android-expo-token",
+      "method": "PUT",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-android-000001",
+      "request": { "platform": "android", "tokens": { "expo": "ExponentPushToken[fixture-android]" } },
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "put-replaces-previous-record",
+      "method": "PUT",
+      "pre": "dev:dev-af31fd290542 already stored",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-af31fd290542",
+      "request": { "platform": "ios", "tokens": { "expo": "ExponentPushToken[rotated]" } },
+      "expect": { "status": 200, "stored": { "tokens": { "expo": "ExponentPushToken[rotated]" } }, "note": "PUT semantics: full replace, not merge" }
+    },
+    {
+      "name": "delete-removes-device",
+      "method": "DELETE",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-af31fd290542",
+      "request": null,
+      "expect": { "status": 200, "stored": "dev:dev-af31fd290542 absent", "note": "signed, empty body (body hash is SHA-256 of zero bytes); box calls this on `hotline relay revoke`" }
+    },
+    {
+      "name": "delete-unknown-device-idempotent",
+      "method": "DELETE",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-never-seen-0000",
+      "request": null,
+      "expect": { "status": 200, "note": "idempotent: deleting an absent device is success, not 404" }
+    },
+    {
+      "name": "bad-platform-refused",
+      "method": "PUT",
+      "path": "/v1/rooms/Ab3dEf6hIj8lMn0pQr2tUv/devices/dev-af31fd290542",
+      "request": { "platform": "blackberry", "tokens": { "expo": "ExponentPushToken[x]" } },
+      "expect": { "status": 400, "body": { "code": "bad_request" }, "note": "platform is a closed set: ios | android" }
+    },
+    {
+      "name": "unknown-room-refused",
+      "method": "PUT",
+      "path": "/v1/rooms/Zz9yXx7wVv5uTt3sRr1qPo/devices/dev-af31fd290542",
+      "pre": "room never registered",
+      "request": { "platform": "ios", "tokens": { "expo": "ExponentPushToken[x]" } },
+      "expect": { "status": 404, "body": { "code": "unknown_room" }, "note": "only register is exempt from unknown_room" }
+    }
+  ]
+}

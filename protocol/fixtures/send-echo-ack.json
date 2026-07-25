@@ -1,0 +1,50 @@
+{
+  "intent": "A typed send carries a cid and reply target; the journal echo adopts the server-minted u-<seq> id before the matching acknowledgement.",
+  "frames": [
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "send",
+        "cid": "c-1783684800200-0",
+        "text": "Please re-run the smoke test.",
+        "reply_to": "a-199"
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 200,
+        "id": "u-200",
+        "text": "Please re-run the smoke test.",
+        "cid": "c-1783684800200-0",
+        "device": "dev-6c86c6aac5fb"
+      },
+      "expect": {
+        "seq": 200,
+        "event": {
+          "type": "sent",
+          "id": "u-200",
+          "text": "Please re-run the smoke test.",
+          "cid": "c-1783684800200-0",
+          "device": "dev-6c86c6aac5fb"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "ack",
+        "cid": "c-1783684800200-0",
+        "seq": 200
+      },
+      "expect": {
+        "seq": 200,
+        "event": {
+          "type": "ack",
+          "cid": "c-1783684800200-0"
+        }
+      }
+    }
+  ]
+}

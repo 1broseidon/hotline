@@ -23,14 +23,28 @@ const (
 	// size-rotated by RotatingWriter.
 	SupervisorLogName = "supervisor.log"
 	HarnessLogName    = "harness.log"
+
+	// AuthFatalMarker is written by the claude-sdk harness into the supervisor
+	// dir when its Claude credentials have failed consecutively (design §4.2).
+	// Its presence pins the supervisor's backoff at Max (cold-loop) until the
+	// harness deletes it on the next successful init — the supervisor never
+	// removes it, so recovery is the harness's signal, not a race here.
+	AuthFatalMarker = "auth.fatal"
 )
+
+// AuthFatalPresent reports whether the claude-sdk auth-fatal marker exists in
+// the supervisor dir.
+func AuthFatalPresent(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, AuthFatalMarker))
+	return err == nil
+}
 
 // EnvDir is the environment variable the supervisor sets on the harness so
 // the hotline MCP child (a grandchild) knows where to write restart requests
 // — it gates registration of the restart tool.
 const EnvDir = "HOTLINE_SUPERVISOR_DIR"
 
-// Dir returns the supervisor state directory under the shared state root.
+// Dir returns the supervisor state directory under the selected box root.
 func Dir(stateRoot string) string { return filepath.Join(stateRoot, "supervisor") }
 
 // Supervisor phases recorded in state.json.

@@ -1,0 +1,116 @@
+{
+  "intent": "A three-bubble paced agent reply emits typing-on before each bubble and a final typing-off, matching the server's current pacing cadence.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "typing",
+        "seq": 301,
+        "on": true
+      },
+      "expect": {
+        "seq": 301,
+        "event": {
+          "type": "typing",
+          "on": true
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 302,
+        "id": "a-302",
+        "text": "Build is green."
+      },
+      "expect": {
+        "seq": 302,
+        "event": {
+          "type": "bubble",
+          "id": "a-302",
+          "text": "Build is green."
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "typing",
+        "seq": 303,
+        "on": true
+      },
+      "expect": {
+        "seq": 303,
+        "event": {
+          "type": "typing",
+          "on": true
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 304,
+        "id": "a-304",
+        "text": "Smoke tests passed."
+      },
+      "expect": {
+        "seq": 304,
+        "event": {
+          "type": "bubble",
+          "id": "a-304",
+          "text": "Smoke tests passed."
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "typing",
+        "seq": 305,
+        "on": true
+      },
+      "expect": {
+        "seq": 305,
+        "event": {
+          "type": "typing",
+          "on": true
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 306,
+        "id": "a-306",
+        "text": "Ready when you are."
+      },
+      "expect": {
+        "seq": 306,
+        "event": {
+          "type": "bubble",
+          "id": "a-306",
+          "text": "Ready when you are."
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "typing",
+        "seq": 307,
+        "on": false
+      },
+      "expect": {
+        "seq": 307,
+        "event": {
+          "type": "typing",
+          "on": false
+        }
+      }
+    }
+  ]
+}

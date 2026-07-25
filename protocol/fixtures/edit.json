@@ -1,0 +1,39 @@
+{
+  "intent": "An agent message is rendered with its a-<seq> id, then a later edit replaces that message's text without changing the target id.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 601,
+        "id": "a-601",
+        "text": "Deploy starts at 14:00 UTC."
+      },
+      "expect": {
+        "seq": 601,
+        "event": {
+          "type": "bubble",
+          "id": "a-601",
+          "text": "Deploy starts at 14:00 UTC."
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "edit",
+        "seq": 602,
+        "id": "a-601",
+        "text": "Deploy starts at 14:30 UTC."
+      },
+      "expect": {
+        "seq": 602,
+        "event": {
+          "type": "edit",
+          "id": "a-601",
+          "text": "Deploy starts at 14:30 UTC."
+        }
+      }
+    }
+  ]
+}

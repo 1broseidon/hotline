@@ -1,0 +1,71 @@
+{
+  "intent": "When the app resumes below the mailbox floor (retention trim or mailbox reset), the CLI sends mailbox_gap instead of a drain. The app performs a full reset: clear projection, adopt floor as cursor, ack floor, then render the clean re-drain. No partial stitching, no double-apply.",
+  "assertions": [
+    { "rule": "V8", "statement": "resume_from 9007199254741002 is below floor 9007199254741050 → the CLI's first post-welcome frame is mailbox_gap, and no mailbox_item precedes it." },
+    { "rule": "V9", "statement": "the app clears its transcript projection for the room BEFORE applying any post-gap item; every pre-gap bubble is gone." },
+    { "rule": "V10", "statement": "the app acks the floor exactly, then the drain starts at floor+1." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "hello",
+        "v": 2,
+        "device_id": "dev-af31fd290542",
+        "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+        "resume_from": "9007199254741002"
+      },
+      "expect": { "auth": "verified" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "welcome",
+        "v": 2,
+        "room": "Ab3dEf6hIj8lMn0pQr2tUv",
+        "name": "pi",
+        "device_id": "dev-af31fd290542",
+        "floor": "9007199254741050",
+        "head": "9007199254741052"
+      },
+      "expect": { "resume_below_floor": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": { "t": "mailbox_gap", "floor": "9007199254741050" },
+      "expect": { "app_clears_projection": true, "app_cursor_becomes": "9007199254741050" }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "9007199254741050" },
+      "expect": { "drain_starts_after": "9007199254741050" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741051",
+        "j": "1210",
+        "id": "env-j1210-daf31fd290542",
+        "payload": { "t": "msg", "seq": 1210, "id": "a-1210", "text": "first retained item" }
+      },
+      "expect": { "applied": true, "projection_contains_only_post_gap_items": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "mailbox_item",
+        "m": "9007199254741052",
+        "j": "1211",
+        "id": "env-j1211-daf31fd290542",
+        "payload": { "t": "msg", "seq": 1211, "id": "a-1211", "text": "second retained item" }
+      },
+      "expect": { "applied": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "9007199254741052" },
+      "expect": { "cumulative": true }
+    }
+  ]
+}

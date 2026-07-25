@@ -1,0 +1,31 @@
+{
+  "intent": "An unrecognized mobile device opens v1 with no replay cursor and receives the operator pairing instruction.",
+  "frames": [
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "hello",
+        "v": 1,
+        "secret": "f0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100",
+        "device_name": "Pairing fixture phone",
+        "last_seq": 0
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "pairing",
+        "code": "7ac91f",
+        "hint": "operator runs: hotline pair 7ac91f --provider app:work"
+      },
+      "expect": {
+        "seq": null,
+        "event": {
+          "type": "pairing",
+          "code": "7ac91f",
+          "hint": "operator runs: hotline pair 7ac91f --provider app:work"
+        }
+      }
+    }
+  ]
+}

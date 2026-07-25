@@ -55,6 +55,8 @@ func TestSchemasAreValidJSON(t *testing.T) {
 		"react":               reactSchema,
 		"edit_message":        editSchema,
 		"download_attachment": downloadSchema,
+		"publish":             publishSchema,
+		"job":                 jobSchema,
 	} {
 		var v map[string]any
 		if err := json.Unmarshal([]byte(schema), &v); err != nil {
@@ -92,6 +94,18 @@ func (f *fakeToolSet) EditMessage(_ context.Context, _ EditInput) (string, bool)
 }
 func (f *fakeToolSet) DownloadAttachment(_ context.Context, _ DownloadInput) (string, bool) {
 	return "/inbox/x", false
+}
+
+type fakeArtifactToolSet struct {
+	fakeToolSet
+	called bool
+	last   PublishInput
+}
+
+func (f *fakeArtifactToolSet) PublishArtifact(_ context.Context, in PublishInput) (string, bool, bool) {
+	f.called = true
+	f.last = in
+	return "published artifact (id: a-7)", false, true
 }
 
 // TestServerInProcess drives NewServer over an in-memory transport with a real
@@ -187,6 +201,101 @@ func TestServerInProcess(t *testing.T) {
 	if !ok || !strings.Contains(tc.Text, "no bot token configured") {
 		t.Errorf("expected token error text, got %#v", res.Content[0])
 	}
+}
+
+func TestPublishRoutesToOptionalArtifactProviderWithSingleSourceDefault(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	fts := &fakeArtifactToolSet{}
+	server := NewServer(fts, false, "/state/transcript.jsonl", []string{"app"}, "", "local", "", "")
+	st, ct := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, st, nil); err != nil {
+		t.Fatal(err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := client.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "publish",
+		Arguments: map[string]any{"path": "/tmp/report.html", "chat_id": "dev-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError || !fts.called {
+		t.Fatalf("artifact publisher result=%+v called=%v", res, fts.called)
+	}
+	if fts.last.Source != "app" || fts.last.ChatID != "dev-1" || fts.last.Path != "/tmp/report.html" {
+		t.Fatalf("publish input = %+v", fts.last)
+	}
+}
+
+// TestNewPiServerShipsUncappedInstructions is the T2 instructions golden: the
+// Pi server advertises the FULL AgentInstructions block in its initialize
+// result (mechanics + voice), uncapped — a voice large enough to blow past
+// the 4096-char instruction budget survives whole. It also declares
+// claude/channel but never claude/channel/permission (Pi has no permission
+// prompts).
+func TestNewPiServerShipsUncappedInstructions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	const transcript = "/state/transcript.jsonl"
+	longVoice := strings.TrimSpace(strings.Repeat("salty pirate talk ", 400))
+	server := NewPiServer(&fakeToolSet{}, false, transcript, nil, longVoice, "", "", "")
+
+	st, ct := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, st, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "pi", Version: "0"}, nil)
+	session, err := client.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer session.Close()
+
+	init := session.InitializeResult()
+	if init == nil {
+		t.Fatal("no initialize result")
+	}
+
+	// Exactly the uncapped PiInstructions the pi child computes — never the
+	// capped instructions(), and never the OpenCode AgentInstructions (which
+	// omits the pi doctrine).
+	want := PiInstructions(transcript, longVoice)
+	if init.Instructions != want {
+		t.Errorf("pi initialize instructions are not the uncapped PiInstructions block")
+	}
+	if len(init.Instructions) <= instructionBudget {
+		t.Errorf("pi instructions = %d bytes, want uncapped (>%d)", len(init.Instructions), instructionBudget)
+	}
+	// Mechanics contract lines and the oversize voice both present in full.
+	for _, line := range []string{replyDisciplineLine, pairingSafetyRule, longVoice} {
+		if !strings.Contains(init.Instructions, line) {
+			t.Errorf("pi instructions missing required text: %q", truncateForMsg(line))
+		}
+	}
+
+	exp := init.Capabilities.Experimental
+	if _, ok := exp["claude/channel"]; !ok {
+		t.Errorf("missing claude/channel; got %v", exp)
+	}
+	if _, ok := exp["claude/channel/permission"]; ok {
+		t.Errorf("pi must not declare the permission cap; got %v", exp)
+	}
+}
+
+func truncateForMsg(s string) string {
+	if len(s) > 60 {
+		return s[:60] + "…"
+	}
+	return s
 }
 
 // TestServerNoPermissionCap confirms the permission capability is withheld when

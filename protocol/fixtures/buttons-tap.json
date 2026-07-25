@@ -1,0 +1,71 @@
+{
+  "intent": "An agent bubble offers two buttons; the user's tap is journaled as a kind=button sent echo and acknowledged at that echo's cursor.",
+  "frames": [
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "msg",
+        "seq": 401,
+        "id": "a-401",
+        "text": "Deploy to production?",
+        "buttons": ["Deploy now", "Hold"]
+      },
+      "expect": {
+        "seq": 401,
+        "event": {
+          "type": "bubble",
+          "id": "a-401",
+          "text": "Deploy to production?",
+          "buttons": ["Deploy now", "Hold"]
+        }
+      }
+    },
+    {
+      "dir": "app->server",
+      "frame": {
+        "t": "tap",
+        "cid": "c-1783684800402-0",
+        "msg_id": "a-401",
+        "label": "Deploy now"
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "sent",
+        "seq": 402,
+        "id": "u-402",
+        "text": "Deploy now",
+        "cid": "c-1783684800402-0",
+        "device": "dev-6c86c6aac5fb",
+        "kind": "button"
+      },
+      "expect": {
+        "seq": 402,
+        "event": {
+          "type": "sent",
+          "id": "u-402",
+          "text": "Deploy now",
+          "cid": "c-1783684800402-0",
+          "device": "dev-6c86c6aac5fb",
+          "kind": "button"
+        }
+      }
+    },
+    {
+      "dir": "server->app",
+      "frame": {
+        "t": "ack",
+        "cid": "c-1783684800402-0",
+        "seq": 402
+      },
+      "expect": {
+        "seq": 402,
+        "event": {
+          "type": "ack",
+          "cid": "c-1783684800402-0"
+        }
+      }
+    }
+  ]
+}

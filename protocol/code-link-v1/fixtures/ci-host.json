@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "base_url": "https://relay.hotline.sh",
+      "canonical_host": "relay.hotline.sh",
+      "ci": "hotline/code-link-v1|relay.hotline.sh"
+    },
+    {
+      "base_url": "https://Relay.Hotline.SH/v1/link-codes",
+      "canonical_host": "relay.hotline.sh",
+      "ci": "hotline/code-link-v1|relay.hotline.sh"
+    },
+    {
+      "base_url": "http://localhost:8787",
+      "canonical_host": "localhost:8787",
+      "ci": "hotline/code-link-v1|localhost:8787"
+    },
+    {
+      "base_url": "https://relay.example.com:8443/base",
+      "canonical_host": "relay.example.com:8443",
+      "ci": "hotline/code-link-v1|relay.example.com:8443"
+    }
+  ],
+  "ci_prefix": "hotline/code-link-v1|",
+  "note": "CanonicalRelayHost extracts lowercased host[:port]; CI = \"hotline/code-link-v1|\" + host. Every downstream impl MUST derive CI identically (cross-deployment separation depends on it)."
+}

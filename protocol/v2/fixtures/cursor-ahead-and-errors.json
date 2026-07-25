@@ -1,0 +1,73 @@
+{
+  "intent": "The error taxonomy is a closed set with defined app behavior. cursor_ahead (CLI state reset under a live app) triggers a full client reset to zero. unauthorized and revoked close 4003 after the error frame. bad_frame ignores the offending frame without closing. The t key matches by exact byte comparison: a case-variant key is not a frame.",
+  "assertions": [
+    { "rule": "V14", "statement": "resume_from 9007199254741099 above head 9007199254741007 → error cursor_ahead; the app clears projection and re-hellos with resume_from \"0\"." },
+    { "rule": "V15", "statement": "a frame with key \"T\" (uppercase) and no lowercase \"t\" is dropped by every receiver — it neither errors nor mutates state (the v1 spoof-bypass class)." },
+    { "rule": "V16", "statement": "unauthorized and revoked are each followed by socket close with code 4003; the app does not auto-retry a revoked pairing." }
+  ],
+  "frames": [
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "hello",
+        "v": 2,
+        "device_id": "dev-af31fd290542",
+        "secret": "Ab3dEf6hIj8lMn0pQr2tUvWx4zAb3dEf6hIj8lMn0pQ",
+        "resume_from": "9007199254741099"
+      },
+      "expect": { "auth": "verified", "resume_above_head": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": { "t": "error", "code": "cursor_ahead" },
+      "expect": { "app_clears_projection": true, "app_rehellos_with_resume_from": "0", "socket_stays_open": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "hello",
+        "v": 2,
+        "device_id": "dev-af31fd290542",
+        "secret": "WRONG-SECRET-WRONG-SECRET-WRONG-SECRET-WRO",
+        "resume_from": "0"
+      },
+      "expect": { "auth": "failed", "constant_time_compare": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": { "t": "error", "code": "unauthorized" },
+      "expect": { "close_code": 4003, "no_state_mutation": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "hello",
+        "v": 2,
+        "device_id": "dev-revoked00001",
+        "secret": "Zz9yXx7wVv5uTt3sRr1qPoNn8mLl6kJj4iHh2gFf0eD",
+        "resume_from": "0"
+      },
+      "expect": { "device_state": "revoked" }
+    },
+    {
+      "dir": "cli->app",
+      "frame": { "t": "error", "code": "revoked" },
+      "expect": { "close_code": 4003, "app_marks_pairing_revoked": true, "no_auto_retry": true }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "T": "hello", "v": 2, "device_id": "dev-spoof", "secret": "x", "resume_from": "0" },
+      "expect": { "dropped": true, "no_error_frame": true, "no_state_mutation": true, "reason": "no exact-case t key" }
+    },
+    {
+      "dir": "app->cli",
+      "frame": { "t": "mailbox_ack", "m": "not-a-decimal-string" },
+      "expect": { "frame_ignored": true }
+    },
+    {
+      "dir": "cli->app",
+      "frame": { "t": "error", "code": "bad_frame", "detail": "mailbox_ack.m must be a decimal string" },
+      "expect": { "socket_stays_open": true }
+    }
+  ]
+}

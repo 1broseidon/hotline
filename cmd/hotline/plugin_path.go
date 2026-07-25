@@ -52,6 +52,11 @@ var userSettingsFile = func() string {
 
 // readJSONMap parses a JSON object file. A missing file returns an empty map;
 // malformed JSON is an error so callers never write back garbage.
+//
+// It decodes with UseNumber() so large integers survive the round-trip verbatim:
+// a plain map[string]any decode coerces every number to float64, which silently
+// truncates ints past 2^53 (9007199254740993 → …992) when we write the file back.
+// json.Number preserves the source token as-is.
 func readJSONMap(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -60,11 +65,32 @@ func readJSONMap(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	root := map[string]any{}
-	if err := json.Unmarshal(data, &root); err != nil {
+	if err := dec.Decode(&root); err != nil {
 		return nil, fmt.Errorf("%s exists but is not valid JSON (%v); fix or remove it, nothing was changed", path, err)
 	}
 	return root, nil
+}
+
+// writeJSONMap encodes root back to path as pretty-printed JSON. It disables HTML
+// escaping so characters like <, >, & in user-set values (e.g. an env var or a
+// hook command) survive the round-trip verbatim instead of becoming < etc.
+// Key order and whitespace are normalized (map iteration is unordered) — the
+// preservation guarantee is semantic, not byte-for-byte.
+func writeJSONMap(path string, root map[string]any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(root); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 // pluginEnabledIn reports whether enabledPlugins["hotline@hotline"] is true in
@@ -108,16 +134,7 @@ func writeProjectSettingsEnv(dir string, kv map[string]string) error {
 		env[k] = v
 	}
 	root["env"] = env
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(root); err != nil {
-		return err
-	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	return writeJSONMap(path, root)
 }
 
 // safeAutoAllowTools are read-only Claude Code tools that hotline pre-approves on
@@ -163,19 +180,90 @@ func mergeProjectSettingsAllow(dir string, tools []string) ([]string, error) {
 	}
 	perms["allow"] = allow
 	root["permissions"] = perms
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(root); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+	if err := writeJSONMap(path, root); err != nil {
 		return nil, err
 	}
 	return added, nil
+}
+
+// missionHookCommands maps each Claude Code hook event hotline installs to the
+// command that renders its payload (resolved call #3): SessionStart injects the
+// mc index + a "check the last handoff" wake-up; PreCompact injects
+// preserve-instructions so the summary carries thread state forward. The command
+// is the same `hotline` binary the box runs, so it is always on PATH where a
+// hotline session lives.
+var missionHookCommands = map[string]string{
+	"SessionStart": "hotline mission hook session-start",
+	"PreCompact":   "hotline mission hook pre-compact",
+}
+
+// mergeProjectSettingsHooks installs the Mission Control hooks into
+// dir/.claude/settings.json, idempotently: an event that already carries a
+// hotline mission hook is left untouched, so re-running `hotline init` never
+// duplicates a hook. It returns the event names it actually added (nil if all
+// were already present) and preserves every other hook, matcher, and key
+// semantically (values verbatim, including large ints and <>& ; key order and
+// whitespace may normalize on rewrite). A malformed file is surfaced as an
+// error, never clobbered.
+func mergeProjectSettingsHooks(dir string) ([]string, error) {
+	path := filepath.Join(dir, ".claude", "settings.json")
+	root, err := readJSONMap(path)
+	if err != nil {
+		return nil, err
+	}
+	hooks, _ := root["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+
+	// Deterministic order so callers/tests get a stable added list.
+	events := []string{"SessionStart", "PreCompact"}
+	var added []string
+	for _, event := range events {
+		command := missionHookCommands[event]
+		matchers, _ := hooks[event].([]any)
+		if hookCommandPresent(matchers, command) {
+			continue
+		}
+		entry := map[string]any{
+			"hooks": []any{
+				map[string]any{"type": "command", "command": command},
+			},
+		}
+		hooks[event] = append(matchers, entry)
+		added = append(added, event)
+	}
+	if len(added) == 0 {
+		return nil, nil
+	}
+	root["hooks"] = hooks
+
+	if err := writeJSONMap(path, root); err != nil {
+		return nil, err
+	}
+	return added, nil
+}
+
+// hookCommandPresent reports whether any matcher group under an event already
+// carries a command hook running the given command — the idempotency check.
+func hookCommandPresent(matchers []any, command string) bool {
+	for _, m := range matchers {
+		mm, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		inner, _ := mm["hooks"].([]any)
+		for _, h := range inner {
+			hm, ok := h.(map[string]any)
+			if !ok {
+				continue
+			}
+			if cmd, _ := hm["command"].(string); cmd == command {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // channelAllowlisted reports whether hotline@hotline is on Claude Code's

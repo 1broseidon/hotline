@@ -33,12 +33,19 @@ func cmdInit(botName string, args []string, dir string, stdout io.Writer) error 
 	providers := fs.String("providers", "", "comma-separated provider list (sets HOTLINE_PROVIDERS)")
 	voice := fs.Bool("voice", false, "also write a starter HOTLINE.md")
 	mcpJSON := fs.Bool("mcp-json", false, "register a raw MCP server in .mcp.json instead of installing the plugin")
-	harness := fs.String("harness", "claude", "coding-agent harness to wire up: claude (default) or opencode")
+	harness := fs.String("harness", "claude", "coding-agent harness to wire up: claude (default), claude-sdk, opencode, or pi")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	switch *harness {
+	// Normalize up front (shares config.NormalizeHarness's four-value switch), so
+	// `--harness CLAUDE` and a typo both behave like they do everywhere else.
+	mode, err := config.NormalizeHarness(*harness)
+	if err != nil {
+		return fmt.Errorf("--harness: %w", err)
+	}
+
+	switch mode {
 	case "claude":
 		if *mcpJSON {
 			if err := initMCPJSON(botName, *providers, dir, stdout); err != nil {
@@ -52,7 +59,10 @@ func cmdInit(botName string, args []string, dir string, stdout io.Writer) error 
 				return err
 			}
 		}
-		fmt.Fprintln(stdout, "Next: hotline start")
+		if err := installMissionHooks(dir, stdout); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "Next: hotline up")
 	case "opencode":
 		// Write the starter voice first (if requested) so the agent definition
 		// below can embed it: AgentInstructions reads dir/HOTLINE.md.
@@ -64,8 +74,58 @@ func cmdInit(botName string, args []string, dir string, stdout io.Writer) error 
 		if err := initOpenCode(botName, *providers, dir, stdout); err != nil {
 			return err
 		}
-	default:
-		return fmt.Errorf("unknown --harness %q (supported: claude, opencode)", *harness)
+	case "pi":
+		// Pi loads a channel extension, not the hotline Claude plugin, so there is
+		// no plugin path to scaffold — print the real next steps instead. --voice
+		// still drops a starter HOTLINE.md (the pi extension reads it for voice).
+		if *voice {
+			if err := writeVoiceStarter(dir, stdout); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintln(stdout, "harness=pi wires up outside init: Pi loads a channel extension, not the hotline Claude plugin.")
+		fmt.Fprintln(stdout, "  1. pi install ./harness/pi   (from a checkout of the hotline repo)")
+		fmt.Fprintln(stdout, "  2. hotline setup")
+		fmt.Fprintln(stdout, "Then: HOTLINE_HARNESS=pi hotline up (headless-capable; add -d to detach)")
+	case "claude-sdk":
+		// The Agent-SDK edition is a built node harness, not the Claude plugin —
+		// nothing for init to scaffold. Point at the build + entry-point env it
+		// needs. --voice still drops a starter HOTLINE.md.
+		if *voice {
+			if err := writeVoiceStarter(dir, stdout); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintln(stdout, "harness=claude-sdk wires up outside init: it runs a built node harness, not the hotline Claude plugin.")
+		fmt.Fprintln(stdout, "  1. build it: cd harness/claude-sdk && npm install && npm run build")
+		fmt.Fprintln(stdout, "  2. export HOTLINE_CLAUDE_SDK_ENTRY=<repo>/harness/claude-sdk/dist/index.js")
+		fmt.Fprintln(stdout, "  3. hotline setup")
+		fmt.Fprintln(stdout, "Then: HOTLINE_HARNESS=claude-sdk hotline up (headless-capable; add -d to detach)")
+	}
+	return nil
+}
+
+// installMissionHooks wires Claude Code's SessionStart + PreCompact hooks for
+// Mission Control (resolved call #3), idempotently. Claude Code has no injected
+// index (its 4096-char budget can't honestly hold it), so these harness-native
+// hooks deliver the map instead: SessionStart injects the mc index + a wake-up
+// instruction, PreCompact injects preserve-instructions into the summary. Gated
+// on MC being enabled for claude (HOTLINE_MISSION_CONTROL=0 opts out), so a box
+// that turned MC off never gets the hooks.
+func installMissionHooks(dir string, stdout io.Writer) error {
+	mcCfg, err := config.MissionControl("claude")
+	if err != nil {
+		return err
+	}
+	if !mcCfg.Enabled {
+		return nil
+	}
+	added, err := mergeProjectSettingsHooks(dir)
+	if err != nil {
+		return err
+	}
+	if len(added) > 0 {
+		fmt.Fprintf(stdout, "Installed Mission Control hooks (%s) in .claude/settings.json.\n", strings.Join(added, ", "))
 	}
 	return nil
 }
@@ -240,7 +300,17 @@ func initOpenCode(botName, providers, dir string, stdout io.Writer) error {
 		return err
 	}
 
-	body := mcpchan.AgentInstructions(cfg.TranscriptFile, voice)
+	// The generated agent file must reflect the channel(s) this project runs on,
+	// so the app channel gets its markdown-lite / no-HTML formatting note instead
+	// of the default Telegram wording. An empty --providers falls back to the
+	// telegram default inside AgentInstructions.
+	var providerNames []string
+	for _, p := range strings.Split(providers, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			providerNames = append(providerNames, p)
+		}
+	}
+	body := mcpchan.AgentInstructions(cfg.TranscriptFile, voice, providerNames...)
 	agentPath := filepath.Join(dir, ".opencode", "agents", "hotline.md")
 	action, err := writeHotlineAgent(agentPath, body)
 	if err != nil {

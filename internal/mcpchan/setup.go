@@ -35,6 +35,17 @@ type SetupNotifyInput struct {
 }
 
 func handleSetupLoop(in SetupLoopInput, stateRoot string) (string, bool) {
+	// F11 (M6): a loop's channel provenance is its notify Source (the label its
+	// notify_llm stdout is routed through, and — for an auto-created source — the
+	// name it takes). The fleet channel is never a valid loop target: a loop fire
+	// or its notify output must never address a fleet peer through an operator
+	// tool. Reject BEFORE any side effect, mirroring schedule's precheck. (Loops
+	// carry no chat_id of their own — a fired loop is a script run, not a chat
+	// turn — so Source is this tool's whole channel-provenance surface; a fleet
+	// notify chat_id is already refused in handleSetupNotify.)
+	if in.Source == "fleet" {
+		return "use fleet_send for fleet peers", true
+	}
 	if strings.TrimSpace(in.Label) == "" || strings.TrimSpace(in.Every) == "" || strings.TrimSpace(in.Cmd) == "" {
 		return "setup_loop failed: label, every, and cmd are required", true
 	}
@@ -58,6 +69,10 @@ func handleSetupLoop(in SetupLoopInput, stateRoot string) (string, bool) {
 }
 
 func handleSetupNotify(in SetupNotifyInput, sourcesPath string) (string, bool) {
+	// F11: a notify source cannot default to a fleet chat.
+	if strings.HasPrefix(in.ChatID, "fleet:") {
+		return "use fleet_send for fleet peers", true
+	}
 	cap, err := notify.ParseLevel(in.Cap)
 	if err != nil {
 		return "setup_notify failed: " + err.Error(), true

@@ -1,0 +1,150 @@
+{
+  "intent": "the app's model row stops being a list compiled into the client. A box whose harness can enumerate its models reports them over a NEW box->harness notification (notifications/hotline/harness_catalog) and the box mirrors them to devices on a NEW transient frame agent_catalog. Two tiers, and they are different sets on purpose: the ROWS are the operator's filtered/cycling scope for this box (pi's --models selection — literally the set Ctrl+P walks), while the free-text escape reaches the FULL model registry and is validated by the harness with a real key check. The scope is box-owned: `hotline up` resolves HOTLINE_PI_MODELS (or an explicit `-- --models` passthrough, which wins) into pi's --models flag AND re-exports the effective value into the harness env, because an extension cannot read pi's resolved cycling list — AgentSession.scopedModels is not on the ExtensionContext/ExtensionAPI surface — so the box is the only place all three surfaces (launch line, Ctrl+P, app) can be made to agree. agent_catalog is PUSHED once per device on subscribe and re-broadcast on change, never stapled onto welcome or agent_state: those carry the ONE live model and restamp on every model/effort change, and a model list riding them would re-send the whole catalog several times per apply. A box that sends no catalog (every binary predating this amendment, and any harness that has not implemented it) leaves the app on its curated fallback list — absence is the compatibility path, there is no negotiation and no version flag.",
+  "assertions": [
+    { "rule": "AC1", "statement": "agent_catalog is a transient content frame in the agent_state/typing family: seq'd, never durable, never acked, never replayed. It is sent to a single device on subscribe (after drain, alongside the agent_state snapshot) and broadcast to all active devices when the catalog changes. A box holding no catalog sends NOTHING on subscribe — never an empty frame, because an empty catalog claims 'this box has a menu and it is empty' while absence correctly means 'this box has no menu, keep your fallback'." },
+    { "rule": "AC2", "statement": "each catalog entry carries id (the CANONICAL id the app sends back in a set_sdk_config and the same form the harness restamps as the live identity, so a selected row shows as selected — 'provider/id' on pi), an optional short display label, and available (whether the box holds a usable credential for it). available is always serialized: an omitted false would be indistinguishable from a frame that never carried the field. The frame additionally carries harness, source (models|settings|available — which precedence branch produced the list), and truncated when the list was cut at the cap." },
+    { "rule": "AC3", "statement": "the rows are the operator's FILTERED scope, reconstructed through pi's own code rather than guessed: the box exports the effective --models patterns as HOTLINE_PI_MODELS, and the harness resolves them with pi's exported resolveModelScopeWithDiagnostics against the live ModelRegistry — the same function and the same registry pi's main.js uses to build AgentSession.scopedModels. Precedence mirrors pi exactly: the --models scope, else pi's own enabledModels setting, else every model with auth configured (which is what cycleModel falls back to when nothing is scoped). A scope that matches NOTHING reports the available set, not an empty list, because pi's cycleModel ignores an empty scope the same way." },
+    { "rule": "AC4", "statement": "passthrough-wins is preserved and observable: `hotline up -- --models <patterns>` suppresses the HOTLINE_PI_MODELS knob on the launch line (piModelArgs drops a knob flag the passthrough already carries), and the box therefore re-exports the PASSTHROUGH value, never the inert knob. Otherwise the app would advertise a list Ctrl+P does not cycle." },
+    { "rule": "AC5", "statement": "the free-text escape is a strictly wider tier than the rows and is validated by the HARNESS, not the catalog: the id is resolved against the FULL registry (resolveCliModel -> modelRegistry.getAll(), which deliberately includes models without pre-configured auth) and then key-checked by ExtensionAPI.setModel. A model absent from the catalog but present in the registry WITH a credential applies normally and answers ok+hot. Nothing resolves -> unknown_model. It resolves but the box holds no credential for its provider -> no_api_key, refused before the live session is touched — never silently applied, and never collapsed into unknown_model, because the two have different fixes (a typo vs a login)." },
+    { "rule": "AC6", "statement": "compatibility is by absence in both directions. Old box + new app: no agent_catalog ever arrives and the app renders its curated list, unchanged. New box + old app: the unknown agent_catalog t is dropped by the old parser exactly like any other unrecognized transient, and the curated list is what it renders. A harness that reports an empty catalog CLEARS the box's catalog and the app falls back — that is how a re-scoped box tells the app to stop showing a list that no longer exists." }
+  ],
+  "frames": [
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "agent_catalog",
+        "seq": 902,
+        "harness": "pi",
+        "source": "models",
+        "models": [
+          { "id": "openai-codex/gpt-5.6-luna", "label": "Luna", "available": true },
+          { "id": "openai-codex/gpt-5.6-sol", "label": "Sol", "available": true },
+          { "id": "anthropic/claude-opus-4-8", "label": "Opus 4.8", "available": true }
+        ]
+      },
+      "expect": {
+        "transient": true,
+        "per_device": true,
+        "note": "AC1/AC3: pushed on subscribe right after the agent_state snapshot. source 'models' = HOTLINE_PI_MODELS was set and resolved; these three ids are exactly what Ctrl+P cycles on this box"
+      }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "agent_catalog",
+        "seq": 903,
+        "harness": "pi",
+        "source": "available",
+        "truncated": true,
+        "models": [
+          { "id": "anthropic/claude-opus-4-8", "label": "Opus 4.8", "available": true },
+          { "id": "zai/glm-5.2", "label": "GLM 5.2", "available": true },
+          { "id": "openai/gpt-5.5", "label": "GPT-5.5", "available": false }
+        ]
+      },
+      "expect": {
+        "transient": true,
+        "broadcast": true,
+        "note": "AC2/AC3: the box restarted with no scope set, so the harness reports every model with auth configured and the list hit the cap. available:false rides for a model the registry knows but holds no usable credential for; truncated tells the app the menu was cut — the free-text escape still reaches the whole registry"
+      }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZM4T7Q3XB8YD1F6H2K9N5P",
+        "payload": {
+          "t": "send",
+          "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZM50N4RX9YZ8\",\"model\":\"openai-codex/gpt-5.6-sol\"}"
+        }
+      },
+      "expect": {
+        "consumed": "silently",
+        "harness_delivery": false,
+        "note": "AC2: tapping a catalog ROW sends its id verbatim — the canonical form, so the confirming identity restamp matches it exactly"
+      }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 904,
+        "rid": "01J2ZM50N4RX9YZ8",
+        "ok": true,
+        "model": "openai-codex/gpt-5.6-sol",
+        "restart": false,
+        "hot": true
+      },
+      "expect": {
+        "transient": true,
+        "per_device": true,
+        "note": "an ordinary hot apply: the catalog changed which rows are OFFERED, not how a selection is applied"
+      }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZM6B8W2YC7ZE3G5J4L1Q6R",
+        "payload": {
+          "t": "send",
+          "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZM6C1P5TA0B2\",\"model\":\"zai/glm-5.2\"}"
+        }
+      },
+      "expect": {
+        "consumed": "silently",
+        "harness_delivery": false,
+        "note": "AC5: free text for a model absent from the scoped catalog above. The catalog is the menu, not the boundary"
+      }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 905,
+        "rid": "01J2ZM6C1P5TA0B2",
+        "ok": true,
+        "model": "zai/glm-5.2",
+        "restart": false,
+        "hot": true
+      },
+      "expect": {
+        "transient": true,
+        "per_device": true,
+        "note": "AC5: it is in the FULL registry and the box holds a credential, so it applies — proving the free-text tier is genuinely wider than the rows"
+      }
+    },
+    {
+      "dir": "app->cli",
+      "frame": {
+        "t": "device_send",
+        "cid": "01J2ZM7D9X4ZB6YF2H8M3N0S7T",
+        "payload": {
+          "t": "send",
+          "text": "{\"t\":\"set_sdk_config\",\"rid\":\"01J2ZM7E2Q6UB1C3\",\"model\":\"google/gemini-3-pro\"}"
+        }
+      },
+      "expect": {
+        "consumed": "silently",
+        "harness_delivery": false,
+        "note": "AC5: in the registry, but this box never logged into that provider"
+      }
+    },
+    {
+      "dir": "cli->app",
+      "frame": {
+        "t": "sdk_config_result",
+        "seq": 906,
+        "rid": "01J2ZM7E2Q6UB1C3",
+        "ok": false,
+        "code": "no_api_key",
+        "detail": "no API key configured for google"
+      },
+      "expect": {
+        "transient": true,
+        "per_device": true,
+        "note": "AC5: refused BEFORE the live session is touched, with the credential-specific code — not unknown_model, because nothing is wrong with what was typed"
+      }
+    }
+  ]
+}

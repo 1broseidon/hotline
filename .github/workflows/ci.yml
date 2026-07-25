@@ -63,8 +63,12 @@ jobs:
           node-version: "20"
 
       - name: Install deps
-        working-directory: harness/pi
-        # No lockfile (peers are floating "*"); npm 7+ installs peerDependencies.
+        # Install at the WORKSPACE ROOT, not in harness/pi. Installing from a
+        # member directory resolves only that member's dependency closure, but
+        # the root `prepare` hook still builds all four workspaces — so
+        # claude-sdk would compile without its own deps on disk and fail on the
+        # first import. This lane needs the whole workspace present.
+        working-directory: harness
         run: npm install --no-audit --no-fund
 
       - name: Typecheck

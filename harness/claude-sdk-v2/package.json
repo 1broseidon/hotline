@@ -2,20 +2,27 @@
   "name": "@1broseidon/hotline-claude-sdk-v2",
   "type": "module",
   "version": "0.2.0",
-  "// private": "Not published — see harness/core/package.json. Build it from source: cd harness/claude-sdk-v2 && npm install && npm run build, then point HOTLINE_CLAUDE_SDK_ENTRY at dist/index.js",
+  "// private": "Not published \u2014 see harness/core/package.json. Build it from source: cd harness/claude-sdk-v2 && npm install && npm run build, then point HOTLINE_CLAUDE_SDK_ENTRY at dist/index.js",
   "private": true,
-  "description": "hotline Claude Agent SDK harness, 0.2.0 rebuild — the node child `hotline up` spawns (via HOTLINE_CLAUDE_SDK_ENTRY) to drive a Claude Agent SDK session over a hotline channel, with the turn-ledger delivery guarantee and auth containment. Built clean beside the 0.1 harness; child identity stays `claude-sdk`.",
-  "keywords": ["hotline", "claude", "claude-code"],
+  "description": "hotline Claude Agent SDK harness, 0.2.0 rebuild \u2014 the node child `hotline up` spawns (via HOTLINE_CLAUDE_SDK_ENTRY) to drive a Claude Agent SDK session over a hotline channel, with the turn-ledger delivery guarantee and auth containment. Built clean beside the 0.1 harness; child identity stays `claude-sdk`.",
+  "keywords": [
+    "hotline",
+    "claude",
+    "claude-code"
+  ],
   "license": "MIT",
   "author": "1Broseidon",
   "//files": "dist holds the built entry (dist/index.js) AND the .hotline-harness parity marker that cmd_up.go stats next to the entry to enforce the Go<->TS lockstep. Both must ship. prepack builds dist (tsc + write-marker) so a publish/pack from a clean tree is never empty.",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc && node scripts/write-marker.mjs",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build",
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@1broseidon/hotline-harness-core": "^0.1.0",

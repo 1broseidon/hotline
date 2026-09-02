@@ -107,7 +107,7 @@ impl Workspace {
     fn paths_reach(&self) -> String {
         match self.inner.reach {
             Reach::Workspace => format!(
-                "Paths are relative to the working directory and may not leave it, and the files under {} that a long tool result was written to.",
+                "Paths are relative to the working directory and may not leave it, except to read a long tool result written under {}.",
                 self.inner.overflow.display()
             ),
             Reach::Machine => {
@@ -170,14 +170,12 @@ impl Workspace {
     ) -> Result<(Dir, PathBuf, PathBuf), ToolError> {
         match self.canonical_subpath(requested, allow_root) {
             Ok(relative) => {
-                let dir = Dir::open_ambient_dir(&self.inner.root, ambient_authority()).map_err(
-                    |error| {
-                        ToolError::new(format!(
-                            "The Toad workspace {} could not be opened: {error}",
-                            self.inner.root.display()
-                        ))
-                    },
-                )?;
+                let dir = self.inner.dir.try_clone().map_err(|error| {
+                    ToolError::new(format!(
+                        "The Toad workspace {} could not be opened: {error}",
+                        self.inner.root.display()
+                    ))
+                })?;
                 Ok((dir, relative, self.inner.root.clone()))
             }
             Err(error) => {

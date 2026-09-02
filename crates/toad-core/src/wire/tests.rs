@@ -723,7 +723,7 @@ async fn human_answer_is_a_command_the_wire_can_read() {
         json!({
             "id": 2,
             "cmd": "human.answer",
-            "params": { "personaId": "ada", "actionId": "act-1", "status": "declined" },
+            "params": { "personaId": "ada", "actionId": "act-1", "status": "declined", "note": "not now" },
         }),
     )
     .await;

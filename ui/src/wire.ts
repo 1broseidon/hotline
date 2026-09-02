@@ -5,6 +5,8 @@ import type {
 	ConfigChoice,
 	Credential,
 	GlobalSearchHit,
+	LoginPrompt,
+	LoginStatus,
 	PeerThreadSummary,
 	Persona,
 	Provider,
@@ -62,6 +64,8 @@ type Results = {
 	"persona.delete": null;
 	"settings.update": Record<string, unknown>;
 	"credential.create": Credential;
+	"credential.login": LoginPrompt;
+	"credential.login_status": LoginStatus;
 	"credential.revoke": null;
 	"credential.delete": null;
 	"credential.list": Credential[];

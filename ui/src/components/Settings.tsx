@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendChoice, Credential, Provider, Report } from "../generated/contract";
+import type { BackendChoice, Credential, LoginPrompt, Provider, Report } from "../generated/contract";
+import { openLink } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
@@ -203,13 +204,15 @@ function GeneralSection({
 
 function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void }) {
 	const [held, setHeld] = useState<Credential[] | null>(null);
-	/* The providers a key can be for come from the core's model catalogue,
-	 * so a provider added there is offered here without the window knowing
-	 * its name. The first one is the default until the person picks. */
+	/* The providers a credential can be for come from the core's model
+	 * catalogue, so a provider added there is offered here without the
+	 * window knowing its name. The first one is the default until the
+	 * person picks. */
 	const [providers, setProviders] = useState<Provider[]>([]);
 	const [providerId, setProviderId] = useState("");
 	const [secret, setSecret] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [prompt, setPrompt] = useState<LoginPrompt | null>(null);
 
 	useEffect(() => {
 		wire
@@ -228,12 +231,54 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 			.catch((error: Error) => onRefuse(error.message));
 	}, [onRefuse]);
 
+	useEffect(() => {
+		if (prompt === null) return;
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const tick = () => {
+			void wire
+				.command("credential.login_status", { loginId: prompt.loginId })
+				.then((status) => {
+					if (cancelled) return;
+					if (status.state === "done") {
+						if (status.credential) {
+							setHeld((known) => [...(known ?? []), status.credential!]);
+						}
+						setPrompt(null);
+						setBusy(false);
+						return;
+					}
+					if (status.state === "failed") {
+						onRefuse(status.error ?? "Sign-in failed.");
+						setPrompt(null);
+						setBusy(false);
+						return;
+					}
+					timer = setTimeout(tick, 2000);
+				})
+				.catch((error: Error) => {
+					if (cancelled) return;
+					onRefuse(error.message);
+					setPrompt(null);
+					setBusy(false);
+				});
+		};
+		timer = setTimeout(tick, 2000);
+		return () => {
+			cancelled = true;
+			if (timer !== undefined) clearTimeout(timer);
+		};
+	}, [prompt, onRefuse]);
+
+	const picked = providers.find((one) => one.id === providerId);
+	const oauth = picked?.credentialKind === "oauth";
+
 	const save = async () => {
 		if (!secret.trim() || !providerId || busy) return;
 		setBusy(true);
 		onRefuse(null);
 		try {
-			const label = providers.find((one) => one.id === providerId)?.name ?? providerId;
+			const label = picked?.name ?? providerId;
 			const made = await wire.command("credential.create", { providerId, label, secret: secret.trim() });
 			setHeld((known) => [...(known ?? []), made]);
 			setSecret("");
@@ -242,6 +287,24 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 		} finally {
 			setBusy(false);
 		}
+	};
+
+	const signIn = async () => {
+		if (!providerId || busy) return;
+		setBusy(true);
+		onRefuse(null);
+		try {
+			setPrompt(await wire.command("credential.login", { providerId }));
+		} catch (error) {
+			onRefuse(error instanceof Error ? error.message : String(error));
+			setBusy(false);
+		}
+	};
+
+	const heldLabel = (one: Credential) => {
+		if (one.revoked) return "Revoked";
+		if (one.credentialKind === "oauth") return "Signed in";
+		return "In use";
 	};
 
 	return (
@@ -261,7 +324,7 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 									<span className="group-row-detail font-mono">{one.providerId}</span>
 								</span>
 								<span className={`text-sm ${one.revoked ? "text-ink-3" : "text-ink-2"}`}>
-									{one.revoked ? "Revoked" : "In use"}
+									{heldLabel(one)}
 								</span>
 							</div>
 						))
@@ -272,10 +335,10 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 			<form
 				onSubmit={(event) => {
 					event.preventDefault();
-					void save();
+					if (!oauth) void save();
 				}}
 			>
-				<h3 className="group-title">Add a key</h3>
+				<h3 className="group-title">{oauth ? "Sign in" : "Add a key"}</h3>
 				<div className="grouped">
 					<div className="group-row">
 						<label className="w-24 shrink-0 text-sm text-ink-2" id="key-provider">
@@ -292,29 +355,55 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 							/>
 						</div>
 					</div>
-					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
-							API key
-						</label>
-						<input
-							id="key-secret"
-							type="password"
-							className="field flex-1 font-mono text-sm"
-							spellCheck={false}
-							autoComplete="off"
-							value={secret}
-							onChange={(event) => setSecret(event.target.value)}
-						/>
-					</div>
-					<div className="group-row justify-end">
-						<button
-							type="submit"
-							className="control btn-primary"
-							disabled={busy || !providerId || secret.trim() === ""}
-						>
-							{busy ? "Saving…" : "Save key"}
-						</button>
-					</div>
+					{prompt !== null ? (
+						<>
+							<div className="group-row">
+								<span className="selectable font-mono text-xl tracking-wide">{prompt.userCode}</span>
+							</div>
+							<div className="group-row">
+								<button
+									type="button"
+									className="text-sm text-ink-2 underline"
+									onClick={() => void openLink(prompt.verificationUri)}
+								>
+									{prompt.verificationUri}
+								</button>
+							</div>
+							<p className="group-row text-sm text-ink-3">Waiting for you to sign in…</p>
+						</>
+					) : oauth ? (
+						<div className="group-row justify-end">
+							<button type="button" className="control btn-primary" disabled={busy || !providerId} onClick={() => void signIn()}>
+								{busy ? "Starting…" : "Sign in"}
+							</button>
+						</div>
+					) : (
+						<>
+							<div className="group-row">
+								<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
+									API key
+								</label>
+								<input
+									id="key-secret"
+									type="password"
+									className="field flex-1 font-mono text-sm"
+									spellCheck={false}
+									autoComplete="off"
+									value={secret}
+									onChange={(event) => setSecret(event.target.value)}
+								/>
+							</div>
+							<div className="group-row justify-end">
+								<button
+									type="submit"
+									className="control btn-primary"
+									disabled={busy || !providerId || secret.trim() === ""}
+								>
+									{busy ? "Saving…" : "Save key"}
+								</button>
+							</div>
+						</>
+					)}
 				</div>
 			</form>
 		</>

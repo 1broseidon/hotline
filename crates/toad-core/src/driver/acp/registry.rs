@@ -53,12 +53,6 @@ pub struct Backend {
     pub unavailable: Option<String>,
 }
 
-impl Backend {
-    pub fn available(&self) -> bool {
-        self.unavailable.is_none()
-    }
-}
-
 /// An agent whose own binary speaks ACP. Finding it on PATH is both the
 /// availability check and the launch, because they are the same thing.
 struct Native {
@@ -478,7 +472,7 @@ mod tests {
         // Nothing to run and nothing to fetch is not an agent Toad can offer.
         let archived = backends.iter().find(|b| b.id == "archived").unwrap();
         assert_eq!(archived.launch, None);
-        assert!(!archived.available());
+        assert!(archived.unavailable.is_some());
         assert!(launch(&root, "archived").is_err());
     }
 

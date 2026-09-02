@@ -183,6 +183,14 @@ pub struct ChildAgent {
     /// The data directory, which is where the catalogue's cache lives.
     root: PathBuf,
     backend_id: String,
+    /// The child process.
+    ///
+    /// Held here rather than beside the connection, because the connection is
+    /// what the child's own pipes keep alive: the handlers hold the shared
+    /// state, the state would then hold the child, and nothing would ever
+    /// close. Dropping the driver kills the child, the child's stdout closes,
+    /// and the connection ends on its own.
+    child: Mutex<Option<tokio::process::Child>>,
     /// What the room would have made a system prompt of: who the teammate is,
     /// where it stands, and what happened in the chapter that closed. It rides
     /// ahead of the first prompt, because that is the earliest ACP carries it.
@@ -195,6 +203,7 @@ impl ChildAgent {
         Self {
             root,
             backend_id,
+            child: Mutex::new(None),
             preamble,
             live: Arc::new(Live::default()),
         }
@@ -224,8 +233,6 @@ struct Live {
     /// does not hear it twice in the same conversation.
     briefed: AtomicBool,
     stderr: Mutex<VecDeque<String>>,
-    /// The child, so dropping this driver ends the process.
-    child: Mutex<Option<tokio::process::Child>>,
 }
 
 /// What the agent said about the conversation it opened.
@@ -344,22 +351,24 @@ impl Live {
 
 /// The child goes when the driver does, and takes whatever it started with it.
 ///
-/// The process is its own group leader (see `start`), so this reaches the real
-/// agent behind a wrapper launcher — `npx` spawning node, `uvx` spawning
-/// python — where killing the immediate child would only orphan it.
-impl Drop for Live {
+/// The process is its own group leader (see [`Driver::start`]), so this
+/// reaches the real agent behind a wrapper launcher — `npx` spawning node,
+/// `uvx` spawning python — where killing the immediate child would only orphan
+/// it, leaving it reparented to pid 1 and not exiting on stdin EOF.
+impl Drop for ChildAgent {
     fn drop(&mut self) {
-        let Ok(mut held) = self.child.lock() else {
+        let Some(child) = lock(&self.child).as_mut().map(|child| child.id()) else {
             return;
         };
-        let Some(child) = held.as_mut() else { return };
         #[cfg(unix)]
-        if let Some(id) = child.id() {
+        if let Some(id) = child {
             // Safety: `killpg` reads no memory, and the group is the one this
             // driver made for its own child.
             unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
         }
-        let _ = child.start_kill();
+        #[cfg(not(unix))]
+        let _ = child;
+        // `kill_on_drop` takes the immediate child when the handle goes.
     }
 }
 
@@ -389,7 +398,7 @@ impl Driver for ChildAgent {
                 _ => return Err(format!("{} gave no pipes to speak over.", launch.command)),
             };
         pump_stderr(self.live.clone(), stderr);
-        *lock(&self.live.child) = Some(child);
+        *lock(&self.child) = Some(child);
 
         self.handshake(
             persona,
@@ -1639,6 +1648,38 @@ mod tests {
             .prompt("carry on".to_string(), Vec::new(), Reach::Workspace)
             .await;
         assert!(matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "on it"));
+    }
+
+    /// Ending a session ends the child, and everything the child started.
+    ///
+    /// The connection is kept alive by the child's own pipes, so nothing but
+    /// the driver going away can close it — which is why the handle lives on
+    /// the driver and not beside the connection.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_the_driver_takes_the_childs_whole_process_group() {
+        let driver = ChildAgent::new(scratch("kill"), "cursor".to_string(), String::new());
+        let mut command = tokio::process::Command::new("sh");
+        command
+            .args(["-c", "sleep 600"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0);
+        let child = command.spawn().unwrap();
+        let group = child.id().expect("the child has a pid") as libc::pid_t;
+        *lock(&driver.child) = Some(child);
+        // Safety: `kill` with signal 0 asks whether the group exists.
+        assert_eq!(unsafe { libc::killpg(group, 0) }, 0, "the group is running");
+
+        drop(driver);
+        for _ in 0..200 {
+            if unsafe { libc::killpg(group, 0) } != 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the child's process group outlived its driver");
     }
 
     /// Toad rewrites only the file it wrote. A hand-written AGENTS.md — even

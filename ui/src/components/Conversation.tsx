@@ -8,6 +8,7 @@ import { useTape } from "../tape";
 import { Avatar } from "../ui/Avatar";
 import { BackKey, Band } from "../ui/Band";
 import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
+import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
 import { Composer } from "./Composer";
 import { Search } from "./Search";
@@ -165,7 +166,57 @@ export function Conversation({
 		null,
 	);
 
+	/* A narrow band keeps the name, the model and the three keys. Mode,
+	 * effort and whatever else the session offers move into the More menu
+	 * as checked groups, and so does the schedule line: the same choices,
+	 * one press further away, rather than a band that clips them. */
+	const narrow = useNarrow();
+	const folded: MenuEntry[] = [];
+	if (narrow) {
+		if (session.modes.length > 0) {
+			folded.push({ kind: "heading", text: session.modeLabel ?? "Mode" });
+			for (const mode of session.modes) {
+				folded.push({
+					kind: "item",
+					id: `mode-${mode.id}`,
+					text: mode.name,
+					checked: mode.id === currentMode,
+					onSelect: () => void wire.command("session.set_mode", { personaId, modeId: mode.id }),
+				});
+			}
+		}
+		for (const config of configs) {
+			folded.push({ kind: "heading", text: config.name });
+			for (const option of config.options) {
+				folded.push({
+					kind: "item",
+					id: `${config.id}-${option.id}`,
+					text: option.name,
+					checked: option.id === (config.currentId ?? ""),
+					onSelect: () => {
+						setModelSaid(null);
+						void wire
+							.command("session.set_config", { personaId, configId: config.id, value: option.id })
+							.catch((error: Error) => setModelSaid(error.message));
+					},
+				});
+			}
+		}
+		if (next !== null) {
+			if (folded.length > 0) folded.push({ kind: "rule" });
+			folded.push({
+				kind: "item",
+				id: "schedules",
+				text: jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`,
+				detail: `Next ${nextText(next.nextAt)}`,
+				onSelect: onOpenSchedules,
+			});
+		}
+		if (folded.length > 0) folded.push({ kind: "rule" });
+	}
+
 	const more: MenuEntry[] = [
+		...folded,
 		{ kind: "item", id: "chapter", text: "Start a new chapter", detail: "Closes this one with a handoff note", disabled: chapterBusy, onSelect: startChapter },
 		{
 			kind: "item",
@@ -211,7 +262,7 @@ export function Conversation({
 
 				<span className="min-w-0 flex-1" />
 
-				{next !== null && (
+				{next !== null && !narrow && (
 					<button
 						type="button"
 						className="control btn-quiet gap-1.5 px-2 text-sm"
@@ -239,7 +290,7 @@ export function Conversation({
 						}}
 					/>
 				)}
-				{session.modes.length > 0 && (
+				{session.modes.length > 0 && !narrow && (
 					<Picker
 						value={currentMode}
 						choices={session.modes}
@@ -248,7 +299,7 @@ export function Conversation({
 						onChange={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
 					/>
 				)}
-				{configs.map((config) => (
+				{!narrow && configs.map((config) => (
 					<Picker
 						key={config.id}
 						value={config.currentId ?? ""}

@@ -62,7 +62,10 @@ A window narrower than 720px holds one thing at a time, the way a phone
 does: the rail, or what was chosen in it, with a back key at the head of
 the pane's band and Escape as the same step. Nothing is re-laid out in
 place; a pane replaces the rail rather than squeezing beside it, and a
-wide window never shows the back key. The inspector has its own, wider
+wide window never shows the back key. The conversation's band keeps the
+name, the model and its three keys; mode, effort and the schedule line
+fold into the More menu as checked groups — the same choices, one press
+further away, rather than a band that clips them. The inspector has its own, wider
 cut-off, because it needs the conversation beside it and the rail does not.
 
 Settings, New teammate, Keyboard shortcuts and About are panes in the

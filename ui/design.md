@@ -71,7 +71,8 @@ cut-off, because it needs the conversation beside it and the rail does not.
 Providers and Tools are one shape, because they do one job: a list of
 things the room has. An add row heads the list in accent — the one accent
 in a pane, because adding is what an empty list is for — and opens the
-form in place, or for Providers a menu of what is not yet connected. Each
+form in place, or for Providers the rows of what is not yet connected,
+in place too: nothing on these pages pops over them. Each
 row is the thing's name over one detail line (a key or a login, a command
 or a URL) and opens the thing's own page, with its fields and the way out
 (Remove, Sign out) at the foot. Nothing is edited on the row.

@@ -14,7 +14,7 @@ import { ArrowLeftIcon, ChevronRightIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
-import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
+import { Picker } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
@@ -274,6 +274,7 @@ function ProvidersSection({
 	const [providers, setProviders] = useState<Provider[]>([]);
 	/* Adding: the provider chosen from the plus, and for a login provider
 	 * the prompt once the core has one. */
+	const [choosing, setChoosing] = useState(false);
 	const [adding, setAdding] = useState<Provider | null>(null);
 	const [login, setLogin] = useState<{ providerId: string; prompt: LoginPrompt } | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -346,6 +347,7 @@ function ProvidersSection({
 
 	const begin = (provider: Provider) => {
 		setRefusal(null);
+		setChoosing(false);
 		setAdding(provider);
 		if (provider.credentialKind === "oauth") void signIn(provider.id);
 	};
@@ -377,15 +379,6 @@ function ProvidersSection({
 		}
 	};
 
-	const addEntries: MenuEntry[] = addable.map((provider) => ({
-		kind: "item",
-		id: provider.id,
-		text: provider.name,
-		detail: provider.credentialKind === "oauth" ? "Sign in" : "API key",
-		disabled: busy,
-		onSelect: () => begin(provider),
-	}));
-
 	const opened = connected.find((one) => one.credential.id === open);
 	if (opened !== undefined) {
 		return (
@@ -414,6 +407,38 @@ function ProvidersSection({
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
+					{choosing && (
+						<section>
+							<h3 className="group-title">Add provider</h3>
+							<div className="grouped">
+								{addable.length === 0 ? (
+									<p className="group-row text-sm text-ink-3">Every provider Toad knows is already here.</p>
+								) : (
+									addable.map((provider) => (
+										<button
+											key={provider.id}
+											type="button"
+											className="group-row group-row-choice w-full text-left"
+											disabled={busy}
+											onClick={() => begin(provider)}
+										>
+											<span className="group-row-text">
+												<span className="group-row-title">{provider.name}</span>
+											</span>
+											<span className="text-sm text-ink-3">{provider.credentialKind === "oauth" ? "Sign in" : "API key"}</span>
+											<ChevronRightIcon className="shrink-0 text-ink-3" />
+										</button>
+									))
+								)}
+								<div className="group-row justify-end">
+									<button type="button" className="control btn-quiet" onClick={() => setChoosing(false)}>
+										Cancel
+									</button>
+								</div>
+							</div>
+							<p className="group-hint">A key is pasted; a sign-in opens the provider's page with a code.</p>
+						</section>
+					)}
 					{adding !== null && adding.credentialKind === "api_key" && (
 						<KeyForm provider={adding} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={() => setAdding(null)} />
 					)}
@@ -459,11 +484,11 @@ function ProvidersSection({
 					)}
 					<section>
 						<div className="grouped">
-							{adding === null && (
-								<MenuButton className="group-row group-row-add" label="Add provider" entries={addEntries}>
+							{adding === null && !choosing && (
+								<button type="button" className="group-row group-row-add" onClick={() => setChoosing(true)}>
 									<PlusIcon />
 									Add provider
-								</MenuButton>
+								</button>
 							)}
 							{held === null ? (
 								<p className="group-row text-sm text-ink-3">Reading…</p>

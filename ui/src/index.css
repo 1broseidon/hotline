@@ -471,8 +471,7 @@
 		font-weight: 500;
 		color: var(--accent);
 	}
-	.group-row-add:hover,
-	.group-row-add[aria-expanded="true"] {
+	.group-row-add:hover {
 		background: var(--fill-hover);
 	}
 	.group-row-choice:hover {

@@ -1,9 +1,12 @@
 //! Import an existing Toad data directory into this room.
 //!
 //! The source is never written: `store.sqlite` is opened read-only, tapes are
-//! copied, and secrets are read out of the old vault. A teammate already in
-//! the roster is left alone, and a tape that already exists here is not
-//! overwritten, so running the import twice is the same as running it once.
+//! copied, and secrets are read out of the old vault. A tape lands before
+//! the roster row that names it, so an import cut short leaves a teammate
+//! this room has not heard of, not one whose conversation is gone; a
+//! teammate already in the roster is left alone unless its tape is the part
+//! still owed, and a tape that already exists here is not overwritten, so
+//! running the import twice is the same as running it once.
 //! A teammate's working directory stays where it is — under the old data
 //! directory's `workspaces/` when that was the default — because the
 //! workspace is the project, not a copy of it. Backend ids are mapped onto
@@ -119,11 +122,11 @@ pub fn import(from: &Path, log: &Log, vault: &Vault) -> io::Result<Report> {
     let snapshot = snapshot_store(from)?;
     let store_root = snapshot.as_ref().map(StoreSnapshot::path).unwrap_or(from);
     let imported = import_teammates(store_root, from, log, &mut report)?;
-    import_tapes(from, log, &imported, &mut report)?;
     import_settings(from, log, &mut report)?;
     import_keys(store_root, from, vault, &mut report)?;
 
     if !imported.is_empty() {
+        settle_tapes(log, &imported)?;
         let mut indexer = Indexer::open(log).map_err(io::Error::other)?;
         indexer.sync(&imported).map_err(io::Error::other)?;
     }
@@ -151,10 +154,22 @@ fn import_teammates(
             continue;
         };
         if existing.contains(&id) {
-            report.skipped.push(Skipped {
-                item: format!("teammate {id}"),
-                reason: "already in the roster".into(),
-            });
+            // A roster row is only written after its tape landed, so a row
+            // with no tape here is an import that was cut short: the tape is
+            // what is still owed, and this run owes it.
+            if !tape_exists(log.root(), &id) && copy_tape(workspace_root, log.root(), &id)? {
+                report.tapes += 1;
+                report.notes.push(Skipped {
+                    item: format!("teammate {id}"),
+                    reason: "already in the roster; its conversation came over now".into(),
+                });
+                imported.push(id);
+            } else {
+                report.skipped.push(Skipped {
+                    item: format!("teammate {id}"),
+                    reason: "already in the roster".into(),
+                });
+            }
             continue;
         }
         let mut persona = match persona_from_legacy(value) {
@@ -174,30 +189,33 @@ fn import_teammates(
                 reason: format!("backend {} has no counterpart here", persona.backend_id),
             }),
         }
-        append_persona(log, &persona)?;
-        report.teammates += 1;
-        imported.push(id.clone());
-    }
-    Ok(imported)
-}
-
-fn import_tapes(
-    from: &Path,
-    log: &Log,
-    imported: &[String],
-    report: &mut Report,
-) -> io::Result<()> {
-    let dest = log.root();
-    for id in imported {
-        if tape_exists(dest, id) {
+        // The tape before the row that names it: a copy that fails leaves
+        // nothing of this teammate behind, and the next run imports it whole.
+        if tape_exists(log.root(), &id) {
             report.skipped.push(Skipped {
                 item: format!("tape {id}"),
                 reason: "already exists here".into(),
             });
-            continue;
-        }
-        if copy_tape(from, dest, id)? {
+        } else if copy_tape(workspace_root, log.root(), &id)? {
             report.tapes += 1;
+        }
+        append_persona(log, &persona)?;
+        report.teammates += 1;
+        imported.push(id);
+    }
+    Ok(imported)
+}
+
+/// The cards an imported tape left open are expired the way the room expires
+/// them when it opens, because a tape that came over while the room is
+/// running would otherwise draw buttons nobody is behind until the next
+/// restart.
+fn settle_tapes(log: &Log, imported: &[String]) -> io::Result<()> {
+    let now = crate::session::now_ms();
+    for id in imported {
+        let stream = StreamId::Tape(id.clone());
+        for expired in crate::log::expire_orphaned_permissions(&log.load(&stream), now) {
+            log.append(&stream, &expired)?;
         }
     }
     Ok(())
@@ -349,10 +367,22 @@ fn tape_exists(root: &Path, id: &str) -> bool {
 
 /// Copies the segmented directory if it is there, otherwise the flat file,
 /// unchanged. Returns whether anything was copied.
+///
+/// The copy lands beside its destination under a `.importing` name and is
+/// renamed into place whole, so a copy that stops halfway — a full disk, a
+/// quit — is a name the room never reads, not a tape half as long as the
+/// conversation was.
 fn copy_tape(from: &Path, to: &Path, id: &str) -> io::Result<bool> {
     let source_dir = paths::transcript_segments_dir(from, id);
     if source_dir.is_dir() {
-        copy_dir(&source_dir, &paths::transcript_segments_dir(to, id))?;
+        let dest = paths::transcript_segments_dir(to, id);
+        let staging = staging_name(&dest);
+        let _ = fs::remove_dir_all(&staging);
+        if let Err(error) = copy_dir(&source_dir, &staging) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        fs::rename(&staging, &dest)?;
         return Ok(true);
     }
     let source_flat = paths::transcript_path(from, id);
@@ -361,10 +391,23 @@ fn copy_tape(from: &Path, to: &Path, id: &str) -> io::Result<bool> {
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::copy(&source_flat, &dest)?;
+        let staging = staging_name(&dest);
+        if let Err(error) = fs::copy(&source_flat, &staging) {
+            let _ = fs::remove_file(&staging);
+            return Err(error);
+        }
+        fs::rename(&staging, &dest)?;
         return Ok(true);
     }
     Ok(false)
+}
+
+fn staging_name(dest: &Path) -> PathBuf {
+    let name = dest
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    dest.with_file_name(format!("{name}.importing"))
 }
 
 fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
@@ -794,6 +837,39 @@ mod tests {
         assert_eq!(room::roster(&log).len(), 3);
         assert_eq!(vault.provider_keys().len(), 3);
         assert_eq!(fingerprint(&from), before);
+    }
+
+    /// A roster row is written after its tape, so a row with no tape here is
+    /// an import that was cut short. The next run owes the tape and says so,
+    /// and a staging directory the cut left behind is not a tape.
+    #[test]
+    fn a_roster_row_with_no_tape_gets_its_tape_on_the_next_run() {
+        let from = store_scratch("import-repair-source");
+        write_old_room(&from);
+        let (to, log, vault) = dest("import-repair-dest");
+        let ada = personas::list_local_personas_from(&from, &from)
+            .into_iter()
+            .find(|value| value["id"] == "ada")
+            .unwrap();
+        append_persona(&log, &persona_from_legacy(ada).unwrap()).unwrap();
+        fs::create_dir_all(staging_name(&paths::transcript_segments_dir(&to, "ada"))).unwrap();
+
+        let report = import(&from, &log, &vault).unwrap();
+
+        assert_eq!(report.teammates, 2, "{report:?}");
+        assert_eq!(report.tapes, 2, "{report:?}");
+        assert!(
+            report.notes.iter().any(|note| note.item == "teammate ada"
+                && note.reason == "already in the roster; its conversation came over now"),
+            "{report:?}"
+        );
+        assert_eq!(
+            fs::read(paths::transcript_segment_path(&to, "ada", 1)).unwrap(),
+            fs::read(paths::transcript_segment_path(&from, "ada", 1)).unwrap()
+        );
+        assert_eq!(room::roster(&log).len(), 3);
+        let again = import(&from, &log, &vault).unwrap();
+        assert_eq!(again.tapes, 0, "{again:?}");
     }
 
     /// Claude Code's old id is this registry's id, so a teammate that named

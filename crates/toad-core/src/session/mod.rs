@@ -1918,7 +1918,7 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     Local::now().timestamp_millis()
 }
 

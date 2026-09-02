@@ -97,7 +97,7 @@ On each turn it is given:
 | kind | what | how |
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit`, `shell` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
-| Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{serverId}__{tool}` |
 
 A granted stdio server is spawned in its own process group on Unix, so a
@@ -415,6 +415,22 @@ into a crowd or a busy-loop:
 
 `quiet` is stored only when true. The parsers that take a string (`20m`,
 an RFC3339 time) live with the scheduler; they are not on the wire.
+
+A teammate speaks those strings through four tools, the same handler on
+both kinds of agent — Toad Agent in-process, an ACP child over Toad's own
+MCP server:
+
+| tool | strings | what it does |
+| --- | --- | --- |
+| `schedule` | `when`, `prompt`, `quiet?` | wake once; `when` is `20m` or an ISO timestamp |
+| `loop` | `every`, `prompt`, `quiet?` | wake on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
+| `list_schedules` | `target?` | the caller's jobs, or another teammate's if `target` is their personaId |
+| `cancel_schedule` | `id` | drop one of the caller's jobs; another teammate's is refused |
+
+The pane labels a job from its prompt; the tools take no name. A string
+neither parser accepts is refused as that string, not as milliseconds.
+The tools do not re-check the bounds — they parse, call the room, and
+return the room's refusal.
 
 ### Quiet
 

@@ -12,5 +12,6 @@ pub mod agent;
 pub mod contract;
 pub mod log;
 pub mod paths;
+pub mod room;
 pub mod store;
 pub mod tools;

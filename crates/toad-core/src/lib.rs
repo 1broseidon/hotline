@@ -11,6 +11,7 @@
 pub mod contract;
 pub mod desk;
 pub mod driver;
+pub mod import;
 pub mod log;
 pub mod paths;
 pub mod room;

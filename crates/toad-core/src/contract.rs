@@ -1126,6 +1126,10 @@ pub enum Command {
     SearchAll { query: String, limit: Option<i64> },
     #[serde(rename = "chapter.list")]
     ChapterList { persona_id: String },
+    /// Copies an existing Toad data directory into this room. The source is
+    /// never written.
+    #[serde(rename = "room.import")]
+    RoomImport { from: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

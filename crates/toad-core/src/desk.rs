@@ -107,4 +107,8 @@ impl RoomHandle for Desk {
     fn models(&self) -> Vec<ConfigChoice> {
         self.room.models_for_desk()
     }
+
+    fn import(&self, from: &Path) -> Result<crate::import::Report, String> {
+        crate::import::import(from, &self.log, &self.vault).map_err(|error| error.to_string())
+    }
 }

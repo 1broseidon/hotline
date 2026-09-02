@@ -66,6 +66,9 @@ pub(crate) async fn run(
         } => Ok(search::search(log.root(), &persona_id, &query, limit)),
         Command::SearchAll { query, limit } => Ok(search::search_all(log.root(), &query, limit)),
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
+        Command::RoomImport { from } => room
+            .import(std::path::Path::new(&from))
+            .map(|report| json!(report)),
     }
 }
 

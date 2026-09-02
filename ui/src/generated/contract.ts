@@ -45,7 +45,7 @@ export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, 
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } };
+export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } };
 
 export type ConfigChoice = { id: string, name: string, description?: string, 
 /**
@@ -324,6 +324,11 @@ export type Reach = "workspace" | "machine";
 export type Receipt = "sent" | "read";
 
 /**
+ * What an import did: how many of each thing came over, and what it left.
+ */
+export type Report = { teammates: number, tapes: number, settings: number, keys: number, skipped: Array<Skipped>, };
+
+/**
  * A ring: an agent's mark on one of its own messages, saying "this is the
  * one". The set is closed and the theme owns the colours — an agent naming a
  * hex would be an agent doing visual design.
@@ -393,6 +398,11 @@ export type SessionState = "idle" | "starting" | "ready" | "thinking" | "error" 
  * Which side of a conversation with the user a line came from.
  */
 export type Side = "me" | "them";
+
+/**
+ * One thing the importer did not take, and why.
+ */
+export type Skipped = { item: string, reason: string, };
 
 export type SlashCommand = { name: string, description?: string, hint?: string, };
 

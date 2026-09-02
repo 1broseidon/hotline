@@ -99,6 +99,10 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// Every model the desk's keys can reach, for the model picker.
     fn models(&self) -> Vec<crate::contract::ConfigChoice>;
+
+    /// Copies an existing Toad data directory into this room. The source is
+    /// never written.
+    fn import(&self, from: &std::path::Path) -> Result<crate::import::Report, String>;
 }
 
 /// What a socket may do, decided by the token it presented.

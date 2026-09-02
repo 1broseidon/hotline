@@ -133,6 +133,10 @@ impl RoomHandle for Quiet {
     fn models(&self) -> Vec<ConfigChoice> {
         Vec::new()
     }
+
+    fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
+        Ok(crate::import::Report::default())
+    }
 }
 
 fn scratch(name: &str) -> PathBuf {

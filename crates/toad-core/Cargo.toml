@@ -1,0 +1,21 @@
+[package]
+name = "toad-core"
+description = "Toad's core: the log, the room, sessions and their drivers, tools, and the wire. No Tauri dependency by design."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rig.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "macros", "rt-multi-thread", "process", "time", "sync"] }
+chrono.workspace = true
+rusqlite.workspace = true
+cap-std = "4.0.3"
+ignore = "0.4.33"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+globset = "0.4.20"
+futures-util = "0.3.34"
+uuid = { version = "1.26.0", features = ["v4"] }
+ts-rs = { version = "=12.0.1", features = ["serde-compat"] }

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/toad-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+rig = "0.42.0"
+serde = { version = "1", features = ["derive"] }
+# `preserve_order`: an event read from a tape and written back keeps the key
+# order it was written with, so a compaction never rewrites a line into
+# different bytes — and a tape from the previous Toad stays the same file.
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1.53", features = ["rt", "sync"] }
+chrono = "0.4.45"
+rusqlite = { version = "0.40.2", features = ["bundled"] }

@@ -7,8 +7,8 @@
 //! the work now, not replay every interval it slept through.
 //!
 //! `parse_duration` and `parse_when` are the agent-facing sugar. The wire
-//! takes milliseconds; the tool that will speak these strings has not been
-//! written yet.
+//! takes milliseconds; the teammate tools `schedule` and `loop` speak these
+//! strings and call this module.
 
 use super::{Room, now_ms};
 use crate::contract::{ScheduleKind, ScheduledJob, ScheduledRun, SessionState};

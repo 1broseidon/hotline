@@ -1,11 +1,12 @@
 //! Toad's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Seven tools — four over its own conversation, one that asks the person,
-//! two over the room's other teammates — and one instance of them per
-//! teammate session. They are the room's, not the agent's: the tape they
-//! read is Toad's record of a conversation that has been going on far
-//! longer than any one context, and the teammate they message is a
-//! colleague with a conversation of its own.
+//! Eleven tools — four over its own conversation, one that asks the person,
+//! two over the room's other teammates, four that wake it later — and one
+//! instance of them per teammate session. They are the room's, not the
+//! agent's: the tape they read is Toad's record of a conversation that has
+//! been going on far longer than any one context, the teammate they message
+//! is a colleague with a conversation of its own, and a scheduled job is a
+//! later turn of this same teammate.
 //!
 //! There are two ways to reach them, because there are two kinds of agent:
 //!
@@ -22,8 +23,8 @@
 //! cycle nothing ever breaks. Not a trait, because a seam with one
 //! implementation and one caller is a layer that buys nothing.
 
-use crate::contract::{ChapterClose, ToolSourceKind};
-use crate::session::{Room, ledger};
+use crate::contract::{ChapterClose, ScheduleKind, ScheduledJob, ToolSourceKind};
+use crate::session::{Room, ledger, now_ms, parse_duration, parse_when};
 use crate::store;
 use rmcp::ErrorData;
 use rmcp::handler::server::ServerHandler;
@@ -54,9 +55,13 @@ const NEW_CHAPTER: &str = "new_chapter";
 const REQUEST_HUMAN: &str = "request_human";
 const LIST_TEAMMATES: &str = "list_teammates";
 const MESSAGE_TEAMMATE: &str = "message_teammate";
+const SCHEDULE: &str = "schedule";
+const LOOP: &str = "loop";
+const LIST_SCHEDULES: &str = "list_schedules";
+const CANCEL_SCHEDULE: &str = "cancel_schedule";
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 7] = [
+pub const TOOL_NAMES: [&str; 11] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
@@ -64,6 +69,10 @@ pub const TOOL_NAMES: [&str; 7] = [
     REQUEST_HUMAN,
     LIST_TEAMMATES,
     MESSAGE_TEAMMATE,
+    SCHEDULE,
+    LOOP,
+    LIST_SCHEDULES,
+    CANCEL_SCHEDULE,
 ];
 
 /// What the search may be asked for at once, and what it settles on when the
@@ -79,7 +88,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in. `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows the jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -159,6 +168,63 @@ fn descriptors() -> Vec<Tool> {
                     "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX },
                 },
                 "required": ["to", "message"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            SCHEDULE,
+            "Wake yourself once at a future time and do the given prompt. `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The pane labels the job from the prompt. The user can see, quiet and cancel this from your schedules.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "when": { "type": "string", "description": "Duration like 20m or an ISO timestamp" },
+                    "prompt": { "type": "string" },
+                    "quiet": {
+                        "type": "boolean",
+                        "description": "Set this when the user asked to hear only about a change. The job's turn then stays out of the chat; you do not have to try to be silent. The user can turn it off from your schedules.",
+                    },
+                },
+                "required": ["when", "prompt"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            LOOP,
+            "Wake yourself on a repeating interval and do the given prompt each time. `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The pane labels the job from the prompt. The user can see, quiet and cancel this from your schedules.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "every": { "type": "string", "description": "Duration like 15s or 5m" },
+                    "prompt": { "type": "string" },
+                    "quiet": {
+                        "type": "boolean",
+                        "description": "Set this when the user asked to hear only about a change. The job's turn then stays out of the chat; you do not have to try to be silent. The user can turn it off from your schedules.",
+                    },
+                },
+                "required": ["every", "prompt"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            LIST_SCHEDULES,
+            "List scheduled and looping jobs. Omit target to see your own. Pass a personaId to see another teammate's.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string", "description": "personaId; omit for yourself" },
+                },
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            CANCEL_SCHEDULE,
+            "Cancel one of your scheduled or looping jobs by id from list_schedules.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                },
+                "required": ["id"],
                 "additionalProperties": false,
             })),
         ),
@@ -269,6 +335,88 @@ impl TeammateTools {
                 room.request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
                     .await
             }
+            SCHEDULE => {
+                let when = arguments
+                    .get("when")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|when| !when.is_empty())
+                    .ok_or_else(|| "schedule needs a `when`.".to_string())?;
+                let prompt = arguments
+                    .get("prompt")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "schedule needs a `prompt`.".to_string())?;
+                let quiet = arguments
+                    .get("quiet")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let when = parse_when(when, now_ms()).ok_or_else(|| not_a_when(when))?;
+                Ok(created(room.schedule_create(
+                    &self.persona_id,
+                    ScheduleKind::Schedule,
+                    Some(when),
+                    None,
+                    prompt,
+                    quiet,
+                )?))
+            }
+            LOOP => {
+                let every = arguments
+                    .get("every")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|every| !every.is_empty())
+                    .ok_or_else(|| "loop needs an `every`.".to_string())?;
+                let prompt = arguments
+                    .get("prompt")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "loop needs a `prompt`.".to_string())?;
+                let quiet = arguments
+                    .get("quiet")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let every = parse_duration(every).ok_or_else(|| not_a_when(every))?;
+                Ok(created(room.schedule_create(
+                    &self.persona_id,
+                    ScheduleKind::Loop,
+                    None,
+                    Some(every),
+                    prompt,
+                    quiet,
+                )?))
+            }
+            LIST_SCHEDULES => {
+                let target = arguments
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|target| !target.is_empty())
+                    .unwrap_or(&self.persona_id);
+                let jobs: Vec<Value> = room
+                    .schedule_list()
+                    .into_iter()
+                    .filter(|job| job.persona_id == target)
+                    .map(listed_job)
+                    .collect();
+                Ok(json!({ "jobs": jobs }).to_string())
+            }
+            CANCEL_SCHEDULE => {
+                let id = arguments
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        "cancel_schedule needs an `id` from list_schedules.".to_string()
+                    })?;
+                if let Some(job) = room.schedule_list().iter().find(|job| job.id == id)
+                    && job.persona_id != self.persona_id
+                {
+                    return Err("That job belongs to another teammate.".to_string());
+                }
+                room.schedule_cancel(id)?;
+                Ok(json!({ "cancelled": true }).to_string())
+            }
             other => Err(format!("This room has no tool called '{other}'.")),
         }
     }
@@ -313,6 +461,41 @@ fn quoted(result: &Value) -> String {
          The quoted content is over.",
         crate::fence::fenced("toad_thread_search", &result.to_string())
     )
+}
+
+/// One sentence for a `when` or `every` the parsers will not take. The
+/// tools share it so an agent that swaps the two still reads the same
+/// refusal.
+fn not_a_when(value: &str) -> String {
+    format!("`{value}` is not a duration like 20m or 2h, or an ISO timestamp.")
+}
+
+fn created(job: ScheduledJob) -> String {
+    json!({
+        "id": job.id,
+        "nextAt": job.next_at,
+        "kind": job.kind,
+    })
+    .to_string()
+}
+
+/// The fields a teammate asked for, not the whole room record. `quiet`
+/// stays a boolean so the agent does not have to treat absence as false.
+fn listed_job(job: ScheduledJob) -> Value {
+    let mut listed = json!({
+        "id": job.id,
+        "kind": job.kind,
+        "prompt": job.prompt,
+        "nextAt": job.next_at,
+        "quiet": job.quiet.unwrap_or(false),
+    });
+    if let Some(every) = job.every {
+        listed["every"] = json!(every);
+    }
+    if let Some(when) = job.when {
+        listed["when"] = json!(when);
+    }
+    listed
 }
 
 impl ServerHandler for TeammateTools {
@@ -470,6 +653,23 @@ mod tests {
         root
     }
 
+    fn bob() -> Persona {
+        Persona {
+            id: "bob".to_string(),
+            name: "Bob".to_string(),
+            ..ada()
+        }
+    }
+
+    fn write_persona(log: &Log, persona: Persona) {
+        let mut value = serde_json::to_value(persona).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("kind".into(), "persona".into());
+        log.append(&StreamId::Room, &value).unwrap();
+    }
+
     fn ada() -> Persona {
         Persona {
             node: None,
@@ -505,12 +705,7 @@ mod tests {
     /// up — the one writer per stream is still the one writer.
     fn room_with_a_conversation(name: &str) -> Arc<Room> {
         let log = Log::open(scratch(name));
-        let mut persona = serde_json::to_value(ada()).unwrap();
-        persona
-            .as_object_mut()
-            .unwrap()
-            .insert("kind".into(), "persona".into());
-        log.append(&StreamId::Room, &persona).unwrap();
+        write_persona(&log, ada());
 
         let tape = StreamId::Tape("ada".to_string());
         let now = chrono::Utc::now().timestamp_millis();
@@ -529,6 +724,13 @@ mod tests {
             )
             .unwrap();
         }
+        Room::new(log, Arc::new(NoKeys))
+    }
+
+    fn room_with_two(name: &str) -> Arc<Room> {
+        let log = Log::open(scratch(name));
+        write_persona(&log, ada());
+        write_persona(&log, bob());
         Room::new(log, Arc::new(NoKeys))
     }
 
@@ -658,6 +860,199 @@ mod tests {
         let room = room_with_a_conversation("unknown");
         let refused = tools(&room).call("ring_message", &json!({})).await;
         assert!(refused.unwrap_err().contains("ring_message"));
+    }
+
+    /// `20m` is twenty minutes from now, on the room stream, as a one-shot.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn schedule_with_twenty_minutes_lands_a_job_about_twenty_minutes_out() {
+        let room = room_with_a_conversation("schedule-20m");
+        let before = now_ms();
+        let answered = through_rig(
+            &tools(&room),
+            SCHEDULE,
+            json!({ "when": "20m", "prompt": "check the crane" }),
+        )
+        .await;
+        let after = now_ms();
+        let body: Value = serde_json::from_str(&answered).unwrap();
+        assert_eq!(body["kind"], "schedule");
+        let next_at = body["nextAt"].as_i64().unwrap();
+        let expect = 20 * 60_000;
+        assert!(
+            next_at >= before + expect && next_at <= after + expect,
+            "nextAt {next_at} is not twenty minutes from {before}..{after}"
+        );
+
+        let jobs = room.schedule_list();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, body["id"]);
+        assert_eq!(jobs[0].persona_id, "ada");
+        assert_eq!(jobs[0].kind, ScheduleKind::Schedule);
+        assert_eq!(jobs[0].prompt, "check the crane");
+        assert_eq!(jobs[0].next_at, next_at);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn loop_with_five_minutes_lands_a_repeating_job() {
+        let room = room_with_a_conversation("loop-5m");
+        let before = now_ms();
+        let answered = through_rig(
+            &tools(&room),
+            LOOP,
+            json!({ "every": "5m", "prompt": "sweep the inbox" }),
+        )
+        .await;
+        let after = now_ms();
+        let body: Value = serde_json::from_str(&answered).unwrap();
+        assert_eq!(body["kind"], "loop");
+        let next_at = body["nextAt"].as_i64().unwrap();
+        let expect = 5 * 60_000;
+        assert!(
+            next_at >= before + expect && next_at <= after + expect,
+            "nextAt {next_at} is not five minutes from {before}..{after}"
+        );
+
+        let jobs = room.schedule_list();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].every, Some(expect));
+        assert_eq!(jobs[0].kind, ScheduleKind::Loop);
+        assert_eq!(jobs[0].prompt, "sweep the inbox");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_unparsable_when_is_the_duration_sentence() {
+        let room = room_with_a_conversation("when-nope");
+        let refused = tools(&room)
+            .call(SCHEDULE, &json!({ "when": "nope", "prompt": "check" }))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refused,
+            "`nope` is not a duration like 20m or 2h, or an ISO timestamp."
+        );
+        assert!(room.schedule_list().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_schedules_lists_the_callers_jobs() {
+        let room = room_with_two("list-own");
+        through_rig(
+            &tools(&room),
+            SCHEDULE,
+            json!({ "when": "20m", "prompt": "ada's check" }),
+        )
+        .await;
+        room.schedule_create(
+            "bob",
+            ScheduleKind::Loop,
+            None,
+            Some(5 * 60_000),
+            "bob's sweep",
+            false,
+        )
+        .unwrap();
+
+        let listed = through_rig(&tools(&room), LIST_SCHEDULES, json!({})).await;
+        let body: Value = serde_json::from_str(&listed).unwrap();
+        let jobs = body["jobs"].as_array().unwrap();
+        assert_eq!(jobs.len(), 1, "{body}");
+        assert_eq!(jobs[0]["prompt"], "ada's check");
+        assert_eq!(jobs[0]["kind"], "schedule");
+        assert!(jobs[0]["nextAt"].is_i64());
+        assert_eq!(jobs[0]["quiet"], false);
+        assert!(jobs[0].get("when").is_some());
+        assert!(jobs[0].get("every").is_none());
+
+        let theirs = through_rig(&tools(&room), LIST_SCHEDULES, json!({ "target": "bob" })).await;
+        let theirs: Value = serde_json::from_str(&theirs).unwrap();
+        assert_eq!(theirs["jobs"][0]["prompt"], "bob's sweep");
+        assert_eq!(theirs["jobs"][0]["kind"], "loop");
+        assert_eq!(theirs["jobs"][0]["every"], 5 * 60_000);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancel_schedule_refuses_another_teammates_job() {
+        let room = room_with_two("cancel-other");
+        let theirs = room
+            .schedule_create(
+                "bob",
+                ScheduleKind::Schedule,
+                Some(now_ms() + 20 * 60_000),
+                None,
+                "bob's check",
+                false,
+            )
+            .unwrap();
+        let refused = tools(&room)
+            .call(CANCEL_SCHEDULE, &json!({ "id": theirs.id }))
+            .await
+            .unwrap_err();
+        assert_eq!(refused, "That job belongs to another teammate.");
+        assert_eq!(room.schedule_list().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancel_schedule_drops_the_callers_own_job() {
+        let room = room_with_a_conversation("cancel-own");
+        let created = through_rig(
+            &tools(&room),
+            LOOP,
+            json!({ "every": "5m", "prompt": "sweep" }),
+        )
+        .await;
+        let id = serde_json::from_str::<Value>(&created).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let answered = through_rig(&tools(&room), CANCEL_SCHEDULE, json!({ "id": id })).await;
+        assert_eq!(
+            serde_json::from_str::<Value>(&answered).unwrap(),
+            json!({ "cancelled": true })
+        );
+        assert!(room.schedule_list().is_empty());
+    }
+
+    /// The tool does not re-state the room's bounds. A loop under `MIN_LOOP`
+    /// and a twenty-first job are the room's sentences, word for word.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_rooms_limits_come_back_as_the_rooms_text() {
+        let room = room_with_a_conversation("limits");
+        let too_soon = tools(&room)
+            .call(LOOP, &json!({ "every": "5s", "prompt": "busy" }))
+            .await
+            .unwrap_err();
+        let via_room = room
+            .schedule_create("ada", ScheduleKind::Loop, None, Some(5_000), "busy", false)
+            .unwrap_err();
+        assert_eq!(too_soon, via_room);
+
+        let when = now_ms() + 60_000;
+        for i in 0..20 {
+            room.schedule_create(
+                "ada",
+                ScheduleKind::Schedule,
+                Some(when + i),
+                None,
+                &format!("job {i}"),
+                false,
+            )
+            .unwrap();
+        }
+        let too_many = tools(&room)
+            .call(SCHEDULE, &json!({ "when": "20m", "prompt": "one more" }))
+            .await
+            .unwrap_err();
+        let via_room = room
+            .schedule_create(
+                "ada",
+                ScheduleKind::Schedule,
+                Some(when + 21),
+                None,
+                "one more",
+                false,
+            )
+            .unwrap_err();
+        assert_eq!(too_many, via_room);
     }
 
     fn client() -> ClientInfo {

@@ -201,7 +201,6 @@ pub fn mark_verified(
 
 /// Flip a supplier's rows to absent with one cause — a server that went
 /// away mid-session.
-#[cfg(test)]
 pub fn mark_absent(persona_id: &str, source: ToolSourceKind, origin: &str, reason: &str) {
     let mut held = store();
     let Some(ledgers) = held.as_mut() else {

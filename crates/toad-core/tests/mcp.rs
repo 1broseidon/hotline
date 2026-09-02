@@ -171,16 +171,19 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
         "{rows:?}"
     );
 
-    let connected = mcp::connect(&[McpServer {
-        id: "echo".into(),
-        name: "Echo".into(),
-        transport: McpTransport::Stdio {
-            command: echo_command(),
-            args: Vec::new(),
-            env: Default::default(),
-        },
-        refuse: None,
-    }])
+    let connected = mcp::connect(
+        &persona_id,
+        &[McpServer {
+            id: "echo".into(),
+            name: "Echo".into(),
+            transport: McpTransport::Stdio {
+                command: echo_command(),
+                args: Vec::new(),
+                env: Default::default(),
+            },
+            refuse: None,
+        }],
+    )
     .await;
     assert_eq!(connected.failed.len(), 0, "{:?}", connected.failed);
     let tool = connected
@@ -416,5 +419,63 @@ async fn a_non_string_env_value_is_absent_naming_the_key() {
     assert!(
         rows.iter().all(|row| row["name"] != "echo__shout"),
         "the server started without its token: {rows:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stdio_child_dropped_after_the_first_call_says_so_once() {
+    let connected = mcp::connect(
+        "mcp-gone-stdio",
+        &[McpServer {
+            id: "echo".into(),
+            name: "Echo".into(),
+            transport: McpTransport::Stdio {
+                command: echo_command(),
+                args: Vec::new(),
+                env: Default::default(),
+            },
+            refuse: None,
+        }],
+    )
+    .await;
+    assert_eq!(connected.failed.len(), 0, "{:?}", connected.failed);
+    let tool = connected
+        .tools
+        .iter()
+        .find(|tool| tool.name == "echo__shout")
+        .expect("connect listed shout")
+        .clone();
+    let shouted = tool
+        .call(json!({ "text": "harbour" }))
+        .await
+        .expect("the first call reached the server");
+    assert_eq!(shouted, "HARBOUR");
+
+    drop(connected);
+
+    let err = tool
+        .call(json!({ "text": "harbour" }))
+        .await
+        .expect_err("the dropped child cannot answer");
+    match err {
+        mcp::CallError::Transport {
+            notice: Some(text), ..
+        } => {
+            assert!(text.starts_with("The Echo MCP server went away:"), "{text}");
+            assert!(
+                text.contains("Its tools are gone until the teammate restarts."),
+                "{text}"
+            );
+        }
+        other => panic!("a dead stdio child is a transport error, not {other:?}"),
+    }
+
+    let err = tool
+        .call(json!({ "text": "harbour" }))
+        .await
+        .expect_err("still gone");
+    assert!(
+        matches!(err, mcp::CallError::Transport { notice: None, .. }),
+        "the notice lands once: {err:?}"
     );
 }

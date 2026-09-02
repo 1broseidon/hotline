@@ -41,7 +41,7 @@ use rig::message::{Message, ReasoningContent, ToolResultContent};
 use rig::prelude::*;
 use rig::providers::{anthropic, openai, openrouter};
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
-use rig::tool::DynamicTool;
+use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -264,7 +264,7 @@ impl Driver for InProcess {
         };
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
         *lock(&self.model) = model;
-        let connected = mcp::connect(&self.mcp_servers).await;
+        let connected = mcp::connect(&persona.id, &self.mcp_servers).await;
         publish_ledger(persona, &self.mcp_missing, &connected);
         *lock(&self.mcp) = Some(connected);
         Ok(self.info(&keys))
@@ -284,7 +284,13 @@ impl Driver for InProcess {
         *lock(&self.stop) = stop.clone();
         let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
         if let Some(connected) = lock(&self.mcp).as_ref() {
-            mcp_tools.extend(connected.tools.iter().map(mcp::McpTool::as_dynamic));
+            mcp_tools.extend(
+                connected
+                    .tools
+                    .iter()
+                    .cloned()
+                    .map(|tool| mcp_dynamic(tool, sender.clone())),
+            );
         }
         let turn = Turn {
             keys: self.keys.provider_keys(),
@@ -755,6 +761,39 @@ fn with_paths(text: &str, attachments: &[Attachment]) -> String {
     format!("{text}\n\nAttached files:\n{}", paths.join("\n"))
 }
 
+/// The Rig adapter for one granted MCP tool. A transport death is already
+/// on the ledger; the notice rides this turn's update channel so the
+/// session writes it on the tape, once, without the tool knowing what a
+/// tape is.
+fn mcp_dynamic(tool: mcp::McpTool, notices: mpsc::Sender<Update>) -> DynamicTool {
+    DynamicTool::new(
+        tool.name.clone(),
+        tool.description.clone(),
+        tool.parameters.clone(),
+        move |_context, arguments| {
+            let tool = tool.clone();
+            let notices = notices.clone();
+            Box::pin(async move {
+                match tool.call(arguments).await {
+                    Ok(text) => Ok(ToolOutput::text(text)),
+                    Err(mcp::CallError::Transport { message, notice }) => {
+                        if let Some(text) = notice {
+                            let _ = notices
+                                .send(Update::Notice {
+                                    level: NoticeLevel::Warn,
+                                    text,
+                                })
+                                .await;
+                        }
+                        Err(ToolExecutionError::other(message))
+                    }
+                    Err(mcp::CallError::Tool(message)) => Err(ToolExecutionError::other(message)),
+                }
+            })
+        },
+    )
+}
+
 /// The ledger reads what this session was actually built with, not what
 /// the configuration promised. Built-ins are verified because Toad handed
 /// them to the agent; MCP tools are verified when the server listed them,
@@ -1000,5 +1039,85 @@ mod tests {
         let held = history.lock().await;
         assert_eq!(*held, vec![Message::user("did the crane jam?")]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn echo_command() -> String {
+        if let Ok(path) = std::env::var("CARGO_BIN_EXE_toad_mcp_echo") {
+            return path;
+        }
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/debug/toad-mcp-echo")
+            .canonicalize()
+            .expect("toad-mcp-echo should have been built with this test")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    /// The failing call returns the error to the model as before, and the
+    /// notice that the origin is gone rides the same channel the session
+    /// writes to the tape — once.
+    #[tokio::test]
+    async fn a_dead_mcp_transport_sends_the_went_away_notice_once() {
+        use crate::mcp::{McpServer, McpTransport};
+        use rig::tool::ToolSet;
+
+        let connected = mcp::connect(
+            "mcp-notice-turn",
+            &[McpServer {
+                id: "echo".into(),
+                name: "Echo".into(),
+                transport: McpTransport::Stdio {
+                    command: echo_command(),
+                    args: Vec::new(),
+                    env: HashMap::new(),
+                },
+                refuse: None,
+            }],
+        )
+        .await;
+        assert!(connected.failed.is_empty(), "{:?}", connected.failed);
+        let (tx, mut rx) = mpsc::channel(8);
+        let tool = connected.tools[0].clone();
+        let name = tool.name.clone();
+        let set = ToolSet::from_dynamic_tools(vec![mcp_dynamic(tool, tx)]);
+        let first = set
+            .execute(
+                &name,
+                json!({"text": "harbour"}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(first.is_success(), "{first:?}");
+
+        drop(connected);
+        let second = set
+            .execute(
+                &name,
+                json!({"text": "harbour"}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(!second.is_success(), "{second:?}");
+        match rx.try_recv() {
+            Ok(Update::Notice { level, text }) => {
+                assert_eq!(level, NoticeLevel::Warn);
+                assert!(text.starts_with("The Echo MCP server went away:"), "{text}");
+                assert!(
+                    text.contains("Its tools are gone until the teammate restarts."),
+                    "{text}"
+                );
+            }
+            other => panic!("the failing call sends the notice, not {other:?}"),
+        }
+
+        let third = set
+            .execute(
+                &name,
+                json!({"text": "harbour"}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(!third.is_success(), "{third:?}");
+        assert!(rx.try_recv().is_err(), "the notice lands once");
     }
 }

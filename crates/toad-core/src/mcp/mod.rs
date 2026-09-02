@@ -14,7 +14,9 @@
 //! refused, with the key named on the ledger, rather than started without
 //! that variable. OAuth and static-header HTTP are a later task: those
 //! servers are refused with a sentence saying why, not connected with a
-//! dead credential.
+//! dead credential. A server that dies after it was attached is the same
+//! honesty later: the next call that hits a dead transport marks that
+//! origin's rows absent and says so once on the tape.
 //!
 //! Toad's own teammate tools are the other half of MCP, and they live
 //! in [`server`].
@@ -22,7 +24,8 @@
 pub mod server;
 mod tool;
 
-pub use tool::McpTool;
+use tool::Watch;
+pub use tool::{CallError, McpTool};
 
 use crate::contract::{McpPolicy, PolicyMode};
 use rmcp::ServiceExt;
@@ -161,17 +164,26 @@ pub fn grant(available: &[McpServer], policy: &McpPolicy) -> Grant {
 }
 
 /// Connect every granted server. A refusal or a handshake failure becomes a
-/// [`FailedServer`]; the rest list their tools.
-pub async fn connect(servers: &[McpServer]) -> Connections {
+/// [`FailedServer`]; the rest list their tools. `persona_id` is who the
+/// ledger names when a transport dies after this, so a silent mid-session
+/// absence is still a named one.
+pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
     let mut tools = Vec::new();
     let mut failed = Vec::new();
     let mut live = Vec::new();
+    let watch = Watch::new(persona_id);
     for server in servers {
         match connect_one(server).await {
             Ok((client, listed)) => {
                 let peer = client.peer().clone();
                 for definition in listed {
-                    tools.push(McpTool::new(&server.id, definition, peer.clone()));
+                    tools.push(McpTool::new(
+                        &server.id,
+                        &server.name,
+                        definition,
+                        peer.clone(),
+                        watch.clone(),
+                    ));
                 }
                 live.push(client);
             }
@@ -580,12 +592,85 @@ mod tests {
                 .as_ref()
                 .and_then(|args| args.get("text"))
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_uppercase();
-            std::future::ready(Ok(
-                CallToolResult::success(vec![ContentBlock::text(text)]).into()
-            ))
+                .unwrap_or("");
+            if text == "fail" {
+                return std::future::ready(Ok(CallToolResult::error(vec![ContentBlock::text(
+                    "the tool refused",
+                )])
+                .into()));
+            }
+            if text == "rpc" {
+                return std::future::ready(Err(rmcp::ErrorData::invalid_params(
+                    "the tool rejected the arguments",
+                    None,
+                )));
+            }
+            std::future::ready(Ok(CallToolResult::success(vec![ContentBlock::text(
+                text.to_uppercase(),
+            )])
+            .into()))
         }
+    }
+
+    async fn echo_on_duplex(
+        persona_id: &str,
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>,
+        McpTool,
+    ) {
+        let (client_to_server, server_from_client) = tokio::io::duplex(8192);
+        let server = tokio::spawn(async move {
+            let _ = Echo
+                .serve(server_from_client)
+                .await
+                .expect("echo server starts")
+                .waiting()
+                .await;
+        });
+        let client = toad_client()
+            .serve(client_to_server)
+            .await
+            .expect("client handshake");
+        let listed = client.list_all_tools().await.expect("tools listed");
+        let tool = McpTool::new(
+            "echo",
+            "Echo",
+            listed.into_iter().next().unwrap(),
+            client.peer().clone(),
+            Watch::new(persona_id),
+        );
+        (server, client, tool)
+    }
+
+    fn publish_echo(persona_id: &str) {
+        use crate::contract::{AgentKind, ToolSourceKind};
+        use crate::session::ledger::ToolLedger;
+        let mut ledger = ToolLedger::new(persona_id, AgentKind::Pi, "pi");
+        ledger
+            .verified(
+                ToolSourceKind::Mcp,
+                "echo",
+                "echo__shout",
+                "attached from the echo MCP server",
+            )
+            .verified(
+                ToolSourceKind::Mcp,
+                "echo",
+                "echo__whisper",
+                "attached from the echo MCP server",
+            )
+            .verified(ToolSourceKind::Builtin, "pi", "read", "a built-in")
+            .publish();
+    }
+
+    fn echo_row(persona_id: &str, name: &str) -> crate::contract::ToolLedgerRow {
+        crate::session::ledger::teammate_tools(persona_id)
+            .expect("published")
+            .rows
+            .into_iter()
+            .find(|row| row.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the ledger"))
     }
 
     #[test]
@@ -694,8 +779,10 @@ mod tests {
 
         let tool = McpTool::new(
             "echo",
+            "Echo",
             listed.into_iter().next().unwrap(),
             client.peer().clone(),
+            Watch::new("duplex-echo"),
         );
         assert_eq!(tool.name, "echo__shout");
         let shouted = tool
@@ -703,6 +790,94 @@ mod tests {
             .await
             .expect("the call reached the server");
         assert_eq!(shouted, "HARBOUR");
+
+        client.cancel().await.ok();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn a_server_dropped_after_the_first_call_marks_its_rows_absent_once() {
+        use crate::contract::ToolState;
+        let persona_id = "mcp-gone-duplex";
+        publish_echo(persona_id);
+        let (server, client, tool) = echo_on_duplex(persona_id).await;
+        let shouted = tool
+            .call(json!({ "text": "harbour" }))
+            .await
+            .expect("the first call reached the server");
+        assert_eq!(shouted, "HARBOUR");
+        assert_eq!(
+            echo_row(persona_id, "echo__shout").state,
+            ToolState::Verified
+        );
+
+        drop(client);
+        server.abort();
+
+        let err = tool
+            .call(json!({ "text": "harbour" }))
+            .await
+            .expect_err("the dropped server cannot answer");
+        let CallError::Transport {
+            notice: Some(text), ..
+        } = &err
+        else {
+            panic!("a dead transport is a transport error, not {err:?}");
+        };
+        assert!(text.starts_with("The Echo MCP server went away:"), "{text}");
+        assert!(
+            text.contains("Its tools are gone until the teammate restarts."),
+            "{text}"
+        );
+
+        let shout = echo_row(persona_id, "echo__shout");
+        assert_eq!(shout.state, ToolState::Absent);
+        assert!(!shout.reason.is_empty());
+        assert_eq!(
+            echo_row(persona_id, "echo__whisper").state,
+            ToolState::Absent
+        );
+        assert_eq!(echo_row(persona_id, "read").state, ToolState::Verified);
+
+        let err = tool
+            .call(json!({ "text": "harbour" }))
+            .await
+            .expect_err("still gone");
+        assert!(
+            matches!(err, CallError::Transport { notice: None, .. }),
+            "the notice lands once: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tool_level_error_leaves_the_ledger_verified() {
+        use crate::contract::ToolState;
+        let persona_id = "mcp-tool-error";
+        publish_echo(persona_id);
+        let (server, client, tool) = echo_on_duplex(persona_id).await;
+
+        let err = tool
+            .call(json!({ "text": "fail" }))
+            .await
+            .expect_err("the tool refused");
+        assert!(
+            matches!(&err, CallError::Tool(message) if message.contains("refused")),
+            "{err:?}"
+        );
+        assert_eq!(
+            echo_row(persona_id, "echo__shout").state,
+            ToolState::Verified
+        );
+
+        let err = tool
+            .call(json!({ "text": "rpc" }))
+            .await
+            .expect_err("the server rejected the call");
+        assert!(matches!(err, CallError::Tool(_)), "{err:?}");
+        assert_eq!(
+            echo_row(persona_id, "echo__shout").state,
+            ToolState::Verified
+        );
 
         client.cancel().await.ok();
         let _ = server.await;
@@ -730,7 +905,7 @@ mod tests {
             },
             refuse: None,
         };
-        let connected = connect(&[oauth, static_header]).await;
+        let connected = connect("oauth-refuse", &[oauth, static_header]).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 2);
         assert!(connected.failed[0].reason.contains("OAuth"));
@@ -773,7 +948,7 @@ mod tests {
             }]),
         );
         let listed = servers(&settings);
-        let connected = connect(&listed).await;
+        let connected = connect("needs-token", &listed).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 1);
         assert_eq!(connected.failed[0].id, "needs-token");
@@ -803,7 +978,7 @@ mod tests {
             },
             refuse: None,
         };
-        let connected = connect(&[missing]).await;
+        let connected = connect("gone", &[missing]).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 1);
         assert!(!connected.failed[0].reason.trim().is_empty());

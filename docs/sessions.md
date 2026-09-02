@@ -349,7 +349,12 @@ listed them, and absent — with the error as the reason — when it did not. A
 server whose env has a value that is not a string is absent, naming the
 offending key; starting it without that variable is worse than not starting
 it. A policy id that no longer names a server is absent with one sentence,
-the same on either driver.
+the same on either driver. A server that was attached and later dies —
+process exited, connection closed, HTTP endpoint unreachable — turns every
+row from that origin absent, with the transport error as the reason, and
+writes one notice on the tape: `The <name> MCP server went away:
+<reason>. Its tools are gone until the teammate restarts.` A tool-level
+error the server itself answered leaves the rows verified.
 
 A child is handed descriptors and does not report what it loaded, so its
 honest state is declared: Toad's own tools as named tools, each granted

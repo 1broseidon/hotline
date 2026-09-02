@@ -4,10 +4,13 @@
 //! Servers are defined once, under the room setting `mcpServers`, and
 //! teammates reference them by id. That split is deliberate: a server is a
 //! piece of infrastructure with a command in it, while which teammate may
-//! use it is a question about that teammate. An id that no longer names a
-//! server is dropped rather than treated as an error — deleting a server
-//! should not break every teammate that referenced it — and the drop is
-//! recorded on the ledger so it is not silent.
+//! use it is a question about that teammate. A granted tool is named
+//! `{slug}__{remote}` from the server's human name, because a uuid is not
+//! a namespace an agent can read; the ledger origin stays the id. An id
+//! that no longer names a server is dropped rather than treated as an
+//! error — deleting a server should not break every teammate that
+//! referenced it — and the drop is recorded on the ledger so it is not
+//! silent.
 //!
 //! A half-written entry in settings costs that one server, never every
 //! teammate's tools. A server whose env is not a map of strings is refused
@@ -203,12 +206,17 @@ pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
     let mut live = Vec::new();
     let watch = Watch::new(persona_id);
     let mut groups = Vec::new();
-    for server in servers {
+    // Prefixes for the whole grant, before any handshake, so a server that
+    // fails to start still consumes its slot and the survivors keep the
+    // names the policy's order promised.
+    let prefixes = tool::prefixes(servers);
+    for (server, prefix) in servers.iter().zip(&prefixes) {
         match connect_one(server).await {
             Ok((client, listed, group)) => {
                 let peer = client.peer().clone();
                 for definition in listed {
                     tools.push(McpTool::new(
+                        prefix,
                         &server.id,
                         &server.name,
                         definition,
@@ -678,6 +686,7 @@ mod tests {
         let listed = client.list_all_tools().await.expect("tools listed");
         let tool = McpTool::new(
             "echo",
+            "echo",
             "Echo",
             listed.into_iter().next().unwrap(),
             client.peer().clone(),
@@ -714,6 +723,84 @@ mod tests {
             .into_iter()
             .find(|row| row.name == name)
             .unwrap_or_else(|| panic!("{name} is on the ledger"))
+    }
+
+    fn named(id: &str, name: &str) -> McpServer {
+        McpServer {
+            id: id.into(),
+            name: name.into(),
+            transport: McpTransport::Stdio {
+                command: "echo".into(),
+                args: Vec::new(),
+                env: HashMap::new(),
+            },
+            refuse: None,
+        }
+    }
+
+    #[test]
+    fn a_server_name_slugs_to_lowercase_ascii_letters_digits_and_underscore() {
+        use super::tool::{slug, tool_name};
+        assert_eq!(slug("GitHub Search"), "github_search");
+        assert_eq!(slug("v2 API"), "v2_api");
+        assert_eq!(slug("foo-bar.baz"), "foo_bar_baz");
+        assert_eq!(slug("  Foo  Bar  "), "foo_bar");
+        assert_eq!(slug("___Hello!!World___"), "hello_world");
+        // é and the emoji are one run of non-ASCII, so they become one `_`.
+        assert_eq!(slug("Café ☕ Search"), "caf_search");
+        assert_eq!(slug("日本語"), "server");
+        assert_eq!(slug("---"), "server");
+        assert_eq!(slug(""), "server");
+        assert_eq!(slug("___"), "server");
+
+        assert_eq!(
+            tool_name("github_search", "search"),
+            "github_search__search"
+        );
+        // 20-char prefix + __ + 50-char remote is 72; the prefix keeps 12.
+        let remote_50 = "r".repeat(50);
+        assert_eq!(
+            tool_name(&"p".repeat(20), &remote_50),
+            format!("{}__{remote_50}", "p".repeat(12))
+        );
+        // 64 - 2 - 56 = 6, under eight, so the first eight of the prefix stay.
+        let remote_56 = "r".repeat(56);
+        let name = tool_name(&"p".repeat(20), &remote_56);
+        assert_eq!(name, format!("{}__{remote_56}", "p".repeat(8)));
+        assert!(name.len() > 64);
+        // A short prefix is kept whole when the remote leaves room.
+        assert_eq!(tool_name("echo", "shout"), "echo__shout");
+    }
+
+    #[test]
+    fn colliding_slugs_take_a_suffix_in_grant_order() {
+        let servers = [
+            named("a", "GitHub Search"),
+            named("b", "GitHub Search"),
+            named("c", "github_search"),
+            named("d", "Other"),
+        ];
+        assert_eq!(
+            super::tool::prefixes(&servers),
+            [
+                "github_search",
+                "github_search_2",
+                "github_search_3",
+                "other"
+            ]
+        );
+        // A name that slugs to a suffix already taken skips that number.
+        let taken = [named("a", "foo_2"), named("b", "Foo"), named("c", "Foo")];
+        assert_eq!(super::tool::prefixes(&taken), ["foo_2", "foo", "foo_3"]);
+    }
+
+    #[test]
+    fn how_to_use_says_granted_tools_are_named_server_tool() {
+        assert!(
+            server::HOW_TO_USE.contains("<server>__<tool>"),
+            "{}",
+            server::HOW_TO_USE
+        );
     }
 
     #[test]
@@ -822,12 +909,14 @@ mod tests {
 
         let tool = McpTool::new(
             "echo",
+            "3f9c1b2e-0000-4000-8000-000000000001",
             "Echo",
             listed.into_iter().next().unwrap(),
             client.peer().clone(),
             Watch::new("duplex-echo"),
         );
         assert_eq!(tool.name, "echo__shout");
+        assert_eq!(tool.origin, "3f9c1b2e-0000-4000-8000-000000000001");
         let shouted = tool
             .call(json!({ "text": "harbour" }))
             .await

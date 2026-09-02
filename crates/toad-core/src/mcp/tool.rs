@@ -1,11 +1,12 @@
 //! One MCP tool as Toad Agent calls it.
 //!
-//! The name is prefixed with the server id so two servers that both expose
-//! `search` do not collide. Description and input schema pass through as the
-//! server listed them. A call is forwarded, and the result's text content
-//! is what the model sees. A transport failure or an `isError` result is
-//! `Err`; only the transport case marks the origin absent, because that is
-//! the server going away, not the tool answering.
+//! The name is `{slug}__{remote}` so two servers that both expose `search`
+//! do not collide, and the slug is the server's human name — a uuid is not
+//! a namespace an agent can read. Description and input schema pass through
+//! as the server listed them. A call is forwarded, and the result's text
+//! content is what the model sees. A transport failure or an `isError`
+//! result is `Err`; only the transport case marks the origin absent,
+//! because that is the server going away, not the tool answering.
 
 use crate::contract::ToolSourceKind;
 use crate::session::ledger;
@@ -16,6 +17,77 @@ use rmcp::service::Peer;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
+
+use super::McpServer;
+
+/// The strictest provider cap on a tool name: `^[a-zA-Z0-9_-]{1,64}$`.
+const MAX_TOOL_NAME: usize = 64;
+/// A prefix shorter than this is not a namespace an agent can recognise.
+const MIN_PREFIX: usize = 8;
+const SEAM: &str = "__";
+
+/// Lowercase ASCII letters, digits and `_`. Every other run of characters
+/// becomes one `_`; empty after trim is `server`.
+pub(crate) fn slug(name: &str) -> String {
+    let mut out = String::new();
+    let mut in_other = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            if in_other {
+                out.push('_');
+                in_other = false;
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            in_other = true;
+        }
+    }
+    if in_other {
+        out.push('_');
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "server".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// The tool-name prefix for each granted server, in this list's order —
+/// grant order, which is the order [`super::connect`] walks.
+///
+/// The first server that slugs to a name keeps it; later collisions get
+/// `_2`, `_3`… on that same base. A later server whose own slug is already
+/// taken (a name that slugs to `foo_2` after two `Foo`s) takes the next
+/// free suffix, so every prefix in one connect is unique.
+pub(crate) fn prefixes(servers: &[McpServer]) -> Vec<String> {
+    let mut used = HashSet::new();
+    let mut out = Vec::with_capacity(servers.len());
+    for server in servers {
+        let base = slug(&server.name);
+        let mut prefix = base.clone();
+        let mut n = 2u32;
+        while !used.insert(prefix.clone()) {
+            prefix = format!("{base}_{n}");
+            n += 1;
+        }
+        out.push(prefix);
+    }
+    out
+}
+
+/// `{prefix}__{remote}`. A name longer than 64 shortens the prefix, never
+/// the remote; if that would leave fewer than eight characters of prefix,
+/// the first eight of the prefix stay so the namespace is still readable.
+pub(crate) fn tool_name(prefix: &str, remote: &str) -> String {
+    let room = MAX_TOOL_NAME.saturating_sub(SEAM.len() + remote.len());
+    let keep = if room < MIN_PREFIX {
+        MIN_PREFIX.min(prefix.len())
+    } else {
+        prefix.len().min(room)
+    };
+    format!("{}{SEAM}{remote}", &prefix[..keep])
+}
 
 /// Why a call did not succeed. Both variants' text is what the model sees.
 #[derive(Debug)]
@@ -95,6 +167,7 @@ pub struct McpTool {
 
 impl McpTool {
     pub(crate) fn new(
+        prefix: &str,
         server_id: &str,
         server_name: &str,
         definition: rmcp::model::Tool,
@@ -103,7 +176,7 @@ impl McpTool {
     ) -> Self {
         let remote_name = definition.name.to_string();
         Self {
-            name: format!("{server_id}__{remote_name}"),
+            name: tool_name(prefix, &remote_name),
             description: definition.description.as_deref().unwrap_or("").to_string(),
             parameters: definition.schema_as_json_value(),
             origin: server_id.to_string(),

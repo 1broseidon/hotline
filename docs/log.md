@@ -39,6 +39,7 @@ rather than an absence it has to notice.
 The roster is every `persona` event that is not deleted, in the order the
 teammates first appeared. A setting tombstone is not an override: that
 key's default stands again. A credential tombstone is not a credential.
+A schedule tombstone is not a job.
 
 ## The tape
 
@@ -85,13 +86,14 @@ sidecar. No sidecar, no invented one.
 
 ## The room stream
 
-`room.jsonl` holds the roster, the settings, and the fact of each
-credential. One file, no epochs. The folds are `room::roster` and
-`room::settings` in `crates/toad-core/src/room.rs`; the vault writes the
-credential events.
+`room.jsonl` holds the roster, the settings, the jobs that will wake a
+teammate later, and the fact of each credential. One file, no epochs. The
+folds are `room::roster`, `room::settings` and `room::schedules` in
+`crates/toad-core/src/room.rs`; the vault writes the credential events.
 
 A setting nobody has set is the default: `defaultBackendId` is `"pi"`
-(Toad Agent) and `chapterIdleHours` is `8`.
+(Toad Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
+list.
 
 ### `persona`
 
@@ -146,6 +148,40 @@ A tombstone is `{"kind": "credential", "id": "…", "deleted": true}`.
 Revoking writes the same fields with `revoked: true`; the secret stays
 until delete takes it.
 
+### `schedule`
+
+A job, as the contract serializes it, with `"kind": "schedule"` beside it
+— that slot is the stream's. The job's own kind (`schedule` once, `loop`
+every interval) is recovered from `every` being present. Jobs still
+waiting to fire, soonest first:
+
+```json
+{
+  "kind": "schedule",
+  "id": "…",
+  "personaId": "ada",
+  "when": 1700000001000,
+  "prompt": "Check the order",
+  "quiet": true,
+  "nextAt": 1700000001000,
+  "createdAt": 1
+}
+```
+
+A loop carries `every` (milliseconds) instead of `when`. `quiet` is stored
+only when true. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
+The clock that fires these is [sessions.md](sessions.md).
+
+## Startup settle
+
+Opening the room folds every living teammate's tape before anything is
+served from it. A permission card left open by the last process is a
+button nobody is behind, so it is superseded with `decision: "expired"`
+and the tape compacted; then the search index is synced, because the fold
+just rewrote files and a tape written by the importer or the previous Toad
+has never been indexed here at all. The idle chapter sweep and the
+scheduler's clock start on the same open; those are [sessions.md](sessions.md).
+
 ## The vault
 
 `<root>/vault/secrets.json` is a JSON map from credential id to secret.
@@ -181,4 +217,5 @@ title, note, tags — answer "what was that thing we did in June". Chapter
 hits come first. Each word becomes a quoted prefix term; the words are
 ANDed, then ORed if nothing matched.
 
-The wire that subscribes to these streams is [wire.md](wire.md).
+The wire that subscribes to these streams is [wire.md](wire.md). What a
+session writes onto a tape is [sessions.md](sessions.md).

@@ -29,9 +29,10 @@ answered exactly once with success, or with an error:
 ```
 
 A command whose result is JSON `null` — delete, stop, prompt, cancel,
-revoke, and a successful unsubscribe — is answered `{"id": n, "ok": true}`
-with no `result` field. Absent `params` and `"params": {}` are the same
-thing.
+revoke, `session.answer_permission`, `schedule.cancel`,
+`schedule.set_quiet`, and a successful unsubscribe — is answered
+`{"id": n, "ok": true}` with no `result` field. Absent `params` and
+`"params": {}` are the same thing.
 
 A subscription:
 
@@ -78,6 +79,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.revoke` | `{id}` | none |
 | `credential.delete` | `{id}` | none |
+| `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `session.start` | `{personaId}` | `SessionInfo` |
@@ -90,8 +92,18 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
-| `chapter.start_fresh` | `{personaId}` | the chapter that closed, with its note |
 | `room.import` | `{from}` | an import `Report` |
+| `chapter.start_fresh` | `{personaId}` | the chapter that closed, with its note |
+| `teammate.tools` | `{personaId}` | a `TeammateToolLedger`, or none |
+| `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?}` | the created `ScheduledJob` |
+| `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |
+| `schedule.cancel` | `{id}` | none |
+| `schedule.set_quiet` | `{id, quiet}` | none |
+
+`backends.list` is every harness this machine can start, and the ones it
+knows of but cannot, with the reason. Toad Agent (`id` `"pi"`) is always
+first. `unavailable` is absent when the row can be started here and a
+sentence naming what is missing when it cannot.
 
 `session.answer_permission` is refused when nothing is waiting behind that
 request any more — the turn ended, the session stopped, or somebody else
@@ -124,11 +136,23 @@ matched than the limit. A missing index or an empty query is
 `{hits: [], truncated: false}`.
 
 `chapter.list` is the tape's chapter markers: `{id, startedAt, endedAt?,
-title?, note?, status?, messages}`.
+title?, note?, status?, closedBy?, messages}`.
 
 `room.import`'s `from` is a path to an existing Toad data directory. The
 source is never written. `Report` is `{teammates, tapes, settings, keys,
 skipped: [{item, reason}]}`.
+
+`teammate.tools` is what tools this teammate was given the last time it
+started, where they came from, and — for anything absent — why. JSON `null`
+when it has never started under a Toad that keeps a ledger. The ledger
+itself is [sessions.md](sessions.md).
+
+`schedule.create`'s `kind` is `"schedule"` (once) or `"loop"` (every
+interval until cancelled). Times are milliseconds: `when` is a one-shot's
+fire, milliseconds since epoch; `every` is a loop's interval. `quiet`
+defaults to false. A one-shot cannot carry `every`; a loop cannot carry
+`when`. The job is an event on the room stream; the clock that fires it is
+[sessions.md](sessions.md).
 
 A command the room cannot read is `"This room cannot read that command:
 …"`. A seat that may not run one is `"That seat may not run this
@@ -176,17 +200,23 @@ and the live sessions. Each row is a `RosterEntry`:
 {
   "persona": { … },
   "preview": {"from": "me", "text": "morning", "at": 5},
-  "session": { "personaId": "…", "state": "idle", … }
+  "latest": 5,
+  "activity": "read note.txt",
+  "session": { "personaId": "…", "state": "thinking", … }
 }
 ```
 
 `preview` is absent for a teammate that has never spoken. `from` is `"me"`
 for a user line and `"them"` for an agent line; only those two kinds
-count. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
+count. `latest` is that line's `at`, kept beside it so the window can count
+unread without opening every tape. `activity` is the title of the tool
+still running, only while the session is thinking — absent, not null, when
+there is none. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
-itself after its teammate was deleted is not put back. If the view falls behind on the room stream it reloads every row; a
-lagged burst of session-info is ignored.
+itself after its teammate was deleted is not put back. If the view falls
+behind on the room stream it reloads every row; a lagged burst of
+session-info is ignored.
 
 ## The seat
 
@@ -205,5 +235,6 @@ The shell generates a 32-byte hex token per launch and injects it as
 `window.__toadDesk.token`. The harness in `crates/toad-core/tests/desk.rs`
 uses a token of its own. There is no other way through the door.
 
-The streams these subscriptions read are [log.md](log.md). How to run the
-room is [development.md](development.md).
+The streams these subscriptions read are [log.md](log.md). What a session
+does with a command is [sessions.md](sessions.md). How to run the room is
+[development.md](development.md).

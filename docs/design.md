@@ -158,21 +158,23 @@ subscription logins later as custom providers.
 
 ```
 crates/toad-core/src/
-  contract.rs      the wire's types (serde + ts-rs)
-  paths.rs         the data directory's layout
-  log/             streams: append, fold, segments, subscribe
-  store/           FTS5 over tapes and chapters; chapter list; previews
-  room.rs          the roster fold, settings, and schedules
-  vault.rs         secrets beside the room stream
-  session/         Session, the funnel, quiet, chapters, the scheduler
-  driver/          InProcess (Rig) and the ACP child, with its agent registry
-  tools/           workspace tools on cap-std, shell command
-  desk.rs          the room, vault and log behind the wire
-  import.rs        copies an existing Toad data directory
-  wire/            the door: seats, commands, subscriptions
-  bin/toad-import.rs  the importer as a binary
-crates/toad-desktop/   the Tauri shell
-ui/                    the window (React, built against the generated contract)
+  contract.rs            the wire's types (serde + ts-rs)
+  paths.rs               the data directory's layout
+  log/                   streams: append, fold, segments, subscribe
+  store/                 FTS5 over tapes and chapters; chapter list; previews
+  room.rs                the roster fold, settings, and schedules
+  vault.rs               secrets beside the room stream
+  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger
+  driver/                InProcess (Rig) and the ACP child, with its agent registry
+  mcp/                   the client of granted servers, and Toad's own three tools
+  tools/                 workspace tools on cap-std, shell command
+  desk.rs                the room, vault and log behind the wire
+  import.rs              copies an existing Toad data directory
+  wire/                  the door: seats, commands, subscriptions
+  bin/toad-import.rs     the importer as a binary
+  bin/toad-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
+crates/toad-desktop/     the Tauri shell: plugins, the menu, the door
+ui/                      the window (React, built against the generated contract)
 crates/toad-core/tests/  headless end-to-end proofs (integration tests driving the wire)
 ```
 

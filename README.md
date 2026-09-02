@@ -15,4 +15,5 @@ This is the ground-up build of Toad in Rust. The previous Toad lives at
 the shipping app until this one replaces it. How it is put together and why
 is [docs/design.md](docs/design.md); how to change it is [AGENTS.md](AGENTS.md).
 How to run it is [docs/development.md](docs/development.md); the wire is
-[docs/wire.md](docs/wire.md); the log is [docs/log.md](docs/log.md).
+[docs/wire.md](docs/wire.md); the log is [docs/log.md](docs/log.md); a
+session is [docs/sessions.md](docs/sessions.md).

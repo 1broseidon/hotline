@@ -14,6 +14,7 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
   `cargo install tauri-cli --version ^2`.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
+- On Linux, `libayatana-appindicator3` at runtime, for the tray.
 
 `toad-core` has no Tauri dependency. The shell crate is the only place
 Rust that needs Tauri lives.
@@ -62,7 +63,7 @@ make dev        # the Tauri shell, Vite with hot reload, on .toad-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the window's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
 make build      # a release bundle under target/release/bundle (unsigned)
-make icons      # every platform's app icon, from assets/toad-tile.svg
+make icons      # every platform's app icon, and the tray marks, from assets/
 ```
 
 `make dev` exports `TOAD_DATA_DIR` to `.toad-dev` in the checkout, then
@@ -108,6 +109,19 @@ Capabilities for the main window are
 | `opener` | open a link, reveal a path in the file manager |
 | `clipboard-manager` | write the clipboard |
 
+Closing the window hides it; the process, the teammates and the schedules
+stay. The tray is how the person gets the window back and how they actually
+quit. There is no setting for this: a teammate mid-build that dies because
+someone closed a window is the failure this exists to stop. The menu is
+two items, Open Toad and Quit Toad, with a separator between them. On
+Windows a left click on the icon opens the window; on macOS a left click
+shows the menu, the platform's convention; on Linux Tauri 2 does not emit
+tray clicks (AppIndicator), so the menu is the way back there. On macOS,
+clicking the dock icon of a running app with no visible window brings the
+window back; the App menu's Quit still exits. Linux needs
+`libayatana-appindicator3` at runtime. macOS and Windows are built,
+unproven until run there.
+
 The macOS menu (Ctrl, not Cmd — the window's own listener is Ctrl on
 every platform): Settings `Ctrl+,`, Search `Ctrl+F`, New Teammate
 `Ctrl+N`, Teammate `Ctrl+I`, Teammate 1–9 `Ctrl+1`…`Ctrl+9`. The App
@@ -123,8 +137,11 @@ on a dark rounded tile, in the page's own colours. `make icons` runs
 produces; the PNGs are tracked so a checkout builds without the CLI's
 rasteriser. The first PNG in `tauri.conf.json`'s icon list is the window's
 own icon on Linux, which is why the 128px one leads it: X drops an icon
-larger than a quarter megabyte, and 256px is a few bytes over. In the page the
-same drawing is `ui/src/ui/ToadMark.tsx`.
+larger than a quarter megabyte, and 256px is a few bytes over. The same
+target also renders the tray: `icons/tray.png` is the mark at 32×32 in the
+accent on transparent, for Linux and Windows; `icons/tray-template.png` is
+the mark at 44×44 in solid black on transparent, for macOS as a template
+image. In the page the same drawing is `ui/src/ui/ToadMark.tsx`.
 
 The page is `ui/`. The design system is written down in `ui/design.md`
 and spelled as tokens in `ui/src/tokens.css` — five planes of one cool

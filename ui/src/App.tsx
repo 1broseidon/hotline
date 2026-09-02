@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Attachment, ConfigChoice } from "./generated/contract";
-import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
-import { useTape } from "./tape";
-import { wire, type Connection, type RosterEntry } from "./wire";
+import { Chrome } from "./components/Chrome";
 import { ChatHeader } from "./components/ChatHeader";
 import { Composer } from "./components/Composer";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail } from "./components/Rail";
 import { SearchDrawer } from "./components/SearchDrawer";
-import { Settings } from "./components/Settings";
-import { Teammate } from "./components/Teammate";
+import { Settings, type SettingsSection } from "./components/Settings";
 import { Transcript, type ReplyTarget } from "./components/Transcript";
+import { confirmRemove, listenMenu } from "./native";
+import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
+import { useTape } from "./tape";
+import { wire, type Connection, type RosterEntry } from "./wire";
 
-type SheetKind = "new-teammate" | "settings" | "teammate" | null;
+type Pane = "settings" | "new-teammate" | null;
 
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
@@ -20,7 +21,8 @@ export function App() {
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [sheet, setSheet] = useState<SheetKind>(null);
+	const [pane, setPane] = useState<Pane>(null);
+	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
 
@@ -75,8 +77,8 @@ export function App() {
 	}, [selectedId, selected?.latest]);
 
 	useEffect(() => {
-		if (sheet === "teammate" && selected === null) setSheet(null);
-	}, [sheet, selected]);
+		if (settingsSection === "teammate" && selected === null) setSettingsSection("general");
+	}, [settingsSection, selected]);
 
 	useEffect(() => {
 		noticeRoster(roster);
@@ -88,33 +90,89 @@ export function App() {
 
 	useEffect(() => watchNotificationClicks(), []);
 
+	const closePane = useCallback(() => setPane(null), []);
+	const openSettings = useCallback((section: SettingsSection = "general") => {
+		setSearchOpen(false);
+		setSettingsSection(section);
+		setPane("settings");
+	}, []);
+	const openNew = useCallback(() => {
+		setSearchOpen(false);
+		setPane("new-teammate");
+	}, []);
+	const toggleSettings = useCallback(() => {
+		setPane((current) => {
+			if (current === "settings") return null;
+			setSearchOpen(false);
+			setSettingsSection((section) => (section === "teammate" ? "general" : section));
+			return "settings";
+		});
+	}, []);
+	const toggleTeammate = useCallback(() => {
+		if (selectedId === null) return;
+		setPane((current) => {
+			if (current === "settings" && settingsSection === "teammate") return null;
+			setSearchOpen(false);
+			setSettingsSection("teammate");
+			return "settings";
+		});
+	}, [selectedId, settingsSection]);
+	const toggleNew = useCallback(() => {
+		setPane((current) => {
+			if (current === "new-teammate") return null;
+			setSearchOpen(false);
+			return "new-teammate";
+		});
+	}, []);
+
+	const removeTeammate = useCallback(
+		async (personaId: string, name: string) => {
+			if (!(await confirmRemove(name))) return;
+			try {
+				await wire.command("persona.delete", { id: personaId });
+				if (selectedId === personaId) {
+					setSelectedId(null);
+					setPane(null);
+				}
+			} catch {
+				// The pane's own type-to-confirm is still there if this fails.
+			}
+		},
+		[selectedId],
+	);
+
 	// Opening a teammate is Ctrl+1 through Ctrl+9, in the rail's own order; the
 	// rail says so on each row, because a shortcut nobody can see is no
 	// shortcut. Ctrl+N adds one, Ctrl+, is settings, Ctrl+I is the teammate
 	// on screen, Ctrl+F searches the conversation that is already on screen.
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape" && pane !== null) {
+				event.preventDefault();
+				setPane(null);
+				return;
+			}
 			if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
 			// By physical key as well as by character: a layout that puts
 			// something else on the comma key still opens settings.
 			if (event.key === "n" || event.code === "KeyN") {
 				event.preventDefault();
-				setSheet("new-teammate");
+				if (takeChord()) toggleNew();
 				return;
 			}
 			if (event.key === "," || event.code === "Comma") {
 				event.preventDefault();
-				setSheet("settings");
+				if (takeChord()) toggleSettings();
 				return;
 			}
 			if (event.key === "i" || event.code === "KeyI") {
 				if (selectedId === null) return;
 				event.preventDefault();
-				setSheet("teammate");
+				if (takeChord()) toggleTeammate();
 				return;
 			}
 			if (event.key === "f" || event.code === "KeyF") {
-				if (sheet !== null || selectedId === null) return;
+				if (pane !== null || selectedId === null) return;
 				event.preventDefault();
 				setSearchOpen(true);
 				return;
@@ -125,10 +183,40 @@ export function App() {
 			if (!entry) return;
 			event.preventDefault();
 			setSelectedId(entry.persona.id);
+			setPane(null);
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, sheet]);
+	}, [roster, selectedId, pane, toggleNew, toggleSettings, toggleTeammate]);
+
+	useEffect(() => {
+		return listenMenu((id) => {
+			if (id === "settings") {
+				if (takeChord()) toggleSettings();
+				return;
+			}
+			if (id === "new-teammate") {
+				if (takeChord()) toggleNew();
+				return;
+			}
+			if (id === "teammate") {
+				if (takeChord()) toggleTeammate();
+				return;
+			}
+			if (id === "search") {
+				if (pane !== null || selectedId === null) return;
+				setSearchOpen(true);
+				return;
+			}
+			if (id.startsWith("teammate-")) {
+				const seat = Number(id.slice("teammate-".length));
+				const entry = roster[seat - 1];
+				if (!entry) return;
+				setSelectedId(entry.persona.id);
+				setPane(null);
+			}
+		});
+	}, [roster, selectedId, pane, toggleNew, toggleSettings, toggleTeammate]);
 
 	/* A different teammate is a different conversation: the drawer was asking
 	 * about the one that just left, so it closes rather than swapping its
@@ -136,6 +224,19 @@ export function App() {
 	useEffect(() => {
 		setSearchOpen(false);
 	}, [selectedId]);
+
+	/* Right-clicking chrome should not offer Reload. Fields and a live
+	 * selection keep the system's own menu. A teammate row handles its own. */
+	useEffect(() => {
+		const suppress = (event: MouseEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest("input, textarea, [data-teammate-row]")) return;
+			if (window.getSelection()?.isCollapsed === false) return;
+			event.preventDefault();
+		};
+		document.addEventListener("contextmenu", suppress);
+		return () => document.removeEventListener("contextmenu", suppress);
+	}, []);
 
 	return (
 		<div className="flex h-full flex-col">
@@ -149,13 +250,41 @@ export function App() {
 					entries={roster}
 					selectedId={selectedId}
 					seen={seen}
-					onSelect={setSelectedId}
-					onNew={() => setSheet("new-teammate")}
-					onSettings={() => setSheet("settings")}
+					onSelect={(id) => {
+						setSelectedId(id);
+						setPane(null);
+					}}
+					onNew={openNew}
+					onSettings={() => openSettings("general")}
+					onEdit={(id) => {
+						setSelectedId(id);
+						openSettings("teammate");
+					}}
+					onDelete={(id, name) => void removeTeammate(id, name)}
 				/>
 
 				<main className="flex min-w-0 flex-1 flex-col bg-paper">
-					{selected ? (
+					{pane === "settings" ? (
+						<Settings
+							section={settingsSection}
+							onSection={setSettingsSection}
+							teammate={selected?.persona ?? null}
+							onClose={closePane}
+							onDeleted={() => {
+								setSelectedId(null);
+								setPane(null);
+							}}
+						/>
+					) : pane === "new-teammate" ? (
+						<NewTeammate
+							models={models}
+							onCreated={(personaId) => {
+								setSelectedId(personaId);
+								setPane(null);
+							}}
+							onClose={closePane}
+						/>
+					) : selected ? (
 						<Conversation
 							key={selected.persona.id}
 							entry={selected}
@@ -163,7 +292,7 @@ export function App() {
 							models={models}
 							searchOpen={searchOpen}
 							focus={focus}
-							onOpenTeammate={() => setSheet("teammate")}
+							onOpenTeammate={() => openSettings("teammate")}
 							onOpenSearch={() => setSearchOpen((open) => !open)}
 							onCloseSearch={() => setSearchOpen(false)}
 							onPick={(personaId, eventId) => {
@@ -173,35 +302,18 @@ export function App() {
 							}}
 						/>
 					) : (
-						<div className="flex flex-1 items-center justify-center px-6">
-							<p className="max-w-sm text-center text-ink-3">
-								Pick a teammate on the left, or add one.
-							</p>
+						<div className="flex min-h-0 flex-1 flex-col">
+							<Chrome>
+								<span className="text-ink-3" />
+							</Chrome>
+							<div className="flex flex-1 items-center justify-center px-6">
+								<p className="max-w-sm text-center text-ink-3">
+									Pick a teammate on the left, or add one.
+								</p>
+							</div>
 						</div>
 					)}
 				</main>
-
-				{sheet === "new-teammate" && (
-					<NewTeammate
-						models={models}
-						onCreated={(personaId) => {
-							setSelectedId(personaId);
-							setSheet(null);
-						}}
-						onClose={() => setSheet(null)}
-					/>
-				)}
-				{sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
-				{sheet === "teammate" && selected && (
-					<Teammate
-						persona={selected.persona}
-						onClose={() => setSheet(null)}
-						onDeleted={() => {
-							setSelectedId(null);
-							setSheet(null);
-						}}
-					/>
-				)}
 			</div>
 		</div>
 	);
@@ -324,6 +436,16 @@ function Conversation({
 
 /** Where this window last stood in each tape. Private mode or a full disk
  * just means every teammate looks unread until you open them again. */
+/** The menu bar and the window both hear the same chord; one press is one
+ * action, even when both fire. */
+let lastChordAt = 0;
+function takeChord(): boolean {
+	const now = performance.now();
+	if (now - lastChordAt < 120) return false;
+	lastChordAt = now;
+	return true;
+}
+
 const SEEN_KEY = "toad.rail.seen";
 
 function loadSeen(): Record<string, number> {

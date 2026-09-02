@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { Credential, Report } from "../generated/contract";
+import type { Credential, Persona, Report } from "../generated/contract";
+import { CloseIcon } from "../icons";
 import { mcpServerDetail, mcpServersFrom, type McpHttpAuth, type McpServer } from "../mcp";
 import { wire } from "../wire";
-import { Sheet } from "./Sheet";
+import { Chrome } from "./Chrome";
+import { PathField } from "./PathField";
+import { Teammate } from "./Teammate";
 
 /** The providers Toad can run a model on today, in the order they are offered. */
 const PROVIDERS = [
@@ -16,6 +19,15 @@ const DEFAULT_IDLE_HOURS = 8;
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
+export type SettingsSection = "general" | "keys" | "tools" | "import" | "teammate";
+
+const APP_SECTIONS: { id: Exclude<SettingsSection, "teammate">; title: string }[] = [
+	{ id: "general", title: "General" },
+	{ id: "keys", title: "Keys" },
+	{ id: "tools", title: "Tools" },
+	{ id: "import", title: "Import" },
+];
+
 /**
  * One line on the room stream. Settings are folded from `kind: "setting"`:
  * `id` is the key, `value` the value, and `deleted` puts the default back.
@@ -28,13 +40,23 @@ type RoomItem = {
 };
 
 /**
- * The room's preferences, as this window reads them.
- *
- * There is no `settings.get`. The room stream is the store, so a subscription
- * to `"room"` and a fold of its setting events is the whole of reading, and
- * `settings.update` is the whole of writing.
+ * Settings, as a pane: a left index and the section on the right. The
+ * conversation is gone while this is up. A selected teammate is one more
+ * row in the index, not a second window.
  */
-export function Settings({ onClose }: { onClose(): void }) {
+export function Settings({
+	section,
+	onSection,
+	teammate,
+	onClose,
+	onDeleted,
+}: {
+	section: SettingsSection;
+	onSection(section: SettingsSection): void;
+	teammate: Persona | null;
+	onClose(): void;
+	onDeleted(): void;
+}) {
 	const settings = useRoomSettings();
 	const [held, setHeld] = useState<Credential[]>([]);
 	const [providerId, setProviderId] = useState<string>(PROVIDERS[0].id);
@@ -55,6 +77,10 @@ export function Settings({ onClose }: { onClose(): void }) {
 	useEffect(() => {
 		setHours(String(settings.chapterIdleHours));
 	}, [settings.chapterIdleHours]);
+
+	useEffect(() => {
+		if (section === "teammate" && teammate === null) onSection("general");
+	}, [section, teammate, onSection]);
 
 	const saveKey = async () => {
 		if (!secret.trim() || busy) return;
@@ -101,152 +127,239 @@ export function Settings({ onClose }: { onClose(): void }) {
 		}
 	};
 
+	const showing = section === "teammate" && teammate === null ? "general" : section;
+
 	return (
-		<Sheet title="Settings" onClose={onClose}>
-			<div className="flex flex-col gap-6">
-				<section className="flex flex-col gap-3">
-					<h3 className="text-xs font-medium uppercase tracking-wider text-ink-3">Keys</h3>
-					{held.length > 0 && (
-						<ul className="flex flex-col gap-1">
-							{held.map((one) => (
-								<li
-									key={one.id}
-									className="flex items-center gap-2 rounded-lg bg-paper-3 px-2.5 py-1.5 text-xs"
-								>
-									<span className="font-medium text-ink-2">{one.label}</span>
-									<span className="font-mono text-ink-3">{one.providerId}</span>
-									<span className="ml-auto text-ink-3">{one.revoked ? "revoked" : "in use"}</span>
-								</li>
-							))}
-						</ul>
-					)}
-					<form
-						className="flex flex-col gap-3"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void saveKey();
-						}}
-					>
-						<div>
-							<label className="label" htmlFor="key-provider">
-								Provider
-							</label>
-							<select
-								id="key-provider"
-								className="field"
-								value={providerId}
-								onChange={(event) => setProviderId(event.target.value)}
-							>
-								{PROVIDERS.map((one) => (
-									<option key={one.id} value={one.id}>
-										{one.name}
-									</option>
-								))}
-							</select>
-						</div>
-						<div>
-							<label className="label" htmlFor="key-secret">
-								API key
-							</label>
-							<input
-								id="key-secret"
-								type="password"
-								className="field font-mono text-xs"
-								spellCheck={false}
-								value={secret}
-								onChange={(event) => setSecret(event.target.value)}
-							/>
-						</div>
-						<div className="flex justify-end">
-							<button
-								type="submit"
-								className="btn-primary"
-								disabled={busy !== null || secret.trim() === ""}
-							>
-								Save key
-							</button>
-						</div>
-					</form>
-				</section>
-
-				<section className="flex flex-col gap-3 border-t border-rule pt-6">
-					<h3 className="text-xs font-medium uppercase tracking-wider text-ink-3">General</h3>
-					<div>
-						<label className="label" htmlFor="setting-idle">
-							Chapters close after
-						</label>
-						<div className="flex items-center gap-2">
-							<input
-								id="setting-idle"
-								type="number"
-								className="field w-24"
-								min={MIN_IDLE_HOURS}
-								max={MAX_IDLE_HOURS}
-								step={1}
-								value={hours}
-								onChange={(event) => saveHours(event.target.value)}
-							/>
-							<span className="text-xs text-ink-3">hours idle</span>
-						</div>
-						<p className="mt-1 text-xs leading-relaxed text-ink-3">
-							How long a teammate sits quiet before its working context closes. Eight hours is a
-							night&rsquo;s sleep.
-						</p>
-					</div>
-					<div>
-						<label className="label" htmlFor="setting-backend">
-							Default backend
-						</label>
-						<input
-							id="setting-backend"
-							className="field font-mono text-xs"
-							value={settings.defaultBackendId}
-							readOnly
-						/>
-						<p className="mt-1 text-xs leading-relaxed text-ink-3">
-							What a new teammate runs on. Only Toad Agent (pi) is wired in this build.
-						</p>
-					</div>
-				</section>
-
-				<ToolsSection servers={settings.mcpServers} busy={busy !== null} onRefuse={setRefusal} />
-
-				<section className="flex flex-col gap-3 border-t border-rule pt-6">
-					<h3 className="text-xs font-medium uppercase tracking-wider text-ink-3">Import</h3>
-					<div>
-						<label className="label" htmlFor="import-from">
-							Previous Toad data directory
-						</label>
-						<input
-							id="import-from"
-							className="field font-mono text-xs"
-							spellCheck={false}
-							value={from}
-							onChange={(event) => setFrom(event.target.value)}
-						/>
-					</div>
-					<div className="flex justify-end">
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
+			<Chrome>
+				<h2 className="min-w-0 flex-1 truncate font-medium">Settings</h2>
+				<button type="button" className="btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+					<CloseIcon />
+				</button>
+			</Chrome>
+			<div className="flex min-h-0 flex-1">
+				<nav className="settings-index" aria-label="Settings">
+					{APP_SECTIONS.map((one) => (
+						<button
+							key={one.id}
+							type="button"
+							className="settings-section"
+							aria-current={showing === one.id ? "page" : undefined}
+							onClick={() => onSection(one.id)}
+						>
+							{one.title}
+						</button>
+					))}
+					{teammate && (
 						<button
 							type="button"
-							className="btn-primary"
-							disabled={busy !== null || from.trim() === ""}
-							onClick={() => void runImport()}
+							className="settings-section"
+							aria-current={showing === "teammate" ? "page" : undefined}
+							onClick={() => onSection("teammate")}
 						>
-							{busy === "import" ? "Importing…" : "Import"}
+							{teammate.name}
 						</button>
+					)}
+				</nav>
+				<div className="settings-body">
+					<div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+						{showing === "general" && (
+							<GeneralSection
+								hours={hours}
+								defaultBackendId={settings.defaultBackendId}
+								onHours={saveHours}
+							/>
+						)}
+						{showing === "keys" && (
+							<KeysSection
+								held={held}
+								providerId={providerId}
+								secret={secret}
+								busy={busy !== null}
+								onProvider={setProviderId}
+								onSecret={setSecret}
+								onSave={() => void saveKey()}
+							/>
+						)}
+						{showing === "tools" && (
+							<ToolsSection servers={settings.mcpServers} busy={busy !== null} onRefuse={setRefusal} />
+						)}
+						{showing === "import" && (
+							<ImportSection
+								from={from}
+								busy={busy === "import"}
+								report={report}
+								onFrom={setFrom}
+								onImport={() => void runImport()}
+							/>
+						)}
+						{showing === "teammate" && teammate && (
+							<Teammate persona={teammate} onClose={onClose} onDeleted={onDeleted} />
+						)}
+						{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
 					</div>
-					{report !== null && <ImportReport report={report} />}
-				</section>
-
-				{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
-
-				<div className="flex justify-end">
-					<button type="button" className="btn-quiet" onClick={onClose}>
-						Done
-					</button>
 				</div>
 			</div>
-		</Sheet>
+		</div>
+	);
+}
+
+function GeneralSection({
+	hours,
+	defaultBackendId,
+	onHours,
+}: {
+	hours: string;
+	defaultBackendId: string;
+	onHours(raw: string): void;
+}) {
+	return (
+		<section className="flex flex-col gap-4">
+			<div>
+				<label className="label" htmlFor="setting-idle">
+					Chapters close after
+				</label>
+				<div className="flex items-center gap-2">
+					<input
+						id="setting-idle"
+						type="number"
+						className="field w-24"
+						min={MIN_IDLE_HOURS}
+						max={MAX_IDLE_HOURS}
+						step={1}
+						value={hours}
+						onChange={(event) => onHours(event.target.value)}
+					/>
+					<span className="text-xs text-ink-3">hours idle</span>
+				</div>
+				<p className="mt-1 text-xs leading-relaxed text-ink-3">
+					How long a teammate sits quiet before its working context closes. Eight hours is a
+					night&rsquo;s sleep.
+				</p>
+			</div>
+			<div>
+				<label className="label" htmlFor="setting-backend">
+					Default backend
+				</label>
+				<input
+					id="setting-backend"
+					className="field font-mono text-xs"
+					value={defaultBackendId}
+					readOnly
+				/>
+				<p className="mt-1 text-xs leading-relaxed text-ink-3">
+					What a new teammate runs on. Only Toad Agent (pi) is wired in this build.
+				</p>
+			</div>
+		</section>
+	);
+}
+
+function KeysSection({
+	held,
+	providerId,
+	secret,
+	busy,
+	onProvider,
+	onSecret,
+	onSave,
+}: {
+	held: Credential[];
+	providerId: string;
+	secret: string;
+	busy: boolean;
+	onProvider(id: string): void;
+	onSecret(value: string): void;
+	onSave(): void;
+}) {
+	return (
+		<section className="flex flex-col gap-4">
+			{held.length > 0 && (
+				<ul className="flex flex-col">
+					{held.map((one) => (
+						<li key={one.id} className="flex items-center gap-2 border-b border-rule py-1.5 text-xs">
+							<span className="font-medium text-ink-2">{one.label}</span>
+							<span className="font-mono text-ink-3">{one.providerId}</span>
+							<span className="ml-auto text-ink-3">{one.revoked ? "revoked" : "in use"}</span>
+						</li>
+					))}
+				</ul>
+			)}
+			<form
+				className="flex flex-col gap-3"
+				onSubmit={(event) => {
+					event.preventDefault();
+					onSave();
+				}}
+			>
+				<div>
+					<label className="label" htmlFor="key-provider">
+						Provider
+					</label>
+					<select
+						id="key-provider"
+						className="field"
+						value={providerId}
+						onChange={(event) => onProvider(event.target.value)}
+					>
+						{PROVIDERS.map((one) => (
+							<option key={one.id} value={one.id}>
+								{one.name}
+							</option>
+						))}
+					</select>
+				</div>
+				<div>
+					<label className="label" htmlFor="key-secret">
+						API key
+					</label>
+					<input
+						id="key-secret"
+						type="password"
+						className="field font-mono text-xs"
+						spellCheck={false}
+						value={secret}
+						onChange={(event) => onSecret(event.target.value)}
+					/>
+				</div>
+				<div className="flex justify-end">
+					<button type="submit" className="btn-primary" disabled={busy || secret.trim() === ""}>
+						Save key
+					</button>
+				</div>
+			</form>
+		</section>
+	);
+}
+
+function ImportSection({
+	from,
+	busy,
+	report,
+	onFrom,
+	onImport,
+}: {
+	from: string;
+	busy: boolean;
+	report: Report | null;
+	onFrom(value: string): void;
+	onImport(): void;
+}) {
+	return (
+		<section className="flex flex-col gap-4">
+			<div>
+				<label className="label" htmlFor="import-from">
+					Previous Toad data directory
+				</label>
+				<PathField id="import-from" value={from} onChange={onFrom} />
+			</div>
+			<div className="flex justify-end">
+				<button type="button" className="btn-primary" disabled={busy || from.trim() === ""} onClick={onImport}>
+					{busy ? "Importing…" : "Import"}
+				</button>
+			</div>
+			{report !== null && <ImportReport report={report} />}
+		</section>
 	);
 }
 
@@ -327,15 +440,11 @@ function ToolsSection({
 	};
 
 	return (
-		<section className="flex flex-col gap-3 border-t border-rule pt-6">
-			<h3 className="text-xs font-medium uppercase tracking-wider text-ink-3">Tools</h3>
+		<section className="flex flex-col gap-4">
 			{servers.length > 0 ? (
-				<ul className="flex flex-col gap-1">
+				<ul className="flex flex-col">
 					{servers.map((server) => (
-						<li
-							key={server.id}
-							className="flex items-center gap-2 rounded-lg bg-paper-3 px-2.5 py-1.5 text-xs"
-						>
+						<li key={server.id} className="flex items-center gap-2 border-b border-rule py-1.5 text-xs">
 							<span className="min-w-0 flex-1">
 								<span className="font-medium text-ink-2">{server.name}</span>
 								<span className="ml-2 text-ink-3">{server.type}</span>
@@ -343,7 +452,7 @@ function ToolsSection({
 							</span>
 							<button
 								type="button"
-								className="shrink-0 text-ink-3 hover:text-ink"
+								className="shrink-0 text-ink-3"
 								aria-label={`Edit ${server.name}`}
 								disabled={busy || writing}
 								onClick={() => startEdit(server)}
@@ -470,8 +579,7 @@ function stdioFromDraft(name: string, commandLine: string, previous?: McpServer)
 
 /** A new HTTP server is none; an edit keeps whatever auth was already stored. */
 function httpFromDraft(name: string, url: string, previous?: McpServer): McpServer {
-	const auth: McpHttpAuth =
-		previous?.type === "http" ? previous.auth : { mode: "none" };
+	const auth: McpHttpAuth = previous?.type === "http" ? previous.auth : { mode: "none" };
 	return {
 		id: previous?.id ?? crypto.randomUUID(),
 		type: "http",
@@ -483,7 +591,7 @@ function httpFromDraft(name: string, url: string, previous?: McpServer): McpServ
 
 function ImportReport({ report }: { report: Report }) {
 	return (
-		<div className="rounded-lg bg-paper-3 px-2.5 py-2 text-xs text-ink-2">
+		<div className="border border-rule px-2.5 py-2 text-xs text-ink-2">
 			<p>
 				{report.teammates} teammate{report.teammates === 1 ? "" : "s"} · {report.tapes} tape
 				{report.tapes === 1 ? "" : "s"} · {report.settings} setting
@@ -567,8 +675,8 @@ function stringSetting(event: RoomItem | undefined, fallback: string): string {
  * it. The core receives the string as typed.
  */
 function previousToadDir(): string {
-	const platform = window.__toadDesk?.platform ?? "linux";
-	if (platform === "macos") return "~/Library/Application Support/Toad";
-	if (platform === "windows") return "~/AppData/Roaming/Toad";
+	const here = window.__toadDesk?.platform ?? "linux";
+	if (here === "macos") return "~/Library/Application Support/Toad";
+	if (here === "windows") return "~/AppData/Roaming/Toad";
 	return "~/.local/share/toad";
 }

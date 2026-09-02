@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, PersonaDraft } from "../generated/contract";
+import { CloseIcon } from "../icons";
 import { wire } from "../wire";
-import { Sheet } from "./Sheet";
+import { Chrome } from "./Chrome";
+import { PathField } from "./PathField";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
 const TOAD_AGENT = "pi";
@@ -15,7 +17,8 @@ const TOAD_AGENT = "pi";
  * that field is not asked here.
  *
  * Created, the teammate is started at once and opened — nobody adds a
- * colleague in order to look at them in a list.
+ * colleague in order to look at them in a list. The form replaces the
+ * conversation; it is not a card over the window.
  */
 export function NewTeammate({
 	models,
@@ -73,112 +76,107 @@ export function NewTeammate({
 	};
 
 	return (
-		<Sheet title="New teammate" onClose={onClose}>
-			<form
-				className="flex flex-col gap-3"
-				onSubmit={(event) => {
-					event.preventDefault();
-					void submit();
-				}}
-			>
-				<div>
-					<label className="label" htmlFor="new-name">
-						Name
-					</label>
-					<input
-						id="new-name"
-						className="field"
-						value={name}
-						autoFocus
-						onChange={(event) => setName(event.target.value)}
-					/>
-				</div>
-
-				<div>
-					<label className="label" htmlFor="new-goal">
-						Goal
-					</label>
-					<textarea
-						id="new-goal"
-						className="field resize-none"
-						rows={3}
-						placeholder="What this teammate is for."
-						value={goal}
-						onChange={(event) => setGoal(event.target.value)}
-					/>
-				</div>
-
-				<div>
-					<label className="label" htmlFor="new-cwd">
-						Working directory
-					</label>
-					{/* Typed, not picked: the window has no file dialog of its own
-					    and a path is a thing people already know how to write. */}
-					<input
-						id="new-cwd"
-						className="field font-mono text-xs"
-						placeholder="/home/you/projects/thing"
-						spellCheck={false}
-						value={cwd}
-						onChange={(event) => setCwd(event.target.value)}
-					/>
-				</div>
-
-				{backends.length > 0 && (
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
+			<Chrome>
+				<h2 className="min-w-0 flex-1 truncate font-medium">New teammate</h2>
+				<button type="button" className="btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+					<CloseIcon />
+				</button>
+			</Chrome>
+			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+				<form
+					className="mx-auto flex w-full max-w-xl flex-col gap-3"
+					onSubmit={(event) => {
+						event.preventDefault();
+						void submit();
+					}}
+				>
 					<div>
-						<p className="label" id="new-backend">
-							Runs on
-						</p>
-						<div
-							role="radiogroup"
-							aria-labelledby="new-backend"
-							className="flex flex-col gap-1.5"
-						>
-							{backends.map((backend) => (
-								<BackendRow
-									key={backend.id}
-									backend={backend}
-									selected={backendId === backend.id}
-									onSelect={() => setBackendId(backend.id)}
-								/>
-							))}
-						</div>
-					</div>
-				)}
-
-				{onToad && (
-					<div>
-						<label className="label" htmlFor="new-model">
-							Model
+						<label className="label" htmlFor="new-name">
+							Name
 						</label>
-						<select
-							id="new-model"
+						<input
+							id="new-name"
 							className="field"
-							value={modelId}
-							onChange={(event) => setModelId(event.target.value)}
-						>
-							<option value="">The room's default</option>
-							{models.map((model) => (
-								<option key={model.id} value={model.id}>
-									{model.group ? `${model.group} · ${model.name}` : model.name}
-								</option>
-							))}
-						</select>
+							value={name}
+							autoFocus
+							onChange={(event) => setName(event.target.value)}
+						/>
 					</div>
-				)}
 
-				{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
+					<div>
+						<label className="label" htmlFor="new-goal">
+							Goal
+						</label>
+						<textarea
+							id="new-goal"
+							className="field resize-none"
+							rows={3}
+							placeholder="What this teammate is for."
+							value={goal}
+							onChange={(event) => setGoal(event.target.value)}
+						/>
+					</div>
 
-				<div className="mt-1 flex justify-end gap-2">
-					<button type="button" className="btn-quiet" onClick={onClose}>
-						Never mind
-					</button>
-					<button type="submit" className="btn-primary" disabled={busy || name.trim() === ""}>
-						{busy ? "Setting up…" : "Add teammate"}
-					</button>
-				</div>
-			</form>
-		</Sheet>
+					<div>
+						<label className="label" htmlFor="new-cwd">
+							Working directory
+						</label>
+						<PathField id="new-cwd" value={cwd} onChange={setCwd} />
+					</div>
+
+					{backends.length > 0 && (
+						<div>
+							<p className="label" id="new-backend">
+								Runs on
+							</p>
+							<div role="radiogroup" aria-labelledby="new-backend" className="flex flex-col gap-1.5">
+								{backends.map((backend) => (
+									<BackendRow
+										key={backend.id}
+										backend={backend}
+										selected={backendId === backend.id}
+										onSelect={() => setBackendId(backend.id)}
+									/>
+								))}
+							</div>
+						</div>
+					)}
+
+					{onToad && (
+						<div>
+							<label className="label" htmlFor="new-model">
+								Model
+							</label>
+							<select
+								id="new-model"
+								className="field"
+								value={modelId}
+								onChange={(event) => setModelId(event.target.value)}
+							>
+								<option value="">The room's default</option>
+								{models.map((model) => (
+									<option key={model.id} value={model.id}>
+										{model.group ? `${model.group} · ${model.name}` : model.name}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
+
+					{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
+
+					<div className="mt-1 flex justify-end gap-2">
+						<button type="button" className="btn-quiet" onClick={onClose}>
+							Never mind
+						</button>
+						<button type="submit" className="btn-primary" disabled={busy || name.trim() === ""}>
+							{busy ? "Setting up…" : "Add teammate"}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
 	);
 }
 
@@ -198,8 +196,8 @@ function BackendRow({
 	const missing = backend.unavailable;
 	return (
 		<label
-			className={`flex items-start gap-2 rounded-lg px-2.5 py-2 text-sm ${
-				missing ? "bg-paper text-ink-3 opacity-60" : "bg-paper-3 text-ink-2"
+			className={`flex items-start gap-2 border border-rule px-2.5 py-2 text-sm ${
+				missing ? "text-ink-3 opacity-60" : "bg-paper-2 text-ink-2"
 			}`}
 		>
 			<input
@@ -213,13 +211,9 @@ function BackendRow({
 			<span className="min-w-0 flex-1">
 				<span className={`font-medium ${missing ? "text-ink-3" : "text-ink"}`}>{backend.name}</span>
 				{backend.description !== "" && (
-					<span className="mt-0.5 block text-xs leading-relaxed text-ink-3">
-						{backend.description}
-					</span>
+					<span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{backend.description}</span>
 				)}
-				{missing !== undefined && (
-					<span className="mt-0.5 block text-xs leading-relaxed">{missing}</span>
-				)}
+				{missing !== undefined && <span className="mt-0.5 block text-xs leading-relaxed">{missing}</span>}
 			</span>
 		</label>
 	);

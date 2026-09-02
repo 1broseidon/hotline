@@ -1,5 +1,8 @@
+import { CogIcon, PlusIcon } from "../icons";
+import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
 import type { RosterEntry } from "../wire";
+import { Chrome } from "./Chrome";
 
 /**
  * Each teammate carries a vital sign rather than a status pill: the rail is a
@@ -22,6 +25,8 @@ export function Rail({
 	onSelect,
 	onNew,
 	onSettings,
+	onEdit,
+	onDelete,
 }: {
 	entries: RosterEntry[];
 	selectedId: string | null;
@@ -30,34 +35,34 @@ export function Rail({
 	onSelect(personaId: string): void;
 	onNew(): void;
 	onSettings(): void;
+	onEdit(personaId: string): void;
+	onDelete(personaId: string, name: string): void;
 }) {
 	return (
 		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col border-r border-rule bg-paper-2">
-			<div className="flex items-center justify-between px-3 py-2.5">
-				<h1 className="text-xs font-medium uppercase tracking-wider text-ink-3">Team</h1>
-				<div className="flex items-center gap-1">
-					<button
-						type="button"
-						className="rounded-md px-1.5 text-sm leading-none text-ink-3 hover:text-ink"
-						title="Settings (Ctrl+,)"
-						aria-label="Settings"
-						onClick={onSettings}
-					>
-						⚙
-					</button>
-					<button
-						type="button"
-						className="rounded-md px-1.5 text-lg leading-none text-ink-3 hover:text-ink"
-						title="New teammate (Ctrl+N)"
-						aria-label="New teammate"
-						onClick={onNew}
-					>
-						+
-					</button>
-				</div>
-			</div>
+			<Chrome className="rail-chrome">
+				<h1 className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wider text-ink-3">Team</h1>
+				<button
+					type="button"
+					className="btn-icon"
+					title="Settings (Ctrl+,)"
+					aria-label="Settings"
+					onClick={onSettings}
+				>
+					<CogIcon />
+				</button>
+				<button
+					type="button"
+					className="btn-icon"
+					title="New teammate (Ctrl+N)"
+					aria-label="New teammate"
+					onClick={onNew}
+				>
+					<PlusIcon />
+				</button>
+			</Chrome>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+			<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
 				{entries.length === 0 ? (
 					<p className="px-2 py-3 text-xs leading-relaxed text-ink-3">
 						Add a teammate to get started. Each one keeps its own working directory, its own
@@ -72,6 +77,8 @@ export function Rail({
 							active={entry.persona.id === selectedId}
 							unread={unreadOf(entry, selectedId, seen)}
 							onSelect={() => onSelect(entry.persona.id)}
+							onEdit={() => onEdit(entry.persona.id)}
+							onDelete={() => onDelete(entry.persona.id, entry.persona.name)}
 						/>
 					))
 				)}
@@ -86,12 +93,16 @@ function Row({
 	active,
 	unread,
 	onSelect,
+	onEdit,
+	onDelete,
 }: {
 	entry: RosterEntry;
 	shortcut: number | null;
 	active: boolean;
 	unread: boolean;
 	onSelect(): void;
+	onEdit(): void;
+	onDelete(): void;
 }) {
 	const vital = VITAL[entry.session.state];
 	const { preview, activity } = entry;
@@ -99,10 +110,15 @@ function Row({
 	return (
 		<button
 			type="button"
+			data-teammate-row
 			aria-current={active ? "true" : undefined}
 			aria-label={unread ? `${entry.persona.name}, unread` : undefined}
 			onClick={onSelect}
-			className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left ${
+			onContextMenu={(event) => {
+				event.preventDefault();
+				void popupTeammateMenu({ onOpen: onSelect, onEdit, onDelete });
+			}}
+			className={`flex w-full items-center gap-2.5 px-2 py-1.5 text-left ${
 				active ? "bg-paper-4" : "hover:bg-paper-3"
 			}`}
 		>

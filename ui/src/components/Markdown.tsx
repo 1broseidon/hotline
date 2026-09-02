@@ -1,6 +1,7 @@
 import { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { openLink } from "../native";
 
 /**
  * The markdown an agent is allowed to speak inside a bubble.
@@ -45,10 +46,16 @@ const COMPONENTS: Components = {
 	 * an agent that wants to show you a picture can describe it instead. */
 	img: ({ alt }) => (alt ? <span className="text-ink-3">{alt}</span> : null),
 
-	/* The webview's host decides what a new window means; that decision does
-	 * not belong to a bubble. */
+	/* The desk opens the URL in the system browser. A bubble does not get to
+	 * spawn a window of its own. */
 	a: ({ children, href }) => (
-		<a href={href} target="_blank" rel="noreferrer noopener">
+		<a
+			href={href}
+			onClick={(event) => {
+				event.preventDefault();
+				if (href) void openLink(href);
+			}}
+		>
 			{children}
 		</a>
 	),

@@ -6,9 +6,11 @@ import type {
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
+import { RevealIcon } from "../icons";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
+import { revealPath } from "../native";
 import { wire } from "../wire";
-import { Sheet } from "./Sheet";
+import { PathField } from "./PathField";
 
 /**
  * Editing a teammate: the four things the person decides, and the way out.
@@ -16,8 +18,7 @@ import { Sheet } from "./Sheet";
  * Name, goal and working directory are the identity and the wall. Reach is
  * the one policy — the working directory, or the whole machine — and it is a
  * toggle because those are the only two answers. Deleting asks for the name
- * typed back, so a misfire in a sheet that also has Escape as its door does
- * not take a colleague with it.
+ * typed back, so a misfire does not take a colleague with it.
  */
 export function Teammate({
 	persona,
@@ -66,8 +67,8 @@ export function Teammate({
 		save({ goal });
 	};
 
-	const saveCwd = () => {
-		const trimmed = cwd.trim();
+	const saveCwd = (next = cwd) => {
+		const trimmed = next.trim();
 		if (!trimmed || trimmed === persona.cwd) {
 			setCwd(persona.cwd);
 			return;
@@ -91,132 +92,132 @@ export function Teammate({
 	const machine = persona.reach === "machine";
 
 	return (
-		<Sheet title={persona.name} onClose={onClose}>
-			<form
-				className="flex flex-col gap-3"
-				onSubmit={(event) => {
-					event.preventDefault();
-					saveName();
-					saveGoal();
-					saveCwd();
-				}}
-			>
-				<div>
-					<label className="label" htmlFor="edit-name">
-						Name
-					</label>
-					<input
-						id="edit-name"
-						className="field"
-						value={name}
-						autoFocus
-						onChange={(event) => setName(event.target.value)}
-						onBlur={saveName}
-					/>
-				</div>
-
-				<div>
-					<label className="label" htmlFor="edit-goal">
-						Goal
-					</label>
-					<textarea
-						id="edit-goal"
-						className="field resize-none"
-						rows={3}
-						placeholder="What this teammate is for."
-						value={goal}
-						onChange={(event) => setGoal(event.target.value)}
-						onBlur={saveGoal}
-					/>
-				</div>
-
-				<div>
-					<label className="label" htmlFor="edit-cwd">
-						Working directory
-					</label>
-					<input
-						id="edit-cwd"
-						className="field font-mono text-xs"
-						spellCheck={false}
-						value={cwd}
-						onChange={(event) => setCwd(event.target.value)}
-						onBlur={saveCwd}
-					/>
-				</div>
-
-				<div>
-					<p className="label">Reach</p>
-					<label className="flex items-center gap-2 text-sm text-ink-2">
-						<input
-							type="checkbox"
-							checked={machine}
-							disabled={busy}
-							onChange={(event) =>
-								// A missing key leaves the old reach. The generated
-								// patch is Partial<Persona>, so the wall is the
-								// word, not JSON null.
-								save({ reach: event.target.checked ? "machine" : "workspace" })
-							}
-						/>
-						Whole machine
-					</label>
-					<p className="mt-1 text-xs leading-relaxed text-ink-3">
-						{machine
-							? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
-							: "Tools stop at the working directory: nothing outside it can be read, changed, or run."}
-					</p>
-				</div>
-
-				<McpGrant
-					personaId={persona.id}
-					policy={persona.mcpPolicy}
-					servers={servers}
-					disabled={busy}
-					onChange={(mcpPolicy) => save({ mcpPolicy })}
+		<form
+			className="flex flex-col gap-3"
+			onSubmit={(event) => {
+				event.preventDefault();
+				saveName();
+				saveGoal();
+				saveCwd();
+			}}
+		>
+			<div>
+				<label className="label" htmlFor="edit-name">
+					Name
+				</label>
+				<input
+					id="edit-name"
+					className="field"
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+					onBlur={saveName}
 				/>
+			</div>
 
-				<ToolLedger personaId={persona.id} />
+			<div>
+				<label className="label" htmlFor="edit-goal">
+					Goal
+				</label>
+				<textarea
+					id="edit-goal"
+					className="field resize-none"
+					rows={3}
+					placeholder="What this teammate is for."
+					value={goal}
+					onChange={(event) => setGoal(event.target.value)}
+					onBlur={saveGoal}
+				/>
+			</div>
 
-				<section className="mt-2 border-t border-rule pt-4">
-					<p className="label">Remove teammate</p>
-					<p className="mb-2 text-xs leading-relaxed text-ink-3">
-						Type <span className="font-medium text-ink-2">{persona.name}</span> to confirm. Their
-						conversation goes too.
-					</p>
-					<input
-						id="edit-confirm"
-						className="field"
-						aria-label="Type the teammate's name to confirm removal"
-						value={confirm}
-						onChange={(event) => setConfirm(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								event.preventDefault();
-								void remove();
-							}
-						}}
-					/>
-					<div className="mt-3 flex justify-end">
-						<button
-							type="button"
-							className="btn-quiet text-[var(--danger)]"
-							disabled={busy || confirm !== persona.name}
-							onClick={() => void remove()}
-						>
-							Remove teammate
-						</button>
-					</div>
-				</section>
-
-				{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
-
-				<div className="mt-1 flex justify-end">
-					<button type="button" className="btn-quiet" onClick={onClose}>
-						Done
+			<div>
+				<label className="label" htmlFor="edit-cwd">
+					Working directory
+				</label>
+				<PathField id="edit-cwd" value={cwd} onChange={setCwd} onCommit={(value) => saveCwd(value)} />
+				<div className="mt-2">
+					<button
+						type="button"
+						className="btn-quiet inline-flex items-center gap-1.5"
+						onClick={() => void revealPath(persona.cwd)}
+					>
+						<RevealIcon />
+						Reveal workspace
 					</button>
 				</div>
-			</form>
-		</Sheet>
+			</div>
+
+			<div>
+				<p className="label">Reach</p>
+				<label className="flex items-center gap-2 text-sm text-ink-2">
+					<input
+						type="checkbox"
+						checked={machine}
+						disabled={busy}
+						onChange={(event) =>
+							// A missing key leaves the old reach. The generated
+							// patch is Partial<Persona>, so the wall is the
+							// word, not JSON null.
+							save({ reach: event.target.checked ? "machine" : "workspace" })
+						}
+					/>
+					Whole machine
+				</label>
+				<p className="mt-1 text-xs leading-relaxed text-ink-3">
+					{machine
+						? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
+						: "Tools stop at the working directory: nothing outside it can be read, changed, or run."}
+				</p>
+			</div>
+
+			<McpGrant
+				personaId={persona.id}
+				policy={persona.mcpPolicy}
+				servers={servers}
+				disabled={busy}
+				onChange={(mcpPolicy) => save({ mcpPolicy })}
+			/>
+
+			<ToolLedger personaId={persona.id} />
+
+			<section className="mt-2 border-t border-rule pt-4">
+				<p className="label">Remove teammate</p>
+				<p className="mb-2 text-xs leading-relaxed text-ink-3">
+					Type <span className="font-medium text-ink-2">{persona.name}</span> to confirm. Their
+					conversation goes too.
+				</p>
+				<input
+					id="edit-confirm"
+					className="field"
+					aria-label="Type the teammate's name to confirm removal"
+					value={confirm}
+					onChange={(event) => setConfirm(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							event.preventDefault();
+							void remove();
+						}
+					}}
+				/>
+				<div className="mt-3 flex justify-end">
+					<button
+						type="button"
+						className="btn-quiet text-[var(--danger)]"
+						disabled={busy || confirm !== persona.name}
+						onClick={() => void remove()}
+					>
+						Remove teammate
+					</button>
+				</div>
+			</section>
+
+			{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
+
+			<div className="mt-1 flex justify-end">
+				<button type="button" className="btn-quiet" onClick={onClose}>
+					Done
+				</button>
+			</div>
+		</form>
 	);
 }
 
@@ -278,10 +279,10 @@ function McpGrant({
 						No servers yet. Add one under Settings → Tools.
 					</p>
 				) : (
-					<ul className="mt-2 flex flex-col gap-1">
+					<ul className="mt-2 flex flex-col">
 						{servers.map((server) => (
 							<li key={server.id}>
-								<label className="flex items-start gap-2 rounded-lg bg-paper-3 px-2.5 py-1.5 text-xs">
+								<label className="flex items-start gap-2 border-b border-rule py-1.5 text-xs">
 									<input
 										type="checkbox"
 										className="mt-0.5"
@@ -301,16 +302,14 @@ function McpGrant({
 						))}
 					</ul>
 				))}
-			<p className="mt-1 text-xs leading-relaxed text-ink-3">
-				A change reaches the teammate on its next start.
-			</p>
+			<p className="mt-1 text-xs leading-relaxed text-ink-3">A change reaches the teammate on its next start.</p>
 		</div>
 	);
 }
 
 /**
  * What this teammate actually has. The grant above is the intent; this is
- * the outcome of the last start, read once when the sheet opens because a
+ * the outcome of the last start, read once when the pane opens because a
  * ledger is a fact of that start, not a live feed.
  */
 function ToolLedger({ personaId }: { personaId: string }) {
@@ -338,20 +337,15 @@ function ToolLedger({ personaId }: { personaId: string }) {
 		<div>
 			<p className="label">Tools</p>
 			{ledger === null ? (
-				<p className="text-xs leading-relaxed text-ink-3">
-					Tools attach at start.
-				</p>
+				<p className="text-xs leading-relaxed text-ink-3">Tools attach at start.</p>
 			) : (
 				<div className="flex flex-col gap-3">
 					{groupedByOrigin(ledger.rows).map(([origin, rows]) => (
 						<div key={origin}>
 							<p className="mb-1 font-mono text-xs text-ink-3">{origin}</p>
-							<ul className="flex flex-col gap-1.5">
+							<ul className="flex flex-col">
 								{rows.map((row) => (
-									<li
-										key={`${row.source}-${row.origin}-${row.name}`}
-										className="rounded-lg bg-paper-3 px-2.5 py-1.5"
-									>
+									<li key={`${row.source}-${row.origin}-${row.name}`} className="border-b border-rule py-1.5">
 										<p className="flex flex-wrap items-baseline gap-x-2 text-xs">
 											<span className="font-mono text-ink">{row.name}</span>
 											<span className="text-ink-3">{row.state}</span>

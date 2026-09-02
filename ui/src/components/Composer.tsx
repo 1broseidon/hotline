@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
+import { CloseIcon } from "../icons";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 200;
@@ -129,7 +130,7 @@ export function Composer({
 							aria-label="Stop replying"
 							onClick={onClearReply}
 						>
-							×
+							<CloseIcon />
 						</button>
 					</div>
 				)}
@@ -149,7 +150,7 @@ export function Composer({
 										setAttachments((known) => known.filter((one) => one.path !== item.path))
 									}
 								>
-									×
+									<CloseIcon />
 								</button>
 							</li>
 						))}

@@ -1,5 +1,7 @@
 import type { ConfigChoice } from "../generated/contract";
+import { MoreIcon, SearchIcon } from "../icons";
 import type { RosterEntry } from "../wire";
+import { Chrome } from "./Chrome";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
 const TOAD_AGENT = "pi";
@@ -47,18 +49,18 @@ export function ChatHeader({
 	const currentMode = session.currentModeId ?? persona.modeId ?? "";
 
 	return (
-		<header className="border-b border-rule bg-paper">
-			<div className="flex items-center gap-3 px-6 py-2.5">
+		<header>
+			<Chrome>
 				<button
 					type="button"
-					className="min-w-0 text-left"
+					className="min-w-0 shrink text-left"
 					title="Teammate"
 					aria-label={`${persona.name}'s settings`}
 					onClick={onOpenTeammate}
 				>
 					<h2 className="truncate font-medium">{persona.name}</h2>
-					<p className="truncate font-mono text-xs text-ink-3">{persona.cwd}</p>
 				</button>
+				<p className="min-w-0 truncate font-mono text-xs text-ink-3">{persona.cwd}</p>
 
 				<p className="ml-auto shrink-0 text-xs text-ink-3">{session.state}</p>
 
@@ -103,12 +105,13 @@ export function ChatHeader({
 
 				<button
 					type="button"
-					className={`btn-quiet shrink-0 ${searchOpen ? "bg-paper-3" : ""}`}
+					className={`btn-icon shrink-0 ${searchOpen ? "bg-paper-3 text-ink" : ""}`}
 					title="Search (Ctrl+F)"
+					aria-label="Search"
 					aria-expanded={searchOpen}
 					onClick={onOpenSearch}
 				>
-					Search
+					<SearchIcon />
 				</button>
 
 				<button
@@ -130,16 +133,16 @@ export function ChatHeader({
 
 				<button
 					type="button"
-					className="btn-quiet shrink-0"
+					className="btn-icon shrink-0"
 					title="Teammate (Ctrl+I)"
 					aria-label="Teammate"
 					onClick={onOpenTeammate}
 				>
-					…
+					<MoreIcon />
 				</button>
-			</div>
+			</Chrome>
 			{session.error !== undefined && session.error !== "" && (
-				<p role="status" className="px-6 pb-2.5 text-xs text-[var(--danger)]">
+				<p role="status" className="px-3 pb-2 text-xs text-[var(--danger)]">
 					{session.error}
 				</p>
 			)}

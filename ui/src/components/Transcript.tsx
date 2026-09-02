@@ -155,7 +155,7 @@ function Line({
 		(previous === undefined || event.ts - previous.ts > STAMP_AFTER);
 
 	return (
-		<div data-event-id={event.id} className="rounded-lg">
+		<div data-event-id={event.id}>
 			{stamp && <p className="py-2 text-center text-xs text-ink-3">{stampText(event.ts)}</p>}
 			<Row personaId={personaId} event={event} said={said} onReply={onReply} onJump={onJump} />
 		</div>
@@ -385,7 +385,7 @@ function Thought({ text }: { text: string }) {
 				thought{open ? "" : ` · ${firstLine(text)}`}
 			</button>
 			{open && (
-				<pre className="mt-1 whitespace-pre-wrap rounded-lg bg-paper-3 px-2.5 py-2 font-mono text-xs text-ink-2">
+				<pre className="mt-1 whitespace-pre-wrap bg-paper-3 px-2.5 py-2 font-mono text-xs text-ink-2">
 					{text}
 				</pre>
 			)}
@@ -430,7 +430,7 @@ function Tool({
 				<span className="shrink-0">{status.replace(/_/g, " ")}</span>
 			</button>
 			{open && hasOutput && (
-				<pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-paper-3 px-2.5 py-2 font-mono text-xs text-ink-2">
+				<pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap bg-paper-3 px-2.5 py-2 font-mono text-xs text-ink-2">
 					{output.map(outputText).join("\n\n")}
 				</pre>
 			)}

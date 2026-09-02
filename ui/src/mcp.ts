@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { wire } from "./wire";
 
 /**
- * MCP servers as the settings sheet writes them.
+ * MCP servers as the settings pane writes them.
  *
  * The generated contract has the grant (`McpPolicy`) but not this list: the
  * core stores it as the setting key `mcpServers`, and another branch owns the

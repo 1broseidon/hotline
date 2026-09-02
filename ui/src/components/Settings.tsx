@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Credential } from "../generated/contract";
-import { wire, type Report } from "../wire";
+import type { Credential, Report } from "../generated/contract";
+import { wire } from "../wire";
 import { Sheet } from "./Sheet";
 
 /** The providers Toad can run a model on today, in the order they are offered. */

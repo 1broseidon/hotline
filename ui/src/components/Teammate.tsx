@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Persona } from "../generated/contract";
-import { wire, type PersonaPatch } from "../wire";
+import { wire } from "../wire";
 import { Sheet } from "./Sheet";
 
 /**
@@ -34,7 +34,7 @@ export function Teammate({
 		setCwd(persona.cwd);
 	}, [persona.name, persona.goal, persona.cwd]);
 
-	const save = (patch: PersonaPatch) => {
+	const save = (patch: Partial<Persona>) => {
 		if (busy) return;
 		setBusy(true);
 		setRefusal(null);
@@ -143,7 +143,12 @@ export function Teammate({
 							type="checkbox"
 							checked={machine}
 							disabled={busy}
-							onChange={(event) => save({ reach: event.target.checked ? "machine" : null })}
+							onChange={(event) =>
+								// A missing key leaves the old reach. The generated
+								// patch is Partial<Persona>, so the wall is the
+								// word, not JSON null.
+								save({ reach: event.target.checked ? "machine" : "workspace" })
+							}
 						/>
 						Whole machine
 					</label>

@@ -1,28 +1,28 @@
 import type {
 	ChapterSummary,
+	Command,
 	ConfigChoice,
 	Credential,
 	GlobalSearchHit,
 	Persona,
-	PersonaDraft,
-	Reach,
+	Report,
 	RosterEntry,
 	SessionInfo,
 	StreamDelta,
+	Target,
 	ThreadSearchHit,
 	TranscriptEvent,
 } from "./generated/contract";
 
-export type { RosterEntry };
+export type { RosterEntry, Target };
 
 /**
  * The window's one way of speaking to the core.
  *
- * Everything the window can ask for is in the `Commands` table below and
- * everything it can watch is a `Target`. Both are hand-written here because
- * the core's `Command` enum is not exported to TypeScript yet; when it is,
- * this table is the only thing that has to be deleted, and every caller keeps
- * compiling or stops compiling for a reason worth hearing about.
+ * Command names and params come from the generated `Command` union, so a
+ * name the core does not know, or a field it renamed, is a type error here
+ * and at every caller. Results are not generated yet, so they stay in the
+ * table below — the only hand-written piece of the command surface.
  */
 
 // ---------------------------------------------------------------------------
@@ -35,60 +35,47 @@ export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean }
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
 export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
 
-/**
- * `room.import`'s answer: how many of each thing came over, and what it left.
- * Hand-written until the import branch's `Report` lands in the generated file.
- */
-export type Report = {
-	teammates: number;
-	tapes: number;
-	settings: number;
-	keys: number;
-	skipped: Array<{ item: string; reason: string }>;
-};
-
-/**
- * A teammate patch as the window sends one. `reach` is `machine` or JSON
- * `null`: absent is the working directory, and `null` is how a toggle writes
- * that absence — `undefined` would drop the key and leave the old value.
- */
-export type PersonaPatch = Partial<Omit<Persona, "reach">> & { reach?: Reach | null };
-
 // ---------------------------------------------------------------------------
 // The command surface
 // ---------------------------------------------------------------------------
 
-/** Every command the window may send, with what it sends and what it gets back. */
-export type Commands = {
-	"persona.create": { params: { draft: PersonaDraft }; result: Persona };
-	"persona.update": { params: { id: string; patch: PersonaPatch }; result: Persona };
-	"persona.delete": { params: { id: string }; result: null };
-	"settings.update": {
-		params: { patch: Record<string, unknown> };
-		result: Record<string, unknown>;
-	};
-	"room.import": { params: { from: string }; result: Report };
-	"session.start": { params: { personaId: string }; result: SessionInfo };
-	"session.stop": { params: { personaId: string }; result: null };
-	"session.prompt": { params: { personaId: string; text: string }; result: null };
-	"session.cancel": { params: { personaId: string }; result: null };
-	"session.set_model": { params: { personaId: string; modelId: string }; result: SessionInfo };
-	"models.list": { params: Record<string, never>; result: ConfigChoice[] };
-	"credential.create": {
-		params: { providerId: string; label: string; secret: string };
-		result: Credential;
-	};
-	"credential.list": { params: Record<string, never>; result: Credential[] };
-	"search.thread": { params: { personaId: string; query: string }; result: ThreadSearchResult };
-	"search.all": { params: { query: string }; result: GlobalSearchResult };
-	"chapter.list": { params: { personaId: string }; result: ChapterSummary[] };
-	"chapter.start_fresh": { params: { personaId: string }; result: ChapterSummary };
+export type CommandName = Command["cmd"];
+
+type Params<N extends CommandName> = Extract<Command, { cmd: N }> extends {
+	params: infer P;
+}
+	? P
+	: Record<string, never>;
+
+/**
+ * What each command answers. The core does not generate result types yet, so
+ * this table is the window's one remaining spelling of the reply.
+ */
+type Results = {
+	"persona.create": Persona;
+	"persona.update": Persona;
+	"persona.delete": null;
+	"settings.update": Record<string, unknown>;
+	"credential.create": Credential;
+	"credential.revoke": null;
+	"credential.delete": null;
+	"credential.list": Credential[];
+	"models.list": ConfigChoice[];
+	"session.start": SessionInfo;
+	"session.stop": null;
+	"session.prompt": null;
+	"session.cancel": null;
+	"session.set_model": SessionInfo;
+	"search.thread": ThreadSearchResult;
+	"search.all": GlobalSearchResult;
+	"chapter.list": ChapterSummary[];
+	"room.import": Report;
 };
 
-export type CommandName = keyof Commands;
-
-/** What a subscription watches. A tape is one teammate's conversation. */
-export type Target = "room" | { tape: string } | { view: "roster" };
+/** Every command the window may send, with what it sends and what it gets back. */
+export type Commands = {
+	[N in CommandName]: { params: Params<N>; result: Results[N] };
+};
 
 /**
  * What arrives on a subscription. `snapshot` lands exactly once, before any

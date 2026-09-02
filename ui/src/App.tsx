@@ -224,7 +224,6 @@ function Conversation({
 }) {
 	const personaId = entry.persona.id;
 	const { events, streaming } = useTape(personaId);
-	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
 
 	const send = useCallback(
 		(text: string) => void wire.command("session.prompt", { personaId, text }),
@@ -232,12 +231,6 @@ function Conversation({
 	);
 	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
-	const startChapter = useCallback(() => {
-		setChapterSaid(null);
-		void wire.command("chapter.start_fresh", { personaId }).catch((error: Error) => {
-			setChapterSaid(error.message);
-		});
-	}, [personaId]);
 
 	return (
 		<>
@@ -245,11 +238,9 @@ function Conversation({
 				entry={entry}
 				models={models}
 				searchOpen={searchOpen}
-				chapterSaid={chapterSaid}
 				onSetModel={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
 				onOpenTeammate={onOpenTeammate}
 				onOpenSearch={onOpenSearch}
-				onNewChapter={startChapter}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript events={events} streaming={streaming} focus={focus} />

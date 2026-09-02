@@ -10,7 +10,13 @@
     "frontendDist": "../../ui/dist"
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "dragDropEnabled": true
+      }
+    ],
     "security": {
       "csp": null
     }

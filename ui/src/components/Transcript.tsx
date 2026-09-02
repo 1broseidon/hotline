@@ -275,7 +275,8 @@ function AgentBubble({
  * What you typed, and — when this line answers another — that other line
  * quoted from the fold. A leading `>` block is stripped only then: imported
  * tapes still carry the quote the old composer wrote into the text, and the
- * bar above already shows the original.
+ * bar above already shows the original. Files that rode with the line sit
+ * under the words, named from the event, with the path on hover.
  */
 function UserBubble({
 	event,
@@ -303,6 +304,15 @@ function UserBubble({
 					</button>
 				)}
 				{text}
+				{event.attachments !== undefined && event.attachments.length > 0 && (
+					<ul className="bubble-files">
+						{event.attachments.map((item) => (
+							<li key={item.path} className="bubble-file" title={item.path}>
+								{item.name}
+							</li>
+						))}
+					</ul>
+				)}
 			</div>
 		</div>
 	);

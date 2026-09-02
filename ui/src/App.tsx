@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ConfigChoice } from "./generated/contract";
+import type { Attachment, ConfigChoice } from "./generated/contract";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
 import { useTape } from "./tape";
 import { wire, type Connection, type RosterEntry } from "./wire";
@@ -240,11 +240,12 @@ function Conversation({
 	const [chapterBusy, setChapterBusy] = useState(false);
 
 	const send = useCallback(
-		(text: string) => {
+		(text: string, attachments: Attachment[]) => {
 			void wire.command("session.prompt", {
 				personaId,
 				text,
 				...(replying ? { replyTo: replying.eventId } : {}),
+				...(attachments.length > 0 ? { attachments } : {}),
 			});
 			setReplying(null);
 		},
@@ -264,8 +265,9 @@ function Conversation({
 	}, [personaId]);
 
 	// Escape clears a quote that is up even when the field is not focused.
-	// The composer handles the same key first when the field has it, so a
-	// turn is not cancelled on the same press.
+	// Chips are put down first, on the window in capture, so this listener
+	// does not also drop the quote on the same press. The composer handles
+	// the key when the field has it, so a turn is not cancelled then either.
 	useEffect(() => {
 		if (replying === null) return;
 		const onKey = (event: KeyboardEvent) => {

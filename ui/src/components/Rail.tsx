@@ -20,25 +20,38 @@ export function Rail({
 	selectedId,
 	onSelect,
 	onNew,
+	onKeys,
 }: {
 	entries: RosterEntry[];
 	selectedId: string | null;
 	onSelect(personaId: string): void;
 	onNew(): void;
+	onKeys(): void;
 }) {
 	return (
 		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col border-r border-rule bg-paper-2">
 			<div className="flex items-center justify-between px-3 py-2.5">
 				<h1 className="text-xs font-medium uppercase tracking-wider text-ink-3">Team</h1>
-				<button
-					type="button"
-					className="rounded-md px-1.5 text-lg leading-none text-ink-3 hover:text-ink"
-					title="New teammate (Ctrl+N)"
-					aria-label="New teammate"
-					onClick={onNew}
-				>
-					+
-				</button>
+				<div className="flex items-center gap-1">
+					<button
+						type="button"
+						className="rounded-md px-1.5 text-sm leading-none text-ink-3 hover:text-ink"
+						title="Keys (Ctrl+,)"
+						aria-label="Keys"
+						onClick={onKeys}
+					>
+						⚙
+					</button>
+					<button
+						type="button"
+						className="rounded-md px-1.5 text-lg leading-none text-ink-3 hover:text-ink"
+						title="New teammate (Ctrl+N)"
+						aria-label="New teammate"
+						onClick={onNew}
+					>
+						+
+					</button>
+				</div>
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">

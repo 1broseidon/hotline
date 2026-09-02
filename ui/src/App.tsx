@@ -60,12 +60,14 @@ export function App() {
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-			if (event.key === "n") {
+			// By physical key as well as by character: a layout that puts
+			// something else on the comma key still opens the keys.
+			if (event.key === "n" || event.code === "KeyN") {
 				event.preventDefault();
 				setSheet("new-teammate");
 				return;
 			}
-			if (event.key === ",") {
+			if (event.key === "," || event.code === "Comma") {
 				event.preventDefault();
 				setSheet("keys");
 				return;
@@ -88,6 +90,7 @@ export function App() {
 				selectedId={selectedId}
 				onSelect={setSelectedId}
 				onNew={() => setSheet("new-teammate")}
+				onKeys={() => setSheet("keys")}
 			/>
 
 			<main className="flex min-w-0 flex-1 flex-col bg-paper">

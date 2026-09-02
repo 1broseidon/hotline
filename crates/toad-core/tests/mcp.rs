@@ -479,3 +479,71 @@ async fn a_stdio_child_dropped_after_the_first_call_says_so_once() {
         "the notice lands once: {err:?}"
     );
 }
+
+/// A stdio server's own children go when the connection does.
+///
+/// The command in an `mcpServers` entry is usually a launcher — `npx -y
+/// some-server`, `uvx …` — and the server everybody means is its child.
+/// Killing only the process Toad spawned reparents that child to pid 1, where
+/// it keeps whatever it was holding for as long as Toad runs. Here a
+/// backgrounded sleep stands in for it.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stdio_servers_own_children_die_with_the_connection() {
+    let root = scratch("orphan");
+    let pidfile = root.join("child.pid");
+    let wrapper = McpServer {
+        id: "wrapper".to_string(),
+        name: "Wrapper".to_string(),
+        transport: McpTransport::Stdio {
+            command: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                format!(
+                    "sleep 600 & echo $! > {}; exec {}",
+                    pidfile.display(),
+                    echo_command()
+                ),
+            ],
+            env: std::collections::HashMap::new(),
+        },
+        refuse: None,
+    };
+
+    let connected = mcp::connect("orphan", std::slice::from_ref(&wrapper)).await;
+    assert!(
+        connected.failed.is_empty(),
+        "{:?}",
+        connected
+            .failed
+            .iter()
+            .map(|server| &server.reason)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(connected.tools.len(), 1);
+    let child = std::fs::read_to_string(&pidfile)
+        .expect("the wrapper wrote down what it started")
+        .trim()
+        .to_string();
+    assert!(alive(&child), "the wrapper's own child is running");
+
+    drop(connected);
+    for _ in 0..300 {
+        if !alive(&child) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the server's own child outlived the connection that started it");
+}
+
+/// Whether that process is still there. Signal 0 asks and does nothing else.
+#[cfg(unix)]
+fn alive(pid: &str) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", pid])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}

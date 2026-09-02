@@ -91,12 +91,41 @@ pub struct FailedServer {
 /// Live clients for one session, and the tools they listed.
 ///
 /// The running services stay here for as long as the session: dropping them
-/// closes the transport, which kills a stdio child. Tools clone a peer
+/// closes the transport, which kills a stdio child, and dropping the groups
+/// beside them reaches everything that child started. Tools clone a peer
 /// handle; they are only as live as this value.
 pub struct Connections {
     pub tools: Vec<McpTool>,
     pub failed: Vec<FailedServer>,
     _live: Vec<RunningService<rmcp::RoleClient, ClientInfo>>,
+    /// The process groups the stdio servers were spawned into, killed when
+    /// this value goes. See [`ProcessGroup`].
+    _groups: Vec<ProcessGroup>,
+}
+
+/// A stdio server's process group, killed when this is dropped.
+///
+/// rmcp's child transport kills the process it spawned and nothing else, and
+/// the command in an `mcpServers` entry is very often a launcher — `npx -y
+/// some-server`, `uvx …` — whose real server is a grandchild. Killing only the
+/// wrapper reparents that grandchild to pid 1, where it holds the port, the
+/// file locks and the memory for as long as Toad runs. So the child is spawned
+/// into a group of its own and the group is what a stop reaches, the same way
+/// the ACP child and the shell tool do it.
+struct ProcessGroup {
+    #[cfg_attr(not(unix), allow(dead_code))]
+    id: Option<u32>,
+}
+
+#[cfg(unix)]
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        if let Some(id) = self.id {
+            // Safety: `killpg` reads no memory, and the group is the one this
+            // connection made with `process_group(0)`.
+            unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
+        }
+    }
 }
 
 /// The servers this teammate's policy selects, and the ids it named that
@@ -172,9 +201,10 @@ pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
     let mut failed = Vec::new();
     let mut live = Vec::new();
     let watch = Watch::new(persona_id);
+    let mut groups = Vec::new();
     for server in servers {
         match connect_one(server).await {
-            Ok((client, listed)) => {
+            Ok((client, listed, group)) => {
                 let peer = client.peer().clone();
                 for definition in listed {
                     tools.push(McpTool::new(
@@ -186,6 +216,7 @@ pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
                     ));
                 }
                 live.push(client);
+                groups.extend(group);
             }
             Err(reason) => failed.push(FailedServer {
                 id: server.id.clone(),
@@ -198,6 +229,7 @@ pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
         tools,
         failed,
         _live: live,
+        _groups: groups,
     }
 }
 
@@ -240,12 +272,15 @@ pub fn unsupported(server: &McpServer) -> Option<String> {
     }
 }
 
+/// One server, connected. A stdio server also hands back the group it was
+/// spawned into, which is what the caller has to hold on to.
 async fn connect_one(
     server: &McpServer,
 ) -> Result<
     (
         RunningService<rmcp::RoleClient, ClientInfo>,
         Vec<rmcp::model::Tool>,
+        Option<ProcessGroup>,
     ),
     String,
 > {
@@ -257,12 +292,17 @@ async fn connect_one(
     match &server.transport {
         McpTransport::Http { url, .. } => {
             let transport = StreamableHttpClientTransport::from_uri(url.clone());
-            handshake(toad_client().serve(transport)).await
+            let (client, listed) = handshake(toad_client().serve(transport)).await?;
+            Ok((client, listed, None))
         }
         McpTransport::Stdio { command, args, env } => {
             let transport = TokioChildProcess::new(Command::new(command).configure(|cmd| {
                 cmd.args(args);
                 cmd.envs(env);
+                // Windows has no process group to put it in, so the child
+                // itself is all rmcp's own kill can reach there.
+                #[cfg(unix)]
+                cmd.process_group(0);
             }))
             .map_err(|error| {
                 format!(
@@ -270,7 +310,9 @@ async fn connect_one(
                     server.name, server.id
                 )
             })?;
-            handshake(toad_client().serve(transport)).await
+            let group = ProcessGroup { id: transport.id() };
+            let (client, listed) = handshake(toad_client().serve(transport)).await?;
+            Ok((client, listed, Some(group)))
         }
     }
 }

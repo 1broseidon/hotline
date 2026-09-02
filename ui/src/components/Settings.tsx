@@ -539,7 +539,9 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 					</div>
 				</div>
 				<p className="group-hint">
-					Teammates, their conversations, settings and keys are copied. The other Toad is never written to.
+					Teammates, their conversations, the peer threads those conversations name, schedules, settings and keys are
+					copied. The other Toad is never written to. A teammate keeps its working directory inside the old data
+					directory; deleting that directory takes those workspaces with it.
 				</p>
 			</section>
 			{report !== null && (
@@ -550,6 +552,7 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 							<span className="group-row-text">
 								<span className="group-row-title">
 									{count(report.teammates, "teammate")} · {count(report.tapes, "conversation")} ·{" "}
+									{count(report.threads, "thread")} · {count(report.schedules, "schedule")} ·{" "}
 									{count(report.settings, "setting")} · {count(report.keys, "key")}
 								</span>
 							</span>

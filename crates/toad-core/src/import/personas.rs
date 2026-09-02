@@ -52,6 +52,19 @@ pub fn list_local_personas(root: &Path) -> Vec<Value> {
 /// create `-wal`/`-shm` beside a directory it must not write; the workspace
 /// default still has to be the source directory's, not the copy's.
 pub(super) fn list_local_personas_from(store_root: &Path, workspace_root: &Path) -> Vec<Value> {
+    list_personas_from(store_root, workspace_root, true)
+}
+
+/// Teammates this store holds that another desk owns.
+///
+/// Dropping them is the decision — v1 has no fleet — but the importer
+/// still has to say so, or a name that was on the rail vanishes without
+/// a word.
+pub(super) fn list_foreign_personas_from(store_root: &Path, workspace_root: &Path) -> Vec<Value> {
+    list_personas_from(store_root, workspace_root, false)
+}
+
+fn list_personas_from(store_root: &Path, workspace_root: &Path, local: bool) -> Vec<Value> {
     let Some(database) = open(store_root) else {
         return Vec::new();
     };
@@ -60,7 +73,7 @@ pub(super) fn list_local_personas_from(store_root: &Path, workspace_root: &Path)
     };
     list_records(&database, "persona")
         .iter()
-        .filter(|record| record.owner_node == node_id)
+        .filter(|record| (record.owner_node == node_id) == local)
         // An id with no characters in it cannot name a workspace or a tape, so
         // a row carrying one is not a teammate this room could ever open.
         .filter(|record| !record.id.is_empty())
@@ -517,6 +530,11 @@ mod tests {
             .map(|persona| persona["id"].as_str().unwrap())
             .collect();
         assert_eq!(listed, ["mine"]);
+
+        let foreign = list_foreign_personas_from(&root, &root);
+        assert_eq!(foreign.len(), 1);
+        assert_eq!(foreign[0]["id"], "theirs");
+        assert_eq!(foreign[0]["name"], "Theirs");
     }
 
     /// A row an older build wrote keeps its thinking level where that build put

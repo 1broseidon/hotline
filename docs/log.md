@@ -62,7 +62,8 @@ workspace enables `serde_json`'s `preserve_order` so a line read and
 written back keeps the key order it was written with. Tests pin a tape
 this writes as byte-for-byte the file that Toad's `transcript.ts` writer
 produced for the same events, including after compact. Importing a data
-directory copies tapes unchanged.
+directory copies tapes unchanged, and copies every thread those tapes
+name whose key still has a teammate in this room.
 
 `Log::append` on a tape answers which epoch, byte offset and bytes
 landed, newline included. Offsets add up: the next write starts where
@@ -87,6 +88,10 @@ exists from the moment its sidecar is opened, whether or not anybody has
 said anything yet; listing threads reads the sidecars, not the streams.
 A thread is not offered to the search index: the index is over what
 teammates say to the user.
+
+Import copies a thread whose key names at least one teammate in this
+room — sidecar and stream, byte for byte. A thread that already exists
+here is left alone. A thread whose sides are both strangers is skipped.
 
 A label for a side the roster cannot resolve is written onto an existing
 sidecar. No sidecar, no invented one.
@@ -183,6 +188,13 @@ waiting to fire, soonest first:
 A loop carries `every` (milliseconds) instead of `when`. `quiet` is stored
 only when true. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
 The clock that fires these is [sessions.md](sessions.md).
+
+Import reads the previous Toad's `schedules.json` and appends each job
+for a teammate in this room as a `schedule` event, the same shape
+`schedule.create` writes. That file's `everyMs` is this event's `every`;
+a one-shot that never carried `when` uses `nextAt` for both. A job
+already present by id is left alone. A job whose teammate is not here
+is skipped.
 
 ## Startup settle
 

@@ -395,7 +395,7 @@ export type Receipt = "sent" | "read";
  * What an import did: how many of each thing came over, what it left
  * behind, and notes about things that came over with a caveat.
  */
-export type Report = { teammates: number, tapes: number, settings: number, keys: number, skipped: Array<Skipped>, notes: Array<Skipped>, };
+export type Report = { teammates: number, tapes: number, settings: number, keys: number, threads: number, schedules: number, skipped: Array<Skipped>, notes: Array<Skipped>, };
 
 /**
  * A ring: an agent's mark on one of its own messages, saying "this is the

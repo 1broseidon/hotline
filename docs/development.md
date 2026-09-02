@@ -193,9 +193,11 @@ entry it cannot read is named on `notes` and the rest of the list still
 lands. A key this Toad does not have is skipped with a row, not dropped
 in silence.
 
-Success prints a JSON report (`teammates`, `tapes`, `settings`, `keys`,
-`skipped`, `notes`) and exits 0. A failure prints the error and exits 1.
-Wrong arguments print `usage: toad-import <from> <to>` and exit 2.
+Success prints a JSON report (`teammates`, `tapes`, `threads`,
+`schedules`, `settings`, `keys`, `skipped`, `notes`) and exits 0. A
+failure prints the error and exits 1. Wrong arguments print
+`usage: toad-import <from> <to>` and exit 2. The two paths must not
+resolve to the same directory, and `<to>` must not live inside `<from>`.
 
 The same importer is the `room.import` command on the wire. Imported
 teammates keep their working directories under the old data directory's

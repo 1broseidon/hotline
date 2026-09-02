@@ -17,6 +17,8 @@
 
 mod personas;
 mod records;
+mod schedules;
+mod threads;
 
 use crate::contract::{
     Face, HarnessChoice, Persona, PersonaComputer, PersonaSubagents, Reach, WebSearchPolicy,
@@ -45,6 +47,8 @@ pub struct Report {
     pub tapes: i64,
     pub settings: i64,
     pub keys: i64,
+    pub threads: i64,
+    pub schedules: i64,
     pub skipped: Vec<Skipped>,
     pub notes: Vec<Skipped>,
 }
@@ -125,6 +129,8 @@ pub fn import(from: &Path, log: &Log, vault: &Vault) -> io::Result<Report> {
     let snapshot = snapshot_store(from)?;
     let store_root = snapshot.as_ref().map(StoreSnapshot::path).unwrap_or(from);
     let imported = import_teammates(store_root, from, log, &mut report)?;
+    threads::import(from, log, &mut report)?;
+    schedules::import(from, log, &mut report)?;
     import_settings(from, log, &mut report)?;
     import_keys(store_root, from, vault, &mut report)?;
 
@@ -155,6 +161,17 @@ fn import_teammates(
         .map(|persona| persona.id)
         .collect();
     let mut imported = Vec::new();
+    for value in personas::list_foreign_personas_from(store_root, workspace_root) {
+        let name = value
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Untitled");
+        report.skipped.push(Skipped {
+            item: format!("teammate {name}"),
+            reason: "lives on another desk; this Toad has no fleet".into(),
+        });
+    }
+    let mut workspace_left_in_source = false;
     for value in personas::list_local_personas_from(store_root, workspace_root) {
         let Some(id) = value.get("id").and_then(Value::as_str).map(str::to_string) else {
             report.skipped.push(Skipped {
@@ -212,8 +229,31 @@ fn import_teammates(
         append_persona(log, &persona)?;
         report.teammates += 1;
         imported.push(id);
+        if cwd_lives_under(workspace_root, &persona.cwd) {
+            workspace_left_in_source = true;
+        }
+    }
+    if workspace_left_in_source {
+        report.notes.push(Skipped {
+            item: "workspaces".into(),
+            reason: "imported teammates still work inside the old data directory; deleting that directory takes their projects with it".into(),
+        });
     }
     Ok(imported)
+}
+
+/// True when `cwd` is the source data directory or a path under it — the
+/// default workspace lives at `<from>/workspaces/<id>`, and deleting
+/// `from` takes that project with it.
+fn cwd_lives_under(from: &Path, cwd: &str) -> bool {
+    let cwd = Path::new(cwd);
+    if cwd.starts_with(from) {
+        return true;
+    }
+    match (from.canonicalize(), cwd.canonicalize()) {
+        (Ok(from), Ok(cwd)) => cwd.starts_with(from),
+        _ => false,
+    }
 }
 
 /// The cards an imported tape left open are expired the way the room expires
@@ -386,6 +426,17 @@ fn import_keys(
         };
         vault.create(provider, label, secret)?;
         report.keys += 1;
+    }
+    if report.keys == 0 {
+        const GUIDANCE: &str = "no Anthropic, OpenAI or OpenRouter key came over; add one in Keys before a Toad Agent teammate can answer";
+        for skipped in &mut report.skipped {
+            if skipped.item.starts_with("key ")
+                && skipped.reason != "already in this vault"
+                && !skipped.reason.contains(GUIDANCE)
+            {
+                skipped.reason = format!("{}; {GUIDANCE}", skipped.reason);
+            }
+        }
     }
     Ok(())
 }
@@ -819,6 +870,79 @@ mod tests {
         )
         .unwrap();
 
+        fs::create_dir_all(paths::threads_dir(from)).unwrap();
+        let thread_line = "{\"kind\":\"user\",\"id\":\"t1\",\"ts\":3000,\"text\":\"ada to bob\"}\n";
+        for key in ["ada~bob", "ada~ghost"] {
+            let (a, b) = key.split_once('~').unwrap();
+            fs::write(paths::thread_path(from, key).unwrap(), thread_line).unwrap();
+            fs::write(
+                paths::thread_meta_path(from, key).unwrap(),
+                format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(&json!({
+                        "version": 1,
+                        "a": a,
+                        "b": b,
+                        "sides": { "user": a, "agent": b },
+                        "sessions": [],
+                        "createdAt": 1,
+                        "updatedAt": 1,
+                    }))
+                    .unwrap()
+                ),
+            )
+            .unwrap();
+        }
+        fs::write(
+            paths::thread_path(from, "nobody~stranger").unwrap(),
+            "{\"kind\":\"user\",\"id\":\"t2\",\"ts\":3001,\"text\":\"strangers\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            paths::thread_meta_path(from, "nobody~stranger").unwrap(),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&json!({
+                    "version": 1,
+                    "a": "nobody",
+                    "b": "stranger",
+                    "sides": { "user": "nobody", "agent": "stranger" },
+                    "sessions": [],
+                    "createdAt": 1,
+                    "updatedAt": 1,
+                }))
+                .unwrap()
+            ),
+        )
+        .unwrap();
+
+        fs::write(
+            from.join("schedules.json"),
+            json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "job-ada",
+                        "personaId": "ada",
+                        "kind": "schedule",
+                        "prompt": "Check the harbour",
+                        "nextAt": 1_700_000_001_000i64,
+                        "createdAt": 1,
+                    },
+                    {
+                        "id": "job-stranger",
+                        "personaId": "nobody",
+                        "kind": "schedule",
+                        "prompt": "A job for someone who is not here",
+                        "nextAt": 1_700_000_002_000i64,
+                        "createdAt": 2,
+                    },
+                ],
+            })
+            .to_string(),
+        )
+        .unwrap();
+
         fs::create_dir_all(from.join("credentials")).unwrap();
         fs::write(
             from.join("credentials").join("vault.json"),
@@ -854,6 +978,8 @@ mod tests {
 
         assert_eq!(first.teammates, 3, "{first:?}");
         assert_eq!(first.tapes, 2, "{first:?}");
+        assert_eq!(first.threads, 2, "{first:?}");
+        assert_eq!(first.schedules, 1, "{first:?}");
         assert_eq!(first.settings, 2, "{first:?}");
         assert_eq!(first.keys, 3, "{first:?}");
         let reasons: Vec<(&str, &str)> = first
@@ -886,6 +1012,27 @@ mod tests {
                 && *reason == "not a setting this Toad has"),
             "{reasons:?}"
         );
+        assert!(
+            reasons
+                .iter()
+                .any(|(item, reason)| *item == "teammate Theirs"
+                    && *reason == "lives on another desk; this Toad has no fleet"),
+            "{reasons:?}"
+        );
+        assert!(
+            reasons
+                .iter()
+                .any(|(item, reason)| *item == "thread nobody~stranger"
+                    && *reason == "names no teammate in this room"),
+            "{reasons:?}"
+        );
+        assert!(
+            reasons
+                .iter()
+                .any(|(item, reason)| *item == "schedule job-stranger"
+                    && reason.contains("nobody")),
+            "{reasons:?}"
+        );
 
         let roster = room::roster(&log);
         let names: Vec<&str> = roster.iter().map(|persona| persona.name.as_str()).collect();
@@ -902,6 +1049,21 @@ mod tests {
             fs::read(paths::transcript_path(&to, "bob")).unwrap(),
             fs::read(paths::transcript_path(&from, "bob")).unwrap()
         );
+        assert_eq!(
+            fs::read(paths::thread_path(&to, "ada~bob").unwrap()).unwrap(),
+            fs::read(paths::thread_path(&from, "ada~bob").unwrap()).unwrap()
+        );
+        assert_eq!(
+            fs::read(paths::thread_meta_path(&to, "ada~bob").unwrap()).unwrap(),
+            fs::read(paths::thread_meta_path(&from, "ada~bob").unwrap()).unwrap()
+        );
+        assert!(!paths::thread_path(&to, "nobody~stranger").unwrap().exists());
+
+        let jobs = room::schedules(&log);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "job-ada");
+        assert_eq!(jobs[0].persona_id, "ada");
+        assert_eq!(jobs[0].prompt, "Check the harbour");
 
         let settings = room::settings(&log);
         assert_eq!(settings["chapterIdleHours"], 4);
@@ -937,6 +1099,8 @@ mod tests {
         let second = import(&from, &log, &vault).unwrap();
         assert_eq!(second.teammates, 0, "{second:?}");
         assert_eq!(second.tapes, 0, "{second:?}");
+        assert_eq!(second.threads, 0, "{second:?}");
+        assert_eq!(second.schedules, 0, "{second:?}");
         assert_eq!(second.settings, 0, "{second:?}");
         assert_eq!(second.keys, 0, "{second:?}");
         assert!(
@@ -1278,5 +1442,80 @@ mod tests {
             "{report:?}"
         );
         assert_eq!(room::settings(&log)["chapterIdleHours"], 4);
+    }
+
+    #[test]
+    fn a_workspace_under_the_source_is_noted_once() {
+        let from = store_scratch("import-cwd");
+        let database = create(&from, "this-desk");
+        let cwd = from.join("workspaces").join("ada");
+        fs::create_dir_all(&cwd).unwrap();
+        Put {
+            machine: Some(json!({ "cwd": cwd.to_string_lossy() })),
+            ..Put::new(
+                "ada",
+                "this-desk",
+                json!({
+                    "name": "Ada",
+                    "goal": "Stay put.",
+                    "backendId": "pi",
+                }),
+            )
+        }
+        .write(&database);
+        database.close().unwrap();
+
+        let (_to, log, vault) = dest("import-cwd-dest");
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.teammates, 1, "{report:?}");
+        assert_eq!(
+            report
+                .notes
+                .iter()
+                .filter(|note| note.item == "workspaces")
+                .count(),
+            1,
+            "{report:?}"
+        );
+        assert!(
+            report.notes.iter().any(|note| note.item == "workspaces"
+                && note.reason.contains("old data directory")),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn no_imported_key_tells_the_person_to_add_one() {
+        let from = store_scratch("import-no-keys");
+        let database = create(&from, "this-desk");
+        Put {
+            kind: "credential",
+            ..Put::new(
+                "cred-oauth",
+                "this-desk",
+                json!({
+                    "providerId": "anthropic",
+                    "label": "claude-login",
+                    "kind": "oauth",
+                    "revoked": false,
+                }),
+            )
+        }
+        .write(&database);
+        database.close().unwrap();
+
+        let (_to, log, vault) = dest("import-no-keys-dest");
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.keys, 0, "{report:?}");
+        assert!(
+            report.skipped.iter().any(|skipped| {
+                skipped.item == "key claude-login (anthropic)"
+                    && skipped.reason.contains("oauth")
+                    && skipped.reason.contains(
+                        "no Anthropic, OpenAI or OpenRouter key came over; add one in Keys before a Toad Agent teammate can answer",
+                    )
+            }),
+            "{report:?}"
+        );
     }
 }

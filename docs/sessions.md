@@ -164,13 +164,15 @@ is told the request was cancelled.
 ## Asking the person
 
 `request_human` is one of Toad's own tools, on both agent kinds. The agent
-says what it cannot do — credentials, a tap, a CAPTCHA — and the call
-waits. A `human_action` event lands on the tape, id `human:<actionId>`,
-status `pending`. The room holds a oneshot by that id. `human.answer`
-resolves it with `done` or `declined` and supersedes the card; declined
-is written as `dismissed`, the previous Toad's word for that afterlife.
-The tool returns a sentence: "The person did it.", "The person declined:
-…", or "Nobody answered in ten minutes." A card left pending when the turn
+says what it cannot do — credentials, a tap, a CAPTCHA, a question only
+the person can answer — and the call waits. A `human_action` event lands
+on the tape, id `human:<actionId>`, status `pending`. The room holds a
+oneshot by that id. `human.answer` resolves it with `done` or `declined`
+and an optional `note`, and supersedes the card with both; declined is
+written as `dismissed`, the previous Toad's word for that afterlife. The
+tool returns a sentence: "The person did it.", "The person declined.", or
+"Nobody answered in ten minutes.", and when the person typed a note it
+follows word for word: "They said: …". A card left pending when the turn
 is cancelled, the session stops or the room restarts is expired by the same
 fold that expires orphaned permission cards: the tool call is inside the
 turn, so a turn that ended is an agent that has stopped listening.

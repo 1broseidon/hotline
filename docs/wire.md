@@ -116,10 +116,10 @@ request any more — the turn ended, the session stopped, or somebody else
 answered first — so a stale card cannot silently let an agent through.
 
 `human.answer` is the same fact for a `request_human` card: `done` or
-`declined`, refused when the deadline passed, the session stopped, the
-room restarted, or somebody else answered first. The tape still writes
-`dismissed` for a decline, which is the previous Toad's word for that
-afterlife.
+`declined`, with an optional `note` the agent receives word for word,
+refused when the deadline passed, the session stopped, the room restarted,
+or somebody else answered first. The tape still writes `dismissed` for a
+decline, which is the previous Toad's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
 modelId?, computer?}`. Create fills what the draft leaves blank: a fresh

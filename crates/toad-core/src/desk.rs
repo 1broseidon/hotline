@@ -106,8 +106,9 @@ impl RoomHandle for Desk {
         persona_id: &str,
         action_id: &str,
         status: crate::contract::HumanAnswer,
+        note: Option<String>,
     ) -> Result<(), String> {
-        self.room.answer_human(persona_id, action_id, status)
+        self.room.answer_human(persona_id, action_id, status, note)
     }
 
     fn info(&self, persona_id: &str) -> SessionInfo {

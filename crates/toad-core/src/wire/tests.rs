@@ -140,6 +140,7 @@ impl RoomHandle for Quiet {
         _persona_id: &str,
         _action_id: &str,
         _status: crate::contract::HumanAnswer,
+        _note: Option<String>,
     ) -> Result<(), String> {
         Ok(())
     }

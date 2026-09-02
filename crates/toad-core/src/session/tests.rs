@@ -1873,7 +1873,7 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
         })
     };
     let action_id = pending_human(&room, "ada").await;
-    room.answer_human("ada", &action_id, HumanAnswer::Done)
+    room.answer_human("ada", &action_id, HumanAnswer::Done, Some("  ".to_string()))
         .unwrap();
     let text = waiting.await.unwrap().unwrap();
     assert_eq!(text, "The person did it.");
@@ -1886,13 +1886,14 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
     assert_eq!(card["status"], "done");
     assert_eq!(card["reason"], "Tap the 2FA prompt");
     assert!(
-        room.answer_human("ada", &action_id, HumanAnswer::Declined)
+        room.answer_human("ada", &action_id, HumanAnswer::Declined, None)
             .is_err()
     );
 }
 
-/// Declined keeps the reason in the sentence, so the agent knows what
-/// the person would not do.
+/// The person's note reaches the agent word for word, on the sentence and
+/// on the card, so a declined card says why and a card that asked a
+/// question gets its answer.
 #[tokio::test]
 async fn a_declined_human_request_carries_the_note() {
     let room = room("human-declined", Fake::new(Scripted::new(vec![])));
@@ -1909,15 +1910,24 @@ async fn a_declined_human_request_carries_the_note() {
         })
     };
     let action_id = pending_human(&room, "ada").await;
-    room.answer_human("ada", &action_id, HumanAnswer::Declined)
-        .unwrap();
+    room.answer_human(
+        "ada",
+        &action_id,
+        HumanAnswer::Declined,
+        Some(" It is in the shared vault, use that. ".to_string()),
+    )
+    .unwrap();
     let text = waiting.await.unwrap().unwrap();
-    assert_eq!(text, "The person declined: Enter the vault password");
+    assert_eq!(
+        text,
+        "The person declined. They said: It is in the shared vault, use that."
+    );
     let card = tape(&room, "ada")
         .into_iter()
         .find(|event| event["kind"] == "human_action")
         .expect("the card is on the tape");
     assert_eq!(card["status"], "dismissed");
+    assert_eq!(card["note"], "It is in the shared vault, use that.");
 }
 
 /// The deadline is injectable so a test does not sit for ten minutes.
@@ -2052,7 +2062,7 @@ async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
         .expect("the card is on the tape");
     assert_eq!(card["status"], "expired");
     assert!(
-        room.answer_human("ada", &action_id, HumanAnswer::Done)
+        room.answer_human("ada", &action_id, HumanAnswer::Done, None)
             .is_err(),
         "a card nobody is behind still took an answer"
     );

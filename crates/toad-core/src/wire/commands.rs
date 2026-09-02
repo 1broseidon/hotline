@@ -79,8 +79,9 @@ pub(crate) async fn run(
             persona_id,
             action_id,
             status,
+            note,
         } => room
-            .answer_human(&persona_id, &action_id, status)
+            .answer_human(&persona_id, &action_id, status, note)
             .map(|()| Value::Null),
 
         Command::SearchThread {

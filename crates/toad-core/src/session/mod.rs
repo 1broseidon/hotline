@@ -843,16 +843,17 @@ impl Room {
                 action_id: action_id.clone(),
                 reason: reason.clone(),
                 status: HumanActionStatus::Pending,
+                note: None,
             },
         );
-        let status = tokio::select! {
-            answered = receiver => answered.unwrap_or(HumanActionStatus::Expired),
+        let answer = tokio::select! {
+            answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
             _ = tokio::time::sleep(deadline) => {
                 self.expire_human(&action_id);
-                HumanActionStatus::Expired
+                HumanAnswered::expired()
             }
         };
-        Ok(human_outcome(&reason, status))
+        Ok(human_outcome(answer))
     }
 
     /// Resolves a waiting `request_human` and supersedes its card.
@@ -865,11 +866,15 @@ impl Room {
         persona_id: &str,
         action_id: &str,
         status: HumanAnswer,
+        note: Option<String>,
     ) -> Result<(), String> {
         let status = match status {
             HumanAnswer::Done => HumanActionStatus::Done,
             HumanAnswer::Declined => HumanActionStatus::Dismissed,
         };
+        let note = note
+            .map(|note| note.trim().chars().take(2_000).collect::<String>())
+            .filter(|note| !note.is_empty());
         let wait = lock(&self.human_waits).remove(action_id);
         let Some(wait) = wait else {
             return Err("That request is no longer waiting for an answer.".to_string());
@@ -878,8 +883,8 @@ impl Room {
             lock(&self.human_waits).insert(action_id.to_string(), wait);
             return Err("That request is no longer waiting for an answer.".to_string());
         }
-        self.supersede_human(persona_id, action_id, status);
-        let _ = wait.sender.send(status);
+        self.supersede_human(persona_id, action_id, status, note.clone());
+        let _ = wait.sender.send(HumanAnswered { status, note });
         Ok(())
     }
 
@@ -910,7 +915,7 @@ impl Room {
     /// oneshot the tool is parked on, so it hears expired rather than
     /// hanging until its own deadline.
     fn release_human_waits(&self, persona_id: &str) {
-        let senders: Vec<oneshot::Sender<HumanActionStatus>> = {
+        let senders: Vec<oneshot::Sender<HumanAnswered>> = {
             let mut waits = lock(&self.human_waits);
             let ids: Vec<String> = waits
                 .iter()
@@ -922,7 +927,7 @@ impl Room {
                 .collect()
         };
         for sender in senders {
-            let _ = sender.send(HumanActionStatus::Expired);
+            let _ = sender.send(HumanAnswered::expired());
         }
     }
 
@@ -933,10 +938,21 @@ impl Room {
         let Some(wait) = lock(&self.human_waits).remove(action_id) else {
             return;
         };
-        self.supersede_human(&wait.persona_id, action_id, HumanActionStatus::Expired);
+        self.supersede_human(
+            &wait.persona_id,
+            action_id,
+            HumanActionStatus::Expired,
+            None,
+        );
     }
 
-    fn supersede_human(&self, persona_id: &str, action_id: &str, status: HumanActionStatus) {
+    fn supersede_human(
+        &self,
+        persona_id: &str,
+        action_id: &str,
+        status: HumanActionStatus,
+        note: Option<String>,
+    ) {
         let Some(card) = self.human_card(persona_id, action_id) else {
             return;
         };
@@ -951,6 +967,7 @@ impl Room {
                 action_id: action_id.to_string(),
                 reason,
                 status,
+                note,
             },
         );
     }
@@ -1557,20 +1574,41 @@ impl Room {
 /// deadline passes, or the session stops.
 struct HumanWait {
     persona_id: String,
-    sender: oneshot::Sender<HumanActionStatus>,
+    sender: oneshot::Sender<HumanAnswered>,
 }
 
-/// The sentence the tool returns. The expired wording always says ten
-/// minutes, even when a test injected a shorter deadline: that is what
-/// the agent is told in life, and a test that checks the sentence should
-/// see the same words.
-fn human_outcome(reason: &str, status: HumanActionStatus) -> String {
-    match status {
-        HumanActionStatus::Done => "The person did it.".to_string(),
-        HumanActionStatus::Dismissed => format!("The person declined: {reason}"),
-        HumanActionStatus::Expired | HumanActionStatus::Pending => {
-            "Nobody answered in ten minutes.".to_string()
+/// What came back for a `request_human` card: the outcome, and the words
+/// the person added to it, if any.
+struct HumanAnswered {
+    status: HumanActionStatus,
+    note: Option<String>,
+}
+
+impl HumanAnswered {
+    fn expired() -> Self {
+        Self {
+            status: HumanActionStatus::Expired,
+            note: None,
         }
+    }
+}
+
+/// The sentence the tool returns. The person's note, when there is one,
+/// follows it word for word, so a card that asked a question gets its
+/// answer. The expired wording always says ten minutes, even when a test
+/// injected a shorter deadline: that is what the agent is told in life,
+/// and a test that checks the sentence should see the same words.
+fn human_outcome(answer: HumanAnswered) -> String {
+    let outcome = match answer.status {
+        HumanActionStatus::Done => "The person did it.",
+        HumanActionStatus::Dismissed => "The person declined.",
+        HumanActionStatus::Expired | HumanActionStatus::Pending => {
+            return "Nobody answered in ten minutes.".to_string();
+        }
+    };
+    match answer.note {
+        Some(note) => format!("{outcome} They said: {note}"),
+        None => outcome.to_string(),
     }
 }
 

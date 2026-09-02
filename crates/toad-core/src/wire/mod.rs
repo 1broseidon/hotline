@@ -97,6 +97,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         persona_id: &str,
         action_id: &str,
         status: crate::contract::HumanAnswer,
+        note: Option<String>,
     ) -> Result<(), String>;
 
     /// Closes the teammate's open chapter, answering with what it became.

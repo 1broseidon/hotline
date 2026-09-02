@@ -79,7 +79,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA — and waits for them to do it. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -126,7 +126,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             REQUEST_HUMAN,
-            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA. A card appears in your conversation. This call waits until they do it, they decline, or ten minutes pass. Set the stage first and say in `reason` exactly what to do.",
+            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation. This call waits until they do it, they decline, or ten minutes pass, and returns whatever note they typed with their answer. Set the stage first and say in `reason` exactly what to do.",
             schema(json!({
                 "type": "object",
                 "properties": {

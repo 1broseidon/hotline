@@ -695,6 +695,9 @@ pub enum TranscriptEvent {
         action_id: String,
         reason: String,
         status: HumanActionStatus,
+        /// What the person said with their answer, when they said anything.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
     },
     Peer {
         id: String,
@@ -1315,12 +1318,15 @@ pub enum Command {
     },
     /// Answers a card the agent posted with `request_human`. Refused when
     /// nothing is waiting any more — the deadline passed, the session
-    /// stopped, the room restarted, or somebody else answered first.
+    /// stopped, the room restarted, or somebody else answered first. The
+    /// note, when there is one, reaches the agent word for word.
     #[serde(rename = "human.answer")]
     HumanAnswer {
         persona_id: String,
         action_id: String,
         status: HumanAnswer,
+        #[serde(default)]
+        note: Option<String>,
     },
     #[serde(rename = "search.thread")]
     SearchThread {

@@ -728,9 +728,9 @@ const AFTERLIFE: Record<HumanActionStatus, string> = {
 
 /**
  * The agent asked for hands it does not have. A pending card is answered
- * here; a decided one is the outcome on the tape. Decline asks for a
- * one-line note in place — the wire has no field for it, so the note
- * stays on the screen and `human.answer` goes out as declined alone.
+ * here; a decided one is the outcome on the tape. The note goes with
+ * either answer and reaches the agent word for word, so a card that asked
+ * a question is answered in the same place it was asked. Enter is Done.
  */
 function HumanAction({
 	personaId,
@@ -740,14 +740,15 @@ function HumanAction({
 	event: Extract<TranscriptEvent, { kind: "human_action" }>;
 }) {
 	const [answering, setAnswering] = useState(false);
-	const [declining, setDeclining] = useState(false);
 	const [note, setNote] = useState("");
 
 	const answer = (status: HumanAnswer) => {
 		if (answering || event.status !== "pending") return;
 		setAnswering(true);
+		const trimmed = note.trim();
+		const params = { personaId, actionId: event.actionId, status };
 		void wire
-			.command("human.answer", { personaId, actionId: event.actionId, status })
+			.command("human.answer", trimmed ? { ...params, note: trimmed } : params)
 			.catch(() => setAnswering(false));
 	};
 
@@ -756,6 +757,7 @@ function HumanAction({
 			<div className="card mt-3">
 				<p className="eyebrow mb-1">Needed you · {AFTERLIFE[event.status]}</p>
 				<p className="selectable text-ink-2">{event.reason}</p>
+				{event.note ? <p className="selectable mt-1 text-ink-2">You said: {event.note}</p> : null}
 			</div>
 		);
 	}
@@ -764,42 +766,28 @@ function HumanAction({
 		<div className="card card-live mt-3">
 			<p className="eyebrow mb-1">Needs you</p>
 			<p className="selectable">{event.reason}</p>
-			{declining ? (
-				<form
-					className="mt-2.5 flex items-center gap-1.5"
-					onSubmit={(submit) => {
-						submit.preventDefault();
-						answer("declined");
-					}}
-				>
-					<input
-						className="field min-w-0 flex-1"
-						aria-label="A note for the decline"
-						placeholder="A one-line note"
-						autoComplete="off"
-						autoFocus
-						value={note}
-						onChange={(change) => setNote(change.target.value)}
-						onKeyDown={(key) => {
-							if (key.key !== "Escape") return;
-							key.preventDefault();
-							setDeclining(false);
-						}}
-					/>
-					<button type="submit" disabled={answering} className="control btn btn-sm">
-						Decline
-					</button>
-				</form>
-			) : (
-				<div className="card-actions">
-					<button type="button" disabled={answering} className="control btn-primary" onClick={() => answer("done")}>
-						Done
-					</button>
-					<button type="button" disabled={answering} className="control btn" onClick={() => setDeclining(true)}>
-						Decline
-					</button>
-				</div>
-			)}
+			<form
+				className="mt-2.5 flex items-center gap-1.5"
+				onSubmit={(submit) => {
+					submit.preventDefault();
+					answer("done");
+				}}
+			>
+				<input
+					className="field min-w-0 flex-1"
+					aria-label="A note for the teammate"
+					placeholder="A note for the teammate, if there is one"
+					autoComplete="off"
+					value={note}
+					onChange={(change) => setNote(change.target.value)}
+				/>
+				<button type="submit" disabled={answering} className="control btn-primary">
+					Done
+				</button>
+				<button type="button" disabled={answering} className="control btn" onClick={() => answer("declined")}>
+					Decline
+				</button>
+			</form>
 		</div>
 	);
 }

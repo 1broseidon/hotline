@@ -171,7 +171,9 @@ un-reads a message.
 
 `room.import`'s `from` is a path to an existing Toad data directory. The
 source is never written. `Report` is `{teammates, tapes, settings, keys,
-skipped: [{item, reason}]}`.
+skipped: [{item, reason}], notes: [{item, reason}]}`. `skipped` is left
+behind; `notes` is imported with a caveat (a backend this registry has
+no counterpart for).
 
 `teammate.tools` is what tools this teammate was given the last time it
 started, where they came from, and — for anything absent — why. JSON `null`

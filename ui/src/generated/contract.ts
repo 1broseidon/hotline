@@ -392,9 +392,10 @@ export type Reach = "workspace" | "machine";
 export type Receipt = "sent" | "read";
 
 /**
- * What an import did: how many of each thing came over, and what it left.
+ * What an import did: how many of each thing came over, what it left
+ * behind, and notes about things that came over with a caveat.
  */
-export type Report = { teammates: number, tapes: number, settings: number, keys: number, skipped: Array<Skipped>, };
+export type Report = { teammates: number, tapes: number, settings: number, keys: number, skipped: Array<Skipped>, notes: Array<Skipped>, };
 
 /**
  * A ring: an agent's mark on one of its own messages, saying "this is the
@@ -502,8 +503,9 @@ export type SessionState = "idle" | "starting" | "ready" | "thinking" | "error" 
 export type Side = "me" | "them";
 
 /**
- * One note from the import: a thing left behind, or a backend this
- * registry has no harness for.
+ * One row the import wants the person to see: left behind (`skipped`)
+ * or imported with a caveat (`notes`). Same shape so the window can
+ * word the list, not the row.
  */
 export type Skipped = { item: string, reason: string, };
 

@@ -554,8 +554,18 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 								</span>
 							</span>
 						</div>
+						{report.notes.map((one, index) => (
+							<div key={`note:${one.item}:${index}`} className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title font-mono text-sm">{one.item}</span>
+									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+										Note: {one.reason}
+									</span>
+								</span>
+							</div>
+						))}
 						{report.skipped.map((one, index) => (
-							<div key={`${one.item}:${index}`} className="group-row">
+							<div key={`skipped:${one.item}:${index}`} className="group-row">
 								<span className="group-row-text">
 									<span className="group-row-title font-mono text-sm">{one.item}</span>
 									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>

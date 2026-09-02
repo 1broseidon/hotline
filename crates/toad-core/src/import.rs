@@ -29,7 +29,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
-/// What an import did: how many of each thing came over, and what it left.
+/// What an import did: how many of each thing came over, what it left
+/// behind, and notes about things that came over with a caveat.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -39,10 +40,12 @@ pub struct Report {
     pub settings: i64,
     pub keys: i64,
     pub skipped: Vec<Skipped>,
+    pub notes: Vec<Skipped>,
 }
 
-/// One note from the import: a thing left behind, or a backend this
-/// registry has no harness for.
+/// One row the import wants the person to see: left behind (`skipped`)
+/// or imported with a caveat (`notes`). Same shape so the window can
+/// word the list, not the row.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -166,7 +169,7 @@ fn import_teammates(
         };
         match counterpart(&persona.backend_id) {
             Some(mapped) => persona.backend_id = mapped.to_string(),
-            None => report.skipped.push(Skipped {
+            None => report.notes.push(Skipped {
                 item: format!("teammate {}", persona.name),
                 reason: format!("backend {} has no counterpart here", persona.backend_id),
             }),
@@ -846,17 +849,22 @@ mod tests {
 
         assert!(
             report
-                .skipped
+                .notes
                 .iter()
-                .any(|skipped| skipped.item == "teammate Stranger"
-                    && skipped.reason == "backend nonesuch has no counterpart here"),
+                .any(|note| note.item == "teammate Stranger"
+                    && note.reason == "backend nonesuch has no counterpart here"),
             "{report:?}"
         );
         assert!(
             !report
                 .skipped
                 .iter()
-                .any(|skipped| skipped.item.contains("Claude")),
+                .any(|skipped| skipped.item.contains("Stranger")
+                    || skipped.item.contains("Claude")),
+            "{report:?}"
+        );
+        assert!(
+            !report.notes.iter().any(|note| note.item.contains("Claude")),
             "{report:?}"
         );
     }

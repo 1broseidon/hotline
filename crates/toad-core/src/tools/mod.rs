@@ -7,13 +7,14 @@ use std::{
     fmt::{self, Display},
 };
 
-pub use shell::RunCommand;
+pub use shell::{RunCommand, shell_available};
 pub use workspace::{
     EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile,
 };
 
-/// Names of the workspace tools Toad Agent always has, in the order they
-/// are registered on the driver.
+/// Names of the workspace tools Toad Agent offers, in the order they are
+/// registered on the driver. `shell` is absent from the ledger when it
+/// cannot be confined.
 pub const BUILTIN: &[&str] = &["ls", "read", "grep", "glob", "write", "edit", "shell"];
 
 #[derive(Debug)]

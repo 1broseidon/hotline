@@ -88,6 +88,11 @@ impl Workspace {
         &self.inner.cwd
     }
 
+    /// The teammate's one policy, so the shell can confine a command or not.
+    pub fn reach(&self) -> Reach {
+        self.inner.reach
+    }
+
     /// Where a path may point, as the tools describe it to the model. The
     /// description is the policy the model reads, so it has to tell the truth
     /// about the wall — or the absence of one.

@@ -7,7 +7,8 @@
 
 use super::*;
 use crate::contract::{
-    ConfigChoice, Credential, CredentialKind, PersonaDraft, SessionCapabilities, SessionState,
+    ConfigChoice, Credential, CredentialKind, LoginPrompt, LoginStatus, PersonaDraft,
+    SessionCapabilities, SessionState,
 };
 use crate::{paths, room};
 use serde_json::{Value, json};
@@ -185,6 +186,17 @@ impl RoomHandle for Quiet {
 
     fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Ok(())
+    }
+
+    async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+        if let Some(message) = crate::models::login_refusal(provider_id) {
+            return Err(message);
+        }
+        Err("Nothing runs in this room, so nothing signs in.".to_string())
+    }
+
+    fn login_status(&self, login_id: &str) -> Result<LoginStatus, String> {
+        Err(format!("There is no login {login_id}."))
     }
 
     async fn backends(&self) -> Vec<crate::contract::BackendChoice> {
@@ -891,4 +903,35 @@ async fn teammate_tools_answers_null_as_a_result_not_a_void() {
         "teammate.tools with no ledger omitted result: {answer}"
     );
     assert_eq!(fields.get("result"), Some(&Value::Null));
+}
+
+#[tokio::test]
+async fn a_key_provider_cannot_start_a_device_login() {
+    let (_root, _log, port) = door("login-key");
+    let mut socket = desk(port).await;
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "credential.login", "params": { "providerId": "anthropic" } }),
+    )
+    .await;
+    let refused = answered(&mut socket, 1).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        refused["error"].as_str(),
+        Some("Anthropic takes an API key, not a sign-in.")
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_login_id_is_an_error() {
+    let (_root, _log, port) = door("login-status");
+    let mut socket = desk(port).await;
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "credential.login_status", "params": { "loginId": "nobody" } }),
+    )
+    .await;
+    let refused = answered(&mut socket, 1).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"].as_str(), Some("There is no login nobody."));
 }

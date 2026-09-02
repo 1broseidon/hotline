@@ -14,6 +14,7 @@ use crate::driver::DriverInfo;
 use crate::mcp::server::TeammateTools;
 use async_trait::async_trait;
 use serde_json::json;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, mpsc};
 
@@ -211,8 +212,11 @@ impl Agents for Fake {
 pub(super) struct DeskKeys;
 
 impl ProviderKeys for DeskKeys {
-    fn provider_keys(&self) -> HashMap<String, String> {
-        HashMap::from([("anthropic".to_string(), "not-a-real-key".to_string())])
+    fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
+        HashMap::from([(
+            "anthropic".to_string(),
+            ProviderAuth::ApiKey("not-a-real-key".to_string()),
+        )])
     }
 }
 

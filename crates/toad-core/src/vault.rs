@@ -4,10 +4,12 @@
 //! A secret is never an event. `<root>/vault/secrets.json` is a JSON map from
 //! credential id to secret — a `0600` file in a `0700` directory, written
 //! through a temporary file, a rename, and an fsync of the directory so no
-//! reader ever sees half of one and a crash cannot lose the rename —
-//! and the room stream carries only the metadata: which provider, what the
-//! user called it, whether it is revoked. That is why `list` and
-//! `provider_keys` are two different questions. The room knows a credential
+//! reader ever sees half of one and a crash cannot lose the rename — and a
+//! login's tokens live in `<root>/vault/logins/<id>/`, the same modes, the
+//! files Rig will write pre-created so a `std::fs::write` cannot leave them
+//! world-readable. The room stream carries only the metadata: which provider,
+//! what the user called it, whether it is revoked. That is why `list` and
+//! `provider_auth` are two different questions. The room knows a credential
 //! exists; only this disk knows what it is, which is what lets a stream be
 //! read, copied or shipped without carrying a key along with it.
 //!
@@ -17,6 +19,8 @@
 
 use crate::contract::{Credential, CredentialKind};
 use crate::log::{Log, StreamId};
+use crate::models::Client;
+use crate::session::ProviderAuth;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
@@ -98,21 +102,81 @@ impl Vault {
         Ok(())
     }
 
-    /// Takes both halves away: the secret off the disk, then the tombstone on
-    /// the stream. Secret first, so a crash between them cannot leave a usable
-    /// key behind a row that says it is gone.
+    /// Takes both halves away: the secret or login directory off the disk,
+    /// then the tombstone on the stream. Files first, so a crash between them
+    /// cannot leave a usable credential behind a row that says it is gone.
     pub fn delete(&self, id: &str) -> io::Result<()> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let credential = self.find(id)?;
-        let mut secrets = self.read_secrets()?;
-        if secrets.remove(&credential.id).is_some() {
-            self.write_secrets(&secrets)?;
+        match credential.credential_kind {
+            CredentialKind::Oauth => {
+                let dir = self.login_dir(&credential.id);
+                match fs::remove_dir_all(&dir) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            CredentialKind::ApiKey => {
+                let mut secrets = self.read_secrets()?;
+                if secrets.remove(&credential.id).is_some() {
+                    self.write_secrets(&secrets)?;
+                }
+            }
         }
         self.log.append(
             &StreamId::Room,
             &json!({ "kind": "credential", "id": credential.id, "deleted": true }),
         )?;
         Ok(())
+    }
+
+    /// Makes the directory and files for a fresh login, and returns the
+    /// credential id and that directory. No event yet — the row lands only
+    /// once the login succeeds, the same order `create` keeps (secret first,
+    /// then the fact of it).
+    pub fn begin_login(&self, provider_id: &str) -> io::Result<(String, PathBuf)> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let dir = self.login_dir(&id);
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        self.check_layout()?;
+        make_private_directory(&dir)?;
+        match crate::models::wiring(provider_id).map(|wiring| wiring.client) {
+            Some(Client::ChatGpt) => write_private(&dir.join("auth.json"), b"{}")?,
+            Some(Client::Copilot) => {
+                write_private(&dir.join("api-key.json"), b"{}")?;
+                write_private(&dir.join("access-token"), b"")?;
+            }
+            _ => {}
+        }
+        Ok((id, dir))
+    }
+
+    /// Records a finished login on the room stream. The files are already on
+    /// disk from [`Self::begin_login`]; this is the fact of them.
+    pub fn finish_login(&self, id: &str, provider_id: &str, label: &str) -> io::Result<Credential> {
+        let now = now_ms();
+        let credential = Credential {
+            id: id.to_string(),
+            provider_id: provider_id.to_string(),
+            credential_kind: CredentialKind::Oauth,
+            label: label.to_string(),
+            revoked: false,
+            created_at: now,
+            updated_at: now,
+        };
+        self.log.append(&StreamId::Room, &event(&credential))?;
+        Ok(credential)
+    }
+
+    /// Removes a login that did not finish, so a failed attempt leaves nothing.
+    pub fn abandon_login(&self, id: &str) -> io::Result<()> {
+        let dir = self.login_dir(id);
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     /// Every credential the room knows about, in the order they were created.
@@ -127,29 +191,41 @@ impl Vault {
             .collect()
     }
 
-    /// One usable API key per provider, keyed by provider id: the first
+    /// One usable credential per provider, keyed by provider id: the first
     /// credential created for a provider wins.
     ///
-    /// A revoked row is not a key, and neither is a row whose secret is
-    /// missing — that is what a `create` torn between its two writes looks
-    /// like, and what a stream restored without its vault looks like. Handing
-    /// the provider nothing at all beats handing it an empty string.
-    pub fn provider_keys(&self) -> HashMap<String, String> {
+    /// A revoked row is not auth, and neither is a key whose secret is
+    /// missing or a login whose directory is gone — that is what a create
+    /// torn between its two writes looks like, and what a stream restored
+    /// without its vault looks like. Handing the provider nothing at all
+    /// beats handing it an empty string.
+    pub fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
         // A vault that cannot be read is no keys rather than a failure: the
         // place where refusing matters is the write, where a key could be lost.
         let secrets = self.read_secrets().unwrap_or_default();
-        let mut keys = HashMap::new();
+        let mut auth = HashMap::new();
         for credential in self.list() {
             if credential.revoked {
                 continue;
             }
-            let Some(secret) = secrets.get(&credential.id) else {
-                continue;
+            let value = match credential.credential_kind {
+                CredentialKind::ApiKey => {
+                    let Some(secret) = secrets.get(&credential.id) else {
+                        continue;
+                    };
+                    ProviderAuth::ApiKey(secret.clone())
+                }
+                CredentialKind::Oauth => {
+                    let dir = self.login_dir(&credential.id);
+                    if !dir.is_dir() {
+                        continue;
+                    }
+                    ProviderAuth::Login { token_dir: dir }
+                }
             };
-            keys.entry(credential.provider_id)
-                .or_insert_with(|| secret.clone());
+            auth.entry(credential.provider_id).or_insert(value);
         }
-        keys
+        auth
     }
 
     fn directory(&self) -> PathBuf {
@@ -158,6 +234,14 @@ impl Vault {
 
     fn secrets_path(&self) -> PathBuf {
         self.directory().join("secrets.json")
+    }
+
+    fn logins_dir(&self) -> PathBuf {
+        self.directory().join("logins")
+    }
+
+    fn login_dir(&self, id: &str) -> PathBuf {
+        self.logins_dir().join(id)
     }
 
     fn find(&self, id: &str) -> io::Result<Credential> {
@@ -192,6 +276,15 @@ impl Vault {
             return Err(io::Error::other(format!(
                 "{} must be a regular owner-only file",
                 secrets.display()
+            )));
+        }
+        let logins = self.logins_dir();
+        if let Ok(entry) = logins.symlink_metadata()
+            && !entry.is_dir()
+        {
+            return Err(io::Error::other(format!(
+                "{} must be a real directory owned by this user",
+                logins.display()
             )));
         }
         Ok(())
@@ -346,6 +439,16 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
     options.open(path)
 }
 
+/// A 0600 file whose contents Rig will overwrite in place, so the mode it
+/// is created with is the mode it keeps. JSON records start as `{}` because
+/// Rig treats an empty file as a parse error, not as absent.
+fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut file = create_private_file(path)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,7 +485,7 @@ mod tests {
     /// A credential is a read of the whole map, one entry added, and the map
     /// written back. Two of those at once used to keep whichever finished
     /// last: the other's row was on the room stream with no secret behind it,
-    /// which reads to `provider_keys` as a key the user never sees again.
+    /// which reads to `provider_auth` as a key the user never sees again.
     #[test]
     fn every_credential_written_at_once_keeps_its_secret() {
         let vault = vault("concurrent-create");
@@ -401,12 +504,12 @@ mod tests {
             }
         });
 
-        let keys = vault.provider_keys();
+        let keys = vault.provider_auth();
         assert_eq!(keys.len(), 8, "{keys:?}");
         for writer in 0..8 {
             assert_eq!(
-                keys.get(&format!("provider-{writer}")).map(String::as_str),
-                Some(format!("key-{writer}").as_str())
+                keys.get(&format!("provider-{writer}")),
+                Some(&ProviderAuth::ApiKey(format!("key-{writer}")))
             );
         }
         assert_eq!(ids(&vault).len(), 8);
@@ -469,12 +572,12 @@ mod tests {
         let vault = vault("revoke");
         let credential = vault.create("anthropic", "work", "sk-ant-001").unwrap();
         assert_eq!(
-            vault.provider_keys().get("anthropic").map(String::as_str),
-            Some("sk-ant-001")
+            vault.provider_auth().get("anthropic"),
+            Some(&ProviderAuth::ApiKey("sk-ant-001".to_string()))
         );
 
         vault.revoke(&credential.id).unwrap();
-        assert!(vault.provider_keys().is_empty());
+        assert!(vault.provider_auth().is_empty());
         // The row stays with its label, because the user still has a key to
         // rotate at the provider, and the secret stays until it is deleted.
         let listed = vault.list();
@@ -497,17 +600,23 @@ mod tests {
         vault.create("anthropic", "spare", "sk-ant-second").unwrap();
         vault.create("openai", "personal", "sk-oai").unwrap();
         assert_eq!(
-            vault.provider_keys(),
+            vault.provider_auth(),
             HashMap::from([
-                ("anthropic".to_string(), "sk-ant-first".to_string()),
-                ("openai".to_string(), "sk-oai".to_string()),
+                (
+                    "anthropic".to_string(),
+                    ProviderAuth::ApiKey("sk-ant-first".to_string())
+                ),
+                (
+                    "openai".to_string(),
+                    ProviderAuth::ApiKey("sk-oai".to_string())
+                ),
             ])
         );
 
         vault.revoke(&first.id).unwrap();
         assert_eq!(
-            vault.provider_keys().get("anthropic").map(String::as_str),
-            Some("sk-ant-second")
+            vault.provider_auth().get("anthropic"),
+            Some(&ProviderAuth::ApiKey("sk-ant-second".to_string()))
         );
     }
 
@@ -529,7 +638,7 @@ mod tests {
         vault.log.append(&StreamId::Room, &event(&torn)).unwrap();
 
         assert_eq!(ids(&vault), vec!["torn".to_string()]);
-        assert!(vault.provider_keys().is_empty());
+        assert!(vault.provider_auth().is_empty());
     }
 
     #[test]
@@ -619,13 +728,91 @@ mod tests {
 
         vault.create("openai", "personal", "sk-oai").unwrap();
 
-        let keys = vault.provider_keys();
+        let keys = vault.provider_auth();
         assert_eq!(
-            keys.get("anthropic").map(String::as_str),
-            Some("sk-ant-001")
+            keys.get("anthropic"),
+            Some(&ProviderAuth::ApiKey("sk-ant-001".to_string()))
         );
-        assert_eq!(keys.get("openai").map(String::as_str), Some("sk-oai"));
+        assert_eq!(
+            keys.get("openai"),
+            Some(&ProviderAuth::ApiKey("sk-oai".to_string()))
+        );
         assert!(!secrets(&vault).contains("sk-ghost"));
         assert!(!mine.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_login_is_a_private_directory_that_lands_only_once_it_succeeds() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let vault = vault("login-roundtrip");
+        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(dir.clone()), 0o700);
+        assert_eq!(mode(dir.join("auth.json")), 0o600);
+        assert_eq!(fs::read_to_string(dir.join("auth.json")).unwrap(), "{}");
+        assert!(vault.list().is_empty(), "no event until the login finishes");
+        assert!(vault.provider_auth().is_empty());
+
+        let credential = vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+        assert_eq!(credential.id, id);
+        assert_eq!(credential.credential_kind, CredentialKind::Oauth);
+        assert_eq!(credential.label, "ChatGPT");
+        match vault.provider_auth().get("openai-codex") {
+            Some(ProviderAuth::Login { token_dir }) => assert_eq!(token_dir, &dir),
+            other => panic!("finished login should be auth: {other:?}"),
+        }
+        assert!(!room(&vault).contains("access_token"), "{:?}", room(&vault));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_copilot_login_precreates_the_files_rig_will_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let vault = vault("login-copilot");
+        let (_id, dir) = vault.begin_login("github-copilot").unwrap();
+        let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(dir.clone()), 0o700);
+        assert_eq!(mode(dir.join("api-key.json")), 0o600);
+        assert_eq!(mode(dir.join("access-token")), 0o600);
+        assert_eq!(fs::read_to_string(dir.join("api-key.json")).unwrap(), "{}");
+        assert_eq!(fs::read_to_string(dir.join("access-token")).unwrap(), "");
+    }
+
+    #[test]
+    fn abandoning_a_login_leaves_nothing() {
+        let vault = vault("login-abandon");
+        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        vault.abandon_login(&id).unwrap();
+        assert!(!dir.exists());
+        assert!(vault.list().is_empty());
+        assert!(vault.provider_auth().is_empty());
+    }
+
+    #[test]
+    fn deleting_a_login_removes_its_directory() {
+        let vault = vault("login-delete");
+        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+        assert!(dir.is_dir());
+        vault.delete(&id).unwrap();
+        assert!(!dir.exists());
+        assert!(vault.list().is_empty());
+        assert!(vault.provider_auth().is_empty());
+    }
+
+    #[test]
+    fn a_revoked_login_is_not_auth() {
+        let vault = vault("login-revoke");
+        let (id, dir) = vault.begin_login("openai-codex").unwrap();
+        vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+        vault.revoke(&id).unwrap();
+        assert!(dir.is_dir(), "revoke leaves the files, as for keys");
+        assert!(vault.provider_auth().is_empty());
+        let listed = vault.list();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].revoked);
     }
 }

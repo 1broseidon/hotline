@@ -28,8 +28,8 @@ use crate::contract::{
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
 use crate::models::{self, Client};
-use crate::session::ProviderKeys;
 use crate::session::ledger::ToolLedger;
+use crate::session::{ProviderAuth, ProviderKeys};
 use crate::tools::{
     self, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace,
     WriteFile,
@@ -40,7 +40,9 @@ use rig::agent::MultiTurnStreamItem;
 use rig::agent::hook::{AgentHook, HookContext, ToolResultAction, ToolResultEvent};
 use rig::message::{Message, ReasoningContent, ToolResultContent};
 use rig::prelude::*;
-use rig::providers::{anthropic, deepseek, gemini, groq, mistral, openai, openrouter, xai};
+use rig::providers::{
+    anthropic, chatgpt, copilot, deepseek, gemini, groq, mistral, openai, openrouter, xai,
+};
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
@@ -73,7 +75,7 @@ const MODEL_TOOL_OUTPUT_BYTES: usize = 256 * 1024;
 /// agent's preamble, which is how a Rig agent is told the rules for an answer
 /// it will give exactly once.
 pub async fn complete(
-    keys: &HashMap<String, String>,
+    keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     system: &str,
     prompt: &str,
@@ -164,7 +166,7 @@ impl InProcess {
         self
     }
 
-    fn info(&self, keys: &HashMap<String, String>) -> DriverInfo {
+    fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
         let model = lock(&self.model).clone();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
@@ -179,7 +181,7 @@ impl InProcess {
 #[async_trait]
 impl Driver for InProcess {
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
-        let keys = self.keys.provider_keys();
+        let keys = self.keys.provider_auth();
         let model = match &persona.model_id {
             Some(id) if keys.contains_key(id.split('/').next().unwrap_or("")) => id.clone(),
             _ => models::choices(&keys)
@@ -221,7 +223,7 @@ impl Driver for InProcess {
             );
         }
         let turn = Turn {
-            keys: self.keys.provider_keys(),
+            keys: self.keys.provider_auth(),
             model: lock(&self.model).clone(),
             preamble: self.preamble.clone(),
             cwd: lock(&self.cwd).clone(),
@@ -249,7 +251,7 @@ impl Driver for InProcess {
     }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
-        let keys = self.keys.provider_keys();
+        let keys = self.keys.provider_auth();
         let provider = model_id.split('/').next().unwrap_or("");
         if !keys.contains_key(provider) {
             return Err(format!("No key for {provider} is available on this desk."));
@@ -302,7 +304,7 @@ impl Stop {
 /// Everything one turn needs, taken from the session at the moment it starts
 /// so the turn owns it and the driver stays free to answer other calls.
 struct Turn {
-    keys: HashMap<String, String>,
+    keys: HashMap<String, ProviderAuth>,
     model: String,
     preamble: String,
     cwd: PathBuf,
@@ -646,29 +648,64 @@ async fn flush(sender: &mpsc::Sender<Update>, open: &mut Option<OpenMessage>) {
     .await;
 }
 
-/// The builder for one model on the provider whose key the desk holds.
+/// The builder for one model on the provider whose credential the desk holds.
 fn agent_builder(
-    keys: &HashMap<String, String>,
+    keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
 ) -> Result<rig::agent::AgentBuilder, String> {
     let (provider, model) = model_id
         .split_once('/')
         .ok_or_else(|| format!("{model_id} is not a provider/model id"))?;
-    let key = keys
+    let held = keys
         .get(provider)
         .ok_or_else(|| format!("No key for {provider} is available on this desk."))?;
     let wiring = models::wiring(provider)
         .ok_or_else(|| format!("{provider} is not a provider Toad Agent can use"))?;
-    let key = key.as_str();
-    let builder = match wiring.client {
-        Client::Anthropic => anthropic::Client::new(key).map_err(text)?.agent(model),
-        Client::OpenAi => openai::Client::new(key).map_err(text)?.agent(model),
-        Client::OpenRouter => openrouter::Client::new(key).map_err(text)?.agent(model),
-        Client::Gemini => gemini::Client::new(key).map_err(text)?.agent(model),
-        Client::XAi => xai::Client::new(key).map_err(text)?.agent(model),
-        Client::Groq => groq::Client::new(key).map_err(text)?.agent(model),
-        Client::DeepSeek => deepseek::Client::new(key).map_err(text)?.agent(model),
-        Client::Mistral => mistral::Client::new(key).map_err(text)?.agent(model),
+    let builder = match (wiring.client, held) {
+        (Client::ChatGpt, ProviderAuth::Login { token_dir }) => chatgpt::Client::builder()
+            .oauth()
+            .auth_file(token_dir.join("auth.json"))
+            .allow_device_flow(false)
+            .build()
+            .map_err(text)?
+            .agent(model),
+        (Client::Copilot, ProviderAuth::Login { token_dir }) => copilot::Client::builder()
+            .oauth()
+            .token_dir(token_dir)
+            .allow_device_flow(false)
+            .build()
+            .map_err(text)?
+            .agent(model),
+        (Client::ChatGpt | Client::Copilot, ProviderAuth::ApiKey(_)) => {
+            return Err(format!("{provider} needs a sign-in, not a key."));
+        }
+        (_, ProviderAuth::Login { .. }) => {
+            return Err(format!("{provider} needs a key, not a sign-in."));
+        }
+        (Client::Anthropic, ProviderAuth::ApiKey(key)) => {
+            anthropic::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::OpenAi, ProviderAuth::ApiKey(key)) => {
+            openai::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => {
+            openrouter::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::Gemini, ProviderAuth::ApiKey(key)) => {
+            gemini::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::XAi, ProviderAuth::ApiKey(key)) => {
+            xai::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::Groq, ProviderAuth::ApiKey(key)) => {
+            groq::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::DeepSeek, ProviderAuth::ApiKey(key)) => {
+            deepseek::Client::new(key).map_err(text)?.agent(model)
+        }
+        (Client::Mistral, ProviderAuth::ApiKey(key)) => {
+            mistral::Client::new(key).map_err(text)?.agent(model)
+        }
     };
     Ok(builder)
 }
@@ -957,6 +994,72 @@ mod tests {
         let held = history.lock().await;
         assert_eq!(*held, vec![Message::user("did the crane jam?")]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn login_scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "toad-core-rig-login-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    /// A turn never starts a login: empty ChatGPT auth with the device flow
+    /// disallowed fails locally, before any network call.
+    #[tokio::test]
+    async fn a_chatgpt_turn_without_a_login_refuses_instead_of_starting_one() {
+        let dir = login_scratch("chatgpt");
+        std::fs::write(dir.join("auth.json"), "{}").unwrap();
+        let keys = HashMap::from([(
+            "openai-codex".to_string(),
+            ProviderAuth::Login {
+                token_dir: dir.clone(),
+            },
+        )]);
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            complete(&keys, "openai-codex/gpt-5.6", "you are Ada", "hello"),
+        )
+        .await
+        .expect("ChatGPT auth without a token must not wait on the network")
+        .expect_err("empty auth.json must not complete");
+        assert!(
+            err.to_ascii_lowercase().contains("sign-in"),
+            "a turn must name the missing sign-in, not start one: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Same proof for Copilot: an empty access-token and a `{}` api-key
+    /// record, with the device flow disallowed, fails locally.
+    #[tokio::test]
+    async fn a_copilot_turn_without_a_login_refuses_instead_of_starting_one() {
+        let dir = login_scratch("copilot");
+        std::fs::write(dir.join("access-token"), "").unwrap();
+        std::fs::write(dir.join("api-key.json"), "{}").unwrap();
+        let keys = HashMap::from([(
+            "github-copilot".to_string(),
+            ProviderAuth::Login {
+                token_dir: dir.clone(),
+            },
+        )]);
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            complete(&keys, "github-copilot/gpt-5-mini", "you are Ada", "hello"),
+        )
+        .await
+        .expect("Copilot auth without a token must not wait on the network")
+        .expect_err("empty Copilot files must not complete");
+        assert!(
+            err.to_ascii_lowercase().contains("sign-in"),
+            "a turn must name the missing sign-in, not start one: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn echo_command() -> String {

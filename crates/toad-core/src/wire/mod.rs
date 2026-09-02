@@ -130,6 +130,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
     fn credential_delete(&self, id: &str) -> Result<(), String>;
+    /// Starts a device-code login. Returns the prompt as soon as the provider
+    /// issues a code; the login keeps running until the person signs in.
+    async fn credential_login(
+        &self,
+        provider_id: &str,
+    ) -> Result<crate::contract::LoginPrompt, String>;
+    /// How far a login started by [`Self::credential_login`] has got.
+    fn login_status(&self, login_id: &str) -> Result<crate::contract::LoginStatus, String>;
     /// What the room knows of every credential, the secrets left in the vault.
     fn credentials(&self) -> Vec<crate::contract::Credential>;
 

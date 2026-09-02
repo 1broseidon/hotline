@@ -454,7 +454,7 @@ mod tests {
     struct NoKeys;
 
     impl ProviderKeys for NoKeys {
-        fn provider_keys(&self) -> HashMap<String, String> {
+        fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
             HashMap::new()
         }
     }

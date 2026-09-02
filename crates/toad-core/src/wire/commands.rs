@@ -35,6 +35,13 @@ pub(crate) async fn run(
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
         Command::CredentialDelete { id } => room.credential_delete(&id).map(|()| Value::Null),
+        Command::CredentialLogin { provider_id } => room
+            .credential_login(&provider_id)
+            .await
+            .map(|prompt| json!(prompt)),
+        Command::CredentialLoginStatus { login_id } => {
+            room.login_status(&login_id).map(|status| json!(status))
+        }
         Command::CredentialList {} => Ok(json!(room.credentials())),
         Command::BackendsList {} => Ok(json!(room.backends().await)),
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),

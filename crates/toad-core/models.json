@@ -284,6 +284,521 @@
         }
       }
     },
+    "github-copilot": {
+      "name": "GitHub Copilot",
+      "doc": "https://docs.github.com/en/copilot",
+      "models": {
+        "claude-fable-5": {
+          "name": "Claude Fable 5",
+          "release_date": "2026-06-09",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 10.0,
+            "output": 50.0,
+            "cache_read": 1.0,
+            "cache_write": 12.5
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
+        "claude-haiku-4.5": {
+          "name": "Claude Haiku 4.5 (latest)",
+          "release_date": "2025-10-15",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 1.0,
+            "output": 5.0,
+            "cache_read": 0.1,
+            "cache_write": 1.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        },
+        "claude-opus-4.5": {
+          "name": "Claude Opus 4.5 (latest)",
+          "release_date": "2025-11-24",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 25.0,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "claude-opus-4.6": {
+          "name": "Claude Opus 4.6",
+          "release_date": "2026-02-05",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 25.0,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "claude-opus-4.7": {
+          "name": "Claude Opus 4.7",
+          "release_date": "2026-04-16",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 25.0,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "claude-opus-4.8": {
+          "name": "Claude Opus 4.8",
+          "release_date": "2026-05-28",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 25.0,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        },
+        "claude-opus-5": {
+          "name": "Claude Opus 5",
+          "release_date": "2026-07-24",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 25.0,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 64000
+          }
+        },
+        "claude-sonnet-4": {
+          "name": "Claude Sonnet 4 (latest)",
+          "release_date": "2025-05-22",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75
+          },
+          "limit": {
+            "context": 216000,
+            "output": 16000
+          }
+        },
+        "claude-sonnet-4.5": {
+          "name": "Claude Sonnet 4.5 (latest)",
+          "release_date": "2025-09-29",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "claude-sonnet-4.6": {
+          "name": "Claude Sonnet 4.6",
+          "release_date": "2026-02-17",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "claude-sonnet-5": {
+          "name": "Claude Sonnet 5",
+          "release_date": "2026-06-30",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 10.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
+        "gemini-3.1-pro-preview": {
+          "name": "Gemini 3.1 Pro Preview",
+          "release_date": "2026-02-19",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 12.0,
+            "cache_read": 0.2
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 64000
+          }
+        },
+        "gemini-3.5-flash": {
+          "name": "Gemini 3.5 Flash",
+          "release_date": "2026-05-19",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 1.5,
+            "output": 9.0,
+            "cache_read": 0.15
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        },
+        "gemini-3.6-flash": {
+          "name": "Gemini 3.6 Flash",
+          "release_date": "2026-07-21",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 64000
+          }
+        },
+        "gemini-3.7-flash": {
+          "name": "Gemini 3.7 Flash",
+          "release_date": "2026-08-13",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 64000
+          }
+        },
+        "gpt-4.1": {
+          "name": "GPT-4.1",
+          "release_date": "2025-04-14",
+          "reasoning": false,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 8.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 128000,
+            "output": 16384
+          }
+        },
+        "gpt-5-mini": {
+          "name": "GPT-5 Mini",
+          "release_date": "2025-08-07",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.25,
+            "output": 2.0,
+            "cache_read": 0.025
+          },
+          "limit": {
+            "context": 264000,
+            "output": 64000
+          }
+        },
+        "gpt-5.2": {
+          "name": "GPT-5.2",
+          "release_date": "2025-12-11",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14.0,
+            "cache_read": 0.175
+          },
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          }
+        },
+        "gpt-5.2-codex": {
+          "name": "GPT-5.2 Codex",
+          "release_date": "2025-12-11",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14.0,
+            "cache_read": 0.175
+          },
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          }
+        },
+        "gpt-5.3-codex": {
+          "name": "GPT-5.3 Codex",
+          "release_date": "2026-02-05",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14.0,
+            "cache_read": 0.175
+          },
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          }
+        },
+        "gpt-5.4": {
+          "name": "GPT-5.4",
+          "release_date": "2026-03-05",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.5,
+            "output": 15.0,
+            "cache_read": 0.25
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.4-mini": {
+          "name": "GPT-5.4 mini",
+          "release_date": "2026-03-17",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.75,
+            "output": 4.5,
+            "cache_read": 0.075
+          },
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          }
+        },
+        "gpt-5.4-nano": {
+          "name": "GPT-5.4 nano",
+          "release_date": "2026-03-17",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.2,
+            "output": 1.25,
+            "cache_read": 0.02
+          },
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          }
+        },
+        "gpt-5.5": {
+          "name": "GPT-5.5",
+          "release_date": "2026-04-23",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 30.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.2,
+            "output": 1.2,
+            "cache_read": 0.02,
+            "cache_write": 0.25
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6-sol": {
+          "name": "GPT-5.6 Sol",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 10.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6-terra": {
+          "name": "GPT-5.6 Terra",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 12.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "grok-4.5": {
+          "name": "Grok 4.5",
+          "release_date": "2026-07-08",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 6.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 500000,
+            "output": 128000
+          }
+        },
+        "grok-4.6": {
+          "name": "Grok 4.6",
+          "release_date": "2026-08-12",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 6.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 500000,
+            "output": 128000
+          }
+        },
+        "kimi-k2.7-code": {
+          "name": "Kimi K2.7 Code",
+          "release_date": "2026-06-12",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.95,
+            "output": 4.0,
+            "cache_read": 0.19
+          },
+          "limit": {
+            "context": 256000,
+            "output": 32000
+          }
+        },
+        "kimi-k3": {
+          "name": "Kimi K3",
+          "release_date": "2026-07-16",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        },
+        "mai-code-1-flash-picker": {
+          "name": "MAI-Code-1-Flash",
+          "release_date": "2026-06-02",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.75,
+            "output": 4.5,
+            "cache_read": 0.075
+          },
+          "limit": {
+            "context": 256000,
+            "output": 128000
+          }
+        },
+        "mai-code-1.1-flash": {
+          "name": "MAI-Code-1.1-Flash",
+          "release_date": "2026-08-11",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.2,
+            "output": 1.2,
+            "cache_read": 0.02
+          },
+          "limit": {
+            "context": 256000,
+            "output": 128000
+          }
+        }
+      }
+    },
     "google": {
       "name": "Google",
       "doc": "https://ai.google.dev/gemini-api/docs/models",
@@ -1393,6 +1908,72 @@
           "limit": {
             "context": 200000,
             "output": 100000
+          }
+        }
+      }
+    },
+    "openai-codex": {
+      "name": "ChatGPT",
+      "doc": "https://chatgpt.com",
+      "models": {
+        "gpt-5.4": {
+          "name": "GPT-5.4",
+          "release_date": "2026-03-05",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.5": {
+          "name": "GPT-5.5",
+          "release_date": "2026-04-23",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6": {
+          "name": "GPT-5.6",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6-sol": {
+          "name": "GPT-5.6 Sol",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-5.6-terra": {
+          "name": "GPT-5.6 Terra",
+          "release_date": "2026-07-09",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
           }
         }
       }

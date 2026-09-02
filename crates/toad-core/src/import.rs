@@ -673,6 +673,7 @@ mod tests {
     use super::records;
     use super::records::fixture::{Put, create, scratch as store_scratch};
     use super::*;
+    use crate::session::ProviderAuth;
     use crate::store::search;
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -1075,18 +1076,18 @@ mod tests {
         assert_eq!(settings["defaultBackendId"], "pi");
         assert!(settings.get("theme").is_none());
 
-        let keys = vault.provider_keys();
+        let keys = vault.provider_auth();
         assert_eq!(
-            keys.get("anthropic").map(String::as_str),
-            Some("sk-ant-import")
+            keys.get("anthropic"),
+            Some(&ProviderAuth::ApiKey("sk-ant-import".to_string()))
         );
         assert_eq!(
-            keys.get("openai").map(String::as_str),
-            Some("sk-oai-import")
+            keys.get("openai"),
+            Some(&ProviderAuth::ApiKey("sk-oai-import".to_string()))
         );
         assert_eq!(
-            keys.get("openrouter").map(String::as_str),
-            Some("sk-or-import")
+            keys.get("openrouter"),
+            Some(&ProviderAuth::ApiKey("sk-or-import".to_string()))
         );
 
         let hits = search::search(log.root(), "ada", "hello from ada", None);
@@ -1121,7 +1122,7 @@ mod tests {
             "{second:?}"
         );
         assert_eq!(room::roster(&log).len(), 3);
-        assert_eq!(vault.provider_keys().len(), 3);
+        assert_eq!(vault.provider_auth().len(), 3);
         assert_eq!(fingerprint(&from), before);
     }
 

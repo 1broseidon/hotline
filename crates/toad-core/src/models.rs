@@ -1,18 +1,22 @@
 //! The models Toad Agent can offer, and the providers that serve them.
 //!
-//! Nobody hand-writes a model list here. `models.json` beside this crate is a
-//! filtered snapshot of models.dev — the catalogue opencode and pi draw
-//! theirs from — and `toad-models-sync` rewrites it: fetch, keep the
-//! providers in [`WIRING`] and the models a coding agent can use, write. A
-//! refresh is one command and one diff to read. The one thing a person edits
-//! is [`WIRING`]: which providers Toad reaches, and which Rig client speaks
-//! to each.
+//! Nobody hand-writes a model list here, with one exception. `models.json`
+//! beside this crate is a filtered snapshot of models.dev — the catalogue
+//! opencode and pi draw theirs from — and `toad-models-sync` rewrites it:
+//! fetch, keep the providers in [`WIRING`] and the models a coding agent can
+//! use, write. A refresh is one command and one diff to read. The one thing
+//! a person edits is [`WIRING`]: which providers Toad reaches, which Rig
+//! client speaks to each, and whether a credential is a key or a login.
+//!
+//! `openai-codex` is the exception: models.dev has no ChatGPT subscription
+//! provider, so the snapshot copies the listed models off `openai` and
+//! drops their per-token price. A subscription has no per-token price.
 //!
 //! The snapshot is checked in rather than fetched at run time because a
 //! catalogue is behaviour: it says what a model is called, costs and can do,
 //! and a release should mean the same thing on every machine that runs it.
 
-use crate::contract::{ConfigChoice, Provider};
+use crate::contract::{ConfigChoice, CredentialKind, Provider};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -32,13 +36,30 @@ pub enum Client {
     Groq,
     DeepSeek,
     Mistral,
+    ChatGpt,
+    Copilot,
 }
 
-/// One provider Toad reaches: its models.dev id, and how it is spoken to.
+/// One provider Toad reaches: its models.dev id, how it is spoken to, and
+/// what a credential for it is.
 pub struct Wiring {
     pub id: &'static str,
     pub client: Client,
+    pub credential_kind: CredentialKind,
 }
+
+/// Model ids ChatGPT's subscription serves. Copied from openai's catalogue
+/// with `cost` cleared, because a subscription has no per-token price.
+/// An id openai lacks is an error from the sync, so this list cannot drift
+/// silently.
+pub const CHATGPT_MODELS: &[&str] = &[
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+    "gpt-5.4",
+];
 
 /// The providers Toad reaches, in the order the key form and the picker
 /// offer them. The sync keeps exactly these out of the catalogue, so adding
@@ -47,34 +68,54 @@ pub const WIRING: &[Wiring] = &[
     Wiring {
         id: "anthropic",
         client: Client::Anthropic,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "openai",
         client: Client::OpenAi,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "openrouter",
         client: Client::OpenRouter,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "google",
         client: Client::Gemini,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "xai",
         client: Client::XAi,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "groq",
         client: Client::Groq,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "deepseek",
         client: Client::DeepSeek,
+        credential_kind: CredentialKind::ApiKey,
     },
     Wiring {
         id: "mistral",
         client: Client::Mistral,
+        credential_kind: CredentialKind::ApiKey,
+    },
+    Wiring {
+        id: "github-copilot",
+        client: Client::Copilot,
+        credential_kind: CredentialKind::Oauth,
+    },
+    // models.dev has no ChatGPT subscription provider. This row is
+    // hand-written so the picker can offer the same models billed as a login.
+    Wiring {
+        id: "openai-codex",
+        client: Client::ChatGpt,
+        credential_kind: CredentialKind::Oauth,
     },
 ];
 
@@ -163,9 +204,15 @@ fn usable(model: &Value) -> bool {
 /// models of it that [`usable`] keeps. A wired provider the catalogue lacks,
 /// or one left with no usable model, is an error rather than an absence — a
 /// sync that quietly drops a provider is a picker that quietly empties.
+/// `openai-codex` is synthesised from openai rather than looked up, because
+/// models.dev has no ChatGPT subscription provider.
 pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
     let mut providers = BTreeMap::new();
     for wiring in WIRING {
+        if wiring.id == "openai-codex" {
+            providers.insert(wiring.id.to_string(), chatgpt_from_openai(api)?);
+            continue;
+        }
         let provider = api
             .get(wiring.id)
             .ok_or_else(|| format!("models.dev has no provider `{}`", wiring.id))?;
@@ -195,7 +242,29 @@ pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
     })
 }
 
-/// Every provider Toad Agent can hold a key for, wired order.
+/// ChatGPT's catalogue row: openai's listed models with the price taken off.
+fn chatgpt_from_openai(api: &Value) -> Result<ProviderEntry, String> {
+    let openai = api
+        .get("openai")
+        .ok_or_else(|| "models.dev has no provider `openai`".to_string())?;
+    let mut models = BTreeMap::new();
+    for id in CHATGPT_MODELS {
+        let model = openai["models"].get(*id).ok_or_else(|| {
+            format!("openai-codex needs openai model `{id}`, and models.dev does not have it")
+        })?;
+        let mut model: Model = serde_json::from_value(model.clone())
+            .map_err(|error| format!("openai-codex/{id}: {error}"))?;
+        model.cost = None;
+        models.insert((*id).to_string(), model);
+    }
+    Ok(ProviderEntry {
+        name: "ChatGPT".to_string(),
+        doc: Some("https://chatgpt.com".to_string()),
+        models,
+    })
+}
+
+/// Every provider Toad Agent can hold a credential for, wired order.
 pub fn providers() -> Vec<Provider> {
     WIRING
         .iter()
@@ -205,16 +274,36 @@ pub fn providers() -> Vec<Provider> {
                 id: wiring.id.to_string(),
                 name: entry.name.clone(),
                 doc: entry.doc.clone(),
+                credential_kind: wiring.credential_kind,
             })
         })
         .collect()
 }
 
-/// The models the given provider keys unlock, as the picker lists them:
-/// providers in wired order, and within one the newest model first. An id
-/// on the wire is `provider/model`, the shape the room has always stored, so
-/// a teammate's saved choice keeps meaning the same thing.
-pub fn choices(keys: &HashMap<String, String>) -> Vec<ConfigChoice> {
+/// Why a device-code login cannot start for this provider, when it cannot.
+pub fn login_refusal(provider_id: &str) -> Option<String> {
+    match wiring(provider_id) {
+        None => Some(format!(
+            "{provider_id} is not a provider Toad Agent can use."
+        )),
+        Some(wiring) if wiring.credential_kind == CredentialKind::Oauth => None,
+        Some(wiring) => {
+            let name = catalog()
+                .providers
+                .get(wiring.id)
+                .map(|entry| entry.name.as_str())
+                .unwrap_or(wiring.id);
+            Some(format!("{name} takes an API key, not a sign-in."))
+        }
+    }
+}
+
+/// The models the given provider credentials unlock, as the picker lists
+/// them: providers in wired order, and within one the newest model first. An
+/// id on the wire is `provider/model`, the shape the room has always stored,
+/// so a teammate's saved choice keeps meaning the same thing. The map's
+/// values are unused; presence is what unlocks a group.
+pub fn choices<T>(keys: &HashMap<String, T>) -> Vec<ConfigChoice> {
     WIRING
         .iter()
         .filter(|wiring| keys.contains_key(wiring.id))
@@ -222,11 +311,15 @@ pub fn choices(keys: &HashMap<String, String>) -> Vec<ConfigChoice> {
         .flat_map(|(wiring, entry)| {
             let mut models: Vec<(&String, &Model)> = entry.models.iter().collect();
             models.sort_by(|a, b| b.1.release_date.cmp(&a.1.release_date).then(a.0.cmp(b.0)));
+            let flavor = match wiring.credential_kind {
+                CredentialKind::ApiKey => "API key",
+                CredentialKind::Oauth => "subscription",
+            };
             models.into_iter().map(move |(id, model)| ConfigChoice {
                 id: format!("{}/{id}", wiring.id),
                 name: model.name.clone(),
                 description: Some(wiring.id.to_string()),
-                group: Some(format!("{} — API key", entry.name)),
+                group: Some(format!("{} — {flavor}", entry.name)),
             })
         })
         .collect()
@@ -275,12 +368,24 @@ mod tests {
 
     /// Every wired provider, each with one plain usable model, so a test can
     /// vary one provider without the others failing the snapshot.
+    /// `openai-codex` is not a models.dev provider: it is synthesised from
+    /// openai, so openai also carries the ChatGPT ids.
     fn api() -> Value {
         let mut api = serde_json::Map::new();
         for wiring in WIRING {
+            if wiring.id == "openai-codex" {
+                continue;
+            }
+            let mut models = serde_json::Map::new();
+            models.insert("plain".into(), model(true, &["text"], None));
+            if wiring.id == "openai" {
+                for id in CHATGPT_MODELS {
+                    models.insert((*id).into(), model(true, &["text"], None));
+                }
+            }
             api.insert(
                 wiring.id.to_string(),
-                json!({"name": wiring.id, "models": {"plain": model(true, &["text"], None)}}),
+                json!({"name": wiring.id, "models": models}),
             );
         }
         Value::Object(api)
@@ -370,5 +475,44 @@ mod tests {
         let wired: Vec<&str> = WIRING.iter().map(|wiring| wiring.id).collect();
         assert_eq!(ids, wired);
         assert_eq!(providers()[0].name, "Anthropic");
+        assert_eq!(providers()[0].credential_kind, CredentialKind::ApiKey);
+    }
+
+    #[test]
+    fn openai_codex_is_openai_models_billed_as_a_login() {
+        let mut api = api();
+        let catalog = snapshot(&api, "d").unwrap();
+        let entry = &catalog.providers["openai-codex"];
+        assert_eq!(entry.name, "ChatGPT");
+        assert_eq!(entry.doc.as_deref(), Some("https://chatgpt.com"));
+        for id in CHATGPT_MODELS {
+            assert!(entry.models.contains_key(*id), "{id}");
+            assert!(
+                entry.models[*id].cost.is_none(),
+                "{id} kept a per-token price"
+            );
+        }
+        api["openai"]["models"]
+            .as_object_mut()
+            .unwrap()
+            .remove("gpt-5.6");
+        let err = snapshot(&api, "d").unwrap_err();
+        assert!(
+            err.contains("gpt-5.6"),
+            "a missing openai id must fail the sync: {err}"
+        );
+    }
+
+    #[test]
+    fn an_oauth_providers_models_are_labelled_as_a_subscription() {
+        let mut keys = HashMap::new();
+        keys.insert("openai-codex".to_string(), "ignored");
+        let listed = choices(&keys);
+        assert!(
+            listed
+                .iter()
+                .all(|model| model.id.starts_with("openai-codex/"))
+        );
+        assert_eq!(listed[0].group.as_deref(), Some("ChatGPT — subscription"));
     }
 }

@@ -100,14 +100,21 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 /// shorter deadline; the tool uses this.
 pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
-/// Where the provider keys come from.
+/// How Toad Agent reaches a provider: a pasted key, or a login directory
+/// Rig already knows how to read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProviderAuth {
+    ApiKey(String),
+    Login { token_dir: PathBuf },
+}
+
+/// Where the provider credentials come from.
 ///
-/// The room never holds a secret: it asks for the keys at the start of every
-/// turn, so a key added or rotated on the desk is in force on the next one and
-/// nothing keeps a stale copy. The vault implements this; a test hands over a
-/// map.
+/// The room never holds a secret: it asks at the start of every turn, so a
+/// key or login added on the desk is in force on the next one and nothing
+/// keeps a stale copy. The vault implements this; a test hands over a map.
 pub trait ProviderKeys: Send + Sync {
-    fn provider_keys(&self) -> HashMap<String, String>;
+    fn provider_auth(&self) -> HashMap<String, ProviderAuth>;
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a
@@ -187,7 +194,7 @@ impl Agents for DeskAgents {
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
-        rig::complete(&self.keys.provider_keys(), model_id, system, prompt).await
+        rig::complete(&self.keys.provider_auth(), model_id, system, prompt).await
     }
 }
 
@@ -1017,7 +1024,7 @@ impl Room {
 
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
-        crate::models::choices(&self.keys.provider_keys())
+        crate::models::choices(&self.keys.provider_auth())
     }
 
     /// What tools this teammate was given the last time it started. `None`
@@ -1324,7 +1331,7 @@ impl Room {
     /// first model the desk can reach — so a chapter written by a teammate on
     /// a provider nobody has a key for still gets a note.
     fn note_model(&self, persona: &Persona) -> Option<String> {
-        let keys = self.keys.provider_keys();
+        let keys = self.keys.provider_auth();
         persona
             .model_id
             .clone()

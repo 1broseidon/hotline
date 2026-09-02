@@ -478,9 +478,10 @@ pub struct Credential {
     pub updated_at: i64,
 }
 
-/// A provider Toad Agent can hold a key for, as the key form offers them.
-/// Which ones there are is `models::WIRING`; the name and the doc link come
-/// from the model catalogue.
+/// A provider Toad Agent can hold a credential for, as the key form offers
+/// them. Which ones there are is `models::WIRING`; the name and the doc link
+/// come from the model catalogue. `credential_kind` is what a credential for
+/// this provider is: a key you paste or a login you do.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -489,16 +490,52 @@ pub struct Provider {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
+    pub credential_kind: CredentialKind,
 }
 
-/// What a credential's secret is. One word today, because every provider Toad
-/// talks to takes an API key; the subscription logins that do not are a later
-/// phase, and they arrive as a second word here.
+/// What a credential is: a key you paste, or a login you do. The second word
+/// is the ChatGPT and GitHub Copilot subscriptions, whose tokens Rig keeps
+/// in a file rather than in `secrets.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
 pub enum CredentialKind {
     ApiKey,
+    Oauth,
+}
+
+/// The code and URL a person needs to finish a device-code login. Returned
+/// the moment the provider issues them; the login itself keeps running until
+/// they sign in, fail, or the process exits.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct LoginPrompt {
+    pub login_id: String,
+    pub user_code: String,
+    pub verification_uri: String,
+}
+
+/// How far a device-code login has got. A finished one stays queryable until
+/// the process exits, so a window that missed the moment can still read it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct LoginStatus {
+    pub state: LoginState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential: Option<Credential>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum LoginState {
+    Pending,
+    Done,
+    Failed,
 }
 
 // ---------------------------------------------------------------------------
@@ -1279,6 +1316,14 @@ pub enum Command {
         label: String,
         secret: String,
     },
+    /// Starts a device-code login. The command runs sequentially per socket,
+    /// which is why this is start-then-poll rather than one blocking call:
+    /// a waiting authorize would hold every later command on that socket
+    /// until the person signed in.
+    #[serde(rename = "credential.login")]
+    CredentialLogin { provider_id: String },
+    #[serde(rename = "credential.login_status")]
+    CredentialLoginStatus { login_id: String },
     #[serde(rename = "credential.revoke")]
     CredentialRevoke { id: String },
     #[serde(rename = "credential.delete")]

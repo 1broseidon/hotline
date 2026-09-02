@@ -2,30 +2,41 @@
 //!
 //! The wire asks a [`RoomHandle`] for what it does not own — a session, a
 //! secret, the models a key can reach — and the session room asks a
-//! [`ProviderKeys`] for keys. This is the one place those two seams are
-//! joined to the real things, so the shell and the headless harness open a
-//! desk the same way and get the same room.
+//! [`ProviderKeys`] for credentials. This is the one place those two seams
+//! are joined to the real things, so the shell and the headless harness open
+//! a desk the same way and get the same room.
 
 use crate::contract::{
-    Attachment, BackendChoice, ChapterClose, ChapterSummary, ConfigChoice, Credential, SessionInfo,
-    StreamDelta,
+    Attachment, BackendChoice, ChapterClose, ChapterSummary, ConfigChoice, Credential, LoginPrompt,
+    LoginState, LoginStatus, SessionInfo, StreamDelta,
 };
 use crate::driver::{PI_BACKEND_ID, acp};
 use crate::log::Log;
+use crate::models::Client;
 use crate::session::{ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
+use rig::providers::{chatgpt, copilot};
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
-use tokio::sync::broadcast;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
+use tokio::sync::{broadcast, oneshot};
 
 impl ProviderKeys for Vault {
-    fn provider_keys(&self) -> HashMap<String, String> {
-        Vault::provider_keys(self)
+    fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
+        Vault::provider_auth(self)
     }
+}
+
+/// How far an in-flight device-code login has got. Lives only in this
+/// process: a finished login stays queryable until Toad exits.
+enum LoginOutcome {
+    Pending,
+    Done(Credential),
+    Failed(String),
 }
 
 /// Everything that runs behind one data directory.
@@ -33,6 +44,7 @@ pub struct Desk {
     pub log: Log,
     room: Arc<Room>,
     vault: Arc<Vault>,
+    logins: Arc<Mutex<HashMap<String, LoginOutcome>>>,
 }
 
 impl Desk {
@@ -41,7 +53,23 @@ impl Desk {
         let log = Log::open(root);
         let vault = Arc::new(Vault::open(root, log.clone())?);
         let room = Room::new(log.clone(), vault.clone());
-        Ok(Desk { log, room, vault })
+        Ok(Desk {
+            log,
+            room,
+            vault,
+            logins: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    fn logins(&self) -> std::sync::MutexGuard<'_, HashMap<String, LoginOutcome>> {
+        self.logins.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn login_error(&self, login_id: &str) -> String {
+        match self.logins().get(login_id) {
+            Some(LoginOutcome::Failed(error)) => error.clone(),
+            _ => "Sign-in failed before a code arrived.".to_string(),
+        }
     }
 }
 
@@ -142,6 +170,153 @@ impl RoomHandle for Desk {
         self.vault.delete(id).map_err(|error| error.to_string())
     }
 
+    async fn credential_login(&self, provider_id: &str) -> Result<LoginPrompt, String> {
+        if let Some(message) = crate::models::login_refusal(provider_id) {
+            return Err(message);
+        }
+        let wiring = crate::models::wiring(provider_id)
+            .ok_or_else(|| format!("{provider_id} is not a provider Toad Agent can use."))?;
+        let label = crate::models::catalog()
+            .providers
+            .get(wiring.id)
+            .map(|entry| entry.name.clone())
+            .unwrap_or_else(|| wiring.id.to_string());
+        let (id, token_dir) = self
+            .vault
+            .begin_login(provider_id)
+            .map_err(|error| error.to_string())?;
+        self.logins().insert(id.clone(), LoginOutcome::Pending);
+
+        let (prompt_tx, prompt_rx) = oneshot::channel();
+        let prompt_tx = Arc::new(Mutex::new(Some(prompt_tx)));
+        let login_id = id.clone();
+        let emit = {
+            let prompt_tx = prompt_tx.clone();
+            let login_id = login_id.clone();
+            move |user_code: String, verification_uri: String| {
+                if let Some(tx) = prompt_tx
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    let _ = tx.send(LoginPrompt {
+                        login_id: login_id.clone(),
+                        user_code,
+                        verification_uri,
+                    });
+                }
+            }
+        };
+
+        let vault = self.vault.clone();
+        let logins = self.logins.clone();
+        let id_for_task = id.clone();
+        let provider_for_task = provider_id.to_string();
+        let label_for_task = label.clone();
+
+        let mut task = match wiring.client {
+            Client::ChatGpt => {
+                let client = chatgpt::Client::builder()
+                    .oauth()
+                    .auth_file(token_dir.join("auth.json"))
+                    .on_device_code(move |prompt| emit(prompt.user_code, prompt.verification_uri))
+                    .allow_device_flow(true)
+                    .build()
+                    .map_err(|error| error.to_string());
+                let client = match client {
+                    Ok(client) => client,
+                    Err(error) => {
+                        let _ = self.vault.abandon_login(&id);
+                        self.logins().remove(&id);
+                        return Err(error);
+                    }
+                };
+                tokio::spawn(async move {
+                    record_login(
+                        vault,
+                        logins,
+                        id_for_task,
+                        provider_for_task,
+                        label_for_task,
+                        client.authorize().await.map_err(|error| error.to_string()),
+                    );
+                })
+            }
+            Client::Copilot => {
+                let client = copilot::Client::builder()
+                    .oauth()
+                    .token_dir(&token_dir)
+                    .on_device_code(move |prompt| emit(prompt.user_code, prompt.verification_uri))
+                    .allow_device_flow(true)
+                    .build()
+                    .map_err(|error| error.to_string());
+                let client = match client {
+                    Ok(client) => client,
+                    Err(error) => {
+                        let _ = self.vault.abandon_login(&id);
+                        self.logins().remove(&id);
+                        return Err(error);
+                    }
+                };
+                tokio::spawn(async move {
+                    record_login(
+                        vault,
+                        logins,
+                        id_for_task,
+                        provider_for_task,
+                        label_for_task,
+                        client.authorize().await.map_err(|error| error.to_string()),
+                    );
+                })
+            }
+            _ => {
+                let _ = self.vault.abandon_login(&id);
+                self.logins().remove(&id);
+                return Err(format!("{provider_id} takes an API key, not a sign-in."));
+            }
+        };
+
+        tokio::select! {
+            biased;
+            prompt = prompt_rx => match prompt {
+                Ok(prompt) => Ok(prompt),
+                Err(_) => {
+                    let _ = (&mut task).await;
+                    Err(self.login_error(&id))
+                }
+            },
+            _ = &mut task => Err(self.login_error(&id)),
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                task.abort();
+                let _ = self.vault.abandon_login(&id);
+                let message = "Timed out waiting for a sign-in code.".to_string();
+                self.logins().insert(id, LoginOutcome::Failed(message.clone()));
+                Err(message)
+            }
+        }
+    }
+
+    fn login_status(&self, login_id: &str) -> Result<LoginStatus, String> {
+        match self.logins().get(login_id) {
+            Some(LoginOutcome::Pending) => Ok(LoginStatus {
+                state: LoginState::Pending,
+                credential: None,
+                error: None,
+            }),
+            Some(LoginOutcome::Done(credential)) => Ok(LoginStatus {
+                state: LoginState::Done,
+                credential: Some(credential.clone()),
+                error: None,
+            }),
+            Some(LoginOutcome::Failed(error)) => Ok(LoginStatus {
+                state: LoginState::Failed,
+                credential: None,
+                error: Some(error.clone()),
+            }),
+            None => Err(format!("There is no login {login_id}.")),
+        }
+    }
+
     /// Toad Agent first, then whatever the ACP catalogue and the PATH say.
     async fn backends(&self) -> Vec<BackendChoice> {
         let mut choices = vec![BackendChoice {
@@ -213,4 +388,31 @@ impl RoomHandle for Desk {
     fn forget(&self, persona_id: &str) {
         self.room.forget(persona_id);
     }
+}
+
+fn record_login(
+    vault: Arc<Vault>,
+    logins: Arc<Mutex<HashMap<String, LoginOutcome>>>,
+    id: String,
+    provider_id: String,
+    label: String,
+    result: Result<(), String>,
+) {
+    let outcome = match result {
+        Ok(()) => match vault.finish_login(&id, &provider_id, &label) {
+            Ok(credential) => LoginOutcome::Done(credential),
+            Err(error) => {
+                let _ = vault.abandon_login(&id);
+                LoginOutcome::Failed(error.to_string())
+            }
+        },
+        Err(error) => {
+            let _ = vault.abandon_login(&id);
+            LoginOutcome::Failed(error)
+        }
+    };
+    logins
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(id, outcome);
 }

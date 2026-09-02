@@ -20,20 +20,26 @@ function isDown(state: SessionState): boolean {
  * A stopped teammate is started by talking to it: a message typed at a session
  * that is not running starts one and then says the message, because the person
  * meant to send it either way. The Start button is for the other case — waking
- * a teammate with nothing to say yet.
+ * a teammate with nothing to say yet. A reply being composed sits as a
+ * one-line quote above the field; Escape puts that quote down before it
+ * interrupts a turn.
  */
 export function Composer({
 	personaId,
 	state,
+	replyQuote,
 	onSend,
 	onStart,
 	onCancel,
+	onClearReply,
 }: {
 	personaId: string;
 	state: SessionState;
+	replyQuote: string | null;
 	onSend(text: string): void;
 	onStart(): void;
 	onCancel(): void;
+	onClearReply(): void;
 }) {
 	const [text, setText] = useState("");
 	const area = useRef<HTMLTextAreaElement>(null);
@@ -49,6 +55,11 @@ export function Composer({
 		el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
 	}, [text, personaId]);
 
+	// The quote is a decision just made: the field is where the answer goes.
+	useLayoutEffect(() => {
+		if (replyQuote !== null) area.current?.focus();
+	}, [replyQuote]);
+
 	const submit = () => {
 		const trimmed = text.trim();
 		if (!trimmed) return;
@@ -59,49 +70,71 @@ export function Composer({
 
 	return (
 		<div className="border-t border-rule bg-paper px-6 py-3">
-			<div className="mx-auto flex w-full max-w-[46rem] items-end gap-2">
-				<textarea
-					ref={area}
-					rows={1}
-					value={text}
-					aria-label="Message your teammate"
-					placeholder={down ? "Message — sending starts the session" : "Message"}
-					className="field resize-none"
-					onChange={(event) => setText(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" && !event.shiftKey) {
-							event.preventDefault();
-							submit();
-							return;
-						}
-						// Interrupting with nothing to say is still just Escape,
-						// whatever is sitting half-written in the field.
-						if (event.key === "Escape" && working) {
-							event.preventDefault();
-							onCancel();
-						}
-					}}
-				/>
-
-				{working ? (
-					<button type="button" className="btn-quiet" title="Interrupt (Esc)" onClick={onCancel}>
-						Stop
-					</button>
-				) : down && text.trim().length === 0 ? (
-					<button type="button" className="btn-quiet" onClick={onStart}>
-						Start
-					</button>
-				) : (
-					<button
-						type="button"
-						className="btn-primary"
-						title="Send (Enter)"
-						disabled={text.trim().length === 0}
-						onClick={submit}
-					>
-						Send
-					</button>
+			<div className="mx-auto w-full max-w-[46rem]">
+				{replyQuote !== null && (
+					<div className="reply-chip">
+						<p className="reply-chip-quote">{replyQuote}</p>
+						<button
+							type="button"
+							className="reply-chip-clear"
+							aria-label="Stop replying"
+							onClick={onClearReply}
+						>
+							×
+						</button>
+					</div>
 				)}
+				<div className="flex items-end gap-2">
+					<textarea
+						ref={area}
+						rows={1}
+						value={text}
+						aria-label="Message your teammate"
+						placeholder={down ? "Message — sending starts the session" : "Message"}
+						className="field resize-none"
+						onChange={(event) => setText(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								submit();
+								return;
+							}
+							// The quote is something you put down, so Escape puts it
+							// down before it interrupts a turn.
+							if (event.key === "Escape" && replyQuote !== null) {
+								event.preventDefault();
+								onClearReply();
+								return;
+							}
+							// Interrupting with nothing to say is still just Escape,
+							// whatever is sitting half-written in the field.
+							if (event.key === "Escape" && working) {
+								event.preventDefault();
+								onCancel();
+							}
+						}}
+					/>
+
+					{working ? (
+						<button type="button" className="btn-quiet" title="Interrupt (Esc)" onClick={onCancel}>
+							Stop
+						</button>
+					) : down && text.trim().length === 0 ? (
+						<button type="button" className="btn-quiet" onClick={onStart}>
+							Start
+						</button>
+					) : (
+						<button
+							type="button"
+							className="btn-primary"
+							title="Send (Enter)"
+							disabled={text.trim().length === 0}
+							onClick={submit}
+						>
+							Send
+						</button>
+					)}
+				</div>
 			</div>
 		</div>
 	);

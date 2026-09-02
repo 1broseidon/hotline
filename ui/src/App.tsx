@@ -9,7 +9,7 @@ import { Rail } from "./components/Rail";
 import { SearchDrawer } from "./components/SearchDrawer";
 import { Settings } from "./components/Settings";
 import { Teammate } from "./components/Teammate";
-import { Transcript } from "./components/Transcript";
+import { Transcript, type ReplyTarget } from "./components/Transcript";
 
 type SheetKind = "new-teammate" | "settings" | "teammate" | null;
 
@@ -224,13 +224,34 @@ function Conversation({
 }) {
 	const personaId = entry.persona.id;
 	const { events, streaming } = useTape(personaId);
+	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 
 	const send = useCallback(
-		(text: string) => void wire.command("session.prompt", { personaId, text }),
-		[personaId],
+		(text: string) => {
+			void wire.command("session.prompt", {
+				personaId,
+				text,
+				...(replying ? { replyTo: replying.eventId } : {}),
+			});
+			setReplying(null);
+		},
+		[personaId, replying],
 	);
 	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
+
+	// Escape clears a quote that is up even when the field is not focused.
+	// The composer handles the same key first when the field has it, so a
+	// turn is not cancelled on the same press.
+	useEffect(() => {
+		if (replying === null) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setReplying(null);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [replying]);
 
 	return (
 		<>
@@ -243,13 +264,15 @@ function Conversation({
 				onOpenSearch={onOpenSearch}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
-				<Transcript events={events} streaming={streaming} focus={focus} />
+				<Transcript events={events} streaming={streaming} focus={focus} onReply={setReplying} />
 				<Composer
 					personaId={personaId}
 					state={entry.session.state}
+					replyQuote={replying?.text ?? null}
 					onSend={send}
 					onStart={start}
 					onCancel={cancel}
+					onClearReply={() => setReplying(null)}
 				/>
 				{searchOpen && (
 					<SearchDrawer

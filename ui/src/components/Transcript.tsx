@@ -8,23 +8,30 @@ const STAMP_AFTER = 20 * 60_000;
 /** Slack under the latest line that still counts as following the conversation. */
 const PIN_SLACK = 80;
 
+/** A message being answered: the id the wire stamps, the line the chip shows. */
+export type ReplyTarget = { eventId: string; text: string };
+
 /**
  * The conversation, and only the conversation.
  *
  * The machinery an agent runs on — its thoughts, the tools it called — is
  * folded away rather than hidden: a transcript that reads as a chat is the
  * whole point, and a transcript that lies about what happened is not worth
- * having. One press opens either.
+ * having. One press opens either. An agent's line, hovered or focused, offers
+ * a quiet Reply; a user line that answers one quotes the original from this
+ * fold, and a missing original is not drawn.
  */
 export function Transcript({
 	events,
 	streaming,
 	focus,
+	onReply,
 }: {
 	events: TranscriptEvent[];
 	streaming: Streaming[];
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
+	onReply(target: ReplyTarget): void;
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	/* Following the conversation is the default and stays true until you
@@ -34,8 +41,19 @@ export function Transcript({
 	 * mounts one — and the listeners have to go on when it appears, not once
 	 * at mount. */
 	const empty = events.length === 0 && streaming.length === 0;
+	/* A reply quote is the same jump as a search hit, asked for from inside
+	 * the transcript rather than from the drawer. The later `at` wins so a
+	 * tap after a search still lands. */
+	const [jumped, setJumped] = useState<{ eventId: string; at: number } | null>(null);
+	const landing = jumped !== null && (focus === null || jumped.at > focus.at) ? jumped : focus;
 
-	useScrollToEvent(scroller, pinned, focus, events);
+	const said = new Map<string, string>();
+	for (const event of events) {
+		const line = quotedLine(event);
+		if (line !== undefined) said.set(event.id, line);
+	}
+
+	useScrollToEvent(scroller, pinned, landing, events);
 
 	useEffect(() => {
 		const el = scroller.current;
@@ -75,7 +93,14 @@ export function Transcript({
 			    than stranding it at the top of an empty pane. */}
 			<div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end gap-1.5">
 				{events.map((event, index) => (
-					<Line key={event.id} event={event} previous={events[index - 1]} />
+					<Line
+						key={event.id}
+						event={event}
+						previous={events[index - 1]}
+						said={said}
+						onReply={onReply}
+						onJump={(eventId) => setJumped({ eventId, at: Date.now() })}
+					/>
 				))}
 				{streaming.map((one) =>
 					one.kind === "agent" ? (
@@ -96,9 +121,15 @@ export function Transcript({
 function Line({
 	event,
 	previous,
+	said,
+	onReply,
+	onJump,
 }: {
 	event: TranscriptEvent;
 	previous: TranscriptEvent | undefined;
+	said: Map<string, string>;
+	onReply(target: ReplyTarget): void;
+	onJump(eventId: string): void;
 }) {
 	const stamp =
 		event.kind !== "chapter" &&
@@ -108,13 +139,14 @@ function Line({
 	return (
 		<div data-event-id={event.id} className="rounded-lg">
 			{stamp && <p className="py-2 text-center text-xs text-ink-3">{stampText(event.ts)}</p>}
-			<Row event={event} />
+			<Row event={event} said={said} onReply={onReply} onJump={onJump} />
 		</div>
 	);
 }
 
 /**
- * A search hit: unpin, bring the row to the middle, and light it briefly.
+ * A search hit or a reply's quote: unpin, bring the row to the middle, and
+ * light it briefly.
  *
  * The tape arrives after the jump is asked for when Everywhere opens another
  * teammate, so this waits until the fold contains the id. `found` going true
@@ -141,23 +173,23 @@ function useScrollToEvent(
 	}, [focus, found, scroller, pinned]);
 }
 
-function Row({ event }: { event: TranscriptEvent }) {
+function Row({
+	event,
+	said,
+	onReply,
+	onJump,
+}: {
+	event: TranscriptEvent;
+	said: Map<string, string>;
+	onReply(target: ReplyTarget): void;
+	onJump(eventId: string): void;
+}) {
 	switch (event.kind) {
 		case "user":
-			return (
-				<div className="mt-2 flex justify-end">
-					<div className="bubble bubble-me">{event.text}</div>
-				</div>
-			);
+			return <UserBubble event={event} said={said} onJump={onJump} />;
 
 		case "agent":
-			return (
-				<div className="mt-2 flex">
-					<div className="bubble bubble-them">
-						<Markdown text={event.text} />
-					</div>
-				</div>
-			);
+			return <AgentBubble event={event} onReply={onReply} />;
 
 		case "thought":
 			return <Thought text={event.text} />;
@@ -202,6 +234,90 @@ function Row({ event }: { event: TranscriptEvent }) {
 		default:
 			return null;
 	}
+}
+
+/** An agent's line, focusable so R can answer it without a pointer. */
+function AgentBubble({
+	event,
+	onReply,
+}: {
+	event: Extract<TranscriptEvent, { kind: "agent" }>;
+	onReply(target: ReplyTarget): void;
+}) {
+	const reply = () => onReply({ eventId: event.id, text: firstLine(event.text) });
+	return (
+		<div className="group-msg relative mt-2 flex">
+			<div
+				className="bubble bubble-them"
+				tabIndex={0}
+				onKeyDown={(key) => {
+					if (key.repeat) return;
+					if (key.ctrlKey || key.altKey || key.metaKey) return;
+					if (key.key !== "r" && key.key !== "R") return;
+					key.preventDefault();
+					reply();
+				}}
+			>
+				<Markdown text={event.text} />
+			</div>
+			<button type="button" className="reply-affordance" tabIndex={-1} title="Reply (R)" onClick={reply}>
+				Reply
+			</button>
+		</div>
+	);
+}
+
+/**
+ * What you typed, and — when this line answers another — that other line
+ * quoted from the fold. A leading `>` block is stripped only then: imported
+ * tapes still carry the quote the old composer wrote into the text, and the
+ * bar above already shows the original.
+ */
+function UserBubble({
+	event,
+	said,
+	onJump,
+}: {
+	event: Extract<TranscriptEvent, { kind: "user" }>;
+	said: Map<string, string>;
+	onJump(eventId: string): void;
+}) {
+	const answered = event.replyTo;
+	const quote = answered !== undefined ? said.get(answered) : undefined;
+	const text = quote !== undefined ? unquoted(event.text) : event.text;
+	return (
+		<div className="mt-2 flex justify-end">
+			<div className="bubble bubble-me">
+				{quote !== undefined && answered !== undefined && (
+					<button
+						type="button"
+						className="bubble-quote"
+						title="Go to the message"
+						onClick={() => onJump(answered)}
+					>
+						{quote}
+					</button>
+				)}
+				{text}
+			</div>
+		</div>
+	);
+}
+
+/** First line of a say, or nothing — a missing or empty original is not a quote. */
+function quotedLine(event: TranscriptEvent): string | undefined {
+	if (event.kind !== "user" && event.kind !== "agent") return undefined;
+	const line = firstLine(event.text);
+	return line.length > 0 ? line : undefined;
+}
+
+/** The stored text minus a leading quote block the old composer prepended. */
+function unquoted(text: string): string {
+	const lines = text.split("\n");
+	let end = 0;
+	while (end < lines.length && lines[end]!.startsWith(">")) end++;
+	if (end === 0) return text;
+	return lines.slice(end).join("\n").replace(/^\n+/, "");
 }
 
 /** What the agent was thinking, folded away. */

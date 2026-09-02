@@ -166,6 +166,80 @@
 		background: var(--said-them);
 	}
 
+	/* A reply's quote at the head of your bubble: the borrowed words carry a
+	 * bar and a quieter voice, and your own line stands clear beneath them. */
+	.bubble-quote {
+		display: block;
+		width: 100%;
+		margin-bottom: 0.4rem;
+		padding-left: 0.5rem;
+		border-left: 2px solid var(--rule-strong);
+		color: var(--ink-2);
+		font-size: 0.8125rem;
+		text-align: left;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.bubble-quote:hover {
+		color: var(--ink);
+	}
+
+	/* Hover or focus on the agent line reveals it; it is out of tab order
+	 * because R on the focused message is the keyboard path. */
+	.reply-affordance {
+		position: absolute;
+		left: 100%;
+		top: 0.4rem;
+		margin-left: 0.4rem;
+		border-radius: 0.375rem;
+		padding: 0.125rem 0.5rem;
+		font-size: 0.75rem;
+		color: var(--ink-3);
+		opacity: 0;
+		pointer-events: none;
+	}
+	.group-msg:hover .reply-affordance,
+	.group-msg:focus-within .reply-affordance {
+		opacity: 1;
+		pointer-events: auto;
+	}
+	.reply-affordance:hover {
+		background: var(--paper-3);
+		color: var(--ink-2);
+	}
+
+	/* The quote being answered, above the composer's field. */
+	.reply-chip {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+	.reply-chip-quote {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding-left: 0.5rem;
+		border-left: 2px solid var(--rule-strong);
+		color: var(--ink-3);
+		font-size: 0.75rem;
+	}
+	.reply-chip-clear {
+		flex-shrink: 0;
+		border-radius: 0.375rem;
+		padding: 0 0.4rem;
+		color: var(--ink-3);
+		font-size: 1rem;
+		line-height: 1.4;
+	}
+	.reply-chip-clear:hover {
+		background: var(--paper-3);
+		color: var(--ink);
+	}
+
 	/* An expander for the machinery: a thought, a tool's output. Quiet enough
 	 * that a transcript of forty tool calls still reads as a conversation. */
 	.aside {

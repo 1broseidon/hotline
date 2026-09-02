@@ -69,6 +69,7 @@ type Results = {
 	"search.thread": ThreadSearchResult;
 	"search.all": GlobalSearchResult;
 	"chapter.list": ChapterSummary[];
+	"chapter.start_fresh": ChapterSummary;
 	"room.import": Report;
 };
 

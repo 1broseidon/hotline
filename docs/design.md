@@ -155,18 +155,19 @@ subscription logins later as custom providers.
 
 ```
 crates/toad-core/src/
-  contract.rs      the wire's types (serde + ts-rs)           moved from ../toad
-  paths.rs         the data directory's layout                 moved
-  log/             streams: append, fold, segments, subscribe  from transcript.rs + threads.rs
-  index/           FTS5 over tapes and chapters                moved from store/search.rs
-  room/            the roster fold, settings, schedules, vault new
-  session/         Session, the funnel, quiet, receipts, ledger new (rules from ../toad/src/bun/acp/supervisor.ts)
-  driver/          InProcess (Rig; moved agent.rs), Child (ACP) new
-  tools/           workspace tools on cap-std, shell command    moved
-  mcp/             rmcp client and Toad's own server            new
-  desk.rs          the room, vault and log behind the wire      new
-  chapters.rs      rotation, notes, resume                      new (rules from ../toad/docs/chapters.md)
-  wire/            the door: seats, commands, subscriptions     from wire.rs, reshaped
+  contract.rs      the wire's types (serde + ts-rs)
+  paths.rs         the data directory's layout
+  log/             streams: append, fold, segments, subscribe
+  store/           FTS5 over tapes and chapters; chapter list; previews
+  room.rs          the roster fold and settings
+  vault.rs         secrets beside the room stream
+  session/         Session, the funnel, quiet
+  driver/          InProcess (Rig)
+  tools/           workspace tools on cap-std, shell command
+  desk.rs          the room, vault and log behind the wire
+  import.rs        copies an existing Toad data directory
+  wire/            the door: seats, commands, subscriptions
+  bin/toad-import.rs  the importer as a binary
 crates/toad-desktop/   the Tauri shell
 ui/                    the window (React, built against the generated contract)
 crates/toad-core/tests/  headless end-to-end proofs (integration tests driving the wire)

@@ -57,15 +57,22 @@ export function Menu({
 		const el = root.current;
 		if (!el) return;
 		const at = anchor.getBoundingClientRect();
-		const width = el.offsetWidth;
 		const height = el.offsetHeight;
 		const gap = 4;
 		const roomBelow = window.innerHeight - at.bottom - gap - 8;
 		const above = height > roomBelow && at.top - gap - 8 > roomBelow;
 		const top = above ? Math.max(8, at.top - gap - height) : at.bottom + gap;
+		const maxHeight = above ? at.top - gap - 8 : roomBelow;
+		// The height is capped before the width is read. A list taller than
+		// its room gets a scrollbar, and WebKit sizes a shrink-to-fit box to
+		// its content first and adds the bar's width on the next layout — so
+		// a width read before the cap is one the menu will not keep. Read it
+		// with the bar in place, then pin it, so no later layout can move it.
+		el.style.maxHeight = `${maxHeight}px`;
+		const width = el.offsetWidth;
 		let left = align === "end" ? at.right - width : at.left;
 		left = Math.min(Math.max(8, left), window.innerWidth - width - 8);
-		setStyle({ top, left, maxHeight: above ? at.top - gap - 8 : roomBelow });
+		setStyle({ top, left, width, maxHeight });
 	}, [anchor, align]);
 
 	useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
 import type {
 	HumanActionStatus,
 	HumanAnswer,
@@ -17,6 +17,13 @@ import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
+
+/**
+ * Lets a note that unfolds itself step out from under the pin: the
+ * scroller follows the conversation's end while you are there, and a note
+ * growing by twenty lines would otherwise carry you past its own title.
+ */
+const Unpin = createContext<() => void>(() => {});
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -157,7 +164,13 @@ export function Transcript({
 		return null;
 	};
 
+	const unpin = () => {
+		pinned.current = false;
+		setFollowing(false);
+	};
+
 	return (
+		<Unpin.Provider value={unpin}>
 		<div className="relative flex min-h-0 flex-1 flex-col">
 		<Scroll scrollerRef={scroller}>
 			{/* `justify-end` rests a short conversation on the composer rather
@@ -229,6 +242,7 @@ export function Transcript({
 			</button>
 		)}
 		</div>
+		</Unpin.Provider>
 	);
 }
 
@@ -527,21 +541,40 @@ function NamedSay({ name, mine, text, title }: { name: string; mine: boolean; te
  * whole of it in place. It sits in the same bubble on the same side, so
  * the conversation keeps its shape and the length is the one thing that
  * differs. A `# Title` the core lifted out of the first line is not drawn
- * twice.
+ * twice, and the fold skips a sub-heading the body opens with, so its
+ * three lines are three lines of prose rather than a heading and a half.
+ *
+ * Opening keeps the title where you can read from it: the note steps out
+ * from under the scroller's pin and scrolls itself to the top. Closing
+ * moves nothing.
  */
 function Note({ title, text }: { title: string; text: string }) {
 	const [open, setOpen] = useState(false);
+	const root = useRef<HTMLDivElement>(null);
+	const unpin = useContext(Unpin);
 	const body = text.replace(/^#\s+[^\n]*\n+/, "");
+	const folded = body.replace(/^\s*#{1,6}\s+[^\n]*\n+/, "");
+	useEffect(() => {
+		if (open) root.current?.scrollIntoView({ block: "start" });
+	}, [open]);
 	return (
-		<>
+		<div ref={root} className="note">
 			<p className="note-title">{title}</p>
 			<div className={open ? "note-body" : "note-body note-folded"}>
-				<Markdown text={body} />
+				<Markdown text={open ? body : folded} />
 			</div>
-			<button type="button" className="note-toggle" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+			<button
+				type="button"
+				className="note-toggle"
+				aria-expanded={open}
+				onClick={() => {
+					if (!open) unpin();
+					setOpen((was) => !was);
+				}}
+			>
 				{open ? "Close" : "Open"}
 			</button>
-		</>
+		</div>
 	);
 }
 

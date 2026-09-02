@@ -767,6 +767,10 @@
 	}
 	/* A note in a bubble: the title is the line, the body folds under a
 	 * fade to three lines of reading, and one quiet word opens it. */
+	/* The margin keeps an opened note's title clear of the scroller's fade. */
+	.note {
+		scroll-margin-top: 16px;
+	}
 	.note-title {
 		margin-bottom: 4px;
 		font-weight: 600;

@@ -356,6 +356,16 @@ pub struct Room {
     /// which costs search and never a record.
     indexer: Mutex<Option<Indexer>>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
+    /// One start at a time, per teammate.
+    ///
+    /// The wire, a schedule firing and the chapter gate all bring a teammate
+    /// up by the same motion, and that motion is long enough — a directory, a
+    /// child process, a handshake — that two callers are routinely inside it
+    /// at once. Two of them spawn two agents and open two chapter markers on
+    /// one tape, and only the session inserted second is the one anything can
+    /// stop afterwards. The gate is per teammate because a teammate is what is
+    /// being started; two teammates starting together is not a race.
+    starts: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     info_changes: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
     /// Wakes the scheduler when a job is written, so a create does not wait
@@ -399,6 +409,7 @@ impl Room {
             agents,
             indexer: Mutex::new(indexer),
             sessions: Mutex::new(HashMap::new()),
+            starts: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
@@ -453,8 +464,24 @@ impl Room {
         }
     }
 
-    /// Brings a teammate up, on the driver its backend names.
+    /// Brings a teammate up, on the driver its backend names. One caller at a
+    /// time per teammate; see [`Room::starts`].
     pub async fn start(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
+        let gate = self.start_gate(persona_id);
+        let _held = gate.lock().await;
+        self.start_now(persona_id).await
+    }
+
+    /// This teammate's start gate, made the first time anyone starts it.
+    fn start_gate(&self, persona_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        lock(&self.starts)
+            .entry(persona_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// The start itself. The caller is holding this teammate's gate.
+    async fn start_now(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
         let persona = self.persona(persona_id)?;
         let in_process = persona.backend_id == PI_BACKEND_ID;
         // The directory exists from the moment the teammate can be spoken to.
@@ -562,13 +589,23 @@ impl Room {
     /// starts, and starting it opens the chapter this message will land in. A
     /// running session with an open chapter is left alone, which is every
     /// message but the first of a chapter.
+    ///
+    /// The whole of that decision is behind the teammate's start gate. Which
+    /// session is running and which chapter it is in are only true together,
+    /// and the swap is a stop and a start with a gap in the middle: two
+    /// messages arriving on a closed chapter would each perform it, and the
+    /// second stop would cancel the session the first had just brought up.
+    /// Behind the gate the second message finds the chapter the first opened
+    /// and joins it.
     async fn in_this_chapter(self: &Arc<Self>, persona_id: &str) -> Result<Arc<Session>, String> {
+        let gate = self.start_gate(persona_id);
+        let _held = gate.lock().await;
         let session = self.session(persona_id)?;
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
             return Ok(session);
         }
         self.stop(persona_id)?;
-        self.start(persona_id).await?;
+        self.start_now(persona_id).await?;
         self.session(persona_id)
     }
 

@@ -580,6 +580,113 @@ async fn every_line_the_room_hands_the_driver_is_a_line_the_driver_heard() {
     );
 }
 
+/// Two callers bring a teammate up at the same moment — the wire and a
+/// schedule firing are exactly these two — and between them there is one
+/// session in one chapter.
+///
+/// Unserialised, both read a tape with no chapter open and both write a marker
+/// onto it, and the teammate is left holding a chapter that will never close.
+/// The window is the width of one file read, so a handful of teammates raced
+/// in turn is enough to land in it.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_starts_at_once_leave_one_session_in_one_chapter() {
+    const TEAMMATES: usize = 6;
+    let log = scratch("start-race");
+    for teammate in 0..TEAMMATES {
+        enrol(&log, &persona(&format!("ada{teammate}")));
+    }
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(Vec::new())),
+    );
+
+    for teammate in 0..TEAMMATES {
+        let id = format!("ada{teammate}");
+        let together = Arc::new(std::sync::Barrier::new(2));
+        let mut starting = Vec::new();
+        for _ in 0..2 {
+            let room = room.clone();
+            let together = together.clone();
+            let id = id.clone();
+            starting.push(tokio::spawn(async move {
+                together.wait();
+                room.start(&id).await
+            }));
+        }
+        for start in starting {
+            start.await.unwrap().unwrap();
+        }
+        assert_eq!(
+            markers(&room, &id).len(),
+            1,
+            "one start opened {id}'s chapter and the other joined it"
+        );
+        assert_eq!(room.info(&id).state, SessionState::Ready);
+    }
+}
+
+/// Two messages arriving on a closed chapter open one chapter between them,
+/// and both are spoken to the session that chapter belongs to.
+///
+/// The gate is stop-then-start. Performed twice over, the second stop cancels
+/// the session the first had just brought up, and the line behind it is said
+/// to an agent that is no longer there. A handful of teammates raced in turn,
+/// because the window is the width of one file read.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_prompts_on_a_closed_chapter_open_one_and_both_are_heard() {
+    const TEAMMATES: usize = 5;
+    let log = scratch("chapter-gate-race");
+    for teammate in 0..TEAMMATES {
+        enrol(&log, &persona(&format!("ada{teammate}")));
+    }
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let prompts = agents.driver.prompts.clone();
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+
+    for teammate in 0..TEAMMATES {
+        let id = format!("ada{teammate}");
+        room.start(&id).await.unwrap();
+        room.start_fresh_chapter(&id, ChapterClose::User)
+            .await
+            .unwrap();
+        lock(&prompts).clear();
+
+        let together = Arc::new(std::sync::Barrier::new(2));
+        let mut speaking = Vec::new();
+        for line in ["one", "two"] {
+            let room = room.clone();
+            let together = together.clone();
+            let id = id.clone();
+            speaking.push(tokio::spawn(async move {
+                together.wait();
+                room.prompt(&id, line, None, None).await
+            }));
+        }
+        for speaker in speaking {
+            speaker.await.unwrap().unwrap();
+        }
+
+        let markers = markers(&room, &id);
+        assert_eq!(
+            markers.len(),
+            2,
+            "{id}'s closed chapter and the one both lines landed in"
+        );
+        assert!(markers[1].get("endedAt").is_none());
+
+        for _ in 0..200 {
+            if lock(&prompts).len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let mut heard = lock(&prompts).clone();
+        heard.sort();
+        assert_eq!(heard, ["one", "two"], "{id} heard both lines");
+    }
+}
+
 #[tokio::test]
 async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver() {
     let room = room("info", Fake::new(Scripted::new(Vec::new())));

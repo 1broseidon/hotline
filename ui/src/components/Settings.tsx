@@ -4,18 +4,17 @@ import type {
 	CatalogModel,
 	ConfigChoice,
 	Credential,
-	CredentialKind,
 	LoginPrompt,
 	Provider,
 	Report,
 } from "../generated/contract";
 import { openLink } from "../native";
 import { chordKeys } from "../chords";
-import { ArrowLeftIcon, GearIcon } from "../icons";
+import { ArrowLeftIcon, ChevronRightIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
-import { Picker } from "../ui/Menu";
+import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
@@ -28,7 +27,7 @@ export type SettingsSection = "general" | "providers" | "tools" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string; detail: string }[] = [
 	{ id: "general", title: "General", detail: "Chapters, the default harness, and the default model" },
-	{ id: "providers", title: "Providers", detail: "Keys, and the models they unlock" },
+	{ id: "providers", title: "Providers", detail: "What Toad Agent can run a model on" },
 	{ id: "tools", title: "Tools", detail: "MCP servers teammates may use" },
 	{ id: "import", title: "Import", detail: "A previous Toad's room" },
 ];
@@ -96,6 +95,9 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
+	// Providers has a page under it, so its band is its own.
+	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
+
 	return (
 		<div className="pane">
 			<Band>
@@ -115,9 +117,6 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 							onBackend={(id) => patch({ defaultBackendId: id })}
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
 						/>
-					)}
-					{section === "providers" && (
-						<ProvidersSection enabledModels={settings.enabledModels} onRefuse={setRefusal} />
 					)}
 					{section === "tools" && <ToolsSection servers={settings.mcpServers} onRefuse={setRefusal} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
@@ -250,30 +249,33 @@ function byName(a: { name: string }, b: { name: string }) {
 	return a.name.localeCompare(b.name);
 }
 
-/** The live oauth credential for a provider, or the revoked one if that is all that is held. */
-function oauthHeld(held: Credential[] | null, providerId: string): Credential | undefined {
-	const of = (held ?? []).filter((one) => one.providerId === providerId && one.credentialKind === "oauth");
-	return of.find((one) => !one.revoked) ?? of[0];
-}
-
+/**
+ * Providers: one list of what this desk can run a model on. A row is a
+ * connected provider, however it was connected — a pasted key or a login
+ * is a detail of the row, not a heading — and pressing it opens that
+ * provider's own page. The plus in the band is the one way in: it names
+ * the providers not yet connected, and choosing one asks for a key or
+ * starts a sign-in in place. The form exists only while you are adding.
+ *
+ * The pane is this section's own rather than Settings', because it has
+ * a page under it and the band has to say which one you are on.
+ */
 function ProvidersSection({
 	enabledModels,
-	onRefuse,
+	onBack,
 }: {
 	enabledModels: Record<string, string[]>;
-	onRefuse(message: string | null): void;
+	onBack?: (() => void) | undefined;
 }) {
+	const [refusal, setRefusal] = useState<string | null>(null);
 	const [held, setHeld] = useState<Credential[] | null>(null);
-	/* The providers a credential can be for come from the core's model
-	 * catalogue, so a provider added there is offered here without the
-	 * window knowing its name. The first key provider, sorted by name, is
-	 * the default until the person picks. */
 	const [providers, setProviders] = useState<Provider[]>([]);
-	const [providerId, setProviderId] = useState("");
-	const [secret, setSecret] = useState("");
-	const [busy, setBusy] = useState(false);
+	/* Adding: the provider chosen from the plus, and for a login provider
+	 * the prompt once the core has one. */
+	const [adding, setAdding] = useState<Provider | null>(null);
 	const [login, setLogin] = useState<{ providerId: string; prompt: LoginPrompt } | null>(null);
-	const [filterId, setFilterId] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [open, setOpen] = useState<string | null>(null);
 
 	useEffect(() => {
 		wire
@@ -281,17 +283,13 @@ function ProvidersSection({
 			.then(setHeld)
 			.catch((error: Error) => {
 				setHeld([]);
-				onRefuse(error.message);
+				setRefusal(error.message);
 			});
 		wire
 			.command("providers.list", {})
-			.then((list) => {
-				const keys = list.filter((one) => one.credentialKind === "api_key").slice().sort(byName);
-				setProviders(list);
-				setProviderId((current) => current || (keys[0]?.id ?? ""));
-			})
-			.catch((error: Error) => onRefuse(error.message));
-	}, [onRefuse]);
+			.then(setProviders)
+			.catch((error: Error) => setRefusal(error.message));
+	}, []);
 
 	useEffect(() => {
 		if (login === null) return;
@@ -304,15 +302,18 @@ function ProvidersSection({
 					if (cancelled) return;
 					if (status.state === "done") {
 						if (status.credential) {
-							setHeld((known) => [...(known ?? []), status.credential!]);
+							const made = status.credential;
+							setHeld((known) => [...(known ?? []).filter((one) => one.id !== made.id), made]);
 						}
 						setLogin(null);
+						setAdding(null);
 						setBusy(false);
 						return;
 					}
 					if (status.state === "failed") {
-						onRefuse(status.error ?? "Sign-in failed.");
+						setRefusal(status.error ?? "Sign-in failed.");
 						setLogin(null);
+						setAdding(null);
 						setBusy(false);
 						return;
 					}
@@ -320,8 +321,9 @@ function ProvidersSection({
 				})
 				.catch((error: Error) => {
 					if (cancelled) return;
-					onRefuse(error.message);
+					setRefusal(error.message);
 					setLogin(null);
+					setAdding(null);
 					setBusy(false);
 				});
 		};
@@ -330,239 +332,280 @@ function ProvidersSection({
 			cancelled = true;
 			if (timer !== undefined) clearTimeout(timer);
 		};
-	}, [login, onRefuse]);
+	}, [login]);
 
-	const keyProviders = providers.filter((one) => one.credentialKind === "api_key").slice().sort(byName);
-	const oauthProviders = providers.filter((one) => one.credentialKind === "oauth").slice().sort(byName);
-	const keys = (held ?? []).filter((one) => one.credentialKind === "api_key");
-	const picked = keyProviders.find((one) => one.id === providerId);
+	/* Connected: one row per credential, live ones first. A revoked login
+	 * stays listed so it can be signed in again or removed. */
+	const connected = (held ?? [])
+		.map((credential) => ({ credential, provider: providers.find((one) => one.id === credential.providerId) }))
+		.sort((a, b) => Number(a.credential.revoked) - Number(b.credential.revoked) || nameOf(a).localeCompare(nameOf(b)));
+	const live = new Set(connected.filter((one) => !one.credential.revoked).map((one) => one.credential.providerId));
+	const addable = providers.filter((one) => !live.has(one.id)).slice().sort(byName);
 
-	const save = async () => {
-		if (!secret.trim() || !providerId || busy) return;
-		setBusy(true);
-		onRefuse(null);
-		try {
-			const label = picked?.name ?? providerId;
-			const made = await wire.command("credential.create", { providerId, label, secret: secret.trim() });
-			setHeld((known) => [...(known ?? []), made]);
-			setSecret("");
-		} catch (error) {
-			onRefuse(error instanceof Error ? error.message : String(error));
-		} finally {
-			setBusy(false);
-		}
+	const begin = (provider: Provider) => {
+		setRefusal(null);
+		setAdding(provider);
+		if (provider.credentialKind === "oauth") void signIn(provider.id);
 	};
 
 	const signIn = async (id: string) => {
 		if (busy) return;
 		setBusy(true);
-		onRefuse(null);
 		try {
 			setLogin({ providerId: id, prompt: await wire.command("credential.login", { providerId: id }) });
 		} catch (error) {
-			onRefuse(error instanceof Error ? error.message : String(error));
+			setRefusal(error instanceof Error ? error.message : String(error));
+			setAdding(null);
 			setBusy(false);
 		}
 	};
 
-	if (filterId !== null) {
-		const named = providers.find((one) => one.id === filterId);
+	const saveKey = async (secret: string) => {
+		if (adding === null || busy) return;
+		setBusy(true);
+		setRefusal(null);
+		try {
+			const made = await wire.command("credential.create", { providerId: adding.id, label: adding.name, secret });
+			setHeld((known) => [...(known ?? []), made]);
+			setAdding(null);
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const addEntries: MenuEntry[] = addable.map((provider) => ({
+		kind: "item",
+		id: provider.id,
+		text: provider.name,
+		detail: provider.credentialKind === "oauth" ? "Sign in" : "API key",
+		disabled: busy,
+		onSelect: () => begin(provider),
+	}));
+
+	const opened = connected.find((one) => one.credential.id === open);
+	if (opened !== undefined) {
 		return (
-			<ModelsShown
-				providerId={filterId}
-				providerName={named?.name ?? filterId}
-				credentialKind={named?.credentialKind ?? "api_key"}
+			<ProviderPage
+				credential={opened.credential}
+				name={nameOf(opened)}
 				enabledModels={enabledModels}
-				onCancel={() => setFilterId(null)}
-				onRefuse={onRefuse}
+				onBack={() => setOpen(null)}
+				onSignIn={() => {
+					setOpen(null);
+					if (opened.provider) begin(opened.provider);
+				}}
+				onRemoved={() => {
+					setHeld((known) => (known ?? []).filter((one) => one.id !== opened.credential.id));
+					setOpen(null);
+				}}
 			/>
 		);
 	}
 
 	return (
-		<>
-			<section>
-				<h3 className="group-title">Keys</h3>
-				<div className="grouped">
-					{held === null ? (
-						<p className="group-row text-sm text-ink-3">Reading…</p>
-					) : keys.length === 0 ? (
-						<p className="group-row text-sm text-ink-3">No keys yet. Toad Agent needs one to run a model.</p>
-					) : (
-						keys.map((one) => (
-							<div key={one.id} className="group-row">
-								<span className="group-row-text">
-									<span className="group-row-title">{one.label}</span>
-									<span className="group-row-detail font-mono">{one.providerId}</span>
-								</span>
-								<span className="flex items-center gap-2">
-									{!one.revoked && (
-										<button
-											type="button"
-											className="control btn-icon"
-											title="Models shown"
-											aria-label={`Models shown — ${one.label}`}
-											onClick={() => setFilterId(one.providerId)}
-										>
-											<GearIcon />
-										</button>
-									)}
-									<span className={`text-sm ${one.revoked ? "text-ink-3" : "text-ink-2"}`}>
-										{one.revoked ? "Revoked" : "In use"}
-									</span>
-								</span>
-							</div>
-						))
+		<div className="pane">
+			<Band>
+				{onBack !== undefined && <BackKey onBack={onBack} />}
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Providers</h2>
+				{addEntries.length > 0 && (
+					<MenuButton className="control btn-icon" label="Add provider" title="Add provider" entries={addEntries}>
+						<PlusIcon />
+					</MenuButton>
+				)}
+			</Band>
+			<Scroll>
+				<div className="pane-column flex flex-col gap-6">
+					{adding !== null && adding.credentialKind === "api_key" && (
+						<KeyForm provider={adding} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={() => setAdding(null)} />
 					)}
-				</div>
-				<p className="group-hint">A key never leaves this machine; the room remembers only that it exists.</p>
-			</section>
-			<form
-				onSubmit={(event) => {
-					event.preventDefault();
-					void save();
-				}}
-			>
-				<h3 className="group-title">Add a key</h3>
-				<div className="grouped">
-					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2" id="key-provider">
-							Provider
-						</label>
-						<div className="flex-1">
-							<Picker
-								field
-								value={providerId}
-								choices={keyProviders}
-								placeholder="Provider"
-								label="Provider"
-								onChange={setProviderId}
-							/>
-						</div>
-					</div>
-					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
-							API key
-						</label>
-						<input
-							id="key-secret"
-							type="password"
-							className="field flex-1 font-mono text-sm"
-							spellCheck={false}
-							autoComplete="off"
-							value={secret}
-							onChange={(event) => setSecret(event.target.value)}
-						/>
-					</div>
-					<div className="group-row justify-end">
-						<button
-							type="submit"
-							className="control btn-primary"
-							disabled={busy || !providerId || secret.trim() === ""}
-						>
-							{busy ? "Saving…" : "Save key"}
-						</button>
-					</div>
-				</div>
-			</form>
-			<section>
-				<h3 className="group-title">Sign in with</h3>
-				<div className="grouped">
-					{held === null || providers.length === 0 ? (
-						<p className="group-row text-sm text-ink-3">Reading…</p>
-					) : (
-						oauthProviders.flatMap((provider) => {
-							const cred = oauthHeld(held, provider.id);
-							const prompt = login?.providerId === provider.id ? login.prompt : null;
-							if (prompt !== null) {
-								return [
-									<div key={provider.id} className="group-row">
-										<span className="group-row-text">
-											<span className="group-row-title">{provider.name}</span>
-										</span>
-									</div>,
-									<div key={`${provider.id}-code`} className="group-row">
-										<span className="selectable font-mono text-xl tracking-wide">{prompt.userCode}</span>
-									</div>,
-									<div key={`${provider.id}-link`} className="group-row">
-										<button
-											type="button"
-											className="text-sm text-ink-2 underline"
-											onClick={() => void openLink(prompt.verificationUri)}
-										>
-											{prompt.verificationUri}
-										</button>
-									</div>,
-									<p key={`${provider.id}-wait`} className="group-row text-sm text-ink-3">
-										Waiting for you to sign in…
-									</p>,
-								];
-							}
-							const signedIn = cred !== undefined && !cred.revoked;
-							const revoked = cred !== undefined && cred.revoked;
-							return [
-								<div key={provider.id} className="group-row">
-									<span className="group-row-text">
-										<span className="group-row-title">{provider.name}</span>
-									</span>
-									<span className="flex items-center gap-2">
-										{signedIn && (
+					{adding !== null && adding.credentialKind === "oauth" && (
+						<section>
+							<h3 className="group-title">Sign in to {adding.name}</h3>
+							<div className="grouped">
+								{login === null ? (
+									<p className="group-row text-sm text-ink-3">Asking {adding.name} for a code…</p>
+								) : (
+									<>
+										<div className="group-row">
+											<span className="selectable font-mono text-xl tracking-wide">{login.prompt.userCode}</span>
+										</div>
+										<div className="group-row">
 											<button
 												type="button"
-												className="control btn-icon"
-												title="Models shown"
-												aria-label={`Models shown — ${provider.name}`}
-												onClick={() => setFilterId(provider.id)}
+												className="text-sm text-ink-2 underline"
+												onClick={() => void openLink(login.prompt.verificationUri)}
 											>
-												<GearIcon />
+												{login.prompt.verificationUri}
 											</button>
-										)}
-										{signedIn ? (
-											<span className="text-sm text-ink-2">Signed in</span>
-										) : (
-											<>
-												{revoked && <span className="text-sm text-ink-3">Revoked</span>}
-												<button
-													type="button"
-													className="control btn-primary"
-													disabled={busy}
-													onClick={() => void signIn(provider.id)}
-												>
-													Sign in
-												</button>
-											</>
-										)}
-									</span>
-								</div>,
-							];
-						})
+										</div>
+										<p className="group-row text-sm text-ink-3">Waiting for you to sign in…</p>
+									</>
+								)}
+								<div className="group-row justify-end">
+									<button
+										type="button"
+										className="control btn-quiet"
+										onClick={() => {
+											setLogin(null);
+											setAdding(null);
+											setBusy(false);
+										}}
+									>
+										Cancel
+									</button>
+								</div>
+							</div>
+							<p className="group-hint">Enter the code on that page. Toad keeps the login on this machine.</p>
+						</section>
+					)}
+					<section>
+						{held === null ? (
+							<div className="grouped">
+								<p className="group-row text-sm text-ink-3">Reading…</p>
+							</div>
+						) : connected.length === 0 ? (
+							<div className="flex flex-col items-center gap-4 px-6 py-10">
+								<p className="text-center text-ink-3">No providers yet. Toad Agent needs one to run a model.</p>
+								{addEntries.length > 0 && (
+									<MenuButton className="control btn" label="Add provider" entries={addEntries}>
+										<PlusIcon />
+										Add provider
+									</MenuButton>
+								)}
+							</div>
+						) : (
+							<div className="grouped">
+								{connected.map((one) => (
+									<button
+										key={one.credential.id}
+										type="button"
+										className="group-row group-row-choice w-full text-left"
+										onClick={() => setOpen(one.credential.id)}
+									>
+										<span className="group-row-text">
+											<span className="group-row-title">{nameOf(one)}</span>
+											<span className="group-row-detail">
+												{one.credential.revoked
+													? one.credential.credentialKind === "oauth"
+														? "Signed out"
+														: "Key revoked"
+													: `${one.credential.credentialKind === "oauth" ? "Signed in" : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
+											</span>
+										</span>
+										<ChevronRightIcon className="shrink-0 text-ink-3" />
+									</button>
+								))}
+							</div>
+						)}
+						{connected.length > 0 && (
+							<p className="group-hint">A key or a login never leaves this machine; the room remembers only that it exists.</p>
+						)}
+					</section>
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
 					)}
 				</div>
-			</section>
-		</>
+			</Scroll>
+		</div>
+	);
+}
+
+function nameOf(one: { credential: Credential; provider: Provider | undefined }): string {
+	return one.provider?.name ?? one.credential.label;
+}
+
+/** The row's own word for the filter: the count when there is one, else all. */
+function modelsShownText(enabled: string[] | undefined): string {
+	if (enabled === undefined) return "All models";
+	return enabled.length === 1 ? "1 model" : `${enabled.length} models`;
+}
+
+/** The key field, in place, for the provider just chosen from the plus. */
+function KeyForm({
+	provider,
+	busy,
+	onSave,
+	onCancel,
+}: {
+	provider: Provider;
+	busy: boolean;
+	onSave(secret: string): void;
+	onCancel(): void;
+}) {
+	const [secret, setSecret] = useState("");
+	const field = useRef<HTMLInputElement>(null);
+	useEffect(() => field.current?.focus(), []);
+	return (
+		<form
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (secret.trim() !== "") onSave(secret.trim());
+			}}
+		>
+			<h3 className="group-title">Add {provider.name}</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
+						API key
+					</label>
+					<input
+						ref={field}
+						id="key-secret"
+						type="password"
+						className="field flex-1 font-mono text-sm"
+						spellCheck={false}
+						autoComplete="off"
+						value={secret}
+						onChange={(event) => setSecret(event.target.value)}
+					/>
+				</div>
+				<div className="group-row justify-end">
+					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
+						Cancel
+					</button>
+					<button type="submit" className="control btn-primary" disabled={busy || secret.trim() === ""}>
+						{busy ? "Saving…" : "Save key"}
+					</button>
+				</div>
+			</div>
+			{provider.doc !== undefined && (
+				<p className="group-hint">
+					<button type="button" className="underline" onClick={() => void openLink(provider.doc ?? "")}>
+						Where to get one
+					</button>
+				</p>
+			)}
+		</form>
 	);
 }
 
 /**
- * The filter for one provider, in the pane's place. Every id checked is the
- * same as no filter, so Save removes the provider's entry rather than writing
- * a list that means "all".
+ * One provider's page: which of its models the pickers show, and the way
+ * out. Every model checked is the same as no filter, so Save removes the
+ * provider's entry rather than writing a list that means "all".
  */
-function ModelsShown({
-	providerId,
-	providerName,
-	credentialKind,
+function ProviderPage({
+	credential,
+	name,
 	enabledModels,
-	onCancel,
-	onRefuse,
+	onBack,
+	onSignIn,
+	onRemoved,
 }: {
-	providerId: string;
-	providerName: string;
-	credentialKind: CredentialKind;
+	credential: Credential;
+	name: string;
 	enabledModels: Record<string, string[]>;
-	onCancel(): void;
-	onRefuse(message: string | null): void;
+	onBack(): void;
+	onSignIn(): void;
+	onRemoved(): void;
 }) {
+	const providerId = credential.providerId;
+	const oauth = credential.credentialKind === "oauth";
+	const [refusal, setRefusal] = useState<string | null>(null);
 	const [catalog, setCatalog] = useState<CatalogModel[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [on, setOn] = useState<Set<string>>(new Set());
@@ -574,46 +617,53 @@ function ModelsShown({
 	};
 
 	useEffect(() => {
+		if (credential.revoked) {
+			setCatalog([]);
+			return;
+		}
 		wire
 			.command("models.catalog", { providerId })
 			.then(applyCatalog)
 			.catch((error: Error) => {
-				onRefuse(error.message);
+				setRefusal(error.message);
 				setCatalog([]);
 			});
-	}, [providerId, onRefuse]);
+	}, [providerId, credential.revoked]);
 
-	const refresh = async () => {
+	const run = async (work: () => Promise<void>) => {
 		if (busy) return;
 		setBusy(true);
-		onRefuse(null);
+		setRefusal(null);
 		try {
-			applyCatalog(await wire.command("credential.refresh_models", { providerId }));
+			await work();
 		} catch (error) {
-			onRefuse(error instanceof Error ? error.message : String(error));
+			setRefusal(error instanceof Error ? error.message : String(error));
 		} finally {
 			setBusy(false);
 		}
 	};
 
-	const save = async () => {
-		if (catalog === null || busy) return;
-		setBusy(true);
-		onRefuse(null);
-		const next: Record<string, string[]> = { ...enabledModels };
-		if (on.size === catalog.length && catalog.every((model) => on.has(model.id))) {
-			delete next[providerId];
-		} else {
-			next[providerId] = catalog.filter((model) => on.has(model.id)).map((model) => model.id);
-		}
-		try {
+	const refresh = () =>
+		run(async () => applyCatalog(await wire.command("credential.refresh_models", { providerId })));
+
+	const save = () =>
+		run(async () => {
+			if (catalog === null) return;
+			const next: Record<string, string[]> = { ...enabledModels };
+			if (on.size === catalog.length && catalog.every((model) => on.has(model.id))) {
+				delete next[providerId];
+			} else {
+				next[providerId] = catalog.filter((model) => on.has(model.id)).map((model) => model.id);
+			}
 			await wire.command("settings.update", { patch: { enabledModels: next } });
-			onCancel();
-		} catch (error) {
-			onRefuse(error instanceof Error ? error.message : String(error));
-			setBusy(false);
-		}
-	};
+			onBack();
+		});
+
+	const remove = () =>
+		run(async () => {
+			await wire.command("credential.delete", { id: credential.id });
+			onRemoved();
+		});
 
 	const needle = query.trim().toLowerCase();
 	const visible =
@@ -624,82 +674,129 @@ function ModelsShown({
 				: catalog.filter(
 						(model) => model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle),
 					);
-	const shown = catalog?.length ?? 0;
 
 	return (
-		<section>
-			<h3 className="group-title">Models shown — {providerName}</h3>
-			<div className="grouped">
-				<div className="group-row">
-					<input
-						type="search"
-						className="field flex-1"
-						placeholder="Search"
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						aria-label="Search models"
-					/>
-					<button
-						type="button"
-						className="control btn-quiet"
-						disabled={catalog === null}
-						onClick={() => catalog && setOn(new Set(catalog.map((model) => model.id)))}
-					>
-						All
-					</button>
-					<button type="button" className="control btn-quiet" disabled={catalog === null} onClick={() => setOn(new Set())}>
-						None
-					</button>
-					{credentialKind === "oauth" && (
-						<button
-							type="button"
-							className="control btn-quiet"
-							disabled={catalog === null || busy}
-							onClick={() => void refresh()}
-						>
-							Refresh
-						</button>
+		<div className="pane">
+			<Band>
+				<BackKey onBack={onBack} />
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{name}</h2>
+			</Band>
+			<Scroll>
+				<div className="pane-column flex flex-col gap-6">
+					{credential.revoked ? (
+						<section>
+							<div className="grouped">
+								<div className="group-row">
+									<span className="group-row-text">
+										<span className="group-row-title">{oauth ? "Signed out" : "Key revoked"}</span>
+										<span className="group-row-detail">
+											{oauth ? "The login no longer works." : "The key no longer works."}
+										</span>
+									</span>
+									{oauth && (
+										<button type="button" className="control btn-primary" disabled={busy} onClick={onSignIn}>
+											Sign in again
+										</button>
+									)}
+								</div>
+							</div>
+						</section>
+					) : (
+						<section>
+							<h3 className="group-title">Models shown</h3>
+							<div className="grouped">
+								<div className="group-row">
+									<input
+										type="search"
+										className="field flex-1"
+										placeholder="Search"
+										value={query}
+										onChange={(event) => setQuery(event.target.value)}
+										aria-label="Search models"
+									/>
+									<button
+										type="button"
+										className="control btn-quiet"
+										disabled={catalog === null}
+										onClick={() => catalog && setOn(new Set(catalog.map((model) => model.id)))}
+									>
+										All
+									</button>
+									<button type="button" className="control btn-quiet" disabled={catalog === null} onClick={() => setOn(new Set())}>
+										None
+									</button>
+									{oauth && (
+										<button
+											type="button"
+											className="control btn-quiet"
+											disabled={catalog === null || busy}
+											onClick={() => void refresh()}
+										>
+											Refresh
+										</button>
+									)}
+								</div>
+								<p className="group-row text-sm text-ink-3">
+									{catalog === null ? "Reading…" : `${on.size} of ${catalog.length} shown`}
+								</p>
+								{visible.map((model) => (
+									<label key={model.id} className="group-row group-row-choice">
+										<span className="group-row-text">
+											<span className="group-row-title">{model.name}</span>
+											<span className="group-row-detail font-mono">{model.id}</span>
+										</span>
+										<input
+											type="checkbox"
+											className="check"
+											checked={on.has(model.id)}
+											onChange={(event) => {
+												setOn((known) => {
+													const next = new Set(known);
+													if (event.target.checked) next.add(model.id);
+													else next.delete(model.id);
+													return next;
+												});
+											}}
+										/>
+									</label>
+								))}
+								<div className="group-row justify-end">
+									<button
+										type="button"
+										className="control btn-primary"
+										disabled={busy || catalog === null}
+										onClick={() => void save()}
+									>
+										{busy ? "Saving…" : "Save"}
+									</button>
+								</div>
+							</div>
+							<p className="group-hint">Every model checked is the same as no filter.</p>
+						</section>
+					)}
+					<section>
+						<div className="grouped">
+							<div className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title">{oauth ? "Sign out" : "Remove key"}</span>
+									<span className="group-row-detail">
+										{oauth ? "Forgets the login on this machine." : "Forgets the key on this machine."}
+									</span>
+								</span>
+								<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove()}>
+									{oauth ? "Sign out" : "Remove"}
+								</button>
+							</div>
+						</div>
+					</section>
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
 					)}
 				</div>
-				<p className="group-row text-sm text-ink-3">
-					{catalog === null ? "Reading…" : `${on.size} of ${shown} shown`}
-				</p>
-				{visible.map((model) => (
-					<label key={model.id} className="group-row group-row-choice">
-						<span className="group-row-text">
-							<span className="group-row-title">{model.name}</span>
-							<span className="group-row-detail font-mono">{model.id}</span>
-						</span>
-						<input
-							type="checkbox"
-							className="check"
-							checked={on.has(model.id)}
-							onChange={(event) => {
-								setOn((known) => {
-									const next = new Set(known);
-									if (event.target.checked) next.add(model.id);
-									else next.delete(model.id);
-									return next;
-								});
-							}}
-						/>
-					</label>
-				))}
-				<div className="group-row justify-end">
-					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
-						Cancel
-					</button>
-					<button
-						type="button"
-						className="control btn-primary"
-						disabled={busy || catalog === null}
-						onClick={() => void save()}
-					>
-						{busy ? "Saving…" : "Save"}
-					</button>
-				</div>
-			</div>
-		</section>
+			</Scroll>
+		</div>
 	);
 }
 

@@ -68,6 +68,13 @@ fold into the More menu as checked groups — the same choices, one press
 further away, rather than a band that clips them. The inspector has its own, wider
 cut-off, because it needs the conversation beside it and the rail does not.
 
+Providers is one list of what is connected, however it was connected — a
+key or a login is the row's detail, not a heading. A row opens the
+provider's own page: which of its models the pickers show, and the way
+out (Remove key, Sign out). The plus in the band names what is not yet
+connected; choosing one asks for a key or starts a sign-in in place, and
+the form exists only while you are adding.
+
 Settings, New teammate, Keyboard shortcuts and About are panes in the
 conversation's place. Settings also takes the rail: its sections stand
 where the team stood, one row each, and the band carries the way back

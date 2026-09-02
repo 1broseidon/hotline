@@ -147,6 +147,17 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn schedule_cancel(&self, id: &str) -> Result<(), String>;
 
     fn schedule_set_quiet(&self, id: &str, quiet: bool) -> Result<(), String>;
+
+    /// Every thread this teammate has with another teammate, newest first.
+    /// The events of one are a `{"thread": key}` subscription, which is a
+    /// stream like any other.
+    fn peer_threads(&self, persona_id: &str) -> Vec<crate::contract::PeerThreadSummary>;
+
+    /// Marks messages in a peer thread read, answering how many moved.
+    fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
+
+    /// Stops every peer session a teammate is a side of, because it is gone.
+    fn drop_peer_sessions(&self, persona_id: &str);
 }
 
 /// What a socket may do, decided by the token it presented.

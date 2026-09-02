@@ -11,7 +11,7 @@
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use toad_core::desk::Desk;
@@ -32,11 +32,17 @@ fn scratch(name: &str) -> PathBuf {
 /// A desk on a scratch data directory, its door running.
 async fn open(name: &str) -> (PathBuf, u16) {
     let root = scratch(name);
-    let desk = Desk::open(&root).unwrap();
+    let port = open_at(&root);
+    (root, port)
+}
+
+/// The same, on a data directory somebody has already put something in.
+fn open_at(root: &Path) -> u16 {
+    let desk = Desk::open(root).unwrap();
     let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
-    (root, port)
+    port
 }
 
 /// The window's half of the wire, as the harness plays it.
@@ -238,6 +244,105 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
         })
         .await;
     assert_eq!(removed["removed"], persona_id);
+}
+
+/// A peer thread, listed and read over the wire.
+///
+/// The core is the only writer of a stream, so the two teammates and the
+/// conversation between them are written into the data directory before the
+/// core opens — which is also exactly what an imported one looks like.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_thread_is_listed_streamed_and_marked_read_over_the_wire() {
+    let root = scratch("peers");
+    let teammate = |id: &str, name: &str| {
+        json!({
+            "kind": "persona", "id": id, "name": name, "goal": "", "backendId": "pi",
+            "cwd": root.to_string_lossy(), "mcpPolicy": { "mode": "all", "serverIds": [] },
+            "sessionCheckpoints": [], "createdAt": 1, "updatedAt": 1,
+        })
+    };
+    std::fs::write(
+        root.join("room.jsonl"),
+        format!("{}\n{}\n", teammate("ada", "Ada"), teammate("bob", "Bob")),
+    )
+    .unwrap();
+    let threads = root.join("threads");
+    std::fs::create_dir_all(&threads).unwrap();
+    std::fs::write(
+        threads.join("ada~bob.json"),
+        json!({
+            "version": 1, "a": "ada", "b": "bob",
+            "sides": { "user": "ada", "agent": "bob" },
+            "sessions": [], "createdAt": 1, "updatedAt": 1,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let said = [
+        json!({ "kind": "user", "id": "u1", "ts": 10, "text": "did the crane jam?", "receipt": "read" }),
+        json!({ "kind": "agent", "id": "a1", "ts": 11, "text": "on the second lift", "receipt": "sent" }),
+        json!({ "kind": "turn", "id": "t1", "ts": 12, "stopReason": "end_turn" }),
+    ];
+    std::fs::write(
+        threads.join("ada~bob.jsonl"),
+        said.iter()
+            .map(|event| format!("{event}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+
+    let mut client = Client::connect(open_at(&root)).await;
+    let thread = client.subscribe(json!({ "thread": "ada~bob" })).await;
+    let snapshot = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, thread, "snapshot")
+        })
+        .await;
+    assert_eq!(snapshot["snapshot"], json!(said));
+
+    // The same conversation from each side, named by the other.
+    let listed = client
+        .call("peers.list", json!({ "personaId": "ada" }))
+        .await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    let summary = &listed["result"][0];
+    assert_eq!(summary["threadKey"], "ada~bob");
+    assert_eq!(summary["withPersonaId"], "bob");
+    assert_eq!(summary["withName"], "Bob");
+    assert_eq!(summary["exchanges"], 1);
+    assert_eq!(summary["lastAt"], 12);
+    assert_eq!(summary["waiting"], false);
+    assert_eq!(summary["preview"]["fromName"], "Bob");
+    assert_eq!(summary["preview"]["text"], "on the second lift");
+    let theirs = client
+        .call("peers.list", json!({ "personaId": "bob" }))
+        .await;
+    assert_eq!(theirs["result"][0]["withName"], "Ada");
+
+    // The reply is read, and the subscription is told on the same id.
+    let read = client
+        .call(
+            "peers.mark_read",
+            json!({ "key": "ada~bob", "eventIds": ["a1"] }),
+        )
+        .await;
+    assert_eq!(read["result"], 1, "{read}");
+    let moved = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, thread, "event")
+        })
+        .await;
+    assert_eq!(moved["event"]["id"], "a1");
+    assert_eq!(moved["event"]["receipt"], "read");
+
+    // A receipt that has already landed moves nothing the second time.
+    let again = client
+        .call(
+            "peers.mark_read",
+            json!({ "key": "ada~bob", "eventIds": ["a1", "no-such-id"] }),
+        )
+        .await;
+    assert_eq!(again["result"], 0, "{again}");
 }
 
 /// A real turn, with a real key: the agent reads a file in its workspace with

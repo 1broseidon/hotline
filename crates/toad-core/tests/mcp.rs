@@ -194,10 +194,10 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
     assert_eq!(shouted, "HARBOUR");
 }
 
-/// Toad's own three tools are the teammate's whether or not anything else is:
+/// Toad's own tools are the teammate's whether or not anything else is:
 /// built in this process for Toad Agent, and verified because Toad built them.
 #[tokio::test(flavor = "multi_thread")]
-async fn toad_agent_gets_toads_own_three_tools() {
+async fn toad_agent_gets_toads_own_tools() {
     let (_root, port) = open("toad-tools").await;
     let mut client = Client::connect(port).await;
     keyed(&mut client).await;
@@ -218,7 +218,7 @@ async fn toad_agent_gets_toads_own_three_tools() {
         .call("teammate.tools", json!({ "personaId": persona_id }))
         .await;
     let rows = tools["result"]["rows"].as_array().unwrap();
-    for name in ["search_thread", "list_chapters", "new_chapter"] {
+    for name in toad_core::mcp::server::TOOL_NAMES {
         let row = rows
             .iter()
             .find(|row| row["name"] == name)

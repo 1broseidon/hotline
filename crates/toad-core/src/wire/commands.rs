@@ -23,7 +23,7 @@ pub(crate) async fn run(
     match command {
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => update_persona(log, &id, &patch),
-        Command::PersonaDelete { id } => delete_persona(log, &id),
+        Command::PersonaDelete { id } => delete_persona(log, room, &id),
         Command::SettingsUpdate { patch } => update_settings(log, patch),
 
         Command::CredentialCreate {
@@ -113,6 +113,11 @@ pub(crate) async fn run(
         Command::ScheduleCancel { id } => room.schedule_cancel(&id).map(|()| Value::Null),
         Command::ScheduleSetQuiet { id, quiet } => {
             room.schedule_set_quiet(&id, quiet).map(|()| Value::Null)
+        }
+
+        Command::PeersList { persona_id } => Ok(json!(room.peer_threads(&persona_id))),
+        Command::PeersMarkRead { key, event_ids } => {
+            Ok(json!(room.mark_peer_read(&key, &event_ids)))
         }
     }
 }
@@ -204,9 +209,10 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
 /// The tombstone is the same kind and id again, so the fold finds it instead
 /// of the teammate and a mirror has a line to ship rather than an absence to
 /// notice.
-fn delete_persona(log: &Log, id: &str) -> Result<Value, String> {
+fn delete_persona(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<Value, String> {
     living(log, id)?;
     crate::session::ledger::forget(id);
+    room.drop_peer_sessions(id);
     append(
         log,
         &json!({ "kind": "persona", "id": id, "deleted": true }),

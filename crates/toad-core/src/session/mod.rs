@@ -34,9 +34,11 @@
 
 mod chapters;
 pub(crate) mod ledger;
+mod peers;
 mod quiet;
 pub(crate) mod schedule;
 
+pub use peers::{DeliverResult, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
 
 use crate::contract::{
@@ -319,6 +321,8 @@ pub struct Room {
     /// Wakes the scheduler when a job is written, so a create does not wait
     /// for the nearest existing nextAt.
     schedule_changed: Arc<Notify>,
+    /// The sessions teammates answer each other out of.
+    peers: peers::Peers,
 }
 
 impl Room {
@@ -354,6 +358,7 @@ impl Room {
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
+            peers: peers::Peers::default(),
         });
         room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
@@ -1005,127 +1010,41 @@ impl Room {
         update: Update,
         in_flight: &mut HashMap<String, PendingTool>,
     ) {
-        match update {
-            Update::Delta {
-                kind,
-                message_id,
-                text,
-            } => {
-                // A muted turn must not run the writing indicator for a
-                // message that will never land, so the delta is demoted with
-                // the event it is building.
-                let muted = kind == MessageKind::Agent
-                    && quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms());
-                let persona_id = session.persona_id.clone();
-                let _ = self.deltas.send(match kind {
-                    MessageKind::Agent if !muted => StreamDelta::AgentDelta {
-                        persona_id,
-                        message_id,
-                        text,
-                    },
-                    _ => StreamDelta::ThoughtDelta {
-                        persona_id,
-                        message_id,
-                        text,
-                    },
-                });
-            }
-            Update::Message { kind, id, text } => self.append(
-                session,
-                match kind {
-                    MessageKind::Agent => TranscriptEvent::Agent {
-                        id,
-                        ts: now_ms(),
-                        text,
-                        reactions: None,
-                        ring: None,
-                        receipt: None,
-                    },
-                    MessageKind::Thought => TranscriptEvent::Thought {
-                        id,
-                        ts: now_ms(),
-                        text,
-                    },
-                },
-            ),
-            Update::ToolCall {
-                call_id,
-                title,
-                kind,
-            } => {
-                let pending = PendingTool {
-                    ts: now_ms(),
-                    title,
-                    kind,
-                };
-                self.append(
-                    session,
-                    pending.event(&call_id, ToolStatus::InProgress, None),
-                );
-                in_flight.insert(call_id, pending);
-            }
-            Update::ToolResult {
-                call_id,
-                ok,
-                output,
-            } => {
-                let Some(pending) = in_flight.remove(&call_id) else {
-                    return;
-                };
-                let status = if ok {
-                    ToolStatus::Completed
-                } else {
-                    ToolStatus::Failed
-                };
-                let output = ToolOutput::Text {
-                    text: clip(&output, TOOL_OUTPUT_CHARS),
-                };
-                self.append(session, pending.event(&call_id, status, Some(output)));
-            }
-            Update::Permission {
-                request_id,
-                title,
-                options,
-            } => self.append(
-                session,
-                TranscriptEvent::Permission {
-                    // The card is superseded by this id when it is answered,
-                    // so the decision lands on the line already drawn rather
-                    // than adding a second one below it.
-                    id: format!("perm:{request_id}"),
-                    ts: now_ms(),
-                    request_id,
-                    title,
-                    options,
-                    decision: None,
-                    decided_option_name: None,
-                },
-            ),
-            Update::Turn { stop_reason, usage } => {
-                // A cancelled turn leaves tools running; they are marked
-                // before the turn is closed, so the transcript never shows a
-                // finished turn above a tool still in progress.
-                self.fail_in_flight(session, in_flight);
-                self.checkpoint(session);
-                self.append(
-                    session,
-                    TranscriptEvent::Turn {
-                        id: new_id(),
-                        ts: now_ms(),
-                        stop_reason,
-                        usage,
-                    },
-                );
-            }
-            Update::Notice { level, text } => self.append(
-                session,
-                TranscriptEvent::Notice {
-                    id: new_id(),
-                    ts: now_ms(),
-                    level,
+        if let Update::Delta {
+            kind,
+            message_id,
+            text,
+        } = update
+        {
+            // A muted turn must not run the writing indicator for a message
+            // that will never land, so the delta is demoted with the event it
+            // is building.
+            let muted = kind == MessageKind::Agent
+                && quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms());
+            let persona_id = session.persona_id.clone();
+            let _ = self.deltas.send(match kind {
+                MessageKind::Agent if !muted => StreamDelta::AgentDelta {
+                    persona_id,
+                    message_id,
                     text,
                 },
-            ),
+                _ => StreamDelta::ThoughtDelta {
+                    persona_id,
+                    message_id,
+                    text,
+                },
+            });
+            return;
+        }
+        if matches!(update, Update::Turn { .. }) {
+            // A cancelled turn leaves tools running; they are marked before
+            // the turn is closed, so the transcript never shows a finished
+            // turn above a tool still in progress.
+            self.fail_in_flight(session, in_flight);
+            self.checkpoint(session);
+        }
+        if let Some(event) = event_of(update, in_flight) {
+            self.append(session, event);
         }
     }
 
@@ -1259,7 +1178,14 @@ fn sweep_idle_chapters(room: Weak<Room>) {
         let mut looked_again: HashMap<String, i64> = HashMap::new();
         loop {
             match room.upgrade() {
-                Some(room) => room.sweep_chapters(&mut looked_again).await,
+                Some(room) => {
+                    room.sweep_chapters(&mut looked_again).await;
+                    // The same clock, because a peer session that has gone
+                    // quiet is the same kind of fact as a chapter that has:
+                    // nothing to arm when a message lands and nothing to
+                    // cancel when a teammate is deleted.
+                    room.sweep_peers(now_ms());
+                }
                 None => return,
             }
             tokio::time::sleep(SWEEP_EVERY).await;
@@ -1291,6 +1217,95 @@ fn said(events: &[Value]) -> Vec<Said> {
             }
         })
         .collect()
+}
+
+/// What one driver update is, written down.
+///
+/// The one place an update becomes an event, because a teammate's tape and a
+/// peer thread must record the same turn the same way — the shapes are the
+/// previous Toad's, and there is nowhere for a second copy of them to drift
+/// to. `None` is the one update that is never written: a delta, which the
+/// message that follows it makes durable.
+fn event_of(
+    update: Update,
+    in_flight: &mut HashMap<String, PendingTool>,
+) -> Option<TranscriptEvent> {
+    match update {
+        Update::Delta { .. } => None,
+        Update::Message { kind, id, text } => Some(match kind {
+            MessageKind::Agent => TranscriptEvent::Agent {
+                id,
+                ts: now_ms(),
+                text,
+                reactions: None,
+                ring: None,
+                receipt: None,
+            },
+            MessageKind::Thought => TranscriptEvent::Thought {
+                id,
+                ts: now_ms(),
+                text,
+            },
+        }),
+        Update::ToolCall {
+            call_id,
+            title,
+            kind,
+        } => {
+            let pending = PendingTool {
+                ts: now_ms(),
+                title,
+                kind,
+            };
+            let event = pending.event(&call_id, ToolStatus::InProgress, None);
+            in_flight.insert(call_id, pending);
+            Some(event)
+        }
+        Update::ToolResult {
+            call_id,
+            ok,
+            output,
+        } => {
+            let pending = in_flight.remove(&call_id)?;
+            let status = if ok {
+                ToolStatus::Completed
+            } else {
+                ToolStatus::Failed
+            };
+            let output = ToolOutput::Text {
+                text: clip(&output, TOOL_OUTPUT_CHARS),
+            };
+            Some(pending.event(&call_id, status, Some(output)))
+        }
+        Update::Permission {
+            request_id,
+            title,
+            options,
+        } => Some(TranscriptEvent::Permission {
+            // The card is superseded by this id when it is answered, so the
+            // decision lands on the line already drawn rather than adding a
+            // second one below it.
+            id: format!("perm:{request_id}"),
+            ts: now_ms(),
+            request_id,
+            title,
+            options,
+            decision: None,
+            decided_option_name: None,
+        }),
+        Update::Turn { stop_reason, usage } => Some(TranscriptEvent::Turn {
+            id: new_id(),
+            ts: now_ms(),
+            stop_reason,
+            usage,
+        }),
+        Update::Notice { level, text } => Some(TranscriptEvent::Notice {
+            id: new_id(),
+            ts: now_ms(),
+            level,
+            text,
+        }),
+    }
 }
 
 /// A tool call the agent has made and not yet heard back about. The tape event
@@ -1398,9 +1413,10 @@ fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> St
             persona.name
         )
     };
-    // Every teammate has the three tools over its own conversation, on either
-    // driver, so the sentence about them is unconditional: a tool an agent
-    // was never told about is a tool it does not have.
+    // Every teammate has Toad's own tools — over its conversation and over
+    // the room — on either driver, so the sentence about them is
+    // unconditional: a tool an agent was never told about is a tool it does
+    // not have.
     let standing = format!(
         "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.\n\n{}",
         persona.cwd,

@@ -138,6 +138,18 @@ matched than the limit. A missing index or an empty query is
 `chapter.list` is the tape's chapter markers: `{id, startedAt, endedAt?,
 title?, note?, status?, closedBy?, messages}`.
 
+`peers.list` is every thread this teammate has with another teammate:
+`{threadKey, withPersonaId, withName, exchanges, lastAt, waiting,
+workingPersonaId?, preview}`, newest first. The events of one of them are
+a `{"thread": key}` subscription, which is a stream like any other, so
+there is no command that loads a thread. `peers.mark_read` says that
+those messages have been read and answers how many actually moved: an id
+naming nothing, an event that is not a message, and a message that is
+already read all move nothing, which is what makes a repeated receipt
+harmless. A message's `receipt` is `sent` when it enters the thread and
+`read` once the recipient's session has proved a turn on it; nothing ever
+un-reads a message.
+
 `room.import`'s `from` is a path to an existing Toad data directory. The
 source is never written. `Report` is `{teammates, tapes, settings, keys,
 skipped: [{item, reason}]}`.

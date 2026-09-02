@@ -22,7 +22,7 @@ use tokio::sync::{Notify, Semaphore, mpsc};
 /// `gate` between updates when the test asked for a pause it can cancel in.
 /// The last script stands for every turn after it, so a test that does not
 /// care which turn it is in writes one.
-struct Scripted {
+pub(super) struct Scripted {
     turns: Vec<Vec<Update>>,
     /// How many turns have been asked for, which is how the next script is
     /// chosen.
@@ -44,11 +44,11 @@ struct Scripted {
 }
 
 impl Scripted {
-    fn new(script: Vec<Update>) -> Self {
+    pub(super) fn new(script: Vec<Update>) -> Self {
         Self::turns(vec![script])
     }
 
-    fn turns(turns: Vec<Vec<Update>>) -> Self {
+    pub(super) fn turns(turns: Vec<Vec<Update>>) -> Self {
         Self {
             turns,
             asked: Arc::new(Mutex::new(0)),
@@ -157,7 +157,7 @@ impl Driver for Scripted {
 /// next turn of the same script; the preamble and the seeded conversation are
 /// kept because they are what a fresh chapter's context is made of; and the
 /// summariser gets whatever answer the test says a model gave.
-struct Fake {
+pub(super) struct Fake {
     driver: Arc<Scripted>,
     preambles: Arc<Mutex<Vec<String>>>,
     seeds: Arc<Mutex<Vec<Vec<Said>>>>,
@@ -167,11 +167,11 @@ struct Fake {
 impl Fake {
     /// A room whose summariser is asked and refused, which is the shape of
     /// every desk with no model set up.
-    fn new(driver: Scripted) -> Arc<Fake> {
+    pub(super) fn new(driver: Scripted) -> Arc<Fake> {
         Fake::answering(driver, Err("no model answered".to_string()))
     }
 
-    fn answering(driver: Scripted, answer: Result<String, String>) -> Arc<Fake> {
+    pub(super) fn answering(driver: Scripted, answer: Result<String, String>) -> Arc<Fake> {
         Arc::new(Fake {
             driver: Arc::new(driver),
             preambles: Arc::new(Mutex::new(Vec::new())),
@@ -207,7 +207,7 @@ impl Agents for Fake {
 
 /// One provider key, so the room has a model to name the note's completion
 /// with. Nothing here reaches a provider: every agent is a script.
-struct DeskKeys;
+pub(super) struct DeskKeys;
 
 impl ProviderKeys for DeskKeys {
     fn provider_keys(&self) -> HashMap<String, String> {
@@ -224,7 +224,7 @@ fn note_json(title: &str) -> Result<String, String> {
     ))
 }
 
-fn scratch(name: &str) -> Log {
+pub(super) fn scratch(name: &str) -> Log {
     let root = std::env::temp_dir().join(format!(
         "toad-core-session-{name}-{}-{}",
         std::process::id(),
@@ -235,7 +235,7 @@ fn scratch(name: &str) -> Log {
     Log::open(root)
 }
 
-fn persona(id: &str) -> Persona {
+pub(super) fn persona(id: &str) -> Persona {
     Persona {
         node: None,
         id: id.to_string(),
@@ -264,7 +264,7 @@ fn persona(id: &str) -> Persona {
     }
 }
 
-fn enrol(log: &Log, persona: &Persona) {
+pub(super) fn enrol(log: &Log, persona: &Persona) {
     let mut event = serde_json::to_value(persona).unwrap();
     event
         .as_object_mut()

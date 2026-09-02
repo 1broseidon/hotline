@@ -218,7 +218,11 @@ pub fn thread_key(a: &str, b: &str) -> Option<String> {
 
 /// Splits a key back into its two participants, refusing anything that does
 /// not spell itself the same way again.
-fn thread_participants(key: &str) -> Option<(&str, &str)> {
+///
+/// The first is the thread's `user` side and the second its `agent` side —
+/// that is how the sidecar is written, here and in the previous Toad — so
+/// this is also what decides which way round a pair's messages are stored.
+pub fn thread_participants(key: &str) -> Option<(&str, &str)> {
     let (a, b) = key.split_once('~')?;
     if b.contains('~') || thread_key(a, b).as_deref() != Some(key) {
         return None;

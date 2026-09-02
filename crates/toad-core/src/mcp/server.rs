@@ -1,9 +1,10 @@
-//! Toad's own MCP server: what a teammate may ask about its own conversation.
+//! Toad's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Three tools — search the thread, list the chapters, close this one — and
-//! one instance of them per teammate session. They are the room's, not the
-//! agent's: the tape they read is Toad's record of a conversation that has
-//! been going on far longer than any one context.
+//! Five tools — three over its own conversation, two over the room's other
+//! teammates — and one instance of them per teammate session. They are the
+//! room's, not the agent's: the tape they read is Toad's record of a
+//! conversation that has been going on far longer than any one context, and
+//! the teammate they message is a colleague with a conversation of its own.
 //!
 //! There are two ways to reach them, because there are two kinds of agent:
 //!
@@ -48,9 +49,17 @@ const PATH: &str = "/mcp";
 const SEARCH_THREAD: &str = "search_thread";
 const LIST_CHAPTERS: &str = "list_chapters";
 const NEW_CHAPTER: &str = "new_chapter";
+const LIST_TEAMMATES: &str = "list_teammates";
+const MESSAGE_TEAMMATE: &str = "message_teammate";
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 3] = [SEARCH_THREAD, LIST_CHAPTERS, NEW_CHAPTER];
+pub const TOOL_NAMES: [&str; 5] = [
+    SEARCH_THREAD,
+    LIST_CHAPTERS,
+    NEW_CHAPTER,
+    LIST_TEAMMATES,
+    MESSAGE_TEAMMATE,
+];
 
 /// What the search may be asked for at once, and what it settles on when the
 /// agent does not say. The previous Toad's numbers, so a teammate that moves
@@ -65,7 +74,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -76,7 +85,7 @@ fn schema(value: Value) -> Arc<JsonObject> {
     )
 }
 
-/// The three tools as an MCP client is shown them.
+/// The tools as an MCP client is shown them.
 ///
 /// The wording is the previous Toad's, because it was written for agents and
 /// tested on them: a description is the only instruction a tool gets.
@@ -105,6 +114,27 @@ fn descriptors() -> Vec<Tool> {
             "Close the current chapter so the user's next message starts with a fresh context. Use it when the subject has clearly changed and the work so far would only get in the way. A handoff note is written for the chapter that closes; you stay in your current context until the next message arrives, so finish your reply normally.",
             schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
         ),
+        Tool::new(
+            LIST_TEAMMATES,
+            "The other teammates in this Toad room: each one's id and name, what it was created to do, and what its own session is doing right now. Roster metadata only — it does not include anyone's conversation.",
+            schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
+        ),
+        Tool::new(
+            MESSAGE_TEAMMATE,
+            "Ask another teammate in this room something, and get their answer back. The call waits for their reply, so ask for one specific thing and say everything they need: they cannot see your conversation with the user, and they answer in one turn without a follow-up. They are started if they are not running. The two of you have a standing private thread, and they can see what was said in it before.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "The teammate's name, or its personaId from list_teammates.",
+                    },
+                    "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX },
+                },
+                "required": ["to", "message"],
+                "additionalProperties": false,
+            })),
+        ),
     ]
 }
 
@@ -123,7 +153,7 @@ impl TeammateTools {
         }
     }
 
-    /// Runs one of the three. The name and arguments are the MCP call's, so
+    /// Runs one of them. The name and arguments are the MCP call's, so
     /// the in-process agent and the child reach exactly the same code.
     pub async fn call(&self, name: &str, arguments: &Value) -> Result<String, String> {
         let room = self
@@ -159,11 +189,43 @@ impl TeammateTools {
                     .await?;
                 Ok(json!({ "closed": true, "title": closed.title }).to_string())
             }
+            LIST_TEAMMATES => {
+                let teammates: Vec<Value> = crate::room::roster(room.log())
+                    .into_iter()
+                    .filter(|persona| persona.id != self.persona_id)
+                    .map(|persona| {
+                        json!({
+                            "personaId": persona.id,
+                            "name": persona.name,
+                            "goal": persona.goal,
+                            "state": room.info(&persona.id).state,
+                        })
+                    })
+                    .collect();
+                Ok(json!({ "teammates": teammates }).to_string())
+            }
+            MESSAGE_TEAMMATE => {
+                let to = arguments
+                    .get("to")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|to| !to.is_empty())
+                    .ok_or_else(|| {
+                        "message_teammate needs a `to`: a teammate's name or its personaId."
+                            .to_string()
+                    })?;
+                let message = arguments
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "message_teammate needs a `message` to deliver.".to_string())?;
+                let answered = room.deliver(&self.persona_id, to, message).await?;
+                Ok(json!({ "from": answered.from, "reply": answered.reply }).to_string())
+            }
             other => Err(format!("This room has no tool called '{other}'.")),
         }
     }
 
-    /// The same three, registered on a Rig agent.
+    /// The same set, registered on a Rig agent.
     pub fn as_dynamic(&self) -> Vec<rig::tool::DynamicTool> {
         descriptors()
             .into_iter()
@@ -510,10 +572,10 @@ mod tests {
     }
 
     /// The child's path, driven by a real MCP client over the real endpoint:
-    /// the token gets in, lists exactly the three tools, and reaches the tape
+    /// the token gets in, lists exactly this server's tools, and reaches the tape
     /// through one of them.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_client_with_the_token_lists_the_three_tools_and_calls_one() {
+    async fn a_client_with_the_token_lists_the_tools_and_calls_one() {
         let room = room_with_a_conversation("served");
         let served = serve(tools(&room)).await.unwrap();
 

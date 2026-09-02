@@ -62,7 +62,7 @@ export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, 
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } };
+export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } };
 
 export type ConfigChoice = { id: string, name: string, description?: string, 
 /**
@@ -172,6 +172,14 @@ export type McpPolicy = { mode: PolicyMode, serverIds: Array<string>, };
 
 export type NoticeLevel = "info" | "warn" | "error";
 
+/**
+ * The last thing said in a peer thread, and which of the two said it.
+ *
+ * Not [`Preview`]'s `me`/`them`: both sides are teammates and neither of them
+ * is the person reading, so the name is spelled out rather than implied.
+ */
+export type PeerPreview = { fromName: string, text: string, at: number, };
+
 export type PeerRole = "caller" | "target";
 
 /**
@@ -186,6 +194,40 @@ export type PeerStatus = "open" | "done" | "waiting" | "failed";
  * it, so the line is addressed by thread rather than by teammate.
  */
 export type PeerThreadPush = { threadKey: string, event: TranscriptEvent, };
+
+/**
+ * One thread between two teammates, as a list of them is read.
+ *
+ * `lastAt` is the newest thing in the thread, which is what the window counts
+ * unread against — it remembers the latest it has shown, exactly as it does
+ * for a tape.
+ */
+export type PeerThreadSummary = { threadKey: string, 
+/**
+ * The other side, from the point of view of the teammate that asked.
+ */
+withPersonaId: string, withName: string, 
+/**
+ * How many turns have been answered in this thread.
+ */
+exchanges: number, lastAt: number, 
+/**
+ * A permission card in this thread is still waiting for an answer.
+ */
+waiting: boolean, 
+/**
+ * Who is mid-reply in *this* thread right now, or absent for nobody.
+ *
+ * Not "is that teammate busy": a teammate deep in its own conversation
+ * with the user is not working on this, and a line saying it is would be
+ * a lie the reader can check.
+ */
+workingPersonaId?: string, 
+/**
+ * Written as `null` rather than omitted, because a thread with nothing
+ * said in it is a row the window still draws.
+ */
+preview?: PeerPreview | null, };
 
 export type PermissionOption = { optionId: string, name: string, kind?: string, };
 

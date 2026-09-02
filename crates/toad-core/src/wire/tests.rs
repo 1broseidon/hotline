@@ -213,6 +213,16 @@ impl RoomHandle for Quiet {
     fn schedule_set_quiet(&self, _id: &str, _quiet: bool) -> Result<(), String> {
         Err("Nothing runs in this room, so nothing is scheduled.".to_string())
     }
+
+    fn peer_threads(&self, _persona_id: &str) -> Vec<crate::contract::PeerThreadSummary> {
+        Vec::new()
+    }
+
+    fn mark_peer_read(&self, _key: &str, _event_ids: &[String]) -> usize {
+        0
+    }
+
+    fn drop_peer_sessions(&self, _persona_id: &str) {}
 }
 
 fn scratch(name: &str) -> PathBuf {

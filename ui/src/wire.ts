@@ -5,6 +5,7 @@ import type {
 	ConfigChoice,
 	Credential,
 	GlobalSearchHit,
+	PeerThreadSummary,
 	Persona,
 	Report,
 	RosterEntry,
@@ -82,6 +83,9 @@ type Results = {
 	"schedule.list": ScheduledJob[];
 	"schedule.cancel": null;
 	"schedule.set_quiet": null;
+	"peers.list": PeerThreadSummary[];
+	/** How many bubbles that receipt actually moved. */
+	"peers.mark_read": number;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

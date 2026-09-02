@@ -187,4 +187,16 @@ impl RoomHandle for Desk {
     fn schedule_set_quiet(&self, id: &str, quiet: bool) -> Result<(), String> {
         self.room.schedule_set_quiet(id, quiet)
     }
+
+    fn peer_threads(&self, persona_id: &str) -> Vec<crate::contract::PeerThreadSummary> {
+        self.room.peer_threads(persona_id)
+    }
+
+    fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize {
+        self.room.mark_peer_read(key, event_ids)
+    }
+
+    fn drop_peer_sessions(&self, persona_id: &str) {
+        self.room.drop_peer_sessions(persona_id);
+    }
 }

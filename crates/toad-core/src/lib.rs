@@ -6,7 +6,8 @@
 //! Phase 2: the contract's types, the log, the room, the search index, the
 //! workspace tools, Toad Agent on Rig, Toad as an MCP client for the servers
 //! a teammate's policy grants, and Toad as the MCP server of a teammate's own
-//! three tools over its conversation. The wire is built on top of these.
+//! tools — over its conversation, and over the teammates it shares the room
+//! with. The wire is built on top of these.
 
 pub mod contract;
 pub mod desk;

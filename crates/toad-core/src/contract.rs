@@ -1069,6 +1069,50 @@ pub enum ThreadSearchHit {
     },
 }
 
+/// The last thing said in a peer thread, and which of the two said it.
+///
+/// Not [`Preview`]'s `me`/`them`: both sides are teammates and neither of them
+/// is the person reading, so the name is spelled out rather than implied.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct PeerPreview {
+    pub from_name: String,
+    pub text: String,
+    pub at: i64,
+}
+
+/// One thread between two teammates, as a list of them is read.
+///
+/// `lastAt` is the newest thing in the thread, which is what the window counts
+/// unread against — it remembers the latest it has shown, exactly as it does
+/// for a tape.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct PeerThreadSummary {
+    pub thread_key: String,
+    /// The other side, from the point of view of the teammate that asked.
+    pub with_persona_id: String,
+    pub with_name: String,
+    /// How many turns have been answered in this thread.
+    pub exchanges: i64,
+    pub last_at: i64,
+    /// A permission card in this thread is still waiting for an answer.
+    pub waiting: bool,
+    /// Who is mid-reply in *this* thread right now, or absent for nobody.
+    ///
+    /// Not "is that teammate busy": a teammate deep in its own conversation
+    /// with the user is not working on this, and a line saying it is would be
+    /// a lie the reader can check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_persona_id: Option<String>,
+    /// Written as `null` rather than omitted, because a thread with nothing
+    /// said in it is a row the window still draws.
+    #[ts(optional = nullable)]
+    pub preview: Option<PeerPreview>,
+}
+
 /// A search hit that names whose conversation it came from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
@@ -1298,6 +1342,16 @@ pub enum Command {
     ScheduleCancel { id: String },
     #[serde(rename = "schedule.set_quiet")]
     ScheduleSetQuiet { id: String, quiet: bool },
+    /// Every thread this teammate has with another teammate, newest first.
+    /// The events of one of them are a `{"thread": "<key>"}` subscription,
+    /// which is a stream like any other.
+    #[serde(rename = "peers.list")]
+    PeersList { persona_id: String },
+    /// Says that these messages in a peer thread have been read, and answers
+    /// how many of them that actually moved. A message that is already read,
+    /// or an id naming nothing, moves nothing.
+    #[serde(rename = "peers.mark_read")]
+    PeersMarkRead { key: String, event_ids: Vec<String> },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

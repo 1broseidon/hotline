@@ -59,6 +59,47 @@ fn write_meta(root: &Path, key: &str, meta: &Map<String, Value>) -> io::Result<(
     fs::rename(&temporary, &file)
 }
 
+/// Opens the conversation between the key's two sides, if it is not open
+/// already, and answers whether this call is what opened it.
+///
+/// Only the sidecar is written: the stream's file appears when somebody says
+/// something. `sides` names the key's first participant as the `user` side,
+/// which is what the previous Toad writes and what decides which way round a
+/// pair's messages are stored.
+pub fn ensure(root: &Path, key: &str) -> io::Result<bool> {
+    if read_meta(root, key).is_some() {
+        return Ok(false);
+    }
+    let (a, b) = crate::paths::thread_participants(key).ok_or_else(|| missing_key(key))?;
+    let now = chrono::Local::now().timestamp_millis();
+    let meta = serde_json::json!({
+        "version": 1,
+        "a": a,
+        "b": b,
+        "sides": { "user": a, "agent": b },
+        "sessions": [],
+        "createdAt": now,
+        "updatedAt": now,
+    });
+    let meta = meta
+        .as_object()
+        .expect("a sidecar is written as an object")
+        .clone();
+    write_meta(root, key, &meta)?;
+    Ok(true)
+}
+
+/// Every thread this teammate is one of the two sides of.
+pub fn keys_for(root: &Path, persona_id: &str) -> Vec<String> {
+    list_all_keys(root)
+        .into_iter()
+        .filter(|key| {
+            crate::paths::thread_participants(key)
+                .is_some_and(|(a, b)| a == persona_id || b == persona_id)
+        })
+        .collect()
+}
+
 /// Records a display name for a side the roster cannot resolve.
 ///
 /// A thread whose sidecar is missing is left alone rather than given one: the

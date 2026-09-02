@@ -933,11 +933,16 @@ fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connec
             ToolSourceKind::Mcp,
             &tool.origin,
             &tool.name,
-            format!("attached from the {} MCP server", tool.origin),
+            format!("attached from the {} MCP server", tool.server_name()),
         );
     }
     for failed in &connected.failed {
-        ledger.absent(ToolSourceKind::Mcp, &failed.id, &failed.id, &failed.reason);
+        ledger.absent(
+            ToolSourceKind::Mcp,
+            &failed.id,
+            &failed.name,
+            &failed.reason,
+        );
     }
     for id in missing {
         ledger.absent(ToolSourceKind::Mcp, id, id, mcp::missing_reason(id));

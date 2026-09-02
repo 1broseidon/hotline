@@ -187,6 +187,12 @@ impl McpTool {
         }
     }
 
+    /// The server's human name, for a sentence about where the tool came
+    /// from; the id is the ledger's key, not something a person reads.
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
     /// Forward the call and return the result's text. Errors as `Err`.
     pub async fn call(&self, arguments: Value) -> Result<String, CallError> {
         let arguments = match arguments {

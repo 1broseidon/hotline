@@ -98,7 +98,7 @@ On each turn it is given:
 
 | kind | what | how |
 | --- | --- | --- |
-| workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
+| workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. Workspace reach may read the machine but may only write the working directory and a private `/tmp`. Network stays on: agents install things. The wall is kept per OS, or the tool is not offered. |
 | Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
@@ -133,8 +133,9 @@ A granted stdio server is spawned in its own process group on Unix, so a
 launcher like `npx` does not leave the real server behind when the session
 stops. A result larger than 256 KiB is kept in full under
 `tool-output/<personaId>/` in the data directory; the model is shown the
-head and the tail and that path. The transcript bubble keeps 4,000
-characters of output either way.
+head and the tail and that path. Under workspace reach the teammate can
+read that directory, and nothing else outside the working directory. The
+transcript bubble keeps 4,000 characters of output either way.
 
 Anything quoted out of a conversation goes in front of a model inside a
 fence (`fence.rs`): `search_thread` and `list_chapters` results, the wake

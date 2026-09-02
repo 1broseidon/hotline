@@ -77,7 +77,9 @@ data directory is made here; one the user typed is made too. Starting a
 teammate, and the chapter gate in front of a message, share one lock per
 teammate: two callers cannot spawn two agents and open two chapter markers
 on one tape. Reach is read from the roster at every prompt, not from the
-persona the session started with, so an edit takes on the next turn.
+persona the session started with, so a turn already running sees a new
+wall. A change to reach, or to anything else the driver is built from,
+also restarts the session; see [Reattaching](#reattaching).
 
 ## Toad Agent
 
@@ -348,6 +350,31 @@ says the context could not be reopened. A second resume is refused when
 the chapter immediately before closed by resume, when nothing precedes, or
 when that previous chapter ran on a different agent.
 
+### Reattaching
+
+A change to what a teammate can use restarts a live session behind the
+same start gate. The swap is the stop and start a closed chapter already
+does, for a different reason: the driver is built from the persona and
+the room's servers, so leaving it running would keep the old set until
+somebody stopped the teammate by hand. Between turns it happens now;
+during a turn it waits until the turn ends, and a queued line runs
+before the swap, because a message the person already sent is worth more
+than a tool change landing one turn sooner. An idle teammate is left
+alone: the next start builds from the new state.
+
+The chapter stays open. The ledger the new start publishes is the record
+of what attached; nothing is written on the tape for the restart. The
+stop emits `Stopped` and the start emits `Ready`, and the window's band
+follows those. A restart that fails to start leaves the teammate stopped
+with the start's error.
+
+Toad Agent is rebuilt in-process with the new grant and the new reach;
+its context is the tape. An ACP child is a new process, handed the new
+servers in `session/new`; `context_restored` says whether the harness
+gave the context back. `start_now` writes `AGENTS.md` before that child
+starts, so a `goal` change reaches it through the file on the same
+restart.
+
 ### Idle sweep
 
 One task for the whole room, a few seconds after the desk opens and then
@@ -481,7 +508,8 @@ the same on either driver. A server that was attached and later dies —
 process exited, connection closed, HTTP endpoint unreachable — turns every
 row from that origin absent, with the transport error as the reason, and
 writes one notice on the tape: `The <name> MCP server went away:
-<reason>. Its tools are gone until the teammate restarts.` A tool-level
+<reason>.` The person changing the server list restarts the teammate;
+the notice is for a server that died on its own. A tool-level
 error the server itself answered leaves the rows verified.
 
 A child is handed descriptors and does not report what it loaded, so its

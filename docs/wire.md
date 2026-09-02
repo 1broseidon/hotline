@@ -141,11 +141,13 @@ uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 draft asked for `"machine"`. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
-teammate.
+teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
+`computer`, `backendId` or `harnessOverride` then reattaches the live
+session, so the new tools take effect without waiting for the next start.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
-the patch.
+the patch. A patch that names `mcpServers` reattaches every live session.
 
 `enabledModels` is an object from provider id to an array of model ids
 (bare catalogue keys, so OpenRouter keeps its own slash). A provider

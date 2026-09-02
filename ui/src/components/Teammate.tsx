@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
 	McpPolicy,
+	PeerThreadSummary,
 	Persona,
 	PolicyMode,
 	ScheduledJob,
@@ -10,11 +11,13 @@ import type {
 import { CheckIcon, CloseIcon, RevealIcon, WarningIcon } from "../icons";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
 import { revealPath } from "../native";
+import { firstLine } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
+import type { OpenThread } from "./Thread";
 
 /**
  * One teammate, beside their conversation: the four things the person
@@ -33,12 +36,14 @@ export function Teammate({
 	focusSchedules,
 	onClose,
 	onDeleted,
+	onOpenThread,
 }: {
 	persona: Persona;
 	jobs: ScheduledJob[];
 	focusSchedules: boolean;
 	onClose(): void;
 	onDeleted(): void;
+	onOpenThread(thread: OpenThread): void;
 }) {
 	const servers = useMcpServers();
 	const [name, setName] = useState(persona.name);
@@ -201,6 +206,8 @@ export function Teammate({
 					<ToolLedger personaId={persona.id} servers={servers} />
 
 					<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
+
+					<Threads personaId={persona.id} onOpen={onOpenThread} />
 
 					<section className="border-t border-line pt-4">
 						<h3 className="label">Remove teammate</h3>
@@ -401,4 +408,138 @@ function groupedByOrigin(rows: ToolLedgerRow[]): [string, ToolLedgerRow[]][] {
 		origin,
 		items.slice().sort((a, b) => a.name.localeCompare(b.name)),
 	]);
+}
+
+const THREAD_SEEN_KEY = "toad.threads.seen";
+
+/**
+ * This teammate's side conversations. Unread is lastAt against the latest
+ * the window has shown, the same way the rail counts a tape.
+ */
+function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: OpenThread): void }) {
+	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
+	const [seen, setSeen] = useState(loadThreadSeen);
+
+	useEffect(() => {
+		let cancelled = false;
+		void wire
+			.command("peers.list", { personaId })
+			.then((list) => {
+				if (!cancelled) setThreads(list);
+			})
+			.catch(() => {
+				if (!cancelled) setThreads([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [personaId]);
+
+	useEffect(() => {
+		if (threads === undefined) return;
+		setSeen((current) => {
+			let changed = false;
+			const next = { ...current };
+			for (const thread of threads) {
+				if (next[thread.threadKey] === undefined) {
+					next[thread.threadKey] = thread.lastAt;
+					changed = true;
+				}
+			}
+			if (!changed) return current;
+			saveThreadSeen(next);
+			return next;
+		});
+	}, [threads]);
+
+	if (threads === undefined) return null;
+
+	const open = (thread: PeerThreadSummary) => {
+		setSeen((current) => {
+			const next = { ...current, [thread.threadKey]: thread.lastAt };
+			saveThreadSeen(next);
+			return next;
+		});
+		onOpen({
+			key: thread.threadKey,
+			withName: thread.withName,
+		});
+	};
+
+	return (
+		<section>
+			<h3 className="label">Threads</h3>
+			{threads.length === 0 ? (
+				<p className="hint mt-0">Nothing yet. Threads appear when this teammate talks to another one.</p>
+			) : (
+				<div className="grouped">
+					{threads.map((thread) => {
+						const unread = thread.lastAt > (seen[thread.threadKey] ?? 0);
+						const line = thread.preview
+							? `${thread.preview.fromName}: ${firstLine(thread.preview.text)}`
+							: thread.exchanges === 1
+								? "1 exchange"
+								: `${thread.exchanges} exchanges`;
+						return (
+							<button
+								key={thread.threadKey}
+								type="button"
+								className="group-row group-row-choice w-full text-left"
+								onClick={() => open(thread)}
+							>
+								<span className="group-row-text">
+									<span className="group-row-title">{thread.withName}</span>
+									<span className="group-row-detail">{line}</span>
+								</span>
+								{unread && (
+									<span
+										aria-label="Unread"
+										className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+									/>
+								)}
+								<span className="shrink-0 text-xs text-ink-3">{threadStamp(thread.lastAt)}</span>
+							</button>
+						);
+					})}
+				</div>
+			)}
+		</section>
+	);
+}
+
+function loadThreadSeen(): Record<string, number> {
+	try {
+		const raw = localStorage.getItem(THREAD_SEEN_KEY);
+		if (!raw) return {};
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+		const seen: Record<string, number> = {};
+		for (const [key, ts] of Object.entries(parsed)) {
+			if (typeof ts === "number" && Number.isFinite(ts)) seen[key] = ts;
+		}
+		return seen;
+	} catch {
+		return {};
+	}
+}
+
+function saveThreadSeen(seen: Record<string, number>): void {
+	try {
+		localStorage.setItem(THREAD_SEEN_KEY, JSON.stringify(seen));
+	} catch {
+		// Quota, private mode.
+	}
+}
+
+const threadClock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const threadDay = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+function threadStamp(at: number): string {
+	const when = new Date(at);
+	const today = new Date();
+	const sameDay =
+		when.getFullYear() === today.getFullYear() &&
+		when.getMonth() === today.getMonth() &&
+		when.getDate() === today.getDate();
+	return sameDay ? threadClock.format(when) : threadDay.format(when);
 }

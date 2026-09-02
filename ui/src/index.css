@@ -789,6 +789,14 @@
 		max-width: 100%;
 		color: var(--ink);
 	}
+	/* A peer thread names both sides. The tape with the person does not. */
+	.said-name {
+		margin-bottom: 4px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 500;
+		color: var(--ink-3);
+	}
 	/* While the words are still arriving, the caret sits on the last line. */
 	.said-streaming .md > :last-child {
 		display: inline;
@@ -954,6 +962,13 @@
 	.rule-line-plain::before,
 	.rule-line-plain::after {
 		display: none;
+	}
+	button.rule-line {
+		width: 100%;
+		background: none;
+	}
+	button.rule-line:hover {
+		color: var(--ink-2);
 	}
 
 	/* A row a search just landed on. Lit briefly, then ordinary again. */

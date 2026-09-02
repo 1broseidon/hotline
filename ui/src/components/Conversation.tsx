@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob, SessionState } from "../generated/contract";
+import type { Attachment, ConfigChoice, ScheduledJob, SessionState, TranscriptEvent } from "../generated/contract";
 import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
@@ -10,6 +10,7 @@ import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 import { Composer } from "./Composer";
 import { Search } from "./Search";
+import type { OpenThread } from "./Thread";
 import { Transcript, type ReplyTarget } from "./Transcript";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
@@ -44,6 +45,7 @@ export function Conversation({
 	onCloseSearch,
 	onDelete,
 	onPick,
+	onOpenThread,
 }: {
 	entry: RosterEntry;
 	roster: RosterEntry[];
@@ -58,6 +60,7 @@ export function Conversation({
 	onCloseSearch(): void;
 	onDelete(): void;
 	onPick(personaId: string, eventId: string): void;
+	onOpenThread(thread: OpenThread): void;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -91,6 +94,15 @@ export function Conversation({
 			.catch((error: Error) => setChapterSaid(error.message))
 			.finally(() => setChapterBusy(false));
 	}, [personaId]);
+	const resumeChapter = useCallback(() => {
+		setChapterSaid(null);
+		setChapterBusy(true);
+		void wire
+			.command("chapter.resume", { personaId })
+			.catch((error: Error) => setChapterSaid(error.message))
+			.finally(() => setChapterBusy(false));
+	}, [personaId]);
+	const resumeBlocked = resumeRefusal(events, persona.backendId);
 
 	// Escape clears a quote that is up even when the field is not focused.
 	// Chips are put down first, on the window in capture, so this listener
@@ -118,6 +130,14 @@ export function Conversation({
 
 	const more: MenuEntry[] = [
 		{ kind: "item", id: "chapter", text: "Start a new chapter", detail: "Closes this one with a handoff note", disabled: chapterBusy, onSelect: startChapter },
+		{
+			kind: "item",
+			id: "resume",
+			text: "Reopen previous chapter",
+			detail: resumeBlocked ?? "The chapter immediately before this one",
+			disabled: chapterBusy || resumeBlocked !== null,
+			onSelect: resumeChapter,
+		},
 		{ kind: "item", id: "reveal", text: "Reveal working directory", onSelect: () => void revealPath(persona.cwd) },
 		{ kind: "rule" },
 		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: "⌃I", onSelect: onToggleInspector },
@@ -128,7 +148,13 @@ export function Conversation({
 		{ kind: "item", id: "delete", text: "Remove teammate…", danger: true, onSelect: onDelete },
 	];
 
-	const said = session.error !== undefined && session.error !== "" ? session.error : chapterSaid;
+	const said =
+		session.error !== undefined && session.error !== ""
+			? session.error
+			: (chapterSaid ??
+				(resumeBlocked !== null && resumeBlocked !== "There is no previous chapter to reopen."
+					? resumeBlocked
+					: null));
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
@@ -233,6 +259,12 @@ export function Conversation({
 					live={session.state === "thinking"}
 					focus={focus}
 					onReply={setReplying}
+					onOpenThread={(event) =>
+						onOpenThread({
+							key: event.threadKey,
+							withName: event.withName,
+						})
+					}
 				/>
 				<Composer
 					personaId={personaId}
@@ -250,4 +282,27 @@ export function Conversation({
 			</div>
 		</section>
 	);
+}
+
+/**
+ * What `chapter.resume` would say without asking. The room refuses a
+ * second hop and a missing predecessor; the window greys the item so
+ * the click is not the first they hear of it.
+ */
+function resumeRefusal(events: TranscriptEvent[], backendId: string): string | null {
+	const chapters = events.filter((event): event is Extract<TranscriptEvent, { kind: "chapter" }> => event.kind === "chapter");
+	let openAt = -1;
+	for (let index = chapters.length - 1; index >= 0; index--) {
+		if (chapters[index]!.endedAt === undefined) {
+			openAt = index;
+			break;
+		}
+	}
+	if (openAt <= 0) return "There is no previous chapter to reopen.";
+	const previous = chapters[openAt - 1]!;
+	if (previous.closedBy === "resume") return "There is no previous chapter to reopen.";
+	if (previous.backendId !== backendId) {
+		return "The previous chapter ran on a different agent; its context cannot be reopened here.";
+	}
+	return null;
 }

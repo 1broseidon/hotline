@@ -5,6 +5,7 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail } from "./components/Rail";
 import { Settings, type SettingsSection } from "./components/Settings";
 import { Teammate } from "./components/Teammate";
+import { Thread, type OpenThread } from "./components/Thread";
 import { PlusIcon } from "./icons";
 import { confirmRemove, listenMenu } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
@@ -20,7 +21,8 @@ export function App() {
 	const [roster, setRoster] = useState<RosterEntry[]>([]);
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
+	const [thread, setThread] = useState<OpenThread | null>(null);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	/* The teammate's own pane sits beside the conversation, not in its place:
@@ -95,7 +97,15 @@ export function App() {
 	useEffect(() => {
 		setSearchOpen(false);
 		setFocusSchedules(false);
+		setThread(null);
+		saveSelected(selectedId);
 	}, [selectedId]);
+
+	useEffect(() => {
+		if (selectedId !== null && roster.length > 0 && !roster.some((one) => one.persona.id === selectedId)) {
+			setSelectedId(null);
+		}
+	}, [roster, selectedId]);
 
 	const select = useCallback((personaId: string) => {
 		setSelectedId(personaId);
@@ -114,11 +124,18 @@ export function App() {
 			if (selectedId === null) return;
 			setPane(null);
 			setSearchOpen(false);
+			setThread(null);
 			setFocusSchedules(schedules);
 			setInspector((open) => schedules || !open);
 		},
 		[selectedId],
 	);
+	const openThread = useCallback((next: OpenThread) => {
+		setPane(null);
+		setSearchOpen(false);
+		setInspector(false);
+		setThread(next);
+	}, []);
 
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string) => {
@@ -128,6 +145,7 @@ export function App() {
 				if (selectedId === personaId) {
 					setSelectedId(null);
 					setInspector(false);
+					setThread(null);
 				}
 			} catch {
 				// The inspector's own type-to-confirm is still there if this fails.
@@ -147,6 +165,11 @@ export function App() {
 				if (pane !== null) {
 					event.preventDefault();
 					setPane(null);
+					return;
+				}
+				if (thread !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
+					event.preventDefault();
+					setThread(null);
 					return;
 				}
 				if (inspector && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
@@ -189,7 +212,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, searchOpen, select, toggleNew, toggleSettings, toggleInspector]);
+	}, [roster, selectedId, pane, inspector, thread, searchOpen, select, toggleNew, toggleSettings, toggleInspector]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -281,19 +304,31 @@ export function App() {
 								setSelectedId(personaId);
 								setFocus({ eventId, at: Date.now() });
 							}}
+							onOpenThread={openThread}
 						/>
-						{inspector && (
-							<Teammate
-								key={`inspector-${selected.persona.id}`}
-								persona={selected.persona}
-								jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
-								focusSchedules={focusSchedules}
-								onClose={() => setInspector(false)}
-								onDeleted={() => {
-									setSelectedId(null);
-									setInspector(false);
-								}}
+						{thread !== null ? (
+							<Thread
+								key={`thread-${thread.key}`}
+								open={thread}
+								selfId={selected.persona.id}
+								selfName={selected.persona.name}
+								onClose={() => setThread(null)}
 							/>
+						) : (
+							inspector && (
+								<Teammate
+									key={`inspector-${selected.persona.id}`}
+									persona={selected.persona}
+									jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
+									focusSchedules={focusSchedules}
+									onClose={() => setInspector(false)}
+									onDeleted={() => {
+										setSelectedId(null);
+										setInspector(false);
+									}}
+									onOpenThread={openThread}
+								/>
+							)
 						)}
 					</>
 				) : (
@@ -329,6 +364,28 @@ function takeChord(): boolean {
 	if (now - lastChordAt < 120) return false;
 	lastChordAt = now;
 	return true;
+}
+
+/** The open teammate survives a reload, which is what makes the tape
+ * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
+const SELECTED_KEY = "toad.rail.selected";
+
+function loadSelected(): string | null {
+	try {
+		const id = localStorage.getItem(SELECTED_KEY);
+		return id !== null && id !== "" ? id : null;
+	} catch {
+		return null;
+	}
+}
+
+function saveSelected(id: string | null): void {
+	try {
+		if (id === null) localStorage.removeItem(SELECTED_KEY);
+		else localStorage.setItem(SELECTED_KEY, id);
+	} catch {
+		// Quota, private mode.
+	}
 }
 
 /** Where this window last stood in each tape. Private mode or a full disk

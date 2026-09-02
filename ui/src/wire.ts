@@ -190,6 +190,12 @@ class Wire {
 	 * Watches a target until the returned function is called. The snapshot is
 	 * delivered again after a reconnect, so a handler must be able to replace
 	 * what it holds rather than add to it.
+	 *
+	 * send() is a no-op while the socket is still connecting. Callers that
+	 * subscribe from a mount effect (a restored teammate, a thread pane)
+	 * must wait for `open` — see watchWhenOpen in tape.ts — because a
+	 * subscribe that lands in `live` and is then cleaned up before onopen
+	 * is never asked for again.
 	 */
 	subscribe<Item, Ephemeral = never>(
 		target: Target,

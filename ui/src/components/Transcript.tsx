@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type {
 	HumanActionStatus,
+	HumanAnswer,
 	PermissionOption,
 	PlanEntry,
 	ToolOutput,
@@ -20,6 +21,9 @@ const PIN_SLACK = 80;
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
 export type ReplyTarget = { eventId: string; text: string };
+
+/** Whose chair we are in, for a peer thread: this teammate is `mine`. */
+export type Speakers = { me: string; them: string; mine: "user" | "agent" };
 
 type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" }>;
 
@@ -53,7 +57,9 @@ export function Transcript({
 	streaming,
 	live,
 	focus,
+	speakers,
 	onReply,
+	onOpenThread,
 }: {
 	personaId: string;
 	name: string;
@@ -63,7 +69,10 @@ export function Transcript({
 	live: boolean;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
-	onReply(target: ReplyTarget): void;
+	/** A peer thread names both sides; the tape with the person does not. */
+	speakers?: Speakers;
+	onReply?(target: ReplyTarget): void;
+	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	/* Following the conversation is the default and stays true until you
@@ -143,7 +152,15 @@ export function Transcript({
 									live={live && index === blocks.length - 1 && streamingSay === undefined}
 								/>
 							) : (
-								<Row personaId={personaId} event={block.event} said={said} onReply={onReply} onJump={(eventId) => setJumped({ eventId, at: Date.now() })} />
+								<Row
+									personaId={personaId}
+									event={block.event}
+									said={said}
+									speakers={speakers}
+									{...(onReply !== undefined ? { onReply } : {})}
+									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+									onJump={(eventId) => setJumped({ eventId, at: Date.now() })}
+								/>
 							)}
 						</div>
 					);
@@ -243,25 +260,35 @@ function Row({
 	personaId,
 	event,
 	said,
+	speakers,
 	onReply,
+	onOpenThread,
 	onJump,
 }: {
 	personaId: string;
 	event: Exclude<TranscriptEvent, Step>;
 	said: Map<string, string>;
-	onReply(target: ReplyTarget): void;
+	speakers: Speakers | undefined;
+	onReply?(target: ReplyTarget): void;
+	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
 	onJump(eventId: string): void;
 }) {
 	switch (event.kind) {
 		case "user":
 			return event.scheduled !== undefined ? (
 				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
+			) : speakers !== undefined ? (
+				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
 				<UserBubble event={event} said={said} onJump={onJump} />
 			);
 
 		case "agent":
-			return <AgentSay event={event} onReply={onReply} />;
+			return speakers !== undefined ? (
+				<NamedSay name={speakers.mine === "agent" ? speakers.me : speakers.them} mine={speakers.mine === "agent"} text={event.text} />
+			) : (
+				<AgentSay event={event} {...(onReply !== undefined ? { onReply } : {})} />
+			);
 
 		/* Where the turn stopped. Drawn only when it says something the last
 		 * message did not: a count, or a stop that was not the agent's choice. */
@@ -309,20 +336,20 @@ function Row({
 			return <Plan entries={event.entries} />;
 
 		case "human_action":
-			return <HumanAction reason={event.reason} status={event.status} />;
+			return <HumanAction personaId={personaId} event={event} />;
 
-		/* One quiet line, the way a chapter is a date: the name, the role,
-		 * how many turns, and whether it is still open. */
+		/* One quiet line, the way a chapter is a date. Pressing it opens
+		 * the thread in the inspector's place. */
 		case "peer":
 			return (
-				<p className="rule-line rule-line-plain">
+				<button type="button" className="rule-line rule-line-plain w-full" onClick={() => onOpenThread?.(event)}>
 					{[
 						`With ${event.seat === "client" ? `${event.withName} (outside the room)` : event.withName}`,
 						event.role,
 						event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`,
 						event.status,
 					].join(" · ")}
-				</p>
+				</button>
 			);
 
 		case "computer_frame":
@@ -390,15 +417,16 @@ function AgentSay({
 	onReply,
 }: {
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
-	onReply(target: ReplyTarget): void;
+	onReply?(target: ReplyTarget): void;
 }) {
-	const reply = () => onReply({ eventId: event.id, text: firstLine(event.text) });
+	const reply = () => onReply?.({ eventId: event.id, text: firstLine(event.text) });
 	return (
 		<div className="said-group relative mt-3">
 			<div
 				className="speech said-them rounded-md"
-				tabIndex={0}
+				tabIndex={onReply === undefined ? undefined : 0}
 				onKeyDown={(key) => {
+					if (onReply === undefined) return;
 					if (key.repeat) return;
 					if (key.ctrlKey || key.altKey || key.metaKey) return;
 					if (key.key !== "r" && key.key !== "R") return;
@@ -408,16 +436,18 @@ function AgentSay({
 			>
 				<Markdown text={event.text} />
 			</div>
-			<button
-				type="button"
-				className="reply-affordance control btn btn-sm gap-1"
-				tabIndex={-1}
-				title="Reply (R)"
-				onClick={reply}
-			>
-				<ReplyIcon />
-				Reply
-			</button>
+			{onReply !== undefined && (
+				<button
+					type="button"
+					className="reply-affordance control btn btn-sm gap-1"
+					tabIndex={-1}
+					title="Reply (R)"
+					onClick={reply}
+				>
+					<ReplyIcon />
+					Reply
+				</button>
+			)}
 		</div>
 	);
 }
@@ -429,6 +459,26 @@ function AgentSay({
  * bar above already shows the original. Files that rode with the line sit
  * under the words, named from the event, with the path on hover.
  */
+/** A named line in a peer thread: this teammate on the right, the other on the left. */
+function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: string }) {
+	if (mine) {
+		return (
+			<div className="mt-3 flex flex-col items-end">
+				<p className="said-name">{name}</p>
+				<div className="speech said-me">{text}</div>
+			</div>
+		);
+	}
+	return (
+		<div className="said-group relative mt-3">
+			<p className="said-name">{name}</p>
+			<div className="speech said-them">
+				<Markdown text={text} />
+			</div>
+		</div>
+	);
+}
+
 function UserBubble({
 	event,
 	said,
@@ -668,12 +718,87 @@ function PlanMark({ status }: { status: string }) {
 	);
 }
 
-/** The agent asked for hands it does not have. Status is the whole afterlife. */
-function HumanAction({ reason, status }: { reason: string; status: HumanActionStatus }) {
+const AFTERLIFE: Record<HumanActionStatus, string> = {
+	pending: "Needs you",
+	done: "Done",
+	dismissed: "Declined",
+	expired: "Expired",
+};
+
+/**
+ * The agent asked for hands it does not have. A pending card is answered
+ * here; a decided one is the outcome on the tape. Decline asks for a
+ * one-line note in place — the wire has no field for it, so the note
+ * stays on the screen and `human.answer` goes out as declined alone.
+ */
+function HumanAction({
+	personaId,
+	event,
+}: {
+	personaId: string;
+	event: Extract<TranscriptEvent, { kind: "human_action" }>;
+}) {
+	const [answering, setAnswering] = useState(false);
+	const [declining, setDeclining] = useState(false);
+	const [note, setNote] = useState("");
+
+	const answer = (status: HumanAnswer) => {
+		if (answering || event.status !== "pending") return;
+		setAnswering(true);
+		void wire
+			.command("human.answer", { personaId, actionId: event.actionId, status })
+			.catch(() => setAnswering(false));
+	};
+
+	if (event.status !== "pending") {
+		return (
+			<div className="card mt-3">
+				<p className="eyebrow mb-1">Needed you · {AFTERLIFE[event.status]}</p>
+				<p className="selectable text-ink-2">{event.reason}</p>
+			</div>
+		);
+	}
+
 	return (
-		<div className={`card mt-3 ${status === "pending" ? "card-live" : ""}`}>
-			<p className="eyebrow mb-1">{status === "pending" ? "Needs you" : `Needed you · ${status}`}</p>
-			<p className="selectable">{reason}</p>
+		<div className="card card-live mt-3">
+			<p className="eyebrow mb-1">Needs you</p>
+			<p className="selectable">{event.reason}</p>
+			{declining ? (
+				<form
+					className="mt-2.5 flex items-center gap-1.5"
+					onSubmit={(submit) => {
+						submit.preventDefault();
+						answer("declined");
+					}}
+				>
+					<input
+						className="field min-w-0 flex-1"
+						aria-label="A note for the decline"
+						placeholder="A one-line note"
+						autoComplete="off"
+						autoFocus
+						value={note}
+						onChange={(change) => setNote(change.target.value)}
+						onKeyDown={(key) => {
+							if (key.key !== "Escape") return;
+							key.preventDefault();
+							setDeclining(false);
+						}}
+					/>
+					<button type="submit" disabled={answering} className="control btn btn-sm">
+						Decline
+					</button>
+				</form>
+			) : (
+				<div className="card-actions">
+					<button type="button" disabled={answering} className="control btn-primary" onClick={() => answer("done")}>
+						Done
+					</button>
+					<button type="button" disabled={answering} className="control btn" onClick={() => setDeclining(true)}>
+						Decline
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }

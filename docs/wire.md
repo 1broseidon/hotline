@@ -96,7 +96,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none |
-| `human.answer` | `{personaId, actionId, status: "done"|"declined"}` | none |
+| `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |

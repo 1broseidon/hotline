@@ -37,6 +37,16 @@ export type ChapterStatus = "in-progress" | "done";
  */
 export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, title?: string, note?: string, status?: ChapterStatus, messages: number, };
 
+/**
+ * Everything a client may ask the room to do or to answer.
+ *
+ * One enum, so the window's whole API is generated from it and a command the
+ * core does not know is a parse failure rather than a silent no-op. The names
+ * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
+ * content of this enum, with the id beside them.
+ */
+export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "models.list" } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } };
+
 export type ConfigChoice = { id: string, name: string, description?: string, 
 /**
  * Picker section header — the provider serving this choice, with its
@@ -47,35 +57,21 @@ export type ConfigChoice = { id: string, name: string, description?: string,
 group?: string, };
 
 /**
- * A provider credential, as the room knows one: everything except the secret.
- *
- * The secret is never an event. It lives in the vault — a `0600` file in a
- * `0700` directory on this machine — and the room stream carries only this,
- * so a stream can be read, copied or shipped without a key going with it.
- * A `credential` event is these fields under that `kind`; a deletion is the
- * same id with `deleted: true` and nothing else.
+ * One provider credential as the room remembers it. Never the secret: the
+ * secret lives in the vault, and this is the fact that it exists, which is
+ * the part that is safe on a wire, in a log line and in a roster of keys.
  */
 export type Credential = { id: string, providerId: string, 
 /**
- * The event's own `kind` names the event, so a credential's kind is
- * spelled differently here: two fields called `kind` would be one field.
+ * What it authenticates with — `api_key` is the only kind so far.
+ * Spelled `credentialKind` because the event carrying this on the room
+ * stream already spends `kind` on saying it is a credential.
  */
-credentialKind: CredentialKind, 
+credentialKind: string, 
 /**
- * What the user called it, so a list of keys is a list they recognise.
+ * What the operator calls it. Defaults to the provider id.
  */
-label: string, 
-/**
- * Revoked. Set once and never unset — revocation is a fact, not a toggle.
- */
-revoked: boolean, createdAt: number, updatedAt: number, };
-
-/**
- * What a credential's secret is. One word today, because every provider Toad
- * talks to takes an API key; the subscription logins that do not are a later
- * phase, and they arrive as a second word here.
- */
-export type CredentialKind = "api_key";
+label: string, revoked: boolean, createdAt: number, updatedAt: number, };
 
 /**
  * A teammate's face: the activity mark, wearing something it chose.
@@ -321,6 +317,19 @@ export type Receipt = "sent" | "read";
 export type RingIntent = "attention" | "warning" | "problem";
 
 /**
+ * One row of the roster view: who the teammate is, the last thing either
+ * side said, and what its session is doing.
+ *
+ * Three sources — the room stream, the tape's tail, the live session — that
+ * the window would otherwise have to join for itself on every change.
+ */
+export type RosterEntry = { persona: Persona, 
+/**
+ * Absent for a teammate that has never spoken.
+ */
+preview?: Preview, session: SessionInfo, };
+
+/**
  * `schedule` is once. `loop` is every interval until cancelled.
  */
 export type ScheduleKind = "schedule" | "loop";
@@ -398,6 +407,16 @@ modelId?: string, };
 export type SubagentSpec = { id: string, name: string, description: string, prompt?: string, modelId?: string, };
 
 /**
+ * What a subscription is a subscription to: a stream, or a view the core
+ * maintains and nobody logs.
+ *
+ * Externally tagged, so a stream reads as the word or the pair naming it —
+ * `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"view":
+ * "roster"}` — which is the shape the window would have written by hand.
+ */
+export type Target = "room" | { "tape": string } | { "thread": string } | { "view": ViewName };
+
+/**
  * One hit from a thread search: a chapter by its note, or a message by its
  * text.
  */
@@ -468,6 +487,11 @@ resumedFrom?: string, };
  * not in what is on the wire.
  */
 export type TranscriptPush = { personaId: string, event: TranscriptEvent, };
+
+/**
+ * The views the core maintains. One so far.
+ */
+export type ViewName = "roster";
 
 /**
  * Which of the desk's web search a teammate gets — the same

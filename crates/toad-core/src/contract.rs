@@ -17,6 +17,7 @@
 //! types and back out again.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use ts_rs::TS;
 
 // ---------------------------------------------------------------------------
@@ -1037,6 +1038,146 @@ pub enum StreamDelta {
         message_id: String,
         text: String,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Provider credentials
+// ---------------------------------------------------------------------------
+
+/// One provider credential as the room remembers it. Never the secret: the
+/// secret lives in the vault, and this is the fact that it exists, which is
+/// the part that is safe on a wire, in a log line and in a roster of keys.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Credential {
+    pub id: String,
+    pub provider_id: String,
+    /// What it authenticates with — `api_key` is the only kind so far.
+    /// Spelled `credentialKind` because the event carrying this on the room
+    /// stream already spends `kind` on saying it is a credential.
+    pub credential_kind: String,
+    /// What the operator calls it. Defaults to the provider id.
+    pub label: String,
+    pub revoked: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+// ---------------------------------------------------------------------------
+// The wire
+// ---------------------------------------------------------------------------
+
+/// Everything a client may ask the room to do or to answer.
+///
+/// One enum, so the window's whole API is generated from it and a command the
+/// core does not know is a parse failure rather than a silent no-op. The names
+/// are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
+/// content of this enum, with the id beside them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "cmd",
+    content = "params",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub enum Command {
+    #[serde(rename = "persona.create")]
+    PersonaCreate { draft: PersonaDraft },
+    /// The patch is folded over the teammate's record and the whole record is
+    /// written again, because a stream folds by id and a partial line would
+    /// leave the fold holding half a teammate.
+    #[serde(rename = "persona.update")]
+    PersonaUpdate {
+        id: String,
+        #[ts(type = "Partial<Persona>")]
+        patch: Value,
+    },
+    #[serde(rename = "persona.delete")]
+    PersonaDelete { id: String },
+    /// One key at a time, `null` clearing a key back to its default.
+    #[serde(rename = "settings.update")]
+    SettingsUpdate {
+        #[ts(type = "Record<string, unknown>")]
+        patch: Map<String, Value>,
+    },
+    #[serde(rename = "credential.create")]
+    CredentialCreate {
+        provider_id: String,
+        label: String,
+        secret: String,
+    },
+    #[serde(rename = "credential.revoke")]
+    CredentialRevoke { id: String },
+    #[serde(rename = "credential.delete")]
+    CredentialDelete { id: String },
+    /// Every model the desk's keys can reach, grouped by provider.
+    #[serde(rename = "models.list")]
+    ModelsList,
+    #[serde(rename = "session.start")]
+    SessionStart { persona_id: String },
+    #[serde(rename = "session.stop")]
+    SessionStop { persona_id: String },
+    #[serde(rename = "session.prompt")]
+    SessionPrompt { persona_id: String, text: String },
+    #[serde(rename = "session.cancel")]
+    SessionCancel { persona_id: String },
+    #[serde(rename = "session.set_model")]
+    SessionSetModel {
+        persona_id: String,
+        model_id: String,
+    },
+    #[serde(rename = "search.thread")]
+    SearchThread {
+        persona_id: String,
+        query: String,
+        limit: Option<i64>,
+    },
+    #[serde(rename = "search.all")]
+    SearchAll { query: String, limit: Option<i64> },
+    #[serde(rename = "chapter.list")]
+    ChapterList { persona_id: String },
+}
+
+/// What a subscription is a subscription to: a stream, or a view the core
+/// maintains and nobody logs.
+///
+/// Externally tagged, so a stream reads as the word or the pair naming it —
+/// `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"view":
+/// "roster"}` — which is the shape the window would have written by hand.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum Target {
+    Room,
+    Tape(String),
+    Thread(String),
+    View(ViewName),
+}
+
+/// The views the core maintains. One so far.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ViewName {
+    Roster,
+}
+
+/// One row of the roster view: who the teammate is, the last thing either
+/// side said, and what its session is doing.
+///
+/// Three sources — the room stream, the tape's tail, the live session — that
+/// the window would otherwise have to join for itself on every change.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct RosterEntry {
+    pub persona: Persona,
+    /// Absent for a teammate that has never spoken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<Preview>,
+    pub session: SessionInfo,
 }
 
 #[cfg(test)]

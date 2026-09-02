@@ -90,6 +90,14 @@ pub trait RoomHandle: Send + Sync + 'static {
         option_id: &str,
     ) -> Result<(), String>;
 
+    /// Answers a `request_human` card, refusing when nothing is waiting.
+    fn answer_human(
+        &self,
+        persona_id: &str,
+        action_id: &str,
+        status: crate::contract::HumanAnswer,
+    ) -> Result<(), String>;
+
     /// Closes the teammate's open chapter, answering with what it became.
     async fn start_fresh_chapter(
         &self,

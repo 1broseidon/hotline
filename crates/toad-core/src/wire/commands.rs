@@ -75,6 +75,13 @@ pub(crate) async fn run(
         } => room
             .answer_permission(&persona_id, &request_id, &option_id)
             .map(|()| Value::Null),
+        Command::HumanAnswer {
+            persona_id,
+            action_id,
+            status,
+        } => room
+            .answer_human(&persona_id, &action_id, status)
+            .map(|()| Value::Null),
 
         Command::SearchThread {
             persona_id,

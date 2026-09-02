@@ -97,6 +97,15 @@ impl RoomHandle for Desk {
             .answer_permission(persona_id, request_id, option_id)
     }
 
+    fn answer_human(
+        &self,
+        persona_id: &str,
+        action_id: &str,
+        status: crate::contract::HumanAnswer,
+    ) -> Result<(), String> {
+        self.room.answer_human(persona_id, action_id, status)
+    }
+
     fn info(&self, persona_id: &str) -> SessionInfo {
         self.room.info(persona_id)
     }

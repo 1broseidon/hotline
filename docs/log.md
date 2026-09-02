@@ -176,11 +176,13 @@ The clock that fires these is [sessions.md](sessions.md).
 
 Opening the room folds every living teammate's tape before anything is
 served from it. A permission card left open by the last process is a
-button nobody is behind, so it is superseded with `decision: "expired"`
-and the tape compacted; then the search index is synced, because the fold
-just rewrote files and a tape written by the importer or the previous Toad
-has never been indexed here at all. The idle chapter sweep and the
-scheduler's clock start on the same open; those are [sessions.md](sessions.md).
+button nobody is behind, so it is superseded with `decision: "expired"`;
+a `human_action` card still `pending` is the same fact and is superseded
+with `status: "expired"`. Then the tape is compacted and the search index
+is synced, because the fold just rewrote files and a tape written by the
+importer or the previous Toad has never been indexed here at all. The idle
+chapter sweep and the scheduler's clock start on the same open; those are
+[sessions.md](sessions.md).
 
 ## The vault
 

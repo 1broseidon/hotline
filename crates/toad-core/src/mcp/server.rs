@@ -1,10 +1,11 @@
 //! Toad's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Five tools — three over its own conversation, two over the room's other
-//! teammates — and one instance of them per teammate session. They are the
-//! room's, not the agent's: the tape they read is Toad's record of a
-//! conversation that has been going on far longer than any one context, and
-//! the teammate they message is a colleague with a conversation of its own.
+//! Six tools — three over its own conversation, one that asks the person,
+//! two over the room's other teammates — and one instance of them per
+//! teammate session. They are the room's, not the agent's: the tape they
+//! read is Toad's record of a conversation that has been going on far
+//! longer than any one context, and the teammate they message is a
+//! colleague with a conversation of its own.
 //!
 //! There are two ways to reach them, because there are two kinds of agent:
 //!
@@ -49,14 +50,16 @@ const PATH: &str = "/mcp";
 const SEARCH_THREAD: &str = "search_thread";
 const LIST_CHAPTERS: &str = "list_chapters";
 const NEW_CHAPTER: &str = "new_chapter";
+const REQUEST_HUMAN: &str = "request_human";
 const LIST_TEAMMATES: &str = "list_teammates";
 const MESSAGE_TEAMMATE: &str = "message_teammate";
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 5] = [
+pub const TOOL_NAMES: [&str; 6] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     NEW_CHAPTER,
+    REQUEST_HUMAN,
     LIST_TEAMMATES,
     MESSAGE_TEAMMATE,
 ];
@@ -74,7 +77,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA — and waits for them to do it. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -113,6 +116,23 @@ fn descriptors() -> Vec<Tool> {
             NEW_CHAPTER,
             "Close the current chapter so the user's next message starts with a fresh context. Use it when the subject has clearly changed and the work so far would only get in the way. A handoff note is written for the chapter that closes; you stay in your current context until the next message arrives, so finish your reply normally.",
             schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
+        ),
+        Tool::new(
+            REQUEST_HUMAN,
+            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA. A card appears in your conversation. This call waits until they do it, they decline, or ten minutes pass. Set the stage first and say in `reason` exactly what to do.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 500,
+                        "description": "What the person should do, precisely, e.g. 'Enter the GitHub 2FA code on screen'",
+                    },
+                },
+                "required": ["reason"],
+                "additionalProperties": false,
+            })),
         ),
         Tool::new(
             LIST_TEAMMATES,
@@ -220,6 +240,18 @@ impl TeammateTools {
                     .ok_or_else(|| "message_teammate needs a `message` to deliver.".to_string())?;
                 let answered = room.deliver(&self.persona_id, to, message).await?;
                 Ok(json!({ "from": answered.from, "reply": answered.reply }).to_string())
+            }
+            REQUEST_HUMAN => {
+                let reason = arguments
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|reason| reason.len() >= 3)
+                    .ok_or_else(|| {
+                        "request_human needs a `reason` of at least three characters.".to_string()
+                    })?;
+                room.request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
+                    .await
             }
             other => Err(format!("This room has no tool called '{other}'.")),
         }

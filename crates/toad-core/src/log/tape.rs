@@ -382,6 +382,45 @@ mod tests {
         assert!(expire_orphaned_permissions(&events, 3000).is_empty());
     }
 
+    #[test]
+    fn the_startup_fold_expires_a_pending_human_action() {
+        let (_root, log) = scratch("human-startup");
+        log.append(
+            &stream("p"),
+            &json!({
+                "kind": "human_action",
+                "id": "human:h1",
+                "ts": 1000,
+                "actionId": "h1",
+                "reason": "log in",
+                "status": "pending",
+            }),
+        )
+        .unwrap();
+        log.append(
+            &stream("p"),
+            &json!({
+                "kind": "human_action",
+                "id": "human:h2",
+                "ts": 1001,
+                "actionId": "h2",
+                "reason": "already done",
+                "status": "done",
+            }),
+        )
+        .unwrap();
+
+        for expired in expire_orphaned_permissions(&log.load(&stream("p")), 2000) {
+            log.append(&stream("p"), &expired).unwrap();
+        }
+        let events = log.load(&stream("p"));
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0]["status"], "expired");
+        assert_eq!(events[0]["ts"], 2000);
+        assert_eq!(events[1]["status"], "done");
+        assert!(expire_orphaned_permissions(&events, 3000).is_empty());
+    }
+
     /// The bytes below came out of the previous Toad's own writer. Produced by
     /// running, against a throwaway `TOAD_DATA_DIR`, a script that calls
     /// `src/bun/store/transcript.ts`'s `append` with these five events, then

@@ -29,7 +29,7 @@ answered exactly once with success, or with an error:
 ```
 
 A command whose result is JSON `null` — delete, stop, prompt, cancel,
-revoke, `session.answer_permission`, `schedule.cancel`,
+revoke, `session.answer_permission`, `human.answer`, `schedule.cancel`,
 `schedule.set_quiet`, and a successful unsubscribe — is answered
 `{"id": n, "ok": true}` with no `result` field. Absent `params` and
 `"params": {}` are the same thing.
@@ -89,6 +89,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none |
+| `human.answer` | `{personaId, actionId, status: "done"|"declined"}` | none |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -110,6 +111,12 @@ sentence naming what is missing when it cannot.
 `session.answer_permission` is refused when nothing is waiting behind that
 request any more — the turn ended, the session stopped, or somebody else
 answered first — so a stale card cannot silently let an agent through.
+
+`human.answer` is the same fact for a `request_human` card: `done` or
+`declined`, refused when the deadline passed, the session stopped, the
+room restarted, or somebody else answered first. The tape still writes
+`dismissed` for a decline, which is the previous Toad's word for that
+afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
 modelId?, computer?}`. Create fills what the draft leaves blank: a fresh

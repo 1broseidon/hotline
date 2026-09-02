@@ -14,7 +14,7 @@
 //! servers are refused with a sentence saying why, not connected with a
 //! dead credential.
 //!
-//! Toad's own three teammate tools are the other half of MCP, and they live
+//! Toad's own teammate tools are the other half of MCP, and they live
 //! in [`server`].
 
 pub mod server;

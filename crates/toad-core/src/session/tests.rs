@@ -7,8 +7,8 @@
 
 use super::*;
 use crate::contract::{
-    AttachmentKind, ChapterStatus, McpPolicy, PermissionOption, PolicyMode, ScheduledJob,
-    SessionCheckpoint,
+    AttachmentKind, ChapterStatus, HumanAnswer, McpPolicy, PermissionOption, PolicyMode,
+    ScheduledJob, SessionCheckpoint,
 };
 use crate::driver::DriverInfo;
 use async_trait::async_trait;
@@ -569,6 +569,10 @@ fn the_preamble_says_who_where_how_far_and_when() {
     let child = preamble(&ada, None, None);
     assert!(child.contains("Your working directory is /tmp/harbour."));
     assert!(!child.contains("reach"));
+    assert!(
+        walled.contains("`request_human`"),
+        "the preamble names the tool that asks the person: {walled}"
+    );
 }
 
 /// A teammate naming a backend no agent on this machine answers to is told
@@ -1506,4 +1510,123 @@ fn checkpoints(room: &Room, persona_id: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// A pending `human_action` card's action id, once it has landed.
+async fn pending_human(room: &Room, persona_id: &str) -> String {
+    for _ in 0..200 {
+        if let Some(id) = tape(room, persona_id).into_iter().find_map(|event| {
+            (event["kind"] == "human_action" && event["status"] == "pending")
+                .then(|| event["actionId"].as_str().map(str::to_string))
+                .flatten()
+        }) {
+            return id;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("no pending human_action landed");
+}
+
+/// The agent asked the person; the answer flips the same card and unblocks
+/// the tool with the sentence the agent reads.
+#[tokio::test]
+async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
+    let room = room("human-done", Fake::new(Scripted::new(vec![])));
+    let tools = TeammateTools::new(&room, "ada");
+    let waiting = {
+        let tools = tools.clone();
+        tokio::spawn(async move {
+            tools
+                .call("request_human", &json!({ "reason": "Tap the 2FA prompt" }))
+                .await
+        })
+    };
+    let action_id = pending_human(&room, "ada").await;
+    room.answer_human("ada", &action_id, HumanAnswer::Done)
+        .unwrap();
+    let text = waiting.await.unwrap().unwrap();
+    assert_eq!(text, "The person did it.");
+
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .expect("the card is on the tape");
+    assert_eq!(card["id"], format!("human:{action_id}"));
+    assert_eq!(card["status"], "done");
+    assert_eq!(card["reason"], "Tap the 2FA prompt");
+    assert!(
+        room.answer_human("ada", &action_id, HumanAnswer::Declined)
+            .is_err()
+    );
+}
+
+/// Declined keeps the reason in the sentence, so the agent knows what
+/// the person would not do.
+#[tokio::test]
+async fn a_declined_human_request_carries_the_note() {
+    let room = room("human-declined", Fake::new(Scripted::new(vec![])));
+    let tools = TeammateTools::new(&room, "ada");
+    let waiting = {
+        let tools = tools.clone();
+        tokio::spawn(async move {
+            tools
+                .call(
+                    "request_human",
+                    &json!({ "reason": "Enter the vault password" }),
+                )
+                .await
+        })
+    };
+    let action_id = pending_human(&room, "ada").await;
+    room.answer_human("ada", &action_id, HumanAnswer::Declined)
+        .unwrap();
+    let text = waiting.await.unwrap().unwrap();
+    assert_eq!(text, "The person declined: Enter the vault password");
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .expect("the card is on the tape");
+    assert_eq!(card["status"], "dismissed");
+}
+
+/// The deadline is injectable so a test does not sit for ten minutes.
+#[tokio::test]
+async fn a_human_request_expires_when_nobody_answers() {
+    let room = room("human-timeout", Fake::new(Scripted::new(vec![])));
+    let text = room
+        .request_human("ada", "Tap 2FA", Duration::from_millis(20))
+        .await
+        .unwrap();
+    assert_eq!(text, "Nobody answered in ten minutes.");
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .expect("the card is on the tape");
+    assert_eq!(card["status"], "expired");
+}
+
+/// A card left pending when the process died is a button nobody is behind.
+#[tokio::test]
+async fn a_human_action_left_pending_expires_when_the_room_opens() {
+    let log = scratch("human-stale");
+    enrol(&log, &persona("ada"));
+    log.append(
+        &StreamId::Tape("ada".into()),
+        &json!({
+            "kind": "human_action",
+            "id": "human:stale",
+            "ts": 1000,
+            "actionId": "stale",
+            "reason": "log in",
+            "status": "pending",
+        }),
+    )
+    .unwrap();
+    let room = Room::with_agents(log, Arc::new(DeskKeys), Fake::new(Scripted::new(vec![])));
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .expect("the card is still on the tape");
+    assert_eq!(card["status"], "expired");
+    assert_eq!(card["id"], "human:stale");
 }

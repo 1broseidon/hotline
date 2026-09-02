@@ -948,6 +948,19 @@ pub enum HumanActionStatus {
     Expired,
 }
 
+/// What the person can say to a waiting `request_human` card.
+///
+/// The tape still writes `done` or `dismissed` — `declined` is this
+/// command's word for the afterlife the previous Toad called dismissed, so
+/// an imported tape still reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum HumanAnswer {
+    Done,
+    Declined,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -1299,6 +1312,15 @@ pub enum Command {
         persona_id: String,
         request_id: String,
         option_id: String,
+    },
+    /// Answers a card the agent posted with `request_human`. Refused when
+    /// nothing is waiting any more — the deadline passed, the session
+    /// stopped, the room restarted, or somebody else answered first.
+    #[serde(rename = "human.answer")]
+    HumanAnswer {
+        persona_id: String,
+        action_id: String,
+        status: HumanAnswer,
     },
     #[serde(rename = "search.thread")]
     SearchThread {

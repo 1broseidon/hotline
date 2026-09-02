@@ -79,7 +79,7 @@ session says which with every prompt.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, today's date, and how to use Toad's
-own three tools. When it is joining a conversation that already has chapters
+own tools. When it is joining a conversation that already has chapters
 behind it, the [wake block](#the-wake-block) follows. It is seeded with what
 was said in the chapter it is joining — user and agent lines only; tool
 calls are the agent's own working memory of a turn, not the conversation.
@@ -89,7 +89,7 @@ On each turn it is given:
 | kind | what | how |
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit`, `shell` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
-| Toad's own tools | `search_thread`, `list_chapters`, `new_chapter` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Toad's own tools | `search_thread`, `list_chapters`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{serverId}__{tool}` |
 
 A result larger than 256 KiB is kept in full under
@@ -123,7 +123,7 @@ elsewhere:
   restarted backend hears them again; a second prompt on the same
   connection does not.
 
-Toad's own three tools cannot be a function call into another process. The
+Toad's own tools cannot be a function call into another process. The
 same handler Toad Agent calls directly is served over streamable HTTP on a
 loopback port (`mcp/server.rs`), behind a bearer token only that child is
 given, at a path of `/mcp`. The port is the operating system's choice and
@@ -159,6 +159,19 @@ the tape compacted. When a turn or a session ends, the same expiry is
 written so the transcript does not draw a button nobody is behind. A
 person who does not answer within ten minutes is the same fact: the agent
 is told the request was cancelled.
+
+## Asking the person
+
+`request_human` is one of Toad's own tools, on both agent kinds. The agent
+says what it cannot do — credentials, a tap, a CAPTCHA — and the call
+waits. A `human_action` event lands on the tape, id `human:<actionId>`,
+status `pending`. The room holds a oneshot by that id. `human.answer`
+resolves it with `done` or `declined` and supersedes the card; declined
+is written as `dismissed`, the previous Toad's word for that afterlife.
+The tool returns a sentence: "The person did it.", "The person declined:
+…", or "Nobody answered in ten minutes." A card left pending when the
+session stops or the room restarts is expired by the same startup fold
+that expires orphaned permission cards.
 
 ## Checkpoints
 
@@ -316,14 +329,14 @@ the process. Deleting a teammate forgets it.
 | `declared` | Toad handed it over and cannot see what happened next |
 | `absent` | it is not there, and `reason` says why |
 
-Toad Agent's built-ins and Toad's own three tools are verified: they were
+Toad Agent's built-ins and Toad's own tools are verified: they were
 handed to the agent in this process. MCP tools are verified when the server
 listed them, and absent — with the error as the reason — when it did not. A
 policy id that no longer names a server is absent with one sentence, the
 same on either driver.
 
 A child is handed descriptors and does not report what it loaded, so its
-honest state is declared: Toad's own three as named tools, each granted
+honest state is declared: Toad's own tools as named tools, each granted
 server as one row under that server's name. The one exception is Toad's own
 endpoint, which promotes its rows to verified the moment the child lists
 tools on it.

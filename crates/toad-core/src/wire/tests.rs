@@ -128,6 +128,15 @@ impl RoomHandle for Quiet {
         Err("Nothing runs in this room, so nothing is waiting.".to_string())
     }
 
+    fn answer_human(
+        &self,
+        _persona_id: &str,
+        _action_id: &str,
+        _status: crate::contract::HumanAnswer,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn info(&self, persona_id: &str) -> SessionInfo {
         self.states
             .lock()
@@ -669,6 +678,37 @@ async fn a_tape_carries_the_deltas_nobody_writes_down() {
             "ephemeral": { "type": "agent_delta", "personaId": "ada", "messageId": "m2", "text": "hel" }
         })
     );
+}
+
+#[tokio::test]
+async fn human_answer_is_a_command_the_wire_can_read() {
+    let (_root, _log, port) = door("human-answer");
+    let mut socket = desk(port).await;
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 1,
+            "cmd": "human.answer",
+            "params": { "personaId": "ada", "actionId": "act-1", "status": "done" },
+        }),
+    )
+    .await;
+    let answered = heard(&mut socket).await;
+    assert_eq!(answered["id"], 1);
+    assert_eq!(answered["ok"], true, "{answered}");
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "human.answer",
+            "params": { "personaId": "ada", "actionId": "act-1", "status": "declined" },
+        }),
+    )
+    .await;
+    let declined = heard(&mut socket).await;
+    assert_eq!(declined["ok"], true, "{declined}");
 }
 
 #[test]

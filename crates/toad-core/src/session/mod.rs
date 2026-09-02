@@ -42,9 +42,9 @@ pub use peers::{DeliverResult, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
 
 use crate::contract::{
-    Attachment, ChapterClose, ChapterSummary, ConfigChoice, NoticeLevel, Persona, Reach,
-    ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState, StreamDelta,
-    TeammateToolLedger, ToolOutput, ToolStatus, TranscriptEvent,
+    Attachment, ChapterClose, ChapterSummary, ConfigChoice, HumanActionStatus, HumanAnswer,
+    NoticeLevel, Persona, Reach, ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo,
+    SessionState, StreamDelta, TeammateToolLedger, ToolOutput, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -64,7 +64,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::{Notify, broadcast, oneshot};
 
 /// How much of a tool's output the transcript keeps. The model was given all
 /// of it; this is the size of the bubble.
@@ -95,6 +95,10 @@ const SWEEP_EVERY: Duration = Duration::from_secs(60);
 
 /// While a turn is running at the idle mark, look again after this long.
 const BUSY_RECHECK_MS: i64 = 10 * 60_000;
+
+/// How long a `request_human` card waits for the person. Tests pass a
+/// shorter deadline; the tool uses this.
+pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
 /// Where the provider keys come from.
 ///
@@ -323,6 +327,10 @@ pub struct Room {
     schedule_changed: Arc<Notify>,
     /// The sessions teammates answer each other out of.
     peers: peers::Peers,
+    /// A `request_human` wait, by the card's action id. The tool parks on
+    /// the oneshot; the person's answer, the deadline, or a settle (session
+    /// stop, room restart) is what sends.
+    human_waits: Mutex<HashMap<String, HumanWait>>,
 }
 
 impl Room {
@@ -359,6 +367,7 @@ impl Room {
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
             peers: peers::Peers::default(),
+            human_waits: Mutex::new(HashMap::new()),
         });
         room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
@@ -369,10 +378,11 @@ impl Room {
     /// The startup fold and the index, brought in line with the files before
     /// anything is served from them.
     ///
-    /// A permission card left open by the last process is a button nobody is
-    /// behind, so it is expired and the tape compacted; then the index is
-    /// synced, because the fold just rewrote files and a tape written by the
-    /// importer or the previous Toad has never been indexed here at all.
+    /// A permission or human-action card left open by the last process is a
+    /// button nobody is behind, so it is expired and the tape compacted; then
+    /// the index is synced, because the fold just rewrote files and a tape
+    /// written by the importer or the previous Toad has never been indexed
+    /// here at all.
     fn settle_tapes(&self) {
         let now = now_ms();
         let teammates: Vec<String> = room::roster(&self.log)
@@ -490,6 +500,7 @@ impl Room {
         };
         session.driver.cancel();
         self.settle_permissions(persona_id);
+        self.release_human_waits(persona_id);
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;
         let _ = self.info_changes.send(info);
@@ -710,6 +721,82 @@ impl Room {
         Ok(())
     }
 
+    /// Posts a `human_action` card and waits until the person answers it or
+    /// `deadline` runs out.
+    ///
+    /// The wait is a oneshot this room holds by `actionId`. The card is
+    /// superseded with the outcome; the sentence the tool returns is what
+    /// the agent reads. Tests pass a short deadline; the tool uses
+    /// [`HUMAN_DEADLINE`].
+    pub async fn request_human(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        deadline: Duration,
+    ) -> Result<String, String> {
+        self.persona(persona_id)?;
+        let reason = reason.trim();
+        if reason.len() < 3 {
+            return Err("request_human needs a `reason` of at least three characters.".to_string());
+        }
+        let reason: String = reason.chars().take(500).collect();
+        let action_id = new_id();
+        let (sender, receiver) = oneshot::channel();
+        lock(&self.human_waits).insert(
+            action_id.clone(),
+            HumanWait {
+                persona_id: persona_id.to_string(),
+                sender,
+            },
+        );
+        self.write(
+            persona_id,
+            &TranscriptEvent::HumanAction {
+                id: format!("human:{action_id}"),
+                ts: now_ms(),
+                action_id: action_id.clone(),
+                reason: reason.clone(),
+                status: HumanActionStatus::Pending,
+            },
+        );
+        let status = tokio::select! {
+            answered = receiver => answered.unwrap_or(HumanActionStatus::Expired),
+            _ = tokio::time::sleep(deadline) => {
+                self.expire_human(&action_id);
+                HumanActionStatus::Expired
+            }
+        };
+        Ok(human_outcome(&reason, status))
+    }
+
+    /// Resolves a waiting `request_human` and supersedes its card.
+    ///
+    /// Refused when nothing is behind that id any more — the deadline
+    /// passed, the session stopped, or somebody else answered first — so a
+    /// stale button cannot quietly settle a wait that is already gone.
+    pub fn answer_human(
+        &self,
+        persona_id: &str,
+        action_id: &str,
+        status: HumanAnswer,
+    ) -> Result<(), String> {
+        let status = match status {
+            HumanAnswer::Done => HumanActionStatus::Done,
+            HumanAnswer::Declined => HumanActionStatus::Dismissed,
+        };
+        let wait = lock(&self.human_waits).remove(action_id);
+        let Some(wait) = wait else {
+            return Err("That request is no longer waiting for an answer.".to_string());
+        };
+        if wait.persona_id != persona_id {
+            lock(&self.human_waits).insert(action_id.to_string(), wait);
+            return Err("That request is no longer waiting for an answer.".to_string());
+        }
+        self.supersede_human(persona_id, action_id, status);
+        let _ = wait.sender.send(status);
+        Ok(())
+    }
+
     /// The card this request wrote, read back off the tape it was written to.
     fn permission_card(&self, persona_id: &str, request_id: &str) -> Option<TranscriptEvent> {
         let id = Value::from(format!("perm:{request_id}"));
@@ -728,6 +815,66 @@ impl Room {
         for expired in crate::log::expire_orphaned_permissions(&self.tape(persona_id), now_ms()) {
             self.write_value(persona_id, &expired);
         }
+    }
+
+    /// Unblocks every `request_human` still waiting for this teammate.
+    ///
+    /// The cards are already expired by [`Room::settle_permissions`] — the
+    /// same fold that expires a permission left open. What remains is the
+    /// oneshot the tool is parked on, so it hears expired rather than
+    /// hanging until its own deadline.
+    fn release_human_waits(&self, persona_id: &str) {
+        let senders: Vec<oneshot::Sender<HumanActionStatus>> = {
+            let mut waits = lock(&self.human_waits);
+            let ids: Vec<String> = waits
+                .iter()
+                .filter(|(_, wait)| wait.persona_id == persona_id)
+                .map(|(id, _)| id.clone())
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| waits.remove(&id).map(|wait| wait.sender))
+                .collect()
+        };
+        for sender in senders {
+            let _ = sender.send(HumanActionStatus::Expired);
+        }
+    }
+
+    /// The deadline won: take the wait if it is still there and expire the
+    /// card. An answer that landed first already removed the wait, so this
+    /// is a no-op then.
+    fn expire_human(&self, action_id: &str) {
+        let Some(wait) = lock(&self.human_waits).remove(action_id) else {
+            return;
+        };
+        self.supersede_human(&wait.persona_id, action_id, HumanActionStatus::Expired);
+    }
+
+    fn supersede_human(&self, persona_id: &str, action_id: &str, status: HumanActionStatus) {
+        let Some(card) = self.human_card(persona_id, action_id) else {
+            return;
+        };
+        let TranscriptEvent::HumanAction { id, reason, .. } = card else {
+            return;
+        };
+        self.write(
+            persona_id,
+            &TranscriptEvent::HumanAction {
+                id,
+                ts: now_ms(),
+                action_id: action_id.to_string(),
+                reason,
+                status,
+            },
+        );
+    }
+
+    fn human_card(&self, persona_id: &str, action_id: &str) -> Option<TranscriptEvent> {
+        let id = Value::from(format!("human:{action_id}"));
+        self.tape(persona_id)
+            .into_iter()
+            .find(|event| event.get("id") == Some(&id))
+            .and_then(|event| serde_json::from_value(event).ok())
     }
 
     /// What the teammate's session is doing. A teammate with no session is
@@ -995,7 +1142,18 @@ impl Room {
             // and a card nobody is behind.
             self.fail_in_flight(&session, &mut in_flight);
             if asked {
-                self.settle_permissions(&session.persona_id);
+                // A permission the turn left open is a button nobody is
+                // behind. A `request_human` wait is not: the tool is still
+                // parked on it, and only the person, the deadline, or a
+                // session stop settles that card.
+                for expired in crate::log::expire_orphaned_permissions(
+                    &self.tape(&session.persona_id),
+                    now_ms(),
+                ) {
+                    if expired.get("kind").and_then(Value::as_str) == Some("permission") {
+                        self.write_value(&session.persona_id, &expired);
+                    }
+                }
             }
             next = lock(&session.queue).pop_front();
         }
@@ -1159,6 +1317,27 @@ impl Room {
             .get(persona_id)
             .cloned()
             .ok_or_else(|| "That teammate is not running.".to_string())
+    }
+}
+
+/// A `request_human` wait the room holds until the person answers, the
+/// deadline passes, or the session stops.
+struct HumanWait {
+    persona_id: String,
+    sender: oneshot::Sender<HumanActionStatus>,
+}
+
+/// The sentence the tool returns. The expired wording always says ten
+/// minutes, even when a test injected a shorter deadline: that is what
+/// the agent is told in life, and a test that checks the sentence should
+/// see the same words.
+fn human_outcome(reason: &str, status: HumanActionStatus) -> String {
+    match status {
+        HumanActionStatus::Done => "The person did it.".to_string(),
+        HumanActionStatus::Dismissed => format!("The person declined: {reason}"),
+        HumanActionStatus::Expired | HumanActionStatus::Pending => {
+            "Nobody answered in ten minutes.".to_string()
+        }
     }
 }
 

@@ -252,7 +252,8 @@ pub(crate) fn fold(events: impl Iterator<Item = Value>) -> Vec<Value> {
         .collect()
 }
 
-/// The permission cards a restart orphaned, superseded as expired.
+/// The permission and human-action cards a restart orphaned, superseded as
+/// expired.
 ///
 /// A resolver only exists in the process that received the request, so a card
 /// that still claims to be live after a restart is a button nobody is behind.
@@ -260,20 +261,28 @@ pub(crate) fn fold(events: impl Iterator<Item = Value>) -> Vec<Value> {
 /// cards and there should be one copy of the rule: the caller appends what
 /// this answers and then compacts, which is the whole startup fold.
 ///
-/// A card with a `decision` of `null` is left alone — a decision somebody
-/// wrote is a decision.
+/// A permission with a `decision` of `null` is left alone — a decision
+/// somebody wrote is a decision. A human-action card that is no longer
+/// `pending` is the same fact.
 pub fn expire_orphaned_permissions(events: &[Value], ts: i64) -> Vec<Value> {
     events
         .iter()
-        .filter(|event| {
-            event.get("kind").and_then(Value::as_str) == Some("permission")
-                && event.get("decision").is_none()
-        })
-        .filter_map(|event| {
-            let mut expired = event.as_object()?.clone();
-            expired.insert("ts".into(), Value::from(ts));
-            expired.insert("decision".into(), Value::from("expired"));
-            Some(Value::Object(expired))
+        .filter_map(|event| match event.get("kind").and_then(Value::as_str) {
+            Some("permission") if event.get("decision").is_none() => {
+                let mut expired = event.as_object()?.clone();
+                expired.insert("ts".into(), Value::from(ts));
+                expired.insert("decision".into(), Value::from("expired"));
+                Some(Value::Object(expired))
+            }
+            Some("human_action")
+                if event.get("status").and_then(Value::as_str) == Some("pending") =>
+            {
+                let mut expired = event.as_object()?.clone();
+                expired.insert("ts".into(), Value::from(ts));
+                expired.insert("status".into(), Value::from("expired"));
+                Some(Value::Object(expired))
+            }
+            _ => None,
         })
         .collect()
 }

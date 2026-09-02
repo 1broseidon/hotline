@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { ToolOutput, ToolStatus, TranscriptEvent } from "../generated/contract";
 import type { Streaming } from "../tape";
 import { Markdown } from "./Markdown";
@@ -19,9 +19,12 @@ const PIN_SLACK = 80;
 export function Transcript({
 	events,
 	streaming,
+	focus,
 }: {
 	events: TranscriptEvent[];
 	streaming: Streaming[];
+	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
+	focus: { eventId: string; at: number } | null;
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	/* Following the conversation is the default and stays true until you
@@ -31,6 +34,8 @@ export function Transcript({
 	 * mounts one — and the listeners have to go on when it appears, not once
 	 * at mount. */
 	const empty = events.length === 0 && streaming.length === 0;
+
+	useScrollToEvent(scroller, pinned, focus, events);
 
 	useEffect(() => {
 		const el = scroller.current;
@@ -101,11 +106,39 @@ function Line({
 		(previous === undefined || event.ts - previous.ts > STAMP_AFTER);
 
 	return (
-		<>
+		<div data-event-id={event.id} className="rounded-lg">
 			{stamp && <p className="py-2 text-center text-xs text-ink-3">{stampText(event.ts)}</p>}
 			<Row event={event} />
-		</>
+		</div>
 	);
+}
+
+/**
+ * A search hit: unpin, bring the row to the middle, and light it briefly.
+ *
+ * The tape arrives after the jump is asked for when Everywhere opens another
+ * teammate, so this waits until the fold contains the id. `found` going true
+ * is the retry; a later append does not change `found` and so does not jump.
+ */
+function useScrollToEvent(
+	scroller: RefObject<HTMLDivElement | null>,
+	pinned: RefObject<boolean>,
+	focus: { eventId: string; at: number } | null,
+	events: TranscriptEvent[],
+): void {
+	const found = focus !== null && events.some((one) => one.id === focus.eventId);
+	useEffect(() => {
+		if (!focus || !found) return;
+		const root = scroller.current;
+		const row = root?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(focus.eventId)}"]`);
+		if (!root || !row) return;
+		pinned.current = false;
+		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		row.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+		row.classList.add("row-lit");
+		const timer = window.setTimeout(() => row.classList.remove("row-lit"), 1_600);
+		return () => window.clearTimeout(timer);
+	}, [focus, found, scroller, pinned]);
 }
 
 function Row({ event }: { event: TranscriptEvent }) {

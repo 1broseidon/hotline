@@ -175,6 +175,58 @@
 		background: var(--paper-3);
 	}
 
+	/* --------------------------------------------------------------- search
+	 * A right-hand drawer over the conversation, not a sheet: you are looking
+	 * for a line that is already on screen, and picking one should land in it.
+	 * No close glyph — Escape and the conversation behind it are the two ways
+	 * out, the same grammar the reference drawer uses. */
+	.search-scrim {
+		position: absolute;
+		inset: 0;
+		background: oklch(6% 0.002 250 / 0.35);
+	}
+	.search-drawer {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+		width: min(20rem, 100%);
+		height: 100%;
+		background: var(--paper);
+		border-left: 1px solid var(--rule);
+	}
+	.search-hit {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		text-align: left;
+	}
+	.search-hit:hover {
+		background: var(--paper-3);
+	}
+	.search-note {
+		cursor: pointer;
+		font-size: 0.75rem;
+		color: var(--ink-3);
+	}
+	.search-note:hover {
+		color: var(--ink-2);
+	}
+
+	/* A row a search just landed on. Lit briefly, then ordinary again. */
+	.row-lit {
+		animation: row-lit 1.6s ease-out both;
+	}
+	@keyframes row-lit {
+		0% {
+			background-color: var(--paper-4);
+		}
+		100% {
+			background-color: transparent;
+		}
+	}
+
 	/* --------------------------------------------------------------- markdown
 	 * Not a document: emphasis, code, links, lists and tables survive because
 	 * a person types those into a chat. Headings arrive as bold text, because
@@ -257,5 +309,9 @@
 @media (prefers-reduced-motion: reduce) {
 	.animate-throat {
 		animation: none;
+	}
+	.row-lit {
+		animation: none;
+		background-color: var(--paper-4);
 	}
 }

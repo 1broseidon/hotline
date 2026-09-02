@@ -2,8 +2,8 @@ import type { ConfigChoice } from "../generated/contract";
 import type { RosterEntry } from "../wire";
 
 /**
- * Who you are talking to, what their session is doing, and the one thing you
- * change mid-conversation often enough to deserve the header: the model.
+ * Who you are talking to, what their session is doing, the model, and a door
+ * into this conversation's own index.
  *
  * The session's own list wins when it has one, because a running agent knows
  * what it can actually be switched to; the room's list is what a teammate that
@@ -12,13 +12,17 @@ import type { RosterEntry } from "../wire";
 export function ChatHeader({
 	entry,
 	models,
+	searchOpen,
 	onSetModel,
 	onOpenKeys,
+	onOpenSearch,
 }: {
 	entry: RosterEntry;
 	models: ConfigChoice[];
+	searchOpen: boolean;
 	onSetModel(modelId: string): void;
 	onOpenKeys(): void;
+	onOpenSearch(): void;
 }) {
 	const { persona, session } = entry;
 	const choices = session.models.length > 0 ? session.models : models;
@@ -53,6 +57,16 @@ export function ChatHeader({
 					</option>
 				))}
 			</select>
+
+			<button
+				type="button"
+				className={`btn-quiet shrink-0 ${searchOpen ? "bg-paper-3" : ""}`}
+				title="Search (Ctrl+F)"
+				aria-expanded={searchOpen}
+				onClick={onOpenSearch}
+			>
+				Search
+			</button>
 
 			<button type="button" className="btn-quiet shrink-0" title="Keys (Ctrl+,)" onClick={onOpenKeys}>
 				Keys

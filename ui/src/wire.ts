@@ -2,6 +2,7 @@ import type {
 	ChapterSummary,
 	ConfigChoice,
 	Credential,
+	GlobalSearchHit,
 	Persona,
 	PersonaDraft,
 	Preview,
@@ -34,6 +35,9 @@ export type RosterEntry = { persona: Persona; preview: Preview | null; session: 
 /** `search.thread`'s answer: what matched, and whether the index stopped early. */
 export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
 
+/** `search.all`'s answer: the same hits, each named with whose tape they came from. */
+export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
+
 // ---------------------------------------------------------------------------
 // The command surface
 // ---------------------------------------------------------------------------
@@ -55,6 +59,7 @@ export type Commands = {
 	};
 	"credential.list": { params: Record<string, never>; result: Credential[] };
 	"search.thread": { params: { personaId: string; query: string }; result: ThreadSearchResult };
+	"search.all": { params: { query: string }; result: GlobalSearchResult };
 	"chapter.list": { params: { personaId: string }; result: ChapterSummary[] };
 };
 

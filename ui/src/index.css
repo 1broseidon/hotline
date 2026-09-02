@@ -1230,6 +1230,7 @@
 	@media (max-width: 719px) {
 		.rail {
 			width: auto;
+			min-width: 0;
 			flex: 1;
 		}
 	}

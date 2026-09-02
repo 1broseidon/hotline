@@ -347,7 +347,12 @@ function Row({
 
 		case "agent":
 			return speakers !== undefined ? (
-				<NamedSay name={speakers.mine === "agent" ? speakers.me : speakers.them} mine={speakers.mine === "agent"} text={event.text} />
+				<NamedSay
+					name={speakers.mine === "agent" ? speakers.me : speakers.them}
+					mine={speakers.mine === "agent"}
+					text={event.text}
+					title={event.title}
+				/>
 			) : (
 				<AgentSay event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
 			);
@@ -456,7 +461,7 @@ function AgentSay({
 	run: Run;
 	onReply?(target: ReplyTarget): void;
 }) {
-	const reply = () => onReply?.({ eventId: event.id, text: firstLine(event.text) });
+	const reply = () => onReply?.({ eventId: event.id, text: event.title ?? firstLine(event.text) });
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			<div
@@ -471,7 +476,7 @@ function AgentSay({
 					reply();
 				}}
 			>
-				<Markdown text={event.text} />
+				{event.title !== undefined ? <Note title={event.title} text={event.text} /> : <Markdown text={event.text} />}
 				{onReply !== undefined && (
 					<button
 						type="button"
@@ -497,12 +502,12 @@ function AgentSay({
  * under the words, named from the event, with the path on hover.
  */
 /** A named line in a peer thread: this teammate on the right, the other on the left. */
-function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: string }) {
+function NamedSay({ name, mine, text, title }: { name: string; mine: boolean; text: string; title?: string | undefined }) {
 	if (mine) {
 		return (
 			<div className="mt-3 flex flex-col items-end">
 				<p className="said-name">{name}</p>
-				<div className="speech said-me">{text}</div>
+				<div className="speech said-me">{title !== undefined ? <Note title={title} text={text} /> : text}</div>
 			</div>
 		);
 	}
@@ -510,9 +515,33 @@ function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: str
 		<div className="said-group relative mt-3">
 			<p className="said-name">{name}</p>
 			<div className="speech said-them">
-				<Markdown text={text} />
+				{title !== undefined ? <Note title={title} text={text} /> : <Markdown text={text} />}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * A reply too long to be a text is a note: its title is the line you read,
+ * the body is folded to a few lines under a fade, and Open unfolds the
+ * whole of it in place. It sits in the same bubble on the same side, so
+ * the conversation keeps its shape and the length is the one thing that
+ * differs. A `# Title` the core lifted out of the first line is not drawn
+ * twice.
+ */
+function Note({ title, text }: { title: string; text: string }) {
+	const [open, setOpen] = useState(false);
+	const body = text.replace(/^#\s+[^\n]*\n+/, "");
+	return (
+		<>
+			<p className="note-title">{title}</p>
+			<div className={open ? "note-body" : "note-body note-folded"}>
+				<Markdown text={body} />
+			</div>
+			<button type="button" className="note-toggle" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+				{open ? "Close" : "Open"}
+			</button>
+		</>
 	);
 }
 
@@ -578,6 +607,7 @@ function ScheduledLine({ name, prompt }: { name: string; prompt: string }) {
 /** First line of a say, or nothing — a missing or empty original is not a quote. */
 function quotedLine(event: TranscriptEvent): string | undefined {
 	if (event.kind !== "user" && event.kind !== "agent") return undefined;
+	if (event.kind === "agent" && event.title !== undefined) return event.title;
 	const line = firstLine(event.text);
 	return line.length > 0 ? line : undefined;
 }

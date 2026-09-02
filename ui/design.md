@@ -163,7 +163,10 @@ transition and animation, and holds the mark still.
 - Speech: bubbles on two sides, the way a messages app draws a 1:1.
   Theirs on the left in the raised plane, yours on the right in the slate
   wash — told apart by side and weight, never hue, and never a tail. A run
-  from one speaker tightens the corners that face each other. What
+  from one speaker tightens the corners that face each other. A reply
+  arrives paced, as a few bubbles in one run; one too long to be a text
+  arrives as a note in the same bubble — its title as the line, the body
+  folded under a fade to three lines, one quiet word to open it. What
   happened between two messages is one quiet caption in the instrument
   voice — a count, closed until pressed; a transcript that hides it
   would lie, one that shouts it is a log.

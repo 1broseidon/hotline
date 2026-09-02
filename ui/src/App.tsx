@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
@@ -29,6 +30,11 @@ export function App() {
 	const [thread, setThread] = useState<OpenThread | null>(null);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+	/* A narrow window shows one thing at a time, the way a phone does: the
+	 * rail, or what was chosen in it. This is which, and it means nothing
+	 * once the window is wide enough for both. */
+	const narrow = useNarrow();
+	const [railShown, setRailShown] = useState(false);
 	/* The teammate's own pane sits beside the conversation, not in its place:
 	 * you edit a colleague while watching them work. */
 	const [inspector, setInspector] = useState(false);
@@ -117,11 +123,26 @@ export function App() {
 	const select = useCallback((personaId: string) => {
 		setSelectedId(personaId);
 		setPane(null);
+		setRailShown(false);
 	}, []);
-	const togglePane = useCallback((id: Exclude<Pane, null>) => {
-		setSearchOpen(false);
-		setPane((current) => (current === id ? null : id));
+	/* Closing a pane lands on the rail: it is where the pane was opened from. */
+	const closePane = useCallback(() => {
+		setPane(null);
+		setRailShown(true);
 	}, []);
+	const togglePane = useCallback(
+		(id: Exclude<Pane, null>) => {
+			setSearchOpen(false);
+			if (pane === id) {
+				closePane();
+				return;
+			}
+			setPane(id);
+			// Settings opens on its menu, which is the rail; the rest are the pane itself.
+			setRailShown(id === "settings");
+		},
+		[pane, closePane],
+	);
 	const toggleInspector = useCallback(
 		(schedules = false) => {
 			if (selectedId === null) return;
@@ -167,7 +188,7 @@ export function App() {
 				if (searchOpen) return; // the search closes itself
 				if (pane !== null) {
 					event.preventDefault();
-					setPane(null);
+					closePane();
 					return;
 				}
 				if (thread !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
@@ -178,6 +199,12 @@ export function App() {
 				if (inspector && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
 					event.preventDefault();
 					setInspector(false);
+					return;
+				}
+				// With nothing else on top, a narrow window's Escape is the back key.
+				if (narrow && !railShown && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
+					event.preventDefault();
+					setRailShown(true);
 				}
 				return;
 			}
@@ -212,7 +239,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, thread, searchOpen, select, togglePane, toggleInspector]);
+	}, [roster, selectedId, pane, inspector, thread, searchOpen, narrow, railShown, select, closePane, togglePane, toggleInspector]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -266,12 +293,25 @@ export function App() {
 		return () => document.removeEventListener("contextmenu", suppress);
 	}, []);
 
+	/* Narrow: the rail alone when it is what you are looking at, or when
+	 * there is nothing else to look at; otherwise the pane alone, with a
+	 * back key in its band. Wide: both, and no back key. */
+	const railOnly = narrow && (railShown || (pane === null && selected === null));
+	const back = narrow ? () => setRailShown(true) : undefined;
+
 	return (
 		<div className="flex h-full flex-col">
 			{drawsFrame() && <Titlebar name={selected?.persona.name ?? null} />}
 			<div className={drawsFrame() ? "flex min-h-0 flex-1 gap-2 p-2 pt-0" : "flex min-h-0 flex-1 gap-2 p-2"}>
-			{pane === "settings" ? (
-				<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={() => setPane(null)} />
+			{narrow && !railOnly ? null : pane === "settings" ? (
+				<SettingsRail
+					section={settingsSection}
+					onSection={(section) => {
+						setSettingsSection(section);
+						setRailShown(false);
+					}}
+					onBack={closePane}
+				/>
 			) : (
 			<Rail
 				entries={roster}
@@ -293,27 +333,22 @@ export function App() {
 			/>
 			)}
 
+			{railOnly ? null : (
 			<main className="flex min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
-					<Settings section={settingsSection} />
+					<Settings section={settingsSection} {...(back !== undefined ? { onBack: back } : {})} />
 				) : pane === "shortcuts" ? (
-					<Shortcuts onClose={() => setPane(null)} />
+					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (
-					<About onClose={() => setPane(null)} />
+					<About onClose={closePane} />
 				) : pane === "new-teammate" ? (
-					<NewTeammate
-						models={models}
-						onCreated={(personaId) => {
-							setSelectedId(personaId);
-							setPane(null);
-						}}
-						onClose={() => setPane(null)}
-					/>
+					<NewTeammate models={models} onCreated={select} onClose={closePane} />
 				) : selected ? (
 					<>
 						<Conversation
 							key={selected.persona.id}
 							entry={selected}
+							{...(back !== undefined ? { onBack: back } : {})}
 							roster={roster}
 							models={models}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
@@ -378,6 +413,7 @@ export function App() {
 					</div>
 				)}
 			</main>
+			)}
 			</div>
 		</div>
 	);

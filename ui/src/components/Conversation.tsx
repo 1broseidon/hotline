@@ -6,7 +6,7 @@ import { revealPath } from "../native";
 import { nextText, useRoomSettings } from "../room";
 import { useTape } from "../tape";
 import { Avatar } from "../ui/Avatar";
-import { Band } from "../ui/Band";
+import { BackKey, Band } from "../ui/Band";
 import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 import { Composer } from "./Composer";
@@ -36,6 +36,7 @@ export function Conversation({
 	searchOpen,
 	inspectorOpen,
 	focus,
+	onBack,
 	onToggleInspector,
 	onOpenSchedules,
 	onToggleSearch,
@@ -45,6 +46,8 @@ export function Conversation({
 	onOpenThread,
 }: {
 	entry: RosterEntry;
+	/** A narrow window: the rail is a step back from here. */
+	onBack?: () => void;
 	roster: RosterEntry[];
 	models: ConfigChoice[];
 	jobs: ScheduledJob[];
@@ -164,6 +167,7 @@ export function Conversation({
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<Band>
+				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<button
 					type="button"
 					className="control btn-quiet -ml-1 min-w-0 shrink gap-2 pl-1 pr-2"

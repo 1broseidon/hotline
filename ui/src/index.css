@@ -1220,6 +1220,19 @@
 	/* ---------------------------------------------------------------- rail
 	 * The roster stands in the well itself, no pane round it. A row is a
 	 * fill, never a line. */
+	/* The rail is a column beside a pane until the window cannot hold both;
+	 * then it is the whole window, and a pane replaces it rather than
+	 * sharing it (App.tsx decides which). */
+	.rail {
+		width: 240px;
+		flex-shrink: 0;
+	}
+	@media (max-width: 719px) {
+		.rail {
+			width: auto;
+			flex: 1;
+		}
+	}
 	.rail-row {
 		display: flex;
 		width: 100%;

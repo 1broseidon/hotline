@@ -58,6 +58,13 @@ One family, **Workbench**, for every screen:
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
 
+A window narrower than 720px holds one thing at a time, the way a phone
+does: the rail, or what was chosen in it, with a back key at the head of
+the pane's band and Escape as the same step. Nothing is re-laid out in
+place; a pane replaces the rail rather than squeezing beside it, and a
+wide window never shows the back key. The inspector has its own, wider
+cut-off, because it needs the conversation beside it and the rail does not.
+
 Settings, New teammate, Keyboard shortcuts and About are panes in the
 conversation's place. Settings also takes the rail: its sections stand
 where the team stood, one row each, and the band carries the way back

@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { chordKeys } from "../chords";
+import { ArrowLeftIcon } from "../icons";
 import { toggleMaximize } from "../native";
 
 /**
@@ -13,5 +15,20 @@ export function Band({ children, rail = false }: { children: ReactNode; rail?: b
 			<div data-tauri-drag-region className="band-drag" onDoubleClick={() => void toggleMaximize()} />
 			<div className="band-row">{children}</div>
 		</div>
+	);
+}
+
+/** The step back to the rail, at the head of a band in a narrow window. */
+export function BackKey({ onBack }: { onBack(): void }) {
+	return (
+		<button
+			type="button"
+			className="control btn-icon -ml-1"
+			title={`Back (${chordKeys("close")})`}
+			aria-label="Back to the team"
+			onClick={onBack}
+		>
+			<ArrowLeftIcon />
+		</button>
 	);
 }

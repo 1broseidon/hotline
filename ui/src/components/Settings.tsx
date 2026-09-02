@@ -13,7 +13,7 @@ import { chordKeys } from "../chords";
 import { ArrowLeftIcon, GearIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
-import { Band } from "../ui/Band";
+import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
@@ -48,7 +48,7 @@ export function SettingsRail({
 	onBack(): void;
 }) {
 	return (
-		<nav aria-label="Settings" className="flex w-60 shrink-0 flex-col">
+		<nav aria-label="Settings" className="rail flex flex-col">
 			<Band rail>
 				<button
 					type="button"
@@ -86,7 +86,7 @@ export function SettingsRail({
  * at a time, chosen in the rail, each a column of grouped rows. What a
  * teammate is, is not here; that is the teammate's own pane.
  */
-export function Settings({ section }: { section: SettingsSection }) {
+export function Settings({ section, onBack }: { section: SettingsSection; onBack?: () => void }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -98,6 +98,7 @@ export function Settings({ section }: { section: SettingsSection }) {
 	return (
 		<div className="pane">
 			<Band>
+				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">
 					{SECTIONS.find((one) => one.id === section)?.title}
 				</h2>

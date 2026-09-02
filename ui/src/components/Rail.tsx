@@ -55,7 +55,7 @@ export function Rail({
 		{ kind: "item", id: "github", text: "Toad on GitHub", onSelect: () => onHelp("github") },
 	];
 	return (
-		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col">
+		<nav aria-label="Team" className="rail flex flex-col">
 			<Band rail>
 				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Team</h1>
 				<button

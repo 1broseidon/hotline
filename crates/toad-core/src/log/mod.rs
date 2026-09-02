@@ -184,6 +184,12 @@ impl Log {
             .subscribers
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        // A stream nobody is listening to any more is a channel holding a
+        // ring of [`SUBSCRIPTION_DEPTH`] slots and never using them. The wire
+        // lets a client name any stream it likes, including one no teammate
+        // has, so this map has to let go of what has gone quiet or a socket
+        // can grow it for as long as it stays open.
+        subscribers.retain(|_, sender| sender.receiver_count() > 0);
         subscribers
             .entry(stream.clone())
             .or_insert_with(|| broadcast::channel(SUBSCRIPTION_DEPTH).0)
@@ -373,6 +379,25 @@ mod tests {
         assert_eq!(listener.try_recv().unwrap(), later);
         // History is loaded, not replayed: both lines are still in the fold.
         assert_eq!(log.load(&StreamId::Room), [earlier, later]);
+    }
+
+    /// The wire lets a client name any stream, so a socket that subscribed
+    /// and unsubscribed in a loop used to leave one channel behind per name
+    /// it had ever said.
+    #[test]
+    fn a_stream_nobody_is_listening_to_stops_being_remembered() {
+        let log = scratch("subscriber-map");
+        let kept = log.subscribe(&StreamId::Room);
+        for n in 0..200 {
+            let _gone = log.subscribe(&StreamId::Tape(format!("teammate-{n}")));
+        }
+        let subscribers = log
+            .subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(subscribers.len(), 2, "one live tape and the room");
+        drop(subscribers);
+        drop(kept);
     }
 
     /// A tape has several writers above it — the line a person typed, the turn

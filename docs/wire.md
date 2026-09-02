@@ -92,6 +92,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.list` | `{}` | `Credential[]`, never a secret |
 | `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
+| `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
@@ -142,6 +143,19 @@ teammate.
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
 the patch.
+
+`enabledModels` is an object from provider id to an array of model ids
+(bare catalogue keys, so OpenRouter keeps its own slash). A provider
+absent from the object shows every model; a present one shows only the
+listed ids. A value that is not an object, or an entry that is not an
+array of strings, reads as absent — a bad setting costs its own filter,
+never the picker.
+
+`models.catalog` lists every model the catalogue has for one wired
+provider, each with `enabled` set by that filter, whether or not the
+desk holds a credential. An unwired provider is an error. The filter
+narrows what `models.list` and a session's picker offer; a teammate
+already on a filtered-out model stays on it.
 
 `credential.login` starts a device-code login for a provider whose
 `credentialKind` is `oauth`, and answers with the code and URL the person

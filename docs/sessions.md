@@ -122,7 +122,9 @@ The models a credential unlocks come from the model catalogue
 [development.md](development.md#the-model-catalogue)) for the providers
 `models.rs` wires: Anthropic, OpenAI, OpenRouter, Google, xAI, Groq,
 DeepSeek and Mistral as API keys, and GitHub Copilot and ChatGPT
-(`openai-codex`) as subscription logins, as `provider/model`. A turn never
+(`openai-codex`) as subscription logins, as `provider/model`. A saved
+`enabledModels` filter narrows what is offered, never the model a
+teammate is on. A turn never
 starts a login: missing or unrefreshable tokens fail with a sentence
 asking for sign-in. No credential, no session: start is refused with a
 sentence pointing at Settings → Agents. This agent does not offer modes.

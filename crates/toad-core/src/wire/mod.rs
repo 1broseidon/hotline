@@ -117,6 +117,9 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// What the room knows of every credential, the secrets left in the vault.
     fn credentials(&self) -> Vec<crate::contract::Credential>;
 
+    /// Every harness a teammate could run on here, the built-in one first.
+    async fn backends(&self) -> Vec<crate::contract::BackendChoice>;
+
     /// Every model the desk's keys can reach, for the model picker.
     fn models(&self) -> Vec<crate::contract::ConfigChoice>;
 

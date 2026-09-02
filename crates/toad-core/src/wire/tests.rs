@@ -170,6 +170,10 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
+    async fn backends(&self) -> Vec<crate::contract::BackendChoice> {
+        Vec::new()
+    }
+
     fn credentials(&self) -> Vec<Credential> {
         Vec::new()
     }

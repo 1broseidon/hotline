@@ -1043,6 +1043,23 @@ pub enum StreamDelta {
 }
 
 // ---------------------------------------------------------------------------
+// Backends
+// ---------------------------------------------------------------------------
+
+/// One agent harness as the new-teammate sheet offers it: Toad Agent, or an
+/// ACP harness the registry knows. `unavailable` is absent when this machine
+/// can start it and a sentence naming what is missing when it cannot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct BackendChoice {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // The wire
 // ---------------------------------------------------------------------------
 
@@ -1090,6 +1107,10 @@ pub enum Command {
     CredentialRevoke { id: String },
     #[serde(rename = "credential.delete")]
     CredentialDelete { id: String },
+    /// Every agent harness this machine can start, and the ones it knows of
+    /// but cannot, with the reason.
+    #[serde(rename = "backends.list")]
+    BackendsList {},
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},

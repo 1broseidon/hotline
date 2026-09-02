@@ -1,4 +1,5 @@
 import type {
+	BackendChoice,
 	ChapterSummary,
 	Command,
 	ConfigChoice,
@@ -60,6 +61,7 @@ type Results = {
 	"credential.revoke": null;
 	"credential.delete": null;
 	"credential.list": Credential[];
+	"backends.list": BackendChoice[];
 	"models.list": ConfigChoice[];
 	"session.start": SessionInfo;
 	"session.stop": null;

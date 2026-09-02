@@ -7,8 +7,10 @@
 //! desk the same way and get the same room.
 
 use crate::contract::{
-    Attachment, ChapterClose, ChapterSummary, ConfigChoice, Credential, SessionInfo, StreamDelta,
+    Attachment, BackendChoice, ChapterClose, ChapterSummary, ConfigChoice, Credential, SessionInfo,
+    StreamDelta,
 };
+use crate::driver::{PI_BACKEND_ID, acp};
 use crate::log::Log;
 use crate::session::{ProviderKeys, Room};
 use crate::vault::Vault;
@@ -124,6 +126,25 @@ impl RoomHandle for Desk {
 
     fn credential_delete(&self, id: &str) -> Result<(), String> {
         self.vault.delete(id).map_err(|error| error.to_string())
+    }
+
+    /// Toad Agent first, then whatever the ACP catalogue and the PATH say.
+    async fn backends(&self) -> Vec<BackendChoice> {
+        let mut choices = vec![BackendChoice {
+            id: PI_BACKEND_ID.to_string(),
+            name: "Toad Agent".to_string(),
+            description: "Built in: runs on the desk's provider keys.".to_string(),
+            unavailable: None,
+        }];
+        for backend in acp::registry::backends(self.log.root()).await {
+            choices.push(BackendChoice {
+                id: backend.id,
+                name: backend.name,
+                description: backend.description,
+                unavailable: backend.unavailable,
+            });
+        }
+        choices
     }
 
     fn credentials(&self) -> Vec<Credential> {

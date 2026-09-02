@@ -174,9 +174,10 @@ The clock that fires these is [sessions.md](sessions.md).
 
 ## Startup settle
 
-Opening the room folds every living teammate's tape before anything is
-served from it. A permission card left open by the last process is a
-button nobody is behind, so it is superseded with `decision: "expired"`;
+Opening the room folds every living teammate's tape, and every thread
+beside it, before anything is served from either. A permission card left
+open by the last process is a button nobody is behind, so it is
+superseded with `decision: "expired"`;
 a `human_action` card still `pending` is the same fact and is superseded
 with `status: "expired"`. Then the tape is compacted and the search index
 is synced, because the fold just rewrote files and a tape written by the

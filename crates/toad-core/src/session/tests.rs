@@ -1794,3 +1794,41 @@ async fn a_teammate_with_no_id_does_not_stop_the_room_opening() {
     assert!(room.persona("ada").is_ok());
     assert!(room.persona("").is_err());
 }
+
+/// A permission raised inside a peer turn lives on the thread and nowhere
+/// else, and no seat is shown one. A card that outlived the process that
+/// received it is a button nobody is behind, on a stream nothing else
+/// revisits.
+#[tokio::test]
+async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
+    let log = scratch("thread-settle");
+    enrol(&log, &persona("ada"));
+    let key = crate::paths::thread_key("ada", "bob").expect("a key for the pair");
+    crate::log::thread::ensure(log.root(), &key).unwrap();
+    log.append(
+        &StreamId::Thread(key.clone()),
+        &json!({
+            "kind": "permission",
+            "id": "perm:req-1",
+            "ts": 1000,
+            "requestId": "req-1",
+            "title": "read a file",
+            "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"}],
+        }),
+    )
+    .unwrap();
+
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(Vec::new())),
+    );
+    let card = room
+        .log
+        .load(&StreamId::Thread(key))
+        .into_iter()
+        .find(|event| event["kind"] == "permission")
+        .expect("the card is still on the thread");
+    assert_eq!(card["decision"], "expired");
+    assert_eq!(card["id"], "perm:req-1");
+}

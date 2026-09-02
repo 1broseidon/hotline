@@ -50,7 +50,7 @@ use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
 use crate::driver::rig::{InProcess, Said, models};
 use crate::driver::{Driver, MessageKind, PI_BACKEND_ID, Update, clip};
-use crate::log::{Log, StreamId};
+use crate::log::{Log, StreamId, thread};
 use crate::mcp;
 use crate::mcp::server::TeammateTools;
 use crate::room;
@@ -379,25 +379,35 @@ impl Room {
     /// anything is served from them.
     ///
     /// A permission or human-action card left open by the last process is a
-    /// button nobody is behind, so it is expired and the tape compacted; then
-    /// the index is synced, because the fold just rewrote files and a tape
-    /// written by the importer or the previous Toad has never been indexed
-    /// here at all.
+    /// button nobody is behind, so it is expired and the stream compacted;
+    /// then the index is synced, because the fold just rewrote files and a
+    /// tape written by the importer or the previous Toad has never been
+    /// indexed here at all.
+    ///
+    /// Threads are settled with the tapes. A card raised inside a peer turn is
+    /// written to the thread and nowhere else, and the resolver behind it only
+    /// ever existed in the process that received the request — so a thread
+    /// left unfolded draws a live button forever, on a stream nothing else
+    /// revisits.
     fn settle_tapes(&self) {
         let now = now_ms();
         let teammates: Vec<String> = room::roster(&self.log)
             .into_iter()
             .map(|persona| persona.id)
             .collect();
-        for persona_id in &teammates {
-            let stream = StreamId::Tape(persona_id.clone());
+        let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
+            thread::list_all_keys(self.log.root())
+                .into_iter()
+                .map(StreamId::Thread),
+        );
+        for stream in streams {
             for expired in crate::log::expire_orphaned_permissions(&self.log.load(&stream), now) {
                 if let Err(error) = self.log.append(&stream, &expired) {
-                    eprintln!("could not expire a card on {persona_id}'s tape: {error}");
+                    eprintln!("could not expire a card left open by the last process: {error}");
                 }
             }
             if let Err(error) = self.log.compact(&stream) {
-                eprintln!("could not compact {persona_id}'s tape: {error}");
+                eprintln!("could not compact a stream the startup fold rewrote: {error}");
             }
         }
         if let Some(indexer) = lock(&self.indexer).as_mut()

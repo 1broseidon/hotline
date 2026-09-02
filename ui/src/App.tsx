@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ConfigChoice } from "./generated/contract";
+import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
 import { useTape } from "./tape";
 import { wire, type Connection, type RosterEntry } from "./wire";
 import { ChatHeader } from "./components/ChatHeader";
@@ -76,6 +77,16 @@ export function App() {
 	useEffect(() => {
 		if (sheet === "teammate" && selected === null) setSheet(null);
 	}, [sheet, selected]);
+
+	useEffect(() => {
+		noticeRoster(roster);
+	}, [roster]);
+
+	useEffect(() => {
+		setWindowTitle(selected?.persona.name ?? null);
+	}, [selected]);
+
+	useEffect(() => watchNotificationClicks(), []);
 
 	// Opening a teammate is Ctrl+1 through Ctrl+9, in the rail's own order; the
 	// rail says so on each row, because a shortcut nobody can see is no

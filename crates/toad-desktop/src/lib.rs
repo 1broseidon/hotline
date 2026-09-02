@@ -3,7 +3,8 @@
 //! There is no child process. The core is a library; this binds its door on
 //! a loopback port, hands the page the port and a token before it loads, and
 //! opens a window on it. Everything the window does from then on is the
-//! wire's business.
+//! wire's business. Plugins remember the window's place and post toasts; the
+//! judgement for either lives in the page, not here.
 
 use rand::RngCore;
 use std::sync::Arc;
@@ -51,6 +52,8 @@ pub fn run() {
     let script = format!("window.__toadDesk = {desk};");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Toad")

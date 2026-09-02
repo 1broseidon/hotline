@@ -9,7 +9,8 @@ Those rules live in `crates/toad-core/src/session/`. A driver in
 turns each update into one tape event, in the shapes the previous Toad wrote,
 and offers the line to the search index. What was said is on the tape
 **before** the driver sees it, so a turn that fails cannot lose the message
-that started it.
+that started it. Toad Agent's live history keeps the user's line on failure
+too, the same as on cancel, so a retry still has the question.
 
 The wire that starts, prompts and stops a session is [wire.md](wire.md). The
 tape those events land on is [log.md](log.md).
@@ -345,8 +346,10 @@ the process. Deleting a teammate forgets it.
 Toad Agent's built-ins and Toad's own tools are verified: they were
 handed to the agent in this process. MCP tools are verified when the server
 listed them, and absent — with the error as the reason — when it did not. A
-policy id that no longer names a server is absent with one sentence, the
-same on either driver.
+server whose env has a value that is not a string is absent, naming the
+offending key; starting it without that variable is worse than not starting
+it. A policy id that no longer names a server is absent with one sentence,
+the same on either driver.
 
 A child is handed descriptors and does not report what it loaded, so its
 honest state is declared: Toad's own tools as named tools, each granted

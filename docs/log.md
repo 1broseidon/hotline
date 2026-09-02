@@ -90,6 +90,9 @@ sidecar. No sidecar, no invented one.
 teammate later, and the fact of each credential. One file, no epochs. The
 folds are `room::roster`, `room::settings` and `room::schedules` in
 `crates/toad-core/src/room.rs`; the vault writes the credential events.
+`kind` is the first key on every line this tree writes, because that is
+the field a fold discriminates on and the one a reader of the raw file
+looks for first.
 
 A setting nobody has set is the default: `defaultBackendId` is `"pi"`
 (Toad Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
@@ -189,11 +192,13 @@ chapter sweep and the scheduler's clock start on the same open; those are
 
 `<root>/vault/secrets.json` is a JSON map from credential id to secret.
 On Unix the directory is `0700` and the file is `0600`, written through a
-temporary file and a rename so no reader ever sees half of one. Opening
-the vault creates nothing; the layout is a write-time obligation. A
-symlink where the directory or the file should be is refused rather than
-followed. On Windows, making the directory private is not built, and a
-write is refused rather than pretending.
+temporary file, an fsync of those bytes, a rename, and an fsync of the
+directory so the rename is durable. A write that fails removes its
+temporary. Permissions are set on the directory's fd, not through a path
+that could be a symlink. Opening the vault creates nothing; the layout is
+a write-time obligation. A symlink where the directory or the file should
+be is refused rather than followed. On Windows, making the directory
+private is not built, and a write is refused rather than pretending.
 
 Create writes the secret first, then the room event. Delete takes the
 secret first, then the tombstone. `list` is the room's metadata in

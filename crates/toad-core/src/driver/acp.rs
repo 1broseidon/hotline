@@ -1904,6 +1904,7 @@ mod tests {
                         args: vec!["--mcp".to_string()],
                         env: HashMap::from([("TOKEN".to_string(), "shh".to_string())]),
                     },
+                    refuse: None,
                 },
                 McpServer {
                     id: "remote".to_string(),
@@ -1912,6 +1913,7 @@ mod tests {
                         url: "https://example.test/mcp".to_string(),
                         auth: crate::mcp::HttpAuth::None,
                     },
+                    refuse: None,
                 },
                 McpServer {
                     id: "locked".to_string(),
@@ -1920,6 +1922,7 @@ mod tests {
                         url: "https://example.test/oauth".to_string(),
                         auth: crate::mcp::HttpAuth::Oauth,
                     },
+                    refuse: None,
                 },
             ],
             vec!["deleted".to_string()],

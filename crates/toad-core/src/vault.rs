@@ -3,7 +3,8 @@
 //!
 //! A secret is never an event. `<root>/vault/secrets.json` is a JSON map from
 //! credential id to secret — a `0600` file in a `0700` directory, written
-//! through a temporary file and a rename so no reader ever sees half of one —
+//! through a temporary file, a rename, and an fsync of the directory so no
+//! reader ever sees half of one and a crash cannot lose the rename —
 //! and the room stream carries only the metadata: which provider, what the
 //! user called it, whether it is revoked. That is why `list` and
 //! `provider_keys` are two different questions. The room knows a credential
@@ -225,13 +226,13 @@ impl Vault {
         // `create_new` then refuses the race instead of following it.
         let temporary = directory.join(format!("secrets.json.{}.tmp", std::process::id()));
         let _ = fs::remove_file(&temporary);
-        let mut file = create_private_file(&temporary)?;
         let text = serde_json::to_string_pretty(secrets).map_err(io::Error::other)?;
-        file.write_all(format!("{text}\n").as_bytes())?;
-        // The rename is only atomic over bytes that reached the disk.
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&temporary, self.secrets_path())
+        persist_renamed(
+            &temporary,
+            &self.secrets_path(),
+            &directory,
+            format!("{text}\n").as_bytes(),
+        )
     }
 }
 
@@ -239,13 +240,50 @@ impl Vault {
 /// stream does, and the rest is the credential exactly as the contract spells
 /// it.
 fn event(credential: &Credential) -> Value {
-    let Ok(Value::Object(fields)) = serde_json::to_value(credential) else {
-        unreachable!("a credential is a struct of strings, bools and numbers");
-    };
-    let mut event = serde_json::Map::new();
-    event.insert("kind".to_string(), Value::from("credential"));
-    event.extend(fields);
-    Value::Object(event)
+    crate::room::room_event(
+        "credential",
+        serde_json::to_value(credential)
+            .expect("a credential is a struct of strings, bools and numbers"),
+    )
+}
+
+/// Bytes onto a temporary, fsync, rename, fsync the directory. A failure
+/// removes the temporary so a later write is not stepping over a half-written
+/// file this process still names.
+fn persist_renamed(
+    temporary: &Path,
+    dest: &Path,
+    directory: &Path,
+    contents: &[u8],
+) -> io::Result<()> {
+    let result = (|| {
+        let mut file = create_private_file(temporary)?;
+        file.write_all(contents)?;
+        // The rename is only atomic over bytes that reached the disk.
+        file.sync_all()?;
+        drop(file);
+        fs::rename(temporary, dest)?;
+        // The rename is a directory entry. Fsync of the file is not fsync of
+        // that entry; without this, a crash can lose the key we just wrote.
+        sync_directory(directory)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
+}
+
+fn sync_directory(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        open_directory(path)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 
 fn now_ms() -> i64 {
@@ -265,7 +303,19 @@ fn make_private_directory(path: &Path) -> io::Result<()> {
         .recursive(true)
         .mode(0o700)
         .create(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+    // chmod on the path follows a symlink. The fd does not, so a vault/
+    // swapped for a link cannot have its target's mode changed through us.
+    open_directory(path)?.set_permissions(fs::Permissions::from_mode(0o700))
+}
+
+/// Opens a directory without following a symlink at the last component.
+#[cfg(unix)]
+fn open_directory(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
 }
 
 /// Windows has no mode bits, so the ACL is the boundary: the directory's
@@ -498,6 +548,57 @@ mod tests {
 
         vault.delete(&second.id).unwrap();
         assert_eq!(ids(&vault), vec![first.id, third.id]);
+    }
+
+    #[test]
+    fn a_failed_write_does_not_leave_its_temporary_behind() {
+        let root = scratch("failed-write");
+        let directory = root.join("vault");
+        fs::create_dir_all(&directory).unwrap();
+        let dest = directory.join("secrets.json");
+        // A directory where the file should land makes the rename fail after
+        // the temporary has been created, which is the error path a test can
+        // see: the temporary must not still be there.
+        fs::create_dir(&dest).unwrap();
+        let temporary = directory.join(format!("secrets.json.{}.tmp", std::process::id()));
+        let err = persist_renamed(&temporary, &dest, &directory, b"{}\n");
+        assert!(err.is_err(), "rename onto a directory should fail");
+        assert!(
+            !temporary.exists(),
+            "the temporary was left behind after a failed write"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn setting_the_directory_private_does_not_follow_a_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = scratch("chmod-symlink");
+        let target = root.join("elsewhere");
+        fs::create_dir_all(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        let vault_dir = root.join("vault");
+        std::os::unix::fs::symlink(&target, &vault_dir).unwrap();
+
+        assert!(make_private_directory(&vault_dir).is_err());
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o755,
+            "chmod followed the symlink and changed the target"
+        );
+    }
+
+    #[test]
+    fn a_credential_line_starts_with_kind() {
+        let vault = vault("kind-leads");
+        vault.create("openai", "personal", "sk-oai").unwrap();
+        let line = room(&vault);
+        let line = line.trim();
+        assert!(
+            line.starts_with("{\"kind\":\"credential\""),
+            "kind was not the leading key: {line}"
+        );
     }
 
     #[test]

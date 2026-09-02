@@ -37,6 +37,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::{Ipv4Addr, TcpListener as StdTcpListener};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc};
@@ -226,12 +227,25 @@ impl Door {
         self.port
     }
 
-    /// Serves sockets until the listener fails. Runs on a tokio runtime.
+    /// Serves sockets until the listener itself is gone. A transient accept
+    /// error — a client that hung up before the handshake, a brief shortage
+    /// of file descriptors, an interrupted call — is waited out, because
+    /// returning here kills the wire for the life of the process.
     pub async fn run(self) -> io::Result<()> {
         let listener = TcpListener::from_std(self.listener)?;
         let desk_token = Arc::new(self.desk_token);
         loop {
-            let (stream, _) = listener.accept().await?;
+            let stream = match listener.accept().await {
+                Ok((stream, _)) => stream,
+                Err(error) => match accept_again(&error) {
+                    Some(AcceptAgain::AfterPause) => {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        continue;
+                    }
+                    Some(AcceptAgain::Now) => continue,
+                    None => return Err(error),
+                },
+            };
             let desk_token = desk_token.clone();
             let log = self.log.clone();
             let room = self.room.clone();
@@ -241,6 +255,30 @@ impl Door {
                 }
             });
         }
+    }
+}
+
+/// Whether an accept error is something to wait out, and whether to pause
+/// first so a process that has run out of file descriptors is not a spin.
+/// `None` means the listener itself is gone.
+#[derive(Debug, PartialEq, Eq)]
+enum AcceptAgain {
+    Now,
+    AfterPause,
+}
+
+fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
+    #[cfg(unix)]
+    {
+        match error.raw_os_error() {
+            Some(libc::ECONNABORTED) | Some(libc::EINTR) => return Some(AcceptAgain::Now),
+            Some(libc::EMFILE) | Some(libc::ENFILE) => return Some(AcceptAgain::AfterPause),
+            _ => {}
+        }
+    }
+    match error.kind() {
+        io::ErrorKind::ConnectionAborted | io::ErrorKind::Interrupted => Some(AcceptAgain::Now),
+        _ => None,
     }
 }
 
@@ -352,14 +390,24 @@ async fn answer(
     };
 
     if frame.get("cmd").is_some() {
-        let result = match read_command(&frame) {
+        match read_command(&frame) {
             Ok(command) if !seat.permits(&command) => {
-                Err("That seat may not run this command.".to_string())
+                reply(
+                    sender,
+                    id,
+                    Err("That seat may not run this command.".to_string()),
+                );
             }
-            Ok(command) => commands::run(command, log, room).await,
-            Err(error) => Err(error),
-        };
-        reply(sender, id, result);
+            Ok(command) => {
+                // `teammate.tools` answers JSON null when there is no ledger,
+                // and that null is a value, not a void — collapsing it would
+                // make a missing ledger look like delete or stop.
+                let keep_null = matches!(command, Command::TeammateTools { .. });
+                let result = commands::run(command, log, room).await;
+                reply_to(sender, id, result, keep_null);
+            }
+            Err(error) => reply(sender, id, Err(error)),
+        }
         return;
     }
     if let Some(target) = frame.get("sub") {
@@ -407,8 +455,17 @@ fn read_command(frame: &Value) -> Result<Command, String> {
 }
 
 fn reply(sender: &mpsc::UnboundedSender<String>, id: i64, result: Result<Value, String>) {
+    reply_to(sender, id, result, false);
+}
+
+fn reply_to(
+    sender: &mpsc::UnboundedSender<String>,
+    id: i64,
+    result: Result<Value, String>,
+    keep_null: bool,
+) {
     let frame = match result {
-        Ok(Value::Null) => json!({ "id": id, "ok": true }),
+        Ok(Value::Null) if !keep_null => json!({ "id": id, "ok": true }),
         Ok(result) => json!({ "id": id, "ok": true, "result": result }),
         Err(error) => json!({ "id": id, "ok": false, "error": error }),
     };
@@ -436,6 +493,11 @@ fn subscribe(
     if !seat.permits_sub(&target) {
         return Err("That seat may not subscribe to that.".to_string());
     }
+    // A task that ended on its own — the stream closed, the socket's writer
+    // went away — still occupies this map unless we notice. Reusing the id
+    // would otherwise be "already open" for a subscription that will never
+    // deliver.
+    subscriptions.retain(|_, handle| !handle.is_finished());
     if subscriptions.contains_key(&id) {
         return Err(format!("Subscription {id} is already open."));
     }

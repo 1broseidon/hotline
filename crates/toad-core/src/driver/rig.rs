@@ -381,24 +381,37 @@ struct Turn {
 
 impl Turn {
     async fn run(&self, sender: &mpsc::Sender<Update>, text: String) -> Result<(), String> {
-        let workspace =
-            Workspace::open(self.cwd.clone(), self.reach).map_err(|error| error.to_string())?;
-        let outcomes = ToolOutcomes::new(self.output_dir.clone());
-        let agent = agent_builder(&self.keys, &self.model)?
-            .preamble(&self.preamble)
-            .tool(ListDirectory::new(workspace.clone()))
-            .tool(ReadFile::new(workspace.clone()))
-            .tool(SearchFiles::new(workspace.clone()))
-            .tool(FindFiles::new(workspace.clone()))
-            .tool(WriteFile::new(workspace.clone()))
-            .tool(EditFile::new(workspace.clone()))
-            .tool(RunCommand::new(workspace))
-            .dynamic_tools(self.mcp_tools.clone())
-            .add_hook(outcomes.clone())
-            .default_max_turns(MAX_TURNS)
-            .build();
-
+        // Taken first so a failure after we have the prompt still keeps the
+        // line: cancel already did, and a retry without the question reaches
+        // the model as a stranger.
         let mut history = self.history.lock().await;
+        let workspace = match Workspace::open(self.cwd.clone(), self.reach) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                remember_prompt(&mut history, &text);
+                return Err(error.to_string());
+            }
+        };
+        let outcomes = ToolOutcomes::new(self.output_dir.clone());
+        let agent = match agent_builder(&self.keys, &self.model) {
+            Ok(builder) => builder
+                .preamble(&self.preamble)
+                .tool(ListDirectory::new(workspace.clone()))
+                .tool(ReadFile::new(workspace.clone()))
+                .tool(SearchFiles::new(workspace.clone()))
+                .tool(FindFiles::new(workspace.clone()))
+                .tool(WriteFile::new(workspace.clone()))
+                .tool(EditFile::new(workspace.clone()))
+                .tool(RunCommand::new(workspace))
+                .dynamic_tools(self.mcp_tools.clone())
+                .add_hook(outcomes.clone())
+                .default_max_turns(MAX_TURNS)
+                .build(),
+            Err(error) => {
+                remember_prompt(&mut history, &text);
+                return Err(error);
+            }
+        };
         let mut stream = agent
             .stream_chat(text.as_str(), history.clone())
             .max_turns(MAX_TURNS)
@@ -419,7 +432,14 @@ impl Turn {
                 item = stream.next() => item,
             };
             let Some(item) = item else { break };
-            match item.map_err(|error| error.to_string())? {
+            let item = match item {
+                Ok(item) => item,
+                Err(error) => {
+                    remember_prompt(&mut history, &text);
+                    return Err(error.to_string());
+                }
+            };
+            match item {
                 MultiTurnStreamItem::StreamAssistantItem(content) => match content {
                     StreamedAssistantContent::Text(chunk) => {
                         chunk_into(sender, &mut open, MessageKind::Agent, &chunk.text).await;
@@ -512,10 +532,17 @@ impl Turn {
         }
         flush(sender, &mut open).await;
         if !ended {
+            remember_prompt(&mut history, &text);
             return Err("the model ended the turn without a response".to_string());
         }
         Ok(())
     }
+}
+
+/// A failed turn still owes the model the question that started it, so a
+/// retry is a continuation rather than a stranger asking something new.
+fn remember_prompt(history: &mut Vec<Message>, text: &str) {
+    history.push(Message::user(text));
 }
 
 /// Which tool calls failed, by the id the stream will name them with, and the
@@ -939,5 +966,39 @@ mod tests {
             .await
             .expect("the turn was never told to stop")
             .unwrap();
+    }
+
+    /// A scripted failure (a provider this agent does not speak) used to
+    /// drop the user's line, so the next turn reached the model with no
+    /// record of the question. Cancel already kept it.
+    #[tokio::test]
+    async fn a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question() {
+        let root = std::env::temp_dir().join(format!(
+            "toad-core-rig-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let history = Arc::new(AsyncMutex::new(Vec::new()));
+        let turn = Turn {
+            keys: HashMap::new(),
+            model: "nope/none".to_string(),
+            preamble: "you are Ada".to_string(),
+            cwd: root.clone(),
+            reach: Reach::Workspace,
+            history: history.clone(),
+            stop: Arc::new(Stop::default()),
+            output_dir: root.join("out"),
+            mcp_tools: Vec::new(),
+        };
+        let (sender, _receiver) = mpsc::channel(8);
+        let result = turn.run(&sender, "did the crane jam?".to_string()).await;
+        assert!(result.is_err(), "{result:?}");
+        let held = history.lock().await;
+        assert_eq!(*held, vec![Message::user("did the crane jam?")]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

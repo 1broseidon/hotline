@@ -179,6 +179,7 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
             args: Vec::new(),
             env: Default::default(),
         },
+        refuse: None,
     }])
     .await;
     assert_eq!(connected.failed.len(), 0, "{:?}", connected.failed);
@@ -358,5 +359,62 @@ async fn teammate_tools_is_null_before_a_session_has_started() {
         .call("teammate.tools", json!({ "personaId": persona_id }))
         .await;
     assert_eq!(tools["ok"], true, "{tools}");
-    assert!(tools.get("result").is_none() || tools["result"].is_null());
+    let fields = tools.as_object().expect("an answer is an object");
+    assert!(
+        fields.contains_key("result"),
+        "teammate.tools with no ledger omitted result: {tools}"
+    );
+    assert_eq!(fields.get("result"), Some(&Value::Null));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_non_string_env_value_is_absent_naming_the_key() {
+    let (_root, port) = open("env-not-string").await;
+    let mut client = Client::connect(port).await;
+    keyed(&mut client).await;
+
+    client
+        .call(
+            "settings.update",
+            json!({ "patch": { "mcpServers": [{
+                "id": "needs-token",
+                "type": "stdio",
+                "name": "Needs token",
+                "command": echo_command(),
+                "args": [],
+                "env": { "API_TOKEN": 1 },
+            }] } }),
+        )
+        .await;
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "goal": "Notice the token." } }),
+        )
+        .await;
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+
+    let tools = client
+        .call("teammate.tools", json!({ "personaId": persona_id }))
+        .await;
+    let rows = tools["result"]["rows"].as_array().unwrap();
+    let gone = rows
+        .iter()
+        .find(|row| row["origin"] == "needs-token")
+        .expect("the refused server is on the ledger");
+    assert_eq!(gone["source"], "mcp");
+    assert_eq!(gone["state"], "absent");
+    assert!(
+        gone["reason"].as_str().unwrap().contains("API_TOKEN"),
+        "{}",
+        gone["reason"]
+    );
+    assert!(
+        rows.iter().all(|row| row["name"] != "echo__shout"),
+        "the server started without its token: {rows:?}"
+    );
 }

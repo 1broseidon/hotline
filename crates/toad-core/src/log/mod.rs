@@ -196,6 +196,17 @@ impl Log {
             .subscribe()
     }
 
+    /// Drops every live broadcast. A test of the wire uses this to end a
+    /// subscription without unsubscribing: the task sees a closed channel and
+    /// returns, and the id must then be free to reuse.
+    #[cfg(test)]
+    pub(crate) fn close_broadcasts(&self) {
+        self.subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+    }
+
     /// After the bytes are on disk, never before: a subscriber that acted on
     /// an event the log then failed to write would be acting on a fact the
     /// next load does not have.

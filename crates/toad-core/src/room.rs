@@ -44,6 +44,25 @@ fn is_deleted(event: &Value) -> bool {
     event.get("deleted").and_then(Value::as_bool) == Some(true)
 }
 
+/// A room event with `kind` as the first key.
+///
+/// serde_json preserves insert order, so putting `kind` on after the body's
+/// fields would leave it last, and a reader of the raw file would not see
+/// the field a fold discriminates on first.
+pub(crate) fn room_event(kind: &str, body: Value) -> Value {
+    let Value::Object(fields) = body else {
+        unreachable!("a room event is an object");
+    };
+    let mut event = serde_json::Map::new();
+    event.insert("kind".into(), Value::from(kind));
+    for (key, value) in fields {
+        if key != "kind" {
+            event.insert(key, value);
+        }
+    }
+    Value::Object(event)
+}
+
 /// The team, in the order its teammates first appeared on the stream.
 ///
 /// An event that does not read as a `Persona` is skipped rather than fatal: a
@@ -128,12 +147,10 @@ pub(crate) fn tombstone_schedule(log: &Log, id: &str) -> Result<(), String> {
 }
 
 fn event_of(job: &ScheduledJob) -> Value {
-    let mut event = serde_json::to_value(job).expect("a job serializes as JSON");
-    event
-        .as_object_mut()
-        .expect("a job serializes as an object")
-        .insert("kind".into(), Value::from("schedule"));
-    event
+    room_event(
+        "schedule",
+        serde_json::to_value(job).expect("a job serializes as JSON"),
+    )
 }
 
 fn job_from_event(event: &Value) -> Option<ScheduledJob> {
@@ -167,12 +184,7 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
 /// whole record every time: a stream folds by id, so a line carrying only what
 /// changed would leave the fold holding only what changed.
 pub(crate) fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
-    let mut event = json!(persona);
-    event
-        .as_object_mut()
-        .expect("a teammate serializes as an object")
-        .insert("kind".into(), Value::from("persona"));
-    log.append(&StreamId::Room, &event)
+    log.append(&StreamId::Room, &room_event("persona", json!(persona)))
         .map(|_| ())
         .map_err(|error| format!("The room's stream could not be written: {error}."))
 }
@@ -446,6 +458,49 @@ mod tests {
 
         let ids: Vec<String> = roster(&log).into_iter().map(|persona| persona.id).collect();
         assert_eq!(ids, ["ada"]);
+    }
+
+    #[test]
+    fn kind_is_the_first_key_on_every_room_event_this_writes() {
+        let log = scratch("kind-leads");
+        append_persona(&log, &persona("ada", "Ada")).unwrap();
+        append_schedule(
+            &log,
+            &job(
+                "job-1",
+                "ada",
+                ScheduleKind::Schedule,
+                "check the crane",
+                false,
+            ),
+        )
+        .unwrap();
+        tombstone_schedule(&log, "job-1").unwrap();
+
+        let raw = std::fs::read_to_string(log.root().join("room.jsonl")).unwrap();
+        let lines: Vec<&str> = raw.lines().collect();
+        assert_eq!(lines.len(), 3, "{raw}");
+        for line in &lines {
+            assert!(
+                line.starts_with("{\"kind\":"),
+                "kind was not the leading key: {line}"
+            );
+        }
+        assert!(
+            lines[0].starts_with("{\"kind\":\"persona\""),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[1].starts_with("{\"kind\":\"schedule\""),
+            "{}",
+            lines[1]
+        );
+        assert!(
+            lines[2].starts_with("{\"kind\":\"schedule\""),
+            "{}",
+            lines[2]
+        );
     }
 
     #[test]

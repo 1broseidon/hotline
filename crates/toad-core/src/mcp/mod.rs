@@ -10,7 +10,9 @@
 //! recorded on the ledger so it is not silent.
 //!
 //! A half-written entry in settings costs that one server, never every
-//! teammate's tools. OAuth and static-header HTTP are a later task: those
+//! teammate's tools. A server whose env has a value that is not a string is
+//! refused, with the key named on the ledger, rather than started without
+//! that variable. OAuth and static-header HTTP are a later task: those
 //! servers are refused with a sentence saying why, not connected with a
 //! dead credential.
 //!
@@ -45,6 +47,10 @@ pub struct McpServer {
     pub id: String,
     pub name: String,
     pub transport: McpTransport,
+    /// Why this server must not be started. A non-string env value is the
+    /// case we have: starting the process without that variable is worse
+    /// than not starting it, so the ledger names the key instead.
+    pub refuse: Option<String>,
 }
 
 /// How Toad reaches a server. Auth that this build cannot honour still
@@ -201,6 +207,9 @@ pub fn missing_reason(id: &str) -> String {
 /// `session/new` for a child, and neither can honour a credential this build
 /// does not keep.
 pub fn unsupported(server: &McpServer) -> Option<String> {
+    if let Some(reason) = &server.refuse {
+        return Some(reason.clone());
+    }
     match &server.transport {
         McpTransport::Http {
             auth: HttpAuth::Static { .. },
@@ -332,7 +341,9 @@ fn normalize_server(value: &Value) -> Option<Value> {
         .collect();
     let mut server =
         json!({ "id": id, "type": "stdio", "name": name, "command": command, "args": args });
-    if let Some(env) = string_map(candidate.get("env")) {
+    // Keep env even when a value is not a string, so parse can name the
+    // offending key rather than starting the server without it.
+    if let Some(env) = candidate.get("env").and_then(Value::as_object) {
         server
             .as_object_mut()
             .expect("just built as an object")
@@ -457,23 +468,53 @@ fn parse_server(value: &Value) -> Option<McpServer> {
                 .filter_map(Value::as_str)
                 .map(str::to_string)
                 .collect();
-            let env = string_map(object.get("env"))
-                .map(|env| {
-                    env.iter()
-                        .filter_map(|(key, value)| {
-                            value.as_str().map(|value| (key.clone(), value.to_string()))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            McpTransport::Stdio { command, args, env }
+            let (env, refuse) = stdio_env(object.get("env"));
+            return Some(McpServer {
+                id,
+                name,
+                transport: McpTransport::Stdio { command, args, env },
+                refuse,
+            });
         }
     };
     Some(McpServer {
         id,
         name,
         transport,
+        refuse: None,
     })
+}
+
+/// Env values have to be strings: a number in the map used to drop the whole
+/// env, which starts the server without the token that number was standing
+/// in for.
+fn stdio_env(value: Option<&Value>) -> (HashMap<String, String>, Option<String>) {
+    let Some(value) = value else {
+        return (HashMap::new(), None);
+    };
+    let Some(object) = value.as_object() else {
+        return (
+            HashMap::new(),
+            Some("env is not a map of strings; the server was not started.".to_string()),
+        );
+    };
+    let mut env = HashMap::new();
+    for (key, value) in object {
+        match value.as_str() {
+            Some(text) => {
+                env.insert(key.clone(), text.to_string());
+            }
+            None => {
+                return (
+                    HashMap::new(),
+                    Some(format!(
+                        "The env value for {key} is not a string; the server was not started."
+                    )),
+                );
+            }
+        }
+    }
+    (env, None)
 }
 
 fn string_map(value: Option<&Value>) -> Option<&Map<String, Value>> {
@@ -595,6 +636,7 @@ mod tests {
                 args: Vec::new(),
                 env: HashMap::new(),
             },
+            refuse: None,
         }];
         let granted = grant(
             &available,
@@ -617,6 +659,7 @@ mod tests {
                 args: Vec::new(),
                 env: HashMap::new(),
             },
+            refuse: None,
         }];
         let granted = grant(
             &available,
@@ -674,6 +717,7 @@ mod tests {
                 url: "https://example.test".into(),
                 auth: HttpAuth::Oauth,
             },
+            refuse: None,
         };
         let static_header = McpServer {
             id: "static".into(),
@@ -684,12 +728,60 @@ mod tests {
                     header_names: vec!["Authorization".into()],
                 },
             },
+            refuse: None,
         };
         let connected = connect(&[oauth, static_header]).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 2);
         assert!(connected.failed[0].reason.contains("OAuth"));
         assert!(connected.failed[1].reason.contains("Static-header"));
+    }
+
+    #[test]
+    fn a_non_string_env_value_refuses_the_server_and_names_the_key() {
+        let mut settings = Map::new();
+        settings.insert(
+            "mcpServers".into(),
+            json!([{
+                "id": "needs-token",
+                "type": "stdio",
+                "name": "Needs token",
+                "command": "/bin/true",
+                "env": { "API_TOKEN": 1, "OTHER": "ok" },
+            }]),
+        );
+        let listed = servers(&settings);
+        assert_eq!(listed.len(), 1);
+        let reason = unsupported(&listed[0]).expect("the server should be refused");
+        assert!(
+            reason.contains("API_TOKEN"),
+            "the refusal did not name the key: {reason}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_string_env_value_is_an_absent_row_not_a_started_server() {
+        let mut settings = Map::new();
+        settings.insert(
+            "mcpServers".into(),
+            json!([{
+                "id": "needs-token",
+                "type": "stdio",
+                "name": "Needs token",
+                "command": "/bin/true",
+                "env": { "API_TOKEN": 1 },
+            }]),
+        );
+        let listed = servers(&settings);
+        let connected = connect(&listed).await;
+        assert!(connected.tools.is_empty());
+        assert_eq!(connected.failed.len(), 1);
+        assert_eq!(connected.failed[0].id, "needs-token");
+        assert!(
+            connected.failed[0].reason.contains("API_TOKEN"),
+            "{}",
+            connected.failed[0].reason
+        );
     }
 
     #[tokio::test]
@@ -709,6 +801,7 @@ mod tests {
                 args: Vec::new(),
                 env: HashMap::new(),
             },
+            refuse: None,
         };
         let connected = connect(&[missing]).await;
         assert!(connected.tools.is_empty());

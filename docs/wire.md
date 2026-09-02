@@ -31,8 +31,10 @@ answered exactly once with success, or with an error:
 A command whose result is JSON `null` — delete, stop, prompt, cancel,
 revoke, `session.answer_permission`, `human.answer`, `schedule.cancel`,
 `schedule.set_quiet`, and a successful unsubscribe — is answered
-`{"id": n, "ok": true}` with no `result` field. Absent `params` and
-`"params": {}` are the same thing.
+`{"id": n, "ok": true}` with no `result` field. `teammate.tools` is not
+on that list: when there is no ledger it is answered
+`{"id": n, "ok": true, "result": null}`, because that null is a value,
+not a void. Absent `params` and `"params": {}` are the same thing.
 
 A subscription:
 
@@ -166,8 +168,9 @@ skipped: [{item, reason}]}`.
 
 `teammate.tools` is what tools this teammate was given the last time it
 started, where they came from, and — for anything absent — why. JSON `null`
-when it has never started under a Toad that keeps a ledger. The ledger
-itself is [sessions.md](sessions.md).
+when it has never started under a Toad that keeps a ledger, sent as
+`result: null` rather than by omitting the field. The ledger itself is
+[sessions.md](sessions.md).
 
 `schedule.create`'s `kind` is `"schedule"` (once) or `"loop"` (every
 interval until cancelled). Times are milliseconds: `when` is a one-shot's
@@ -210,7 +213,10 @@ A view row that goes away:
 ```
 
 Opening the same subscription id twice is `"Subscription n is already
-open."` Unsubscribing an id that is not open is `"Subscription n is not
+open."` A subscription whose task has ended — the stream closed, with no
+unsubscribe — frees the id, so a client that reuses the number is not
+told it is already open for a subscription that will never deliver.
+Unsubscribing an id that is not open is `"Subscription n is not
 open."`
 
 ## The roster view

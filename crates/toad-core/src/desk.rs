@@ -25,9 +25,23 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
 
-impl ProviderKeys for Vault {
+/// The vault's keys and the room's model filter, as one seam.
+///
+/// The driver builds `SessionInfo.models` from [`ProviderKeys`] alone and
+/// has no log. Reading the setting here, each time, is how a saved filter
+/// is in force on the next turn without a restart.
+struct DeskCredentials {
+    vault: Arc<Vault>,
+    log: Log,
+}
+
+impl ProviderKeys for DeskCredentials {
     fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
-        Vault::provider_auth(self)
+        Vault::provider_auth(&self.vault)
+    }
+
+    fn enabled_models(&self) -> HashMap<String, Vec<String>> {
+        crate::models::enabled_models(&crate::room::settings(&self.log))
     }
 }
 
@@ -52,7 +66,11 @@ impl Desk {
     pub fn open(root: &Path) -> io::Result<Desk> {
         let log = Log::open(root);
         let vault = Arc::new(Vault::open(root, log.clone())?);
-        let room = Room::new(log.clone(), vault.clone());
+        let keys = Arc::new(DeskCredentials {
+            vault: vault.clone(),
+            log: log.clone(),
+        });
+        let room = Room::new(log.clone(), keys);
         Ok(Desk {
             log,
             room,
@@ -342,6 +360,21 @@ impl RoomHandle for Desk {
 
     fn models(&self) -> Vec<ConfigChoice> {
         self.room.models_for_desk()
+    }
+
+    fn models_catalog(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+        if crate::models::wiring(provider_id).is_none() {
+            return Err(format!(
+                "{provider_id} is not a provider Toad Agent can use."
+            ));
+        }
+        Ok(crate::models::catalog_models(
+            provider_id,
+            &crate::models::enabled_models(&crate::room::settings(&self.log)),
+        ))
     }
 
     fn import(&self, from: &Path) -> Result<crate::import::Report, String> {

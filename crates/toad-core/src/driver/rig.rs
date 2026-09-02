@@ -170,7 +170,7 @@ impl InProcess {
         let model = lock(&self.model).clone();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
-            models: models::choices(keys),
+            models: models::choices(keys, &self.keys.enabled_models()),
             model_label: models::label_of(&model),
             current_model_id: model,
             ..DriverInfo::default()
@@ -184,7 +184,7 @@ impl Driver for InProcess {
         let keys = self.keys.provider_auth();
         let model = match &persona.model_id {
             Some(id) if keys.contains_key(id.split('/').next().unwrap_or("")) => id.clone(),
-            _ => models::choices(&keys)
+            _ => models::choices(&keys, &self.keys.enabled_models())
                 .first()
                 .map(|model| model.id.clone())
                 .ok_or_else(|| {

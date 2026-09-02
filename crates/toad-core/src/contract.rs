@@ -630,6 +630,21 @@ pub struct ConfigChoice {
     pub group: Option<String>,
 }
 
+/// One model in a provider's catalogue, as the filter panel lists them.
+///
+/// `id` is the catalogue key (bare, so OpenRouter keeps its own slash).
+/// `enabled` is the room's `enabledModels` filter: every model is enabled
+/// when that provider is absent from the setting.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CatalogModel {
+    pub id: String,
+    pub name: String,
+    pub release_date: String,
+    pub enabled: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct SlashCommand {
@@ -1344,6 +1359,12 @@ pub enum Command {
     /// always sends params spells it — reads the same as no params at all.
     #[serde(rename = "models.list")]
     ModelsList {},
+    /// Every model the catalogue lists for one provider, flagged by the
+    /// room's `enabledModels` filter. An unwired provider is an error. The
+    /// list does not depend on a credential being held: a filter is about
+    /// the catalogue.
+    #[serde(rename = "models.catalog")]
+    ModelsCatalog { provider_id: String },
     #[serde(rename = "session.start")]
     SessionStart { persona_id: String },
     #[serde(rename = "session.stop")]

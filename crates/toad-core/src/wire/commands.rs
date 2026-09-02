@@ -46,6 +46,9 @@ pub(crate) async fn run(
         Command::BackendsList {} => Ok(json!(room.backends().await)),
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),
+        Command::ModelsCatalog { provider_id } => room
+            .models_catalog(&provider_id)
+            .map(|models| json!(models)),
 
         Command::SessionStart { persona_id } => {
             room.start(&persona_id).await.map(|info| json!(info))

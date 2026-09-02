@@ -246,6 +246,56 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
     assert_eq!(removed["removed"], persona_id);
 }
 
+/// The catalogue is listed whether or not a credential is held, and a saved
+/// filter flags it. The fake room cannot see settings, so this is the desk.
+#[tokio::test(flavor = "multi_thread")]
+async fn models_catalog_flags_a_saved_filter_and_refuses_an_unwired_provider() {
+    let (_root, port) = open("models-catalog").await;
+    let mut client = Client::connect(port).await;
+
+    let nope = client
+        .call("models.catalog", json!({ "providerId": "nope" }))
+        .await;
+    assert_eq!(nope["ok"], false, "{nope}");
+    assert_eq!(
+        nope["error"].as_str(),
+        Some("nope is not a provider Toad Agent can use.")
+    );
+
+    let listed = client
+        .call("models.catalog", json!({ "providerId": "anthropic" }))
+        .await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    let models = listed["result"].as_array().expect("a catalogue is a list");
+    assert!(!models.is_empty());
+    assert!(
+        models.iter().all(|model| model["enabled"] == true),
+        "{listed}"
+    );
+    let kept = models[0]["id"].as_str().unwrap().to_string();
+
+    let patched = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "enabledModels": { "anthropic": [kept] } } }),
+        )
+        .await;
+    assert_eq!(patched["ok"], true, "{patched}");
+
+    let filtered = client
+        .call("models.catalog", json!({ "providerId": "anthropic" }))
+        .await;
+    assert_eq!(filtered["ok"], true, "{filtered}");
+    let flagged = filtered["result"].as_array().unwrap();
+    assert_eq!(flagged.len(), models.len());
+    let on: Vec<&str> = flagged
+        .iter()
+        .filter(|model| model["enabled"] == true)
+        .map(|model| model["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(on, [kept.as_str()]);
+}
+
 /// A peer thread, listed and read over the wire.
 ///
 /// The core is the only writer of a stream, so the two teammates and the

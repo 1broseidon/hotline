@@ -27,12 +27,15 @@ use serde_json::{Map, Value, json};
 /// What a setting means before anybody has set it. `pi` is the built-in Toad
 /// Agent, which is what a new teammate runs on, and a chapter closes after
 /// eight hours of quiet — a working day's gap, so yesterday's context does not
-/// follow you into this morning.
+/// follow you into this morning. `enabledModels` is empty: a provider nobody
+/// has filtered shows every model, because a missing filter is not an empty
+/// one.
 fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
     settings.insert("defaultBackendId".into(), Value::from("pi"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
+    settings.insert("enabledModels".into(), json!({}));
     settings
 }
 
@@ -361,6 +364,7 @@ mod tests {
         let log = scratch("settings");
         assert_eq!(settings(&log)["defaultBackendId"], "pi");
         assert_eq!(settings(&log)["chapterIdleHours"], 8);
+        assert_eq!(settings(&log)["enabledModels"], json!({}));
 
         append(&log, &setting("chapterIdleHours", Value::from(2)));
         append(&log, &setting("theme", Value::from("dark")));

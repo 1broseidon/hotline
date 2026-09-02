@@ -16,9 +16,9 @@
 //! catalogue is behaviour: it says what a model is called, costs and can do,
 //! and a release should mean the same thing on every machine that runs it.
 
-use crate::contract::{ConfigChoice, CredentialKind, Provider};
+use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, Provider};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
@@ -61,9 +61,11 @@ pub const CHATGPT_MODELS: &[&str] = &[
     "gpt-5.4",
 ];
 
-/// The providers Toad reaches, in the order the key form and the picker
-/// offer them. The sync keeps exactly these out of the catalogue, so adding
-/// a provider is one line here, a `Client` arm in the driver, and a sync.
+/// The providers Toad reaches, in wired order — which is how the model
+/// picker groups them. The key form sorts by name, because mixing two acts
+/// in wired order is how a login hid among keys. The sync keeps exactly
+/// these out of the catalogue, so adding a provider is one line here, a
+/// `Client` arm in the driver, and a sync.
 pub const WIRING: &[Wiring] = &[
     Wiring {
         id: "anthropic",
@@ -298,29 +300,99 @@ pub fn login_refusal(provider_id: &str) -> Option<String> {
     }
 }
 
+/// The room's `enabledModels` setting, as the picker applies it.
+///
+/// A provider absent from the object shows every model. A present one shows
+/// only the listed ids. A value that is not an object, or an entry that is
+/// not an array of strings, reads as absent — a bad setting costs its own
+/// filter, never the picker.
+pub fn enabled_models(settings: &Map<String, Value>) -> HashMap<String, Vec<String>> {
+    let Some(Value::Object(map)) = settings.get("enabledModels") else {
+        return HashMap::new();
+    };
+    map.iter()
+        .filter_map(|(provider, value)| {
+            let ids: Vec<String> = value
+                .as_array()?
+                .iter()
+                .map(|item| item.as_str().map(str::to_string))
+                .collect::<Option<_>>()?;
+            Some((provider.clone(), ids))
+        })
+        .collect()
+}
+
+/// Whether this provider's filter lets this catalogue id through. Absent
+/// from the map means every model; present means only the listed ids.
+fn model_offered(
+    enabled: &HashMap<String, Vec<String>>,
+    provider_id: &str,
+    model_id: &str,
+) -> bool {
+    enabled
+        .get(provider_id)
+        .is_none_or(|list| list.iter().any(|wanted| wanted == model_id))
+}
+
+/// The models of one catalogue provider, newest first.
+fn newest_first(entry: &ProviderEntry) -> Vec<(&String, &Model)> {
+    let mut models: Vec<(&String, &Model)> = entry.models.iter().collect();
+    models.sort_by(|a, b| b.1.release_date.cmp(&a.1.release_date).then(a.0.cmp(b.0)));
+    models
+}
+
 /// The models the given provider credentials unlock, as the picker lists
 /// them: providers in wired order, and within one the newest model first. An
 /// id on the wire is `provider/model`, the shape the room has always stored,
-/// so a teammate's saved choice keeps meaning the same thing. The map's
-/// values are unused; presence is what unlocks a group.
-pub fn choices<T>(keys: &HashMap<String, T>) -> Vec<ConfigChoice> {
+/// so a teammate's saved choice keeps meaning the same thing. The keys map's
+/// values are unused; presence is what unlocks a group. `enabled` is the
+/// saved filter: a provider absent from it shows every model, a present one
+/// only the listed ids. The filter narrows what is offered, never a model
+/// already in use.
+pub fn choices<T>(
+    keys: &HashMap<String, T>,
+    enabled: &HashMap<String, Vec<String>>,
+) -> Vec<ConfigChoice> {
     WIRING
         .iter()
         .filter(|wiring| keys.contains_key(wiring.id))
         .filter_map(|wiring| Some((wiring, catalog().providers.get(wiring.id)?)))
         .flat_map(|(wiring, entry)| {
-            let mut models: Vec<(&String, &Model)> = entry.models.iter().collect();
-            models.sort_by(|a, b| b.1.release_date.cmp(&a.1.release_date).then(a.0.cmp(b.0)));
             let flavor = match wiring.credential_kind {
                 CredentialKind::ApiKey => "API key",
                 CredentialKind::Oauth => "subscription",
             };
-            models.into_iter().map(move |(id, model)| ConfigChoice {
-                id: format!("{}/{id}", wiring.id),
-                name: model.name.clone(),
-                description: Some(wiring.id.to_string()),
-                group: Some(format!("{} — {flavor}", entry.name)),
-            })
+            newest_first(entry)
+                .into_iter()
+                .filter(|(id, _)| model_offered(enabled, wiring.id, id))
+                .map(move |(id, model)| ConfigChoice {
+                    id: format!("{}/{id}", wiring.id),
+                    name: model.name.clone(),
+                    description: Some(wiring.id.to_string()),
+                    group: Some(format!("{} — {flavor}", entry.name)),
+                })
+        })
+        .collect()
+}
+
+/// Every model of this provider in the catalogue, newest first, each flagged
+/// by the saved filter. All `enabled` when the provider is absent from it.
+/// An unwired provider, or one the snapshot has not got, is an empty list;
+/// the wire turns that into an error before it gets here.
+pub fn catalog_models(
+    provider_id: &str,
+    enabled: &HashMap<String, Vec<String>>,
+) -> Vec<CatalogModel> {
+    let Some(entry) = catalog().providers.get(provider_id) else {
+        return Vec::new();
+    };
+    newest_first(entry)
+        .into_iter()
+        .map(|(id, model)| CatalogModel {
+            id: id.clone(),
+            name: model.name.clone(),
+            release_date: model.release_date.clone(),
+            enabled: model_offered(enabled, provider_id, id),
         })
         .collect()
 }
@@ -452,9 +524,10 @@ mod tests {
     #[test]
     fn choices_follow_the_keys_the_desk_holds_newest_first() {
         let mut keys = HashMap::new();
-        assert!(choices(&keys).is_empty());
+        let none = HashMap::new();
+        assert!(choices(&keys, &none).is_empty());
         keys.insert("anthropic".to_string(), "k".to_string());
-        let listed = choices(&keys);
+        let listed = choices(&keys, &none);
         assert!(
             listed
                 .iter()
@@ -479,6 +552,78 @@ mod tests {
         );
         assert_eq!(label_of("anthropic/nope"), None);
         assert_eq!(label_of("bare"), None);
+    }
+
+    #[test]
+    fn enabled_models_reads_an_object_of_string_arrays_and_ignores_the_rest() {
+        let mut settings = Map::new();
+        assert!(enabled_models(&settings).is_empty());
+
+        settings.insert("enabledModels".into(), json!("nope"));
+        assert!(enabled_models(&settings).is_empty());
+
+        settings.insert(
+            "enabledModels".into(),
+            json!({
+                "openrouter": ["anthropic/claude-opus-5", "openai/gpt-5"],
+                "anthropic": [1, "claude"],
+                "openai": "not-an-array",
+                "xai": ["grok-4"],
+            }),
+        );
+        let got = enabled_models(&settings);
+        assert_eq!(
+            got.get("openrouter"),
+            Some(&vec![
+                "anthropic/claude-opus-5".to_string(),
+                "openai/gpt-5".to_string()
+            ])
+        );
+        assert!(!got.contains_key("anthropic"));
+        assert!(!got.contains_key("openai"));
+        assert_eq!(got.get("xai"), Some(&vec!["grok-4".to_string()]));
+    }
+
+    #[test]
+    fn choices_omit_a_model_the_filter_did_not_list() {
+        let mut keys = HashMap::new();
+        keys.insert("anthropic".to_string(), "k");
+        let none = HashMap::new();
+        let all = choices(&keys, &none);
+        assert!(all.len() > 1, "anthropic must list more than one model");
+
+        let kept = all[0].id.trim_start_matches("anthropic/").to_string();
+        let mut filter = HashMap::new();
+        filter.insert("anthropic".to_string(), vec![kept.clone()]);
+        let listed = choices(&keys, &filter);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, format!("anthropic/{kept}"));
+
+        filter.insert("openai".to_string(), vec!["nope".to_string()]);
+        assert_eq!(choices(&keys, &filter).len(), 1);
+    }
+
+    #[test]
+    fn catalog_models_are_newest_first_and_a_filter_flags_them() {
+        let none = HashMap::new();
+        let all = catalog_models("anthropic", &none);
+        assert!(!all.is_empty());
+        assert!(all.iter().all(|model| model.enabled));
+        let dates: Vec<&str> = all
+            .iter()
+            .map(|model| model.release_date.as_str())
+            .collect();
+        let mut sorted = dates.clone();
+        sorted.sort_by(|a, b| b.cmp(a));
+        assert_eq!(dates, sorted);
+
+        let mut filter = HashMap::new();
+        filter.insert("anthropic".to_string(), vec![all[0].id.clone()]);
+        let flagged = catalog_models("anthropic", &filter);
+        assert_eq!(flagged.len(), all.len());
+        assert!(flagged[0].enabled);
+        assert!(flagged.iter().skip(1).all(|model| !model.enabled));
+        assert!(catalog_models("nope", &none).is_empty());
     }
 
     #[test]
@@ -519,7 +664,7 @@ mod tests {
     fn an_oauth_providers_models_are_labelled_as_a_subscription() {
         let mut keys = HashMap::new();
         keys.insert("openai-codex".to_string(), "ignored");
-        let listed = choices(&keys);
+        let listed = choices(&keys, &HashMap::new());
         assert!(
             listed
                 .iter()

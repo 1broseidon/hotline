@@ -211,6 +211,18 @@ impl RoomHandle for Quiet {
         Vec::new()
     }
 
+    fn models_catalog(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+        if crate::models::wiring(provider_id).is_none() {
+            return Err(format!(
+                "{provider_id} is not a provider Toad Agent can use."
+            ));
+        }
+        Ok(crate::models::catalog_models(provider_id, &HashMap::new()))
+    }
+
     fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
         Ok(crate::import::Report::default())
     }
@@ -798,6 +810,9 @@ async fn a_tape_subscription_for_a_teammate_with_no_id_snapshots_nothing() {
 #[test]
 fn the_desk_seat_may_do_everything_the_room_can_do() {
     assert!(Seat::Desk.permits(&Command::ModelsList {}));
+    assert!(Seat::Desk.permits(&Command::ModelsCatalog {
+        provider_id: "anthropic".to_string()
+    }));
     assert!(Seat::Desk.permits(&Command::PersonaDelete {
         id: "ada".to_string()
     }));
@@ -934,4 +949,42 @@ async fn an_unknown_login_id_is_an_error() {
     let refused = answered(&mut socket, 1).await;
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(refused["error"].as_str(), Some("There is no login nobody."));
+}
+
+#[tokio::test]
+async fn models_catalog_lists_a_wired_provider_and_refuses_an_unwired_one() {
+    let (_root, _log, port) = door("models-catalog");
+    let mut socket = desk(port).await;
+
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "models.catalog", "params": { "providerId": "nope" } }),
+    )
+    .await;
+    let refused = answered(&mut socket, 1).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        refused["error"].as_str(),
+        Some("nope is not a provider Toad Agent can use.")
+    );
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "models.catalog", "params": { "providerId": "anthropic" } }),
+    )
+    .await;
+    let listed = answered(&mut socket, 2).await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    let models = listed["result"].as_array().expect("a catalogue is a list");
+    assert!(!models.is_empty());
+    assert!(
+        models.iter().all(|model| model["enabled"] == true),
+        "{listed}"
+    );
+    assert!(
+        models
+            .iter()
+            .all(|model| model["id"].as_str().is_some_and(|id| !id.is_empty())),
+        "{listed}"
+    );
 }

@@ -147,6 +147,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Every model the desk's keys can reach, for the model picker.
     fn models(&self) -> Vec<crate::contract::ConfigChoice>;
 
+    /// Every model the catalogue lists for this provider, flagged by the
+    /// saved filter. An unwired provider is an error; a credential is not
+    /// required, because a filter is about the catalogue.
+    fn models_catalog(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String>;
+
     /// Copies an existing Toad data directory into this room. The source is
     /// never written.
     fn import(&self, from: &std::path::Path) -> Result<crate::import::Report, String>;

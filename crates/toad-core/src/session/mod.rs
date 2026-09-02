@@ -112,9 +112,18 @@ pub enum ProviderAuth {
 ///
 /// The room never holds a secret: it asks at the start of every turn, so a
 /// key or login added on the desk is in force on the next one and nothing
-/// keeps a stale copy. The vault implements this; a test hands over a map.
+/// keeps a stale copy. The desk implements this from the vault and the room
+/// log; a test hands over a map.
 pub trait ProviderKeys: Send + Sync {
     fn provider_auth(&self) -> HashMap<String, ProviderAuth>;
+
+    /// The models each provider may offer in the picker. An empty map shows
+    /// every model: a missing filter is not an empty one. The desk reads it
+    /// from the room log each time, so a saved filter is in force on the
+    /// next turn without a restart. Test doubles leave it empty.
+    fn enabled_models(&self) -> HashMap<String, Vec<String>> {
+        HashMap::new()
+    }
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a
@@ -1024,7 +1033,7 @@ impl Room {
 
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
-        crate::models::choices(&self.keys.provider_auth())
+        crate::models::choices(&self.keys.provider_auth(), &self.keys.enabled_models())
     }
 
     /// What tools this teammate was given the last time it started. `None`
@@ -1337,7 +1346,7 @@ impl Room {
             .clone()
             .filter(|id| keys.contains_key(id.split('/').next().unwrap_or_default()))
             .or_else(|| {
-                crate::models::choices(&keys)
+                crate::models::choices(&keys, &self.keys.enabled_models())
                     .first()
                     .map(|model| model.id.clone())
             })

@@ -9,14 +9,21 @@
 //! and its items emit an event the window handles. On Linux and Windows
 //! there is no menu bar and no system frame: the page draws the window's
 //! own top strip and controls, so the window is one material to its edge.
+//! Closing the window hides it; the tray is how the person gets it back and
+//! how they actually quit, because the room keeps working either way.
 
 use rand::RngCore;
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
 #[cfg(target_os = "macos")]
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::menu::SubmenuBuilder;
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::TrayIconBuilder;
+#[cfg(not(target_os = "macos"))]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use toad_core::desk::Desk;
 use toad_core::paths::data_root;
 use toad_core::wire::Door;
@@ -117,6 +124,71 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Show, unminimize and focus the main window. The tray's Open, a left click
+/// on Linux and Windows, and a macOS dock reopen of a hidden app all mean
+/// the same thing: the room is still here, bring the window back.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// The tray is how the person gets the window back and how they actually
+/// quit. There is no setting for this: a teammate mid-build that dies
+/// because someone closed a window is the failure this exists to stop.
+fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+    let open = MenuItemBuilder::with_id("open", "Open Toad").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit Toad").build(app)?;
+    let menu = MenuBuilder::new(app)
+        .item(&open)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    #[cfg(target_os = "macos")]
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
+    #[cfg(not(target_os = "macos"))]
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+
+    let tray = TrayIconBuilder::with_id("main")
+        .icon(icon)
+        .tooltip("Toad")
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    #[cfg(target_os = "macos")]
+    let tray = tray.icon_as_template(true);
+    // Linux and Windows: a left click is Open. macOS shows the menu, the
+    // platform's convention. Tauri 2 does not emit tray clicks on Linux, so
+    // the menu is the way back there.
+    #[cfg(not(target_os = "macos"))]
+    let tray = tray
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    tray.build(app)?;
+    Ok(())
+}
+
+/// Size and place, not whether the window is on screen: a hidden window is
+/// not a preference, and the next launch still opens the room.
+fn window_state_flags() -> StateFlags {
+    StateFlags::all() & !StateFlags::VISIBLE
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Opened inside the async runtime because the room it stands up owns
@@ -145,7 +217,11 @@ pub fn run() {
     let script = format!("window.__toadDesk = {injected};");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(window_state_flags())
+                .build(),
+        )
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -173,9 +249,40 @@ pub fn run() {
             // its own and would lose its shadow for the transparency.
             #[cfg(target_os = "linux")]
             let window = window.transparent(true);
-            window.build()?;
+            let window = window.build()?;
+            // The plugin writes size and place to disk on exit, and only
+            // updates its cache on close, so a hide that is not an exit
+            // would lose the last place unless we save now.
+            window.on_window_event({
+                let window = window.clone();
+                move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        let _ = window.app_handle().save_window_state(window_state_flags());
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+            });
+            install_tray(app)?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            {
+                // A dock click of a running app with no visible window is Reopen,
+                // not a new launch; without this the icon bounces and nothing
+                // appears.
+                if let tauri::RunEvent::Reopen {
+                    has_visible_windows: false,
+                    ..
+                } = event
+                {
+                    show_main_window(app);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

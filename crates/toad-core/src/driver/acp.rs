@@ -614,12 +614,15 @@ impl ChildAgent {
             session.info.capabilities = capabilities;
         }
 
+        // Written before the session, because the session is where the child
+        // is handed the endpoint: a child that lists Toad's tools while
+        // `session/new` is still in flight promotes rows that have to exist by
+        // then, and a ledger published afterwards would overwrite what was
+        // watched with "declared". An agent that refused to initialize was
+        // given nothing and still gets no ledger at all.
+        self.publish_ledger(persona, serving);
         self.open_session(&connection, persona, capabilities)
             .await?;
-        // Written once the session it describes exists: an agent that refused
-        // to start was given nothing, and a ledger saying otherwise is exactly
-        // the lie this ledger is for.
-        self.publish_ledger(persona, serving);
         self.adopt_disposition(persona).await;
         Ok(lock(&self.live.session).info.clone())
     }
@@ -2171,6 +2174,115 @@ mod tests {
             !driver.answer_permission(&request_id, "once"),
             "a card the turn left behind was still answerable after the turn ended"
         );
+    }
+
+    /// An ACP agent that lists Toad's own tools while `session/new` is still in
+    /// flight, which is the earliest a child can: the endpoint and its token
+    /// are in the request it is answering.
+    fn agent_that_lists_toads_tools_during_session_new(
+        listed: Arc<Mutex<usize>>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("eager")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_info(Implementation::new("eager", "1")),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: NewSessionRequest,
+                          responder: Responder<NewSessionResponse>,
+                          _cx| {
+                        let listed = listed.clone();
+                        async move {
+                            let toad = request
+                                .mcp_servers
+                                .iter()
+                                .find_map(|server| match server {
+                                    acp::McpServer::Http(http)
+                                        if http.name == mcp::server::SERVER_NAME =>
+                                    {
+                                        Some(http.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .expect("Toad names its own endpoint in session/new");
+                            let token = toad.headers[0]
+                                .value
+                                .strip_prefix("Bearer ")
+                                .expect("a bearer token")
+                                .to_string();
+                            let client = rmcp::model::ClientInfo::new(
+                                Default::default(),
+                                rmcp::model::Implementation::new("eager", "1"),
+                            )
+                            .serve(
+                                rmcp::transport::streamable_http_client::StreamableHttpClientTransport::with_client(
+                                    reqwest::Client::default(),
+                                    rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(toad.url.clone())
+                                        .auth_header(token),
+                                ),
+                            )
+                            .await
+                            .expect("the endpoint is open before the session is");
+                            *listed.lock().unwrap() =
+                                client.list_all_tools().await.expect("tools listed").len();
+                            client.cancel().await.ok();
+                            responder.respond(NewSessionResponse::new(SessionId::new("eager")))
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the eager agent ended: {error}");
+            }
+        }
+    }
+
+    /// A child that takes Toad's tools during `session/new` is a child Toad
+    /// watched take them.
+    ///
+    /// The endpoint is handed over inside that request, so the ledger has to
+    /// exist before it is sent. Published afterwards, the promotion the
+    /// listing makes lands on nothing, and the rows read `declared` for a
+    /// session whose agent was seen listing them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tools_listed_during_session_new_are_verified_on_the_ledger() {
+        let held = room("eager-room");
+        let listed = Arc::new(Mutex::new(0usize));
+        let agent = agent_that_lists_toads_tools_during_session_new(listed.clone());
+        let driver = ChildAgent::new(
+            scratch("eager"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "eager"),
+        );
+        tokio::spawn(agent);
+
+        let mut ada = persona("/tmp", Vec::new());
+        ada.id = "eager".to_string();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+
+        assert_eq!(*listed.lock().unwrap(), mcp::server::TOOL_NAMES.len());
+        let rows = crate::session::ledger::teammate_tools("eager")
+            .expect("the ledger exists before the session does")
+            .rows;
+        for tool in mcp::server::TOOL_NAMES {
+            let row = rows
+                .iter()
+                .find(|row| row.name == tool)
+                .unwrap_or_else(|| panic!("{tool} is on the ledger: {rows:?}"));
+            assert_eq!(row.state, ToolState::Verified, "{row:?}");
+        }
     }
 
     /// Toad rewrites only the file it wrote. A hand-written AGENTS.md — even

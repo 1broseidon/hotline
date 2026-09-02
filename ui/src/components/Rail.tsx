@@ -18,12 +18,15 @@ const VITAL: Record<SessionState, { color: string; beating: boolean; label: stri
 export function Rail({
 	entries,
 	selectedId,
+	seen,
 	onSelect,
 	onNew,
 	onSettings,
 }: {
 	entries: RosterEntry[];
 	selectedId: string | null;
+	/** The latest ts the window has already shown for each teammate. */
+	seen: Record<string, number>;
 	onSelect(personaId: string): void;
 	onNew(): void;
 	onSettings(): void;
@@ -67,6 +70,7 @@ export function Rail({
 							entry={entry}
 							shortcut={index < 9 ? index + 1 : null}
 							active={entry.persona.id === selectedId}
+							unread={unreadOf(entry, selectedId, seen)}
 							onSelect={() => onSelect(entry.persona.id)}
 						/>
 					))
@@ -80,19 +84,23 @@ function Row({
 	entry,
 	shortcut,
 	active,
+	unread,
 	onSelect,
 }: {
 	entry: RosterEntry;
 	shortcut: number | null;
 	active: boolean;
+	unread: boolean;
 	onSelect(): void;
 }) {
 	const vital = VITAL[entry.session.state];
-	const { preview } = entry;
+	const { preview, activity } = entry;
+	const working = entry.session.state === "thinking" && activity;
 	return (
 		<button
 			type="button"
 			aria-current={active ? "true" : undefined}
+			aria-label={unread ? `${entry.persona.name}, unread` : undefined}
 			onClick={onSelect}
 			className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left ${
 				active ? "bg-paper-4" : "hover:bg-paper-3"
@@ -108,7 +116,16 @@ function Row({
 
 			<span className="min-w-0 flex-1">
 				<span className="flex items-center gap-1.5">
-					<span className={`truncate font-medium ${active ? "text-ink" : "text-ink-2"}`}>
+					{/* Bold, not a second dot: the row already has a vital, and a
+					    mark next to it would shout. A heavier name is enough to
+					    notice without counting. */}
+					<span
+						className={`truncate ${
+							unread
+								? "font-semibold text-ink"
+								: `font-medium ${active ? "text-ink" : "text-ink-2"}`
+						}`}
+					>
 						{entry.persona.name}
 					</span>
 					<span
@@ -119,7 +136,11 @@ function Row({
 					<span className="sr-only">{vital.label}</span>
 				</span>
 				<span className="block truncate text-xs text-ink-3">
-					{preview ? `${preview.from === "me" ? "you: " : ""}${oneLine(preview.text)}` : vital.label}
+					{working
+						? activity
+						: preview
+							? `${preview.from === "me" ? "you: " : ""}${oneLine(preview.text)}`
+							: vital.label}
 				</span>
 			</span>
 
@@ -130,6 +151,19 @@ function Row({
 			)}
 		</button>
 	);
+}
+
+/** Off-screen, and the tape has a line newer than the last one this window showed. */
+function unreadOf(
+	entry: RosterEntry,
+	selectedId: string | null,
+	seen: Record<string, number>,
+): boolean {
+	if (entry.persona.id === selectedId) return false;
+	const latest = entry.latest;
+	if (latest == null) return false;
+	const shown = seen[entry.persona.id];
+	return shown == null || latest > shown;
 }
 
 /**

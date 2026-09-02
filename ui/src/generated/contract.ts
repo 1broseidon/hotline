@@ -346,7 +346,17 @@ export type RosterEntry = { persona: Persona,
 /**
  * Absent for a teammate that has never spoken.
  */
-preview?: Preview, session: SessionInfo, };
+preview?: Preview, 
+/**
+ * The preview's `at`, kept beside it so the window can count unread
+ * without opening every tape.
+ */
+latest?: number, 
+/**
+ * The title of the tool still running on this tape, only while the
+ * session is thinking. Absent, not null, when there is none.
+ */
+activity?: string, session: SessionInfo, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.

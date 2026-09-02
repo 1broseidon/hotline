@@ -24,7 +24,10 @@
 //! the append a command makes IS its answer and a client that creates a
 //! teammate and then subscribes must see it.
 
-use crate::contract::{Command, RosterEntry, SessionInfo, StreamDelta, Target, ViewName};
+use crate::contract::{
+    Command, Preview, RosterEntry, SessionInfo, SessionState, StreamDelta, Target, ToolStatus,
+    TranscriptEvent, ViewName,
+};
 use crate::log::{Log, StreamId};
 use crate::store::previews;
 use async_trait::async_trait;
@@ -475,12 +478,51 @@ fn send(sender: &mpsc::UnboundedSender<String>, frame: Value) -> bool {
 /// One roster row, joined out of the room stream, the tape's tail and the
 /// live session.
 fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract::Persona) -> Value {
-    let preview = previews::preview(log.root(), &persona.id)
+    let preview: Option<Preview> = previews::preview(log.root(), &persona.id)
         .and_then(|preview| serde_json::from_value(preview).ok());
+    let latest = preview.as_ref().map(|preview| preview.at);
     let session = room.info(&persona.id);
     json!(RosterEntry {
+        activity: activity_on(log, &persona.id, &session),
         session,
         preview,
+        latest,
         persona,
     })
+}
+
+/// The title of the tool still running on this tape, if the session is
+/// thinking.
+///
+/// Read from the tape rather than remembered on the view, so a lagged pump
+/// or a second snapshot cannot disagree with what the tape says. A call
+/// that is in progress sets the title; any other status for that call, a
+/// turn ending, or the session leaving thinking clears it.
+fn activity_on(log: &Log, persona_id: &str, session: &SessionInfo) -> Option<String> {
+    if session.state != SessionState::Thinking {
+        return None;
+    }
+    let mut activity: Option<(String, String)> = None;
+    for event in log.load(&StreamId::Tape(persona_id.to_string())) {
+        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event) else {
+            continue;
+        };
+        match event {
+            TranscriptEvent::Tool {
+                tool_call_id,
+                title,
+                status,
+                ..
+            } => {
+                if status == ToolStatus::InProgress {
+                    activity = Some((tool_call_id, title));
+                } else if activity.as_ref().is_some_and(|(id, _)| *id == tool_call_id) {
+                    activity = None;
+                }
+            }
+            TranscriptEvent::Turn { .. } => activity = None,
+            _ => {}
+        }
+    }
+    activity.map(|(_, title)| title)
 }

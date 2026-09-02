@@ -91,8 +91,9 @@ seat. Here the wire is one WebSocket carrying three things:
   marked as such and are never written.
 - **View subscriptions**: a few materialised views the core maintains and
   nobody logs, because they are derived: `roster` (each teammate with its
-  last line, unread count and live session state). A view is a snapshot
-  followed by updates.
+  last line, that line's ts, the live tool title while thinking, and live
+  session state). Unread is the window's: it remembers the latest ts it
+  has shown per teammate. A view is a snapshot followed by updates.
 
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a phone seat may command its own device's things and subscribe

@@ -1,5 +1,5 @@
-//! The roster view: every living teammate with its last line and its
-//! session, kept up to date.
+//! The roster view: every living teammate with its last line, the tool
+//! still running, and its session, kept up to date.
 //!
 //! Nothing logs this. It is a join of three things that change on their own
 //! clocks — the room stream, each teammate's tape, the live sessions — and
@@ -136,9 +136,10 @@ fn row_for(
     send(sender, json!({ "sub": id, "event": row }))
 }
 
-/// Forwards this teammate's id whenever either side says something in its
-/// tape. Only the id: the preview is read from the tape when the row is
-/// rebuilt, so the event itself has nowhere to go.
+/// Forwards this teammate's id whenever the row would change: either side
+/// said something, a tool moved, or a turn ended. Only the id: the preview
+/// and the activity are read from the tape when the row is rebuilt, so the
+/// event itself has nowhere to go.
 fn watch(
     log: &Log,
     persona_id: &str,
@@ -160,7 +161,8 @@ fn watch(
                 event = events.recv() => match event {
                     Ok(event) => {
                         let kind = event.get("kind").and_then(Value::as_str);
-                        if !matches!(kind, Some("user") | Some("agent")) {
+                        if !matches!(kind, Some("user") | Some("agent") | Some("tool") | Some("turn"))
+                        {
                             continue;
                         }
                         if spoke.send(persona_id.clone()).is_err() {

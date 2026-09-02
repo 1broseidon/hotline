@@ -11,7 +11,9 @@ use crate::contract::{
 };
 use crate::{paths, room};
 use serde_json::json;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::{MaybeTlsStream, connect_async};
 
@@ -45,11 +47,19 @@ fn idle(persona_id: &str) -> SessionInfo {
     }
 }
 
-/// A room where nothing is running: every session is idle and the vault
-/// answers with what it was handed. The real one is task-2's and task-4's.
+fn thinking(persona_id: &str) -> SessionInfo {
+    let mut info = idle(persona_id);
+    info.state = SessionState::Thinking;
+    info
+}
+
+/// A room where nothing is running unless a test says otherwise: every
+/// session is idle until `set_info` names one, and the vault answers with
+/// what it was handed.
 struct Quiet {
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
+    states: Mutex<HashMap<String, SessionInfo>>,
 }
 
 impl Quiet {
@@ -57,7 +67,16 @@ impl Quiet {
         Self {
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
+            states: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn set_info(&self, info: SessionInfo) {
+        self.states
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(info.persona_id.clone(), info.clone());
+        let _ = self.infos.send(info);
     }
 }
 
@@ -90,7 +109,12 @@ impl RoomHandle for Quiet {
     }
 
     fn info(&self, persona_id: &str) -> SessionInfo {
-        idle(persona_id)
+        self.states
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(persona_id)
+            .cloned()
+            .unwrap_or_else(|| idle(persona_id))
     }
 
     fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo> {
@@ -322,6 +346,123 @@ async fn a_line_in_a_tape_is_the_rosters_preview_of_that_teammate() {
         row["event"]["preview"],
         json!({ "from": "me", "text": "morning", "at": 5 })
     );
+    assert_eq!(row["event"]["latest"], 5);
+}
+
+#[tokio::test]
+async fn the_rosters_latest_is_the_last_message_ts_and_a_tool_does_not_move_it() {
+    let (_root, log, port) = door("roster-latest");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap().to_string();
+
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({ "kind": "user", "id": "u1", "ts": 5, "text": "morning" }),
+    )
+    .unwrap();
+    let first = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(first["event"]["latest"], 5);
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({
+            "kind": "tool", "id": "t1", "ts": 8, "toolCallId": "c1",
+            "title": "Read main.rs", "status": "in_progress",
+        }),
+    )
+    .unwrap();
+    let tool = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(tool["event"]["latest"], 5);
+    assert!(tool["event"].get("activity").is_none(), "{tool}");
+
+    log.append(
+        &StreamId::Tape(persona_id),
+        &json!({ "kind": "agent", "id": "a1", "ts": 9, "text": "on it" }),
+    )
+    .unwrap();
+    let second = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(second["event"]["latest"], 9);
+}
+
+#[tokio::test]
+async fn a_tool_in_progress_is_the_rosters_activity_while_the_session_is_thinking() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("roster-activity", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap().to_string();
+
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+
+    quiet.set_info(thinking(&persona_id));
+    let thinking_row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(thinking_row["event"]["session"]["state"], "thinking");
+    assert!(
+        thinking_row["event"].get("activity").is_none(),
+        "{thinking_row}"
+    );
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({
+            "kind": "tool", "id": "t1", "ts": 10, "toolCallId": "c1",
+            "title": "Read main.rs", "status": "in_progress",
+        }),
+    )
+    .unwrap();
+    let running = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(running["event"]["activity"], "Read main.rs");
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({
+            "kind": "tool", "id": "t1", "ts": 11, "toolCallId": "c1",
+            "title": "Read main.rs", "status": "completed",
+        }),
+    )
+    .unwrap();
+    let done = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert!(done["event"].get("activity").is_none(), "{done}");
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({
+            "kind": "tool", "id": "t2", "ts": 12, "toolCallId": "c2",
+            "title": "Edit lib.rs", "status": "in_progress",
+        }),
+    )
+    .unwrap();
+    let next = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(next["event"]["activity"], "Edit lib.rs");
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({ "kind": "turn", "id": "tu1", "ts": 13, "stopReason": "end_turn" }),
+    )
+    .unwrap();
+    let ended = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert!(ended["event"].get("activity").is_none(), "{ended}");
+
+    log.append(
+        &StreamId::Tape(persona_id.clone()),
+        &json!({
+            "kind": "tool", "id": "t3", "ts": 14, "toolCallId": "c3",
+            "title": "Run tests", "status": "in_progress",
+        }),
+    )
+    .unwrap();
+    let again = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(again["event"]["activity"], "Run tests");
+
+    quiet.set_info(idle(&persona_id));
+    let idle_row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(idle_row["event"]["session"]["state"], "idle");
+    assert!(idle_row["event"].get("activity").is_none(), "{idle_row}");
 }
 
 #[tokio::test]

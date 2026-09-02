@@ -1169,6 +1169,14 @@ pub struct RosterEntry {
     /// Absent for a teammate that has never spoken.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<Preview>,
+    /// The preview's `at`, kept beside it so the window can count unread
+    /// without opening every tape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest: Option<i64>,
+    /// The title of the tool still running on this tape, only while the
+    /// session is thinking. Absent, not null, when there is none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
     pub session: SessionInfo,
 }
 

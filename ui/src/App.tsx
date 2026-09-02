@@ -16,6 +16,7 @@ type SheetKind = "new-teammate" | "settings" | "teammate" | null;
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
 	const [roster, setRoster] = useState<RosterEntry[]>([]);
+	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [sheet, setSheet] = useState<SheetKind>(null);
@@ -57,6 +58,20 @@ export function App() {
 	}, [connection]);
 
 	const selected = roster.find((one) => one.persona.id === selectedId) ?? null;
+
+	/* Opening a teammate, or sitting on one while a new line lands, is what
+	 * "shown" means. The rail then has a ts to compare against, so it does
+	 * not have to open every tape. */
+	useEffect(() => {
+		if (selectedId === null || selected?.latest == null) return;
+		const latest = selected.latest;
+		setSeen((known) => {
+			if (known[selectedId] === latest) return known;
+			const next = { ...known, [selectedId]: latest };
+			saveSeen(next);
+			return next;
+		});
+	}, [selectedId, selected?.latest]);
 
 	useEffect(() => {
 		if (sheet === "teammate" && selected === null) setSheet(null);
@@ -112,68 +127,71 @@ export function App() {
 	}, [selectedId]);
 
 	return (
-		<div className="relative flex h-full">
-			<Rail
-				entries={roster}
-				selectedId={selectedId}
-				onSelect={setSelectedId}
-				onNew={() => setSheet("new-teammate")}
-				onSettings={() => setSheet("settings")}
-			/>
+		<div className="flex h-full flex-col">
+			{connection !== "open" && (
+				<p role="status" className="border-b border-rule bg-paper-3 px-4 py-1 text-center text-xs text-ink-3">
+					Reconnecting to Toad…
+				</p>
+			)}
+			<div className="relative flex min-h-0 flex-1">
+				<Rail
+					entries={roster}
+					selectedId={selectedId}
+					seen={seen}
+					onSelect={setSelectedId}
+					onNew={() => setSheet("new-teammate")}
+					onSettings={() => setSheet("settings")}
+				/>
 
-			<main className="flex min-w-0 flex-1 flex-col bg-paper">
-				{connection !== "open" && (
-					<p className="bg-paper-3 px-6 py-1 text-center text-xs text-ink-3">
-						{connection === "connecting" ? "Connecting to Toad…" : "Toad is not answering. Retrying…"}
-					</p>
-				)}
-				{selected ? (
-					<Conversation
-						key={selected.persona.id}
-						entry={selected}
-						roster={roster}
+				<main className="flex min-w-0 flex-1 flex-col bg-paper">
+					{selected ? (
+						<Conversation
+							key={selected.persona.id}
+							entry={selected}
+							roster={roster}
+							models={models}
+							searchOpen={searchOpen}
+							focus={focus}
+							onOpenTeammate={() => setSheet("teammate")}
+							onOpenSearch={() => setSearchOpen((open) => !open)}
+							onCloseSearch={() => setSearchOpen(false)}
+							onPick={(personaId, eventId) => {
+								setSearchOpen(false);
+								setSelectedId(personaId);
+								setFocus({ eventId, at: Date.now() });
+							}}
+						/>
+					) : (
+						<div className="flex flex-1 items-center justify-center px-6">
+							<p className="max-w-sm text-center text-ink-3">
+								Pick a teammate on the left, or add one.
+							</p>
+						</div>
+					)}
+				</main>
+
+				{sheet === "new-teammate" && (
+					<NewTeammate
 						models={models}
-						searchOpen={searchOpen}
-						focus={focus}
-						onOpenTeammate={() => setSheet("teammate")}
-						onOpenSearch={() => setSearchOpen((open) => !open)}
-						onCloseSearch={() => setSearchOpen(false)}
-						onPick={(personaId, eventId) => {
-							setSearchOpen(false);
+						onCreated={(personaId) => {
 							setSelectedId(personaId);
-							setFocus({ eventId, at: Date.now() });
+							setSheet(null);
+						}}
+						onClose={() => setSheet(null)}
+					/>
+				)}
+				{sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
+				{sheet === "teammate" && selected && (
+					<Teammate
+						persona={selected.persona}
+						onClose={() => setSheet(null)}
+						onDeleted={() => {
+							setSelectedId(null);
+							setSheet(null);
 						}}
 					/>
-				) : (
-					<div className="flex flex-1 items-center justify-center px-6">
-						<p className="max-w-sm text-center text-ink-3">
-							Pick a teammate on the left, or add one.
-						</p>
-					</div>
 				)}
-			</main>
-
-			{sheet === "new-teammate" && (
-				<NewTeammate
-					models={models}
-					onCreated={(personaId) => {
-						setSelectedId(personaId);
-						setSheet(null);
-					}}
-					onClose={() => setSheet(null)}
-				/>
-			)}
-			{sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
-			{sheet === "teammate" && selected && (
-				<Teammate
-					persona={selected.persona}
-					onClose={() => setSheet(null)}
-					onDeleted={() => {
-						setSelectedId(null);
-						setSheet(null);
-					}}
-				/>
-			)}
+			</div>
 		</div>
 	);
 }
@@ -253,4 +271,32 @@ function Conversation({
 			</div>
 		</>
 	);
+}
+
+/** Where this window last stood in each tape. Private mode or a full disk
+ * just means every teammate looks unread until you open them again. */
+const SEEN_KEY = "toad.rail.seen";
+
+function loadSeen(): Record<string, number> {
+	try {
+		const raw = localStorage.getItem(SEEN_KEY);
+		if (!raw) return {};
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+		const seen: Record<string, number> = {};
+		for (const [id, ts] of Object.entries(parsed)) {
+			if (typeof ts === "number" && Number.isFinite(ts)) seen[id] = ts;
+		}
+		return seen;
+	} catch {
+		return {};
+	}
+}
+
+function saveSeen(seen: Record<string, number>): void {
+	try {
+		localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+	} catch {
+		// Quota, private mode — the next load treats everything as unread.
+	}
 }

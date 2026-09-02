@@ -5,13 +5,15 @@ import type {
 	GlobalSearchHit,
 	Persona,
 	PersonaDraft,
-	Preview,
 	Reach,
+	RosterEntry,
 	SessionInfo,
 	StreamDelta,
 	ThreadSearchHit,
 	TranscriptEvent,
 } from "./generated/contract";
+
+export type { RosterEntry };
 
 /**
  * The window's one way of speaking to the core.
@@ -26,12 +28,6 @@ import type {
 // ---------------------------------------------------------------------------
 // The shapes the core has not exported yet
 // ---------------------------------------------------------------------------
-
-/**
- * One teammate as the roster view carries it: who they are, the last thing
- * either side said, and what their session is doing right now.
- */
-export type RosterEntry = { persona: Persona; preview: Preview | null; session: SessionInfo };
 
 /** `search.thread`'s answer: what matched, and whether the index stopped early. */
 export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };

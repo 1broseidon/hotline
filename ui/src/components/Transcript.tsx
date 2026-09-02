@@ -316,9 +316,12 @@ function Row({
 		case "peer":
 			return (
 				<p className="rule-line rule-line-plain">
-					With {event.seat === "client" ? `${event.withName} (outside the room)` : event.withName}
-					<span className="text-ink-4">·</span>
-					{event.role} · {event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`} · {event.status}
+					{[
+						`With ${event.seat === "client" ? `${event.withName} (outside the room)` : event.withName}`,
+						event.role,
+						event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`,
+						event.status,
+					].join(" · ")}
 				</p>
 			);
 

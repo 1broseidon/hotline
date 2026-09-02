@@ -198,7 +198,7 @@ export function Teammate({
 						onChange={(mcpPolicy) => save({ mcpPolicy })}
 					/>
 
-					<ToolLedger personaId={persona.id} />
+					<ToolLedger personaId={persona.id} servers={servers} />
 
 					<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
 
@@ -319,7 +319,7 @@ function McpGrant({
  * the outcome of the last start, read once when the pane opens because a
  * ledger is a fact of that start, not a live feed.
  */
-function ToolLedger({ personaId }: { personaId: string }) {
+function ToolLedger({ personaId, servers }: { personaId: string; servers: McpServer[] }) {
 	const [ledger, setLedger] = useState<TeammateToolLedger | null | undefined>(undefined);
 
 	useEffect(() => {
@@ -349,7 +349,9 @@ function ToolLedger({ personaId }: { personaId: string }) {
 				<div className="grouped">
 					{groupedByOrigin(ledger.rows).map(([origin, rows]) => (
 						<div key={origin}>
-							<p className="border-b border-line bg-hover px-3 py-1 font-mono text-xs text-ink-3">{origin}</p>
+							<p className="border-b border-line bg-hover px-3 py-1 text-xs text-ink-3" title={origin}>
+								{originName(origin, servers)}
+							</p>
 							{rows.map((row) => (
 								<div key={`${row.source}-${row.origin}-${row.name}`} className="group-row items-start gap-2 py-2">
 									<span className="mt-px shrink-0" title={row.state}>
@@ -380,6 +382,12 @@ function ToolLedger({ personaId }: { personaId: string }) {
 			)}
 		</section>
 	);
+}
+
+/** The supplier as a person knows it: Toad Agent, or the server's name from Settings → Tools. */
+function originName(origin: string, servers: McpServer[]): string {
+	if (origin === "pi") return "Toad Agent";
+	return servers.find((server) => server.id === origin)?.name ?? origin;
 }
 
 function groupedByOrigin(rows: ToolLedgerRow[]): [string, ToolLedgerRow[]][] {

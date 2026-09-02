@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 /// The vault over one data root.
 ///
@@ -30,6 +31,13 @@ use std::path::{Path, PathBuf};
 pub struct Vault {
     root: PathBuf,
     log: Log,
+    /// The one writer of `secrets.json`. Create and delete are each a read of
+    /// the whole map, one entry changed, and the whole map written back, so
+    /// two of them at once — two sockets, or a socket and a teammate's tool —
+    /// would each write a map that never saw the other's key. It is also what
+    /// makes the temporary file safe to name after the process: inside this
+    /// process only one write is ever using it.
+    writer: Mutex<()>,
 }
 
 impl Vault {
@@ -44,6 +52,7 @@ impl Vault {
         let vault = Vault {
             root: root.into(),
             log,
+            writer: Mutex::new(()),
         };
         vault.check_layout()?;
         Ok(vault)
@@ -66,6 +75,7 @@ impl Vault {
             created_at: now,
             updated_at: now,
         };
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let mut secrets = self.read_secrets()?;
         secrets.insert(credential.id.clone(), secret.to_string());
         self.write_secrets(&secrets)?;
@@ -91,6 +101,7 @@ impl Vault {
     /// the stream. Secret first, so a crash between them cannot leave a usable
     /// key behind a row that says it is gone.
     pub fn delete(&self, id: &str) -> io::Result<()> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let credential = self.find(id)?;
         let mut secrets = self.read_secrets()?;
         if secrets.remove(&credential.id).is_some() {
@@ -316,6 +327,39 @@ mod tests {
 
     fn secrets(vault: &Vault) -> String {
         fs::read_to_string(vault.secrets_path()).unwrap()
+    }
+
+    /// A credential is a read of the whole map, one entry added, and the map
+    /// written back. Two of those at once used to keep whichever finished
+    /// last: the other's row was on the room stream with no secret behind it,
+    /// which reads to `provider_keys` as a key the user never sees again.
+    #[test]
+    fn every_credential_written_at_once_keeps_its_secret() {
+        let vault = vault("concurrent-create");
+        std::thread::scope(|scope| {
+            for writer in 0..8 {
+                let vault = &vault;
+                scope.spawn(move || {
+                    vault
+                        .create(
+                            &format!("provider-{writer}"),
+                            "personal",
+                            &format!("key-{writer}"),
+                        )
+                        .unwrap();
+                });
+            }
+        });
+
+        let keys = vault.provider_keys();
+        assert_eq!(keys.len(), 8, "{keys:?}");
+        for writer in 0..8 {
+            assert_eq!(
+                keys.get(&format!("provider-{writer}")).map(String::as_str),
+                Some(format!("key-{writer}").as_str())
+            );
+        }
+        assert_eq!(ids(&vault).len(), 8);
     }
 
     #[cfg(unix)]

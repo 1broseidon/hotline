@@ -202,8 +202,7 @@ until Phase 1 replaces it.
   with quiet runs, attachments, notifications, the phone seat with pairing
   and push. Exit: the phone joins the room.
 - **Later, each when it earns its place**: the fleet as stream shipping,
-  the computer, the client seat, subscription logins, updater and signing,
-  sandboxed commands for workspace reach.
+  the computer, the client seat, subscription logins, updater and signing.
 
 ## Not in scope
 

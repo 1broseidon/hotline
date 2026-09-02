@@ -98,9 +98,20 @@ On each turn it is given:
 
 | kind | what | how |
 | --- | --- | --- |
-| workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit`, `shell` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
+| workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
+| shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. Workspace reach may read the machine but may only write the working directory and a private `/tmp`. Network stays on: agents install things. The wall is kept per OS, or the tool is not offered. |
 | Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
+
+A shell that cannot see `/usr`, the toolchains under the home directory, or
+the package caches cannot build anything, which is why those reads are
+allowed when the file tools refuse them. Workspace reach for `shell`:
+
+| OS | workspace reach |
+| --- | --- |
+| Linux | `bwrap` is the parent of `sh`: the root is read-only, the working directory is bound on top, `/tmp` is a private tmpfs. Missing `bwrap`, or a `bwrap` that cannot create a sandbox, omits the tool and the ledger says why. Ubuntu 24.04's AppArmor restriction on unprivileged user namespaces is the usual reason a present `bwrap` still cannot sandbox. |
+| macOS | `sandbox-exec` with a Seatbelt profile that allows everything and denies `file-write*` except under the working directory, `/tmp`, `/private/tmp`, `/dev`, and `$TMPDIR`. Built, unproven on a Mac until George runs it. `sandbox-exec` is deprecated by Apple and still ships. |
+| Windows | no confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
 
 A granted stdio server is spawned in its own process group on Unix, so a
 launcher like `npx` does not leave the real server behind when the session

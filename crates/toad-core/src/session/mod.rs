@@ -133,26 +133,12 @@ pub trait ProviderKeys: Send + Sync {
         None
     }
 
-    /// The model ids a subscription login can run, when the vault has
-    /// written them beside it. `None` is the whole catalogue. Test doubles
-    /// leave it absent.
-    fn account_models(&self, provider_id: &str) -> Option<Vec<String>> {
-        let _ = provider_id;
-        None
+    /// The model ids each subscription login can run, when the vault has
+    /// written them beside it. A provider absent from the map offers its
+    /// whole catalogue. Test doubles leave it empty.
+    fn account_models(&self) -> HashMap<String, Vec<String>> {
+        HashMap::new()
     }
-}
-
-pub(crate) fn account_lists(
-    keys: &dyn ProviderKeys,
-    providers: impl IntoIterator<Item = impl AsRef<str>>,
-) -> HashMap<String, Vec<String>> {
-    providers
-        .into_iter()
-        .filter_map(|id| {
-            let id = id.as_ref();
-            keys.account_models(id).map(|list| (id.to_string(), list))
-        })
-        .collect()
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a
@@ -1087,11 +1073,10 @@ impl Room {
 
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
-        let auth = self.keys.provider_auth();
         crate::models::choices(
-            &auth,
+            &self.keys.provider_auth(),
             &self.keys.enabled_models(),
-            &account_lists(self.keys.as_ref(), auth.keys()),
+            &self.keys.account_models(),
         )
     }
 
@@ -1408,7 +1393,7 @@ impl Room {
                 crate::models::choices(
                     &keys,
                     &self.keys.enabled_models(),
-                    &account_lists(self.keys.as_ref(), keys.keys()),
+                    &self.keys.account_models(),
                 )
                 .first()
                 .map(|model| model.id.clone())

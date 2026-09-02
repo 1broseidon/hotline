@@ -30,7 +30,7 @@ use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
 use crate::models::{self, Client};
 use crate::session::ledger::ToolLedger;
-use crate::session::{self, ProviderAuth, ProviderKeys};
+use crate::session::{ProviderAuth, ProviderKeys};
 use crate::tools::{
     self, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace,
     WriteFile,
@@ -180,7 +180,7 @@ impl InProcess {
             models: models::choices(
                 keys,
                 &self.keys.enabled_models(),
-                &session::account_lists(self.keys.as_ref(), keys.keys()),
+                &self.keys.account_models(),
             ),
             model_label: models::label_of(&model),
             current_model_id: model.clone(),
@@ -197,7 +197,7 @@ impl Driver for InProcess {
         let choices = models::choices(
             &keys,
             &self.keys.enabled_models(),
-            &session::account_lists(self.keys.as_ref(), keys.keys()),
+            &self.keys.account_models(),
         );
         let preferred = self.keys.preferred_model();
         let model = model_for(

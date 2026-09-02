@@ -50,8 +50,8 @@ impl ProviderKeys for DeskCredentials {
         crate::models::preferred_model(&crate::room::settings(&self.log))
     }
 
-    fn account_models(&self, provider_id: &str) -> Option<Vec<String>> {
-        self.vault.account_models(provider_id)
+    fn account_models(&self) -> HashMap<String, Vec<String>> {
+        self.vault.account_models()
     }
 }
 
@@ -302,22 +302,15 @@ impl RoomHandle for Desk {
                 let log_for_task = self.log.clone();
                 let token_dir_for_task = token_dir.clone();
                 tokio::spawn(async move {
-                    record_login(
+                    let recorded = record_login(
                         vault,
-                        logins.clone(),
-                        id_for_task.clone(),
+                        logins,
+                        id_for_task,
                         provider_for_task,
                         label_for_task,
                         client.authorize().await.map_err(|error| error.to_string()),
                     );
-                    let succeeded = matches!(
-                        logins
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .get(&id_for_task),
-                        Some(LoginOutcome::Done(_))
-                    );
-                    if succeeded {
+                    if recorded {
                         store_copilot_account_models(&token_dir_for_task, &log_for_task).await;
                     }
                 })
@@ -409,7 +402,10 @@ impl RoomHandle for Desk {
         Ok(crate::models::catalog_models(
             provider_id,
             &crate::models::enabled_models(&crate::room::settings(&self.log)),
-            self.vault.account_models(provider_id).as_deref(),
+            self.vault
+                .account_models()
+                .get(provider_id)
+                .map(Vec::as_slice),
         ))
     }
 
@@ -493,7 +489,7 @@ fn record_login(
     provider_id: String,
     label: String,
     result: Result<(), String>,
-) {
+) -> bool {
     let outcome = match result {
         Ok(()) => match vault.finish_login(&id, &provider_id, &label) {
             Ok(credential) => LoginOutcome::Done(credential),
@@ -507,10 +503,12 @@ fn record_login(
             LoginOutcome::Failed(error)
         }
     };
+    let recorded = matches!(outcome, LoginOutcome::Done(_));
     logins
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .insert(id, outcome);
+    recorded
 }
 
 async fn store_copilot_account_models(token_dir: &Path, log: &Log) {

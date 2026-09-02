@@ -6,6 +6,12 @@ as it exists, what is built differently, and why. It is the document every
 phase is checked against. The product story is the README; the contract for
 agents changing this tree is `AGENTS.md`.
 
+George's reasons, in his words: the proof that the thing works is in the
+core of the Bun edition; Rust is for sheer speed and far more control, with
+Rig and our own custom tools; and Tauri is much more actively maintained
+than Electrobun. The Bun edition's specs are carried onto this tree's board
+as plans tagged `carried`, each headed by what the new design changes.
+
 ## What is kept, because it is right
 
 These come over as ideas and, where the code was already Rust, as code.
@@ -132,10 +138,11 @@ starting the session elsewhere, designed then on the log.
 
 `toad-core` is a Rust library with no Tauri dependency and every behaviour
 in it. `toad-desktop` is the Tauri 2 shell: the window, the desk door, the
-menus. The React UI comes over from `../toad/src/mainview` with its
-transport rewritten for the wire above and its fleet, computer and
-client-seat screens removed. Bun and Node exist only as the UI's build
-tools; nothing runs on them.
+menus. The window is built fresh in Phase 1 against the generated contract
+and the subscription wire; `../toad/src/mainview` is the reference for
+which screens exist and how they behave, and a component is lifted from it
+only where that is cheaper than writing it. Bun and Node exist only as the
+UI's build tools; nothing runs on them.
 
 Providers are Rig providers: API keys first (Anthropic, OpenAI, OpenRouter),
 subscription logins later as custom providers.
@@ -156,7 +163,7 @@ crates/toad-core/src/
   chapters.rs      rotation, notes, resume                      new (rules from ../toad/docs/chapters.md)
   wire/            the door: seats, commands, subscriptions     from wire.rs, reshaped
 crates/toad-desktop/   the Tauri shell
-ui/                    the React window (from ../toad/src/mainview)
+ui/                    the window (React, built against the generated contract)
 harness/               headless end-to-end proofs (Rust integration tests driving the wire)
 ```
 

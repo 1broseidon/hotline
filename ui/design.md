@@ -46,10 +46,15 @@ One family, **Workbench**, for every screen:
   brightens its edge, never rings. It is always open: a teammate is
   always there, and whether a session is up behind them is plumbing the
   window never reports. There is no start key and no "not running"; a
-  message to a resting teammate starts the session on its way, and the
-  one state shown anywhere is the beat while they work. The band is the
-  name, the model, and the tools — everything else about a teammate lives
-  under the inspector.
+  message to a resting teammate starts the session on its way. While
+  they work the mark floats above the composer — not in a bubble, because
+  it is not a message — with one word for what kind of work: Reading,
+  Searching, Editing, Running, Thinking, or Waiting on you. Nothing
+  streams. A reply lands whole, the way a text does, and the mark
+  collapses into three dots while it is on its way. A press on the mark
+  opens the work behind it for that turn. The band is the name, the
+  model, and the tools — everything else about a teammate lives under the
+  inspector.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
 
@@ -109,9 +114,13 @@ the top-light). You press a key and type into a well.
 
 One curve, `cubic-bezier(0.16, 1, 0.3, 1)`, three durations: 90ms answers
 a press, 130ms opens something small, 220ms moves something across a pane.
-No overshoot, no hover scale, no transition-all. A working teammate's mark
-breathes at 1800ms; nothing else moves unasked. Reduced motion removes
-every transition and animation.
+No overshoot, no hover scale, no transition-all. A working teammate's dot
+breathes at 1800ms, and the mark above the composer moves only because of
+something: a read sweeps the eyes, a search darts them, an edit presses,
+a command ratchets, a permission request stops it dead to look at you.
+Every pose is a function of the phase and the time in it; the blink is
+the one motion that is not caused. Reduced motion removes every
+transition and animation, and holds the mark still.
 
 ## Microinteractions stance
 
@@ -137,8 +146,8 @@ every transition and animation.
   wash — told apart by side and weight, never hue, and never a tail. A run
   from one speaker tightens the corners that face each other. What
   happened between two messages is one quiet caption in the instrument
-  voice, opened on a press; a transcript that hides it would lie, one
-  that shouts it is a log.
+  voice — a count, closed until pressed; a transcript that hides it
+  would lie, one that shouts it is a log.
 - Machinery between messages is folded into instrument rows on a 2px rule.
 
 ## What every screen MUST share

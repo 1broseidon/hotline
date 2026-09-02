@@ -11,6 +11,8 @@ import type {
 import { chordKeys } from "../chords";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
+import { activityOf } from "../activity";
+import { Glyph } from "../ui/Glyph";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
@@ -43,10 +45,12 @@ type Block =
  *
  * Drawn the way a messages app draws a 1:1: their words in bubbles on the
  * left, yours on the right, a run from one side tightening its corners.
- * The machinery an agent runs on is folded, not hidden: what happened
- * between two messages is one quiet caption, the current step while the
- * agent is on it and a count once it has moved on, and any row in it opens
- * on a press. A transcript that lies about what happened is not worth having.
+ * Nothing streams. A friend's reply arrives whole; while it is on its way
+ * the mark floats above the composer, at work, with one word for what kind
+ * of work. The machinery an agent runs on is folded, not hidden: what
+ * happened between two messages is one quiet caption with a count, and any
+ * row in it opens on a press. A transcript that lies about what happened is
+ * not worth having.
  *
  * Imported tapes also hold permission cards, plans, peer markers, hands-to-
  * human and computer frames. A card with no decision is live: answering it
@@ -68,7 +72,7 @@ export function Transcript({
 	name: string;
 	events: TranscriptEvent[];
 	streaming: Streaming[];
-	/** The session is thinking: the trailing block of steps stays open. */
+	/** A turn is running: the mark is up, above the composer. */
 	live: boolean;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
@@ -83,7 +87,14 @@ export function Transcript({
 	const pinned = useRef(true);
 	/* The same fact, for the button that offers the way back down. */
 	const [following, setFollowing] = useState(true);
-	const empty = events.length === 0 && streaming.length === 0;
+	const empty = events.length === 0 && !live;
+	/* Pressing the mark opens the work behind it for this turn. It closes
+	 * again when the reply lands: what you asked to watch was the turn, not
+	 * the transcript. */
+	const [workShown, setWorkShown] = useState(false);
+	useEffect(() => {
+		if (!live) setWorkShown(false);
+	}, [live]);
 	/* A reply quote is the same jump as a search hit, asked for from inside
 	 * the transcript rather than from the search. The later `at` wins. */
 	const [jumped, setJumped] = useState<{ eventId: string; at: number } | null>(null);
@@ -132,7 +143,7 @@ export function Transcript({
 	}
 
 	const blocks = toBlocks(events, streaming);
-	const streamingSay = streaming.find((one) => one.kind === "agent");
+	const activity = live ? activityOf(events, streaming) : null;
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -143,7 +154,7 @@ export function Transcript({
 	};
 	const sideAfter = (index: number): Side => {
 		for (let at = index + 1; at < sides.length; at++) if (sides[at] !== null) return sides[at]!;
-		return streamingSay !== undefined ? "them" : null;
+		return null;
 	};
 
 	return (
@@ -151,7 +162,7 @@ export function Transcript({
 		<Scroll scrollerRef={scroller}>
 			{/* `justify-end` rests a short conversation on the composer rather
 			    than stranding it at the top of an empty pane. */}
-			<div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 py-6">
+			<div className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${live ? "pb-14" : "pb-6"}`}>
 				{blocks.map((block, index) => {
 					const previous = blocks[index - 1];
 					const stamp =
@@ -167,10 +178,7 @@ export function Transcript({
 						<div key={id} data-event-id={id}>
 							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
 							{block.kind === "steps" ? (
-								<Steps
-									items={block.items}
-									live={live && index === blocks.length - 1 && streamingSay === undefined}
-								/>
+								<Steps items={block.items} live={live && index === blocks.length - 1} shown={workShown} />
 							) : (
 								<Row
 									personaId={personaId}
@@ -186,16 +194,24 @@ export function Transcript({
 						</div>
 					);
 				})}
-				{streamingSay !== undefined && (
-					<div className={`said-group relative ${sideBefore(blocks.length) === "them" ? "mt-1" : "mt-3"}`}>
-						<div className={`speech said-them said-streaming ${sideBefore(blocks.length) === "them" ? "said-run-top" : ""}`}>
-							<Markdown text={streamingSay.text} />
-							<span aria-hidden="true" className="beat ml-0.5 inline-block h-[14px] w-[2px] translate-y-[2px] bg-accent" />
-						</div>
-					</div>
-				)}
 			</div>
 		</Scroll>
+		{activity !== null && (
+			<div className="ambient">
+				<div className="mx-auto w-full max-w-[46rem] px-6">
+					<button
+						type="button"
+						className="ambient-mark"
+						aria-expanded={workShown}
+						title={workShown ? "Hide the work" : "Show the work"}
+						onClick={() => setWorkShown((was) => !was)}
+					>
+						<Glyph phase={activity.phase} />
+						{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
+					</button>
+				</div>
+			</div>
+		)}
 		{!following && (
 			<button
 				type="button"
@@ -396,27 +412,25 @@ function Row({
 }
 
 /**
- * The machinery between two messages, as one caption. While the agent is
- * on it the caption names the current step and the rows stay open; once
- * it has moved on the caption is a count and the rows close, unless you
- * opened them yourself.
+ * The machinery between two messages, as one caption: a count, closed
+ * until you open it. While the agent is still on it there is no caption at
+ * all — the typing bubble is the caption — and the rows show only if you
+ * pressed that bubble to see the work.
  */
-function Steps({ items, live }: { items: Step[]; live: boolean }) {
-	const [toggled, setToggled] = useState<boolean | null>(null);
-	const open = toggled ?? live;
-	const latest = items[items.length - 1];
+function Steps({ items, live, shown }: { items: Step[]; live: boolean; shown: boolean }) {
+	const [toggled, setToggled] = useState(false);
+	const open = live ? shown : toggled;
 	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
-	const summary = live
-		? (latest?.kind === "tool" ? latest.title : "Thinking")
-		: `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
+	const summary = `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
 
 	return (
 		<div className="my-2">
-			<button type="button" className="steps-caption" aria-expanded={open} onClick={() => setToggled(!open)}>
-				{live && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-				<span className={`truncate ${failed && !live ? "text-danger" : ""}`}>{summary}</span>
-				{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
-			</button>
+			{!live && (
+				<button type="button" className="steps-caption" aria-expanded={open} onClick={() => setToggled(!open)}>
+					<span className={`truncate ${failed ? "text-danger" : ""}`}>{summary}</span>
+					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+				</button>
+			)}
 			{open && (
 				<div className="steps ml-[11px]">
 					{items.map((item) =>

@@ -707,7 +707,13 @@ fn agent_builder(
             mistral::Client::new(key).map_err(text)?.agent(model)
         }
     };
-    Ok(builder)
+    // Anthropic refuses a request that names no ceiling, and Rig only knows
+    // one for the models it shipped with. The catalogue knows every model's,
+    // so every request carries it rather than only the ones Rig remembers.
+    Ok(match models::output_limit(model_id) {
+        Some(ceiling) => builder.max_tokens(ceiling),
+        None => builder,
+    })
 }
 
 fn text(error: impl std::fmt::Display) -> String {

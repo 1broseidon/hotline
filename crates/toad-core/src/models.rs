@@ -336,6 +336,18 @@ pub fn label_of(model_id: &str) -> Option<String> {
         .map(|model| model.name.clone())
 }
 
+/// The most tokens one answer from a `provider/model` may hold, when the
+/// catalogue has it.
+pub fn output_limit(model_id: &str) -> Option<u64> {
+    let (provider, model) = model_id.split_once('/')?;
+    catalog()
+        .providers
+        .get(provider)?
+        .models
+        .get(model)
+        .map(|model| model.limit.output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

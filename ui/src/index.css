@@ -756,9 +756,87 @@
 		font-weight: 500;
 		color: var(--ink-3);
 	}
-	/* While the words are still arriving, the caret sits on the last line. */
-	.said-streaming .md > :last-child {
-		display: inline;
+	/* Them, at work: the mark floats over the foot of the conversation, just
+	 * above the composer, with one word for what kind of work. It is not a
+	 * message and gets no bubble; it is in the room while the reply is on its
+	 * way and gone when it lands. A press opens the work above it. The
+	 * pupils are the canvas colour, so the eyes read as eyes against it. */
+	.ambient {
+		position: absolute;
+		inset: auto 0 10px 0;
+		z-index: 1;
+		pointer-events: none;
+	}
+	.ambient-mark {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 4px 4px 4px 2px;
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+		pointer-events: auto;
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.ambient-word {
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+	}
+	.glyph {
+		display: block;
+		flex-shrink: 0;
+		fill: currentColor;
+	}
+	.glyph .g-pupils {
+		fill: var(--canvas);
+	}
+	/* Every part moves about its own centre, so the collapse into dots is
+	 * each eye shrinking where it stands and dropping onto the row. While
+	 * the mark is posed, the frame loop owns these transforms and nothing
+	 * eases them: a transition on a value painted sixty times a second is
+	 * a smear. Only the collapse eases, and it starts from wherever the last
+	 * frame left off. */
+	.glyph .g-body,
+	.glyph .g-eyeL,
+	.glyph .g-eyeR,
+	.glyph .g-dot,
+	.glyph .g-pupils {
+		transform-box: fill-box;
+		transform-origin: center;
+	}
+	.glyph-mark .g-dot {
+		transform: scale(0);
+	}
+	.glyph-dots .g-body {
+		transform: scaleY(0.001);
+		transition: transform var(--dur-move) var(--ease-in-out);
+	}
+	.glyph-dots .g-pupils {
+		opacity: 0;
+		transition: opacity var(--dur-move) var(--ease-in-out);
+	}
+	.glyph-dots .g-eyeL,
+	.glyph-dots .g-eyeR {
+		transform: translateY(9px) scale(0.4);
+		transition: transform var(--dur-move) var(--ease-in-out);
+		animation: typing var(--dur-typing) var(--ease-in-out) infinite;
+	}
+	.glyph-dots .g-dot {
+		transition: transform var(--dur-move) var(--ease-in-out);
+		animation: typing var(--dur-typing) var(--ease-in-out) infinite;
+		animation-delay: calc(var(--dur-typing) / 6);
+	}
+	.glyph-dots .g-eyeR {
+		animation-delay: calc(var(--dur-typing) / 3);
+	}
+	@keyframes typing {
+		0%,
+		55%,
+		100% {
+			opacity: 0.35;
+		}
+		25% {
+			opacity: 1;
+		}
 	}
 
 	/* A reply's quote: a bar and a quieter voice above your own line. */
@@ -1434,6 +1512,9 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.beat,
+	.glyph-dots .g-eyeL,
+	.glyph-dots .g-eyeR,
+	.glyph-dots .g-dot,
 	.menu,
 	.search-panel,
 	.row-lit {

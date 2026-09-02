@@ -6,7 +6,9 @@
 //! joined to the real things, so the shell and the headless harness open a
 //! desk the same way and get the same room.
 
-use crate::contract::{Attachment, ConfigChoice, Credential, SessionInfo, StreamDelta};
+use crate::contract::{
+    Attachment, ChapterClose, ChapterSummary, ConfigChoice, Credential, SessionInfo, StreamDelta,
+};
 use crate::log::Log;
 use crate::session::{ProviderKeys, Room};
 use crate::vault::Vault;
@@ -51,14 +53,24 @@ impl RoomHandle for Desk {
         self.room.stop(persona_id)
     }
 
-    fn prompt(
+    async fn prompt(
         &self,
         persona_id: &str,
         text: &str,
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
-        self.room.prompt(persona_id, text, reply_to, attachments)
+        self.room
+            .prompt(persona_id, text, reply_to, attachments)
+            .await
+    }
+
+    /// The desk is the person: a chapter closed from the window was asked for
+    /// by the user, never by the agent.
+    async fn start_fresh_chapter(&self, persona_id: &str) -> Result<ChapterSummary, String> {
+        self.room
+            .start_fresh_chapter(persona_id, ChapterClose::User)
+            .await
     }
 
     fn cancel(&self, persona_id: &str) -> Result<(), String> {

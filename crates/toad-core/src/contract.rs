@@ -1130,6 +1130,11 @@ pub enum Command {
     /// never written.
     #[serde(rename = "room.import")]
     RoomImport { from: String },
+    /// Closes the teammate's open chapter now, and answers with the chapter it
+    /// closed — its title and its note, which the summariser has written by
+    /// the time this returns.
+    #[serde(rename = "chapter.start_fresh")]
+    ChapterStartFresh { persona_id: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

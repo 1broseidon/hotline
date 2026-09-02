@@ -130,7 +130,7 @@ fn is_sub(frame: &Value, sub: i64, key: &str) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_teammate_is_made_watched_keyed_and_removed_over_the_wire() {
+async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() {
     let (_root, port) = open("dry").await;
     let mut client = Client::connect(port).await;
 
@@ -203,6 +203,28 @@ async fn a_teammate_is_made_watched_keyed_and_removed_over_the_wire() {
         !ids.is_empty() && ids.iter().all(|id| id.starts_with("anthropic/")),
         "{some}"
     );
+
+    // A session opens a chapter, and closing it is one command. Nothing was
+    // said in this one, so it closes untitled without a model being asked.
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let marker = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "chapter"
+        })
+        .await;
+    assert_eq!(marker["event"]["backendId"], "pi");
+    assert_eq!(marker["event"].get("endedAt"), None);
+
+    let closed = client
+        .call("chapter.start_fresh", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(closed["ok"], true, "{closed}");
+    assert_eq!(closed["result"]["id"], marker["event"]["id"]);
+    assert_eq!(closed["result"]["messages"], 0);
+    assert_eq!(closed["result"].get("title"), None);
 
     let gone = client
         .call("persona.delete", json!({ "id": persona_id }))

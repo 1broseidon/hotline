@@ -62,14 +62,15 @@ mod tests;
 ///
 /// Every method answers promptly. `prompt` starts a turn and returns; what
 /// the turn produces reaches the client as tape events and ephemeral deltas,
-/// not as the answer to the command. `start` and `set_model` wait on the
-/// driver coming up, which is why they alone are async: the read loop awaits
-/// them, so a socket's commands are still answered one at a time, in order.
+/// not as the answer to the command. The async ones wait on something short:
+/// a driver coming up, or, for `prompt`, the agent whose chapter closed being
+/// replaced before it hears the message. The read loop awaits them, so a
+/// socket's commands are still answered one at a time, in order.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
-    fn prompt(
+    async fn prompt(
         &self,
         persona_id: &str,
         text: &str,
@@ -78,6 +79,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
+
+    /// Closes the teammate's open chapter, answering with what it became.
+    async fn start_fresh_chapter(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ChapterSummary, String>;
 
     /// What this teammate's session is doing, idle when it has none.
     fn info(&self, persona_id: &str) -> SessionInfo;

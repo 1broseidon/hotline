@@ -90,7 +90,7 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn prompt(
+    async fn prompt(
         &self,
         _persona_id: &str,
         _text: &str,
@@ -102,6 +102,13 @@ impl RoomHandle for Quiet {
 
     fn cancel(&self, _persona_id: &str) -> Result<(), String> {
         Ok(())
+    }
+
+    async fn start_fresh_chapter(
+        &self,
+        _persona_id: &str,
+    ) -> Result<crate::contract::ChapterSummary, String> {
+        Err("Nothing runs in this room, so nothing has a chapter.".to_string())
     }
 
     async fn set_model(&self, persona_id: &str, _model_id: &str) -> Result<SessionInfo, String> {

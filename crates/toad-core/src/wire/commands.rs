@@ -49,6 +49,7 @@ pub(crate) async fn run(
             attachments,
         } => room
             .prompt(&persona_id, &text, reply_to, attachments)
+            .await
             .map(|()| Value::Null),
         Command::SessionCancel { persona_id } => room.cancel(&persona_id).map(|()| Value::Null),
         Command::SessionSetModel {
@@ -69,6 +70,10 @@ pub(crate) async fn run(
         Command::RoomImport { from } => room
             .import(std::path::Path::new(&from))
             .map(|report| json!(report)),
+        Command::ChapterStartFresh { persona_id } => room
+            .start_fresh_chapter(&persona_id)
+            .await
+            .map(|chapter| json!(chapter)),
     }
 }
 

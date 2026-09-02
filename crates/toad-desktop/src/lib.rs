@@ -28,7 +28,11 @@ fn random_token() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let desk = Desk::open(&data_root()).expect("the desk did not open");
+    // Opened inside the async runtime because the room it stands up owns
+    // background work — the idle chapter sweep — and a task has to be spawned
+    // onto a runtime that is already there.
+    let desk = tauri::async_runtime::block_on(async { Desk::open(&data_root()) })
+        .expect("the desk did not open");
     let token = random_token();
     let door = Door::bind(desk.log.clone(), token.clone(), Arc::new(desk))
         .expect("the room's door did not bind");

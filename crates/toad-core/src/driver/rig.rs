@@ -123,6 +123,25 @@ fn label_of(model_id: &str) -> Option<String> {
         .map(|(_, label)| label.to_string())
 }
 
+/// One answer, with no tools and no conversation: the note that closes a
+/// chapter, and anything else that asks a model a single question.
+///
+/// This is not a session and does not become one. The system prompt is the
+/// agent's preamble, which is how a Rig agent is told the rules for an answer
+/// it will give exactly once.
+pub async fn complete(
+    keys: &HashMap<String, String>,
+    model_id: &str,
+    system: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let agent = agent_builder(keys, model_id)?.preamble(system).build();
+    agent
+        .prompt(prompt)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 /// One line of the conversation the agent is being started back into.
 ///
 /// The session reads these off the tape, because the tape is the record and a

@@ -13,7 +13,7 @@ fn is_chapter(event: &Value) -> bool {
     event.get("kind").and_then(Value::as_str) == Some("chapter")
 }
 
-fn is_message(event: &Value) -> bool {
+pub(crate) fn is_message(event: &Value) -> bool {
     matches!(
         event.get("kind").and_then(Value::as_str),
         Some("user" | "agent")
@@ -32,6 +32,31 @@ pub(crate) fn open_chapter(events: &[Value]) -> Option<&Value> {
         .last()
         .copied()
         .filter(|chapter| chapter.get("endedAt").is_none())
+}
+
+/// The closed chapter a fresh context should hear about: the most recent one
+/// that ended, provided it is the chapter immediately before the open one, or
+/// the last chapter of all when none is open.
+pub(crate) fn previous_chapter(events: &[Value]) -> Option<&Value> {
+    let mut chapters = chapters_of(events);
+    if open_chapter(events).is_some() {
+        chapters.pop();
+    }
+    chapters
+        .last()
+        .copied()
+        .filter(|chapter| chapter.get("endedAt").is_some())
+}
+
+/// The moment of the last thing said, for deciding whether a chapter has gone
+/// quiet. Only messages count: a tool finishing on its own is the machinery
+/// running, not the conversation continuing.
+pub(crate) fn last_activity(events: &[Value]) -> Option<i64> {
+    events
+        .iter()
+        .rev()
+        .find(|event| is_message(event))
+        .and_then(|event| event.get("ts").and_then(Value::as_i64))
 }
 
 /// Everything said or done within a chapter, the marker itself excluded.
@@ -128,6 +153,27 @@ mod tests {
             ],
         );
         assert!(list(&log, "p").is_empty());
+    }
+
+    /// What a fresh context is told about, and when a chapter last heard
+    /// anything: the two questions closing and waking ask of a tape.
+    #[test]
+    fn the_previous_chapter_is_the_closed_one_behind_the_open_one() {
+        let first = json!({"kind": "chapter", "id": "c1", "ts": 100, "endedAt": 200});
+        let second = json!({"kind": "chapter", "id": "c2", "ts": 300});
+        let hello = json!({"kind": "user", "id": "u1", "ts": 310, "text": "hi"});
+        let tool = json!({"kind": "tool", "id": "t1", "ts": 320, "status": "completed"});
+
+        assert_eq!(previous_chapter(&[]), None);
+        assert_eq!(previous_chapter(std::slice::from_ref(&second)), None);
+        assert_eq!(previous_chapter(std::slice::from_ref(&first)), Some(&first));
+        assert_eq!(
+            previous_chapter(&[first.clone(), second.clone(), hello.clone()]),
+            Some(&first)
+        );
+
+        assert_eq!(last_activity(&[]), None);
+        assert_eq!(last_activity(&[hello.clone(), tool.clone()]), Some(310));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! it happens.
 
 use super::*;
-use crate::contract::{AttachmentKind, McpPolicy, PolicyMode};
+use crate::contract::{AttachmentKind, ChapterStatus, McpPolicy, PolicyMode};
 use crate::driver::DriverInfo;
 use async_trait::async_trait;
 use serde_json::json;
@@ -121,13 +121,71 @@ impl Driver for Scripted {
     }
 }
 
-/// No key anywhere: nothing in these tests reaches a provider.
-struct NoKeys;
+/// The models this room can reach, all of them scripted.
+///
+/// One driver for every session the room starts, so a rotation replays the
+/// next turn of the same script; the preamble and the seeded conversation are
+/// kept because they are what a fresh chapter's context is made of; and the
+/// summariser gets whatever answer the test says a model gave.
+struct Fake {
+    driver: Arc<Scripted>,
+    preambles: Arc<Mutex<Vec<String>>>,
+    seeds: Arc<Mutex<Vec<Vec<Said>>>>,
+    answer: Result<String, String>,
+}
 
-impl ProviderKeys for NoKeys {
-    fn provider_keys(&self) -> HashMap<String, String> {
-        HashMap::new()
+impl Fake {
+    /// A room whose summariser is asked and refused, which is the shape of
+    /// every desk with no model set up.
+    fn new(driver: Scripted) -> Arc<Fake> {
+        Fake::answering(driver, Err("no model answered".to_string()))
     }
+
+    fn answering(driver: Scripted, answer: Result<String, String>) -> Arc<Fake> {
+        Arc::new(Fake {
+            driver: Arc::new(driver),
+            preambles: Arc::new(Mutex::new(Vec::new())),
+            seeds: Arc::new(Mutex::new(Vec::new())),
+            answer,
+        })
+    }
+}
+
+#[async_trait]
+impl Agents for Fake {
+    fn agent(&self, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
+        lock(&self.preambles).push(preamble);
+        lock(&self.seeds).push(said);
+        self.driver.clone()
+    }
+
+    async fn complete(
+        &self,
+        _model_id: &str,
+        _system: &str,
+        _prompt: &str,
+    ) -> Result<String, String> {
+        self.answer.clone()
+    }
+}
+
+/// One provider key, so the room has a model to name the note's completion
+/// with. Nothing here reaches a provider: every agent is a script.
+struct DeskKeys;
+
+impl ProviderKeys for DeskKeys {
+    fn provider_keys(&self) -> HashMap<String, String> {
+        HashMap::from([("anthropic".to_string(), "not-a-real-key".to_string())])
+    }
+}
+
+/// The JSON a summariser answers with, as a model would write it.
+fn note_json(title: &str) -> Result<String, String> {
+    Ok(format!(
+        r#"{{"title": "{title}", "goal": "Get the crane moving", "outcome": "It moved.",
+            "open_loops": ["oil the winch"], "decisions": [], "files": ["crane.log"],
+            "tags": ["Crane", "harbour"], "status": "in-progress"}}"#
+    ))
 }
 
 fn scratch(name: &str) -> Log {
@@ -179,16 +237,23 @@ fn enrol(log: &Log, persona: &Persona) {
     log.append(&StreamId::Room, &event).unwrap();
 }
 
-/// A room with one teammate enrolled and no session started.
-fn room(name: &str) -> (Arc<Room>, Persona) {
+/// A room with one teammate enrolled, on scripted agents, no session started.
+fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     let log = scratch(name);
-    let ada = persona("ada");
-    enrol(&log, &ada);
-    (Room::new(log, Arc::new(NoKeys)), ada)
+    enrol(&log, &persona("ada"));
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
 fn tape(room: &Room, persona_id: &str) -> Vec<Value> {
     room.log.load(&StreamId::Tape(persona_id.to_string()))
+}
+
+/// The chapter markers on the tape, oldest first.
+fn markers(room: &Room, persona_id: &str) -> Vec<Value> {
+    tape(room, persona_id)
+        .into_iter()
+        .filter(|event| event["kind"] == "chapter")
+        .collect()
 }
 
 /// The event kinds on the tape, in the order they were written.
@@ -199,11 +264,18 @@ fn kinds(events: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// Waits for the tape to hold `count` events, so a test never races the task
-/// the turn runs on.
+/// Waits for the conversation to hold `count` events, so a test never races
+/// the task the turn runs on.
+///
+/// Chapter markers are left out: every session opens one, and a test about
+/// what a turn writes should not have to count the room's bookkeeping. The
+/// tests that are about chapters read [`markers`] instead.
 async fn settled(room: &Room, persona_id: &str, count: usize) -> Vec<Value> {
     for _ in 0..200 {
-        let events = tape(room, persona_id);
+        let events: Vec<Value> = tape(room, persona_id)
+            .into_iter()
+            .filter(|event| event["kind"] != "chapter")
+            .collect();
         if events.len() >= count {
             return events;
         }
@@ -253,14 +325,14 @@ fn spoken_turn() -> Vec<Update> {
 
 #[tokio::test]
 async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() {
-    let (room, ada) = room("a-turn");
+    let room = room("a-turn", Fake::new(Scripted::new(spoken_turn())));
     let mut infos = room.subscribe_info();
     let mut deltas = room.subscribe_deltas();
-    room.start_on(&ada, Arc::new(Scripted::new(spoken_turn())))
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "what is here?", None, None)
         .await
         .unwrap();
-
-    room.prompt("ada", "what is here?", None, None).unwrap();
     let events = settled(&room, "ada", 5).await;
 
     assert_eq!(
@@ -318,7 +390,6 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
 
 #[tokio::test]
 async fn a_cancelled_turn_fails_the_tool_it_caught_in_flight() {
-    let (room, ada) = room("cancel");
     let gate = Arc::new(Semaphore::new(0));
     let mut driver = Scripted::new(vec![
         Update::ToolCall {
@@ -336,9 +407,11 @@ async fn a_cancelled_turn_fails_the_tool_it_caught_in_flight() {
         stop_reason: "aborted".to_string(),
         usage: None,
     }];
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    let room = room("cancel", Fake::new(driver));
+    room.start("ada").await.unwrap();
 
     room.prompt("ada", "run the long thing", None, None)
+        .await
         .unwrap();
     gate.add_permits(1);
     let events = settled(&room, "ada", 2).await;
@@ -356,19 +429,20 @@ async fn a_cancelled_turn_fails_the_tool_it_caught_in_flight() {
 
 #[tokio::test]
 async fn a_prompt_during_a_turn_waits_for_the_turn_it_would_have_interrupted() {
-    let (room, ada) = room("queue");
     let gate = Arc::new(Semaphore::new(0));
     let mut driver = Scripted::new(vec![Update::Turn {
         stop_reason: "end_turn".to_string(),
         usage: None,
     }]);
     driver.gate = Some(gate.clone());
-    let prompts = driver.prompts.clone();
-    let reaches = driver.reaches.clone();
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let reaches = agents.driver.reaches.clone();
+    let room = room("queue", agents);
+    room.start("ada").await.unwrap();
 
-    room.prompt("ada", "first", None, None).unwrap();
-    room.prompt("ada", "second", None, None).unwrap();
+    room.prompt("ada", "first", None, None).await.unwrap();
+    room.prompt("ada", "second", None, None).await.unwrap();
 
     // Both lines are on the tape at once: what was said is a fact as soon as
     // it was said, whatever the agent is busy with.
@@ -391,14 +465,11 @@ async fn a_prompt_during_a_turn_waits_for_the_turn_it_would_have_interrupted() {
 
 #[tokio::test]
 async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver() {
-    let (room, ada) = room("info");
+    let room = room("info", Fake::new(Scripted::new(Vec::new())));
     assert_eq!(room.info("ada"), idle_info("ada"));
     assert_eq!(room.info("ada").state, SessionState::Idle);
 
-    let info = room
-        .start_on(&ada, Arc::new(Scripted::new(Vec::new())))
-        .await
-        .unwrap();
+    let info = room.start("ada").await.unwrap();
     assert_eq!(info.agent_name.as_deref(), Some("Scripted"));
     assert_eq!(info.current_model_id.as_deref(), Some("anthropic/claude"));
     assert_eq!(room.info("ada"), info);
@@ -412,18 +483,16 @@ async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver
 
     room.stop("ada").unwrap();
     assert_eq!(room.info("ada").state, SessionState::Idle);
-    assert!(room.prompt("ada", "anyone there?", None, None).is_err());
+    assert!(
+        room.prompt("ada", "anyone there?", None, None)
+            .await
+            .is_err()
+    );
 }
 
 /// A teammate's directory is made when it starts, wherever it was pointed.
 #[tokio::test(flavor = "multi_thread")]
 async fn starting_a_teammate_makes_its_working_directory() {
-    struct OneKey;
-    impl ProviderKeys for OneKey {
-        fn provider_keys(&self) -> HashMap<String, String> {
-            HashMap::from([("anthropic".to_string(), "not-a-real-key".to_string())])
-        }
-    }
     let log = scratch("makes-cwd");
     let mut ada = persona("ada");
     ada.cwd = log
@@ -433,7 +502,7 @@ async fn starting_a_teammate_makes_its_working_directory() {
         .to_string_lossy()
         .into_owned();
     enrol(&log, &ada);
-    let room = Room::new(log, Arc::new(OneKey));
+    let room = Room::new(log, Arc::new(DeskKeys));
     assert!(!std::path::Path::new(&ada.cwd).exists());
     room.start("ada").await.unwrap();
     assert!(std::path::Path::new(&ada.cwd).is_dir());
@@ -444,15 +513,16 @@ async fn starting_a_teammate_makes_its_working_directory() {
 fn the_preamble_says_who_where_how_far_and_when() {
     let mut ada = persona("ada");
     ada.cwd = "/tmp/harbour".to_string();
-    let walled = preamble(&ada, Reach::Workspace);
+    let walled = preamble(&ada, Reach::Workspace, None);
     assert!(walled.contains("You are Ada."));
     assert!(walled.contains("Keep the harbour running."));
     assert!(walled.contains("Your working directory is /tmp/harbour."));
     assert!(walled.contains("a path that leaves it is refused"));
     assert!(walled.contains(&Local::now().format("%A %-d %B %Y").to_string()));
 
-    let open = preamble(&ada, Reach::Machine);
+    let open = preamble(&ada, Reach::Machine, Some("the wake block".to_string()));
     assert!(open.contains("reach the whole machine"));
+    assert!(open.ends_with("the wake block"));
 }
 
 /// A teammate whose backend has no driver in this build is told so, rather
@@ -463,45 +533,53 @@ async fn a_backend_with_no_driver_is_refused_by_name() {
     let mut cursor = persona("cursor-teammate");
     cursor.backend_id = "cursor".to_string();
     enrol(&log, &cursor);
-    let room = Room::new(log, Arc::new(NoKeys));
+    let room = Room::new(log, Arc::new(DeskKeys));
 
     let refused = room.start("cursor-teammate").await.unwrap_err();
     assert!(refused.contains("cursor"), "{refused}");
 }
 
-/// The history a driver starts back into is what was said, and only that.
+/// The history a driver starts back into is what was said in the chapter it
+/// is joining, and only that.
 #[test]
-fn the_conversation_a_driver_is_seeded_with_is_the_words_on_the_tape() {
-    let log = scratch("said");
-    let ada = StreamId::Tape("ada".to_string());
-    for event in [
+fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
+    let older = [
         json!({"kind": "user", "id": "u1", "ts": 1, "text": "hello"}),
         json!({"kind": "thought", "id": "t1", "ts": 2, "text": "hmm"}),
         json!({"kind": "tool", "id": "tool:c1", "ts": 3, "toolCallId": "c1", "title": "ls", "status": "completed"}),
         json!({"kind": "agent", "id": "a1", "ts": 4, "text": "hi"}),
-    ] {
-        log.append(&ada, &event).unwrap();
-    }
-    let room = Room::new(log, Arc::new(NoKeys));
+    ];
+    let hello = [
+        Said::User("hello".to_string()),
+        Said::Agent("hi".to_string()),
+    ];
 
-    assert_eq!(
-        room.said("ada"),
-        [
-            Said::User("hello".to_string()),
-            Said::Agent("hi".to_string())
-        ]
-    );
+    // A tape nobody has divided reads as one implicit chapter.
+    assert_eq!(said(&older), hello);
+
+    // An open chapter is the context: what came before it belongs to a
+    // context that has already been summarised and let go of.
+    let mut divided = older.to_vec();
+    divided.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "pi"}));
+    divided.push(json!({"kind": "user", "id": "u2", "ts": 6, "text": "still there?"}));
+    assert_eq!(said(&divided), [Said::User("still there?".to_string())]);
+
+    // The last chapter closed, so this session starts on nothing: the wake
+    // block is what carries the chapter behind it.
+    let mut closed = older.to_vec();
+    closed.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "pi", "endedAt": 9}));
+    assert_eq!(said(&closed), []);
 }
 
 /// The index is written as the tape is, and a search finds the turn without
 /// anything having asked for a rebuild.
 #[tokio::test]
 async fn what_is_appended_is_indexed() {
-    let (room, ada) = room("index");
-    room.start_on(&ada, Arc::new(Scripted::new(spoken_turn())))
+    let room = room("index", Fake::new(Scripted::new(spoken_turn())));
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "what is here?", None, None)
         .await
         .unwrap();
-    room.prompt("ada", "what is here?", None, None).unwrap();
     settled(&room, "ada", 5).await;
 
     let found = crate::store::search::search(room.log.root(), "ada", "here", None);
@@ -527,7 +605,7 @@ fn firing(kind: ScheduleKind, quiet: bool) -> ScheduledRun {
 
 /// A turn in which the agent says one thing. `tag` keeps the message id of one
 /// turn apart from the next, because a tape folds by id.
-fn said(tag: &str, text: &str) -> Vec<Update> {
+fn saying(tag: &str, text: &str) -> Vec<Update> {
     vec![
         Update::Delta {
             kind: MessageKind::Agent,
@@ -573,20 +651,21 @@ async fn heard(prompts: &Arc<Mutex<Vec<String>>>, count: usize) -> Vec<String> {
 /// nothing in it, and the teammate speaks normally the moment it is over.
 #[tokio::test]
 async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
-    let (room, ada) = room("quiet-run");
+    let agents = Fake::new(Scripted::turns(vec![
+        saying("quiet", "No change — staying silent per protocol."),
+        saying("loud", "It moved."),
+    ]));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("quiet-run", agents);
     let mut deltas = room.subscribe_deltas();
-    let driver = Scripted::turns(vec![
-        said("quiet", "No change — staying silent per protocol."),
-        said("loud", "It moved."),
-    ]);
-    let prompts = driver.prompts.clone();
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    room.start("ada").await.unwrap();
 
     room.prompt_scheduled(
         "ada",
         "check the order page",
         firing(ScheduleKind::Loop, true),
     )
+    .await
     .unwrap();
     let events = settled(&room, "ada", 3).await;
     assert_eq!(kinds(&events), ["user", "thought", "turn"]);
@@ -606,7 +685,7 @@ async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
     assert_eq!(events[0]["scheduled"]["quiet"], true);
     assert_eq!(*lock(&prompts), ["loop · check the order page"]);
 
-    room.prompt("ada", "and now?", None, None).unwrap();
+    room.prompt("ada", "and now?", None, None).await.unwrap();
     let events = settled(&room, "ada", 6).await;
     assert_eq!(
         kinds(&events),
@@ -642,26 +721,28 @@ async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
 /// schedule's silence was never about them.
 #[tokio::test]
 async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
-    let (room, ada) = room("quiet-interrupted");
     let gate = Arc::new(Semaphore::new(0));
     let mut driver = Scripted::turns(vec![
-        said("quiet", "the scheduled run's own words"),
-        said("loud", "It moved."),
+        saying("quiet", "the scheduled run's own words"),
+        saying("loud", "It moved."),
     ]);
     driver.gate = Some(gate.clone());
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    let room = room("quiet-interrupted", Fake::new(driver));
+    room.start("ada").await.unwrap();
 
     room.prompt_scheduled(
         "ada",
         "check the order page",
         firing(ScheduleKind::Loop, true),
     )
+    .await
     .unwrap();
     let events = settled(&room, "ada", 1).await;
     assert_eq!(events[0]["scheduled"]["quiet"], true);
 
     // The window is open and the run's turn is still gated when a person types.
     room.prompt("ada", "wait, what did you find?", None, None)
+        .await
         .unwrap();
     settled(&room, "ada", 2).await;
 
@@ -679,16 +760,17 @@ async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
 /// voice is left alone.
 #[tokio::test]
 async fn a_loud_schedule_is_stamped_and_framed_and_keeps_its_voice() {
-    let (room, ada) = room("scheduled-loud");
-    let driver = Scripted::new(said("s", "Standup is at ten."));
-    let prompts = driver.prompts.clone();
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    let agents = Fake::new(Scripted::new(saying("s", "Standup is at ten.")));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("scheduled-loud", agents);
+    room.start("ada").await.unwrap();
 
     room.prompt_scheduled(
         "ada",
         "post the standup",
         firing(ScheduleKind::Schedule, false),
     )
+    .await
     .unwrap();
     let events = settled(&room, "ada", 3).await;
 
@@ -703,12 +785,11 @@ async fn a_loud_schedule_is_stamped_and_framed_and_keeps_its_voice() {
 /// gone stale is claimed by nothing.
 #[tokio::test]
 async fn a_reply_is_stamped_on_its_own_line_and_only_while_the_mark_is_fresh() {
-    let (room, ada) = room("reply");
-    room.start_on(&ada, Arc::new(Scripted::new(Vec::new())))
-        .await
-        .unwrap();
+    let room = room("reply", Fake::new(Scripted::new(Vec::new())));
+    room.start("ada").await.unwrap();
 
     room.prompt("ada", "this one", Some("a1".to_string()), None)
+        .await
         .unwrap();
     let events = settled(&room, "ada", 1).await;
     assert_eq!(events[0]["replyTo"], "a1");
@@ -718,7 +799,9 @@ async fn a_reply_is_stamped_on_its_own_line_and_only_while_the_mark_is_fresh() {
         value: "a1".to_string(),
         until: now_ms() - 1,
     });
-    room.prompt("ada", "and this one", None, None).unwrap();
+    room.prompt("ada", "and this one", None, None)
+        .await
+        .unwrap();
     let events = settled(&room, "ada", 2).await;
     assert_eq!(
         events[1].get("replyTo"),
@@ -731,10 +814,10 @@ async fn a_reply_is_stamped_on_its_own_line_and_only_while_the_mark_is_fresh() {
 /// it opens a file with its read tool.
 #[tokio::test]
 async fn attachments_land_on_the_line_and_their_paths_in_what_the_agent_hears() {
-    let (room, ada) = room("attachments");
-    let driver = Scripted::new(Vec::new());
-    let prompts = driver.prompts.clone();
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("attachments", agents);
+    room.start("ada").await.unwrap();
 
     room.prompt(
         "ada",
@@ -745,6 +828,7 @@ async fn attachments_land_on_the_line_and_their_paths_in_what_the_agent_hears() 
             attachment("shot.png", "/tmp/shot.png"),
         ]),
     )
+    .await
     .unwrap();
 
     let events = settled(&room, "ada", 1).await;
@@ -760,13 +844,13 @@ async fn attachments_land_on_the_line_and_their_paths_in_what_the_agent_hears() 
 /// conversation has no line saying anybody spoke.
 #[tokio::test]
 async fn a_nudge_reaches_the_driver_and_never_the_tape() {
-    let (room, ada) = room("nudge");
-    let driver = Scripted::new(vec![Update::Turn {
+    let agents = Fake::new(Scripted::new(vec![Update::Turn {
         stop_reason: "end_turn".to_string(),
         usage: None,
-    }]);
-    let prompts = driver.prompts.clone();
-    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+    }]));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("nudge", agents);
+    room.start("ada").await.unwrap();
 
     room.nudge("ada", "while you were away the user asked you to hurry")
         .unwrap();
@@ -780,5 +864,241 @@ async fn a_nudge_reaches_the_driver_and_never_the_tape() {
         kinds(&events),
         ["turn"],
         "the turn it ran is on the tape; the words that started it are not"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Chapters: where one working context ends and the next begins
+// ---------------------------------------------------------------------------
+
+/// A tape event, for a test that needs a conversation older than this run.
+fn spoken(kind: &str, id: &str, ts: i64, text: &str) -> Value {
+    json!({"kind": kind, "id": id, "ts": ts, "text": text})
+}
+
+fn write_tape(log: &Log, persona_id: &str, events: &[Value]) {
+    for event in events {
+        log.append(&StreamId::Tape(persona_id.to_string()), event)
+            .unwrap();
+    }
+}
+
+/// Nothing said is outside a chapter, and a chapter that is still open is the
+/// chapter a restarted session rejoins.
+#[tokio::test]
+async fn a_session_opens_a_chapter_and_a_restart_within_it_opens_no_second_one() {
+    let room = room("chapter-open", Fake::new(Scripted::new(Vec::new())));
+    room.start("ada").await.unwrap();
+
+    let opened = markers(&room, "ada");
+    assert_eq!(opened.len(), 1);
+    assert_eq!(opened[0]["backendId"], "pi");
+    assert_eq!(
+        opened[0].get("endedAt"),
+        None,
+        "a fresh marker is the open one"
+    );
+    assert_eq!(
+        opened[0].get("sessionId"),
+        None,
+        "Toad Agent has no checkpoint"
+    );
+
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    assert_eq!(markers(&room, "ada"), opened);
+}
+
+/// The gate: a chapter that closed took the agent's context with it, so the
+/// next message reaches a session that has never seen it.
+#[tokio::test]
+async fn a_prompt_after_an_asked_close_starts_a_fresh_session_in_a_new_chapter() {
+    let agents = Fake::answering(
+        Scripted::turns(vec![
+            saying("one", "It jammed."),
+            saying("two", "All clear."),
+        ]),
+        note_json("Crane jam"),
+    );
+    let room = room("chapter-rotate", agents.clone());
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "did it jam?", None, None).await.unwrap();
+    settled(&room, "ada", 3).await;
+
+    let closed = room
+        .start_fresh_chapter("ada", ChapterClose::User)
+        .await
+        .unwrap();
+    assert_eq!(closed.title.as_deref(), Some("Crane jam"));
+    assert_eq!(closed.messages, 2);
+
+    room.prompt("ada", "and now?", None, None).await.unwrap();
+    settled(&room, "ada", 6).await;
+
+    assert_eq!(
+        kinds(&tape(&room, "ada")),
+        [
+            "chapter", "user", "agent", "turn", "chapter", "user", "agent", "turn"
+        ],
+        "the new marker opens before the line that lands in it"
+    );
+    let markers = markers(&room, "ada");
+    assert_eq!(markers[0]["closedBy"], "user");
+    assert_eq!(markers[1].get("endedAt"), None);
+
+    // Two agents were built, and the second was seeded with nothing: the
+    // chapter it joined has no conversation in it yet.
+    let seeds = lock(&agents.seeds).clone();
+    assert_eq!(seeds.len(), 2);
+    assert_eq!(seeds[1], Vec::<Said>::new());
+}
+
+/// What the fresh context is told about the conversation it is joining.
+#[tokio::test]
+async fn the_wake_block_carries_the_previous_chapters_note() {
+    let agents = Fake::answering(
+        Scripted::turns(vec![
+            saying("one", "It jammed."),
+            saying("two", "All clear."),
+        ]),
+        note_json("Crane jam"),
+    );
+    let room = room("chapter-wake", agents.clone());
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "did it jam?", None, None).await.unwrap();
+    settled(&room, "ada", 3).await;
+    room.start_fresh_chapter("ada", ChapterClose::User)
+        .await
+        .unwrap();
+    room.prompt("ada", "and now?", None, None).await.unwrap();
+    settled(&room, "ada", 6).await;
+
+    let woken = lock(&agents.preambles)[1].clone();
+    assert!(woken.contains("You are Ada."), "{woken}");
+    assert!(woken.contains("fresh working context"), "{woken}");
+    assert!(
+        woken.contains(r#"The previous chapter, "Crane jam", ended"#),
+        "{woken}"
+    );
+    assert!(woken.contains("Goal: Get the crane moving"), "{woken}");
+    assert!(woken.contains("Open loops:\n- oil the winch"), "{woken}");
+    assert!(
+        woken.contains(r#"{"speaker":"user","text":"did it jam?"}"#),
+        "{woken}"
+    );
+}
+
+/// The idle clock: a chapter nobody has said anything in for longer than the
+/// room allows closes itself, and one that is still warm is left alone.
+#[tokio::test]
+async fn the_idle_sweep_closes_a_stale_chapter_and_leaves_a_fresh_one() {
+    let log = scratch("chapter-sweep");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let stale = now_ms() - 10 * 3_600_000;
+    write_tape(
+        &log,
+        "ada",
+        &[
+            json!({"kind": "chapter", "id": "c-ada", "ts": stale, "backendId": "pi"}),
+            spoken("user", "u1", stale + 1_000, "did the crane jam?"),
+            spoken("agent", "a1", stale + 2_000, "It jammed."),
+        ],
+    );
+    write_tape(
+        &log,
+        "bob",
+        &[
+            json!({"kind": "chapter", "id": "c-bob", "ts": now_ms() - 60_000, "backendId": "pi"}),
+            spoken("user", "u2", now_ms() - 30_000, "morning"),
+        ],
+    );
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::answering(Scripted::new(Vec::new()), note_json("Crane jam")),
+    );
+
+    room.sweep_chapters(&mut HashMap::new()).await;
+
+    let closed = &markers(&room, "ada")[0];
+    assert_eq!(
+        closed["endedAt"],
+        stale + 2_000,
+        "the chapter ended when the conversation stopped, not when the sweep noticed"
+    );
+    assert_eq!(closed["title"], "Crane jam");
+    assert_eq!(
+        closed["note"],
+        "Goal: Get the crane moving\nOutcome: It moved.\nOpen loops:\n- oil the winch\nFiles: crane.log"
+    );
+    assert_eq!(closed["status"], "in-progress");
+    assert_eq!(closed["tags"], json!(["crane", "harbour"]));
+    assert_eq!(closed["closedBy"], "idle");
+
+    assert_eq!(
+        markers(&room, "bob")[0].get("endedAt"),
+        None,
+        "a chapter that heard something a minute ago is not stale"
+    );
+}
+
+/// A teammate nobody spoke to does not collect empty rules in its drawer.
+#[tokio::test]
+async fn a_chapter_nobody_spoke_in_closes_without_a_title() {
+    let room = room("chapter-empty", Fake::new(Scripted::new(Vec::new())));
+    assert!(
+        room.start_fresh_chapter("ada", ChapterClose::User)
+            .await
+            .is_err(),
+        "a teammate that never started has no chapter to close"
+    );
+
+    room.start("ada").await.unwrap();
+    let closed = room
+        .start_fresh_chapter("ada", ChapterClose::Agent)
+        .await
+        .unwrap();
+
+    assert_eq!(closed.title, None);
+    assert_eq!(closed.messages, 0);
+    let marker = &markers(&room, "ada")[0];
+    assert_eq!(marker["closedBy"], "agent");
+    assert!(marker["endedAt"].is_i64());
+    assert_eq!(marker.get("title"), None);
+    assert_eq!(marker.get("status"), None);
+}
+
+/// No model, or a model that would not answer: the chapter closes anyway,
+/// named after the thing that started it, and the transcript says what is
+/// missing rather than leaving the next chapter to start cold in silence.
+#[tokio::test]
+async fn a_chapter_no_model_would_summarise_closes_titled_from_the_first_message() {
+    let agents = Fake::new(Scripted::new(saying("one", "It jammed.")));
+    let room = room("chapter-no-note", agents);
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "did the crane jam?", None, None)
+        .await
+        .unwrap();
+    settled(&room, "ada", 3).await;
+
+    let closed = room
+        .start_fresh_chapter("ada", ChapterClose::User)
+        .await
+        .unwrap();
+    assert_eq!(closed.title.as_deref(), Some("did the crane jam?"));
+    assert_eq!(closed.note, None);
+    assert_eq!(closed.status, Some(ChapterStatus::Done));
+
+    let events = tape(&room, "ada");
+    let notice = events.last().expect("something was written");
+    assert_eq!(notice["kind"], "notice");
+    assert_eq!(notice["level"], "warn");
+    assert!(
+        notice["text"]
+            .as_str()
+            .unwrap()
+            .contains("without a handoff note"),
+        "{notice}"
     );
 }

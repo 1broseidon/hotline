@@ -18,27 +18,38 @@
 //! - A scheduled run marked quiet has its teammate's voice demoted to thinking
 //!   for the length of its own turn. That gate is [`quiet`], and it lives here
 //!   because it must hold for whichever driver ran the turn.
+//! - A message goes to an agent whose context is the chapter it is in. The
+//!   room opens a chapter when a session starts, closes one that has gone
+//!   quiet, and replaces the agent whose chapter closed before the next
+//!   message reaches it. That is [`chapters`], and it lives here for the same
+//!   reason: a chapter is a fact about the room, not about the agent.
 //!
 //! Reach is read from the roster at every prompt rather than from the persona
 //! the session started with: a live session is not told when its teammate is
 //! edited, and the switch has to take on the next turn.
 
+mod chapters;
 mod quiet;
 
 use crate::contract::{
-    Attachment, ConfigChoice, Persona, Reach, ScheduleKind, ScheduledRun, SessionCapabilities,
-    SessionInfo, SessionState, StreamDelta, ToolOutput, ToolStatus, TranscriptEvent,
+    Attachment, ChapterClose, ChapterSummary, ConfigChoice, NoticeLevel, Persona, Reach,
+    ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState, StreamDelta,
+    ToolOutput, ToolStatus, TranscriptEvent,
 };
+use crate::driver::rig;
 use crate::driver::rig::{InProcess, Said, models};
 use crate::driver::{Driver, MessageKind, Update, clip};
 use crate::log::{Log, StreamId};
 use crate::room;
+use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
+use async_trait::async_trait;
 use chrono::Local;
 use quiet::QuietWindow;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::time::Duration;
 use tokio::sync::broadcast;
 
 /// How much of a tool's output the transcript keeps. The model was given all
@@ -60,6 +71,17 @@ const BROADCAST_DEPTH: usize = 256;
 /// somebody's later, unrelated message.
 const MARK_TTL_MS: i64 = 15_000;
 
+/// How the idle clock runs. The first look is soon after the room opens,
+/// because a chapter that went stale while Toad was closed should be closed
+/// before the person who closed it comes back; after that a minute is finer
+/// than any setting the room allows, and the work is a fold nobody is waiting
+/// on.
+const FIRST_SWEEP: Duration = Duration::from_secs(5);
+const SWEEP_EVERY: Duration = Duration::from_secs(60);
+
+/// While a turn is running at the idle mark, look again after this long.
+const BUSY_RECHECK_MS: i64 = 10 * 60_000;
+
 /// Where the provider keys come from.
 ///
 /// The room never holds a secret: it asks for the keys at the start of every
@@ -68,6 +90,39 @@ const MARK_TTL_MS: i64 = 15_000;
 /// map.
 pub trait ProviderKeys: Send + Sync {
     fn provider_keys(&self) -> HashMap<String, String>;
+}
+
+/// What the room asks a model for: an agent to run a teammate's turns, and a
+/// single answer to a single question.
+///
+/// The room builds its agents rather than being handed them, because it is the
+/// room that decides when one is needed: a chapter closing means the next
+/// message must reach a context that has never seen the chapter before it. The
+/// note that closes a chapter is the other thing a model is asked for, and it
+/// is asked here too — one seam for everything with a provider behind it, so
+/// the room's own rules can be driven end to end without reaching one.
+#[async_trait]
+pub trait Agents: Send + Sync {
+    /// A teammate's agent, told the preamble and seeded with what has been
+    /// said in the chapter it is joining.
+    fn agent(&self, preamble: String, said: Vec<Said>) -> Arc<dyn Driver>;
+
+    /// One answer, with no tools and no conversation.
+    async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
+}
+
+/// Toad Agent, on whatever keys the desk holds at the moment it is asked.
+struct RigAgents(Arc<dyn ProviderKeys>);
+
+#[async_trait]
+impl Agents for RigAgents {
+    fn agent(&self, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
+        Arc::new(InProcess::new(self.0.clone(), preamble, said))
+    }
+
+    async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
+        rig::complete(&self.0.provider_keys(), model_id, system, prompt).await
+    }
 }
 
 /// A session that is not running.
@@ -166,6 +221,7 @@ struct Sending {
 pub struct Room {
     log: Log,
     keys: Arc<dyn ProviderKeys>,
+    agents: Arc<dyn Agents>,
     /// The one writer of the search index. `None` when it could not be opened,
     /// which costs search and never a record.
     indexer: Mutex<Option<Indexer>>,
@@ -176,6 +232,16 @@ pub struct Room {
 
 impl Room {
     pub fn new(log: Log, keys: Arc<dyn ProviderKeys>) -> Arc<Self> {
+        Self::with_agents(log, keys.clone(), Arc::new(RigAgents(keys)))
+    }
+
+    /// The room, on an agent seam a test can script. [`Room::new`] is this on
+    /// Toad Agent, which is the only agent this build has.
+    pub(crate) fn with_agents(
+        log: Log,
+        keys: Arc<dyn ProviderKeys>,
+        agents: Arc<dyn Agents>,
+    ) -> Arc<Self> {
         let indexer = match Indexer::open(&log) {
             Ok(indexer) => Some(indexer),
             Err(error) => {
@@ -183,14 +249,17 @@ impl Room {
                 None
             }
         };
-        Arc::new(Self {
+        let room = Arc::new(Self {
             log,
             keys,
+            agents,
             indexer: Mutex::new(indexer),
             sessions: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
-        })
+        });
+        sweep_idle_chapters(Arc::downgrade(&room));
+        room
     }
 
     /// Brings a teammate up, on the driver its backend names.
@@ -211,23 +280,17 @@ impl Room {
                 persona.name, persona.cwd
             )
         })?;
+        // The agent's context is one chapter: it hears what was said in the
+        // chapter it is joining, and the wake block tells it about the one
+        // that closed before it — which is the whole of what a fresh context
+        // knows about a conversation that has been going on for months.
+        let events = self.tape(&persona.id);
         let reach = persona.reach.unwrap_or_default();
-        let driver = Arc::new(InProcess::new(
-            self.keys.clone(),
-            preamble(&persona, reach),
-            self.said(&persona.id),
-        ));
-        self.start_on(&persona, driver).await
-    }
-
-    /// Brings a teammate up on a driver the caller names. [`Room::start`] is
-    /// this with the driver its backend chose.
-    async fn start_on(
-        self: &Arc<Self>,
-        persona: &Persona,
-        driver: Arc<dyn Driver>,
-    ) -> Result<SessionInfo, String> {
-        let reported = driver.start(persona).await?;
+        let driver = self.agents.agent(
+            preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
+            said(&events),
+        );
+        let reported = driver.start(&persona).await?;
         let mut info = idle_info(&persona.id);
         info.state = SessionState::Ready;
         info.agent_name = Some(reported.agent_name);
@@ -245,6 +308,9 @@ impl Room {
             quiet: Mutex::new(None),
         });
         lock(&self.sessions).insert(persona.id.clone(), session);
+        // Nothing said is outside a chapter: a session that starts on a tape
+        // whose last chapter is closed — or that has none at all — opens one.
+        self.begin_chapter(&persona.id, &persona.backend_id);
         let _ = self.info_changes.send(info.clone());
         Ok(info)
     }
@@ -261,20 +327,40 @@ impl Room {
         Ok(())
     }
 
+    /// The session this message goes to, which is not always the one that was
+    /// running.
+    ///
+    /// A chapter closes while nobody is being spoken to — on idle, on request,
+    /// or because the agent asked — and the session that belonged to it still
+    /// has the whole of it in its context. So the message before it reaches
+    /// the agent is where the swap happens: the old session stops, a fresh one
+    /// starts, and starting it opens the chapter this message will land in. A
+    /// running session with an open chapter is left alone, which is every
+    /// message but the first of a chapter.
+    async fn in_this_chapter(self: &Arc<Self>, persona_id: &str) -> Result<Arc<Session>, String> {
+        let session = self.session(persona_id)?;
+        if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
+            return Ok(session);
+        }
+        self.stop(persona_id)?;
+        self.start(persona_id).await?;
+        self.session(persona_id)
+    }
+
     /// Hands the teammate a message and returns at once: the turn runs on its
     /// own task and everything it does arrives as tape events and deltas. A
     /// message sent during a turn is queued behind it.
     ///
     /// `reply_to` is the id of the message this one answers, and the
     /// attachments are files the teammate is handed alongside the words.
-    pub fn prompt(
+    pub async fn prompt(
         self: &Arc<Self>,
         persona_id: &str,
         text: &str,
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
-        let session = self.session(persona_id)?;
+        let session = self.in_this_chapter(persona_id).await?;
         if let Some(answered) = reply_to {
             mark(&session.pending_reply, answered);
         }
@@ -299,13 +385,13 @@ impl Room {
     /// transcript keeps the bare prompt and the stamp naming that job, so the
     /// conversation can draw one line instead of a wall. And if the job is
     /// quiet, this is where the window over its turn opens.
-    pub fn prompt_scheduled(
+    pub async fn prompt_scheduled(
         self: &Arc<Self>,
         persona_id: &str,
         prompt: &str,
         run: ScheduledRun,
     ) -> Result<(), String> {
-        let session = self.session(persona_id)?;
+        let session = self.in_this_chapter(persona_id).await?;
         let wire = scheduled_wire_text(&run, prompt);
         mark(&session.pending_scheduled, run);
         self.say(
@@ -413,6 +499,209 @@ impl Room {
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
         models(&self.keys.provider_keys())
+    }
+
+    // -- chapters -----------------------------------------------------------
+
+    /// Closes the teammate's open chapter now and answers with what it became.
+    ///
+    /// Nothing else happens here. The session that belonged to the chapter
+    /// keeps running until there is something to say to it, and the swap is
+    /// [`Room::prompt`]'s: an agent that asks for a fresh chapter is mid-turn
+    /// when it asks, and its own turn is the one that has to finish answering.
+    pub async fn start_fresh_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+        by: ChapterClose,
+    ) -> Result<ChapterSummary, String> {
+        self.close_chapter(persona_id, by)
+            .await
+            .ok_or_else(|| "That teammate has no open chapter to close.".to_string())
+    }
+
+    /// Opens a chapter, unless one is already open.
+    fn begin_chapter(&self, persona_id: &str, backend_id: &str) {
+        if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
+            return;
+        }
+        self.write(
+            persona_id,
+            &chapters::opened(backend_id, new_id(), now_ms()),
+        );
+    }
+
+    /// Closes the open chapter and writes the note the next one wakes on.
+    ///
+    /// The note is a model call, so this takes as long as an answer takes, and
+    /// the close is one supersession of the marker when it comes back: the
+    /// chapter goes from open to everything it turned out to be, in one line.
+    /// A chapter in which nothing was said never asks — there is nothing to
+    /// write a note about — and closes untitled.
+    async fn close_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+        by: ChapterClose,
+    ) -> Option<ChapterSummary> {
+        let events = self.tape(persona_id);
+        let open = chapter_view::open_chapter(&events)?.clone();
+        let persona = self.persona(persona_id).ok()?;
+        let slice = chapter_view::slice_of(&events, &open).to_vec();
+        // An idle close ends the chapter when the conversation stopped, not
+        // when the sweep noticed — the two can be a night apart, or longer if
+        // Toad was closed — so "ended nine hours ago" on wake means what it
+        // says.
+        let ended_at = match by {
+            ChapterClose::Idle => chapter_view::last_activity(&slice)
+                .or_else(|| open.get("ts").and_then(Value::as_i64))
+                .unwrap_or_else(now_ms),
+            _ => now_ms(),
+        };
+        let spoken_in = slice
+            .iter()
+            .any(chapter_view::is_message)
+            .then(|| chapters::fallback_title(&slice));
+        let Some(title) = spoken_in else {
+            self.close_marker(persona_id, &open, ended_at, chapters::Closing::Empty, by);
+            return self.chapter_summary(persona_id, &open);
+        };
+
+        let note = self.note(&persona, &slice).await;
+        let missing = note.is_none();
+        self.close_marker(
+            persona_id,
+            &open,
+            ended_at,
+            chapters::Closing::Titled {
+                title: note.as_ref().map_or(title, |note| note.title.clone()),
+                note,
+            },
+            by,
+        );
+        if missing {
+            // The chapter closed either way; what is gone is the handoff the
+            // next chapter would have woken on, and a person who never hears
+            // about it will not know why the next chapter starts cold.
+            self.write(
+                persona_id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Warn,
+                    text: "This chapter closed without a handoff note: no model answered."
+                        .to_string(),
+                },
+            );
+        }
+        self.chapter_summary(persona_id, &open)
+    }
+
+    fn close_marker(
+        &self,
+        persona_id: &str,
+        open: &Value,
+        ended_at: i64,
+        closing: chapters::Closing,
+        by: ChapterClose,
+    ) {
+        if let Some(closed) = chapters::closed(open, ended_at, closing, by) {
+            self.write(persona_id, &closed);
+        }
+    }
+
+    /// The chapter as the drawer would list it, read back off the tape it was
+    /// just written to.
+    fn chapter_summary(&self, persona_id: &str, chapter: &Value) -> Option<ChapterSummary> {
+        let id = chapter.get("id")?;
+        chapter_view::summarize(&self.tape(persona_id))
+            .into_iter()
+            .find(|summary| summary.get("id") == Some(id))
+            .and_then(|summary| serde_json::from_value(summary).ok())
+    }
+
+    /// The chapter's note, asked of a model with no tools and no memory.
+    ///
+    /// `None` is every way this can fail to produce one — no key on the desk,
+    /// a provider that refused, an answer that was not the JSON asked for, or
+    /// one that never came — because the chapter closes the same way in all of
+    /// them.
+    async fn note(&self, persona: &Persona, slice: &[Value]) -> Option<chapters::Note> {
+        let model_id = self.note_model(persona)?;
+        let prompt = format!(
+            "Here is the chapter, oldest first.\n<toad_chapter_transcript>\n{}\n</toad_chapter_transcript>\nWrite the JSON note now.",
+            chapters::serialize_chapter(slice)
+        );
+        let answer = tokio::time::timeout(
+            Duration::from_millis(chapters::ANSWER_MS),
+            self.agents
+                .complete(&model_id, chapters::INSTRUCTIONS, &prompt),
+        )
+        .await;
+        match answer {
+            Ok(Ok(answer)) => chapters::parse_note(&answer),
+            Ok(Err(error)) => {
+                eprintln!(
+                    "the note for {}'s chapter was refused: {error}",
+                    persona.name
+                );
+                None
+            }
+            Err(_) => {
+                eprintln!(
+                    "the note for {}'s chapter did not arrive in time",
+                    persona.name
+                );
+                None
+            }
+        }
+    }
+
+    /// The teammate's own model when the desk holds its key, and otherwise the
+    /// first model the desk can reach — so a chapter written by a teammate on
+    /// a provider nobody has a key for still gets a note.
+    fn note_model(&self, persona: &Persona) -> Option<String> {
+        let keys = self.keys.provider_keys();
+        persona
+            .model_id
+            .clone()
+            .filter(|id| keys.contains_key(id.split('/').next().unwrap_or_default()))
+            .or_else(|| models(&keys).first().map(|model| model.id.clone()))
+    }
+
+    /// Closes every chapter that has gone quiet for longer than the room
+    /// allows. `looked_again` carries the teammates whose chapter was stale
+    /// while a turn was running, and when to look at them next.
+    async fn sweep_chapters(self: &Arc<Self>, looked_again: &mut HashMap<String, i64>) {
+        let idle_ms = chapters::idle_ms(&room::settings(&self.log));
+        for persona in room::roster(&self.log) {
+            let now = now_ms();
+            if looked_again
+                .get(&persona.id)
+                .is_some_and(|until| now < *until)
+            {
+                continue;
+            }
+            let events = self.tape(&persona.id);
+            let Some(open) = chapter_view::open_chapter(&events) else {
+                continue;
+            };
+            let last = chapter_view::last_activity(chapter_view::slice_of(&events, open))
+                .or_else(|| open.get("ts").and_then(Value::as_i64))
+                .unwrap_or(now);
+            if now - last < idle_ms {
+                continue;
+            }
+            // A chapter is closed between turns: the note is written from the
+            // slice, and a turn still running is still adding to it.
+            if matches!(
+                self.info(&persona.id).state,
+                SessionState::Thinking | SessionState::Starting
+            ) {
+                looked_again.insert(persona.id.clone(), now + BUSY_RECHECK_MS);
+                continue;
+            }
+            looked_again.remove(&persona.id);
+            self.close_chapter(&persona.id, ChapterClose::Idle).await;
+        }
     }
 
     async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: String) {
@@ -557,9 +846,16 @@ impl Room {
     /// stamps a prompt left and the quiet window be stated once for both kinds
     /// of agent.
     fn append(&self, session: &Session, event: TranscriptEvent) {
-        let persona_id = &session.persona_id;
-        let event = stamped(session, event, now_ms());
-        let event = match serde_json::to_value(&event) {
+        self.write(&session.persona_id, &stamped(session, event, now_ms()));
+    }
+
+    /// One event onto the tape and into the index, with nothing stamped on it.
+    ///
+    /// A chapter marker and the notice that a note is missing come this way:
+    /// they are the room writing in its own voice, not a teammate speaking,
+    /// and there is no reply, schedule or silence for them to be part of.
+    fn write(&self, persona_id: &str, event: &TranscriptEvent) {
+        let event = match serde_json::to_value(event) {
             Ok(event) => event,
             Err(error) => {
                 eprintln!("a transcript event for {persona_id} could not be written: {error}");
@@ -611,21 +907,8 @@ impl Room {
             .unwrap_or_default()
     }
 
-    /// What the teammate and its agent have said to each other so far, for a
-    /// driver that starts back into the conversation.
-    fn said(&self, persona_id: &str) -> Vec<Said> {
-        self.log
-            .load(&StreamId::Tape(persona_id.to_string()))
-            .iter()
-            .filter_map(|event| {
-                let text = event.get("text")?.as_str()?.to_string();
-                match event.get("kind")?.as_str()? {
-                    "user" => Some(Said::User(text)),
-                    "agent" => Some(Said::Agent(text)),
-                    _ => None,
-                }
-            })
-            .collect()
+    fn tape(&self, persona_id: &str) -> Vec<Value> {
+        self.log.load(&StreamId::Tape(persona_id.to_string()))
     }
 
     fn session(&self, persona_id: &str) -> Result<Arc<Session>, String> {
@@ -634,6 +917,56 @@ impl Room {
             .cloned()
             .ok_or_else(|| "That teammate is not running.".to_string())
     }
+}
+
+/// The idle clock, for the whole room at once.
+///
+/// One task rather than a timer per teammate: the tape already knows when each
+/// chapter last heard anything, so there is nothing to arm when a message
+/// lands, nothing to cancel when a teammate is deleted, and nothing to rebuild
+/// when the setting changes. The first look is a few seconds after the room
+/// opens, which is where a chapter that went stale while Toad was closed is
+/// closed — nobody is waiting, so the note is written before anyone comes back
+/// to read it. The task holds the room weakly, so it is the last thing the
+/// room's own end stops.
+fn sweep_idle_chapters(room: Weak<Room>) {
+    tokio::spawn(async move {
+        tokio::time::sleep(FIRST_SWEEP).await;
+        let mut looked_again: HashMap<String, i64> = HashMap::new();
+        loop {
+            match room.upgrade() {
+                Some(room) => room.sweep_chapters(&mut looked_again).await,
+                None => return,
+            }
+            tokio::time::sleep(SWEEP_EVERY).await;
+        }
+    });
+}
+
+/// What the teammate and its agent have said to each other in the chapter the
+/// agent is joining, for a driver that starts back into the conversation.
+///
+/// A chapter is one working context, so a session hears its own chapter and
+/// not the ones before it: the wake block is what carries those. A tape with
+/// no marker at all was written before this room divided anything, and reads
+/// as one implicit chapter.
+fn said(events: &[Value]) -> Vec<Said> {
+    let within = match chapter_view::open_chapter(events) {
+        Some(open) => chapter_view::slice_of(events, open),
+        None if chapter_view::chapters_of(events).is_empty() => events,
+        None => &[],
+    };
+    within
+        .iter()
+        .filter_map(|event| {
+            let text = event.get("text")?.as_str()?.to_string();
+            match event.get("kind")?.as_str()? {
+                "user" => Some(Said::User(text)),
+                "agent" => Some(Said::Agent(text)),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// A tool call the agent has made and not yet heard back about. The tape event
@@ -731,9 +1064,11 @@ fn with_paths(text: &str, attachments: &[Attachment]) -> String {
 }
 
 /// What the agent is told before it is told anything else: who it is, where it
-/// stands, how far it can reach, and what day it is. Everything here is
-/// something it would otherwise have to ask for or guess.
-fn preamble(persona: &Persona, reach: Reach) -> String {
+/// stands, how far it can reach, what day it is, and — when it is joining a
+/// conversation that already has chapters behind it — what happened in the one
+/// that closed. Everything here is something it would otherwise have to ask
+/// for or guess.
+fn preamble(persona: &Persona, reach: Reach, wake: Option<String>) -> String {
     let reach_sentence = match reach {
         Reach::Workspace => {
             "Your tools reach inside that directory and nowhere else: a path that leaves it is refused."
@@ -749,11 +1084,15 @@ fn preamble(persona: &Persona, reach: Reach) -> String {
             persona.name
         )
     };
-    format!(
+    let standing = format!(
         "{identity}\n\nYour working directory is {}. {reach_sentence}\n\nToday is {}.",
         persona.cwd,
         Local::now().format("%A %-d %B %Y")
-    )
+    );
+    match wake {
+        Some(wake) => format!("{standing}\n\n{wake}"),
+        None => standing,
+    }
 }
 
 fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {

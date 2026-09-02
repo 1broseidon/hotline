@@ -161,7 +161,7 @@ crates/toad-core/src/
   store/           FTS5 over tapes and chapters; chapter list; previews
   room.rs          the roster fold and settings
   vault.rs         secrets beside the room stream
-  session/         Session, the funnel, quiet
+  session/         Session, the funnel, quiet, chapters
   driver/          InProcess (Rig)
   tools/           workspace tools on cap-std, shell command
   desk.rs          the room, vault and log behind the wire

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Persona } from "../generated/contract";
+import type { McpPolicy, Persona, PolicyMode } from "../generated/contract";
+import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
 import { wire } from "../wire";
 import { Sheet } from "./Sheet";
 
@@ -21,6 +22,7 @@ export function Teammate({
 	onClose(): void;
 	onDeleted(): void;
 }) {
+	const servers = useMcpServers();
 	const [name, setName] = useState(persona.name);
 	const [goal, setGoal] = useState(persona.goal);
 	const [cwd, setCwd] = useState(persona.cwd);
@@ -159,6 +161,14 @@ export function Teammate({
 					</p>
 				</div>
 
+				<McpGrant
+					personaId={persona.id}
+					policy={persona.mcpPolicy}
+					servers={servers}
+					disabled={busy}
+					onChange={(mcpPolicy) => save({ mcpPolicy })}
+				/>
+
 				<section className="mt-2 border-t border-rule pt-4">
 					<p className="label">Remove teammate</p>
 					<p className="mb-2 text-xs leading-relaxed text-ink-3">
@@ -199,5 +209,93 @@ export function Teammate({
 				</div>
 			</form>
 		</Sheet>
+	);
+}
+
+const GRANT_MODES: { id: PolicyMode; label: string }[] = [
+	{ id: "all", label: "Every server" },
+	{ id: "none", label: "None" },
+	{ id: "some", label: "Some" },
+];
+
+/**
+ * Which of the app's servers this teammate is given. The list is kept when
+ * the mode is not `some`, so toggling back does not lose the ticks.
+ */
+function McpGrant({
+	personaId,
+	policy,
+	servers,
+	disabled,
+	onChange,
+}: {
+	personaId: string;
+	policy: McpPolicy;
+	servers: McpServer[];
+	disabled: boolean;
+	onChange(policy: McpPolicy): void;
+}) {
+	const setMode = (mode: PolicyMode) => {
+		if (mode === policy.mode) return;
+		onChange({ ...policy, mode });
+	};
+
+	const toggle = (id: string) => {
+		const serverIds = policy.serverIds.includes(id)
+			? policy.serverIds.filter((item) => item !== id)
+			: [...policy.serverIds, id];
+		onChange({ ...policy, serverIds });
+	};
+
+	return (
+		<div>
+			<p className="label">Tools</p>
+			<div className="flex flex-col gap-1.5">
+				{GRANT_MODES.map((mode) => (
+					<label key={mode.id} className="flex items-center gap-2 text-sm text-ink-2">
+						<input
+							type="radio"
+							name={`mcp-policy-${personaId}`}
+							checked={policy.mode === mode.id}
+							disabled={disabled}
+							onChange={() => setMode(mode.id)}
+						/>
+						{mode.label}
+					</label>
+				))}
+			</div>
+			{policy.mode === "some" &&
+				(servers.length === 0 ? (
+					<p className="mt-2 text-xs leading-relaxed text-ink-3">
+						No servers yet. Add one under Settings → Tools.
+					</p>
+				) : (
+					<ul className="mt-2 flex flex-col gap-1">
+						{servers.map((server) => (
+							<li key={server.id}>
+								<label className="flex items-start gap-2 rounded-lg bg-paper-3 px-2.5 py-1.5 text-xs">
+									<input
+										type="checkbox"
+										className="mt-0.5"
+										checked={policy.serverIds.includes(server.id)}
+										disabled={disabled}
+										onChange={() => toggle(server.id)}
+									/>
+									<span className="min-w-0 flex-1">
+										<span className="font-medium text-ink-2">{server.name}</span>
+										<span className="ml-2 text-ink-3">{server.type}</span>
+										<span className="block truncate font-mono text-ink-3">
+											{mcpServerDetail(server)}
+										</span>
+									</span>
+								</label>
+							</li>
+						))}
+					</ul>
+				))}
+			<p className="mt-1 text-xs leading-relaxed text-ink-3">
+				Tools attach when the teammate starts; a change reaches it on its next start.
+			</p>
+		</div>
 	);
 }

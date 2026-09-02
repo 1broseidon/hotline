@@ -185,11 +185,14 @@ is opened from a copy so SQLite cannot leave `-wal`/`-shm` beside it,
 tapes are copied, secrets are read out of the old vault. A teammate
 already in the roster, a tape that already exists here, and a setting
 already set are left alone, so running it twice is the same as running it
-once.
+once. `mcpServers` comes over when the shape is one this tree accepts; an
+entry it cannot read is named on `notes` and the rest of the list still
+lands. A key this Toad does not have is skipped with a row, not dropped
+in silence.
 
 Success prints a JSON report (`teammates`, `tapes`, `settings`, `keys`,
-`skipped`) and exits 0. A failure prints the error and exits 1. Wrong
-arguments print `usage: toad-import <from> <to>` and exit 2.
+`skipped`, `notes`) and exits 0. A failure prints the error and exits 1.
+Wrong arguments print `usage: toad-import <from> <to>` and exit 2.
 
 The same importer is the `room.import` command on the wire. Imported
 teammates keep their working directories under the old data directory's

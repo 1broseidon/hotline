@@ -57,7 +57,7 @@ pub struct Skipped {
     pub reason: String,
 }
 
-const IMPORTED_SETTINGS: [&str; 2] = ["chapterIdleHours", "defaultBackendId"];
+const IMPORTED_SETTINGS: [&str; 3] = ["chapterIdleHours", "defaultBackendId", "mcpServers"];
 const IMPORTED_PROVIDERS: [&str; 3] = ["anthropic", "openai", "openrouter"];
 
 /// Old Toad backend id → this registry's id, for every DEFAULT harness both
@@ -225,17 +225,24 @@ fn import_settings(from: &Path, log: &Log, report: &mut Report) -> io::Result<()
     let Some(settings) = source_settings(from) else {
         return Ok(());
     };
-    for key in IMPORTED_SETTINGS {
-        let Some(value) = settings.get(key).cloned() else {
+    for (key, value) in settings {
+        if !IMPORTED_SETTINGS.contains(&key.as_str()) {
+            report.skipped.push(Skipped {
+                item: format!("setting {key}"),
+                reason: "not a setting this Toad has".into(),
+            });
             continue;
-        };
-        if setting_written(log, key) {
+        }
+        if setting_written(log, &key) {
             report.skipped.push(Skipped {
                 item: format!("setting {key}"),
                 reason: "already set".into(),
             });
             continue;
         }
+        let Some(value) = setting_value_to_import(&key, value, report) else {
+            continue;
+        };
         log.append(
             &StreamId::Room,
             &json!({ "kind": "setting", "id": key, "value": value }),
@@ -243,6 +250,51 @@ fn import_settings(from: &Path, log: &Log, report: &mut Report) -> io::Result<()
         report.settings += 1;
     }
     Ok(())
+}
+
+/// The value this tree will store for one imported setting, or `None` when
+/// the whole key is left behind. `mcpServers` is filtered entry by entry:
+/// a server this tree cannot read costs that server, named on `notes`, and
+/// not the rest of the list.
+fn setting_value_to_import(key: &str, value: Value, report: &mut Report) -> Option<Value> {
+    if key != "mcpServers" {
+        return Some(value);
+    }
+    let Some(entries) = value.as_array() else {
+        report.skipped.push(Skipped {
+            item: "setting mcpServers".into(),
+            reason: "not a server list this Toad can read".into(),
+        });
+        return None;
+    };
+    let mut kept = Vec::new();
+    for entry in entries {
+        let normalised = crate::mcp::normalize_servers(&Value::Array(vec![entry.clone()]));
+        if normalised.is_empty() {
+            report.notes.push(Skipped {
+                item: format!("mcp server {}", mcp_server_label(entry)),
+                reason: "not a server this Toad can read".into(),
+            });
+        } else {
+            kept.extend(normalised);
+        }
+    }
+    Some(Value::Array(kept))
+}
+
+fn mcp_server_label(value: &Value) -> String {
+    let object = value.as_object();
+    let name = object
+        .and_then(|object| object.get("name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    let id = object
+        .and_then(|object| object.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    name.or(id).unwrap_or("unnamed").to_string()
 }
 
 fn import_keys(
@@ -769,6 +821,11 @@ mod tests {
                 .any(|(item, reason)| *item == "key old (openai)" && *reason == "revoked"),
             "{reasons:?}"
         );
+        assert!(
+            reasons.iter().any(|(item, reason)| *item == "setting theme"
+                && *reason == "not a setting this Toad has"),
+            "{reasons:?}"
+        );
 
         let roster = room::roster(&log);
         let names: Vec<&str> = roster.iter().map(|persona| persona.name.as_str()).collect();
@@ -942,6 +999,96 @@ mod tests {
         assert!(
             !report.notes.iter().any(|note| note.item.contains("Claude")),
             "{report:?}"
+        );
+    }
+
+    #[test]
+    fn mcp_servers_come_over_and_a_bad_entry_is_named() {
+        let from = store_scratch("import-mcp");
+        fs::write(
+            from.join("settings.json"),
+            json!({
+                "version": 1,
+                "settings": {
+                    "mcpServers": [
+                        {
+                            "id": "echo",
+                            "type": "stdio",
+                            "name": "Echo",
+                            "command": "npx",
+                            "args": ["-y", "echo"],
+                        },
+                        { "id": "no-name", "type": "stdio", "command": "echo" },
+                    ]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let (_to, log, vault) = dest("import-mcp-dest");
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.settings, 1, "{report:?}");
+        let settings = room::settings(&log);
+        let servers = settings["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1, "{servers:?}");
+        assert_eq!(servers[0]["id"], "echo");
+        assert_eq!(servers[0]["name"], "Echo");
+        assert!(
+            report
+                .notes
+                .iter()
+                .any(|note| note.item == "mcp server no-name"
+                    && note.reason == "not a server this Toad can read"),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_setting_is_skipped_with_a_row() {
+        let from = store_scratch("import-unknown-setting");
+        fs::write(
+            from.join("settings.json"),
+            json!({
+                "version": 1,
+                "settings": {
+                    "chapterIdleHours": 3,
+                    "theme": "dark",
+                    "webSearchKeys": { "exa": "secret" },
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let (_to, log, vault) = dest("import-unknown-setting-dest");
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.settings, 1, "{report:?}");
+        assert_eq!(room::settings(&log)["chapterIdleHours"], 3);
+        assert!(room::settings(&log).get("theme").is_none());
+        assert!(room::settings(&log).get("webSearchKeys").is_none());
+        let skipped: Vec<(&str, &str)> = report
+            .skipped
+            .iter()
+            .map(|row| (row.item.as_str(), row.reason.as_str()))
+            .collect();
+        assert!(
+            skipped.iter().any(|(item, reason)| *item == "setting theme"
+                && *reason == "not a setting this Toad has"),
+            "{skipped:?}"
+        );
+        assert!(
+            skipped
+                .iter()
+                .any(|(item, reason)| *item == "setting webSearchKeys"
+                    && *reason == "not a setting this Toad has"),
+            "{skipped:?}"
+        );
+        assert!(
+            !skipped
+                .iter()
+                .any(|(item, _)| item.contains("chapterIdleHours")),
+            "{skipped:?}"
         );
     }
 }

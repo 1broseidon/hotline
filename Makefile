@@ -2,7 +2,7 @@
 # nothing done in it can reach real data.
 dev: export TOAD_DATA_DIR := $(CURDIR)/.toad-dev
 
-.PHONY: check ui-check dev build verify
+.PHONY: check ui-check dev build verify icons
 
 check: ui-check
 	cargo fmt --all --check
@@ -29,3 +29,8 @@ build:
 # The headless harnesses drive the real core over the wire; Phase 0 adds the first.
 verify:
 	cargo test --workspace --test '*'
+
+# Every platform's app icon, rendered from the one tile in assets/. The CLI
+# also writes Android and iOS sets; there is no phone here yet, so they go.
+icons:
+	cd crates/toad-desktop && cargo tauri icon ../../assets/toad-tile.svg -o icons && rm -rf icons/android icons/ios

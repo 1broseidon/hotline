@@ -5,3 +5,4 @@ dist/
 .brainfile/
 .claude/
 crates/toad-desktop/gen/
+.hallmark/

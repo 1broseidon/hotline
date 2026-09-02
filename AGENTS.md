@@ -37,7 +37,12 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 2. **One writer per stream.** The core is the only process that appends to
    a stream. A harness that wants state in a stream asks the core over the
    wire, or writes the file before the core starts.
-3. **The reference tree is byte-compatible for tapes.** A tape here is
+3. **The generated contract is written by the whole test run.** ts-rs writes
+   `ui/src/generated/contract.ts` from the export tests, and a filtered run
+   (`cargo test session`) writes only the types it matched, leaving a file
+   the window cannot compile against. Run `cargo test -p toad-core` unfiltered
+   before committing that file; `make check` catches it, so never skip it.
+4. **The reference tree is byte-compatible for tapes.** A tape here is
    the same file as a tape there. Do not change the event shapes or the
    segment layout without changing the importer and saying so in the design.
 

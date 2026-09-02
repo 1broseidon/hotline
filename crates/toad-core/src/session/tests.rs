@@ -1774,3 +1774,23 @@ async fn a_human_action_left_pending_expires_when_the_room_opens() {
     assert_eq!(card["status"], "expired");
     assert_eq!(card["id"], "human:stale");
 }
+
+/// A `persona` line with an empty id is a half-written record, not a
+/// teammate: nothing could name its tape. The room opens over it rather than
+/// taking the whole roster down when the startup fold reaches for that tape.
+#[tokio::test]
+async fn a_teammate_with_no_id_does_not_stop_the_room_opening() {
+    let log = scratch("empty-id-settle");
+    let mut nobody = persona("");
+    nobody.name = "Nobody".to_string();
+    enrol(&log, &nobody);
+    enrol(&log, &persona("ada"));
+
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(Vec::new())),
+    );
+    assert!(room.persona("ada").is_ok());
+    assert!(room.persona("").is_err());
+}

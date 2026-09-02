@@ -48,12 +48,15 @@ fn is_deleted(event: &Value) -> bool {
 ///
 /// An event that does not read as a `Persona` is skipped rather than fatal: a
 /// line a newer build wrote, or one a half-written record left behind, costs
-/// its own teammate and not the whole roster.
+/// its own teammate and not the whole roster. A record whose `id` is empty is
+/// one of those: an id with no characters in it cannot name the files that
+/// hold a tape, so a teammate that has one could never be opened at all.
 pub fn roster(log: &Log) -> Vec<Persona> {
     log.load(&StreamId::Room)
         .into_iter()
         .filter(|event| is_kind(event, "persona") && !is_deleted(event))
-        .filter_map(|event| serde_json::from_value(event).ok())
+        .filter_map(|event| serde_json::from_value::<Persona>(event).ok())
+        .filter(|persona| !persona.id.is_empty())
         .collect()
 }
 
@@ -431,6 +434,18 @@ mod tests {
         assert_eq!(log.load(&StreamId::Room)[0]["kind"], "schedule");
         assert_eq!(log.load(&StreamId::Room)[0]["every"], 15_000);
         assert_eq!(log.load(&StreamId::Room)[0]["quiet"], true);
+    }
+
+    /// A teammate whose id names no file could never be opened, and the
+    /// startup fold opens every teammate's tape before it serves one.
+    #[test]
+    fn a_record_with_an_empty_id_is_not_a_teammate() {
+        let log = scratch("empty-id");
+        append(&log, &persona_event(&persona("", "Nobody")));
+        append(&log, &persona_event(&persona("ada", "Ada")));
+
+        let ids: Vec<String> = roster(&log).into_iter().map(|persona| persona.id).collect();
+        assert_eq!(ids, ["ada"]);
     }
 
     #[test]

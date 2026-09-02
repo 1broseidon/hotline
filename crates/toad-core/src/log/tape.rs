@@ -15,7 +15,15 @@ use std::path::{Path, PathBuf};
 
 /// Every on-disk segment, oldest epoch first. The flat file counts as epoch
 /// 1 only when `1.jsonl` is not already there.
+///
+/// An id with no characters in it names the transcripts directory rather than
+/// a tape inside it, so it has no segments. That is the answer and not a
+/// panic in the path encoder, because the id comes off the wire — a client
+/// asking `chapter.list` for `""` must be told there is nothing there.
 pub(crate) fn segments_of(root: &Path, persona_id: &str) -> Vec<(u64, PathBuf)> {
+    if persona_id.is_empty() {
+        return Vec::new();
+    }
     let mut found = Vec::new();
     if let Ok(entries) = fs::read_dir(transcript_segments_dir(root, persona_id)) {
         for entry in entries.flatten() {
@@ -62,6 +70,11 @@ pub(crate) fn open_epoch(root: &Path, persona_id: &str) -> u64 {
 /// guess which of the two is the tape; a writer that guessed wrong would fork
 /// the history, so it stops instead.
 pub(crate) fn writable_segment(root: &Path, persona_id: &str) -> io::Result<(PathBuf, u64)> {
+    if persona_id.is_empty() {
+        return Err(io::Error::other(
+            "Refusing to write a transcript for a teammate with no id.",
+        ));
+    }
     let flat = transcript_path(root, persona_id);
     let epoch_one = transcript_segment_path(root, persona_id, 1);
     let segments = transcript_segments_dir(root, persona_id);

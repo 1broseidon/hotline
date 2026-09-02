@@ -302,6 +302,18 @@ async fn create(socket: &mut Socket, id: i64, name: &str) -> Value {
     answer["result"].clone()
 }
 
+/// A command's answer, or a failure saying it never came. A command that
+/// takes the read loop down with it is answered never, and a test that waits
+/// forever for that answer says nothing about why.
+async fn answered(socket: &mut Socket, id: i64) -> Value {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        heard_where(socket, |frame| frame["id"] == id),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("command {id} was never answered"))
+}
+
 #[tokio::test]
 async fn a_command_is_answered_by_its_id_and_a_command_nobody_has_is_refused() {
     let (_root, _log, port) = door("framing");
@@ -716,6 +728,58 @@ async fn human_answer_is_a_command_the_wire_can_read() {
     .await;
     let declined = heard(&mut socket).await;
     assert_eq!(declined["ok"], true, "{declined}");
+}
+
+/// An id off the wire is not a teammate this room has, and one with no
+/// characters in it names the transcripts directory rather than a tape in it.
+/// It is answered like any other stranger, because a command that panics is a
+/// command that is never answered at all — and it takes the socket with it.
+#[tokio::test]
+async fn a_command_naming_a_teammate_with_no_id_is_answered() {
+    let (_root, _log, port) = door("blank-id");
+    let mut socket = desk(port).await;
+
+    for (id, cmd, params) in [
+        (1, "chapter.list", json!({ "personaId": "" })),
+        (2, "peers.list", json!({ "personaId": "" })),
+        (
+            3,
+            "search.thread",
+            json!({ "personaId": "", "query": "crane" }),
+        ),
+        (4, "teammate.tools", json!({ "personaId": "" })),
+    ] {
+        ask(
+            &mut socket,
+            json!({ "id": id, "cmd": cmd, "params": params }),
+        )
+        .await;
+        let answer = answered(&mut socket, id).await;
+        assert_eq!(answer["ok"], true, "{cmd}: {answer}");
+    }
+
+    // The socket is still the one that answered the first of them.
+    let created = create(&mut socket, 5, "Ada").await;
+    assert_eq!(created["name"], "Ada");
+}
+
+/// A subscription to a tape that cannot exist is still a subscription: it is
+/// acknowledged, snapshotted empty, and closed by an unsubscribe.
+#[tokio::test]
+async fn a_tape_subscription_for_a_teammate_with_no_id_snapshots_nothing() {
+    let (_root, _log, port) = door("blank-id-sub");
+    let mut socket = desk(port).await;
+
+    ask(&mut socket, json!({ "id": 1, "sub": { "tape": "" } })).await;
+    let opened = answered(&mut socket, 1).await;
+    assert_eq!(opened["ok"], true, "{opened}");
+    let snapshot = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        heard_where(&mut socket, |frame| frame["sub"] == 1),
+    )
+    .await
+    .expect("the snapshot never arrived");
+    assert_eq!(snapshot["snapshot"], json!([]));
 }
 
 #[test]

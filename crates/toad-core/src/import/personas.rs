@@ -61,6 +61,9 @@ pub(super) fn list_local_personas_from(store_root: &Path, workspace_root: &Path)
     list_records(&database, "persona")
         .iter()
         .filter(|record| record.owner_node == node_id)
+        // An id with no characters in it cannot name a workspace or a tape, so
+        // a row carrying one is not a teammate this room could ever open.
+        .filter(|record| !record.id.is_empty())
         .map(|record| persona_of(record, workspace_root))
         .collect()
 }

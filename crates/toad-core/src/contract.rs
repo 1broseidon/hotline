@@ -909,6 +909,8 @@ pub struct ChapterSummary {
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ChapterStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_by: Option<ChapterClose>,
     pub messages: i64,
 }
 

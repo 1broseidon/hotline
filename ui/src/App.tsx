@@ -225,6 +225,8 @@ function Conversation({
 	const personaId = entry.persona.id;
 	const { events, streaming } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
+	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
+	const [chapterBusy, setChapterBusy] = useState(false);
 
 	const send = useCallback(
 		(text: string) => {
@@ -239,6 +241,16 @@ function Conversation({
 	);
 	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
+	/* Success is the tape: the marker is superseded in place and the title
+	 * lands on its line. Only a refusal needs a sentence here. */
+	const startChapter = useCallback(() => {
+		setChapterSaid(null);
+		setChapterBusy(true);
+		void wire
+			.command("chapter.start_fresh", { personaId })
+			.catch((error: Error) => setChapterSaid(error.message))
+			.finally(() => setChapterBusy(false));
+	}, [personaId]);
 
 	// Escape clears a quote that is up even when the field is not focused.
 	// The composer handles the same key first when the field has it, so a
@@ -259,9 +271,12 @@ function Conversation({
 				entry={entry}
 				models={models}
 				searchOpen={searchOpen}
+				chapterBusy={chapterBusy}
+				chapterSaid={chapterSaid}
 				onSetModel={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
 				onOpenTeammate={onOpenTeammate}
 				onOpenSearch={onOpenSearch}
+				onNewChapter={startChapter}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript events={events} streaming={streaming} focus={focus} onReply={setReplying} />

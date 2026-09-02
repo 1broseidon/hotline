@@ -94,7 +94,7 @@ pub fn summarize(events: &[Value]) -> Vec<Value> {
             if let Some(ts) = chapter.get("ts") {
                 summary.insert("startedAt".into(), ts.clone());
             }
-            for key in ["endedAt", "title", "note", "status"] {
+            for key in ["endedAt", "title", "note", "status", "closedBy"] {
                 if let Some(value) = chapter.get(key) {
                     summary.insert(key.to_string(), value.clone());
                 }
@@ -190,7 +190,8 @@ mod tests {
                     "endedAt": 200,
                     "title": "First",
                     "note": "did the thing",
-                    "status": "done"
+                    "status": "done",
+                    "closedBy": "idle"
                 }),
                 json!({"kind": "user", "id": "u1", "ts": 110, "text": "hi"}),
                 json!({"kind": "tool", "id": "t1", "ts": 120, "status": "done"}),
@@ -218,6 +219,7 @@ mod tests {
                     "title": "First",
                     "note": "did the thing",
                     "status": "done",
+                    "closedBy": "idle",
                     "messages": 2
                 }),
             ]

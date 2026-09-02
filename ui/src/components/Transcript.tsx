@@ -217,14 +217,18 @@ function Row({
 				</p>
 			);
 
-		/* Where the agent's working context reset, on the date stamp's own
-		 * line. Nothing to click: in a conversation with a colleague, the fact
-		 * that they slept is not an event. */
+		/* Where the agent's working context reset: the date stamp's own line,
+		 * with the chapter's name on it once it has one. The close arrives as
+		 * one superseded marker — endedAt and title together — so there is no
+		 * interim "writing the note" to draw. Nothing to click; the note lives
+		 * in search. */
 		case "chapter":
 			return (
 				<p className="py-3 text-center text-xs text-ink-3">
 					{stampText(event.ts)}
-					{event.title !== undefined && <span className="ml-2 text-ink-2">{event.title}</span>}
+					{event.title !== undefined && event.title !== "" && (
+						<span className="ml-2 text-ink-2">{event.title}</span>
+					)}
 				</p>
 			);
 

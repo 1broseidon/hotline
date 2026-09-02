@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChapterSummary, GlobalSearchHit, ThreadSearchHit } from "../generated/contract";
+import type {
+	ChapterClose,
+	ChapterSummary,
+	GlobalSearchHit,
+	ThreadSearchHit,
+} from "../generated/contract";
 import { wire, type RosterEntry } from "../wire";
 
 /** How long to wait after a keystroke before asking the index. */
@@ -200,6 +205,7 @@ function Contents({
 						<span className="block text-left text-xs text-ink-3">
 							{chapter.messages} message{chapter.messages === 1 ? "" : "s"}
 							{chapter.status !== undefined && ` · ${statusOf(chapter.status)}`}
+							{chapter.closedBy !== undefined && ` · ${closedByOf(chapter.closedBy)}`}
 						</span>
 					</button>
 					{chapter.note !== undefined && chapter.note !== "" && (
@@ -261,6 +267,13 @@ function hitKey(hit: ThreadSearchHit | GlobalSearchHit, fallback: string): strin
 
 function statusOf(status: string): string {
 	return status.replace(/-/g, " ");
+}
+
+/** How the chapter closed, in the word the person would use. The wire says
+ * `user` for a press of New chapter; the spec calls that asked. */
+function closedByOf(by: ChapterClose): string {
+	if (by === "user") return "asked";
+	return by;
 }
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });

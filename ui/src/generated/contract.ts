@@ -35,7 +35,7 @@ export type ChapterStatus = "in-progress" | "done";
 /**
  * A chapter as the drawer lists it: the marker plus how much was said in it.
  */
-export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, title?: string, note?: string, status?: ChapterStatus, messages: number, };
+export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, title?: string, note?: string, status?: ChapterStatus, closedBy?: ChapterClose, messages: number, };
 
 /**
  * Everything a client may ask the room to do or to answer.

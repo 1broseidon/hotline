@@ -502,7 +502,8 @@ export type SessionState = "idle" | "starting" | "ready" | "thinking" | "error" 
 export type Side = "me" | "them";
 
 /**
- * One thing the importer did not take, and why.
+ * One note from the import: a thing left behind, or a backend this
+ * registry has no harness for.
  */
 export type Skipped = { item: string, reason: string, };
 

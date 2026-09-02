@@ -4,6 +4,11 @@
 //! copied, and secrets are read out of the old vault. A teammate already in
 //! the roster is left alone, and a tape that already exists here is not
 //! overwritten, so running the import twice is the same as running it once.
+//! A teammate's working directory stays where it is — under the old data
+//! directory's `workspaces/` when that was the default — because the
+//! workspace is the project, not a copy of it. Backend ids are mapped onto
+//! this registry; an id with no counterpart is kept so the session can
+//! refuse it in a sentence.
 
 mod personas;
 mod records;
@@ -36,7 +41,8 @@ pub struct Report {
     pub skipped: Vec<Skipped>,
 }
 
-/// One thing the importer did not take, and why.
+/// One note from the import: a thing left behind, or a backend this
+/// registry has no harness for.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -47,6 +53,51 @@ pub struct Skipped {
 
 const IMPORTED_SETTINGS: [&str; 2] = ["chapterIdleHours", "defaultBackendId"];
 const IMPORTED_PROVIDERS: [&str; 3] = ["anthropic", "openai", "openrouter"];
+
+/// Old Toad backend id → this registry's id, for every DEFAULT harness both
+/// trees name as the same agent. Evidence is the previous Toad's
+/// `src/bun/acp/registry.ts` and this tree's `driver/acp/registry.rs`.
+/// An id already equal to its counterpart passes through; an id absent
+/// here is imported as written.
+///
+/// `pi` → `pi`. Toad Agent. The previous Toad's `PI_BACKEND_ID` /
+/// `DEFAULT_BACKEND_ID`; this tree's `driver::PI_BACKEND_ID`. Not in the
+/// ACP registry: there is no child to launch.
+///
+/// `cursor` → `cursor`. Cursor. Old `NATIVE_BACKENDS.cursor` launches
+/// `cursor-agent acp`. This tree's `NATIVE` row is the same id and launch.
+///
+/// `opencode` → `opencode`. opencode. Old `NATIVE_BACKENDS.opencode`
+/// launches `opencode acp`. This tree's `NATIVE` row is the same.
+///
+/// `gemini` → `gemini`. Gemini CLI. Old `NATIVE_BACKENDS.gemini` launches
+/// `gemini --acp`. This tree's `NATIVE` row is the same.
+///
+/// `claude-acp` → `claude-acp`. Claude Code. Old `ADAPTED_BACKENDS["claude-acp"]`
+/// is the Claude Code ACP adapter (`npx @agentclientprotocol/claude-agent-acp`,
+/// client `claude`). This tree's `ADAPTED` row uses the same id, name, and
+/// package.
+///
+/// `codex-acp` → `codex-acp`. Codex. Old `ADAPTED_BACKENDS["codex-acp"]` is
+/// the Codex ACP adapter (`npx @agentclientprotocol/codex-acp`, client
+/// `codex`). This tree's `ADAPTED` row uses the same id, name, and package.
+const BACKEND_COUNTERPARTS: &[(&str, &str)] = &[
+    ("pi", "pi"),
+    ("cursor", "cursor"),
+    ("opencode", "opencode"),
+    ("gemini", "gemini"),
+    ("claude-acp", "claude-acp"),
+    ("codex-acp", "codex-acp"),
+];
+
+/// This registry's id for an old Toad backend, when both trees taught the
+/// same harness.
+fn counterpart(old: &str) -> Option<&'static str> {
+    BACKEND_COUNTERPARTS
+        .iter()
+        .find(|(from, _)| *from == old)
+        .map(|(_, to)| *to)
+}
 
 /// Copies the previous Toad's roster, tapes, settings and keys into `log` and
 /// `vault`. `from` is opened read-only and is never written.
@@ -103,7 +154,7 @@ fn import_teammates(
             });
             continue;
         }
-        let persona = match persona_from_legacy(value) {
+        let mut persona = match persona_from_legacy(value) {
             Ok(persona) => persona,
             Err(reason) => {
                 report.skipped.push(Skipped {
@@ -113,6 +164,13 @@ fn import_teammates(
                 continue;
             }
         };
+        match counterpart(&persona.backend_id) {
+            Some(mapped) => persona.backend_id = mapped.to_string(),
+            None => report.skipped.push(Skipped {
+                item: format!("teammate {}", persona.name),
+                reason: format!("backend {} has no counterpart here", persona.backend_id),
+            }),
+        }
         append_persona(log, &persona)?;
         report.teammates += 1;
         imported.push(id.clone());
@@ -645,8 +703,9 @@ mod tests {
             .iter()
             .map(|skipped| (skipped.item.as_str(), skipped.reason.as_str()))
             .collect();
-        // A teammate on another harness comes over as it is: whether that
-        // harness can start here is the session's question, not the import's.
+        // A teammate on a harness this registry already names comes over
+        // under that id. Whether the binary is on PATH is the session's
+        // question, not the import's.
         assert!(
             !reasons.iter().any(|(item, _)| *item == "teammate cal"),
             "{reasons:?}"
@@ -732,5 +791,73 @@ mod tests {
         assert_eq!(room::roster(&log).len(), 3);
         assert_eq!(vault.provider_keys().len(), 3);
         assert_eq!(fingerprint(&from), before);
+    }
+
+    /// Claude Code's old id is this registry's id, so a teammate that named
+    /// `claude-acp` starts here as Claude Code. An id nobody taught is kept,
+    /// and the report says so.
+    #[test]
+    fn a_known_harness_is_mapped_and_an_unknown_one_is_kept() {
+        let from = store_scratch("import-backends");
+        let database = create(&from, "this-desk");
+        Put {
+            machine: Some(json!({ "cwd": "/tmp/claude" })),
+            ..Put::new(
+                "claude",
+                "this-desk",
+                json!({
+                    "name": "Claude",
+                    "goal": "Drive Claude Code.",
+                    "backendId": "claude-acp",
+                }),
+            )
+        }
+        .write(&database);
+        Put {
+            machine: Some(json!({ "cwd": "/tmp/stranger" })),
+            ..Put::new(
+                "stranger",
+                "this-desk",
+                json!({
+                    "name": "Stranger",
+                    "goal": "A harness this tree never taught.",
+                    "backendId": "nonesuch",
+                }),
+            )
+        }
+        .write(&database);
+        database.close().unwrap();
+
+        let (_to, log, vault) = dest("import-backends-dest");
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.teammates, 2, "{report:?}");
+
+        let roster = room::roster(&log);
+        let claude = roster
+            .iter()
+            .find(|persona| persona.id == "claude")
+            .unwrap();
+        assert_eq!(claude.backend_id, "claude-acp");
+        let stranger = roster
+            .iter()
+            .find(|persona| persona.id == "stranger")
+            .unwrap();
+        assert_eq!(stranger.backend_id, "nonesuch");
+
+        assert!(
+            report
+                .skipped
+                .iter()
+                .any(|skipped| skipped.item == "teammate Stranger"
+                    && skipped.reason == "backend nonesuch has no counterpart here"),
+            "{report:?}"
+        );
+        assert!(
+            !report
+                .skipped
+                .iter()
+                .any(|skipped| skipped.item.contains("Claude")),
+            "{report:?}"
+        );
     }
 }

@@ -180,6 +180,11 @@ Success prints a JSON report (`teammates`, `tapes`, `settings`, `keys`,
 `skipped`) and exits 0. A failure prints the error and exits 1. Wrong
 arguments print `usage: toad-import <from> <to>` and exit 2.
 
-The same importer is the `room.import` command on the wire. A teammate
-whose backend is not Toad Agent is still copied — this tree can start it
-as an ACP child — and the report records that backend under `skipped`.
+The same importer is the `room.import` command on the wire. Imported
+teammates keep their working directories under the old data directory's
+`workspaces/`, by design: the workspace is the teammate's project, not
+something the importer copies. Backend ids are mapped onto this tree's
+registry (the previous Toad's DEFAULT table — `pi`, `cursor`, `opencode`,
+`gemini`, `claude-acp`, `codex-acp` — already matches the hand-taught
+ids here). An id this build has no harness for is kept as written, and
+the report notes it so the session can refuse that start in a sentence.

@@ -85,10 +85,17 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
 | `session.cancel` | `{personaId}` | none |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
+| `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
+| `session.answer_permission` | `{personaId, requestId, optionId}` | none |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
+| `chapter.start_fresh` | `{personaId}` | the chapter that closed, with its note |
 | `room.import` | `{from}` | an import `Report` |
+
+`session.answer_permission` is refused when nothing is waiting behind that
+request any more — the turn ended, the session stopped, or somebody else
+answered first — so a stale card cannot silently let an agent through.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
 modelId?, computer?}`. Create fills what the draft leaves blank: a fresh

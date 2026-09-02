@@ -115,6 +115,19 @@ impl RoomHandle for Quiet {
         Ok(idle(persona_id))
     }
 
+    async fn set_mode(&self, persona_id: &str, _mode_id: &str) -> Result<SessionInfo, String> {
+        Ok(idle(persona_id))
+    }
+
+    fn answer_permission(
+        &self,
+        _persona_id: &str,
+        _request_id: &str,
+        _option_id: &str,
+    ) -> Result<(), String> {
+        Err("Nothing runs in this room, so nothing is waiting.".to_string())
+    }
+
     fn info(&self, persona_id: &str) -> SessionInfo {
         self.states
             .lock()

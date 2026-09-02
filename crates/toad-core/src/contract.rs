@@ -480,7 +480,7 @@ pub struct SessionConfig {
 }
 
 /// What the agent behind a session can be asked to do.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct SessionCapabilities {
@@ -1117,6 +1117,20 @@ pub enum Command {
     SessionSetModel {
         persona_id: String,
         model_id: String,
+    },
+    /// Switches the agent's mode. Only an agent that offers modes has one; the
+    /// pickers a session reports are what says whether it does.
+    #[serde(rename = "session.set_mode")]
+    SessionSetMode { persona_id: String, mode_id: String },
+    /// Answers a permission card the agent is waiting behind. Refused when
+    /// nothing is waiting any more — the turn ended, the session stopped, or
+    /// somebody else answered first — so a stale card cannot silently let an
+    /// agent through.
+    #[serde(rename = "session.answer_permission")]
+    SessionAnswerPermission {
+        persona_id: String,
+        request_id: String,
+        option_id: String,
     },
     #[serde(rename = "search.thread")]
     SearchThread {

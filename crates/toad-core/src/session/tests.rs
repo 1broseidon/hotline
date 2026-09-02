@@ -6,7 +6,9 @@
 //! it happens.
 
 use super::*;
-use crate::contract::{AttachmentKind, ChapterStatus, McpPolicy, PolicyMode};
+use crate::contract::{
+    AttachmentKind, ChapterStatus, McpPolicy, PermissionOption, PolicyMode, SessionCheckpoint,
+};
 use crate::driver::DriverInfo;
 use async_trait::async_trait;
 use serde_json::json;
@@ -31,7 +33,13 @@ struct Scripted {
     on_cancel: Vec<Update>,
     cancelled: Arc<Notify>,
     prompts: Arc<Mutex<Vec<String>>>,
+    attachments: Arc<Mutex<Vec<Vec<Attachment>>>>,
     reaches: Arc<Mutex<Vec<Reach>>>,
+    /// The agent's own id for the conversation, when this script is standing
+    /// in for a child that issues one.
+    session_id: Arc<Mutex<Option<String>>>,
+    /// Permission requests this driver is waiting on, by request id.
+    waiting: Arc<Mutex<Vec<String>>>,
 }
 
 impl Scripted {
@@ -47,7 +55,10 @@ impl Scripted {
             on_cancel: Vec::new(),
             cancelled: Arc::new(Notify::new()),
             prompts: Arc::new(Mutex::new(Vec::new())),
+            attachments: Arc::new(Mutex::new(Vec::new())),
             reaches: Arc::new(Mutex::new(Vec::new())),
+            session_id: Arc::new(Mutex::new(None)),
+            waiting: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -73,11 +84,19 @@ impl Driver for Scripted {
             }],
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),
+            session_id: lock(&self.session_id).clone(),
+            ..DriverInfo::default()
         })
     }
 
-    async fn prompt(&self, text: String, reach: Reach) -> mpsc::Receiver<Update> {
+    async fn prompt(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
         lock(&self.prompts).push(text);
+        lock(&self.attachments).push(attachments);
         lock(&self.reaches).push(reach);
         let (sender, receiver) = mpsc::channel(64);
         let script = self.next_script();
@@ -119,6 +138,16 @@ impl Driver for Scripted {
         info.model_label = None;
         Ok(info)
     }
+
+    /// A card is answerable exactly once, the way a live request is.
+    fn answer_permission(&self, request_id: &str, _option_id: &str) -> bool {
+        let mut waiting = lock(&self.waiting);
+        let Some(at) = waiting.iter().position(|id| id == request_id) else {
+            return false;
+        };
+        waiting.remove(at);
+        true
+    }
 }
 
 /// The models this room can reach, all of them scripted.
@@ -153,10 +182,15 @@ impl Fake {
 
 #[async_trait]
 impl Agents for Fake {
-    fn agent(&self, _persona: &Persona, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
+    fn agent(
+        &self,
+        _persona: &Persona,
+        preamble: String,
+        said: Vec<Said>,
+    ) -> Result<Arc<dyn Driver>, String> {
         lock(&self.preambles).push(preamble);
         lock(&self.seeds).push(said);
-        self.driver.clone()
+        Ok(self.driver.clone())
     }
 
     async fn complete(
@@ -513,30 +547,40 @@ async fn starting_a_teammate_makes_its_working_directory() {
 fn the_preamble_says_who_where_how_far_and_when() {
     let mut ada = persona("ada");
     ada.cwd = "/tmp/harbour".to_string();
-    let walled = preamble(&ada, Reach::Workspace, None);
+    let walled = preamble(&ada, Some(Reach::Workspace), None);
     assert!(walled.contains("You are Ada."));
     assert!(walled.contains("Keep the harbour running."));
     assert!(walled.contains("Your working directory is /tmp/harbour."));
     assert!(walled.contains("a path that leaves it is refused"));
     assert!(walled.contains(&Local::now().format("%A %-d %B %Y").to_string()));
 
-    let open = preamble(&ada, Reach::Machine, Some("the wake block".to_string()));
+    let open = preamble(
+        &ada,
+        Some(Reach::Machine),
+        Some("the wake block".to_string()),
+    );
     assert!(open.contains("reach the whole machine"));
     assert!(open.ends_with("the wake block"));
+
+    // A child brings its own tools and Toad enforces nothing over them, so it
+    // is promised nothing about how far they reach.
+    let child = preamble(&ada, None, None);
+    assert!(child.contains("Your working directory is /tmp/harbour."));
+    assert!(!child.contains("reach"));
 }
 
-/// A teammate whose backend has no driver in this build is told so, rather
-/// than quietly started on a different agent than the one it names.
+/// A teammate naming a backend no agent on this machine answers to is told
+/// so, rather than quietly started on a different agent than the one it names.
 #[tokio::test]
-async fn a_backend_with_no_driver_is_refused_by_name() {
+async fn a_backend_no_agent_answers_to_is_refused_by_name() {
     let log = scratch("backend");
-    let mut cursor = persona("cursor-teammate");
-    cursor.backend_id = "cursor".to_string();
-    enrol(&log, &cursor);
+    let mut stranger = persona("stranger");
+    stranger.backend_id = "nonesuch".to_string();
+    enrol(&log, &stranger);
     let room = Room::new(log, Arc::new(DeskKeys));
 
-    let refused = room.start("cursor-teammate").await.unwrap_err();
-    assert!(refused.contains("cursor"), "{refused}");
+    let refused = room.start("stranger").await.unwrap_err();
+    assert!(refused.contains("nonesuch"), "{refused}");
 }
 
 /// The history a driver starts back into is what was said in the chapter it
@@ -810,12 +854,14 @@ async fn a_reply_is_stamped_on_its_own_line_and_only_while_the_mark_is_fresh() {
     );
 }
 
-/// The record keeps what was attached; the agent is given the paths, because
-/// it opens a file with its read tool.
+/// The record keeps what was attached, and the driver is handed the same
+/// files beside the words rather than inside them — because how an attachment
+/// reaches an agent is the driver's answer and not the room's.
 #[tokio::test]
-async fn attachments_land_on_the_line_and_their_paths_in_what_the_agent_hears() {
+async fn attachments_land_on_the_line_and_beside_what_the_driver_hears() {
     let agents = Fake::new(Scripted::new(Vec::new()));
     let prompts = agents.driver.prompts.clone();
+    let handed = agents.driver.attachments.clone();
     let room = room("attachments", agents);
     room.start("ada").await.unwrap();
 
@@ -834,9 +880,14 @@ async fn attachments_land_on_the_line_and_their_paths_in_what_the_agent_hears() 
     let events = settled(&room, "ada", 1).await;
     assert_eq!(events[0]["attachments"][0]["name"], "note.txt");
     assert_eq!(events[0]["attachments"][1]["path"], "/tmp/shot.png");
+    assert_eq!(heard(&prompts, 1).await, ["read these"]);
+    let handed = lock(&handed).clone();
     assert_eq!(
-        heard(&prompts, 1).await,
-        ["read these\n\nAttached files:\n/tmp/note.txt\n/tmp/shot.png"]
+        handed[0]
+            .iter()
+            .map(|attachment| attachment.path.as_str())
+            .collect::<Vec<_>>(),
+        ["/tmp/note.txt", "/tmp/shot.png"]
     );
 }
 
@@ -1139,4 +1190,156 @@ async fn opening_the_room_expires_orphaned_cards_and_indexes_the_tape() {
     assert_eq!(lines.lines().count(), 2);
     let found = crate::store::search::search(log.root(), "ada", "harbour", None);
     assert_eq!(found["hits"].as_array().unwrap().len(), 1);
+}
+
+/// The card a permission writes, and the decision that supersedes it.
+///
+/// One tape event, written twice by the same id: a fold shows the decided card
+/// where the pending one stood, which is what "non-dismissable, and then
+/// answered" looks like in an append-only file.
+#[tokio::test]
+async fn a_permission_is_one_card_that_the_answer_supersedes() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(vec![
+        Update::Permission {
+            request_id: "r1".to_string(),
+            title: "Run rm -rf /".to_string(),
+            options: vec![
+                PermissionOption {
+                    option_id: "once".to_string(),
+                    name: "Allow once".to_string(),
+                    kind: Some("allow_once".to_string()),
+                },
+                PermissionOption {
+                    option_id: "never".to_string(),
+                    name: "Deny".to_string(),
+                    kind: None,
+                },
+            ],
+        },
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ]);
+    driver.gate = Some(gate.clone());
+    // The driver is holding this request open, the way a live agent would.
+    lock(&driver.waiting).push("r1".to_string());
+    let room = room("permission", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "clean up", None, None).await.unwrap();
+    gate.add_permits(1);
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(kinds(&events), ["user", "permission"]);
+    assert_eq!(events[1]["id"], "perm:r1");
+    assert_eq!(events[1]["title"], "Run rm -rf /");
+    assert_eq!(events[1]["options"][0]["name"], "Allow once");
+    assert!(events[1].get("decision").is_none(), "the card is live");
+
+    room.answer_permission("ada", "r1", "once").unwrap();
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(kinds(&events), ["user", "permission"], "one card, not two");
+    assert_eq!(events[1]["decision"], "once");
+    assert_eq!(events[1]["decidedOptionName"], "Allow once");
+
+    // Nothing is behind that button now, so a second answer is refused rather
+    // than quietly letting an agent through.
+    assert!(room.answer_permission("ada", "r1", "never").is_err());
+}
+
+/// A card the turn ended without an answer to is settled, because the agent
+/// has stopped waiting and a button with nothing behind it is a lie.
+#[tokio::test]
+async fn a_card_the_turn_left_open_is_expired_when_the_turn_ends() {
+    let driver = Scripted::new(vec![
+        Update::Permission {
+            request_id: "r1".to_string(),
+            title: "Edit the harbour log".to_string(),
+            options: vec![PermissionOption {
+                option_id: "once".to_string(),
+                name: "Allow once".to_string(),
+                kind: None,
+            }],
+        },
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ]);
+    lock(&driver.waiting).push("r1".to_string());
+    let room = room("orphaned", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "tidy", None, None).await.unwrap();
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "permission", "turn"]);
+    assert_eq!(events[1]["decision"], "expired");
+}
+
+/// The agent's own id for the conversation is remembered on the teammate's
+/// record — once, after a turn has completed on it, and one entry per backend.
+#[tokio::test]
+async fn a_fresh_sessions_id_is_remembered_after_the_turn_that_proves_it() {
+    let agents = Fake::new(Scripted::turns(vec![
+        vec![Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        }],
+        vec![Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        }],
+    ]));
+    *lock(&agents.driver.session_id) = Some("s-1".to_string());
+    let log = scratch("checkpoint");
+    let mut ada = persona("ada");
+    ada.backend_id = "cursor".to_string();
+    // A checkpoint another harness left is not this one's to touch.
+    ada.session_checkpoints = vec![SessionCheckpoint {
+        backend_id: "opencode".to_string(),
+        session_id: "elsewhere".to_string(),
+    }];
+    enrol(&log, &ada);
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+    room.start("ada").await.unwrap();
+
+    // Nothing is written before a turn has run on the session: some agents
+    // issue an id they cannot reopen until a prompt has committed.
+    assert_eq!(checkpoints(&room, "ada"), ["opencode/elsewhere"]);
+
+    room.prompt("ada", "hello", None, None).await.unwrap();
+    settled(&room, "ada", 2).await;
+    for _ in 0..200 {
+        if checkpoints(&room, "ada").len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        checkpoints(&room, "ada"),
+        ["opencode/elsewhere", "cursor/s-1"]
+    );
+
+    // Closing the chapter withdraws this backend's checkpoint and leaves the
+    // other harness's conversation alone.
+    room.start_fresh_chapter("ada", ChapterClose::User)
+        .await
+        .unwrap();
+    assert_eq!(checkpoints(&room, "ada"), ["opencode/elsewhere"]);
+}
+
+/// The teammate's checkpoints as `backend/session`, oldest first.
+fn checkpoints(room: &Room, persona_id: &str) -> Vec<String> {
+    room::roster(&room.log)
+        .into_iter()
+        .find(|persona| persona.id == persona_id)
+        .map(|persona| {
+            persona
+                .session_checkpoints
+                .into_iter()
+                .map(|checkpoint| format!("{}/{}", checkpoint.backend_id, checkpoint.session_id))
+                .collect()
+        })
+        .unwrap_or_default()
 }

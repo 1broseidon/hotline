@@ -20,7 +20,7 @@
 //!   in flight, which kills that command's process group.
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
-use crate::contract::{ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage};
+use crate::contract::{Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage};
 use crate::session::ProviderKeys;
 use crate::tools::{
     EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace, WriteFile,
@@ -208,6 +208,7 @@ impl InProcess {
             models: models(keys),
             model_label: label_of(&model),
             current_model_id: model,
+            ..DriverInfo::default()
         }
     }
 }
@@ -231,7 +232,13 @@ impl Driver for InProcess {
         Ok(self.info(&keys))
     }
 
-    async fn prompt(&self, text: String, reach: Reach) -> mpsc::Receiver<Update> {
+    async fn prompt(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        let text = with_paths(&text, &attachments);
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
         let turn = Turn {
             keys: self.keys.provider_keys(),
@@ -625,6 +632,19 @@ fn lock<T>(held: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     held.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The message with the attached paths under it, because this agent opens a
+/// file with its read tool rather than being handed its bytes.
+fn with_paths(text: &str, attachments: &[Attachment]) -> String {
+    if attachments.is_empty() {
+        return text.to_string();
+    }
+    let paths: Vec<&str> = attachments
+        .iter()
+        .map(|attachment| attachment.path.as_str())
+        .collect();
+    format!("{text}\n\nAttached files:\n{}", paths.join("\n"))
+}
+
 /// A tool call as a line in the transcript: the name and the one argument
 /// that says what it touched.
 fn describe_tool(name: &str, arguments: &Value) -> String {
@@ -658,6 +678,25 @@ mod tests {
         );
         assert_eq!(listed[0].group.as_deref(), Some("Anthropic — API key"));
         assert_eq!(label_of(&listed[0].id).as_deref(), Some("Claude Opus 4.8"));
+    }
+
+    /// Toad Agent is handed paths rather than bytes, because it opens a file
+    /// with its read tool.
+    #[test]
+    fn attachments_reach_this_agent_as_paths_under_the_message() {
+        use crate::contract::AttachmentKind;
+        let attachment = Attachment {
+            kind: AttachmentKind::File,
+            name: "note.txt".to_string(),
+            path: "/tmp/note.txt".to_string(),
+            mime_type: None,
+            size: None,
+        };
+        assert_eq!(with_paths("look", &[]), "look");
+        assert_eq!(
+            with_paths("look", std::slice::from_ref(&attachment)),
+            "look\n\nAttached files:\n/tmp/note.txt"
+        );
     }
 
     #[test]

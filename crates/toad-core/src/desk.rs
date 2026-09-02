@@ -81,6 +81,20 @@ impl RoomHandle for Desk {
         self.room.set_model(persona_id, model_id).await
     }
 
+    async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String> {
+        self.room.set_mode(persona_id, mode_id).await
+    }
+
+    fn answer_permission(
+        &self,
+        persona_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        self.room
+            .answer_permission(persona_id, request_id, option_id)
+    }
+
     fn info(&self, persona_id: &str) -> SessionInfo {
         self.room.info(persona_id)
     }

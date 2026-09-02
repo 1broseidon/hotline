@@ -60,6 +60,21 @@ pub(crate) async fn run(
             .await
             .map(|info| json!(info)),
 
+        Command::SessionSetMode {
+            persona_id,
+            mode_id,
+        } => room
+            .set_mode(&persona_id, &mode_id)
+            .await
+            .map(|info| json!(info)),
+        Command::SessionAnswerPermission {
+            persona_id,
+            request_id,
+            option_id,
+        } => room
+            .answer_permission(&persona_id, &request_id, &option_id)
+            .map(|()| Value::Null),
+
         Command::SearchThread {
             persona_id,
             query,
@@ -133,7 +148,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         created_at: stamped,
         updated_at: stamped,
     };
-    append_persona(log, &persona)?;
+    room::append_persona(log, &persona)?;
     Ok(json!(persona))
 }
 
@@ -157,7 +172,7 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
 
     let updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
-    append_persona(log, &updated)?;
+    room::append_persona(log, &updated)?;
     Ok(json!(updated))
 }
 
@@ -193,16 +208,6 @@ fn living(log: &Log, id: &str) -> Result<Persona, String> {
         .into_iter()
         .find(|persona| persona.id == id)
         .ok_or_else(|| format!("There is no teammate {id}."))
-}
-
-/// A persona event is the teammate's record with the kind beside it.
-fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
-    let mut event = json!(persona);
-    event
-        .as_object_mut()
-        .expect("a teammate serializes as an object")
-        .insert("kind".into(), Value::from("persona"));
-    append(log, &event)
 }
 
 fn append(log: &Log, event: &Value) -> Result<(), String> {

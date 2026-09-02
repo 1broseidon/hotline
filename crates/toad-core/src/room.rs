@@ -17,9 +17,9 @@
 //! makes a delete something a mirror can ship, rather than an absence it has
 //! to notice.
 
-use crate::contract::Persona;
+use crate::contract::{Persona, SessionCheckpoint};
 use crate::log::{Log, StreamId};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 /// What a setting means before anybody has set it. `pi` is the built-in Toad
 /// Agent, which is what a new teammate runs on, and a chapter closes after
@@ -70,6 +70,74 @@ pub fn settings(log: &Log) -> Map<String, Value> {
         settings.insert(key.to_string(), value);
     }
     settings
+}
+
+/// A persona event is the teammate's record with the kind beside it, and the
+/// whole record every time: a stream folds by id, so a line carrying only what
+/// changed would leave the fold holding only what changed.
+pub(crate) fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
+    let mut event = json!(persona);
+    event
+        .as_object_mut()
+        .expect("a teammate serializes as an object")
+        .insert("kind".into(), Value::from("persona"));
+    log.append(&StreamId::Room, &event)
+        .map(|_| ())
+        .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
+/// Remembers an agent's own id for this teammate's conversation, so a later
+/// session can ask that same backend to reopen it.
+///
+/// One entry per backend, replaced in place: a teammate that moves between
+/// harnesses and back finds both conversations where it left them, and Cursor
+/// is never handed Claude's session id.
+pub(crate) fn checkpoint_session(
+    log: &Log,
+    persona_id: &str,
+    backend_id: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    with_checkpoints(log, persona_id, |checkpoints| {
+        checkpoints.retain(|checkpoint| checkpoint.backend_id != backend_id);
+        checkpoints.push(SessionCheckpoint {
+            backend_id: backend_id.to_string(),
+            session_id: session_id.to_string(),
+        });
+    })
+}
+
+/// Withdraws the promise to reopen that backend's session. The session itself
+/// is not touched; what is gone is Toad's intention to return to it, which is
+/// what closing a chapter means.
+pub(crate) fn clear_checkpoint(
+    log: &Log,
+    persona_id: &str,
+    backend_id: &str,
+) -> Result<(), String> {
+    with_checkpoints(log, persona_id, |checkpoints| {
+        checkpoints.retain(|checkpoint| checkpoint.backend_id != backend_id);
+    })
+}
+
+/// The teammate's record with its checkpoints changed and nothing else, or
+/// nothing at all when they did not change.
+fn with_checkpoints(
+    log: &Log,
+    persona_id: &str,
+    change: impl FnOnce(&mut Vec<SessionCheckpoint>),
+) -> Result<(), String> {
+    let mut persona = roster(log)
+        .into_iter()
+        .find(|persona| persona.id == persona_id)
+        .ok_or_else(|| format!("There is no teammate {persona_id}."))?;
+    let before = persona.session_checkpoints.clone();
+    change(&mut persona.session_checkpoints);
+    if persona.session_checkpoints == before {
+        return Ok(());
+    }
+    persona.updated_at = chrono::Utc::now().timestamp_millis();
+    append_persona(log, &persona)
 }
 
 #[cfg(test)]

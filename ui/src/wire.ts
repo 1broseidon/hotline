@@ -66,6 +66,8 @@ type Results = {
 	"session.prompt": null;
 	"session.cancel": null;
 	"session.set_model": SessionInfo;
+	"session.set_mode": SessionInfo;
+	"session.answer_permission": null;
 	"search.thread": ThreadSearchResult;
 	"search.all": GlobalSearchResult;
 	"chapter.list": ChapterSummary[];

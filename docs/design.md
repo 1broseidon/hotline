@@ -165,7 +165,7 @@ crates/toad-core/src/
   room.rs          the roster fold and settings
   vault.rs         secrets beside the room stream
   session/         Session, the funnel, quiet, chapters
-  driver/          InProcess (Rig)
+  driver/          InProcess (Rig) and the ACP child, with its agent registry
   tools/           workspace tools on cap-std, shell command
   desk.rs          the room, vault and log behind the wire
   import.rs        copies an existing Toad data directory

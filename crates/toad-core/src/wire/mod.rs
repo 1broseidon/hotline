@@ -79,6 +79,16 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
+    async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String>;
+
+    /// Answers a permission the agent is waiting behind, refusing when there
+    /// is nothing left to answer.
+    fn answer_permission(
+        &self,
+        persona_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String>;
 
     /// Closes the teammate's open chapter, answering with what it became.
     async fn start_fresh_chapter(

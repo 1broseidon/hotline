@@ -36,9 +36,10 @@ use crate::contract::{
     ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState, StreamDelta,
     ToolOutput, ToolStatus, TranscriptEvent,
 };
+use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
 use crate::driver::rig::{InProcess, Said, models};
-use crate::driver::{Driver, MessageKind, Update, clip};
+use crate::driver::{Driver, MessageKind, PI_BACKEND_ID, Update, clip};
 use crate::log::{Log, StreamId};
 use crate::room;
 use crate::store::chapters as chapter_view;
@@ -104,30 +105,53 @@ pub trait ProviderKeys: Send + Sync {
 /// the room's own rules can be driven end to end without reaching one.
 #[async_trait]
 pub trait Agents: Send + Sync {
-    /// A teammate's agent, told the preamble and seeded with what has been
-    /// said in the chapter it is joining.
-    fn agent(&self, persona: &Persona, preamble: String, said: Vec<Said>) -> Arc<dyn Driver>;
+    /// A teammate's agent, chosen by the backend its record names, told the
+    /// preamble and seeded with what has been said in the chapter it is
+    /// joining. A backend this desk cannot run is refused here, in a sentence
+    /// naming what is missing.
+    fn agent(
+        &self,
+        persona: &Persona,
+        preamble: String,
+        said: Vec<Said>,
+    ) -> Result<Arc<dyn Driver>, String>;
 
     /// One answer, with no tools and no conversation.
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
 }
 
-/// Toad Agent, on whatever keys the desk holds at the moment it is asked.
-/// The root is where a tool's oversized output is kept beside the tape.
-struct RigAgents {
+/// The agents this desk can really run: Toad Agent on whatever keys the desk
+/// holds at the moment it is asked, and any ACP harness the registry knows.
+struct DeskAgents {
     keys: Arc<dyn ProviderKeys>,
+    /// The data directory, which is where the ACP catalogue's cache lives.
     root: PathBuf,
 }
 
 #[async_trait]
-impl Agents for RigAgents {
-    fn agent(&self, persona: &Persona, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
-        Arc::new(InProcess::new(
-            self.keys.clone(),
+impl Agents for DeskAgents {
+    fn agent(
+        &self,
+        persona: &Persona,
+        preamble: String,
+        said: Vec<Said>,
+    ) -> Result<Arc<dyn Driver>, String> {
+        if persona.backend_id == PI_BACKEND_ID {
+            return Ok(Arc::new(InProcess::new(
+                self.keys.clone(),
+                preamble,
+                said,
+                self.root.join("tool-output").join(&persona.id),
+            )));
+        }
+        // The registry answers whether this machine can start that harness at
+        // all, and says what is missing when it cannot.
+        acp::registry::launch(&self.root, &persona.backend_id)?;
+        Ok(Arc::new(ChildAgent::new(
+            self.root.clone(),
+            persona.backend_id.clone(),
             preamble,
-            said,
-            self.root.join("tool-output").join(&persona.id),
-        ))
+        )))
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
@@ -171,12 +195,15 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
 /// One teammate's live conversation.
 struct Session {
     persona_id: String,
+    /// Which agent is answering, because a checkpoint is kept per backend and
+    /// the tape's chapter markers name the one that wrote them.
+    backend_id: String,
     driver: Arc<dyn Driver>,
     info: Mutex<SessionInfo>,
     /// Lines that arrived while a turn was running, as the driver will hear
     /// them. One turn at a time: a redirect waits for the turn it would have
     /// interrupted.
-    queue: Mutex<VecDeque<String>>,
+    queue: Mutex<VecDeque<Wired>>,
     running: Mutex<bool>,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
@@ -184,6 +211,15 @@ struct Session {
     pending_scheduled: Mutex<Option<Mark<ScheduledRun>>>,
     /// The window a quiet schedule is holding this teammate's voice with.
     quiet: Mutex<Option<QuietWindow>>,
+    /// The agent's own id for this conversation, waiting for the turn that
+    /// makes it worth remembering.
+    ///
+    /// Some agents issue an id at `session/new` and cannot reopen it until a
+    /// prompt has committed, so the checkpoint is written when the first turn
+    /// of a fresh session ends and not before. A session that was itself
+    /// restored from a checkpoint has nothing to write: the id is already on
+    /// the record.
+    pending_checkpoint: Mutex<Option<String>>,
 }
 
 /// Something a prompt wants stamped on the user line it is about to write,
@@ -214,17 +250,33 @@ fn take_fresh<T>(held: &Mutex<Option<Mark<T>>>, now: i64) -> Option<T> {
 }
 
 /// One message on its way to a teammate: what the tape records, and what the
-/// driver hears, which are not always the same string.
+/// driver is handed, which are not always the same.
 ///
-/// A schedule's firing is what forces them apart — the agent is told which job
-/// woke it, and the transcript keeps the bare prompt so the conversation can
-/// draw one line instead of a wall — and attachments are the second case,
-/// because the in-process agent opens a file with its read tool and so needs
-/// the paths in its words.
+/// A schedule's firing is what forces the words apart — the agent is told
+/// which job woke it, and the transcript keeps the bare prompt so the
+/// conversation can draw one line instead of a wall.
 struct Sending {
     shown: String,
-    wire: String,
+    wire: Wired,
     attachments: Option<Vec<Attachment>>,
+}
+
+/// One line as a driver takes it: the words, and the files handed over with
+/// them. The two travel together and are never merged here, because how an
+/// attachment reaches an agent is the driver's answer and not the room's.
+#[derive(Clone)]
+struct Wired {
+    text: String,
+    attachments: Vec<Attachment>,
+}
+
+impl Wired {
+    fn words(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            attachments: Vec::new(),
+        }
+    }
 }
 
 /// Every session in the room, and the one place their words are written down.
@@ -242,12 +294,15 @@ pub struct Room {
 
 impl Room {
     pub fn new(log: Log, keys: Arc<dyn ProviderKeys>) -> Arc<Self> {
-        let root = log.root().to_path_buf();
-        Self::with_agents(log, keys.clone(), Arc::new(RigAgents { keys, root }))
+        let agents = Arc::new(DeskAgents {
+            keys: keys.clone(),
+            root: log.root().to_path_buf(),
+        });
+        Self::with_agents(log, keys, agents)
     }
 
     /// The room, on an agent seam a test can script. [`Room::new`] is this on
-    /// Toad Agent, which is the only agent this build has.
+    /// the agents this desk can really run.
     pub(crate) fn with_agents(
         log: Log,
         keys: Arc<dyn ProviderKeys>,
@@ -308,12 +363,7 @@ impl Room {
     /// Brings a teammate up, on the driver its backend names.
     pub async fn start(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
         let persona = self.persona(persona_id)?;
-        if persona.backend_id != "pi" {
-            return Err(format!(
-                "{} runs on {}, and Toad Agent is the only driver this build has.",
-                persona.name, persona.backend_id
-            ));
-        }
+        let in_process = persona.backend_id == PI_BACKEND_ID;
         // The directory exists from the moment the teammate can be spoken to.
         // A workspace under the data directory is made here; one the user
         // typed is made too, because a path they chose is a path they meant.
@@ -323,26 +373,45 @@ impl Room {
                 persona.name, persona.cwd
             )
         })?;
+        if !in_process {
+            // An ACP session takes no system prompt, so who the teammate is
+            // has to be on disk before the child is started.
+            acp::materialize_agents_md(&persona).map_err(|error| {
+                format!("{}'s AGENTS.md could not be written: {error}", persona.name)
+            })?;
+        }
         // The agent's context is one chapter: it hears what was said in the
         // chapter it is joining, and the wake block tells it about the one
         // that closed before it — which is the whole of what a fresh context
         // knows about a conversation that has been going on for months.
         let events = self.tape(&persona.id);
-        let reach = persona.reach.unwrap_or_default();
+        // Reach is Toad Agent's one policy, and only Toad Agent's: a child
+        // brings its own tools and Toad enforces nothing over them, so telling
+        // one that a path outside its directory would be refused is a promise
+        // nobody here can keep.
+        let reach = in_process.then(|| persona.reach.unwrap_or_default());
         let driver = self.agents.agent(
             &persona,
             preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
             said(&events),
-        );
+        )?;
         let reported = driver.start(&persona).await?;
         let mut info = idle_info(&persona.id);
         info.state = SessionState::Ready;
         info.agent_name = Some(reported.agent_name);
+        info.agent_version = reported.agent_version;
+        info.session_id = reported.session_id.clone();
+        info.context_restored = reported.context_restored;
         info.models = reported.models;
         info.current_model_id = Some(reported.current_model_id);
         info.model_label = reported.model_label;
+        info.modes = reported.modes;
+        info.current_mode_id = reported.current_mode_id;
+        info.mode_label = reported.mode_label;
+        info.capabilities = reported.capabilities;
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
+            backend_id: persona.backend_id.clone(),
             driver,
             info: Mutex::new(info.clone()),
             queue: Mutex::new(VecDeque::new()),
@@ -350,11 +419,28 @@ impl Room {
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
             quiet: Mutex::new(None),
+            pending_checkpoint: Mutex::new(
+                reported.session_id.filter(|_| !reported.context_restored),
+            ),
         });
         lock(&self.sessions).insert(persona.id.clone(), session);
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
         self.begin_chapter(&persona.id, &persona.backend_id);
+        // Toad draws the permission cards but does not decide whether the
+        // agent sends the requests, and somebody who believes they are behind
+        // a gate that is not there should be told.
+        if let Some(text) = acp::containment_notice(&persona.backend_id) {
+            self.write(
+                &persona.id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Warn,
+                    text,
+                },
+            );
+        }
         let _ = self.info_changes.send(info.clone());
         Ok(info)
     }
@@ -365,6 +451,7 @@ impl Room {
             return Ok(());
         };
         session.driver.cancel();
+        self.settle_permissions(persona_id);
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;
         let _ = self.info_changes.send(info);
@@ -415,7 +502,10 @@ impl Room {
             &session,
             Sending {
                 shown: text.to_string(),
-                wire: with_paths(text, attachments.as_deref().unwrap_or_default()),
+                wire: Wired {
+                    text: text.to_string(),
+                    attachments: attachments.clone().unwrap_or_default(),
+                },
                 attachments,
             },
         );
@@ -436,7 +526,7 @@ impl Room {
         run: ScheduledRun,
     ) -> Result<(), String> {
         let session = self.in_this_chapter(persona_id).await?;
-        let wire = scheduled_wire_text(&run, prompt);
+        let wire = Wired::words(scheduled_wire_text(&run, prompt));
         mark(&session.pending_scheduled, run);
         self.say(
             &session,
@@ -456,7 +546,7 @@ impl Room {
     /// record does not.
     pub fn nudge(self: &Arc<Self>, persona_id: &str, text: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
-        self.dispatch(session, text.to_string());
+        self.dispatch(session, Wired::words(text));
         Ok(())
     }
 
@@ -483,7 +573,7 @@ impl Room {
 
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
-    fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: String) {
+    fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
         let running_already = {
             let mut running = lock(&session.running);
             let was = *running;
@@ -518,6 +608,88 @@ impl Room {
         };
         let _ = self.info_changes.send(info.clone());
         Ok(info)
+    }
+
+    pub async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String> {
+        let session = self.session(persona_id)?;
+        let reported = session.driver.set_mode(mode_id).await?;
+        let info = {
+            let mut info = lock(&session.info);
+            info.modes = reported.modes;
+            info.current_mode_id = reported.current_mode_id;
+            info.mode_label = reported.mode_label;
+            info.clone()
+        };
+        let _ = self.info_changes.send(info.clone());
+        Ok(info)
+    }
+
+    /// Answers a permission the agent is waiting on.
+    ///
+    /// The driver is asked first, because it is the only thing that knows
+    /// whether anything is still behind that request; only then is the card
+    /// superseded, so the transcript never shows a decision the agent never
+    /// heard.
+    pub fn answer_permission(
+        &self,
+        persona_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        if !session.driver.answer_permission(request_id, option_id) {
+            return Err("That request is no longer waiting for an answer.".to_string());
+        }
+        let Some(card) = self.permission_card(persona_id, request_id) else {
+            return Ok(());
+        };
+        let TranscriptEvent::Permission {
+            id,
+            request_id,
+            title,
+            options,
+            ..
+        } = card
+        else {
+            return Ok(());
+        };
+        let decided_option_name = options
+            .iter()
+            .find(|option| option.option_id == option_id)
+            .map(|option| option.name.clone());
+        self.write(
+            persona_id,
+            &TranscriptEvent::Permission {
+                id,
+                ts: now_ms(),
+                request_id,
+                title,
+                options,
+                decision: Some(option_id.to_string()),
+                decided_option_name,
+            },
+        );
+        Ok(())
+    }
+
+    /// The card this request wrote, read back off the tape it was written to.
+    fn permission_card(&self, persona_id: &str, request_id: &str) -> Option<TranscriptEvent> {
+        let id = Value::from(format!("perm:{request_id}"));
+        self.tape(persona_id)
+            .into_iter()
+            .find(|event| event.get("id") == Some(&id))
+            .and_then(|event| serde_json::from_value(event).ok())
+    }
+
+    /// Supersedes every card that still claims to be live.
+    ///
+    /// A turn that has ended and a session that has stopped are the same fact
+    /// for a permission: the agent is no longer waiting, so the button has
+    /// nothing behind it and the transcript should not draw one.
+    fn settle_permissions(&self, persona_id: &str) {
+        for expired in crate::log::expire_orphaned_permissions(&self.tape(persona_id), now_ms()) {
+            self.write_value(persona_id, &expired);
+        }
     }
 
     /// What the teammate's session is doing. A teammate with no session is
@@ -600,6 +772,12 @@ impl Room {
                 .unwrap_or_else(now_ms),
             _ => now_ms(),
         };
+        // Closing a chapter lets go of the agent's own memory of it: the next
+        // message starts a context that has never seen it and reads the note
+        // instead. The session is not touched; the promise to reopen it is.
+        if let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id) {
+            eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+        }
         let spoken_in = slice
             .iter()
             .any(chapter_view::is_message)
@@ -748,19 +926,28 @@ impl Room {
         }
     }
 
-    async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: String) {
+    async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: Wired) {
         let mut next = Some(first);
-        while let Some(text) = next.take() {
+        while let Some(wired) = next.take() {
             self.set_state(&session, SessionState::Thinking);
             let reach = self.reach_of(&session.persona_id);
-            let mut updates = session.driver.prompt(text, reach).await;
+            let mut updates = session
+                .driver
+                .prompt(wired.text, wired.attachments, reach)
+                .await;
             let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
+            let mut asked = false;
             while let Some(update) = updates.recv().await {
+                asked |= matches!(update, Update::Permission { .. });
                 self.record(&session, update, &mut in_flight);
             }
             // A driver that stopped without a turn — its model errored, its
-            // child died — leaves a tool spinning in the transcript forever.
+            // child died — leaves a tool spinning in the transcript forever,
+            // and a card nobody is behind.
             self.fail_in_flight(&session, &mut in_flight);
+            if asked {
+                self.settle_permissions(&session.persona_id);
+            }
             next = lock(&session.queue).pop_front();
         }
         *lock(&session.running) = false;
@@ -851,11 +1038,31 @@ impl Room {
                 };
                 self.append(session, pending.event(&call_id, status, Some(output)));
             }
+            Update::Permission {
+                request_id,
+                title,
+                options,
+            } => self.append(
+                session,
+                TranscriptEvent::Permission {
+                    // The card is superseded by this id when it is answered,
+                    // so the decision lands on the line already drawn rather
+                    // than adding a second one below it.
+                    id: format!("perm:{request_id}"),
+                    ts: now_ms(),
+                    request_id,
+                    title,
+                    options,
+                    decision: None,
+                    decided_option_name: None,
+                },
+            ),
             Update::Turn { stop_reason, usage } => {
                 // A cancelled turn leaves tools running; they are marked
                 // before the turn is closed, so the transcript never shows a
                 // finished turn above a tool still in progress.
                 self.fail_in_flight(session, in_flight);
+                self.checkpoint(session);
                 self.append(
                     session,
                     TranscriptEvent::Turn {
@@ -875,6 +1082,29 @@ impl Room {
                     text,
                 },
             ),
+        }
+    }
+
+    /// Remembers the agent's session id, now that a turn on it has completed.
+    ///
+    /// Written once per fresh session and only after a turn, because some
+    /// agents issue an id they cannot reopen until a prompt has committed —
+    /// and a checkpoint that fails to load is a teammate that starts cold
+    /// believing it did not have to.
+    fn checkpoint(&self, session: &Session) {
+        let Some(session_id) = lock(&session.pending_checkpoint).take() else {
+            return;
+        };
+        if let Err(error) = room::checkpoint_session(
+            &self.log,
+            &session.persona_id,
+            &session.backend_id,
+            &session_id,
+        ) {
+            eprintln!(
+                "the session for {} was not remembered: {error}",
+                session.persona_id
+            );
         }
     }
 
@@ -899,21 +1129,27 @@ impl Room {
     /// they are the room writing in its own voice, not a teammate speaking,
     /// and there is no reply, schedule or silence for them to be part of.
     fn write(&self, persona_id: &str, event: &TranscriptEvent) {
-        let event = match serde_json::to_value(event) {
-            Ok(event) => event,
+        match serde_json::to_value(event) {
+            Ok(event) => self.write_value(persona_id, &event),
             Err(error) => {
                 eprintln!("a transcript event for {persona_id} could not be written: {error}");
-                return;
             }
-        };
+        }
+    }
+
+    /// One line onto the tape and into the index. Everything the room writes
+    /// down ends here; the only callers that spell an event as JSON rather
+    /// than as a [`TranscriptEvent`] are the ones superseding a line they read
+    /// off the tape, which is already JSON.
+    fn write_value(&self, persona_id: &str, event: &Value) {
         if let Err(error) = self
             .log
-            .append(&StreamId::Tape(persona_id.to_string()), &event)
+            .append(&StreamId::Tape(persona_id.to_string()), event)
         {
             eprintln!("the tape for {persona_id} could not be appended to: {error}");
             return;
         }
-        self.index(persona_id, &event);
+        self.index(persona_id, event);
     }
 
     /// The index is an index: it is rebuilt from the tape whenever the two
@@ -1094,30 +1330,20 @@ fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
     format!("{waking} · {prompt}")
 }
 
-/// The message with the attached paths under it, because the in-process agent
-/// opens a file with its read tool rather than being handed its bytes.
-fn with_paths(text: &str, attachments: &[Attachment]) -> String {
-    if attachments.is_empty() {
-        return text.to_string();
-    }
-    let paths: Vec<&str> = attachments
-        .iter()
-        .map(|attachment| attachment.path.as_str())
-        .collect();
-    format!("{text}\n\nAttached files:\n{}", paths.join("\n"))
-}
-
 /// What the agent is told before it is told anything else: who it is, where it
 /// stands, how far it can reach, what day it is, and — when it is joining a
 /// conversation that already has chapters behind it — what happened in the one
 /// that closed. Everything here is something it would otherwise have to ask
 /// for or guess.
-fn preamble(persona: &Persona, reach: Reach, wake: Option<String>) -> String {
+fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> String {
+    // No reach is an agent whose tools are its own: Toad enforces nothing over
+    // them, so it promises nothing about them either.
     let reach_sentence = match reach {
-        Reach::Workspace => {
-            "Your tools reach inside that directory and nowhere else: a path that leaves it is refused."
+        Some(Reach::Workspace) => {
+            " Your tools reach inside that directory and nowhere else: a path that leaves it is refused."
         }
-        Reach::Machine => "Your tools reach the whole machine, not only that directory.",
+        Some(Reach::Machine) => " Your tools reach the whole machine, not only that directory.",
+        None => "",
     };
     let goal = persona.goal.trim();
     let identity = if goal.is_empty() {
@@ -1129,7 +1355,7 @@ fn preamble(persona: &Persona, reach: Reach, wake: Option<String>) -> String {
         )
     };
     let standing = format!(
-        "{identity}\n\nYour working directory is {}. {reach_sentence}\n\nToday is {}.",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.",
         persona.cwd,
         Local::now().format("%A %-d %B %Y")
     );

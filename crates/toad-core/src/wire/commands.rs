@@ -68,7 +68,7 @@ pub(crate) async fn run(
         Command::SearchAll { query, limit } => Ok(search::search_all(log.root(), &query, limit)),
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room
-            .import(std::path::Path::new(&from))
+            .import(&home_expanded(&from))
             .map(|report| json!(report)),
         Command::ChapterStartFresh { persona_id } => room
             .start_fresh_chapter(&persona_id)
@@ -209,4 +209,36 @@ fn append(log: &Log, event: &Value) -> Result<(), String> {
     log.append(&StreamId::Room, event)
         .map(|_| ())
         .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
+/// A path as a person types one: a leading `~/` is their home directory,
+/// because the window offers the previous Toad's data directory spelled that
+/// way and does not know where home is.
+fn home_expanded(path: &str) -> std::path::PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => match std::env::var_os("HOME") {
+            Some(home) => std::path::PathBuf::from(home).join(rest),
+            None => std::path::PathBuf::from(path),
+        },
+        None => std::path::PathBuf::from(path),
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::home_expanded;
+
+    #[test]
+    fn a_tilde_is_the_home_directory_and_anything_else_is_itself() {
+        let home = std::env::var("HOME").unwrap();
+        assert_eq!(
+            home_expanded("~/.local/share/toad"),
+            std::path::Path::new(&home).join(".local/share/toad")
+        );
+        assert_eq!(
+            home_expanded("/var/toad"),
+            std::path::PathBuf::from("/var/toad")
+        );
+        assert_eq!(home_expanded("~toad"), std::path::PathBuf::from("~toad"));
+    }
 }

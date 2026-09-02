@@ -151,6 +151,18 @@ listed ids. A value that is not an object, or an entry that is not an
 array of strings, reads as absent — a bad setting costs its own filter,
 never the picker.
 
+`defaultModelId` is the person's standing model for Toad Agent, set in
+Settings, a `provider/model` string. `lastModelId` is the model a Toad
+Agent teammate most recently ran on or was set to, written by the wire.
+Both are absent until someone writes them. JSON `null` on
+`defaultModelId` puts the last-used fallback back.
+
+`session.set_model` writes the teammate's `modelId` first and switches a
+live session second. It works on an idle teammate: the persona is the
+truth, and the live switch is a courtesy to the turn already running. A
+Toad Agent id the desk's `models.list` does not name is refused; an ACP
+teammate accepts any non-empty id, and the harness validates when live.
+
 `models.catalog` lists every model the catalogue has for one wired
 provider, each with `enabled` set by that filter, whether or not the
 desk holds a credential. An unwired provider is an error. The filter

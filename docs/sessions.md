@@ -124,7 +124,9 @@ The models a credential unlocks come from the model catalogue
 DeepSeek and Mistral as API keys, and GitHub Copilot and ChatGPT
 (`openai-codex`) as subscription logins, as `provider/model`. A saved
 `enabledModels` filter narrows what is offered, never the model a
-teammate is on. A turn never
+teammate is on. A turn runs on the teammate's own model when the desk
+still lists it, else the room's `defaultModelId`, else `lastModelId`,
+else the newest model the keys unlock. A turn never
 starts a login: missing or unrefreshable tokens fail with a sentence
 asking for sign-in. No credential, no session: start is refused with a
 sentence pointing at Settings → Agents. This agent does not offer modes.

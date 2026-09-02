@@ -84,6 +84,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
+| `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
+| `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
 | `credential.revoke` | `{id}` | none |
 | `credential.delete` | `{id}` | none |
 | `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
@@ -140,6 +142,16 @@ teammate.
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
 the patch.
+
+`credential.login` starts a device-code login for a provider whose
+`credentialKind` is `oauth`, and answers with the code and URL the person
+must visit. It is start-then-poll rather than one blocking command because
+a command runs sequentially per socket: a waiting authorize would hold
+every later command on that socket until they signed in. An `api_key`
+provider is refused with `"<Name> takes an API key, not a sign-in."`.
+`credential.login_status` is how far that login has got (`pending`,
+`done`, `failed`); an unknown id is an error, and a finished login stays
+queryable until the process exits. The login id is the credential id.
 
 `session.prompt`'s `replyTo` is the id of the message this one answers.
 `attachments` are `{kind: "image"|"file", name, path, mimeType?, size?}`.

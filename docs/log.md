@@ -224,9 +224,11 @@ private is not built, and a write is refused rather than pretending.
 Create writes the secret first, then the room event. Delete takes the
 secret first, then the tombstone. Create and delete share one lock,
 because each is a read of the whole map, one entry changed, and the whole
-map written back. `list` is the room's metadata in creation order;
-`provider_keys` is one usable API key per provider — the first created
-wins — skipping revoked rows and rows whose secret is missing.
+map written back. A login's tokens live in `vault/logins/<id>/` and never
+in `secrets.json`. `list` is the room's metadata in creation order;
+`provider_auth` is one usable credential per provider — the first created
+wins — skipping revoked rows, rows whose secret is missing, and logins
+whose directory is gone.
 
 ## The search index
 

@@ -151,6 +151,10 @@ Without the override, the directory is the platform's application-support
 path: `~/Library/Application Support/Toad` on macOS, `%APPDATA%\Toad` on
 Windows, and `${XDG_DATA_HOME:-~/.local/share}/toad` on Linux.
 
+The vault is `<data dir>/vault/`: `secrets.json` for pasted API keys, and
+`vault/logins/<id>/` for a subscription login's tokens (the files Rig
+writes, pre-created owner-only).
+
 Tests use temporary directories of their own. Never point a test, a
 harness, or `TOAD_DATA_DIR` at a real Toad data directory.
 
@@ -193,6 +197,12 @@ the same thing on every machine that runs it.
 To add a provider: one `Wiring` line in `models.rs`, one `Client` arm in
 `driver/rig.rs` naming the Rig client that speaks to it, and a sync. The
 key form and the picker learn the name from the catalogue.
+
+`openai-codex` is the one hand-written provider. models.dev has no ChatGPT
+subscription row, so the sync copies the listed models off `openai` and
+clears their per-token price. A subscription has no per-token price; an id
+`openai` lacks is an error from the sync, so the list cannot drift
+silently.
 
 ## The harness
 

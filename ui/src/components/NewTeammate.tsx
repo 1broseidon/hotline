@@ -44,6 +44,8 @@ export function NewTeammate({
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
+	// A blank draft runs on what the room prefers, else the first choice.
+	const fallback = models.find((one) => one.id === (defaultModelId ?? lastModelId)) ?? models[0];
 
 	useEffect(() => {
 		void wire
@@ -155,7 +157,7 @@ export function NewTeammate({
 							<Picker
 								field
 								value={modelId}
-								choices={[{ id: "", name: models[0] === undefined ? "Whichever a key unlocks" : `${models[0].name} — the default` }, ...models]}
+								choices={[{ id: "", name: fallback === undefined ? "Whichever a key unlocks" : `${fallback.name} — the default` }, ...models]}
 								placeholder="Model"
 								label="Model"
 								onChange={setPickedModel}

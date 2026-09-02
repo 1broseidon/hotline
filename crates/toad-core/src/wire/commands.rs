@@ -186,12 +186,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         if backend_id != PI_BACKEND_ID {
             return None;
         }
-        settings
-            .get("defaultModelId")
-            .and_then(Value::as_str)
-            .or_else(|| settings.get("lastModelId").and_then(Value::as_str))
-            .filter(|id| !id.is_empty())
-            .map(str::to_string)
+        crate::models::preferred_model(&settings)
     });
     let persona = Persona {
         node: None,
@@ -306,7 +301,7 @@ async fn set_model(
             return Err(format!("{model_id} is not a model this desk can reach."));
         }
     } else if model_id.is_empty() {
-        return Err(format!("{model_id} is not a model this desk can reach."));
+        return Err("A model needs an id.".to_string());
     }
 
     update_persona(log, persona_id, &json!({ "modelId": model_id }))?;

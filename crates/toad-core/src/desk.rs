@@ -1,0 +1,100 @@
+//! The desk: the room, its vault and its log, standing behind the wire.
+//!
+//! The wire asks a [`RoomHandle`] for what it does not own — a session, a
+//! secret, the models a key can reach — and the session room asks a
+//! [`ProviderKeys`] for keys. This is the one place those two seams are
+//! joined to the real things, so the shell and the headless harness open a
+//! desk the same way and get the same room.
+
+use crate::contract::{ConfigChoice, Credential, SessionInfo, StreamDelta};
+use crate::log::Log;
+use crate::session::{ProviderKeys, Room};
+use crate::vault::Vault;
+use crate::wire::RoomHandle;
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::io;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::broadcast;
+
+impl ProviderKeys for Vault {
+    fn provider_keys(&self) -> HashMap<String, String> {
+        Vault::provider_keys(self)
+    }
+}
+
+/// Everything that runs behind one data directory.
+pub struct Desk {
+    pub log: Log,
+    room: Arc<Room>,
+    vault: Arc<Vault>,
+}
+
+impl Desk {
+    /// Opens the log, the vault and the room over one data directory.
+    pub fn open(root: &Path) -> io::Result<Desk> {
+        let log = Log::open(root);
+        let vault = Arc::new(Vault::open(root, log.clone())?);
+        let room = Room::new(log.clone(), vault.clone());
+        Ok(Desk { log, room, vault })
+    }
+}
+
+#[async_trait]
+impl RoomHandle for Desk {
+    async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
+        self.room.start(persona_id).await
+    }
+
+    fn stop(&self, persona_id: &str) -> Result<(), String> {
+        self.room.stop(persona_id)
+    }
+
+    fn prompt(&self, persona_id: &str, text: &str) -> Result<(), String> {
+        self.room.prompt(persona_id, text)
+    }
+
+    fn cancel(&self, persona_id: &str) -> Result<(), String> {
+        self.room.cancel(persona_id)
+    }
+
+    async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
+        self.room.set_model(persona_id, model_id).await
+    }
+
+    fn info(&self, persona_id: &str) -> SessionInfo {
+        self.room.info(persona_id)
+    }
+
+    fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo> {
+        self.room.subscribe_info()
+    }
+
+    fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
+        self.room.subscribe_deltas()
+    }
+
+    fn credential_create(
+        &self,
+        provider_id: &str,
+        label: &str,
+        secret: &str,
+    ) -> Result<Credential, String> {
+        self.vault
+            .create(provider_id, label, secret)
+            .map_err(|error| error.to_string())
+    }
+
+    fn credential_revoke(&self, id: &str) -> Result<(), String> {
+        self.vault.revoke(id).map_err(|error| error.to_string())
+    }
+
+    fn credential_delete(&self, id: &str) -> Result<(), String> {
+        self.vault.delete(id).map_err(|error| error.to_string())
+    }
+
+    fn models(&self) -> Vec<ConfigChoice> {
+        self.room.models_for_desk()
+    }
+}

@@ -9,6 +9,7 @@
 //! one driver this phase has. The wire is built on top of these.
 
 pub mod contract;
+pub mod desk;
 pub mod driver;
 pub mod log;
 pub mod paths;

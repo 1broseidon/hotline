@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub(crate) fn run(
+pub(crate) async fn run(
     command: Command,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -35,9 +35,11 @@ pub(crate) fn run(
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
         Command::CredentialDelete { id } => room.credential_delete(&id).map(|()| Value::Null),
-        Command::ModelsList => Ok(json!(room.models())),
+        Command::ModelsList {} => Ok(json!(room.models())),
 
-        Command::SessionStart { persona_id } => room.start(&persona_id).map(|info| json!(info)),
+        Command::SessionStart { persona_id } => {
+            room.start(&persona_id).await.map(|info| json!(info))
+        }
         Command::SessionStop { persona_id } => room.stop(&persona_id).map(|()| Value::Null),
         Command::SessionPrompt { persona_id, text } => {
             room.prompt(&persona_id, &text).map(|()| Value::Null)
@@ -46,7 +48,10 @@ pub(crate) fn run(
         Command::SessionSetModel {
             persona_id,
             model_id,
-        } => room.set_model(&persona_id, &model_id).map(|()| Value::Null),
+        } => room
+            .set_model(&persona_id, &model_id)
+            .await
+            .map(|info| json!(info)),
 
         Command::SearchThread {
             persona_id,

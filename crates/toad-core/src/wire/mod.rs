@@ -27,6 +27,7 @@
 use crate::contract::{Command, RosterEntry, SessionInfo, StreamDelta, Target, ViewName};
 use crate::log::{Log, StreamId};
 use crate::store::previews;
+use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -58,13 +59,16 @@ mod tests;
 ///
 /// Every method answers promptly. `prompt` starts a turn and returns; what
 /// the turn produces reaches the client as tape events and ephemeral deltas,
-/// not as the answer to the command.
+/// not as the answer to the command. `start` and `set_model` wait on the
+/// driver coming up, which is why they alone are async: the read loop awaits
+/// them, so a socket's commands are still answered one at a time, in order.
+#[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
-    fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
+    async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
     fn prompt(&self, persona_id: &str, text: &str) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
-    fn set_model(&self, persona_id: &str, model_id: &str) -> Result<(), String>;
+    async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
 
     /// What this teammate's session is doing, idle when it has none.
     fn info(&self, persona_id: &str) -> SessionInfo;
@@ -236,7 +240,7 @@ where
             None | Some(Ok(Message::Close(_))) => break Ok(()),
             Some(Err(error)) => break Err(error),
             Some(Ok(Message::Text(text))) => {
-                answer(&text, seat, &log, &room, &sender, &mut subscriptions);
+                answer(&text, seat, &log, &room, &sender, &mut subscriptions).await;
             }
             Some(Ok(_)) => {}
         }
@@ -251,7 +255,7 @@ where
 
 /// One frame in, its answer queued. A frame with no id is nobody's question,
 /// so there is nowhere to put an answer and it is dropped.
-fn answer(
+async fn answer(
     text: &str,
     seat: Seat,
     log: &Log,
@@ -267,12 +271,13 @@ fn answer(
     };
 
     if frame.get("cmd").is_some() {
-        let result = read_command(&frame).and_then(|command| {
-            if !seat.permits(&command) {
-                return Err("That seat may not run this command.".to_string());
+        let result = match read_command(&frame) {
+            Ok(command) if !seat.permits(&command) => {
+                Err("That seat may not run this command.".to_string())
             }
-            commands::run(command, log, room)
-        });
+            Ok(command) => commands::run(command, log, room).await,
+            Err(error) => Err(error),
+        };
         reply(sender, id, result);
         return;
     }
@@ -307,9 +312,15 @@ fn answer(
 fn read_command(frame: &Value) -> Result<Command, String> {
     let mut envelope = serde_json::Map::new();
     envelope.insert("cmd".into(), frame["cmd"].clone());
-    if let Some(params) = frame.get("params") {
-        envelope.insert("params".into(), params.clone());
-    }
+    // A command with nothing to say still has a `params`: absent and `{}`
+    // are the same thing to every variant.
+    envelope.insert(
+        "params".into(),
+        frame
+            .get("params")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new())),
+    );
     serde_json::from_value(Value::Object(envelope))
         .map_err(|error| format!("This room cannot read that command: {error}."))
 }

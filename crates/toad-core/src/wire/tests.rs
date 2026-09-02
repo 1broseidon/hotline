@@ -61,8 +61,9 @@ impl Quiet {
     }
 }
 
+#[async_trait::async_trait]
 impl RoomHandle for Quiet {
-    fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
+    async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
         Ok(idle(persona_id))
     }
 
@@ -78,8 +79,8 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn set_model(&self, _persona_id: &str, _model_id: &str) -> Result<(), String> {
-        Ok(())
+    async fn set_model(&self, persona_id: &str, _model_id: &str) -> Result<SessionInfo, String> {
+        Ok(idle(persona_id))
     }
 
     fn info(&self, persona_id: &str) -> SessionInfo {
@@ -455,7 +456,7 @@ async fn a_tape_carries_the_deltas_nobody_writes_down() {
 
 #[test]
 fn the_desk_seat_may_do_everything_the_room_can_do() {
-    assert!(Seat::Desk.permits(&Command::ModelsList));
+    assert!(Seat::Desk.permits(&Command::ModelsList {}));
     assert!(Seat::Desk.permits(&Command::PersonaDelete {
         id: "ada".to_string()
     }));

@@ -51,8 +51,8 @@ make verify     # the headless harnesses, driving the real core over the wire
 
 ## Verifying
 
-The house idiom is a headless harness in `harness/` that starts the real core
-and drives it over the wire. Find the one covering your area and extend it;
+The house idiom is a headless harness in `crates/toad-core/tests/` that
+starts the real core and drives it over the wire (`make verify`). Find the one covering your area and extend it;
 new behaviour ships with one. Unit tests live beside the code. `make check`
 before calling work done; the smallest proof that the change works, not
 everything.

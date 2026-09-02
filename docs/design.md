@@ -163,11 +163,12 @@ crates/toad-core/src/
   driver/          InProcess (Rig; moved agent.rs), Child (ACP) new
   tools/           workspace tools on cap-std, shell command    moved
   mcp/             rmcp client and Toad's own server            new
+  desk.rs          the room, vault and log behind the wire      new
   chapters.rs      rotation, notes, resume                      new (rules from ../toad/docs/chapters.md)
   wire/            the door: seats, commands, subscriptions     from wire.rs, reshaped
 crates/toad-desktop/   the Tauri shell
 ui/                    the window (React, built against the generated contract)
-harness/               headless end-to-end proofs (Rust integration tests driving the wire)
+crates/toad-core/tests/  headless end-to-end proofs (integration tests driving the wire)
 ```
 
 ## Phases

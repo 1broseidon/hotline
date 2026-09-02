@@ -1832,3 +1832,41 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     assert_eq!(card["decision"], "expired");
     assert_eq!(card["id"], "perm:req-1");
 }
+
+/// The tool that asked the person is inside the turn, so a cancelled turn is
+/// an agent that has stopped listening. The card goes with it: a live button
+/// that writes `done` for nobody is the failure these cards exist to avoid.
+#[tokio::test]
+async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
+    let room = room("human-cancel", Fake::new(Scripted::new(vec![])));
+    room.start("ada").await.unwrap();
+    let tools = TeammateTools::new(&room, "ada");
+    let waiting = {
+        let tools = tools.clone();
+        tokio::spawn(async move {
+            tools
+                .call("request_human", &json!({ "reason": "Tap the 2FA prompt" }))
+                .await
+        })
+    };
+    let action_id = pending_human(&room, "ada").await;
+
+    room.cancel("ada").unwrap();
+
+    let released = tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("the tool was left parked on a turn that had been cancelled")
+        .unwrap()
+        .unwrap();
+    assert_eq!(released, "Nobody answered in ten minutes.");
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .expect("the card is on the tape");
+    assert_eq!(card["status"], "expired");
+    assert!(
+        room.answer_human("ada", &action_id, HumanAnswer::Done)
+            .is_err(),
+        "a card nobody is behind still took an answer"
+    );
+}

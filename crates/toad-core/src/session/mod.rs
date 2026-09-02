@@ -648,10 +648,18 @@ impl Room {
     }
 
     /// Stops the turn in flight and drops whatever was waiting behind it.
+    ///
+    /// A `request_human` the cancelled turn was parked on dies with it: the
+    /// tool call is inside the turn, so nothing is reading the answer any
+    /// more. The card is superseded and the wait released here, because
+    /// otherwise the transcript keeps a live button for ten minutes and
+    /// pressing it writes `done` for an agent that stopped listening.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
         lock(&session.queue).clear();
         session.driver.cancel();
+        self.settle_permissions(persona_id);
+        self.release_human_waits(persona_id);
         Ok(())
     }
 

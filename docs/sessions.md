@@ -169,9 +169,10 @@ status `pending`. The room holds a oneshot by that id. `human.answer`
 resolves it with `done` or `declined` and supersedes the card; declined
 is written as `dismissed`, the previous Toad's word for that afterlife.
 The tool returns a sentence: "The person did it.", "The person declined:
-…", or "Nobody answered in ten minutes." A card left pending when the
-session stops or the room restarts is expired by the same startup fold
-that expires orphaned permission cards.
+…", or "Nobody answered in ten minutes." A card left pending when the turn
+is cancelled, the session stops or the room restarts is expired by the same
+fold that expires orphaned permission cards: the tool call is inside the
+turn, so a turn that ended is an agent that has stopped listening.
 
 ## Checkpoints
 

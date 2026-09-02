@@ -461,6 +461,20 @@
 	.group-row-choice {
 		cursor: default;
 	}
+	/* The add row at the head of a list the room keeps (Providers, Tools):
+	 * the one place in a pane that is accent, because adding is the one
+	 * thing a list with nothing in it is for. */
+	.group-row-add {
+		width: 100%;
+		gap: 8px;
+		text-align: left;
+		font-weight: 500;
+		color: var(--accent);
+	}
+	.group-row-add:hover,
+	.group-row-add[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
 	.group-row-choice:hover {
 		background: var(--fill-hover);
 	}

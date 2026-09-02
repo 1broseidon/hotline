@@ -95,8 +95,9 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
-	// Providers has a page under it, so its band is its own.
+	// Providers and Tools have a page under them, so their bands are their own.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
+	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 
 	return (
 		<div className="pane">
@@ -118,7 +119,6 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
 						/>
 					)}
-					{section === "tools" && <ToolsSection servers={settings.mcpServers} onRefuse={setRefusal} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
 					{refusal !== null && (
 						<p role="status" className="selectable text-sm text-danger">
@@ -253,9 +253,11 @@ function byName(a: { name: string }, b: { name: string }) {
  * Providers: one list of what this desk can run a model on. A row is a
  * connected provider, however it was connected — a pasted key or a login
  * is a detail of the row, not a heading — and pressing it opens that
- * provider's own page. The plus in the band is the one way in: it names
- * the providers not yet connected, and choosing one asks for a key or
- * starts a sign-in in place. The form exists only while you are adding.
+ * provider's own page. The add row at the head of the list is the one way
+ * in: it names the providers not yet connected, and choosing one asks for
+ * a key or starts a sign-in in place. The form exists only while you are
+ * adding. Tools is drawn the same way, on purpose: a list the room has,
+ * an add row over it, a page behind each row with the way out at its foot.
  *
  * The pane is this section's own rather than Settings', because it has
  * a page under it and the band has to say which one you are on.
@@ -409,11 +411,6 @@ function ProvidersSection({
 			<Band>
 				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Providers</h2>
-				{addEntries.length > 0 && (
-					<MenuButton className="control btn-icon" label="Add provider" title="Add provider" entries={addEntries}>
-						<PlusIcon />
-					</MenuButton>
-				)}
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
@@ -461,23 +458,19 @@ function ProvidersSection({
 						</section>
 					)}
 					<section>
-						{held === null ? (
-							<div className="grouped">
+						<div className="grouped">
+							{adding === null && (
+								<MenuButton className="group-row group-row-add" label="Add provider" entries={addEntries}>
+									<PlusIcon />
+									Add provider
+								</MenuButton>
+							)}
+							{held === null ? (
 								<p className="group-row text-sm text-ink-3">Reading…</p>
-							</div>
-						) : connected.length === 0 ? (
-							<div className="flex flex-col items-center gap-4 px-6 py-10">
-								<p className="text-center text-ink-3">No providers yet. Toad Agent needs one to run a model.</p>
-								{addEntries.length > 0 && (
-									<MenuButton className="control btn" label="Add provider" entries={addEntries}>
-										<PlusIcon />
-										Add provider
-									</MenuButton>
-								)}
-							</div>
-						) : (
-							<div className="grouped">
-								{connected.map((one) => (
+							) : connected.length === 0 ? (
+								<p className="group-row text-sm text-ink-3">No providers yet. Toad Agent needs one to run a model.</p>
+							) : (
+								connected.map((one) => (
 									<button
 										key={one.credential.id}
 										type="button"
@@ -496,12 +489,10 @@ function ProvidersSection({
 										</span>
 										<ChevronRightIcon className="shrink-0 text-ink-3" />
 									</button>
-								))}
-							</div>
-						)}
-						{connected.length > 0 && (
-							<p className="group-hint">A key or a login never leaves this machine; the room remembers only that it exists.</p>
-						)}
+								))
+							)}
+						</div>
+						<p className="group-hint">A key or a login never leaves this machine; the room remembers only that it exists.</p>
 					</section>
 					{refusal !== null && (
 						<p role="status" className="selectable text-sm text-danger">
@@ -805,192 +796,274 @@ type ServerDraft = { name: string; kind: "stdio" | "http"; command: string; url:
 const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: "" };
 
 /**
- * Servers are defined once for the room. Which teammate may use them is a
- * different question, answered on that teammate.
+ * Tools: the MCP servers the room has, drawn the way Providers is. An add
+ * row over the list opens the form in place; a row opens the server's own
+ * page, where it is edited and, at the foot, removed. Which teammate may
+ * use a server is a different question, answered on that teammate.
  */
 function ToolsSection({
 	servers,
-	onRefuse,
+	onBack,
 }: {
 	servers: McpServer[];
-	onRefuse(message: string | null): void;
+	onBack?: (() => void) | undefined;
 }) {
-	const [draft, setDraft] = useState<ServerDraft>(EMPTY_DRAFT);
-	const [editingId, setEditingId] = useState<string | null>(null);
+	const [refusal, setRefusal] = useState<string | null>(null);
+	const [adding, setAdding] = useState(false);
+	const [open, setOpen] = useState<string | null>(null);
 	const [writing, setWriting] = useState(false);
-	const nameField = useRef<HTMLInputElement>(null);
-
-	const ready =
-		draft.name.trim().length > 0 &&
-		(draft.kind === "stdio" ? draft.command.trim().length > 0 : draft.url.trim().length > 0);
 
 	const persist = async (next: McpServer[]): Promise<boolean> => {
 		setWriting(true);
-		onRefuse(null);
+		setRefusal(null);
 		try {
 			await wire.command("settings.update", { patch: { mcpServers: next } });
 			return true;
 		} catch (error) {
-			onRefuse(error instanceof Error ? error.message : String(error));
+			setRefusal(error instanceof Error ? error.message : String(error));
 			return false;
 		} finally {
 			setWriting(false);
 		}
 	};
 
-	const reset = () => {
-		setDraft(EMPTY_DRAFT);
-		setEditingId(null);
-	};
-
-	const save = () => {
-		if (!ready || writing) return;
-		const name = draft.name.trim();
-		const previous = editingId ? servers.find((one) => one.id === editingId) : undefined;
-		const next =
-			draft.kind === "stdio"
-				? stdioFromDraft(name, draft.command, previous)
-				: httpFromDraft(name, draft.url, previous);
-		const list = editingId ? servers.map((one) => (one.id === editingId ? next : one)) : [...servers, next];
-		void persist(list).then((ok) => ok && reset());
-	};
-
-	const startEdit = (server: McpServer) => {
-		setEditingId(server.id);
-		setDraft(
-			server.type === "stdio"
-				? { name: server.name, kind: "stdio", command: [server.command, ...server.args].join(" "), url: "" }
-				: { name: server.name, kind: "http", command: "", url: server.url },
+	const opened = servers.find((one) => one.id === open);
+	if (opened !== undefined) {
+		return (
+			<ServerPage
+				server={opened}
+				writing={writing}
+				onBack={() => setOpen(null)}
+				onSave={(next) => void persist(servers.map((one) => (one.id === opened.id ? next : one))).then((ok) => ok && setOpen(null))}
+				onRemove={() => void persist(servers.filter((one) => one.id !== opened.id)).then((ok) => ok && setOpen(null))}
+				refusal={refusal}
+			/>
 		);
-		nameField.current?.focus();
-	};
+	}
 
 	return (
-		<>
-			<section>
-				<h3 className="group-title">MCP servers</h3>
-				<div className="grouped">
-					{servers.length === 0 ? (
-						<p className="group-row text-sm text-ink-3">
-							No servers yet. A teammate runs with its agent&rsquo;s own tools until you add one.
-						</p>
-					) : (
-						servers.map((server) => (
-							<div key={server.id} className="group-row">
-								<span className="group-row-text">
-									<span className="group-row-title">
-										{server.name}
-										<span className="ml-2 text-sm text-ink-3">{server.type === "stdio" ? "Command" : "HTTP"}</span>
-									</span>
-									<span className="group-row-detail font-mono">{mcpServerDetail(server)}</span>
-								</span>
-								<button
-									type="button"
-									className="control btn-quiet btn-sm"
-									aria-label={`Edit ${server.name}`}
-									disabled={writing}
-									onClick={() => startEdit(server)}
-								>
-									Edit
+		<div className="pane">
+			<Band>
+				{onBack !== undefined && <BackKey onBack={onBack} />}
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Tools</h2>
+			</Band>
+			<Scroll>
+				<div className="pane-column flex flex-col gap-6">
+					{adding && (
+						<ServerForm
+							title="Add a server"
+							submit="Add server"
+							writing={writing}
+							onSubmit={(next) => void persist([...servers, next]).then((ok) => ok && setAdding(false))}
+							onCancel={() => setAdding(false)}
+						/>
+					)}
+					<section>
+						<div className="grouped">
+							{!adding && (
+								<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
+									<PlusIcon />
+									Add server
 								</button>
-								<button
-									type="button"
-									className="control btn-quiet btn-sm btn-danger"
-									aria-label={`Remove ${server.name}`}
-									disabled={writing}
-									onClick={() =>
-										void persist(servers.filter((one) => one.id !== server.id)).then((ok) => {
-											if (ok && editingId === server.id) reset();
-										})
-									}
-								>
+							)}
+							{servers.length === 0 ? (
+								<p className="group-row text-sm text-ink-3">
+									No servers yet. A teammate runs with its agent&rsquo;s own tools until you add one.
+								</p>
+							) : (
+								servers.map((server) => (
+									<button
+										key={server.id}
+										type="button"
+										className="group-row group-row-choice w-full text-left"
+										onClick={() => setOpen(server.id)}
+									>
+										<span className="group-row-text">
+											<span className="group-row-title">{server.name}</span>
+											<span className="group-row-detail">
+												{server.type === "stdio" ? "Command" : "HTTP"} · <span className="font-mono">{mcpServerDetail(server)}</span>
+											</span>
+										</span>
+										<ChevronRightIcon className="shrink-0 text-ink-3" />
+									</button>
+								))
+							)}
+						</div>
+						<p className="group-hint">Which teammates may use a server is set on each teammate.</p>
+					</section>
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
+					)}
+				</div>
+			</Scroll>
+		</div>
+	);
+}
+
+/** One server's page: its fields, and the way out at the foot. */
+function ServerPage({
+	server,
+	writing,
+	refusal,
+	onBack,
+	onSave,
+	onRemove,
+}: {
+	server: McpServer;
+	writing: boolean;
+	refusal: string | null;
+	onBack(): void;
+	onSave(next: McpServer): void;
+	onRemove(): void;
+}) {
+	return (
+		<div className="pane">
+			<Band>
+				<BackKey onBack={onBack} />
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{server.name}</h2>
+			</Band>
+			<Scroll>
+				<div className="pane-column flex flex-col gap-6">
+					<ServerForm title="Server" submit="Save" server={server} writing={writing} onSubmit={onSave} />
+					<section>
+						<div className="grouped">
+							<div className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title">Remove server</span>
+									<span className="group-row-detail">Teammates that used it lose its tools on their next start.</span>
+								</span>
+								<button type="button" className="control btn-quiet text-danger" disabled={writing} onClick={onRemove}>
 									Remove
 								</button>
 							</div>
-						))
+						</div>
+					</section>
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
 					)}
 				</div>
-				<p className="group-hint">Which teammates may use a server is set on each teammate.</p>
-			</section>
-			<form
-				onSubmit={(event) => {
-					event.preventDefault();
-					save();
-				}}
-			>
-				<h3 className="group-title">{editingId ? "Edit server" : "Add a server"}</h3>
-				<div className="grouped">
-					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2">Type</label>
-						<div className="flex-1">
-							<Picker
-								field
-								value={draft.kind}
-								choices={[
-									{ id: "stdio", name: "Command", detail: "Started on this machine and spoken to over stdio" },
-									{ id: "http", name: "HTTP", detail: "Reached at a URL" },
-								]}
-								placeholder="Type"
-								label="Server type"
-								onChange={(kind) => setDraft({ ...draft, kind: kind === "http" ? "http" : "stdio" })}
-							/>
-						</div>
-					</div>
-					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-name">
-							Name
-						</label>
-						<input
-							id="tool-name"
-							ref={nameField}
-							className="field flex-1"
-							value={draft.name}
-							onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+			</Scroll>
+		</div>
+	);
+}
+
+/** The server's fields: one form for adding and for the page. */
+function ServerForm({
+	title,
+	submit,
+	server,
+	writing,
+	onSubmit,
+	onCancel,
+}: {
+	title: string;
+	submit: string;
+	server?: McpServer;
+	writing: boolean;
+	onSubmit(next: McpServer): void;
+	onCancel?: () => void;
+}) {
+	const [draft, setDraft] = useState<ServerDraft>(() =>
+		server === undefined
+			? EMPTY_DRAFT
+			: server.type === "stdio"
+				? { name: server.name, kind: "stdio", command: [server.command, ...server.args].join(" "), url: "" }
+				: { name: server.name, kind: "http", command: "", url: server.url },
+	);
+	const nameField = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (server === undefined) nameField.current?.focus();
+	}, [server]);
+
+	const ready =
+		draft.name.trim().length > 0 &&
+		(draft.kind === "stdio" ? draft.command.trim().length > 0 : draft.url.trim().length > 0);
+
+	return (
+		<form
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (!ready || writing) return;
+				const name = draft.name.trim();
+				onSubmit(draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, server));
+			}}
+		>
+			<h3 className="group-title">{title}</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<label className="w-24 shrink-0 text-sm text-ink-2">Type</label>
+					<div className="flex-1">
+						<Picker
+							field
+							value={draft.kind}
+							choices={[
+								{ id: "stdio", name: "Command", detail: "Started on this machine and spoken to over stdio" },
+								{ id: "http", name: "HTTP", detail: "Reached at a URL" },
+							]}
+							placeholder="Type"
+							label="Server type"
+							onChange={(kind) => setDraft({ ...draft, kind: kind === "http" ? "http" : "stdio" })}
 						/>
 					</div>
-					{draft.kind === "stdio" ? (
-						<div className="group-row">
-							<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-command">
-								Command
-							</label>
-							<input
-								id="tool-command"
-								className="field flex-1 font-mono text-sm"
-								spellCheck={false}
-								placeholder="npx -y @modelcontextprotocol/server-filesystem /some/path"
-								value={draft.command}
-								onChange={(event) => setDraft({ ...draft, command: event.target.value })}
-							/>
-						</div>
-					) : (
-						<div className="group-row">
-							<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-url">
-								URL
-							</label>
-							<input
-								id="tool-url"
-								className="field flex-1 font-mono text-sm"
-								spellCheck={false}
-								placeholder="https://example.com/mcp"
-								value={draft.url}
-								onChange={(event) => setDraft({ ...draft, url: event.target.value })}
-							/>
-						</div>
-					)}
-					<div className="group-row justify-end">
-						{editingId !== null && (
-							<button type="button" className="control btn" onClick={reset}>
-								Cancel
-							</button>
-						)}
-						<button type="submit" className="control btn-primary" disabled={writing || !ready}>
-							{editingId ? "Save" : "Add server"}
-						</button>
-					</div>
 				</div>
-				<p className="group-hint">Sign-in and headers for HTTP servers come later.</p>
-			</form>
-		</>
+				<div className="group-row">
+					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-name">
+						Name
+					</label>
+					<input
+						id="tool-name"
+						ref={nameField}
+						className="field flex-1"
+						value={draft.name}
+						onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+					/>
+				</div>
+				{draft.kind === "stdio" ? (
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-command">
+							Command
+						</label>
+						<input
+							id="tool-command"
+							className="field flex-1 font-mono text-sm"
+							spellCheck={false}
+							placeholder="npx -y @modelcontextprotocol/server-filesystem /some/path"
+							value={draft.command}
+							onChange={(event) => setDraft({ ...draft, command: event.target.value })}
+						/>
+					</div>
+				) : (
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-url">
+							URL
+						</label>
+						<input
+							id="tool-url"
+							className="field flex-1 font-mono text-sm"
+							spellCheck={false}
+							placeholder="https://example.com/mcp"
+							value={draft.url}
+							onChange={(event) => setDraft({ ...draft, url: event.target.value })}
+						/>
+					</div>
+				)}
+				<div className="group-row justify-end">
+					{onCancel !== undefined && (
+						<button type="button" className="control btn-quiet" disabled={writing} onClick={onCancel}>
+							Cancel
+						</button>
+					)}
+					<button type="submit" className="control btn-primary" disabled={writing || !ready}>
+						{writing ? "Saving…" : submit}
+					</button>
+				</div>
+			</div>
+			<p className="group-hint">Sign-in and headers for HTTP servers come later.</p>
+		</form>
 	);
 }
 

@@ -84,11 +84,11 @@ seat. Here the wire is one WebSocket carrying three things:
 - **Commands**: `{id, cmd, params}` answered by `{id, ok, result|error}`.
   Commands change something or ask a question the log cannot answer
   (search, a model list from a provider).
-- **Stream subscriptions**: `{sub, stream, from}` answered by the events of
-  that stream from `from` onward, live, as `{stream, seq, event}`. The
-  transcript view is a subscription to a tape. Ephemeral frames that are
-  not events, such as streaming deltas, ride the same subscription marked
-  as such and are never written.
+- **Stream subscriptions**: `{id, sub}` naming a stream, answered by that
+  stream's whole fold as one snapshot and then every event that lands after
+  it, live. The transcript view is a subscription to a tape. Ephemeral frames
+  that are not events, such as streaming deltas, ride the same subscription
+  marked as such and are never written.
 - **View subscriptions**: a few materialised views the core maintains and
   nobody logs, because they are derived: `roster` (each teammate with its
   last line, unread count and live session state). A view is a snapshot

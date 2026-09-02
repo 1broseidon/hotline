@@ -1041,30 +1041,6 @@ pub enum StreamDelta {
 }
 
 // ---------------------------------------------------------------------------
-// Provider credentials
-// ---------------------------------------------------------------------------
-
-/// One provider credential as the room remembers it. Never the secret: the
-/// secret lives in the vault, and this is the fact that it exists, which is
-/// the part that is safe on a wire, in a log line and in a roster of keys.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct Credential {
-    pub id: String,
-    pub provider_id: String,
-    /// What it authenticates with — `api_key` is the only kind so far.
-    /// Spelled `credentialKind` because the event carrying this on the room
-    /// stream already spends `kind` on saying it is a credential.
-    pub credential_kind: String,
-    /// What the operator calls it. Defaults to the provider id.
-    pub label: String,
-    pub revoked: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-// ---------------------------------------------------------------------------
 // The wire
 // ---------------------------------------------------------------------------
 

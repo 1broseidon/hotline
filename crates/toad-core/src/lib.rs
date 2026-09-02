@@ -16,3 +16,4 @@ pub mod room;
 pub mod store;
 pub mod tools;
 pub mod vault;
+pub mod wire;

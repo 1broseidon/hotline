@@ -89,6 +89,13 @@ const NATIVE: &[Native] = &[
         args: &["acp"],
     },
     Native {
+        id: "grok-build",
+        name: "Grok Build",
+        description: "xAI's coding agent. Uses your Grok login.",
+        command: "grok",
+        args: &["agent", "stdio"],
+    },
+    Native {
         id: "opencode",
         name: "opencode",
         description: "Open-source agent with resume and fork support.",
@@ -108,14 +115,14 @@ const ADAPTED: &[Adapted] = &[
     Adapted {
         id: "claude-acp",
         name: "Claude Code",
-        description: "Anthropic's coding agent, through its ACP adapter. Uses your Claude Code login (`claude /login`) or ANTHROPIC_API_KEY.",
+        description: "Anthropic's coding agent. Uses your Claude Code login or ANTHROPIC_API_KEY.",
         package: "@agentclientprotocol/claude-agent-acp@0.69.0",
         client: "claude",
     },
     Adapted {
         id: "codex-acp",
         name: "Codex",
-        description: "OpenAI's coding agent, through its ACP adapter. Uses your Codex login (`codex login`) or OPENAI_API_KEY.",
+        description: "OpenAI's coding agent. Uses your Codex login or OPENAI_API_KEY.",
         package: "@agentclientprotocol/codex-acp@1.4.0",
         client: "codex",
     },

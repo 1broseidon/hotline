@@ -7,10 +7,18 @@ import { ChevronDownIcon, ChevronRightIcon } from "../icons";
 const TOAD_AGENT = "pi";
 
 /**
- * The harnesses this machine can start, first — Toad Agent, then every
- * row with no unavailable sentence — because the catalogue is dozens
- * long and most of it is a PATH miss. The rest sit behind a disclosure,
- * each still carrying the sentence that names what is missing.
+ * The harnesses shown above the fold, beside Toad Agent: the ones with a
+ * flagship model of their own, so choosing one is choosing a lab. The
+ * rest of the catalogue is mostly multi-provider harnesses, which would
+ * only compete with Toad Agent for the same keys, so they wait behind
+ * the disclosure — still there, still startable.
+ */
+const FEATURED = new Set(["claude-acp", "codex-acp", "cursor", "grok-build"]);
+
+/**
+ * Toad Agent first, then the featured harnesses by name, each greyed with
+ * the sentence that names what is missing when this machine cannot start
+ * it. Everything else sits behind a disclosure, the startable ones first.
  *
  * New teammate and Settings › General share this component so the two
  * lists cannot drift.
@@ -68,8 +76,8 @@ export function BackendPicker({
 				<Choice
 					key={backend.id}
 					backend={backend}
-					detail={backend.description}
-					off={false}
+					detail={backend.unavailable ?? backend.description}
+					off={backend.unavailable !== undefined}
 					name={name}
 					selected={selected}
 					tabIndex={stop === backend.id ? 0 : -1}
@@ -95,7 +103,7 @@ export function BackendPicker({
 						key={backend.id}
 						backend={backend}
 						detail={backend.unavailable ?? backend.description}
-						off
+						off={backend.unavailable !== undefined}
 						name={name}
 						selected={selected}
 						tabIndex={stop === backend.id ? 0 : -1}
@@ -107,11 +115,13 @@ export function BackendPicker({
 }
 
 function arrange(backends: BackendChoice[]): { ready: BackendChoice[]; more: BackendChoice[] } {
-	const toad = backends.find((one) => one.id === TOAD_AGENT);
-	const rest = backends.filter((one) => one.id !== TOAD_AGENT);
-	const ready = rest.filter((one) => one.unavailable === undefined);
-	const more = rest.filter((one) => one.unavailable !== undefined);
-	return { ready: toad === undefined ? ready : [toad, ...ready], more };
+	const byName = (a: BackendChoice, b: BackendChoice) => a.name.localeCompare(b.name);
+	const toad = backends.filter((one) => one.id === TOAD_AGENT);
+	const featured = backends.filter((one) => FEATURED.has(one.id)).sort(byName);
+	const rest = backends.filter((one) => one.id !== TOAD_AGENT && !FEATURED.has(one.id));
+	const startable = rest.filter((one) => one.unavailable === undefined).sort(byName);
+	const missing = rest.filter((one) => one.unavailable !== undefined).sort(byName);
+	return { ready: [...toad, ...featured], more: [...startable, ...missing] };
 }
 
 function Choice({

@@ -505,6 +505,7 @@ fn setting_written(log: &Log, key: &str) -> bool {
     log.load(&StreamId::Room).iter().any(|event| {
         event.get("kind").and_then(Value::as_str) == Some("setting")
             && event.get("id").and_then(Value::as_str) == Some(key)
+            && event.get("deleted").and_then(Value::as_bool) != Some(true)
     })
 }
 
@@ -1240,5 +1241,42 @@ mod tests {
                 && note.reason == "search index will catch up on the next start"),
             "{report:?}"
         );
+    }
+
+    #[test]
+    fn a_tombstoned_setting_is_imported() {
+        let from = store_scratch("import-tombstone-setting");
+        fs::write(
+            from.join("settings.json"),
+            json!({
+                "version": 1,
+                "settings": { "chapterIdleHours": 4 }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let (_to, log, vault) = dest("import-tombstone-setting-dest");
+        log.append(
+            &StreamId::Room,
+            &json!({ "kind": "setting", "id": "chapterIdleHours", "value": 2 }),
+        )
+        .unwrap();
+        log.append(
+            &StreamId::Room,
+            &json!({ "kind": "setting", "id": "chapterIdleHours", "deleted": true }),
+        )
+        .unwrap();
+        assert_eq!(room::settings(&log)["chapterIdleHours"], 8);
+
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.settings, 1, "{report:?}");
+        assert!(
+            report
+                .skipped
+                .iter()
+                .all(|skipped| skipped.item != "setting chapterIdleHours"),
+            "{report:?}"
+        );
+        assert_eq!(room::settings(&log)["chapterIdleHours"], 4);
     }
 }

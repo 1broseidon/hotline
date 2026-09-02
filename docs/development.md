@@ -184,11 +184,11 @@ streams and vault at `<to>`. The source is never written: `store.sqlite`
 is copied (the database and its `-wal`, never the `-shm`) into a private
 temporary directory so SQLite cannot leave sidecars beside a directory it
 must not write, and a copy that does not check out is an error rather
-than a smaller roster.
-Tapes are copied, secrets are read out of the old vault. A teammate
-already in the roster, a tape that already exists here, and a setting
-already set are left alone, so running it twice is the same as running it
-once. `mcpServers` comes over when the shape is one this tree accepts; an
+than a smaller roster. Tapes are copied, secrets are read out of the old
+vault. A teammate already in the roster, a tape that already exists
+here, and a setting already set (a tombstone is not a set setting) are
+left alone, so running it twice is the same as running it once.
+`mcpServers` comes over when the shape is one this tree accepts; an
 entry it cannot read is named on `notes` and the rest of the list still
 lands. A key this Toad does not have is skipped with a row, not dropped
 in silence.

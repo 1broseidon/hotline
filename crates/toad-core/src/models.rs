@@ -300,6 +300,21 @@ pub fn login_refusal(provider_id: &str) -> Option<String> {
     }
 }
 
+/// The room's standing model preference: `defaultModelId` when it is a
+/// string, else `lastModelId`. A non-string value reads as absent, the same
+/// as a key nobody has set — a bad setting costs its own preference, never
+/// the picker.
+pub fn preferred_model(settings: &Map<String, Value>) -> Option<String> {
+    setting_string(settings, "defaultModelId").or_else(|| setting_string(settings, "lastModelId"))
+}
+
+fn setting_string(settings: &Map<String, Value>, key: &str) -> Option<String> {
+    settings
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 /// The room's `enabledModels` setting, as the picker applies it.
 ///
 /// A provider absent from the object shows every model. A present one shows
@@ -552,6 +567,27 @@ mod tests {
         );
         assert_eq!(label_of("anthropic/nope"), None);
         assert_eq!(label_of("bare"), None);
+    }
+
+    #[test]
+    fn preferred_model_reads_default_then_last_and_ignores_a_non_string() {
+        let mut settings = Map::new();
+        assert_eq!(preferred_model(&settings), None);
+
+        settings.insert("lastModelId".into(), json!("openai/gpt"));
+        assert_eq!(preferred_model(&settings).as_deref(), Some("openai/gpt"));
+
+        settings.insert("defaultModelId".into(), json!("anthropic/claude"));
+        assert_eq!(
+            preferred_model(&settings).as_deref(),
+            Some("anthropic/claude")
+        );
+
+        settings.insert("defaultModelId".into(), json!(1));
+        assert_eq!(preferred_model(&settings).as_deref(), Some("openai/gpt"));
+
+        settings.insert("lastModelId".into(), json!(true));
+        assert_eq!(preferred_model(&settings), None);
     }
 
     #[test]

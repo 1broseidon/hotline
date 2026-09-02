@@ -124,6 +124,14 @@ pub trait ProviderKeys: Send + Sync {
     fn enabled_models(&self) -> HashMap<String, Vec<String>> {
         HashMap::new()
     }
+
+    /// The model a Toad Agent teammate starts on when it has no choice of
+    /// its own: the room's `defaultModelId`, else `lastModelId`. The desk
+    /// reads the log each time, like [`Self::enabled_models`]. Test doubles
+    /// leave it absent.
+    fn preferred_model(&self) -> Option<String> {
+        None
+    }
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a

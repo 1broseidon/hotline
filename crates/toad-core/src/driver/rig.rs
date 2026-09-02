@@ -23,7 +23,7 @@
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
 use crate::contract::{
-    AgentKind, Attachment, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
+    AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
 };
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
@@ -182,16 +182,17 @@ impl InProcess {
 impl Driver for InProcess {
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         let keys = self.keys.provider_auth();
-        let model = match &persona.model_id {
-            Some(id) if keys.contains_key(id.split('/').next().unwrap_or("")) => id.clone(),
-            _ => models::choices(&keys, &self.keys.enabled_models())
-                .first()
-                .map(|model| model.id.clone())
-                .ok_or_else(|| {
-                    "No model key is available to Toad Agent. Add a provider key under Settings → Agents."
-                        .to_string()
-                })?,
-        };
+        let choices = models::choices(&keys, &self.keys.enabled_models());
+        let preferred = self.keys.preferred_model();
+        let model = model_for(
+            persona.model_id.as_deref(),
+            preferred.as_deref(),
+            &choices,
+        )
+        .ok_or_else(|| {
+            "No model key is available to Toad Agent. Add a provider key under Settings → Agents."
+                .to_string()
+        })?;
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
         *lock(&self.model) = model;
         let connected = mcp::connect(&persona.id, &self.mcp_servers).await;
@@ -259,6 +260,25 @@ impl Driver for InProcess {
         *lock(&self.model) = model_id.to_string();
         Ok(self.info(&keys))
     }
+}
+
+/// The model a Toad Agent teammate starts on: its own choice when the desk
+/// still lists it, else the room's preferred model when that is listed, else
+/// the first choice. Newest is only the answer on a desk that has never run
+/// a model.
+fn model_for(
+    persona_model: Option<&str>,
+    preferred: Option<&str>,
+    choices: &[ConfigChoice],
+) -> Option<String> {
+    let listed = |id: &str| choices.iter().any(|choice| choice.id == id);
+    if let Some(id) = persona_model.filter(|id| listed(id)) {
+        return Some(id.to_string());
+    }
+    if let Some(id) = preferred.filter(|id| listed(id)) {
+        return Some(id.to_string());
+    }
+    choices.first().map(|choice| choice.id.clone())
 }
 
 /// How many updates may be in flight before the turn waits for the session to
@@ -833,6 +853,49 @@ mod tests {
     use crate::contract::Reach;
     use rig::tool::{Tool, ToolContext};
     use serde_json::json;
+
+    fn choice(id: &str) -> ConfigChoice {
+        ConfigChoice {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: None,
+            group: None,
+        }
+    }
+
+    #[test]
+    fn model_for_takes_the_personas_choice_when_the_list_has_it() {
+        let choices = [choice("a"), choice("b")];
+        assert_eq!(
+            model_for(Some("b"), Some("a"), &choices).as_deref(),
+            Some("b")
+        );
+    }
+
+    #[test]
+    fn model_for_takes_the_preferred_when_the_persona_is_not_listed() {
+        let choices = [choice("a"), choice("b")];
+        assert_eq!(
+            model_for(Some("gone"), Some("b"), &choices).as_deref(),
+            Some("b")
+        );
+        assert_eq!(model_for(None, Some("b"), &choices).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn model_for_takes_the_first_choice_when_neither_is_listed() {
+        let choices = [choice("a"), choice("b")];
+        assert_eq!(
+            model_for(Some("gone"), Some("also"), &choices).as_deref(),
+            Some("a")
+        );
+        assert_eq!(model_for(None, None, &choices).as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn model_for_is_none_when_there_are_no_choices() {
+        assert_eq!(model_for(Some("a"), Some("b"), &[]), None);
+    }
 
     /// Toad Agent is handed paths rather than bytes, because it opens a file
     /// with its read tool.

@@ -29,7 +29,8 @@ use serde_json::{Map, Value, json};
 /// eight hours of quiet — a working day's gap, so yesterday's context does not
 /// follow you into this morning. `enabledModels` is empty: a provider nobody
 /// has filtered shows every model, because a missing filter is not an empty
-/// one.
+/// one. `defaultModelId` and `lastModelId` stay out of this map: a desk that
+/// has never named a model has no preference, not an empty string.
 fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
     settings.insert("defaultBackendId".into(), Value::from("pi"));

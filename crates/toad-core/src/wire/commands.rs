@@ -7,7 +7,10 @@
 //! things to reimplement behind a door.
 
 use super::RoomHandle;
-use crate::contract::{Command, McpPolicy, Persona, PersonaDraft, PolicyMode, Reach};
+use crate::contract::{
+    Command, McpPolicy, Persona, PersonaDraft, PolicyMode, Reach, SessionInfo, SessionState,
+};
+use crate::driver::PI_BACKEND_ID;
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
 use crate::{paths, room};
@@ -51,7 +54,11 @@ pub(crate) async fn run(
             .map(|models| json!(models)),
 
         Command::SessionStart { persona_id } => {
-            room.start(&persona_id).await.map(|info| json!(info))
+            let info = room.start(&persona_id).await?;
+            if let Ok(persona) = living(log, &persona_id) {
+                remember_last_model(log, room, &persona)?;
+            }
+            Ok(json!(info))
         }
         Command::SessionStop { persona_id } => room.stop(&persona_id).map(|()| Value::Null),
         Command::SessionPrompt {
@@ -59,16 +66,19 @@ pub(crate) async fn run(
             text,
             reply_to,
             attachments,
-        } => room
-            .prompt(&persona_id, &text, reply_to, attachments)
-            .await
-            .map(|()| Value::Null),
+        } => {
+            room.prompt(&persona_id, &text, reply_to, attachments)
+                .await?;
+            if let Ok(persona) = living(log, &persona_id) {
+                remember_last_model(log, room, &persona)?;
+            }
+            Ok(Value::Null)
+        }
         Command::SessionCancel { persona_id } => room.cancel(&persona_id).map(|()| Value::Null),
         Command::SessionSetModel {
             persona_id,
             model_id,
-        } => room
-            .set_model(&persona_id, &model_id)
+        } => set_model(log, room, &persona_id, &model_id)
             .await
             .map(|info| json!(info)),
 
@@ -168,6 +178,21 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         .unwrap_or("pi")
         .to_string();
     let stamped = now();
+    let backend_id = given(draft.backend_id).unwrap_or(default_backend);
+    // A Toad Agent draft that leaves the model blank takes the room's
+    // standing choice, so the teammate starts on what Settings named
+    // rather than whichever model happens to lead the catalogue.
+    let model_id = given(draft.model_id).or_else(|| {
+        if backend_id != PI_BACKEND_ID {
+            return None;
+        }
+        settings
+            .get("defaultModelId")
+            .and_then(Value::as_str)
+            .or_else(|| settings.get("lastModelId").and_then(Value::as_str))
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+    });
     let persona = Persona {
         node: None,
         id: id.clone(),
@@ -175,7 +200,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         goal: given(draft.goal).unwrap_or_default(),
         face: None,
         team: given(draft.team),
-        backend_id: given(draft.backend_id).unwrap_or(default_backend),
+        backend_id,
         cwd: given(draft.cwd).unwrap_or_else(|| {
             paths::default_workspace(log.root(), &id)
                 .to_string_lossy()
@@ -185,7 +210,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         // and an absent reach is the workspace, so only the wider one is
         // written down.
         reach: draft.reach.filter(|reach| *reach == Reach::Machine),
-        model_id: given(draft.model_id),
+        model_id,
         mode_id: None,
         harness_override: None,
         hop_notice: None,
@@ -263,6 +288,67 @@ fn living(log: &Log, id: &str) -> Result<Persona, String> {
         .into_iter()
         .find(|persona| persona.id == id)
         .ok_or_else(|| format!("There is no teammate {id}."))
+}
+
+/// Write the teammate's model first, then switch a live session if there is
+/// one. The persona is the truth; the live switch is a courtesy to the turn
+/// already running. Writing first means an idle teammate keeps the choice,
+/// and a live switch that fails still lands on the next start.
+async fn set_model(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    model_id: &str,
+) -> Result<SessionInfo, String> {
+    let persona = living(log, persona_id)?;
+    if persona.backend_id == PI_BACKEND_ID {
+        if !room.models().iter().any(|choice| choice.id == model_id) {
+            return Err(format!("{model_id} is not a model this desk can reach."));
+        }
+    } else if model_id.is_empty() {
+        return Err(format!("{model_id} is not a model this desk can reach."));
+    }
+
+    update_persona(log, persona_id, &json!({ "modelId": model_id }))?;
+    // The persisted choice counts as a use, so lastModelId is the id
+    // just written rather than whatever a live session happens to report.
+    if persona.backend_id == PI_BACKEND_ID {
+        write_last_model(log, model_id)?;
+    }
+
+    if room.info(persona_id).state != SessionState::Idle {
+        return room.set_model(persona_id, model_id).await;
+    }
+    Ok(room.info(persona_id))
+}
+
+/// The model a Toad Agent teammate most recently ran on. The wire is the
+/// only writer of the room stream's settings, so this lives here rather
+/// than on the session. A prompt on an idle teammate starts it, so start
+/// and prompt both come through.
+fn remember_last_model(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+) -> Result<(), String> {
+    if persona.backend_id != PI_BACKEND_ID {
+        return Ok(());
+    }
+    let Some(model_id) = room.info(&persona.id).current_model_id else {
+        return Ok(());
+    };
+    write_last_model(log, &model_id)
+}
+
+fn write_last_model(log: &Log, model_id: &str) -> Result<(), String> {
+    let settings = room::settings(log);
+    let current = settings.get("lastModelId").and_then(Value::as_str);
+    if current == Some(model_id) {
+        return Ok(());
+    }
+    let mut patch = Map::new();
+    patch.insert("lastModelId".into(), json!(model_id));
+    update_settings(log, patch).map(|_| ())
 }
 
 fn append(log: &Log, event: &Value) -> Result<(), String> {

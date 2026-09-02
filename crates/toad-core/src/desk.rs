@@ -25,11 +25,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
 
-/// The vault's keys and the room's model filter, as one seam.
+/// The vault's keys and the room's model settings, as one seam.
 ///
 /// The driver builds `SessionInfo.models` from [`ProviderKeys`] alone and
-/// has no log. Reading the setting here, each time, is how a saved filter
-/// is in force on the next turn without a restart.
+/// has no log. Reading the filter and the preferred model here, each time,
+/// is how a saved choice is in force on the next turn without a restart.
 struct DeskCredentials {
     vault: Arc<Vault>,
     log: Log,
@@ -42,6 +42,10 @@ impl ProviderKeys for DeskCredentials {
 
     fn enabled_models(&self) -> HashMap<String, Vec<String>> {
         crate::models::enabled_models(&crate::room::settings(&self.log))
+    }
+
+    fn preferred_model(&self) -> Option<String> {
+        crate::models::preferred_model(&crate::room::settings(&self.log))
     }
 }
 

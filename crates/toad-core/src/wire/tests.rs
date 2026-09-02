@@ -84,7 +84,10 @@ impl Quiet {
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
-        Ok(idle(persona_id))
+        let mut info = idle(persona_id);
+        info.current_model_id = Some("anthropic/claude".to_string());
+        self.set_info(info.clone());
+        Ok(info)
     }
 
     fn stop(&self, _persona_id: &str) -> Result<(), String> {
@@ -119,8 +122,11 @@ impl RoomHandle for Quiet {
         Err("Nothing runs in this room, so nothing has a chapter.".to_string())
     }
 
-    async fn set_model(&self, persona_id: &str, _model_id: &str) -> Result<SessionInfo, String> {
-        Ok(idle(persona_id))
+    async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
+        let mut info = self.info(persona_id);
+        info.current_model_id = Some(model_id.to_string());
+        self.set_info(info.clone());
+        Ok(info)
     }
 
     async fn set_mode(&self, persona_id: &str, _mode_id: &str) -> Result<SessionInfo, String> {
@@ -208,7 +214,20 @@ impl RoomHandle for Quiet {
     }
 
     fn models(&self) -> Vec<ConfigChoice> {
-        Vec::new()
+        vec![
+            ConfigChoice {
+                id: "anthropic/claude".to_string(),
+                name: "Claude".to_string(),
+                description: None,
+                group: None,
+            },
+            ConfigChoice {
+                id: "openai/gpt".to_string(),
+                name: "GPT".to_string(),
+                description: None,
+                group: None,
+            },
+        ]
     }
 
     fn models_catalog(
@@ -604,6 +623,8 @@ async fn a_new_teammate_takes_the_rooms_defaults() {
     // asked for the machine says nothing about reach at all.
     assert!(created.get("reach").is_none(), "{created}");
     assert!(created.get("team").is_none(), "{created}");
+    // No room default and no last model used: the driver picks at start.
+    assert!(created.get("modelId").is_none(), "{created}");
 
     // And it is the room's own record, not a value the door made up.
     assert_eq!(json!(room::roster(&log)), json!([created]));
@@ -987,4 +1008,168 @@ async fn models_catalog_lists_a_wired_provider_and_refuses_an_unwired_one() {
             .all(|model| model["id"].as_str().is_some_and(|id| !id.is_empty())),
         "{listed}"
     );
+}
+
+/// Setting a model on an idle Toad Agent teammate writes the choice on the
+/// persona and remembers it as the last model used, without needing a live
+/// session to hold it.
+#[tokio::test]
+async fn session_set_model_on_an_idle_toad_agent_writes_the_persona_and_last_used() {
+    let (_root, log, port) = door("set-model-idle");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+    assert!(ada.get("modelId").is_none(), "{ada}");
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.set_model",
+            "params": { "personaId": id, "modelId": "openai/gpt" },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["state"], "idle");
+    assert_eq!(answer["result"]["personaId"], id);
+
+    let roster = room::roster(&log);
+    assert_eq!(roster[0].model_id.as_deref(), Some("openai/gpt"));
+    assert_eq!(room::settings(&log)["lastModelId"], "openai/gpt");
+}
+
+#[tokio::test]
+async fn session_set_model_refuses_a_toad_agent_id_the_desk_cannot_reach() {
+    let (_root, _log, port) = door("set-model-unknown");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.set_model",
+            "params": { "personaId": id, "modelId": "nope/nope" },
+        }),
+    )
+    .await;
+    let refused = answered(&mut socket, 2).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        refused["error"].as_str(),
+        Some("nope/nope is not a model this desk can reach.")
+    );
+}
+
+/// An ACP harness names its own models. The wire stores what it is given
+/// and lets the child refuse an id it does not know, once it is live.
+#[tokio::test]
+async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
+    let (_root, log, port) = door("set-model-acp");
+    let mut socket = desk(port).await;
+    let draft = PersonaDraft {
+        name: "Bob".to_string(),
+        goal: None,
+        team: None,
+        backend_id: Some("cursor".to_string()),
+        cwd: None,
+        reach: None,
+        model_id: None,
+        computer: None,
+    };
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "persona.create", "params": { "draft": draft } }),
+    )
+    .await;
+    let created = answered(&mut socket, 1).await["result"].clone();
+    let id = created["id"].as_str().unwrap();
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.set_model",
+            "params": { "personaId": id, "modelId": "cursor-special" },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(
+        room::roster(&log)[0].model_id.as_deref(),
+        Some("cursor-special")
+    );
+    assert!(
+        room::settings(&log).get("lastModelId").is_none(),
+        "an ACP choice is not the room's last Toad Agent model"
+    );
+}
+
+#[tokio::test]
+async fn persona_create_fills_model_id_from_the_room_default() {
+    let (_root, _log, port) = door("create-default-model");
+    let mut socket = desk(port).await;
+    ask(
+        &mut socket,
+        json!({
+            "id": 1,
+            "cmd": "settings.update",
+            "params": { "patch": { "defaultModelId": "anthropic/claude" } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 1).await["ok"], true);
+
+    let created = create(&mut socket, 2, "Ada").await;
+    assert_eq!(created["modelId"], "anthropic/claude");
+}
+
+#[tokio::test]
+async fn persona_create_fills_model_id_from_the_last_used_when_no_default() {
+    let (_root, _log, port) = door("create-last-model");
+    let mut socket = desk(port).await;
+    ask(
+        &mut socket,
+        json!({
+            "id": 1,
+            "cmd": "settings.update",
+            "params": { "patch": { "lastModelId": "openai/gpt" } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 1).await["ok"], true);
+
+    let created = create(&mut socket, 2, "Ada").await;
+    assert_eq!(created["modelId"], "openai/gpt");
+}
+
+#[tokio::test]
+async fn persona_create_leaves_model_id_absent_when_the_room_has_no_preference() {
+    let (_root, _log, port) = door("create-no-model");
+    let mut socket = desk(port).await;
+    let created = create(&mut socket, 1, "Ada").await;
+    assert!(created.get("modelId").is_none(), "{created}");
+}
+
+/// The fake room's start reports a model, which is enough for the wire to
+/// remember it as the last one used.
+#[tokio::test]
+async fn session_start_writes_last_model_id_from_the_sessions_info() {
+    let (_root, log, port) = door("start-last-model");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "session.start", "params": { "personaId": id } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(room::settings(&log)["lastModelId"], "anthropic/claude");
 }

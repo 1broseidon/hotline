@@ -497,13 +497,15 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
 /// Read from the tape rather than remembered on the view, so a lagged pump
 /// or a second snapshot cannot disagree with what the tape says. A call
 /// that is in progress sets the title; any other status for that call, a
-/// turn ending, or the session leaving thinking clears it.
+/// turn ending, or the session leaving thinking clears it. Only the tail is
+/// read: a tool still running is by definition near the end, and a tape is
+/// only bounded by how much has been said.
 fn activity_on(log: &Log, persona_id: &str, session: &SessionInfo) -> Option<String> {
     if session.state != SessionState::Thinking {
         return None;
     }
     let mut activity: Option<(String, String)> = None;
-    for event in log.load(&StreamId::Tape(persona_id.to_string())) {
+    for event in previews::tail(log.root(), persona_id) {
         let Ok(event) = serde_json::from_value::<TranscriptEvent>(event) else {
             continue;
         };

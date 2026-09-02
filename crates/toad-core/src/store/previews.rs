@@ -90,14 +90,22 @@ fn message_preview(event: &Value) -> Option<Value> {
     Some(json!({ "from": from, "text": text, "at": at }))
 }
 
+/// The last stretch of a teammate's tape, raw and unfolded: the events in
+/// the tail window, oldest first. What the preview and the roster's running
+/// tool are both read from, because both are questions about the end of the
+/// tape and a whole-tape fold answers them at the cost of the whole tape.
+pub fn tail(root: &Path, persona_id: &str) -> Vec<Value> {
+    let segments = segments_of(root, persona_id);
+    if logical_size(&segments) == 0 {
+        return Vec::new();
+    }
+    read_tail_logical(&segments, TAIL_BYTES)
+}
+
 /// The last thing either side said in one teammate's tape, or nothing for a
 /// teammate that has never spoken.
 pub fn preview(root: &Path, persona_id: &str) -> Option<Value> {
-    let segments = segments_of(root, persona_id);
-    if logical_size(&segments) == 0 {
-        return None;
-    }
-    read_tail_logical(&segments, TAIL_BYTES)
+    tail(root, persona_id)
         .iter()
         .rev()
         .find_map(message_preview)

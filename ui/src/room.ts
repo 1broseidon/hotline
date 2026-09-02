@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ScheduledJob } from "./generated/contract";
 import { mcpServersFrom, type McpServer } from "./mcp";
 import { wire } from "./wire";
@@ -44,6 +44,7 @@ export function useRoomSettings(): {
 	chapterIdleHours: number;
 	defaultBackendId: string;
 	mcpServers: McpServer[];
+	enabledModels: Record<string, string[]>;
 } {
 	const [events, setEvents] = useState<Map<string, RoomItem>>(new Map());
 
@@ -62,10 +63,16 @@ export function useRoomSettings(): {
 		});
 	}, []);
 
+	const enabledModels = useMemo(
+		() => enabledModelsSetting(events.get("enabledModels")),
+		[events],
+	);
+
 	return {
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "pi"),
 		mcpServers: listSetting(events.get("mcpServers")),
+		enabledModels,
 	};
 }
 
@@ -181,4 +188,21 @@ function numberSetting(event: RoomItem | undefined, fallback: number): number {
 function stringSetting(event: RoomItem | undefined, fallback: string): string {
 	if (!event || event.deleted || typeof event.value !== "string") return fallback;
 	return event.value;
+}
+
+/**
+ * A provider absent from the object shows every model. A value that is not
+ * an object, or an entry that is not an array of strings, reads as absent —
+ * the same rule the core uses, so a bad setting costs its own filter.
+ */
+function enabledModelsSetting(event: RoomItem | undefined): Record<string, string[]> {
+	if (!event || event.deleted || event.value === null || typeof event.value !== "object" || Array.isArray(event.value)) {
+		return {};
+	}
+	const out: Record<string, string[]> = {};
+	for (const [provider, value] of Object.entries(event.value as Record<string, unknown>)) {
+		if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) continue;
+		out[provider] = value;
+	}
+	return out;
 }

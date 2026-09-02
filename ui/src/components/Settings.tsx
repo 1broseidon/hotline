@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendChoice, Credential, LoginPrompt, Provider, Report } from "../generated/contract";
+import type {
+	BackendChoice,
+	CatalogModel,
+	Credential,
+	LoginPrompt,
+	Provider,
+	Report,
+} from "../generated/contract";
 import { openLink } from "../native";
 import { chordKeys } from "../chords";
-import { ArrowLeftIcon } from "../icons";
+import { ArrowLeftIcon, GearIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
@@ -104,7 +111,9 @@ export function Settings({ section }: { section: SettingsSection }) {
 							onBackend={(id) => patch({ defaultBackendId: id })}
 						/>
 					)}
-					{section === "providers" && <ProvidersSection onRefuse={setRefusal} />}
+					{section === "providers" && (
+						<ProvidersSection enabledModels={settings.enabledModels} onRefuse={setRefusal} />
+					)}
 					{section === "tools" && <ToolsSection servers={settings.mcpServers} onRefuse={setRefusal} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
 					{refusal !== null && (
@@ -202,17 +211,34 @@ function GeneralSection({
 	);
 }
 
-function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void }) {
+function byName(a: { name: string }, b: { name: string }) {
+	return a.name.localeCompare(b.name);
+}
+
+/** The live oauth credential for a provider, or the revoked one if that is all that is held. */
+function oauthHeld(held: Credential[] | null, providerId: string): Credential | undefined {
+	const of = (held ?? []).filter((one) => one.providerId === providerId && one.credentialKind === "oauth");
+	return of.find((one) => !one.revoked) ?? of[0];
+}
+
+function ProvidersSection({
+	enabledModels,
+	onRefuse,
+}: {
+	enabledModels: Record<string, string[]>;
+	onRefuse(message: string | null): void;
+}) {
 	const [held, setHeld] = useState<Credential[] | null>(null);
 	/* The providers a credential can be for come from the core's model
 	 * catalogue, so a provider added there is offered here without the
-	 * window knowing its name. The first one is the default until the
-	 * person picks. */
+	 * window knowing its name. The first key provider, sorted by name, is
+	 * the default until the person picks. */
 	const [providers, setProviders] = useState<Provider[]>([]);
 	const [providerId, setProviderId] = useState("");
 	const [secret, setSecret] = useState("");
 	const [busy, setBusy] = useState(false);
-	const [prompt, setPrompt] = useState<LoginPrompt | null>(null);
+	const [login, setLogin] = useState<{ providerId: string; prompt: LoginPrompt } | null>(null);
+	const [filterId, setFilterId] = useState<string | null>(null);
 
 	useEffect(() => {
 		wire
@@ -225,32 +251,33 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 		wire
 			.command("providers.list", {})
 			.then((list) => {
+				const keys = list.filter((one) => one.credentialKind === "api_key").slice().sort(byName);
 				setProviders(list);
-				setProviderId((current) => current || (list[0]?.id ?? ""));
+				setProviderId((current) => current || (keys[0]?.id ?? ""));
 			})
 			.catch((error: Error) => onRefuse(error.message));
 	}, [onRefuse]);
 
 	useEffect(() => {
-		if (prompt === null) return;
+		if (login === null) return;
 		let cancelled = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const tick = () => {
 			void wire
-				.command("credential.login_status", { loginId: prompt.loginId })
+				.command("credential.login_status", { loginId: login.prompt.loginId })
 				.then((status) => {
 					if (cancelled) return;
 					if (status.state === "done") {
 						if (status.credential) {
 							setHeld((known) => [...(known ?? []), status.credential!]);
 						}
-						setPrompt(null);
+						setLogin(null);
 						setBusy(false);
 						return;
 					}
 					if (status.state === "failed") {
 						onRefuse(status.error ?? "Sign-in failed.");
-						setPrompt(null);
+						setLogin(null);
 						setBusy(false);
 						return;
 					}
@@ -259,7 +286,7 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 				.catch((error: Error) => {
 					if (cancelled) return;
 					onRefuse(error.message);
-					setPrompt(null);
+					setLogin(null);
 					setBusy(false);
 				});
 		};
@@ -268,10 +295,12 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 			cancelled = true;
 			if (timer !== undefined) clearTimeout(timer);
 		};
-	}, [prompt, onRefuse]);
+	}, [login, onRefuse]);
 
-	const picked = providers.find((one) => one.id === providerId);
-	const oauth = picked?.credentialKind === "oauth";
+	const keyProviders = providers.filter((one) => one.credentialKind === "api_key").slice().sort(byName);
+	const oauthProviders = providers.filter((one) => one.credentialKind === "oauth").slice().sort(byName);
+	const keys = (held ?? []).filter((one) => one.credentialKind === "api_key");
+	const picked = keyProviders.find((one) => one.id === providerId);
 
 	const save = async () => {
 		if (!secret.trim() || !providerId || busy) return;
@@ -289,42 +318,62 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 		}
 	};
 
-	const signIn = async () => {
-		if (!providerId || busy) return;
+	const signIn = async (id: string) => {
+		if (busy) return;
 		setBusy(true);
 		onRefuse(null);
 		try {
-			setPrompt(await wire.command("credential.login", { providerId }));
+			setLogin({ providerId: id, prompt: await wire.command("credential.login", { providerId: id }) });
 		} catch (error) {
 			onRefuse(error instanceof Error ? error.message : String(error));
 			setBusy(false);
 		}
 	};
 
-	const heldLabel = (one: Credential) => {
-		if (one.revoked) return "Revoked";
-		if (one.credentialKind === "oauth") return "Signed in";
-		return "In use";
-	};
+	if (filterId !== null) {
+		const named = providers.find((one) => one.id === filterId);
+		return (
+			<ModelsShown
+				providerId={filterId}
+				providerName={named?.name ?? filterId}
+				enabledModels={enabledModels}
+				onCancel={() => setFilterId(null)}
+				onRefuse={onRefuse}
+			/>
+		);
+	}
 
 	return (
 		<>
 			<section>
-				<h3 className="group-title">Keys on this desk</h3>
+				<h3 className="group-title">Keys</h3>
 				<div className="grouped">
 					{held === null ? (
 						<p className="group-row text-sm text-ink-3">Reading…</p>
-					) : held.length === 0 ? (
+					) : keys.length === 0 ? (
 						<p className="group-row text-sm text-ink-3">No keys yet. Toad Agent needs one to run a model.</p>
 					) : (
-						held.map((one) => (
+						keys.map((one) => (
 							<div key={one.id} className="group-row">
 								<span className="group-row-text">
 									<span className="group-row-title">{one.label}</span>
 									<span className="group-row-detail font-mono">{one.providerId}</span>
 								</span>
-								<span className={`text-sm ${one.revoked ? "text-ink-3" : "text-ink-2"}`}>
-									{heldLabel(one)}
+								<span className="flex items-center gap-2">
+									{!one.revoked && (
+										<button
+											type="button"
+											className="control btn-icon"
+											title="Models shown"
+											aria-label={`Models shown — ${one.label}`}
+											onClick={() => setFilterId(one.providerId)}
+										>
+											<GearIcon />
+										</button>
+									)}
+									<span className={`text-sm ${one.revoked ? "text-ink-3" : "text-ink-2"}`}>
+										{one.revoked ? "Revoked" : "In use"}
+									</span>
 								</span>
 							</div>
 						))
@@ -335,10 +384,10 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 			<form
 				onSubmit={(event) => {
 					event.preventDefault();
-					if (!oauth) void save();
+					void save();
 				}}
 			>
-				<h3 className="group-title">{oauth ? "Sign in" : "Add a key"}</h3>
+				<h3 className="group-title">Add a key</h3>
 				<div className="grouped">
 					<div className="group-row">
 						<label className="w-24 shrink-0 text-sm text-ink-2" id="key-provider">
@@ -348,65 +397,246 @@ function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void
 							<Picker
 								field
 								value={providerId}
-								choices={providers}
+								choices={keyProviders}
 								placeholder="Provider"
 								label="Provider"
 								onChange={setProviderId}
 							/>
 						</div>
 					</div>
-					{prompt !== null ? (
-						<>
-							<div className="group-row">
-								<span className="selectable font-mono text-xl tracking-wide">{prompt.userCode}</span>
-							</div>
-							<div className="group-row">
-								<button
-									type="button"
-									className="text-sm text-ink-2 underline"
-									onClick={() => void openLink(prompt.verificationUri)}
-								>
-									{prompt.verificationUri}
-								</button>
-							</div>
-							<p className="group-row text-sm text-ink-3">Waiting for you to sign in…</p>
-						</>
-					) : oauth ? (
-						<div className="group-row justify-end">
-							<button type="button" className="control btn-primary" disabled={busy || !providerId} onClick={() => void signIn()}>
-								{busy ? "Starting…" : "Sign in"}
-							</button>
-						</div>
-					) : (
-						<>
-							<div className="group-row">
-								<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
-									API key
-								</label>
-								<input
-									id="key-secret"
-									type="password"
-									className="field flex-1 font-mono text-sm"
-									spellCheck={false}
-									autoComplete="off"
-									value={secret}
-									onChange={(event) => setSecret(event.target.value)}
-								/>
-							</div>
-							<div className="group-row justify-end">
-								<button
-									type="submit"
-									className="control btn-primary"
-									disabled={busy || !providerId || secret.trim() === ""}
-								>
-									{busy ? "Saving…" : "Save key"}
-								</button>
-							</div>
-						</>
-					)}
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
+							API key
+						</label>
+						<input
+							id="key-secret"
+							type="password"
+							className="field flex-1 font-mono text-sm"
+							spellCheck={false}
+							autoComplete="off"
+							value={secret}
+							onChange={(event) => setSecret(event.target.value)}
+						/>
+					</div>
+					<div className="group-row justify-end">
+						<button
+							type="submit"
+							className="control btn-primary"
+							disabled={busy || !providerId || secret.trim() === ""}
+						>
+							{busy ? "Saving…" : "Save key"}
+						</button>
+					</div>
 				</div>
 			</form>
+			<section>
+				<h3 className="group-title">Sign in with</h3>
+				<div className="grouped">
+					{held === null || providers.length === 0 ? (
+						<p className="group-row text-sm text-ink-3">Reading…</p>
+					) : (
+						oauthProviders.flatMap((provider) => {
+							const cred = oauthHeld(held, provider.id);
+							const prompt = login?.providerId === provider.id ? login.prompt : null;
+							if (prompt !== null) {
+								return [
+									<div key={provider.id} className="group-row">
+										<span className="group-row-text">
+											<span className="group-row-title">{provider.name}</span>
+										</span>
+									</div>,
+									<div key={`${provider.id}-code`} className="group-row">
+										<span className="selectable font-mono text-xl tracking-wide">{prompt.userCode}</span>
+									</div>,
+									<div key={`${provider.id}-link`} className="group-row">
+										<button
+											type="button"
+											className="text-sm text-ink-2 underline"
+											onClick={() => void openLink(prompt.verificationUri)}
+										>
+											{prompt.verificationUri}
+										</button>
+									</div>,
+									<p key={`${provider.id}-wait`} className="group-row text-sm text-ink-3">
+										Waiting for you to sign in…
+									</p>,
+								];
+							}
+							const signedIn = cred !== undefined && !cred.revoked;
+							const revoked = cred !== undefined && cred.revoked;
+							return [
+								<div key={provider.id} className="group-row">
+									<span className="group-row-text">
+										<span className="group-row-title">{provider.name}</span>
+									</span>
+									<span className="flex items-center gap-2">
+										{signedIn && (
+											<button
+												type="button"
+												className="control btn-icon"
+												title="Models shown"
+												aria-label={`Models shown — ${provider.name}`}
+												onClick={() => setFilterId(provider.id)}
+											>
+												<GearIcon />
+											</button>
+										)}
+										{signedIn ? (
+											<span className="text-sm text-ink-2">Signed in</span>
+										) : (
+											<>
+												{revoked && <span className="text-sm text-ink-3">Revoked</span>}
+												<button
+													type="button"
+													className="control btn-primary"
+													disabled={busy}
+													onClick={() => void signIn(provider.id)}
+												>
+													Sign in
+												</button>
+											</>
+										)}
+									</span>
+								</div>,
+							];
+						})
+					)}
+				</div>
+			</section>
 		</>
+	);
+}
+
+/**
+ * The filter for one provider, in the pane's place. Every id checked is the
+ * same as no filter, so Save removes the provider's entry rather than writing
+ * a list that means "all".
+ */
+function ModelsShown({
+	providerId,
+	providerName,
+	enabledModels,
+	onCancel,
+	onRefuse,
+}: {
+	providerId: string;
+	providerName: string;
+	enabledModels: Record<string, string[]>;
+	onCancel(): void;
+	onRefuse(message: string | null): void;
+}) {
+	const [catalog, setCatalog] = useState<CatalogModel[] | null>(null);
+	const [query, setQuery] = useState("");
+	const [on, setOn] = useState<Set<string>>(new Set());
+	const [busy, setBusy] = useState(false);
+
+	useEffect(() => {
+		wire
+			.command("models.catalog", { providerId })
+			.then((list) => {
+				setCatalog(list);
+				setOn(new Set(list.filter((model) => model.enabled).map((model) => model.id)));
+			})
+			.catch((error: Error) => {
+				onRefuse(error.message);
+				setCatalog([]);
+			});
+	}, [providerId, onRefuse]);
+
+	const save = async () => {
+		if (catalog === null || busy) return;
+		setBusy(true);
+		onRefuse(null);
+		const next: Record<string, string[]> = { ...enabledModels };
+		if (on.size === catalog.length && catalog.every((model) => on.has(model.id))) {
+			delete next[providerId];
+		} else {
+			next[providerId] = catalog.filter((model) => on.has(model.id)).map((model) => model.id);
+		}
+		try {
+			await wire.command("settings.update", { patch: { enabledModels: next } });
+			onCancel();
+		} catch (error) {
+			onRefuse(error instanceof Error ? error.message : String(error));
+			setBusy(false);
+		}
+	};
+
+	const needle = query.trim().toLowerCase();
+	const visible =
+		catalog === null
+			? []
+			: needle === ""
+				? catalog
+				: catalog.filter(
+						(model) => model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle),
+					);
+	const shown = catalog?.length ?? 0;
+
+	return (
+		<section>
+			<h3 className="group-title">Models shown — {providerName}</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<input
+						type="search"
+						className="field flex-1"
+						placeholder="Search"
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+						aria-label="Search models"
+					/>
+					<button
+						type="button"
+						className="control btn-quiet"
+						disabled={catalog === null}
+						onClick={() => catalog && setOn(new Set(catalog.map((model) => model.id)))}
+					>
+						All
+					</button>
+					<button type="button" className="control btn-quiet" disabled={catalog === null} onClick={() => setOn(new Set())}>
+						None
+					</button>
+				</div>
+				<p className="group-row text-sm text-ink-3">
+					{catalog === null ? "Reading…" : `${on.size} of ${shown} shown`}
+				</p>
+				{visible.map((model) => (
+					<label key={model.id} className="group-row group-row-choice">
+						<span className="group-row-text">
+							<span className="group-row-title">{model.name}</span>
+							<span className="group-row-detail font-mono">{model.id}</span>
+						</span>
+						<input
+							type="checkbox"
+							className="check"
+							checked={on.has(model.id)}
+							onChange={(event) => {
+								setOn((known) => {
+									const next = new Set(known);
+									if (event.target.checked) next.add(model.id);
+									else next.delete(model.id);
+									return next;
+								});
+							}}
+						/>
+					</label>
+				))}
+				<div className="group-row justify-end">
+					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
+						Cancel
+					</button>
+					<button
+						type="button"
+						className="control btn-primary"
+						disabled={busy || catalog === null}
+						onClick={() => void save()}
+					>
+						{busy ? "Saving…" : "Save"}
+					</button>
+				</div>
+			</div>
+		</section>
 	);
 }
 

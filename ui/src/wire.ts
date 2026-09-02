@@ -1,5 +1,6 @@
 import type {
 	BackendChoice,
+	CatalogModel,
 	ChapterSummary,
 	Command,
 	ConfigChoice,
@@ -72,6 +73,7 @@ type Results = {
 	"backends.list": BackendChoice[];
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
+	"models.catalog": CatalogModel[];
 	"session.start": SessionInfo;
 	"session.stop": null;
 	"session.prompt": null;

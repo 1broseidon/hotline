@@ -13,7 +13,7 @@ import { matchChord } from "./chords";
 import { PlusIcon } from "./icons";
 import { confirmRemove, drawsFrame, listenMenu, openLink } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
-import { useRoomJobs } from "./room";
+import { useRoomJobs, useRoomSettings } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 
@@ -36,6 +36,8 @@ export function App() {
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
 	const jobs = useRoomJobs();
+	const { enabledModels } = useRoomSettings();
+	const enabledKey = JSON.stringify(enabledModels);
 
 	useEffect(() => {
 		wire.connect();
@@ -61,15 +63,16 @@ export function App() {
 		);
 	}, []);
 
-	/* The room's models are asked for once a socket is up, and again after a
-	 * reconnect: a key added on another seat changes the answer. */
+	/* The room's models are asked for once a socket is up, again after a
+	 * reconnect, and when the saved filter changes: a key added on another
+	 * seat, or a filter saved here, changes the answer. */
 	useEffect(() => {
 		if (connection !== "open") return;
 		wire
 			.command("models.list", {})
 			.then(setModels)
 			.catch(() => setModels([]));
-	}, [connection]);
+	}, [connection, enabledKey]);
 
 	const selected = roster.find((one) => one.persona.id === selectedId) ?? null;
 

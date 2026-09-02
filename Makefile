@@ -9,9 +9,11 @@ check:
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
 
-# Phase 1 gives this a shell to run and a window to open.
+# The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
+# It runs from the shell crate, where tauri.conf.json is, and starts Vite for
+# the window itself.
 dev:
-	@echo "there is no shell yet; see docs/design.md, Phase 1" && exit 1
+	cd crates/toad-desktop && cargo tauri dev
 
 # The headless harnesses drive the real core over the wire; Phase 0 adds the first.
 verify:

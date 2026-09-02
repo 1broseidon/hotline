@@ -4,3 +4,4 @@ dist/
 .toad-dev/
 .brainfile/
 .claude/
+crates/toad-desktop/gen/

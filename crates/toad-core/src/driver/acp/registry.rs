@@ -162,14 +162,13 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
             .iter()
             .find(|agent| agent.id == adapted.id)
             .and_then(launch_for);
+        let launch = published.unwrap_or_else(|| npx(adapted.package, &[]));
         backends.push(Backend {
             id: adapted.id.to_string(),
             name: adapted.name.to_string(),
             description: adapted.description.to_string(),
-            launch: Some(published.unwrap_or_else(|| npx(adapted.package, &[]))),
-            unavailable: which(adapted.client)
-                .is_none()
-                .then(|| format!("needs the {} CLI on PATH", adapted.client)),
+            unavailable: adapter_missing(adapted.client, &launch.command),
+            launch: Some(launch),
         });
     }
 
@@ -282,6 +281,22 @@ fn launch_for(agent: &Published) -> Option<Launch> {
     })
 }
 
+/// What a hand-taught adapter row is missing, or nothing when it can start.
+///
+/// Two things have to be here: the harness's own CLI, which is what signs
+/// itself in, and whatever starts its ACP adapter — usually `npx`, which is a
+/// different program and may well not be installed. A row that probed only
+/// the first offered a start that fails at the spawn, with `unavailable`
+/// saying nothing.
+fn adapter_missing(client: &str, launcher: &str) -> Option<String> {
+    if which(client).is_none() {
+        return Some(format!("needs the {client} CLI on PATH"));
+    }
+    which(launcher)
+        .is_none()
+        .then(|| format!("needs {launcher} on PATH"))
+}
+
 fn npx(package: &str, extra: &[String]) -> Launch {
     let mut args = vec!["-y".to_string(), package.to_string()];
     args.extend(extra.iter().cloned());
@@ -289,6 +304,17 @@ fn npx(package: &str, extra: &[String]) -> Launch {
         command: "npx".to_string(),
         args,
     }
+}
+
+/// Whether a cached catalogue is still the day's.
+///
+/// A stamp from the future is not fresh, and neither is one this machine
+/// cannot subtract from. The cache is a file, so `fetchedAt` is whatever is in
+/// it: a clock that was ahead when the fetch happened would otherwise pin that
+/// catalogue until real time caught up, and a hand-edited number would take
+/// the picker down with an overflow.
+fn still_the_days(fetched_at: i64, now: i64) -> bool {
+    (0..CACHE_TTL_MS).contains(&now.saturating_sub(fetched_at))
 }
 
 fn read_catalogue(root: &Path) -> Option<Catalogue> {
@@ -301,10 +327,7 @@ fn read_catalogue(root: &Path) -> Option<Catalogue> {
 /// hand, and never the ones it was.
 async fn refresh_catalogue(root: &Path) {
     let cached = read_catalogue(root);
-    let age = cached
-        .as_ref()
-        .map(|catalogue| now_ms() - catalogue.fetched_at);
-    if age.is_some_and(|age| age < CACHE_TTL_MS) {
+    if cached.is_some_and(|catalogue| still_the_days(catalogue.fetched_at, now_ms())) {
         return;
     }
     let fetched = reqwest::Client::new()
@@ -488,5 +511,40 @@ mod tests {
     fn a_command_is_found_on_path_and_a_missing_one_is_not() {
         assert!(which("sh").is_some() || cfg!(windows));
         assert!(which("this-command-does-not-exist-anywhere").is_none());
+    }
+
+    /// The cache is a file, and `fetchedAt` is whatever is in it.
+    #[test]
+    fn a_cached_catalogue_is_the_days_only_while_it_is_behind_us() {
+        let now = 1_700_000_000_000;
+        assert!(still_the_days(now, now));
+        assert!(still_the_days(now - CACHE_TTL_MS + 1, now));
+        assert!(!still_the_days(now - CACHE_TTL_MS, now));
+        // A clock that was ahead when the fetch happened would otherwise pin
+        // this catalogue until real time caught up with the stamp.
+        assert!(!still_the_days(now + 3_600_000, now));
+        // And a number nothing can be subtracted from is stale, not a panic.
+        assert!(!still_the_days(i64::MIN, now));
+        assert!(!still_the_days(i64::MAX, now));
+    }
+
+    /// An adapter is two programs: the harness's own CLI and whatever starts
+    /// its ACP adapter. A row that probed only the first was offered as
+    /// startable and failed at the spawn.
+    #[test]
+    fn an_adapter_needs_both_its_harness_and_whatever_starts_it() {
+        const NOWHERE: &str = "this-command-does-not-exist-anywhere";
+        if cfg!(windows) {
+            return;
+        }
+        assert_eq!(adapter_missing("sh", "sh"), None);
+        assert_eq!(
+            adapter_missing("sh", NOWHERE),
+            Some(format!("needs {NOWHERE} on PATH"))
+        );
+        assert_eq!(
+            adapter_missing(NOWHERE, "sh"),
+            Some(format!("needs the {NOWHERE} CLI on PATH"))
+        );
     }
 }

@@ -837,6 +837,35 @@ pub enum ScheduleKind {
     Loop,
 }
 
+/// Work a teammate has asked Toad to wake it for later.
+///
+/// `schedule` is once. `loop` is every `every` milliseconds until cancelled.
+/// `nextAt` is the next fire, so the window can say when without doing the
+/// math. Jobs live on the room stream as events of kind `schedule`; that
+/// event kind is the stream's, not this `kind`, and a loop is recovered from
+/// `every` being present. A delete is a tombstone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ScheduledJob {
+    pub id: String,
+    pub persona_id: String,
+    pub kind: ScheduleKind,
+    /// The original fire time of a one-shot, milliseconds since epoch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<i64>,
+    /// The interval of a loop, in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub every: Option<i64>,
+    pub prompt: String,
+    /// The user asked this job for nothing in the chat. Absent means it
+    /// speaks. Stored only when true, so "not quiet" has one representation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quiet: Option<bool>,
+    pub next_at: i64,
+    pub created_at: i64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
@@ -1251,6 +1280,24 @@ pub enum Command {
     /// that keeps a ledger.
     #[serde(rename = "teammate.tools")]
     TeammateTools { persona_id: String },
+    /// Times are milliseconds. `when` is a one-shot's fire, milliseconds
+    /// since epoch; `every` is a loop's interval. The parsers that take a
+    /// string live with the scheduler, for the tool that will speak them.
+    #[serde(rename = "schedule.create")]
+    ScheduleCreate {
+        persona_id: String,
+        kind: ScheduleKind,
+        when: Option<i64>,
+        every: Option<i64>,
+        prompt: String,
+        quiet: Option<bool>,
+    },
+    #[serde(rename = "schedule.list")]
+    ScheduleList {},
+    #[serde(rename = "schedule.cancel")]
+    ScheduleCancel { id: String },
+    #[serde(rename = "schedule.set_quiet")]
+    ScheduleSetQuiet { id: String, quiet: bool },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

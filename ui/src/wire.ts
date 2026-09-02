@@ -8,6 +8,7 @@ import type {
 	Persona,
 	Report,
 	RosterEntry,
+	ScheduledJob,
 	SessionInfo,
 	StreamDelta,
 	Target,
@@ -77,6 +78,10 @@ type Results = {
 	"chapter.start_fresh": ChapterSummary;
 	"room.import": Report;
 	"teammate.tools": TeammateToolLedger | null;
+	"schedule.create": ScheduledJob;
+	"schedule.list": ScheduledJob[];
+	"schedule.cancel": null;
+	"schedule.set_quiet": null;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

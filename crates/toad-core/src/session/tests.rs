@@ -7,7 +7,8 @@
 
 use super::*;
 use crate::contract::{
-    AttachmentKind, ChapterStatus, McpPolicy, PermissionOption, PolicyMode, SessionCheckpoint,
+    AttachmentKind, ChapterStatus, McpPolicy, PermissionOption, PolicyMode, ScheduledJob,
+    SessionCheckpoint,
 };
 use crate::driver::DriverInfo;
 use async_trait::async_trait;
@@ -823,6 +824,168 @@ async fn a_loud_schedule_is_stamped_and_framed_and_keeps_its_voice() {
     assert_eq!(events[0]["scheduled"]["name"], "Apple order check");
     assert_eq!(events[0]["scheduled"].get("quiet"), None);
     assert_eq!(*lock(&prompts), ["scheduled · post the standup"]);
+}
+
+/// Creating, silencing and cancelling a job go through the room, not around it.
+#[tokio::test]
+async fn a_job_is_created_silenced_and_cancelled_on_the_room() {
+    let room = room("schedule-api", Fake::new(Scripted::new(Vec::new())));
+    let when = now_ms() + 60_000;
+    let job = room
+        .schedule_create(
+            "ada",
+            ScheduleKind::Schedule,
+            Some(when),
+            None,
+            "check the crane",
+            true,
+        )
+        .unwrap();
+    assert_eq!(job.prompt, "check the crane");
+    assert_eq!(job.quiet, Some(true));
+    assert_eq!(job.when, Some(when));
+    assert_eq!(room.schedule_list().len(), 1);
+
+    room.schedule_set_quiet(&job.id, false).unwrap();
+    assert_eq!(room.schedule_list()[0].quiet, None);
+
+    room.schedule_cancel(&job.id).unwrap();
+    assert!(room.schedule_list().is_empty());
+}
+
+/// A job that is already due, planted on the stream before the room opens so
+/// the clock's first look fires it — the same path a missed tick takes after
+/// Toad was closed.
+fn due_job(
+    id: &str,
+    kind: ScheduleKind,
+    prompt: &str,
+    quiet: bool,
+    overdue_by: i64,
+) -> ScheduledJob {
+    let now = now_ms();
+    ScheduledJob {
+        id: id.to_string(),
+        persona_id: "ada".to_string(),
+        kind,
+        when: (kind == ScheduleKind::Schedule).then_some(now - overdue_by),
+        every: (kind == ScheduleKind::Loop).then_some(15_000),
+        prompt: prompt.to_string(),
+        quiet: quiet.then_some(true),
+        next_at: now - overdue_by,
+        created_at: now - overdue_by - 60_000,
+    }
+}
+
+fn room_due(name: &str, agents: Arc<Fake>, job: ScheduledJob) -> Arc<Room> {
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    crate::room::append_schedule(&log, &job).unwrap();
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
+}
+
+/// A loop that fires writes the bare prompt on the tape and the framed line
+/// to the driver, and a fire for a teammate that is not running starts it.
+#[tokio::test]
+async fn a_loop_job_fires_with_the_bare_prompt_on_the_tape_and_the_framed_text_on_the_wire() {
+    let agents = Fake::new(Scripted::new(saying("s", "nothing changed")));
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-loop", ScheduleKind::Loop, "check the crane", false, 1);
+    let room = room_due("schedule-loop-fire", agents, job);
+
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "agent", "turn"]);
+    assert_eq!(events[0]["text"], "check the crane");
+    assert_eq!(events[0]["scheduled"]["jobId"], "job-loop");
+    assert_eq!(events[0]["scheduled"]["kind"], "loop");
+    assert_eq!(events[0]["scheduled"].get("quiet"), None);
+    assert_eq!(*lock(&prompts), ["loop · check the crane"]);
+
+    let living = crate::room::schedules(&room.log);
+    assert_eq!(living.len(), 1);
+    assert_eq!(living[0].id, "job-loop");
+    assert!(
+        living[0].next_at > now_ms(),
+        "a loop re-arms into the future, not onto the tick it just fired"
+    );
+}
+
+/// The whole point of a quiet job, through the clock rather than a direct
+/// prompt_scheduled: the agent's words land as thinking.
+#[tokio::test]
+async fn a_quiet_jobs_reply_lands_as_a_thought() {
+    let agents = Fake::new(Scripted::new(saying(
+        "quiet",
+        "No change — staying silent per protocol.",
+    )));
+    let job = due_job(
+        "job-quiet",
+        ScheduleKind::Loop,
+        "check the order page",
+        true,
+        1,
+    );
+    let room = room_due("schedule-quiet-fire", agents, job);
+
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "thought", "turn"]);
+    assert_eq!(events[0]["scheduled"]["quiet"], true);
+    assert_eq!(
+        events[1]["text"],
+        "No change — staying silent per protocol."
+    );
+}
+
+/// A one-shot fires once and tombstones itself.
+#[tokio::test]
+async fn a_one_shot_fires_once_and_is_gone() {
+    let agents = Fake::new(Scripted::new(saying("s", "the word")));
+    let job = due_job("job-once", ScheduleKind::Schedule, "say the word", false, 1);
+    let room = room_due("schedule-once-fire", agents, job);
+
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(events[0]["text"], "say the word");
+    assert_eq!(events[0]["scheduled"]["kind"], "schedule");
+    assert!(
+        crate::room::schedules(&room.log)
+            .iter()
+            .all(|job| job.id != "job-once")
+    );
+}
+
+/// Jobs missed while Toad was closed fire once at startup, not once per
+/// missed interval. A loop five intervals overdue is still one firing.
+#[tokio::test]
+async fn a_missed_job_fires_once_at_startup() {
+    let agents = Fake::new(Scripted::new(saying("s", "caught up")));
+    let job = due_job(
+        "job-missed",
+        ScheduleKind::Loop,
+        "sweep the harbour",
+        false,
+        5 * 15_000,
+    );
+    let room = room_due("schedule-missed-fire", agents, job);
+
+    let events = settled(&room, "ada", 3).await;
+    let users = events
+        .iter()
+        .filter(|event| event["kind"] == "user")
+        .count();
+    assert_eq!(
+        users, 1,
+        "a missed loop is one firing, not five: {events:?}"
+    );
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let later = tape(&room, "ada")
+        .into_iter()
+        .filter(|event| event["kind"] == "user")
+        .count();
+    assert_eq!(
+        later, 1,
+        "the clock did not catch up the intervals it slept through"
+    );
 }
 
 /// What a message answers is on the line it is written as, and a mark that has

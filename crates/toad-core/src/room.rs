@@ -1,15 +1,18 @@
-//! The room, folded out of its stream: who is on the team, and how the room
-//! is set.
+//! The room, folded out of its stream: who is on the team, how the room is
+//! set, and which jobs will wake a teammate later.
 //!
 //! There is no roster table and no settings file. Everything the room
 //! remembers is an event on [`StreamId::Room`], shaped `{kind, id, …}`, and
-//! these two functions are the whole of reading it back:
+//! these functions are the whole of reading it back:
 //!
 //! - `persona` carries a teammate's record — the [`Persona`] fields beside the
 //!   kind, `id` being the teammate's — and [`roster`] is every one of them
 //!   that is not deleted.
 //! - `setting` carries one preference, `id` naming it and `value` holding it,
 //!   and [`settings`] is those laid over the room's defaults.
+//! - `schedule` carries a job — who to wake, when, with what prompt — and
+//!   [`schedules`] is every one that is not deleted. The event's kind is
+//!   always `schedule`; a loop is the job that carries `every`.
 //!
 //! A delete is not a new kind: it is the same kind and id again with
 //! `deleted: true`. The stream folds by id, so the tombstone is the last word
@@ -17,7 +20,7 @@
 //! makes a delete something a mirror can ship, rather than an absence it has
 //! to notice.
 
-use crate::contract::{Persona, SessionCheckpoint};
+use crate::contract::{Persona, ScheduleKind, ScheduledJob, SessionCheckpoint};
 use crate::log::{Log, StreamId};
 use serde_json::{Map, Value, json};
 
@@ -80,6 +83,81 @@ pub fn settings(log: &Log) -> Map<String, Value> {
     );
     settings.insert("mcpServers".into(), Value::Array(normalised));
     settings
+}
+
+/// The jobs still waiting to fire, soonest first.
+///
+/// The event's `kind` is always `schedule` — that is the stream's kind, and
+/// overwriting a job's own `kind` is what lets a loop share the kind with a
+/// one-shot. A loop is recovered from `every` being present. An event that
+/// does not read as a job is skipped rather than fatal, the same as a
+/// teammate that does not read as a persona.
+pub fn schedules(log: &Log) -> Vec<ScheduledJob> {
+    let mut jobs: Vec<ScheduledJob> = log
+        .load(&StreamId::Room)
+        .into_iter()
+        .filter(|event| is_kind(event, "schedule") && !is_deleted(event))
+        .filter_map(|event| job_from_event(&event))
+        .collect();
+    jobs.sort_by(|a, b| a.next_at.cmp(&b.next_at).then(a.id.cmp(&b.id)));
+    jobs
+}
+
+/// A job event is the job's record with the stream kind beside it. The job's
+/// own kind is not written as `kind` — that slot is the stream's — and is
+/// recovered on the way back from `every`.
+pub(crate) fn append_schedule(log: &Log, job: &ScheduledJob) -> Result<(), String> {
+    log.append(&StreamId::Room, &event_of(job))
+        .map(|_| ())
+        .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
+/// The tombstone is the same kind and id again, so the fold finds it instead
+/// of the job and a mirror has a line to ship rather than an absence to
+/// notice.
+pub(crate) fn tombstone_schedule(log: &Log, id: &str) -> Result<(), String> {
+    log.append(
+        &StreamId::Room,
+        &json!({"kind": "schedule", "id": id, "deleted": true}),
+    )
+    .map(|_| ())
+    .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
+fn event_of(job: &ScheduledJob) -> Value {
+    let mut event = serde_json::to_value(job).expect("a job serializes as JSON");
+    event
+        .as_object_mut()
+        .expect("a job serializes as an object")
+        .insert("kind".into(), Value::from("schedule"));
+    event
+}
+
+fn job_from_event(event: &Value) -> Option<ScheduledJob> {
+    let id = event.get("id")?.as_str()?.to_string();
+    let persona_id = event.get("personaId")?.as_str()?.to_string();
+    let prompt = event.get("prompt")?.as_str()?.to_string();
+    if id.is_empty() || persona_id.is_empty() || prompt.trim().is_empty() {
+        return None;
+    }
+    Some(ScheduledJob {
+        id,
+        persona_id,
+        kind: if event.get("every").and_then(Value::as_i64).is_some() {
+            ScheduleKind::Loop
+        } else {
+            ScheduleKind::Schedule
+        },
+        when: event.get("when").and_then(Value::as_i64),
+        every: event.get("every").and_then(Value::as_i64),
+        prompt,
+        quiet: event
+            .get("quiet")
+            .and_then(Value::as_bool)
+            .filter(|quiet| *quiet),
+        next_at: event.get("nextAt")?.as_i64()?,
+        created_at: event.get("createdAt")?.as_i64()?,
+    })
 }
 
 /// A persona event is the teammate's record with the kind beside it, and the
@@ -300,5 +378,86 @@ mod tests {
         let servers = folded["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["id"], "good");
+    }
+
+    fn job(
+        id: &str,
+        persona_id: &str,
+        kind: ScheduleKind,
+        prompt: &str,
+        quiet: bool,
+    ) -> ScheduledJob {
+        ScheduledJob {
+            id: id.to_string(),
+            persona_id: persona_id.to_string(),
+            kind,
+            when: (kind == ScheduleKind::Schedule).then_some(1_700_000_100_000),
+            every: (kind == ScheduleKind::Loop).then_some(15_000),
+            prompt: prompt.to_string(),
+            quiet: quiet.then_some(true),
+            next_at: 1_700_000_100_000,
+            created_at: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn a_schedule_event_folds_as_the_job_it_was() {
+        let log = scratch("schedule-create");
+        let once = job(
+            "job-1",
+            "ada",
+            ScheduleKind::Schedule,
+            "check the crane",
+            false,
+        );
+        append_schedule(&log, &once).unwrap();
+
+        assert_eq!(&schedules(&log)[0], &once);
+        // The stream's kind is always `schedule`, even though this job's kind
+        // is too — a loop has to share the slot, so the job's own kind is not
+        // what `kind` says on disk.
+        assert_eq!(log.load(&StreamId::Room)[0]["kind"], "schedule");
+        assert_eq!(log.load(&StreamId::Room)[0].get("every"), None);
+        assert_eq!(log.load(&StreamId::Room)[0]["when"], once.when.unwrap());
+    }
+
+    #[test]
+    fn a_loop_is_the_schedule_event_that_carries_every() {
+        let log = scratch("schedule-loop");
+        let loop_job = job("job-2", "ada", ScheduleKind::Loop, "sweep the inbox", true);
+        append_schedule(&log, &loop_job).unwrap();
+
+        assert_eq!(schedules(&log)[0], loop_job);
+        assert_eq!(log.load(&StreamId::Room)[0]["kind"], "schedule");
+        assert_eq!(log.load(&StreamId::Room)[0]["every"], 15_000);
+        assert_eq!(log.load(&StreamId::Room)[0]["quiet"], true);
+    }
+
+    #[test]
+    fn a_tombstone_cancels_a_job_and_a_rewrite_flips_its_silence() {
+        let log = scratch("schedule-cancel-quiet");
+        let mut loud = job("job-1", "ada", ScheduleKind::Loop, "check the order", false);
+        let quiet = job("job-2", "bob", ScheduleKind::Schedule, "say the word", true);
+        append_schedule(&log, &loud).unwrap();
+        append_schedule(&log, &quiet).unwrap();
+        assert_eq!(schedules(&log), [loud.clone(), quiet.clone()]);
+
+        loud.quiet = Some(true);
+        append_schedule(&log, &loud).unwrap();
+        assert_eq!(schedules(&log)[0].quiet, Some(true));
+
+        loud.quiet = None;
+        append_schedule(&log, &loud).unwrap();
+        assert_eq!(schedules(&log)[0].quiet, None);
+
+        tombstone_schedule(&log, "job-1").unwrap();
+        assert_eq!(schedules(&log), [quiet]);
+        // The stream still carries the delete, which is what a mirror ships.
+        let ids: Vec<String> = log
+            .load(&StreamId::Room)
+            .iter()
+            .map(|event| event["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, ["job-1", "job-2"]);
     }
 }

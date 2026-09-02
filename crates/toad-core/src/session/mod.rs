@@ -18,6 +18,10 @@
 //! - A scheduled run marked quiet has its teammate's voice demoted to thinking
 //!   for the length of its own turn. That gate is [`quiet`], and it lives here
 //!   because it must hold for whichever driver ran the turn.
+//! - A job on the room stream wakes a teammate when its `nextAt` arrives.
+//!   That clock is [`schedule`], and it lives here because a firing is a
+//!   prompt — the same funnel, the same quiet window — not a second way of
+//!   speaking to a teammate.
 //! - A message goes to an agent whose context is the chapter it is in. The
 //!   room opens a chapter when a session starts, closes one that has gone
 //!   quiet, and replaces the agent whose chapter closed before the next
@@ -31,6 +35,9 @@
 mod chapters;
 pub(crate) mod ledger;
 mod quiet;
+pub(crate) mod schedule;
+
+pub use schedule::{parse_duration, parse_when};
 
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, ConfigChoice, NoticeLevel, Persona, Reach,
@@ -54,7 +61,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
-use tokio::sync::broadcast;
+use tokio::sync::{Notify, broadcast};
 
 /// How much of a tool's output the transcript keeps. The model was given all
 /// of it; this is the size of the bubble.
@@ -300,6 +307,9 @@ pub struct Room {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     info_changes: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
+    /// Wakes the scheduler when a job is written, so a create does not wait
+    /// for the nearest existing nextAt.
+    schedule_changed: Arc<Notify>,
 }
 
 impl Room {
@@ -334,9 +344,11 @@ impl Room {
             sessions: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
+            schedule_changed: Arc::new(Notify::new()),
         });
         room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
+        schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
         room
     }
 

@@ -189,6 +189,30 @@ impl RoomHandle for Quiet {
     fn teammate_tools(&self, _persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
         None
     }
+
+    fn schedule_create(
+        &self,
+        _persona_id: &str,
+        _kind: crate::contract::ScheduleKind,
+        _when: Option<i64>,
+        _every: Option<i64>,
+        _prompt: &str,
+        _quiet: bool,
+    ) -> Result<crate::contract::ScheduledJob, String> {
+        Err("Nothing runs in this room, so nothing is scheduled.".to_string())
+    }
+
+    fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
+        Vec::new()
+    }
+
+    fn schedule_cancel(&self, _id: &str) -> Result<(), String> {
+        Err("Nothing runs in this room, so nothing is scheduled.".to_string())
+    }
+
+    fn schedule_set_quiet(&self, _id: &str, _quiet: bool) -> Result<(), String> {
+        Err("Nothing runs in this room, so nothing is scheduled.".to_string())
+    }
 }
 
 fn scratch(name: &str) -> PathBuf {

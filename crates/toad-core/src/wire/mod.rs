@@ -129,6 +129,24 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// What tools this teammate was given the last time it started.
     fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger>;
+
+    /// Writes a job onto the room stream and wakes the clock. Times are
+    /// milliseconds; `when` is a one-shot's fire, `every` a loop's interval.
+    fn schedule_create(
+        &self,
+        persona_id: &str,
+        kind: crate::contract::ScheduleKind,
+        when: Option<i64>,
+        every: Option<i64>,
+        prompt: &str,
+        quiet: bool,
+    ) -> Result<crate::contract::ScheduledJob, String>;
+
+    fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob>;
+
+    fn schedule_cancel(&self, id: &str) -> Result<(), String>;
+
+    fn schedule_set_quiet(&self, id: &str, quiet: bool) -> Result<(), String>;
 }
 
 /// What a socket may do, decided by the token it presented.

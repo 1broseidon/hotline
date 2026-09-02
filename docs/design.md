@@ -162,9 +162,9 @@ crates/toad-core/src/
   paths.rs         the data directory's layout
   log/             streams: append, fold, segments, subscribe
   store/           FTS5 over tapes and chapters; chapter list; previews
-  room.rs          the roster fold and settings
+  room.rs          the roster fold, settings, and schedules
   vault.rs         secrets beside the room stream
-  session/         Session, the funnel, quiet, chapters
+  session/         Session, the funnel, quiet, chapters, the scheduler
   driver/          InProcess (Rig) and the ACP child, with its agent registry
   tools/           workspace tools on cap-std, shell command
   desk.rs          the room, vault and log behind the wire

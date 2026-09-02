@@ -162,4 +162,29 @@ impl RoomHandle for Desk {
     fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
         self.room.teammate_tools(persona_id)
     }
+
+    fn schedule_create(
+        &self,
+        persona_id: &str,
+        kind: crate::contract::ScheduleKind,
+        when: Option<i64>,
+        every: Option<i64>,
+        prompt: &str,
+        quiet: bool,
+    ) -> Result<crate::contract::ScheduledJob, String> {
+        self.room
+            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+    }
+
+    fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
+        self.room.schedule_list()
+    }
+
+    fn schedule_cancel(&self, id: &str) -> Result<(), String> {
+        self.room.schedule_cancel(id)
+    }
+
+    fn schedule_set_quiet(&self, id: &str, quiet: bool) -> Result<(), String> {
+        self.room.schedule_set_quiet(id, quiet)
+    }
 }

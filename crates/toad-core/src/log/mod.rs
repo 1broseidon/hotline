@@ -9,8 +9,8 @@
 //!
 //! Three streams, one rule for all of them:
 //!
-//! - [`StreamId::Room`] is the room itself — the roster, the settings — in
-//!   `room.jsonl`. One file, no epochs.
+//! - [`StreamId::Room`] is the room itself — the roster, the settings, the
+//!   schedules — in `room.jsonl`. One file, no epochs.
 //! - [`StreamId::Tape`] is one teammate's conversation, in
 //!   `transcripts/<id>/<epoch>.jsonl`, with the legacy flat file standing in
 //!   for epoch 1. Byte-for-byte what the previous Toad writes, so importing

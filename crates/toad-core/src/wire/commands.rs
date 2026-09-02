@@ -91,6 +91,29 @@ pub(crate) async fn run(
             .await
             .map(|chapter| json!(chapter)),
         Command::TeammateTools { persona_id } => Ok(json!(room.teammate_tools(&persona_id))),
+
+        Command::ScheduleCreate {
+            persona_id,
+            kind,
+            when,
+            every,
+            prompt,
+            quiet,
+        } => room
+            .schedule_create(
+                &persona_id,
+                kind,
+                when,
+                every,
+                &prompt,
+                quiet.unwrap_or(false),
+            )
+            .map(|job| json!(job)),
+        Command::ScheduleList {} => Ok(json!(room.schedule_list())),
+        Command::ScheduleCancel { id } => room.schedule_cancel(&id).map(|()| Value::Null),
+        Command::ScheduleSetQuiet { id, quiet } => {
+            room.schedule_set_quiet(&id, quiet).map(|()| Value::Null)
+        }
     }
 }
 

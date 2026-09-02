@@ -100,7 +100,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit`, `shell` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
 | Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
-| granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{serverId}__{tool}` |
+| granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
 
 A granted stdio server is spawned in its own process group on Unix, so a
 launcher like `npx` does not leave the real server behind when the session
@@ -500,10 +500,12 @@ the process. Deleting a teammate forgets it.
 
 Toad Agent's built-ins and Toad's own tools are verified: they were
 handed to the agent in this process. MCP tools are verified when the server
-listed them, and absent — with the error as the reason — when it did not. A
-server whose env has a value that is not a string is absent, naming the
-offending key; starting it without that variable is worse than not starting
-it. A policy id that no longer names a server is absent with one sentence,
+listed them, and absent — with the error as the reason — when it did not.
+The row's `name` is the slugged tool name the agent sees; its `origin` is
+still the server id, because that is the row key and the window resolves
+it to the name the Tools pane shows. A server whose env has a value that
+is not a string is absent, naming the offending key; starting it without
+that variable is worse than not starting it. A policy id that no longer names a server is absent with one sentence,
 the same on either driver. A server that was attached and later dies —
 process exited, connection closed, HTTP endpoint unreachable — turns every
 row from that origin absent, with the transport error as the reason, and

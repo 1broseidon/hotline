@@ -43,6 +43,8 @@ type RoomItem = {
 export function useRoomSettings(): {
 	chapterIdleHours: number;
 	defaultBackendId: string;
+	defaultModelId: string | null;
+	lastModelId: string | null;
 	mcpServers: McpServer[];
 	enabledModels: Record<string, string[]>;
 } {
@@ -71,6 +73,8 @@ export function useRoomSettings(): {
 	return {
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "pi"),
+		defaultModelId: optionalStringSetting(events.get("defaultModelId")),
+		lastModelId: optionalStringSetting(events.get("lastModelId")),
 		mcpServers: listSetting(events.get("mcpServers")),
 		enabledModels,
 	};
@@ -187,6 +191,11 @@ function numberSetting(event: RoomItem | undefined, fallback: number): number {
 
 function stringSetting(event: RoomItem | undefined, fallback: string): string {
 	if (!event || event.deleted || typeof event.value !== "string") return fallback;
+	return event.value;
+}
+
+function optionalStringSetting(event: RoomItem | undefined): string | null {
+	if (!event || event.deleted || typeof event.value !== "string") return null;
 	return event.value;
 }
 

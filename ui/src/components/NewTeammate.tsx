@@ -34,15 +34,16 @@ export function NewTeammate({
 	onCreated(personaId: string): void;
 	onClose(): void;
 }) {
-	const { defaultBackendId } = useRoomSettings();
+	const { defaultBackendId, defaultModelId, lastModelId } = useRoomSettings();
 	const [name, setName] = useState("");
 	const [goal, setGoal] = useState("");
 	const [cwd, setCwd] = useState("");
 	const [picked, setPicked] = useState<string | null>(null);
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
-	const [modelId, setModelId] = useState("");
+	const [pickedModel, setPickedModel] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
 
 	useEffect(() => {
 		void wire
@@ -157,7 +158,7 @@ export function NewTeammate({
 								choices={[{ id: "", name: models[0] === undefined ? "Whichever a key unlocks" : `${models[0].name} — the default` }, ...models]}
 								placeholder="Model"
 								label="Model"
-								onChange={setModelId}
+								onChange={setPickedModel}
 							/>
 						</div>
 					)}

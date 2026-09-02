@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
 	BackendChoice,
 	CatalogModel,
+	ConfigChoice,
 	Credential,
 	LoginPrompt,
 	Provider,
@@ -25,7 +26,7 @@ const MAX_IDLE_HOURS = 336;
 export type SettingsSection = "general" | "providers" | "tools" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string; detail: string }[] = [
-	{ id: "general", title: "General", detail: "Chapters and the default harness" },
+	{ id: "general", title: "General", detail: "Chapters, the default harness, and the default model" },
 	{ id: "providers", title: "Providers", detail: "Keys, and the models they unlock" },
 	{ id: "tools", title: "Tools", detail: "MCP servers teammates may use" },
 	{ id: "import", title: "Import", detail: "A previous Toad's room" },
@@ -107,8 +108,10 @@ export function Settings({ section }: { section: SettingsSection }) {
 						<GeneralSection
 							idleHours={settings.chapterIdleHours}
 							defaultBackendId={settings.defaultBackendId}
+							defaultModelId={settings.defaultModelId}
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
 							onBackend={(id) => patch({ defaultBackendId: id })}
+							onDefaultModel={(id) => patch({ defaultModelId: id })}
 						/>
 					)}
 					{section === "providers" && (
@@ -130,16 +133,21 @@ export function Settings({ section }: { section: SettingsSection }) {
 function GeneralSection({
 	idleHours,
 	defaultBackendId,
+	defaultModelId,
 	onIdleHours,
 	onBackend,
+	onDefaultModel,
 }: {
 	idleHours: number;
 	defaultBackendId: string;
+	defaultModelId: string | null;
 	onIdleHours(hours: number): void;
 	onBackend(id: string): void;
+	onDefaultModel(id: string | null): void;
 }) {
 	const [hours, setHours] = useState(String(idleHours));
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
+	const [models, setModels] = useState<ConfigChoice[]>([]);
 
 	useEffect(() => {
 		setHours(String(idleHours));
@@ -150,6 +158,10 @@ function GeneralSection({
 			.command("backends.list", {})
 			.then(setBackends)
 			.catch(() => setBackends([]));
+		void wire
+			.command("models.list", {})
+			.then(setModels)
+			.catch(() => setModels([]));
 	}, []);
 
 	const commitHours = (raw: string) => {
@@ -206,6 +218,27 @@ function GeneralSection({
 					</div>
 				)}
 				<p className="group-hint">The new-teammate form can still pick another.</p>
+			</section>
+			<section>
+				<h3 className="group-title">Default model</h3>
+				<div className="grouped">
+					<div className="group-row">
+						<span className="group-row-text">
+							<span className="group-row-title">Toad Agent starts on</span>
+							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+								A new teammate takes this when its draft leaves the model blank.
+							</span>
+						</span>
+						<Picker
+							value={defaultModelId ?? ""}
+							choices={[{ id: "", name: "Last used" }, ...models]}
+							placeholder="Last used"
+							label="Default model"
+							onChange={(id) => onDefaultModel(id === "" ? null : id)}
+						/>
+					</div>
+				</div>
+				<p className="group-hint">Clearing it falls back to the last model a Toad Agent teammate ran on.</p>
 			</section>
 		</>
 	);

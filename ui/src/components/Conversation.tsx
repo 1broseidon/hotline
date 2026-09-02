@@ -3,7 +3,7 @@ import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "..
 import { chordGlyph, chordKeys } from "../chords";
 import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
-import { nextText } from "../room";
+import { nextText, useRoomSettings } from "../room";
 import { useTape } from "../tape";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -64,7 +64,9 @@ export function Conversation({
 	const { events, streaming } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
+	const [modelSaid, setModelSaid] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
+	const { defaultModelId, lastModelId } = useRoomSettings();
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
@@ -118,11 +120,12 @@ export function Conversation({
 	const modelChoices = session.models.length > 0 ? session.models : toad ? models : [];
 	// The band names the model a turn would run on, whether or not a session
 	// is up. For Toad Agent that is the driver's own rule: the teammate's
-	// choice when its provider has a key, else the newest model any key
-	// unlocks, which is the first choice listed.
+	// choice when the list still has it, else the room default, else the
+	// last model used, else the first choice — newest only on a desk that
+	// has never run a model.
 	const currentModel =
 		session.currentModelId ??
-		(toad ? toadModel(persona.modelId, modelChoices) : (persona.modelId ?? ""));
+		(toad ? toadModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
 	const showModel = modelChoices.length > 0 || (toad && currentModel !== "");
 	const currentMode = session.currentModeId ?? persona.modeId ?? "";
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
@@ -152,7 +155,8 @@ export function Conversation({
 	const said =
 		session.error !== undefined && session.error !== ""
 			? session.error
-			: (chapterSaid ??
+			: (modelSaid ??
+				chapterSaid ??
 				(resumeBlocked !== null && resumeBlocked !== "There is no previous chapter to reopen."
 					? resumeBlocked
 					: null));
@@ -195,7 +199,12 @@ export function Conversation({
 						choices={modelChoices}
 						placeholder="Model"
 						label={session.modelLabel ?? "Model"}
-						onChange={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
+						onChange={(modelId) => {
+							setModelSaid(null);
+							void wire
+								.command("session.set_model", { personaId, modelId })
+								.catch((error: Error) => setModelSaid(error.message));
+						}}
 					/>
 				)}
 				{session.modes.length > 0 && (
@@ -277,9 +286,16 @@ export function Conversation({
 	);
 }
 
-/** The model Toad Agent starts on: see `InProcess::start` in the core. */
-function toadModel(chosen: string | undefined, choices: ConfigChoice[]): string {
+/** The model Toad Agent starts on: see `model_for` in the core. */
+function toadModel(
+	chosen: string | undefined,
+	defaultModelId: string | null,
+	lastModelId: string | null,
+	choices: ConfigChoice[],
+): string {
 	if (chosen !== undefined && choices.some((one) => one.id === chosen)) return chosen;
+	if (defaultModelId !== null && choices.some((one) => one.id === defaultModelId)) return defaultModelId;
+	if (lastModelId !== null && choices.some((one) => one.id === lastModelId)) return lastModelId;
 	return choices[0]?.id ?? "";
 }
 

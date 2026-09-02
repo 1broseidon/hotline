@@ -83,6 +83,14 @@ pub struct Appended {
 pub struct Log {
     root: PathBuf,
     subscribers: Arc<Mutex<HashMap<StreamId, broadcast::Sender<Value>>>>,
+    /// The one writer. Held for the whole of an append and the whole of a
+    /// compaction, because both are read-then-write: an append measures the
+    /// file to say where its bytes landed and may relocate a legacy flat file
+    /// on the way, and a compaction rewrites the file it just read. A tape has
+    /// several writers above it — the line a person typed, the turn it
+    /// started, the idle sweep, a colleague's peer session — and this is where
+    /// they become one.
+    writer: Arc<Mutex<()>>,
 }
 
 impl Log {
@@ -93,6 +101,7 @@ impl Log {
         Self {
             root: root.as_ref().to_path_buf(),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
+            writer: Arc::new(Mutex::new(())),
         }
     }
 
@@ -117,6 +126,7 @@ impl Log {
     /// Adds one event to the end of the stream, then hands it to whoever is
     /// listening.
     pub fn append(&self, stream: &StreamId, event: &Value) -> io::Result<Appended> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let (file, epoch) = self.writable_file(stream)?;
         let offset = fs::metadata(&file).map_or(0, |file| file.len());
         let bytes = format!("{event}\n").into_bytes();
@@ -141,6 +151,7 @@ impl Log {
     /// because announcing a rewrite costs every mirror its copy of the epoch,
     /// and a rewrite nobody made is not worth that.
     pub fn compact(&self, stream: &StreamId) -> io::Result<Option<u64>> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let (file, epoch) = self.writable_file(stream)?;
         if !file.exists() {
             return Ok(None);
@@ -362,6 +373,48 @@ mod tests {
         assert_eq!(listener.try_recv().unwrap(), later);
         // History is loaded, not replayed: both lines are still in the fold.
         assert_eq!(log.load(&StreamId::Room), [earlier, later]);
+    }
+
+    /// A tape has several writers above it — the line a person typed, the turn
+    /// it started, the idle sweep, a colleague's peer session — and the
+    /// offsets the log answers with are what a mirror will ship the bytes by.
+    /// Two of them measuring the same file before either has written would
+    /// each be told the same place.
+    #[test]
+    fn appends_from_many_threads_land_at_the_offsets_they_were_told() {
+        let log = scratch("one-writer");
+        let landed: Vec<Appended> = std::thread::scope(|scope| {
+            let writers: Vec<_> = (0..8)
+                .map(|writer| {
+                    let log = log.clone();
+                    scope.spawn(move || {
+                        (0..40)
+                            .map(|n| {
+                                log.append(&StreamId::Room, &setting(&format!("{writer}-{n}"), n))
+                                    .unwrap()
+                            })
+                            .collect::<Vec<Appended>>()
+                    })
+                })
+                .collect();
+            writers
+                .into_iter()
+                .flat_map(|writer| writer.join().unwrap())
+                .collect()
+        });
+
+        let mut by_offset = landed;
+        by_offset.sort_by_key(|appended| appended.offset);
+        let mut end = 0;
+        for appended in &by_offset {
+            assert_eq!(
+                appended.offset, end,
+                "an append was told an offset another one had already taken"
+            );
+            end += appended.bytes.len() as u64;
+        }
+        assert_eq!(fs::metadata(room_path(log.root())).unwrap().len(), end);
+        assert_eq!(log.load(&StreamId::Room).len(), 8 * 40);
     }
 
     #[test]

@@ -481,6 +481,12 @@ impl Driver for ChildAgent {
                 .send_request(PromptRequest::new(session_id, blocks))
                 .block_task()
                 .await;
+            // The turn is over the moment the agent answers it, so the cards
+            // it raised are settled here and not after the transcript has
+            // caught up: a permission answered in between would be a decision
+            // written down for an agent that had already stopped listening.
+            // `cancel` settles first for the same reason.
+            live.settle_permissions();
             live.flush().await;
             match answered {
                 Ok(response) => {
@@ -500,8 +506,6 @@ impl Driver for ChildAgent {
                         .await;
                 }
             }
-            // A card whose turn is over is a button nobody is behind.
-            live.settle_permissions();
             *lock(&live.updates) = None;
         });
         receiver
@@ -1506,24 +1510,32 @@ mod tests {
         servers: Arc<Mutex<Vec<acp::McpServer>>>,
     }
 
+    /// The agent half of an in-memory duplex, with the client half left where
+    /// [`client_transport`] will find it: a test only ever holds one thing.
+    ///
+    /// Every scripted agent below is the crate's own agent side over one of
+    /// these, so what runs is the same JSON on the same protocol a real
+    /// harness would send.
+    fn agent_pipes() -> ByteStreams<
+        impl futures_util::AsyncWrite + Send + 'static,
+        impl futures_util::AsyncRead + Send + 'static,
+    > {
+        let (client_writer, agent_reader) = tokio::io::duplex(64 * 1024);
+        let (agent_writer, client_reader) = tokio::io::duplex(64 * 1024);
+        CLIENT_PIPES.with(|pipes| {
+            *pipes.borrow_mut() = Some((client_writer, client_reader));
+        });
+        ByteStreams::new(agent_writer.compat_write(), agent_reader.compat())
+    }
+
     /// An ACP agent that answers the handshake and then plays one turn: a
     /// spoken chunk, a tool call, a permission request it waits on, the tool's
     /// result, and the end of the turn.
-    ///
-    /// It is the crate's own agent side over an in-memory duplex, so what runs
-    /// here is the same JSON on the same protocol a real harness would send.
     fn scripted_agent(
         heard: Heard,
         loadable: bool,
     ) -> impl std::future::Future<Output = ()> + Send + 'static {
-        let (client_writer, agent_reader) = tokio::io::duplex(64 * 1024);
-        let (agent_writer, client_reader) = tokio::io::duplex(64 * 1024);
-        // The client half is handed back through the same channel the caller
-        // reads, so a test only ever holds one thing.
-        CLIENT_PIPES.with(|pipes| {
-            *pipes.borrow_mut() = Some((client_writer, client_reader));
-        });
-        let transport = ByteStreams::new(agent_writer.compat_write(), agent_reader.compat());
+        let transport = agent_pipes();
         async move {
             let opened = heard.opened.clone();
             let loaded = heard.opened.clone();
@@ -2025,6 +2037,140 @@ mod tests {
             assert_eq!(row.state, ToolState::Verified, "{row:?}");
             assert!(row.reason.contains("own endpoint"), "{row:?}");
         }
+    }
+
+    /// An ACP agent that raises a permission and then ends the turn without
+    /// waiting for the answer — every harness does this when it gives up on a
+    /// request — and does not end it until the test says so, so the card is up
+    /// and drawn before the turn is over.
+    fn agent_that_ends_the_turn_still_asking(
+        ends: Arc<tokio::sync::Notify>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("still-asking")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_info(Implementation::new("still-asking", "1")),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_request: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("asking")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let ends = ends.clone();
+                        async move {
+                            let session = request.session_id.clone();
+                            let asking = cx.clone();
+                            cx.spawn(async move {
+                                let _ = asking
+                                    .send_request(RequestPermissionRequest::new(
+                                        session,
+                                        ToolCallUpdate::new(
+                                            ToolCallId::new("c1"),
+                                            ToolCallUpdateFields::new(),
+                                        ),
+                                        vec![acp::PermissionOption::new(
+                                            "once",
+                                            "Allow once",
+                                            PermissionOptionKind::AllowOnce,
+                                        )],
+                                    ))
+                                    .block_task()
+                                    .await;
+                                Ok(())
+                            })?;
+                            cx.spawn(async move {
+                                ends.notified().await;
+                                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the still-asking agent ended: {error}");
+            }
+        }
+    }
+
+    /// A card is refused from the moment the agent ends the turn, not from the
+    /// moment the transcript catches up with it.
+    ///
+    /// `docs/sessions.md`: a stale card — the turn ended, the session stopped,
+    /// somebody else answered first — is refused, so the transcript never
+    /// shows a decision the agent never heard. The flush and the turn event
+    /// after `session/prompt` returns are Toad writing down what already
+    /// happened; a permission answered while it does is answered into nothing.
+    /// Here the update channel is filled so that writing-down is wedged, which
+    /// leaves the end of the turn as the only thing that can settle the card.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
+        let held = room("stale-card-room");
+        let ends = Arc::new(tokio::sync::Notify::new());
+        let agent = agent_that_ends_the_turn_still_asking(ends.clone());
+        let driver = ChildAgent::new(
+            scratch("stale-card"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        driver
+            .handshake(&persona("/tmp", Vec::new()), client_transport())
+            .await
+            .unwrap();
+
+        let mut updates = driver
+            .prompt("go".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+        let Update::Permission { request_id, .. } = next(&mut updates).await else {
+            panic!("the card did not arrive");
+        };
+
+        // Every place in the update channel is taken, so nothing the driver
+        // writes down after the turn can leave it. What settles the card now
+        // is the end of the turn or nothing at all.
+        let sender = lock(&driver.live.updates)
+            .clone()
+            .expect("the turn is running");
+        for _ in 0..UPDATE_DEPTH {
+            sender
+                .try_send(Update::Notice {
+                    level: NoticeLevel::Info,
+                    text: "the channel is full".to_string(),
+                })
+                .expect("the channel takes its whole depth");
+        }
+        ends.notify_one();
+
+        // A bounded wait for the agent's answer to cross the pipe; the
+        // assertion below is what is being tested.
+        for _ in 0..200 {
+            if lock(&driver.live.pending).is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            !driver.answer_permission(&request_id, "once"),
+            "a card the turn left behind was still answerable after the turn ended"
+        );
     }
 
     /// Toad rewrites only the file it wrote. A hand-written AGENTS.md — even

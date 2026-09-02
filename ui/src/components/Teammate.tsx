@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import type { McpPolicy, Persona, PolicyMode } from "../generated/contract";
+import type {
+	McpPolicy,
+	Persona,
+	PolicyMode,
+	TeammateToolLedger,
+	ToolLedgerRow,
+} from "../generated/contract";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
 import { wire } from "../wire";
 import { Sheet } from "./Sheet";
@@ -169,6 +175,8 @@ export function Teammate({
 					onChange={(mcpPolicy) => save({ mcpPolicy })}
 				/>
 
+				<ToolLedger personaId={persona.id} />
+
 				<section className="mt-2 border-t border-rule pt-4">
 					<p className="label">Remove teammate</p>
 					<p className="mb-2 text-xs leading-relaxed text-ink-3">
@@ -249,7 +257,7 @@ function McpGrant({
 
 	return (
 		<div>
-			<p className="label">Tools</p>
+			<p className="label">MCP servers</p>
 			<div className="flex flex-col gap-1.5">
 				{GRANT_MODES.map((mode) => (
 					<label key={mode.id} className="flex items-center gap-2 text-sm text-ink-2">
@@ -294,8 +302,81 @@ function McpGrant({
 					</ul>
 				))}
 			<p className="mt-1 text-xs leading-relaxed text-ink-3">
-				Tools attach when the teammate starts; a change reaches it on its next start.
+				A change reaches the teammate on its next start.
 			</p>
 		</div>
 	);
+}
+
+/**
+ * What this teammate actually has. The grant above is the intent; this is
+ * the outcome of the last start, read once when the sheet opens because a
+ * ledger is a fact of that start, not a live feed.
+ */
+function ToolLedger({ personaId }: { personaId: string }) {
+	const [ledger, setLedger] = useState<TeammateToolLedger | null | undefined>(undefined);
+
+	useEffect(() => {
+		let cancelled = false;
+		setLedger(undefined);
+		void wire
+			.command("teammate.tools", { personaId })
+			.then((next) => {
+				if (!cancelled) setLedger(next);
+			})
+			.catch(() => {
+				if (!cancelled) setLedger(null);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [personaId]);
+
+	if (ledger === undefined) return null;
+
+	return (
+		<div>
+			<p className="label">Tools</p>
+			{ledger === null ? (
+				<p className="text-xs leading-relaxed text-ink-3">
+					Tools attach at start.
+				</p>
+			) : (
+				<div className="flex flex-col gap-3">
+					{groupedByOrigin(ledger.rows).map(([origin, rows]) => (
+						<div key={origin}>
+							<p className="mb-1 font-mono text-xs text-ink-3">{origin}</p>
+							<ul className="flex flex-col gap-1.5">
+								{rows.map((row) => (
+									<li
+										key={`${row.source}-${row.origin}-${row.name}`}
+										className="rounded-lg bg-paper-3 px-2.5 py-1.5"
+									>
+										<p className="flex flex-wrap items-baseline gap-x-2 text-xs">
+											<span className="font-mono text-ink">{row.name}</span>
+											<span className="text-ink-3">{row.state}</span>
+										</p>
+										<p className="text-xs leading-relaxed text-ink-3">{row.reason}</p>
+									</li>
+								))}
+							</ul>
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function groupedByOrigin(rows: ToolLedgerRow[]): [string, ToolLedgerRow[]][] {
+	const groups = new Map<string, ToolLedgerRow[]>();
+	for (const row of rows) {
+		const known = groups.get(row.origin);
+		if (known) known.push(row);
+		else groups.set(row.origin, [row]);
+	}
+	return [...groups.entries()].map(([origin, items]) => [
+		origin,
+		items.slice().sort((a, b) => a.name.localeCompare(b.name)),
+	]);
 }

@@ -8,6 +8,7 @@ import type {
 	TranscriptEvent,
 } from "../generated/contract";
 import type { Streaming } from "../tape";
+import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 
 /** Long enough that a stamp means "we picked this back up later". */
@@ -29,16 +30,18 @@ export type ReplyTarget = { eventId: string; text: string };
  * fold, and a missing original is not drawn.
  *
  * Imported tapes also hold permission cards, plans, peer markers, hands-to-
- * human and computer frames. Those are drawn here, read-only: this window
- * cannot answer a permission yet, so an open card's options stay disabled
- * and a decided one names the choice, with no story about why.
+ * human and computer frames. A card with no decision is live: answering it
+ * writes through the tape, so the buttons go away when the room supersedes
+ * the line. A decided card, including one that expired, names the outcome.
  */
 export function Transcript({
+	personaId,
 	events,
 	streaming,
 	focus,
 	onReply,
 }: {
+	personaId: string;
 	events: TranscriptEvent[];
 	streaming: Streaming[];
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
@@ -107,6 +110,7 @@ export function Transcript({
 				{events.map((event, index) => (
 					<Line
 						key={event.id}
+						personaId={personaId}
 						event={event}
 						previous={events[index - 1]}
 						said={said}
@@ -131,12 +135,14 @@ export function Transcript({
 }
 
 function Line({
+	personaId,
 	event,
 	previous,
 	said,
 	onReply,
 	onJump,
 }: {
+	personaId: string;
 	event: TranscriptEvent;
 	previous: TranscriptEvent | undefined;
 	said: Map<string, string>;
@@ -151,7 +157,7 @@ function Line({
 	return (
 		<div data-event-id={event.id} className="rounded-lg">
 			{stamp && <p className="py-2 text-center text-xs text-ink-3">{stampText(event.ts)}</p>}
-			<Row event={event} said={said} onReply={onReply} onJump={onJump} />
+			<Row personaId={personaId} event={event} said={said} onReply={onReply} onJump={onJump} />
 		</div>
 	);
 }
@@ -186,11 +192,13 @@ function useScrollToEvent(
 }
 
 function Row({
+	personaId,
 	event,
 	said,
 	onReply,
 	onJump,
 }: {
+	personaId: string;
 	event: TranscriptEvent;
 	said: Map<string, string>;
 	onReply(target: ReplyTarget): void;
@@ -244,12 +252,10 @@ function Row({
 				</p>
 			);
 
-		/* An imported tape can hold a permission the other Toad already
-		 * answered, or one still open. This window cannot answer yet, so
-		 * the options never fire; a decided card names the choice and an
-		 * open one shows the buttons disabled, with no story about why. */
+		/* Open cards answer through the wire; the tape then supersedes the
+		 * line, so a decided card is just the outcome and not another click. */
 		case "permission":
-			return <Permission event={event} />;
+			return <Permission personaId={personaId} event={event} />;
 
 		case "plan":
 			return <Plan entries={event.entries} />;
@@ -438,11 +444,31 @@ function outputText(one: ToolOutput): string {
 
 /**
  * A permission the agent asked. The choice is history when the tape already
- * names it; otherwise the options sit disabled, because answering is a
- * command this window does not have yet.
+ * names it; otherwise the options are the answer, and they stay dead while
+ * that answer is in flight so a second click cannot race the first.
  */
-function Permission({ event }: { event: Extract<TranscriptEvent, { kind: "permission" }> }) {
+function Permission({
+	personaId,
+	event,
+}: {
+	personaId: string;
+	event: Extract<TranscriptEvent, { kind: "permission" }>;
+}) {
+	const [answering, setAnswering] = useState(false);
 	const chosen = chosenOption(event);
+
+	const answer = (optionId: string) => {
+		if (answering || event.decision !== undefined) return;
+		setAnswering(true);
+		void wire
+			.command("session.answer_permission", {
+				personaId,
+				requestId: event.requestId,
+				optionId,
+			})
+			.catch(() => setAnswering(false));
+	};
+
 	return (
 		<div className="tape-card">
 			<p>{event.title}</p>
@@ -454,8 +480,9 @@ function Permission({ event }: { event: Extract<TranscriptEvent, { kind: "permis
 						<button
 							key={option.optionId}
 							type="button"
-							disabled
+							disabled={answering}
 							className={optionKindClass(option)}
+							onClick={() => answer(option.optionId)}
 						>
 							{option.name}
 						</button>
@@ -467,6 +494,7 @@ function Permission({ event }: { event: Extract<TranscriptEvent, { kind: "permis
 }
 
 function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): string | undefined {
+	if (event.decision === "expired") return "Expired";
 	if (event.decidedOptionName !== undefined && event.decidedOptionName !== "") {
 		return event.decidedOptionName;
 	}

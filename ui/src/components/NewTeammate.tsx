@@ -1,14 +1,18 @@
-import { useState } from "react";
-import type { ConfigChoice, PersonaDraft } from "../generated/contract";
+import { useEffect, useState } from "react";
+import type { BackendChoice, ConfigChoice, PersonaDraft } from "../generated/contract";
 import { wire } from "../wire";
 import { Sheet } from "./Sheet";
 
+/** Toad Agent's stored backend id. Any other id is an ACP harness. */
+const TOAD_AGENT = "pi";
+
 /**
- * Creating a teammate: the four things the person decides, and nothing else.
+ * Creating a teammate: the things the person decides, and nothing else.
  *
- * A teammate is an identity (`goal`), a workspace (`cwd`) and a disposition
- * (`modelId`) under a name. Everything else the room supplies, so everything
- * else is left off the form.
+ * A teammate is an identity (`goal`), a workspace (`cwd`), a harness
+ * (`backendId`) and — for Toad Agent only — a disposition (`modelId`) under
+ * a name. An ACP harness brings its own models once the session is up, so
+ * that field is not asked here.
  *
  * Created, the teammate is started at once and opened — nobody adds a
  * colleague in order to look at them in a list.
@@ -25,9 +29,28 @@ export function NewTeammate({
 	const [name, setName] = useState("");
 	const [goal, setGoal] = useState("");
 	const [cwd, setCwd] = useState("");
+	const [backendId, setBackendId] = useState("");
+	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [modelId, setModelId] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+
+	useEffect(() => {
+		void wire
+			.command("backends.list", {})
+			.then((list) => {
+				setBackends(list);
+				setBackendId((current) => {
+					if (current && list.some((one) => one.id === current && one.unavailable === undefined)) {
+						return current;
+					}
+					return list.find((one) => one.unavailable === undefined)?.id ?? "";
+				});
+			})
+			.catch((error: Error) => setRefusal(error.message));
+	}, []);
+
+	const onToad = backendId === TOAD_AGENT || backendId === "";
 
 	const submit = async () => {
 		const trimmed = name.trim();
@@ -37,7 +60,8 @@ export function NewTeammate({
 		const draft: PersonaDraft = { name: trimmed };
 		if (goal.trim()) draft.goal = goal.trim();
 		if (cwd.trim()) draft.cwd = cwd.trim();
-		if (modelId) draft.modelId = modelId;
+		if (backendId) draft.backendId = backendId;
+		if (onToad && modelId) draft.modelId = modelId;
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			await wire.command("session.start", { personaId: persona.id });
@@ -100,24 +124,48 @@ export function NewTeammate({
 					/>
 				</div>
 
-				<div>
-					<label className="label" htmlFor="new-model">
-						Model
-					</label>
-					<select
-						id="new-model"
-						className="field"
-						value={modelId}
-						onChange={(event) => setModelId(event.target.value)}
-					>
-						<option value="">The room's default</option>
-						{models.map((model) => (
-							<option key={model.id} value={model.id}>
-								{model.group ? `${model.group} · ${model.name}` : model.name}
-							</option>
-						))}
-					</select>
-				</div>
+				{backends.length > 0 && (
+					<div>
+						<p className="label" id="new-backend">
+							Runs on
+						</p>
+						<div
+							role="radiogroup"
+							aria-labelledby="new-backend"
+							className="flex flex-col gap-1.5"
+						>
+							{backends.map((backend) => (
+								<BackendRow
+									key={backend.id}
+									backend={backend}
+									selected={backendId === backend.id}
+									onSelect={() => setBackendId(backend.id)}
+								/>
+							))}
+						</div>
+					</div>
+				)}
+
+				{onToad && (
+					<div>
+						<label className="label" htmlFor="new-model">
+							Model
+						</label>
+						<select
+							id="new-model"
+							className="field"
+							value={modelId}
+							onChange={(event) => setModelId(event.target.value)}
+						>
+							<option value="">The room's default</option>
+							{models.map((model) => (
+								<option key={model.id} value={model.id}>
+									{model.group ? `${model.group} · ${model.name}` : model.name}
+								</option>
+							))}
+						</select>
+					</div>
+				)}
 
 				{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
 
@@ -131,5 +179,48 @@ export function NewTeammate({
 				</div>
 			</form>
 		</Sheet>
+	);
+}
+
+/**
+ * One harness the room can name. An unavailable row stays in the list so
+ * the missing piece is a sentence next to the name, not a hole.
+ */
+function BackendRow({
+	backend,
+	selected,
+	onSelect,
+}: {
+	backend: BackendChoice;
+	selected: boolean;
+	onSelect(): void;
+}) {
+	const missing = backend.unavailable;
+	return (
+		<label
+			className={`flex items-start gap-2 rounded-lg px-2.5 py-2 text-sm ${
+				missing ? "bg-paper text-ink-3 opacity-60" : "bg-paper-3 text-ink-2"
+			}`}
+		>
+			<input
+				type="radio"
+				name="new-backend"
+				className="mt-0.5"
+				checked={selected}
+				disabled={missing !== undefined}
+				onChange={onSelect}
+			/>
+			<span className="min-w-0 flex-1">
+				<span className={`font-medium ${missing ? "text-ink-3" : "text-ink"}`}>{backend.name}</span>
+				{backend.description !== "" && (
+					<span className="mt-0.5 block text-xs leading-relaxed text-ink-3">
+						{backend.description}
+					</span>
+				)}
+				{missing !== undefined && (
+					<span className="mt-0.5 block text-xs leading-relaxed">{missing}</span>
+				)}
+			</span>
+		</label>
 	);
 }

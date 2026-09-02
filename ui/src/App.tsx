@@ -287,12 +287,19 @@ function Conversation({
 				chapterBusy={chapterBusy}
 				chapterSaid={chapterSaid}
 				onSetModel={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
+				onSetMode={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
 				onOpenTeammate={onOpenTeammate}
 				onOpenSearch={onOpenSearch}
 				onNewChapter={startChapter}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
-				<Transcript events={events} streaming={streaming} focus={focus} onReply={setReplying} />
+				<Transcript
+					personaId={personaId}
+					events={events}
+					streaming={streaming}
+					focus={focus}
+					onReply={setReplying}
+				/>
 				<Composer
 					personaId={personaId}
 					state={entry.session.state}

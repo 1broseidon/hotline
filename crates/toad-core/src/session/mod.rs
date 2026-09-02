@@ -138,6 +138,15 @@ impl Room {
                 persona.name, persona.backend_id
             ));
         }
+        // The directory exists from the moment the teammate can be spoken to.
+        // A workspace under the data directory is made here; one the user
+        // typed is made too, because a path they chose is a path they meant.
+        std::fs::create_dir_all(&persona.cwd).map_err(|error| {
+            format!(
+                "{}'s working directory {} could not be made: {error}",
+                persona.name, persona.cwd
+            )
+        })?;
         let reach = persona.reach.unwrap_or_default();
         let driver = Arc::new(InProcess::new(
             self.keys.clone(),

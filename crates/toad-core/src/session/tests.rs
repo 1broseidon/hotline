@@ -396,6 +396,30 @@ async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver
     assert!(room.prompt("ada", "anyone there?").is_err());
 }
 
+/// A teammate's directory is made when it starts, wherever it was pointed.
+#[tokio::test(flavor = "multi_thread")]
+async fn starting_a_teammate_makes_its_working_directory() {
+    struct OneKey;
+    impl ProviderKeys for OneKey {
+        fn provider_keys(&self) -> HashMap<String, String> {
+            HashMap::from([("anthropic".to_string(), "not-a-real-key".to_string())])
+        }
+    }
+    let log = scratch("makes-cwd");
+    let mut ada = persona("ada");
+    ada.cwd = log
+        .root()
+        .join("workspaces")
+        .join("ada")
+        .to_string_lossy()
+        .into_owned();
+    enrol(&log, &ada);
+    let room = Room::new(log, Arc::new(OneKey));
+    assert!(!std::path::Path::new(&ada.cwd).exists());
+    room.start("ada").await.unwrap();
+    assert!(std::path::Path::new(&ada.cwd).is_dir());
+}
+
 /// The preamble is everything the agent would otherwise have to ask for.
 #[test]
 fn the_preamble_says_who_where_how_far_and_when() {

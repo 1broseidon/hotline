@@ -1,3 +1,4 @@
+import { chordKeys } from "../chords";
 import { GearIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
@@ -48,7 +49,7 @@ export function Rail({
 				<button
 					type="button"
 					className="control btn-icon"
-					title="New teammate (Ctrl+N)"
+					title={`New teammate (${chordKeys("new-teammate")})`}
 					aria-label="New teammate"
 					onClick={onNew}
 				>
@@ -82,7 +83,7 @@ export function Rail({
 				<button
 					type="button"
 					className="control btn-quiet -ml-1 gap-1.5 px-2 text-sm"
-					title="Settings (Ctrl+,)"
+					title={`Settings (${chordKeys("settings")})`}
 					onClick={onSettings}
 				>
 					<GearIcon className="text-ink-3" />

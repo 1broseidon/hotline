@@ -8,6 +8,7 @@ import type {
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
+import { chordKeys } from "../chords";
 import { CheckIcon, CloseIcon, RevealIcon, WarningIcon } from "../icons";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
 import { revealPath } from "../native";
@@ -110,7 +111,7 @@ export function Teammate({
 		<aside className="inspector" aria-label={`${persona.name}'s settings`}>
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{persona.name}</h2>
-				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>

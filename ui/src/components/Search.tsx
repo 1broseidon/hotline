@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChapterClose, ChapterSummary, GlobalSearchHit, ThreadSearchHit } from "../generated/contract";
+import { matchChord } from "../chords";
 import { ChevronDownIcon, ChevronRightIcon, SearchIcon } from "../icons";
 import { onTablistKey } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
@@ -48,19 +49,17 @@ export function Search({
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
+			if (matchChord(event) === "close") {
 				event.preventDefault();
 				onClose();
 				return;
 			}
 			// Already open: put the caret back rather than letting the browser
 			// find-in-page steal a chord the band advertised as ours.
-			if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
-				if (event.key === "f" || event.code === "KeyF") {
-					event.preventDefault();
-					input.current?.focus({ preventScroll: true });
-					input.current?.select();
-				}
+			if (matchChord(event) === "search") {
+				event.preventDefault();
+				input.current?.focus({ preventScroll: true });
+				input.current?.select();
 			}
 		};
 		const away = (event: MouseEvent) => {

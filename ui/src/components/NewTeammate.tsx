@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, PersonaDraft } from "../generated/contract";
+import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
@@ -81,7 +82,7 @@ export function NewTeammate({
 		<div className="pane">
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">New teammate</h2>
-				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { TranscriptEvent } from "../generated/contract";
+import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { useThread } from "../tape";
 import { Band } from "../ui/Band";
@@ -46,7 +47,7 @@ export function Thread({
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">
 					{selfName} & {open.withName}
 				</h2>
-				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>

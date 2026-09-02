@@ -1,8 +1,9 @@
 /**
  * The desk's native pieces: a folder picker, opening a path or a link, the
- * clipboard, the menu the shell emits, and the window chrome. Each call is a
- * no-op — or a web fallback — in a browser tab, so the window can still
- * typecheck and render there.
+ * clipboard, the menu the shell emits, the window chrome, and the version
+ * and data directory the shell injected. Each call is a no-op — or a web
+ * fallback — in a browser tab, so the window can still typecheck and render
+ * there.
  */
 
 import { listen } from "@tauri-apps/api/event";
@@ -18,6 +19,14 @@ export function isDesktop(): boolean {
 
 export function platform(): string {
 	return window.__toadDesk?.platform ?? "web";
+}
+
+export function appVersion(): string {
+	return window.__toadDesk?.version ?? "";
+}
+
+export function dataDirectory(): string {
+	return window.__toadDesk?.dataDir ?? "";
 }
 
 export async function pickDirectory(): Promise<string | null> {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { BackendChoice, Credential, Report } from "../generated/contract";
+import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
@@ -73,7 +74,7 @@ export function Settings({
 						</button>
 					))}
 				</div>
-				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>

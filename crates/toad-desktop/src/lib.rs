@@ -32,7 +32,8 @@ fn random_token() -> String {
 
 /// The chords the window already listens for, shown on the menu so a shortcut
 /// nobody can see is no shortcut. Ctrl, not Cmd, because the window's own
-/// listener is Ctrl on every platform.
+/// listener is Ctrl on every platform. The rows themselves live in
+/// `ui/src/chords.ts`; a change here that is not a change there is a drift.
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let settings = MenuItemBuilder::with_id("settings", "Settings")
         .accelerator("Ctrl+,")
@@ -42,8 +43,10 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     } else {
         "App"
     };
+    let about = MenuItemBuilder::with_id("about", "About").build(app)?;
     let app_menu = SubmenuBuilder::new(app, app_title)
         .item(&settings)
+        .item(&about)
         .separator()
         .quit()
         .build()?;
@@ -80,7 +83,14 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         view = view.item(&item);
     }
     let view = view.build()?;
-    let help = SubmenuBuilder::new(app, "Help").build()?;
+    let shortcuts = MenuItemBuilder::with_id("shortcuts", "Keyboard shortcuts").build(app)?;
+    let about_toad = MenuItemBuilder::with_id("about", "About Toad").build(app)?;
+    let github = MenuItemBuilder::with_id("github", "Toad on GitHub").build(app)?;
+    let help = SubmenuBuilder::new(app, "Help")
+        .item(&shortcuts)
+        .item(&about_toad)
+        .item(&github)
+        .build()?;
     let menu = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&edit)
@@ -92,8 +102,10 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let handle = app.handle().clone();
     app.on_menu_event(move |_app, event| {
         let id = event.id().as_ref();
-        if matches!(id, "settings" | "search" | "new-teammate" | "teammate")
-            || id.starts_with("teammate-")
+        if matches!(
+            id,
+            "settings" | "search" | "new-teammate" | "teammate" | "about" | "shortcuts" | "github"
+        ) || id.starts_with("teammate-")
         {
             let _ = handle.emit("toad://menu", id);
         }
@@ -106,8 +118,9 @@ pub fn run() {
     // Opened inside the async runtime because the room it stands up owns
     // background work — the idle chapter sweep — and a task has to be spawned
     // onto a runtime that is already there.
-    let desk = tauri::async_runtime::block_on(async { Desk::open(&data_root()) })
-        .expect("the desk did not open");
+    let root = data_root();
+    let desk =
+        tauri::async_runtime::block_on(async { Desk::open(&root) }).expect("the desk did not open");
     let token = random_token();
     let door = Door::bind(desk.log.clone(), token.clone(), Arc::new(desk))
         .expect("the room's door did not bind");
@@ -118,12 +131,14 @@ pub fn run() {
         }
     });
 
-    let desk = serde_json::json!({
+    let injected = serde_json::json!({
         "platform": PLATFORM,
         "origin": format!("http://127.0.0.1:{port}"),
         "token": token,
+        "version": env!("CARGO_PKG_VERSION"),
+        "dataDir": root.display().to_string(),
     });
-    let script = format!("window.__toadDesk = {desk};");
+    let script = format!("window.__toadDesk = {injected};");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())

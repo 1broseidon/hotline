@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ConfigChoice } from "./generated/contract";
+import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail } from "./components/Rail";
 import { Settings, type SettingsSection } from "./components/Settings";
+import { Shortcuts } from "./components/Shortcuts";
 import { Teammate } from "./components/Teammate";
 import { Thread, type OpenThread } from "./components/Thread";
+import { matchChord } from "./chords";
 import { PlusIcon } from "./icons";
-import { confirmRemove, listenMenu } from "./native";
+import { confirmRemove, listenMenu, openLink } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
 import { useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "settings" | "new-teammate" | null;
+type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
 
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
@@ -111,13 +114,9 @@ export function App() {
 		setSelectedId(personaId);
 		setPane(null);
 	}, []);
-	const toggleSettings = useCallback(() => {
+	const togglePane = useCallback((id: Exclude<Pane, null>) => {
 		setSearchOpen(false);
-		setPane((current) => (current === "settings" ? null : "settings"));
-	}, []);
-	const toggleNew = useCallback(() => {
-		setSearchOpen(false);
-		setPane((current) => (current === "new-teammate" ? null : "new-teammate"));
+		setPane((current) => (current === id ? null : id));
 	}, []);
 	const toggleInspector = useCallback(
 		(schedules = false) => {
@@ -154,13 +153,13 @@ export function App() {
 		[selectedId],
 	);
 
-	// Opening a teammate is Ctrl+1 through Ctrl+9, in the rail's own order.
-	// Ctrl+N adds one, Ctrl+, is settings, Ctrl+I is the teammate on screen,
-	// Ctrl+F searches the conversation that is already on screen. Escape
-	// closes whatever is on top: the search, then a pane, then the inspector.
+	// Chords live in chords.ts so Help cannot list a key the window does
+	// not hear. Escape closes whatever is on top: the search, then a pane,
+	// then the inspector.
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
+			const chord = matchChord(event);
+			if (chord === "close") {
 				if (searchOpen) return; // the search closes itself
 				if (pane !== null) {
 					event.preventDefault();
@@ -178,33 +177,30 @@ export function App() {
 				}
 				return;
 			}
-			if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-			// By physical key as well as by character: a layout that puts
-			// something else on the comma key still opens settings.
-			if (event.key === "n" || event.code === "KeyN") {
+			if (chord === "new-teammate") {
 				event.preventDefault();
-				if (takeChord()) toggleNew();
+				if (takeChord()) togglePane("new-teammate");
 				return;
 			}
-			if (event.key === "," || event.code === "Comma") {
+			if (chord === "settings") {
 				event.preventDefault();
-				if (takeChord()) toggleSettings();
+				if (takeChord()) togglePane("settings");
 				return;
 			}
-			if (event.key === "i" || event.code === "KeyI") {
+			if (chord === "teammate") {
 				if (selectedId === null) return;
 				event.preventDefault();
 				if (takeChord()) toggleInspector();
 				return;
 			}
-			if (event.key === "f" || event.code === "KeyF") {
+			if (chord === "search") {
 				if (pane !== null || selectedId === null) return;
 				event.preventDefault();
 				setSearchOpen(true);
 				return;
 			}
-			const seat = Number(event.key);
-			if (!Number.isInteger(seat) || seat < 1 || seat > 9) return;
+			if (chord === null || !chord.startsWith("teammate-")) return;
+			const seat = Number(chord.slice("teammate-".length));
 			const entry = roster[seat - 1];
 			if (!entry) return;
 			event.preventDefault();
@@ -212,16 +208,16 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, thread, searchOpen, select, toggleNew, toggleSettings, toggleInspector]);
+	}, [roster, selectedId, pane, inspector, thread, searchOpen, select, togglePane, toggleInspector]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
 			if (id === "settings") {
-				if (takeChord()) toggleSettings();
+				if (takeChord()) togglePane("settings");
 				return;
 			}
 			if (id === "new-teammate") {
-				if (takeChord()) toggleNew();
+				if (takeChord()) togglePane("new-teammate");
 				return;
 			}
 			if (id === "teammate") {
@@ -233,13 +229,25 @@ export function App() {
 				setSearchOpen(true);
 				return;
 			}
+			if (id === "about") {
+				togglePane("about");
+				return;
+			}
+			if (id === "shortcuts") {
+				togglePane("shortcuts");
+				return;
+			}
+			if (id === "github") {
+				void openLink("https://github.com/1broseidon/toad");
+				return;
+			}
 			if (id.startsWith("teammate-")) {
 				const seat = Number(id.slice("teammate-".length));
 				const entry = roster[seat - 1];
 				if (entry) select(entry.persona.id);
 			}
 		});
-	}, [roster, selectedId, pane, select, toggleNew, toggleSettings, toggleInspector]);
+	}, [roster, selectedId, pane, select, togglePane, toggleInspector]);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
@@ -262,8 +270,8 @@ export function App() {
 				seen={seen}
 				connection={connection}
 				onSelect={select}
-				onNew={toggleNew}
-				onSettings={toggleSettings}
+				onNew={() => togglePane("new-teammate")}
+				onSettings={() => togglePane("settings")}
 				onEdit={(id) => {
 					select(id);
 					setInspector(true);
@@ -274,6 +282,10 @@ export function App() {
 			<main className="flex min-w-0 flex-1">
 				{pane === "settings" ? (
 					<Settings section={settingsSection} onSection={setSettingsSection} onClose={() => setPane(null)} />
+				) : pane === "shortcuts" ? (
+					<Shortcuts onClose={() => setPane(null)} />
+				) : pane === "about" ? (
+					<About onClose={() => setPane(null)} />
 				) : pane === "new-teammate" ? (
 					<NewTeammate
 						models={models}
@@ -343,7 +355,7 @@ export function App() {
 									: "Pick a teammate on the left."}
 							</p>
 							{roster.length === 0 && (
-								<button type="button" className="control btn" onClick={toggleNew}>
+								<button type="button" className="control btn" onClick={() => togglePane("new-teammate")}>
 									<PlusIcon />
 									New teammate
 								</button>

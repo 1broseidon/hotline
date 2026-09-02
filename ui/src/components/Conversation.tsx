@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, SessionState, TranscriptEvent } from "../generated/contract";
+import { chordGlyph, chordKeys } from "../chords";
 import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
@@ -140,7 +141,7 @@ export function Conversation({
 		},
 		{ kind: "item", id: "reveal", text: "Reveal working directory", onSelect: () => void revealPath(persona.cwd) },
 		{ kind: "rule" },
-		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: "⌃I", onSelect: onToggleInspector },
+		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		running
 			? { kind: "item", id: "stop", text: "Stop the session", onSelect: stop }
 			: { kind: "item", id: "start", text: "Start the session", onSelect: start },
@@ -218,7 +219,7 @@ export function Conversation({
 				<button
 					type="button"
 					className="control btn-icon"
-					title="Search (Ctrl+F)"
+					title={`Search (${chordKeys("search")})`}
 					aria-label="Search"
 					aria-pressed={searchOpen}
 					onClick={onToggleSearch}
@@ -228,7 +229,7 @@ export function Conversation({
 				<button
 					type="button"
 					className="control btn-icon"
-					title="Teammate (Ctrl+I)"
+					title={`Teammate (${chordKeys("teammate")})`}
 					aria-label="Teammate"
 					aria-pressed={inspectorOpen}
 					onClick={onToggleInspector}

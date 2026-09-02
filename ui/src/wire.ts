@@ -119,7 +119,13 @@ export type TapeHandlers = Handlers<TranscriptEvent, StreamDelta>;
 
 declare global {
 	interface Window {
-		__toadDesk?: { platform: string; origin: string; token: string };
+		__toadDesk?: {
+			platform: string;
+			origin: string;
+			token: string;
+			version?: string;
+			dataDir?: string;
+		};
 	}
 }
 

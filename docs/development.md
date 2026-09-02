@@ -65,7 +65,7 @@ is. That starts Vite for the window on port 5174 and refuses any other
 port, so a port already in use is a mistake rather than a second
 instance. The shell generates a one-launch token, binds the door on
 `127.0.0.1` with an ephemeral port, and sets `window.__toadDesk` to
-`{platform, origin, token}` before the page loads.
+`{platform, origin, token, version, dataDir}` before the page loads.
 
 `make check` is, in order: `bun install --frozen-lockfile` and `bun run
 typecheck` in `ui/`; `cargo fmt --all --check`; `cargo clippy --workspace
@@ -97,14 +97,17 @@ window are `crates/toad-desktop/capabilities/default.json`.
 
 The menu (Ctrl, not Cmd — the window's own listener is Ctrl on every
 platform): Settings `Ctrl+,`, Search `Ctrl+F`, New Teammate `Ctrl+N`,
-Teammate `Ctrl+I`, Teammate 1–9 `Ctrl+1`…`Ctrl+9`. On macOS the title bar
-is overlay so the rail header can sit on the traffic-light centre line.
+Teammate `Ctrl+I`, Teammate 1–9 `Ctrl+1`…`Ctrl+9`. The App menu is
+Settings, About, Quit. Help opens Keyboard shortcuts, About Toad, and
+Toad on GitHub. On macOS the title bar is overlay so the rail header can
+sit on the traffic-light centre line.
 
-Settings and New Teammate are panes: they replace the conversation, they
-are not a card over it. Settings has a left index — General, Keys, Tools,
-Import — and a selected teammate is one more row in that index, not a
-second window. Search is a drawer over the conversation that is already
-on screen. The chrome strip drags the window; a double-click maximises.
+Settings, New Teammate, Keyboard shortcuts and About are panes: they
+replace the conversation, they are not a card over it. Settings' sections
+are tabs in the band — General, Keys, Tools, Import. A teammate is
+edited in its own pane beside the conversation. Search is a drawer over
+the conversation that is already on screen. The chrome strip drags the
+window; a double-click maximises.
 
 ## The data directory
 

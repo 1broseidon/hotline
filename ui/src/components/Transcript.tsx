@@ -8,6 +8,7 @@ import type {
 	ToolStatus,
 	TranscriptEvent,
 } from "../generated/contract";
+import { chordKeys } from "../chords";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
 import { Avatar } from "../ui/Avatar";
@@ -441,7 +442,7 @@ function AgentSay({
 					type="button"
 					className="reply-affordance control btn btn-sm gap-1"
 					tabIndex={-1}
-					title="Reply (R)"
+					title={`Reply (${chordKeys("reply")})`}
 					onClick={reply}
 				>
 					<ReplyIcon />

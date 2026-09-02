@@ -15,9 +15,11 @@
 //!   canonical result — the one that knows — is offered to a hook, so
 //!   [`ToolOutcomes`] is registered as one and the loop reads the outcome
 //!   back by the call id the stream item carries.
-//! - **That the human pressed Stop.** The turn waits on a [`Notify`] beside
-//!   the stream; waking it abandons the stream, which drops the tool future
-//!   in flight, which kills that command's process group.
+//! - **That the human pressed Stop.** The turn waits on a [`Stop`] beside the
+//!   stream; raising it abandons the stream, which drops the tool future in
+//!   flight, which kills that command's process group. It is a raised flag
+//!   and not a bare wake, because a turn between two of its own awaits is
+//!   waiting nowhere, and a wake nobody is waiting for never happened.
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
 use crate::contract::{
@@ -43,6 +45,7 @@ use rig::tool::DynamicTool;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 
@@ -176,7 +179,9 @@ pub struct InProcess {
     cwd: Mutex<PathBuf>,
     model: Mutex<String>,
     history: Arc<AsyncMutex<Vec<Message>>>,
-    cancel: Arc<Notify>,
+    /// The stop for the turn in flight. A fresh one per prompt, so a stop
+    /// nobody was running is not still standing over the next turn.
+    stop: Mutex<Arc<Stop>>,
     /// Directory oversized tool results are written into, one `{call id}.txt`
     /// each. Created on first use so a teammate that never overflows never
     /// gets a folder.
@@ -214,7 +219,7 @@ impl InProcess {
             cwd: Mutex::new(PathBuf::new()),
             model: Mutex::new(String::new()),
             history: Arc::new(AsyncMutex::new(history)),
-            cancel: Arc::new(Notify::new()),
+            stop: Mutex::new(Arc::new(Stop::default())),
             output_dir,
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
@@ -273,6 +278,10 @@ impl Driver for InProcess {
     ) -> mpsc::Receiver<Update> {
         let text = with_paths(&text, &attachments);
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        // The stop this turn answers to, installed before the turn is spawned
+        // so a Stop pressed the instant the prompt returns still finds it.
+        let stop = Arc::new(Stop::default());
+        *lock(&self.stop) = stop.clone();
         let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
         if let Some(connected) = lock(&self.mcp).as_ref() {
             mcp_tools.extend(connected.tools.iter().map(mcp::McpTool::as_dynamic));
@@ -284,7 +293,7 @@ impl Driver for InProcess {
             cwd: lock(&self.cwd).clone(),
             reach,
             history: self.history.clone(),
-            cancel: self.cancel.clone(),
+            stop,
             output_dir: self.output_dir.clone(),
             mcp_tools,
         };
@@ -302,7 +311,7 @@ impl Driver for InProcess {
     }
 
     fn cancel(&self) {
-        self.cancel.notify_waiters();
+        lock(&self.stop).raise();
     }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
@@ -322,6 +331,40 @@ impl Driver for InProcess {
 /// waiting is the only answer that keeps the message whole.
 const UPDATE_DEPTH: usize = 256;
 
+/// The human's Stop, for one turn.
+///
+/// A latch and not a wake. `Notify::notify_waiters` reaches only what is
+/// registered at that instant, and a turn spends most of itself elsewhere —
+/// waiting on the first model round trip, or parked pushing an update into a
+/// full channel. Stop pressed in any of those moments used to be discarded
+/// and the turn ran on, tools and all. The flag is raised first and the wake
+/// second, so a waiter that reads the flag as clear is a waiter the wake has
+/// not yet passed.
+#[derive(Default)]
+struct Stop {
+    raised: AtomicBool,
+    woken: Notify,
+}
+
+impl Stop {
+    fn raise(&self) {
+        self.raised.store(true, Ordering::SeqCst);
+        self.woken.notify_waiters();
+    }
+
+    /// Resolves once this turn has been stopped, whether that happened while
+    /// something was waiting here or before anything was.
+    async fn raised(&self) {
+        loop {
+            let woken = self.woken.notified();
+            if self.raised.load(Ordering::SeqCst) {
+                return;
+            }
+            woken.await;
+        }
+    }
+}
+
 /// Everything one turn needs, taken from the session at the moment it starts
 /// so the turn owns it and the driver stays free to answer other calls.
 struct Turn {
@@ -331,7 +374,7 @@ struct Turn {
     cwd: PathBuf,
     reach: Reach,
     history: Arc<AsyncMutex<Vec<Message>>>,
-    cancel: Arc<Notify>,
+    stop: Arc<Stop>,
     output_dir: PathBuf,
     mcp_tools: Vec<DynamicTool>,
 }
@@ -367,7 +410,7 @@ impl Turn {
 
         loop {
             let item = tokio::select! {
-                _ = self.cancel.notified() => {
+                () = self.stop.raised() => {
                     flush(sender, &mut open).await;
                     send(sender, Update::Turn { stop_reason: "aborted".to_string(), usage: None }).await;
                     history.push(Message::user(text));
@@ -867,5 +910,34 @@ mod tests {
         assert!(handed.contains("elided"), "{handed}");
         assert!(handed.starts_with('x') && handed.contains("Full output:"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The bug this replaced: a turn is only registered on the stop while it
+    /// is polling for the next stream item, and it spends the first model
+    /// round trip and every full-channel push registered nowhere. A wake sent
+    /// in one of those moments reached nobody and the turn ran on.
+    #[tokio::test]
+    async fn a_stop_pressed_before_the_turn_waits_on_it_is_still_heard() {
+        let stop = Stop::default();
+        stop.raise();
+        tokio::time::timeout(std::time::Duration::from_secs(5), stop.raised())
+            .await
+            .expect("the turn was never told to stop");
+    }
+
+    /// And one pressed while the turn is waiting wakes it there.
+    #[tokio::test]
+    async fn a_stop_pressed_while_the_turn_waits_wakes_it() {
+        let stop = Arc::new(Stop::default());
+        let waiting = tokio::spawn({
+            let stop = stop.clone();
+            async move { stop.raised().await }
+        });
+        tokio::task::yield_now().await;
+        stop.raise();
+        tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+            .await
+            .expect("the turn was never told to stop")
+            .unwrap();
     }
 }

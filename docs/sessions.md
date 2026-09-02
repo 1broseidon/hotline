@@ -167,7 +167,10 @@ a model the account lists as policy-disabled is simply not offered.
 
 A turn runs on the teammate's own model when the desk
 still lists it, else the room's `defaultModelId`, else `lastModelId`,
-else the newest model the keys unlock. A turn never
+else the newest model the keys unlock. An ACP teammate's `modelId` is
+instead what its last session reported, written when a session starts or
+its model changes, so the band names a model before the child is up; one
+that has never run shows its harness's name where the model will be. A turn never
 starts a login: missing or unrefreshable tokens fail with a sentence
 asking for sign-in. No credential, no session: start is refused with a
 sentence pointing at Settings → Agents. This agent does not offer modes.

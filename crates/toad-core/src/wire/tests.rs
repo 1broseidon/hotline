@@ -1413,6 +1413,52 @@ async fn session_start_writes_last_model_id_from_the_sessions_info() {
     assert_eq!(room::settings(&log)["lastModelId"], "anthropic/claude");
 }
 
+/// A harness picks its own model and only says so once running, so what a
+/// start reports is written to the teammate: the band can name it before
+/// the child is started again. The room's last model is Toad Agent's alone.
+#[tokio::test]
+async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
+    let (_root, log, port) = door("start-acp-model");
+    let mut socket = desk(port).await;
+    let draft = PersonaDraft {
+        name: "Bob".to_string(),
+        goal: None,
+        team: None,
+        backend_id: Some("cursor".to_string()),
+        cwd: None,
+        reach: None,
+        model_id: None,
+        effort_id: None,
+        computer: None,
+    };
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "persona.create", "params": { "draft": draft } }),
+    )
+    .await;
+    let id = answered(&mut socket, 1).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "session.start", "params": { "personaId": id } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    let bob = room::roster(&log)
+        .into_iter()
+        .find(|persona| persona.id == id)
+        .unwrap();
+    assert_eq!(bob.model_id.as_deref(), Some("anthropic/claude"));
+    assert!(
+        room::settings(&log).get("lastModelId").is_none(),
+        "a harness's model is the teammate's, not the room's last"
+    );
+}
+
 /// A patch that changes what a teammate can use restarts it; a patch of
 /// only the name does not, because the driver is not built from the name.
 #[tokio::test]

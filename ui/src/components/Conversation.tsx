@@ -127,11 +127,29 @@ export function Conversation({
 	// is up. For Toad Agent that is the driver's own rule: the teammate's
 	// choice when the list still has it, else the room default, else the
 	// last model used, else the first choice — newest only on a desk that
-	// has never run a model.
+	// has never run a model. For a harness it is the last model a session
+	// reported, remembered on the teammate; before any ever has, the
+	// harness's own name stands where the model will.
 	const currentModel =
 		session.currentModelId ??
 		(toad ? toadModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
-	const showModel = modelChoices.length > 0 || (toad && currentModel !== "");
+	const [harnessName, setHarnessName] = useState<string | null>(null);
+	useEffect(() => {
+		if (toad || currentModel !== "") return;
+		let cancelled = false;
+		void wire.command("backends.list", {}).then(
+			(list) => {
+				if (!cancelled) setHarnessName(list.find((one) => one.id === persona.backendId)?.name ?? null);
+			},
+			() => {
+				if (!cancelled) setHarnessName(null);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [toad, currentModel, persona.backendId]);
+	const restingModel = currentModel !== "" ? currentModel : harnessName;
 	const currentMode = session.currentModeId ?? persona.modeId ?? "";
 	// An idle Toad Agent session carries no configs. The band derives the
 	// effort picker the same way it derives currentModel: the catalogue
@@ -276,7 +294,7 @@ export function Conversation({
 					</button>
 				)}
 
-				{showModel && (
+				{modelChoices.length > 0 ? (
 					<Picker
 						value={currentModel}
 						choices={modelChoices}
@@ -289,6 +307,15 @@ export function Conversation({
 								.catch((error: Error) => setModelSaid(error.message));
 						}}
 					/>
+				) : (
+					restingModel !== null && (
+						<span
+							className="control max-w-[220px] truncate px-2 font-medium text-ink-2"
+							title={currentModel !== "" ? "The model of the last session; the list comes once it starts" : "Starts on its own model"}
+						>
+							{restingModel}
+						</span>
+					)
 				)}
 				{session.modes.length > 0 && !narrow && (
 					<Picker

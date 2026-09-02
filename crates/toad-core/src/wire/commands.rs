@@ -74,7 +74,7 @@ pub(crate) async fn run(
         Command::SessionStart { persona_id } => {
             let info = room.start(&persona_id).await?;
             if let Ok(persona) = living(log, &persona_id) {
-                remember_last_model(log, room, &persona)?;
+                remember_model(log, room, &persona)?;
             }
             Ok(json!(info))
         }
@@ -88,7 +88,7 @@ pub(crate) async fn run(
             room.prompt(&persona_id, &text, reply_to, attachments)
                 .await?;
             if let Ok(persona) = living(log, &persona_id) {
-                remember_last_model(log, room, &persona)?;
+                remember_model(log, room, &persona)?;
             }
             Ok(Value::Null)
         }
@@ -374,7 +374,11 @@ async fn set_config(
 ) -> Result<SessionInfo, String> {
     let persona = living(log, persona_id)?;
     if persona.backend_id != PI_BACKEND_ID {
-        return room.set_config(persona_id, config_id, value).await;
+        // A harness may offer its model as a config; what it reports after
+        // the change is remembered the same way a start's report is.
+        let info = room.set_config(persona_id, config_id, value).await?;
+        remember_model(log, room, &persona)?;
+        return Ok(info);
     }
     if config_id != "effort" {
         if room.info(persona_id).state != SessionState::Idle {
@@ -414,18 +418,25 @@ async fn set_config(
 /// only writer of the room stream's settings, so this lives here rather
 /// than on the session. A prompt on an idle teammate starts it, so start
 /// and prompt both come through.
-fn remember_last_model(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    persona: &Persona,
-) -> Result<(), String> {
-    if persona.backend_id != PI_BACKEND_ID {
-        return Ok(());
-    }
+/// What a live session reports it runs on is remembered once the session
+/// is up: for Toad Agent as the room's last model, for a harness on the
+/// teammate itself, so the band can name the model before the child is
+/// started again. A harness picks its own default and only says so once
+/// running; without this the teammate at rest has no model at all.
+fn remember_model(log: &Log, room: &Arc<dyn RoomHandle>, persona: &Persona) -> Result<(), String> {
     let Some(model_id) = room.info(&persona.id).current_model_id else {
         return Ok(());
     };
-    write_last_model(log, &model_id)
+    if model_id.is_empty() {
+        return Ok(());
+    }
+    if persona.backend_id == PI_BACKEND_ID {
+        return write_last_model(log, &model_id);
+    }
+    if persona.model_id.as_deref() == Some(model_id.as_str()) {
+        return Ok(());
+    }
+    update_persona(log, &persona.id, &json!({ "modelId": model_id })).map(|_| ())
 }
 
 fn write_last_model(log: &Log, model_id: &str) -> Result<(), String> {

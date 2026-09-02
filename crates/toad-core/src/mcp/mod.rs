@@ -13,7 +13,11 @@
 //! teammate's tools. OAuth and static-header HTTP are a later task: those
 //! servers are refused with a sentence saying why, not connected with a
 //! dead credential.
+//!
+//! Toad's own three teammate tools are the other half of MCP, and they live
+//! in [`server`].
 
+pub mod server;
 mod tool;
 
 pub use tool::McpTool;
@@ -179,6 +183,42 @@ pub async fn connect(servers: &[McpServer]) -> Connections {
     }
 }
 
+/// What the ledger says about a policy id that no longer names a server.
+///
+/// Both drivers write this row, and it has to read the same on either: the
+/// question a person asks is "why does this teammate not have that tool",
+/// and the answer does not depend on which agent they asked it about.
+pub fn missing_reason(id: &str) -> String {
+    format!(
+        "this teammate's MCP policy names the server {id}, which no longer exists in app settings — every tool it supplied is gone"
+    )
+}
+
+/// Why this build cannot hand this server to an agent, or `None` when it can.
+///
+/// One sentence, in one place, because two agents refuse for the same reason:
+/// Toad connects the server itself for the in-process agent and names it in
+/// `session/new` for a child, and neither can honour a credential this build
+/// does not keep.
+pub fn unsupported(server: &McpServer) -> Option<String> {
+    match &server.transport {
+        McpTransport::Http {
+            auth: HttpAuth::Static { .. },
+            ..
+        } => Some(
+            "Static-header HTTP servers are a later task; this server was not connected."
+                .to_string(),
+        ),
+        McpTransport::Http {
+            auth: HttpAuth::Oauth,
+            ..
+        } => {
+            Some("OAuth HTTP servers are a later task; this server was not connected.".to_string())
+        }
+        _ => None,
+    }
+}
+
 async fn connect_one(
     server: &McpServer,
 ) -> Result<
@@ -188,21 +228,13 @@ async fn connect_one(
     ),
     String,
 > {
+    if let Some(refusal) = unsupported(server) {
+        return Err(refusal);
+    }
+    // The auth this build cannot honour was refused above, so what is left of
+    // an HTTP server here is a URL.
     match &server.transport {
-        McpTransport::Http {
-            auth: HttpAuth::Static { .. },
-            ..
-        } => Err(
-            "Static-header HTTP servers are a later task; this server was not connected.".into(),
-        ),
-        McpTransport::Http {
-            auth: HttpAuth::Oauth,
-            ..
-        } => Err("OAuth HTTP servers are a later task; this server was not connected.".into()),
-        McpTransport::Http {
-            url,
-            auth: HttpAuth::None,
-        } => {
+        McpTransport::Http { url, .. } => {
             let transport = StreamableHttpClientTransport::from_uri(url.clone());
             handshake(toad_client().serve(transport)).await
         }
@@ -246,19 +278,10 @@ where
 }
 
 fn toad_client() -> ClientInfo {
-    ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: Default::default(),
-        client_info: Implementation {
-            name: "Toad".into(),
-            title: None,
-            version: env!("CARGO_PKG_VERSION").into(),
-            description: None,
-            icons: None,
-            website_url: None,
-        },
-        meta: None,
-    }
+    ClientInfo::new(
+        Default::default(),
+        Implementation::new("Toad", env!("CARGO_PKG_VERSION")),
+    )
 }
 
 fn normalize_server(value: &Value) -> Option<Value> {
@@ -471,8 +494,8 @@ mod tests {
     use super::*;
     use rmcp::handler::server::ServerHandler;
     use rmcp::model::{
-        CallToolRequestParams, CallToolResult, Content, ListToolsResult, PaginatedRequestParams,
-        ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult,
+        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
     };
     use rmcp::service::RequestContext;
     use serde_json::json;
@@ -491,10 +514,7 @@ mod tests {
 
     impl ServerHandler for Echo {
         fn get_info(&self) -> ServerInfo {
-            ServerInfo {
-                capabilities: ServerCapabilities::builder().enable_tools().build(),
-                ..Default::default()
-            }
+            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
         }
 
         fn list_tools(
@@ -502,21 +522,18 @@ mod tests {
             _request: Option<PaginatedRequestParams>,
             _context: RequestContext<rmcp::RoleServer>,
         ) -> impl Future<Output = Result<ListToolsResult, rmcp::ErrorData>> + Send + '_ {
-            std::future::ready(Ok(ListToolsResult {
-                tools: vec![Tool::new(
-                    "shout",
-                    "Echo the text back in upper case.",
-                    shout_schema(),
-                )],
-                ..Default::default()
-            }))
+            std::future::ready(Ok(ListToolsResult::with_all_items(vec![Tool::new(
+                "shout",
+                "Echo the text back in upper case.",
+                shout_schema(),
+            )])))
         }
 
         fn call_tool(
             &self,
             request: CallToolRequestParams,
             _context: RequestContext<rmcp::RoleServer>,
-        ) -> impl Future<Output = Result<CallToolResult, rmcp::ErrorData>> + Send + '_ {
+        ) -> impl Future<Output = Result<CallToolResponse, rmcp::ErrorData>> + Send + '_ {
             let text = request
                 .arguments
                 .as_ref()
@@ -524,7 +541,9 @@ mod tests {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_uppercase();
-            std::future::ready(Ok(CallToolResult::success(vec![Content::text(text)])))
+            std::future::ready(Ok(
+                CallToolResult::success(vec![ContentBlock::text(text)]).into()
+            ))
         }
     }
 

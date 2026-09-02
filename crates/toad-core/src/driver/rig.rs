@@ -23,6 +23,7 @@ use super::{Driver, DriverInfo, MessageKind, Update, clip};
 use crate::contract::{
     AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
 };
+use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
 use crate::session::ProviderKeys;
 use crate::session::ledger::ToolLedger;
@@ -186,6 +187,10 @@ pub struct InProcess {
     /// Policy ids that named a server the room no longer has.
     mcp_missing: Vec<String>,
     mcp: Mutex<Option<mcp::Connections>>,
+    /// This teammate's tools over its own conversation. In this process they
+    /// are the functions themselves, not a server reached over a transport:
+    /// Toad Agent and Toad's MCP server are two halves of one program.
+    teammate: TeammateTools,
 }
 
 impl InProcess {
@@ -194,6 +199,7 @@ impl InProcess {
         preamble: String,
         said: Vec<Said>,
         output_dir: PathBuf,
+        teammate: TeammateTools,
     ) -> Self {
         let history = said
             .into_iter()
@@ -213,6 +219,7 @@ impl InProcess {
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
             mcp: Mutex::new(None),
+            teammate,
         }
     }
 
@@ -266,16 +273,10 @@ impl Driver for InProcess {
     ) -> mpsc::Receiver<Update> {
         let text = with_paths(&text, &attachments);
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
-        let mcp_tools = lock(&self.mcp)
-            .as_ref()
-            .map(|connected| {
-                connected
-                    .tools
-                    .iter()
-                    .map(mcp::McpTool::as_dynamic)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
+        if let Some(connected) = lock(&self.mcp).as_ref() {
+            mcp_tools.extend(connected.tools.iter().map(mcp::McpTool::as_dynamic));
+        }
         let turn = Turn {
             keys: self.keys.provider_keys(),
             model: lock(&self.model).clone(),
@@ -701,6 +702,16 @@ fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connec
         tools::BUILTIN,
         "Toad handed them to the agent",
     );
+    // Toad's own tools are built here, not connected to: the agent and the
+    // server are the same process, so there is nothing to observe and nothing
+    // that can have gone wrong between them.
+    ledger.all(
+        crate::contract::ToolState::Verified,
+        ToolSourceKind::Builtin,
+        mcp::server::SERVER_NAME,
+        &mcp::server::TOOL_NAMES,
+        "Toad's own tools, called in this process",
+    );
     for tool in &connected.tools {
         ledger.verified(
             ToolSourceKind::Mcp,
@@ -713,14 +724,7 @@ fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connec
         ledger.absent(ToolSourceKind::Mcp, &failed.id, &failed.id, &failed.reason);
     }
     for id in missing {
-        ledger.absent(
-            ToolSourceKind::Mcp,
-            id,
-            id,
-            format!(
-                "this teammate's MCP policy names the server {id}, which no longer exists in app settings — every tool it supplied is gone"
-            ),
-        );
+        ledger.absent(ToolSourceKind::Mcp, id, id, mcp::missing_reason(id));
     }
     ledger.publish();
 }

@@ -115,7 +115,6 @@ impl ToolLedger {
     }
 
     /// Toad handed this tool over and cannot see whether the agent took it.
-    #[cfg(test)]
     pub fn declared(
         &mut self,
         source: ToolSourceKind,
@@ -174,7 +173,6 @@ impl ToolLedger {
 
 /// Promote rows from `declared` to `verified`, because the agent was seen
 /// asking for them.
-#[cfg(test)]
 pub fn mark_verified(
     persona_id: &str,
     source: ToolSourceKind,

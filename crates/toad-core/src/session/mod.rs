@@ -50,6 +50,7 @@ use crate::driver::rig::{InProcess, Said, models};
 use crate::driver::{Driver, MessageKind, PI_BACKEND_ID, Update, clip};
 use crate::log::{Log, StreamId};
 use crate::mcp;
+use crate::mcp::server::TeammateTools;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
@@ -115,14 +116,16 @@ pub trait ProviderKeys: Send + Sync {
 #[async_trait]
 pub trait Agents: Send + Sync {
     /// A teammate's agent, chosen by the backend its record names, told the
-    /// preamble and seeded with what has been said in the chapter it is
-    /// joining. A backend this desk cannot run is refused here, in a sentence
-    /// naming what is missing.
+    /// preamble, seeded with what has been said in the chapter it is joining,
+    /// and given that teammate's own tools over its conversation. A backend
+    /// this desk cannot run is refused here, in a sentence naming what is
+    /// missing.
     fn agent(
         &self,
         persona: &Persona,
         preamble: String,
         said: Vec<Said>,
+        tools: TeammateTools,
     ) -> Result<Arc<dyn Driver>, String>;
 
     /// One answer, with no tools and no conversation.
@@ -145,18 +148,20 @@ impl Agents for DeskAgents {
         persona: &Persona,
         preamble: String,
         said: Vec<Said>,
+        tools: TeammateTools,
     ) -> Result<Arc<dyn Driver>, String> {
+        let grant = mcp::grant(
+            &mcp::servers(&room::settings(&self.log)),
+            &persona.mcp_policy,
+        );
         if persona.backend_id == PI_BACKEND_ID {
-            let grant = mcp::grant(
-                &mcp::servers(&room::settings(&self.log)),
-                &persona.mcp_policy,
-            );
             return Ok(Arc::new(
                 InProcess::new(
                     self.keys.clone(),
                     preamble,
                     said,
                     self.root.join("tool-output").join(&persona.id),
+                    tools,
                 )
                 .with_mcp(grant.servers, grant.missing),
             ));
@@ -164,11 +169,15 @@ impl Agents for DeskAgents {
         // The registry answers whether this machine can start that harness at
         // all, and says what is missing when it cannot.
         acp::registry::launch(&self.root, &persona.backend_id)?;
-        Ok(Arc::new(ChildAgent::new(
-            self.root.clone(),
-            persona.backend_id.clone(),
-            preamble,
-        )))
+        Ok(Arc::new(
+            ChildAgent::new(
+                self.root.clone(),
+                persona.backend_id.clone(),
+                preamble,
+                tools,
+            )
+            .with_mcp(grant.servers, grant.missing),
+        ))
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
@@ -417,6 +426,7 @@ impl Room {
             &persona,
             preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
             said(&events),
+            TeammateTools::new(self, &persona.id),
         )?;
         let reported = driver.start(&persona).await?;
         let mut info = idle_info(&persona.id);
@@ -744,6 +754,11 @@ impl Room {
     /// when it has never started under a Toad that keeps a ledger.
     pub fn teammate_tools(&self, persona_id: &str) -> Option<TeammateToolLedger> {
         ledger::teammate_tools(persona_id)
+    }
+
+    /// The room's streams, for the teammate tools that read a tape.
+    pub(crate) fn log(&self) -> &Log {
+        &self.log
     }
 
     // -- chapters -----------------------------------------------------------
@@ -1383,10 +1398,14 @@ fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> St
             persona.name
         )
     };
+    // Every teammate has the three tools over its own conversation, on either
+    // driver, so the sentence about them is unconditional: a tool an agent
+    // was never told about is a tool it does not have.
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.\n\n{}",
         persona.cwd,
-        Local::now().format("%A %-d %B %Y")
+        Local::now().format("%A %-d %B %Y"),
+        crate::mcp::server::HOW_TO_USE,
     );
     match wake {
         Some(wake) => format!("{standing}\n\n{wake}"),

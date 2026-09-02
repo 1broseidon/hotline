@@ -4,8 +4,8 @@
 
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, JsonObject, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, JsonObject,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, ServiceExt};
@@ -26,10 +26,7 @@ fn shout_schema() -> Arc<JsonObject> {
 
 impl ServerHandler for Echo {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
 
     fn list_tools(
@@ -37,21 +34,18 @@ impl ServerHandler for Echo {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, rmcp::ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult {
-            tools: vec![Tool::new(
-                "shout",
-                "Echo the text back in upper case.",
-                shout_schema(),
-            )],
-            ..Default::default()
-        }))
+        std::future::ready(Ok(ListToolsResult::with_all_items(vec![Tool::new(
+            "shout",
+            "Echo the text back in upper case.",
+            shout_schema(),
+        )])))
     }
 
     fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResult, rmcp::ErrorData>> + Send + '_ {
+    ) -> impl Future<Output = Result<CallToolResponse, rmcp::ErrorData>> + Send + '_ {
         let text = request
             .arguments
             .as_ref()
@@ -59,7 +53,9 @@ impl ServerHandler for Echo {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_uppercase();
-        std::future::ready(Ok(CallToolResult::success(vec![Content::text(text)])))
+        std::future::ready(Ok(
+            CallToolResult::success(vec![ContentBlock::text(text)]).into()
+        ))
     }
 }
 

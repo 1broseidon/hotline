@@ -194,6 +194,42 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
     assert_eq!(shouted, "HARBOUR");
 }
 
+/// Toad's own three tools are the teammate's whether or not anything else is:
+/// built in this process for Toad Agent, and verified because Toad built them.
+#[tokio::test(flavor = "multi_thread")]
+async fn toad_agent_gets_toads_own_three_tools() {
+    let (_root, port) = open("toad-tools").await;
+    let mut client = Client::connect(port).await;
+    keyed(&mut client).await;
+
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "goal": "Remember." } }),
+        )
+        .await;
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+
+    let tools = client
+        .call("teammate.tools", json!({ "personaId": persona_id }))
+        .await;
+    let rows = tools["result"]["rows"].as_array().unwrap();
+    for name in ["search_thread", "list_chapters", "new_chapter"] {
+        let row = rows
+            .iter()
+            .find(|row| row["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is on the ledger: {rows:?}"));
+        assert_eq!(row["source"], "builtin");
+        assert_eq!(row["origin"], "toad");
+        assert_eq!(row["state"], "verified");
+        assert!(!row["reason"].as_str().unwrap().is_empty());
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_policy_of_none_yields_no_mcp_rows() {
     let (_root, port) = open("none").await;

@@ -188,6 +188,7 @@ impl Agents for Fake {
         _persona: &Persona,
         preamble: String,
         said: Vec<Said>,
+        _tools: TeammateTools,
     ) -> Result<Arc<dyn Driver>, String> {
         lock(&self.preambles).push(preamble);
         lock(&self.seeds).push(said);

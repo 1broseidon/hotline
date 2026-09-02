@@ -257,7 +257,7 @@ fn refuse(status: StatusCode, body: &str) -> ErrorResponse {
 }
 
 /// Equal without leaking, through timing, how much of a wrong token matched.
-fn same_secret(presented: &str, expected: &str) -> bool {
+pub(crate) fn same_secret(presented: &str, expected: &str) -> bool {
     let presented = presented.as_bytes();
     let expected = expected.as_bytes();
     if presented.len() != expected.len() {

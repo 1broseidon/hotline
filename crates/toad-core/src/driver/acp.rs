@@ -27,9 +27,12 @@ pub mod registry;
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
 use crate::contract::{
-    Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach, SessionCapabilities,
-    TokenUsage,
+    AgentKind, Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach,
+    SessionCapabilities, TokenUsage, ToolSourceKind, ToolState,
 };
+use crate::mcp::server::{Served, TeammateTools};
+use crate::mcp::{self, McpServer, McpTransport};
+use crate::session::ledger::ToolLedger;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     self as acp, CancelNotification, ClientCapabilities, ContentBlock, FileSystemCapabilities,
@@ -195,18 +198,46 @@ pub struct ChildAgent {
     /// where it stands, and what happened in the chapter that closed. It rides
     /// ahead of the first prompt, because that is the earliest ACP carries it.
     preamble: String,
+    /// Third-party servers this teammate's policy granted. Toad does not
+    /// connect these for a child: it names them in the session the child
+    /// opens, and the child connects them itself.
+    mcp_servers: Vec<McpServer>,
+    /// Policy ids that named a server the room no longer has.
+    mcp_missing: Vec<String>,
+    /// This teammate's tools over its own conversation, and the loopback
+    /// endpoint they are served on. The endpoint lives exactly as long as the
+    /// driver: dropping one drops the other, and the child is gone anyway.
+    teammate: TeammateTools,
+    served: Mutex<Option<Served>>,
     live: Arc<Live>,
 }
 
 impl ChildAgent {
-    pub fn new(root: PathBuf, backend_id: String, preamble: String) -> Self {
+    pub fn new(
+        root: PathBuf,
+        backend_id: String,
+        preamble: String,
+        teammate: TeammateTools,
+    ) -> Self {
         Self {
             root,
             backend_id,
             child: Mutex::new(None),
             preamble,
+            mcp_servers: Vec::new(),
+            mcp_missing: Vec::new(),
+            teammate,
+            served: Mutex::new(None),
             live: Arc::new(Live::default()),
         }
+    }
+
+    /// The third-party servers this teammate may use, selected before the
+    /// driver is built so the session it opens can name them.
+    pub fn with_mcp(mut self, servers: Vec<McpServer>, missing: Vec<String>) -> Self {
+        self.mcp_servers = servers;
+        self.mcp_missing = missing;
+        self
     }
 }
 
@@ -549,6 +580,10 @@ impl ChildAgent {
         let connection = connect(self.live.clone(), transport).await?;
         *lock(&self.live.connection) = Some(connection.clone());
 
+        // Toad's own tools go up before the session does, because the session
+        // is where the child is told where to find them.
+        let serving = self.open_toad_endpoint().await;
+
         let initialized = connection
             .send_request(
                 InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
@@ -580,6 +615,10 @@ impl ChildAgent {
 
         self.open_session(&connection, persona, capabilities)
             .await?;
+        // Written once the session it describes exists: an agent that refused
+        // to start was given nothing, and a ledger saying otherwise is exactly
+        // the lie this ledger is for.
+        self.publish_ledger(persona, serving);
         self.adopt_disposition(persona).await;
         Ok(lock(&self.live.session).info.clone())
     }
@@ -607,7 +646,10 @@ impl ChildAgent {
             let id = SessionId::new(previous.as_str());
             if capabilities.resume {
                 let resumed = connection
-                    .send_request(ResumeSessionRequest::new(id.clone(), cwd.clone()))
+                    .send_request(
+                        ResumeSessionRequest::new(id.clone(), cwd.clone())
+                            .mcp_servers(self.declared_servers()),
+                    )
                     .block_task()
                     .await;
                 if let Ok(response) = resumed {
@@ -620,7 +662,10 @@ impl ChildAgent {
             if capabilities.load_session {
                 self.live.replaying.store(true, Ordering::SeqCst);
                 let loaded = connection
-                    .send_request(LoadSessionRequest::new(id.clone(), cwd.clone()))
+                    .send_request(
+                        LoadSessionRequest::new(id.clone(), cwd.clone())
+                            .mcp_servers(self.declared_servers()),
+                    )
                     .block_task()
                     .await;
                 self.live.replaying.store(false, Ordering::SeqCst);
@@ -634,7 +679,7 @@ impl ChildAgent {
         }
 
         let opened = connection
-            .send_request(NewSessionRequest::new(cwd))
+            .send_request(NewSessionRequest::new(cwd).mcp_servers(self.declared_servers()))
             .block_task()
             .await
             .map_err(|error| format!("The agent would not open a session: {error}"))?;
@@ -645,6 +690,117 @@ impl ChildAgent {
             false,
         );
         Ok(())
+    }
+
+    /// Puts Toad's own tools on a loopback port for this child, answering
+    /// with why it could not when it could not.
+    ///
+    /// A child is a separate process, so there is no way to hand it a
+    /// function: the same handler Toad Agent calls directly is served over
+    /// HTTP, and the token is this session's alone.
+    async fn open_toad_endpoint(&self) -> Result<(), String> {
+        match mcp::server::serve(self.teammate.clone()).await {
+            Ok(served) => {
+                *lock(&self.served) = Some(served);
+                Ok(())
+            }
+            Err(error) => Err(format!(
+                "Toad could not open a loopback port for its own tools: {error}"
+            )),
+        }
+    }
+
+    /// The MCP servers this session is opened with: Toad's own first, then
+    /// every third-party server the teammate's policy granted and this build
+    /// can describe.
+    ///
+    /// Toad does not connect any of these for a child. It says where they are
+    /// and the child connects them, which is why a row about them can only
+    /// ever say "declared".
+    fn declared_servers(&self) -> Vec<acp::McpServer> {
+        let mut declared = Vec::new();
+        if let Some(served) = lock(&self.served).as_ref() {
+            declared.push(acp::McpServer::Http(
+                acp::McpServerHttp::new(mcp::server::SERVER_NAME, served.url()).headers(vec![
+                    acp::HttpHeader::new("Authorization", format!("Bearer {}", served.token())),
+                ]),
+            ));
+        }
+        for server in &self.mcp_servers {
+            if mcp::unsupported(server).is_some() {
+                continue;
+            }
+            declared.push(match &server.transport {
+                McpTransport::Stdio { command, args, env } => {
+                    // Sorted, because a hash map's order is not a decision and
+                    // two runs of the same room should send the same bytes.
+                    let mut names: Vec<&String> = env.keys().collect();
+                    names.sort();
+                    acp::McpServer::Stdio(
+                        acp::McpServerStdio::new(&server.name, command)
+                            .args(args.clone())
+                            .env(
+                                names
+                                    .into_iter()
+                                    .map(|name| acp::EnvVariable::new(name, &env[name]))
+                                    .collect(),
+                            ),
+                    )
+                }
+                McpTransport::Http { url, .. } => {
+                    acp::McpServer::Http(acp::McpServerHttp::new(&server.name, url))
+                }
+            });
+        }
+        declared
+    }
+
+    /// What this teammate was given, written down before the child has had a
+    /// chance to take any of it.
+    ///
+    /// Everything here is `declared`: Toad hands a child a list and never
+    /// sees the tools it ends up with. The one exception is Toad's own
+    /// server, which promotes its rows to `verified` the moment the child
+    /// lists tools on the endpoint — see [`crate::mcp::server`].
+    fn publish_ledger(&self, persona: &Persona, serving: Result<(), String>) {
+        let mut ledger = ToolLedger::new(
+            persona.id.clone(),
+            AgentKind::Acp,
+            persona.backend_id.clone(),
+        );
+        match &serving {
+            Ok(()) => ledger.all(
+                ToolState::Declared,
+                ToolSourceKind::Builtin,
+                mcp::server::SERVER_NAME,
+                &mcp::server::TOOL_NAMES,
+                "served on this teammate's own loopback endpoint and named in its session",
+            ),
+            Err(reason) => ledger.all(
+                ToolState::Absent,
+                ToolSourceKind::Builtin,
+                mcp::server::SERVER_NAME,
+                &mcp::server::TOOL_NAMES,
+                reason,
+            ),
+        };
+        for server in &self.mcp_servers {
+            match mcp::unsupported(server) {
+                Some(reason) => {
+                    ledger.absent(ToolSourceKind::Mcp, &server.id, &server.name, reason)
+                }
+                None => ledger.declared(
+                    ToolSourceKind::Mcp,
+                    &server.id,
+                    &server.name,
+                    "named in the session this agent opened; Toad does not connect it and cannot see the tools it supplied",
+                ),
+            };
+        }
+        for id in &self.mcp_missing {
+            ledger.absent(ToolSourceKind::Mcp, id, id, mcp::missing_reason(id));
+        }
+        ledger.publish();
     }
 
     fn adopt(
@@ -1283,6 +1439,22 @@ mod tests {
         StopReason, TextContent, ToolCall, ToolCallId, ToolCallStatus, ToolCallUpdate,
         ToolCallUpdateFields, ToolKind,
     };
+    use rmcp::ServiceExt;
+
+    /// A desk with no provider key: nothing in these tests reaches a model.
+    struct NoKeys;
+
+    impl crate::session::ProviderKeys for NoKeys {
+        fn provider_keys(&self) -> HashMap<String, String> {
+            HashMap::new()
+        }
+    }
+
+    /// A room the driver's teammate tools point back at. Held by the test,
+    /// because the tools hold it weakly.
+    fn room(name: &str) -> Arc<crate::session::Room> {
+        crate::session::Room::new(crate::log::Log::open(scratch(name)), Arc::new(NoKeys))
+    }
 
     fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona {
         Persona {
@@ -1330,6 +1502,9 @@ mod tests {
     struct Heard {
         opened: Arc<Mutex<Vec<String>>>,
         prompted: Arc<Mutex<Vec<Vec<String>>>>,
+        /// The MCP servers the session was opened with, which is the only
+        /// place a child ever hears about them.
+        servers: Arc<Mutex<Vec<acp::McpServer>>>,
     }
 
     /// An ACP agent that answers the handshake and then plays one turn: a
@@ -1354,6 +1529,7 @@ mod tests {
             let opened = heard.opened.clone();
             let loaded = heard.opened.clone();
             let prompted = heard.prompted.clone();
+            let servers = heard.servers.clone();
             let running = agent_client_protocol::Agent
                 .builder()
                 .name("scripted")
@@ -1368,12 +1544,14 @@ mod tests {
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
-                    move |_request: NewSessionRequest,
+                    move |request: NewSessionRequest,
                           responder: Responder<NewSessionResponse>,
                           _cx| {
                         let opened = opened.clone();
+                        let servers = servers.clone();
                         async move {
                             opened.lock().unwrap().push("session/new".to_string());
+                            *servers.lock().unwrap() = request.mcp_servers.clone();
                             responder.respond(
                                 NewSessionResponse::new(SessionId::new("fresh-session")).modes(
                                     SessionModeState::new(
@@ -1535,7 +1713,13 @@ mod tests {
         let root = scratch("turn");
         let heard = Heard::default();
         let agent = scripted_agent(heard.clone(), false);
-        let driver = ChildAgent::new(root, "cursor".to_string(), "you are Ada".to_string());
+        let held = room("turn-room");
+        let driver = ChildAgent::new(
+            root,
+            "cursor".to_string(),
+            "you are Ada".to_string(),
+            TeammateTools::new(&held, "ada"),
+        );
         tokio::spawn(agent);
 
         let info = driver
@@ -1624,7 +1808,13 @@ mod tests {
         let root = scratch("load");
         let heard = Heard::default();
         let agent = scripted_agent(heard.clone(), true);
-        let driver = ChildAgent::new(root, "cursor".to_string(), "you are Ada".to_string());
+        let held = room("load-room");
+        let driver = ChildAgent::new(
+            root,
+            "cursor".to_string(),
+            "you are Ada".to_string(),
+            TeammateTools::new(&held, "ada"),
+        );
         tokio::spawn(agent);
 
         let ada = persona(
@@ -1658,7 +1848,13 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn dropping_the_driver_takes_the_childs_whole_process_group() {
-        let driver = ChildAgent::new(scratch("kill"), "cursor".to_string(), String::new());
+        let held = room("kill-room");
+        let driver = ChildAgent::new(
+            scratch("kill"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
         let mut command = tokio::process::Command::new("sh");
         command
             .args(["-c", "sleep 600"])
@@ -1680,6 +1876,153 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         panic!("the child's process group outlived its driver");
+    }
+
+    /// What a child is told about tools: Toad's own server on this session's
+    /// loopback endpoint behind this session's token, then every third-party
+    /// server the teammate was granted and this build can describe.
+    ///
+    /// And the ledger says the same thing in the same breath, because a row
+    /// that disagrees with what was sent is worse than no row.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn session_new_carries_toads_own_server_and_the_granted_ones() {
+        let held = room("declared-room");
+        let heard = Heard::default();
+        let agent = scripted_agent(heard.clone(), false);
+        let driver = ChildAgent::new(
+            scratch("declared"),
+            "cursor".to_string(),
+            "you are Ada".to_string(),
+            TeammateTools::new(&held, "declared"),
+        )
+        .with_mcp(
+            vec![
+                McpServer {
+                    id: "echo".to_string(),
+                    name: "Echo".to_string(),
+                    transport: McpTransport::Stdio {
+                        command: "/usr/bin/echo".to_string(),
+                        args: vec!["--mcp".to_string()],
+                        env: HashMap::from([("TOKEN".to_string(), "shh".to_string())]),
+                    },
+                },
+                McpServer {
+                    id: "remote".to_string(),
+                    name: "Remote".to_string(),
+                    transport: McpTransport::Http {
+                        url: "https://example.test/mcp".to_string(),
+                        auth: crate::mcp::HttpAuth::None,
+                    },
+                },
+                McpServer {
+                    id: "locked".to_string(),
+                    name: "Locked".to_string(),
+                    transport: McpTransport::Http {
+                        url: "https://example.test/oauth".to_string(),
+                        auth: crate::mcp::HttpAuth::Oauth,
+                    },
+                },
+            ],
+            vec!["deleted".to_string()],
+        );
+        tokio::spawn(agent);
+
+        let mut ada = persona("/tmp", Vec::new());
+        ada.id = "declared".to_string();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+
+        let declared = heard.servers.lock().unwrap().clone();
+        let names: Vec<&str> = declared
+            .iter()
+            .map(|server| match server {
+                acp::McpServer::Http(http) => http.name.as_str(),
+                acp::McpServer::Stdio(stdio) => stdio.name.as_str(),
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(
+            names,
+            ["toad", "Echo", "Remote"],
+            "the OAuth server this build cannot honour is not offered"
+        );
+
+        let acp::McpServer::Http(toad) = &declared[0] else {
+            panic!("Toad's own server is reached over HTTP");
+        };
+        assert!(toad.url.starts_with("http://127.0.0.1:"), "{}", toad.url);
+        assert_eq!(toad.headers.len(), 1);
+        assert_eq!(toad.headers[0].name, "Authorization");
+        assert!(
+            toad.headers[0].value.starts_with("Bearer "),
+            "{}",
+            toad.headers[0].value
+        );
+
+        let acp::McpServer::Stdio(echo) = &declared[1] else {
+            panic!("a stdio server is offered as stdio");
+        };
+        assert_eq!(echo.command, PathBuf::from("/usr/bin/echo"));
+        assert_eq!(echo.args, ["--mcp"]);
+        assert_eq!(echo.env[0].name, "TOKEN");
+
+        let rows = crate::session::ledger::teammate_tools("declared")
+            .expect("the child's ledger was published at start")
+            .rows;
+        let row = |name: &str| {
+            rows.iter()
+                .find(|row| row.name == name)
+                .unwrap_or_else(|| panic!("{name} is on the ledger: {rows:?}"))
+                .clone()
+        };
+        for tool in crate::mcp::server::TOOL_NAMES {
+            let row = row(tool);
+            assert_eq!(row.source, ToolSourceKind::Builtin);
+            assert_eq!(row.origin, "toad");
+            assert_eq!(row.state, ToolState::Declared);
+        }
+        assert_eq!(row("Echo").state, ToolState::Declared);
+        assert_eq!(row("Locked").state, ToolState::Absent);
+        assert!(row("Locked").reason.contains("OAuth"));
+        assert_eq!(row("deleted").state, ToolState::Absent);
+        assert!(row("deleted").reason.contains("no longer exists"));
+
+        // Listing tools on the endpoint is the one thing Toad can watch a
+        // child do, so it is the one thing that turns declared into verified.
+        let listing = rmcp::model::ClientInfo::new(
+            Default::default(),
+            rmcp::model::Implementation::new("test", "1"),
+        )
+        .serve(
+            rmcp::transport::streamable_http_client::StreamableHttpClientTransport::with_client(
+                reqwest::Client::default(),
+                rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
+                    toad.url.clone(),
+                )
+                .auth_header(
+                    toad.headers[0]
+                        .value
+                        .strip_prefix("Bearer ")
+                        .expect("the header is a bearer token")
+                        .to_string(),
+                ),
+            ),
+        )
+        .await
+        .expect("the token in session/new opens the endpoint");
+        assert_eq!(
+            listing.list_all_tools().await.expect("tools listed").len(),
+            crate::mcp::server::TOOL_NAMES.len()
+        );
+        listing.cancel().await.ok();
+
+        let seen = crate::session::ledger::teammate_tools("declared")
+            .unwrap()
+            .rows;
+        for tool in crate::mcp::server::TOOL_NAMES {
+            let row = seen.iter().find(|row| row.name == tool).unwrap();
+            assert_eq!(row.state, ToolState::Verified, "{row:?}");
+            assert!(row.reason.contains("own endpoint"), "{row:?}");
+        }
     }
 
     /// Toad rewrites only the file it wrote. A hand-written AGENTS.md — even

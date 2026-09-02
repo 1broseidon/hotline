@@ -54,14 +54,11 @@ impl McpTool {
                 ));
             }
         };
+        let mut request = CallToolRequestParams::new(self.remote_name.clone());
+        request.arguments = arguments;
         let result = self
             .peer
-            .call_tool(CallToolRequestParams {
-                meta: None,
-                name: self.remote_name.clone().into(),
-                arguments,
-                task: None,
-            })
+            .call_tool(request)
             .await
             .map_err(|error| format!("MCP tool '{}' request failed: {error}", self.name))?;
         let text = result_text(&result);

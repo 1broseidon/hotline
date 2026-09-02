@@ -730,6 +730,7 @@
 	 * slate wash. No tails: the side already says who is speaking. Both
 	 * are selectable; everything else in the window is not. */
 	.speech {
+		position: relative;
 		min-width: 0;
 		max-width: 78%;
 		padding: 8px 12px;
@@ -743,7 +744,10 @@
 		background: var(--said-me);
 		white-space: pre-wrap;
 	}
+	/* Theirs is a block in a block, so it names its own width: as wide as
+	 * the words, never the column. Yours already sits in a flex row. */
 	.said-them {
+		width: fit-content;
 		background: var(--said-them);
 	}
 	/* Inside a run from one speaker the corners that face each other
@@ -876,6 +880,8 @@
 	 * keyboard, so this stays out of the tab order. */
 	/* Floats over the seam above the line, the way a message toolbar does,
 	 * so it never sits on the words it answers. */
+	/* Hangs off the bubble's own top-right corner, so a short line's Reply
+	 * sits by the line and not at the far side of the column. */
 	.reply-affordance {
 		position: absolute;
 		right: 0;

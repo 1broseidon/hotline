@@ -472,19 +472,19 @@ function AgentSay({
 				}}
 			>
 				<Markdown text={event.text} />
+				{onReply !== undefined && (
+					<button
+						type="button"
+						className="reply-affordance control btn btn-sm gap-1"
+						tabIndex={-1}
+						title={`Reply (${chordKeys("reply")})`}
+						onClick={reply}
+					>
+						<ReplyIcon />
+						Reply
+					</button>
+				)}
 			</div>
-			{onReply !== undefined && (
-				<button
-					type="button"
-					className="reply-affordance control btn btn-sm gap-1"
-					tabIndex={-1}
-					title={`Reply (${chordKeys("reply")})`}
-					onClick={reply}
-				>
-					<ReplyIcon />
-					Reply
-				</button>
-			)}
 		</div>
 	);
 }

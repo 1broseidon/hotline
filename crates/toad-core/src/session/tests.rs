@@ -43,6 +43,9 @@ pub(super) struct Scripted {
     session_id: Arc<Mutex<Option<String>>>,
     /// Permission requests this driver is waiting on, by request id.
     waiting: Arc<Mutex<Vec<String>>>,
+    /// How many times the room asked this driver to stop, which is how a
+    /// reattach proves the old one was cancelled rather than left running.
+    cancels: Arc<Mutex<usize>>,
 }
 
 impl Scripted {
@@ -62,6 +65,7 @@ impl Scripted {
             reaches: Arc::new(Mutex::new(Vec::new())),
             session_id: Arc::new(Mutex::new(None)),
             waiting: Arc::new(Mutex::new(Vec::new())),
+            cancels: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -132,6 +136,7 @@ impl Driver for Scripted {
     fn cancel(&self) {
         // A permit, not a wake: the test cancels between updates, and a wake
         // nobody is waiting for yet is a wake that never happened.
+        *lock(&self.cancels) += 1;
         self.cancelled.notify_one();
     }
 
@@ -1338,6 +1343,114 @@ async fn a_session_opens_a_chapter_and_a_restart_within_it_opens_no_second_one()
     room.stop("ada").unwrap();
     room.start("ada").await.unwrap();
     assert_eq!(markers(&room, "ada"), opened);
+}
+
+/// An idle teammate has no driver to rebuild; the next start reads the new
+/// state anyway.
+#[tokio::test]
+async fn reattach_on_an_idle_teammate_does_nothing() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = room("reattach-idle", agents.clone());
+    room.reattach("ada").await.unwrap();
+    assert!(
+        lock(&agents.preambles).is_empty(),
+        "an idle teammate built a driver"
+    );
+    assert_eq!(room.info("ada").state, SessionState::Idle);
+}
+
+/// Between turns the swap is stop then start, the same two calls a closed
+/// chapter makes: the old driver is cancelled, a new one is built, and the
+/// open chapter is the one the new session joins.
+#[tokio::test]
+async fn reattach_on_a_ready_session_swaps_the_driver_and_keeps_the_chapter() {
+    let driver = Scripted::new(Vec::new());
+    *lock(&driver.session_id) = Some("s-1".to_string());
+    let agents = Fake::new(driver);
+    let cancels = agents.driver.cancels.clone();
+    let session_id = agents.driver.session_id.clone();
+    let room = room("reattach-ready", agents.clone());
+    room.start("ada").await.unwrap();
+    let opened = markers(&room, "ada");
+    assert_eq!(room.info("ada").session_id.as_deref(), Some("s-1"));
+    assert_eq!(lock(&agents.preambles).len(), 1);
+
+    // The next start reports a different id, as a new child would.
+    *lock(&session_id) = Some("s-2".to_string());
+    room.reattach("ada").await.unwrap();
+
+    assert_eq!(*lock(&cancels), 1, "the old driver saw cancel");
+    assert_eq!(lock(&agents.preambles).len(), 2, "a new driver was built");
+    assert_eq!(room.info("ada").session_id.as_deref(), Some("s-2"));
+    assert_eq!(markers(&room, "ada"), opened, "the chapter stayed open");
+}
+
+/// A tool change mid-turn waits until the turn (and any line already queued
+/// behind it) has finished. The person already sent that line; it runs on
+/// the session that heard it, and the swap follows.
+#[tokio::test]
+async fn reattach_during_a_turn_defers_until_the_queue_drains() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::turns(vec![
+        vec![Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        }],
+        vec![Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        }],
+    ]);
+    driver.gate = Some(gate.clone());
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let room = room("reattach-defer", agents.clone());
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "first", None, None).await.unwrap();
+    until_state(&room, "ada", SessionState::Thinking).await;
+
+    room.reattach("ada").await.unwrap();
+    assert_eq!(
+        lock(&agents.preambles).len(),
+        1,
+        "a turn in flight was restarted"
+    );
+
+    room.prompt("ada", "second", None, None).await.unwrap();
+    gate.add_permits(1);
+    assert_eq!(heard(&prompts, 2).await, ["first", "second"]);
+    assert_eq!(
+        lock(&agents.preambles).len(),
+        1,
+        "the queued line ran after a swap"
+    );
+
+    gate.add_permits(1);
+    until_preambles(&agents, 2).await;
+    until_state(&room, "ada", SessionState::Ready).await;
+    assert_eq!(lock(&agents.preambles).len(), 2);
+    assert_eq!(room.info("ada").state, SessionState::Ready);
+}
+
+async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
+    for _ in 0..200 {
+        if room.info(persona_id).state == want {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the session never reached {want:?}");
+}
+
+async fn until_preambles(agents: &Fake, count: usize) {
+    for _ in 0..200 {
+        if lock(&agents.preambles).len() >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("a new driver was never built");
 }
 
 /// The gate: a chapter that closed took the agent's context with it, so the

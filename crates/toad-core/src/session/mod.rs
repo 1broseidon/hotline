@@ -29,8 +29,9 @@
 //!   reason: a chapter is a fact about the room, not about the agent.
 //!
 //! Reach is read from the roster at every prompt rather than from the persona
-//! the session started with: a live session is not told when its teammate is
-//! edited, and the switch has to take on the next turn.
+//! the session started with, so a turn already running sees a new wall. A
+//! change that rebuilds the driver — reach, tools, the workspace, the
+//! harness — is a reattach, not a wait for the next start.
 
 mod chapters;
 pub(crate) mod ledger;
@@ -62,6 +63,7 @@ use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::{Notify, broadcast, oneshot};
@@ -282,6 +284,11 @@ struct Session {
     /// restored from a checkpoint has nothing to write: the id is already on
     /// the record.
     pending_checkpoint: Mutex<Option<String>>,
+    /// A change to what this teammate can use arrived while a turn was
+    /// running. The swap waits until the session is between turns, because a
+    /// message already on its way is worth more than new tools landing one
+    /// turn sooner.
+    restart_pending: AtomicBool,
 }
 
 /// Something a prompt wants stamped on the user line it is about to write,
@@ -580,6 +587,7 @@ impl Room {
             pending_checkpoint: Mutex::new(
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
+            restart_pending: AtomicBool::new(false),
         });
         lock(&self.sessions).insert(persona.id.clone(), session);
         // Nothing said is outside a chapter: a session that starts on a tape
@@ -623,6 +631,47 @@ impl Room {
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;
         let _ = self.info_changes.send(info);
+        Ok(())
+    }
+
+    /// Rebuilds a live session from the teammate's current record, so a change
+    /// to what it can use takes effect without waiting for the next start.
+    ///
+    /// Behind the start gate: two reattaches, or a reattach racing a chapter
+    /// swap, would otherwise stop the session the other had just brought up.
+    /// No live session is nothing to do — the next start builds from the new
+    /// state anyway. A turn in flight sets a flag and returns; the swap
+    /// happens when that turn (and any line queued behind it) has finished.
+    pub async fn reattach(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let gate = self.start_gate(persona_id);
+        let _held = gate.lock().await;
+        let Some(session) = lock(&self.sessions).get(persona_id).cloned() else {
+            return Ok(());
+        };
+        let busy = lock(&session.turns).running
+            || matches!(
+                lock(&session.info).state,
+                SessionState::Thinking | SessionState::Starting
+            );
+        if busy {
+            session.restart_pending.store(true, Ordering::SeqCst);
+            return Ok(());
+        }
+        self.stop(persona_id)?;
+        // A restart that fails to start (a key gone, a harness missing) leaves
+        // the teammate stopped — stop already ran — with the start's error in
+        // SessionInfo.error, which is what a failed start does today.
+        self.start_now(persona_id).await?;
+        Ok(())
+    }
+
+    /// Every live session, because a policy of "all" includes every server
+    /// and a narrower one is cheap to restart anyway.
+    pub async fn reattach_all(self: &Arc<Self>) -> Result<(), String> {
+        let ids: Vec<String> = lock(&self.sessions).keys().cloned().collect();
+        for id in ids {
+            self.reattach(&id).await?;
+        }
         Ok(())
     }
 
@@ -1473,6 +1522,22 @@ impl Room {
             next = lock(&session.turns).next_line();
         }
         self.set_state(&session, SessionState::Ready);
+        // A queued line ran first: we only get here once Turns is empty. A
+        // tool change that arrived mid-turn waits until then, because a
+        // message the person already sent is worth more than new tools
+        // landing one turn sooner.
+        if lock(&session.turns).running {
+            return;
+        }
+        if !session.restart_pending.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        if let Err(error) = self.reattach(&session.persona_id).await {
+            eprintln!(
+                "{} could not be restarted after a tool change: {error}",
+                session.persona_id
+            );
+        }
     }
 
     /// One driver update, as the tape and the wire see it.

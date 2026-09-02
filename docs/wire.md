@@ -139,7 +139,7 @@ The command returns as soon as the turn is started; what the turn
 produces reaches the client as tape events and ephemeral deltas.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
-`search.all` defaults `limit` to 30. A query is cut at 200 UTF-16 code
+`search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code
 units. Hits are chapters first, then messages; a thread hit has no
 `personaId`, a global hit does. `truncated` is true when more messages
 matched than the limit. A missing index or an empty query is

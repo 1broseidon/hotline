@@ -258,8 +258,18 @@ pub fn search(root: &Path, persona_id: &str, query: &str, limit: Option<i64>) ->
 /// The same search, across every teammate at once. One index already holds
 /// them all — per-conversation search was a WHERE clause, and removing it is
 /// the whole feature.
+///
+/// Clamped like its sibling, and for the same reason. SQLite reads a negative
+/// `LIMIT` as no limit at all, so a slip of the sign used to answer with every
+/// chapter in the room, no messages, and `truncated` saying the opposite of
+/// what happened.
 pub fn search_all(root: &Path, query: &str, limit: Option<i64>) -> Value {
-    run(root, Scope::Everyone, query, limit.unwrap_or(30))
+    run(
+        root,
+        Scope::Everyone,
+        query,
+        limit.unwrap_or(30).clamp(1, 60),
+    )
 }
 
 /// The index's schema, and the only copy of it.
@@ -1179,5 +1189,41 @@ mod tests {
                 text("cursor"),
             ]]
         );
+    }
+
+    /// SQLite reads a negative `LIMIT` as no limit at all, so a limit off the
+    /// wire is a number the room has to mean something by.
+    #[test]
+    fn a_limit_the_caller_slipped_on_is_still_a_limit() {
+        let (root, database) = index("limit-slip");
+        for n in 0..80 {
+            chapter(
+                &database,
+                "ada",
+                &format!("c{n}"),
+                "the harbour crane",
+                "we moved it",
+            );
+            message(
+                &database,
+                "ada",
+                &format!("m{n}"),
+                "user",
+                "the harbour crane is stuck",
+            );
+        }
+
+        for slipped in [Some(-1), Some(0), Some(i64::MAX)] {
+            let answer = search_all(&root, "harbour", slipped);
+            assert!(
+                hits(&answer).len() <= 120,
+                "a limit of {slipped:?} answered with {} hits",
+                hits(&answer).len()
+            );
+            assert!(
+                hits(&answer).iter().any(|hit| hit.get("eventId").is_some()),
+                "a limit of {slipped:?} answered with no messages at all"
+            );
+        }
     }
 }

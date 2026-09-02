@@ -1,6 +1,7 @@
 import type {
 	ChapterSummary,
 	ConfigChoice,
+	Credential,
 	Persona,
 	PersonaDraft,
 	Preview,
@@ -29,17 +30,6 @@ import type {
  * either side said, and what their session is doing right now.
  */
 export type RosterEntry = { persona: Persona; preview: Preview | null; session: SessionInfo };
-
-/** A provider key the vault holds, minus the secret, which never leaves it. */
-export type Credential = {
-	id: string;
-	providerId: string;
-	credentialKind: string;
-	label: string;
-	revoked: boolean;
-	createdAt: number;
-	updatedAt: number;
-};
 
 /** `search.thread`'s answer: what matched, and whether the index stopped early. */
 export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };

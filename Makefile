@@ -2,7 +2,7 @@
 # nothing done in it can reach real data.
 dev: export TOAD_DATA_DIR := $(CURDIR)/.toad-dev
 
-.PHONY: check ui-check dev build verify icons
+.PHONY: check ui-check dev build verify icons tray-icons
 
 check: ui-check
 	cargo fmt --all --check
@@ -32,5 +32,13 @@ verify:
 
 # Every platform's app icon, rendered from the one tile in assets/. The CLI
 # also writes Android and iOS sets; there is no phone here yet, so they go.
-icons:
+# The tray is the mark without the tile: 32 pixels of tile is a blob, and a
+# macOS template image has to be solid black so the OS can tint it. The
+# accent is the tile's, spelled here because rsvg reads no currentColor from
+# the page.
+icons: tray-icons
 	cd crates/toad-desktop && cargo tauri icon ../../assets/toad-tile.svg -o icons && rm -rf icons/android icons/ios
+
+tray-icons:
+	sed 's/currentColor/#6bcb62/' assets/toad-mark.svg | rsvg-convert -w 32 -h 32 -o crates/toad-desktop/icons/tray.png -
+	sed 's/currentColor/#000000/' assets/toad-mark.svg | rsvg-convert -w 44 -h 44 -o crates/toad-desktop/icons/tray-template.png -

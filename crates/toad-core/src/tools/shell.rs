@@ -26,7 +26,7 @@ impl RunCommand {
 }
 
 impl Tool for RunCommand {
-    const NAME: &'static str = "run_command";
+    const NAME: &'static str = "shell";
     type Error = ToolError;
     type Args = RunCommandArgs;
     type Output = String;

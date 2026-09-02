@@ -22,8 +22,7 @@
 use crate::contract::Reach;
 use crate::log::{Log, StreamId};
 use crate::tools::{
-    Calculator, CurrentTime, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles,
-    Workspace, WriteFile,
+    EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace, WriteFile,
 };
 use futures_util::StreamExt;
 use rig::agent::MultiTurnStreamItem;
@@ -511,8 +510,6 @@ impl Runtime {
             Workspace::open(session.start.cwd.clone(), reach).map_err(|error| error.to_string())?;
         let agent = agent_builder(&keys, &model)?
             .preamble(&session.start.preamble)
-            .tool(Calculator)
-            .tool(CurrentTime)
             .tool(ListDirectory::new(workspace.clone()))
             .tool(ReadFile::new(workspace.clone()))
             .tool(SearchFiles::new(workspace.clone()))
@@ -770,13 +767,13 @@ mod tests {
     #[test]
     fn a_tool_call_is_described_by_what_it_touched() {
         assert_eq!(
-            describe_tool("read_file", &json!({"path": "src/x.rs"})),
-            "read_file src/x.rs"
+            describe_tool("read", &json!({"path": "src/x.rs"})),
+            "read src/x.rs"
         );
         assert_eq!(
-            describe_tool("run_command", &json!({"command": "ls"})),
-            "run_command ls"
+            describe_tool("shell", &json!({"command": "ls"})),
+            "shell ls"
         );
-        assert_eq!(describe_tool("current_time", &json!({})), "current_time");
+        assert_eq!(describe_tool("glob", &json!({})), "glob");
     }
 }

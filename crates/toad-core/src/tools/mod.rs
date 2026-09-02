@@ -1,5 +1,4 @@
 mod shell;
-mod utility;
 mod workspace;
 
 use rig::tool::ToolExecutionError;
@@ -9,7 +8,6 @@ use std::{
 };
 
 pub use shell::RunCommand;
-pub use utility::{Calculator, CurrentTime};
 pub use workspace::{
     EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile,
 };

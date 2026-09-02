@@ -776,7 +776,7 @@ impl ListDirectory {
 }
 
 impl Tool for ListDirectory {
-    const NAME: &'static str = "list_directory";
+    const NAME: &'static str = "ls";
     type Error = ToolError;
     type Args = ListDirectoryArgs;
     type Output = String;
@@ -836,7 +836,7 @@ impl ReadFile {
 }
 
 impl Tool for ReadFile {
-    const NAME: &'static str = "read_file";
+    const NAME: &'static str = "read";
     type Error = ToolError;
     type Args = ReadFileArgs;
     type Output = String;
@@ -912,7 +912,7 @@ impl SearchFiles {
 }
 
 impl Tool for SearchFiles {
-    const NAME: &'static str = "search_files";
+    const NAME: &'static str = "grep";
     type Error = ToolError;
     type Args = SearchFilesArgs;
     type Output = String;
@@ -993,7 +993,7 @@ impl FindFiles {
 }
 
 impl Tool for FindFiles {
-    const NAME: &'static str = "find_files";
+    const NAME: &'static str = "glob";
     type Error = ToolError;
     type Args = FindFilesArgs;
     type Output = String;
@@ -1067,7 +1067,7 @@ impl WriteFile {
 }
 
 impl Tool for WriteFile {
-    const NAME: &'static str = "write_file";
+    const NAME: &'static str = "write";
     type Error = ToolError;
     type Args = WriteFileArgs;
     type Output = String;
@@ -1139,7 +1139,7 @@ impl EditFile {
 }
 
 impl Tool for EditFile {
-    const NAME: &'static str = "edit_file";
+    const NAME: &'static str = "edit";
     type Error = ToolError;
     type Args = EditFileArgs;
     type Output = String;

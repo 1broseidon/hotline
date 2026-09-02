@@ -156,6 +156,11 @@ pub struct Model {
     pub status: Option<String>,
     #[serde(default)]
     pub reasoning: bool,
+    /// Effort levels this model offers, from models.dev's `reasoning_options`
+    /// entry of type `effort`, in the order the catalogue lists them. Empty
+    /// when the model has no such option — only that type is read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<String>,
     /// Takes files (images, PDFs) alongside text.
     #[serde(default)]
     pub attachment: bool,
@@ -180,6 +185,34 @@ pub struct Cost {
 pub struct Limit {
     pub context: u64,
     pub output: u64,
+}
+
+/// One catalogue model, with `efforts` taken from the raw `reasoning_options`
+/// rather than from a field models.dev already spells the way we store it.
+fn take_model(provider: &str, id: &str, raw: &Value) -> Result<Model, String> {
+    let mut model: Model =
+        serde_json::from_value(raw.clone()).map_err(|error| format!("{provider}/{id}: {error}"))?;
+    model.efforts = efforts_of(raw);
+    Ok(model)
+}
+
+/// The `effort` entry of `reasoning_options`, in catalogue order. A `toggle`
+/// or `budget_tokens` option is not an effort list and is ignored.
+fn efforts_of(model: &Value) -> Vec<String> {
+    model
+        .get("reasoning_options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|option| option.get("type").and_then(Value::as_str) == Some("effort"))
+        .and_then(|option| option.get("values").and_then(Value::as_array))
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The snapshot this build carries.
@@ -228,8 +261,7 @@ pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
             if !usable(model) {
                 continue;
             }
-            let model: Model = serde_json::from_value(model.clone())
-                .map_err(|error| format!("{}/{id}: {error}", wiring.id))?;
+            let model = take_model(wiring.id, id, model)?;
             models.insert(id.clone(), model);
         }
         if models.is_empty() {
@@ -254,8 +286,7 @@ fn chatgpt_from_openai(api: &Value) -> Result<ProviderEntry, String> {
         let model = openai["models"].get(*id).ok_or_else(|| {
             format!("openai-codex needs openai model `{id}`, and models.dev does not have it")
         })?;
-        let mut model: Model = serde_json::from_value(model.clone())
-            .map_err(|error| format!("openai-codex/{id}: {error}"))?;
+        let mut model = take_model("openai-codex", id, model)?;
         model.cost = None;
         models.insert((*id).to_string(), model);
     }
@@ -421,6 +452,50 @@ pub fn label_of(model_id: &str) -> Option<String> {
         .models
         .get(model)
         .map(|model| model.name.clone())
+}
+
+/// The effort levels a `provider/model` offers, empty when the id is unknown
+/// or the model has no `effort` option.
+pub fn efforts(model_id: &str) -> Vec<String> {
+    let Some((provider, model)) = model_id.split_once('/') else {
+        return Vec::new();
+    };
+    catalog()
+        .providers
+        .get(provider)
+        .and_then(|entry| entry.models.get(model))
+        .map(|model| model.efforts.clone())
+        .unwrap_or_default()
+}
+
+/// The picker's label for an effort id. One function, so the driver and the
+/// idle picker cannot drift.
+pub fn effort_label(id: &str) -> String {
+    match id {
+        "none" => "None",
+        "minimal" => "Minimal",
+        "low" => "Low",
+        "medium" => "Medium",
+        "high" => "High",
+        "xhigh" => "Extra high",
+        "max" => "Max",
+        "default" => "Default",
+        other => return other.to_string(),
+    }
+    .to_string()
+}
+
+/// The idle picker's choices for a model's efforts.
+pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
+    efforts(model_id)
+        .into_iter()
+        .map(|id| ConfigChoice {
+            name: effort_label(&id),
+            id,
+            description: None,
+            group: None,
+        })
+        .collect()
 }
 
 /// The most tokens one answer from a `provider/model` may hold, when the
@@ -694,6 +769,56 @@ mod tests {
             err.contains("gpt-5.6"),
             "a missing openai id must fail the sync: {err}"
         );
+    }
+
+    #[test]
+    fn a_snapshot_reads_an_effort_option_and_ignores_toggle_and_budget() {
+        let mut api = api();
+        api["anthropic"]["models"]["plain"]["reasoning_options"] = json!([
+            {"type": "toggle"},
+            {"type": "budget_tokens", "min": 1024, "max": 32000},
+            {"type": "effort", "values": ["low", "medium", "high"]},
+        ]);
+        let catalog = snapshot(&api, "d").unwrap();
+        assert_eq!(
+            catalog.providers["anthropic"].models["plain"].efforts,
+            ["low", "medium", "high"]
+        );
+        assert!(
+            catalog.providers["openai"].models["plain"]
+                .efforts
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn openai_codex_inherits_openai_efforts() {
+        let mut api = api();
+        api["openai"]["models"]["gpt-5.6"]["reasoning_options"] = json!([
+            {"type": "effort", "values": ["none", "low", "medium", "high"]}
+        ]);
+        let catalog = snapshot(&api, "d").unwrap();
+        assert_eq!(
+            catalog.providers["openai-codex"].models["gpt-5.6"].efforts,
+            ["none", "low", "medium", "high"]
+        );
+    }
+
+    #[test]
+    fn efforts_lists_a_known_model_and_is_empty_for_an_unknown() {
+        let known = catalog()
+            .providers
+            .iter()
+            .find_map(|(provider, entry)| {
+                entry.models.iter().find_map(|(id, model)| {
+                    (!model.efforts.is_empty())
+                        .then(|| (format!("{provider}/{id}"), model.efforts.clone()))
+                })
+            })
+            .expect("the snapshot has at least one model with an effort list");
+        assert_eq!(efforts(&known.0), known.1);
+        assert!(efforts("nope/nope").is_empty());
+        assert!(efforts("bare").is_empty());
     }
 
     #[test]

@@ -10,6 +10,13 @@
           "name": "Claude Fable 5",
           "release_date": "2026-06-07",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 10.0,
@@ -26,6 +33,13 @@
           "name": "Claude Fable 5.1",
           "release_date": "2026-09-01",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 10.0,
@@ -74,6 +88,11 @@
           "name": "Claude Opus 4.5 (latest)",
           "release_date": "2025-11-24",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -90,6 +109,11 @@
           "name": "Claude Opus 4.5",
           "release_date": "2025-11-24",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -106,6 +130,12 @@
           "name": "Claude Opus 4.6",
           "release_date": "2026-02-04",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -122,6 +152,13 @@
           "name": "Claude Opus 4.7",
           "release_date": "2026-04-14",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -138,6 +175,13 @@
           "name": "Claude Opus 4.8",
           "release_date": "2026-05-28",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -154,6 +198,13 @@
           "name": "Claude Opus 5",
           "release_date": "2026-07-24",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -202,6 +253,12 @@
           "name": "Claude Sonnet 4.6",
           "release_date": "2026-02-17",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 3.0,
@@ -218,6 +275,13 @@
           "name": "Claude Sonnet 5",
           "release_date": "2026-06-29",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -240,6 +304,11 @@
           "name": "DeepSeek V4 Flash",
           "release_date": "2026-07-31",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.14,
@@ -256,6 +325,11 @@
           "release_date": "2026-08-21",
           "status": "beta",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.14,
@@ -271,6 +345,10 @@
           "name": "DeepSeek V4 Pro",
           "release_date": "2026-08-12",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.435,
@@ -292,6 +370,13 @@
           "name": "Claude Fable 5",
           "release_date": "2026-06-09",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 10.0,
@@ -340,6 +425,12 @@
           "name": "Claude Opus 4.6",
           "release_date": "2026-02-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -356,6 +447,13 @@
           "name": "Claude Opus 4.7",
           "release_date": "2026-04-16",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -372,6 +470,13 @@
           "name": "Claude Opus 4.8",
           "release_date": "2026-05-28",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -388,6 +493,13 @@
           "name": "Claude Opus 5",
           "release_date": "2026-07-24",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -436,6 +548,12 @@
           "name": "Claude Sonnet 4.6",
           "release_date": "2026-02-17",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 3.0,
@@ -452,6 +570,13 @@
           "name": "Claude Sonnet 5",
           "release_date": "2026-06-30",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -468,6 +593,11 @@
           "name": "Gemini 3.1 Pro Preview",
           "release_date": "2026-02-19",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -483,6 +613,12 @@
           "name": "Gemini 3.5 Flash",
           "release_date": "2026-05-19",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.5,
@@ -498,6 +634,12 @@
           "name": "Gemini 3.6 Flash",
           "release_date": "2026-07-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -513,6 +655,11 @@
           "name": "Gemini 3.7 Flash",
           "release_date": "2026-08-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -543,6 +690,11 @@
           "name": "GPT-5 Mini",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -588,6 +740,12 @@
           "name": "GPT-5.3 Codex",
           "release_date": "2026-02-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -603,6 +761,13 @@
           "name": "GPT-5.4",
           "release_date": "2026-03-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.5,
@@ -618,6 +783,13 @@
           "name": "GPT-5.4 mini",
           "release_date": "2026-03-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -648,6 +820,13 @@
           "name": "GPT-5.5",
           "release_date": "2026-04-23",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -663,6 +842,14 @@
           "name": "GPT-5.6 Luna",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -679,6 +866,14 @@
           "name": "GPT-5.6 Sol",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -695,6 +890,14 @@
           "name": "GPT-5.6 Terra",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -711,6 +914,11 @@
           "name": "Grok 4.5",
           "release_date": "2026-07-08",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -726,6 +934,12 @@
           "name": "Grok 4.6",
           "release_date": "2026-08-12",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -756,6 +970,11 @@
           "name": "Kimi K3",
           "release_date": "2026-07-16",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 3.0,
@@ -771,6 +990,11 @@
           "name": "MAI-Code-1-Flash",
           "release_date": "2026-06-02",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.75,
@@ -786,6 +1010,11 @@
           "name": "MAI-Code-1.1-Flash",
           "release_date": "2026-08-11",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -866,6 +1095,12 @@
           "name": "Gemini 3 Flash Preview",
           "release_date": "2025-12-17",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.5,
@@ -881,6 +1116,12 @@
           "name": "Gemini 3.1 Flash Lite",
           "release_date": "2026-05-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -896,6 +1137,11 @@
           "name": "Gemini 3.1 Pro Preview",
           "release_date": "2026-02-19",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -911,6 +1157,11 @@
           "name": "Gemini 3.1 Pro Preview Custom Tools",
           "release_date": "2026-02-19",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -926,6 +1177,12 @@
           "name": "Gemini 3.5 Flash",
           "release_date": "2026-05-19",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.5,
@@ -941,6 +1198,12 @@
           "name": "Gemini 3.5 Flash Lite",
           "release_date": "2026-07-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.3,
@@ -956,6 +1219,12 @@
           "name": "Gemini 3.6 Flash",
           "release_date": "2026-07-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -971,6 +1240,11 @@
           "name": "Gemini 3.7 Flash",
           "release_date": "2026-08-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -986,6 +1260,11 @@
           "name": "Gemini Flash Latest",
           "release_date": "2026-08-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -1001,6 +1280,12 @@
           "name": "Gemini Flash-Lite Latest",
           "release_date": "2026-07-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.3,
@@ -1070,6 +1355,11 @@
           "name": "GPT OSS 120B",
           "release_date": "2025-08-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.15,
@@ -1085,6 +1375,11 @@
           "name": "GPT OSS 20B",
           "release_date": "2025-08-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.075,
@@ -1101,6 +1396,11 @@
           "release_date": "2025-10-29",
           "status": "beta",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.075,
@@ -1115,6 +1415,10 @@
           "name": "Qwen3.6 27B",
           "release_date": "2026-04-22",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "default"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.6,
@@ -1130,6 +1434,13 @@
           "name": "Qwen3.8 27B",
           "release_date": "2026-08-14",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "default",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.8,
@@ -1290,6 +1601,10 @@
           "name": "Mistral Medium 3.5",
           "release_date": "2026-04-29",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.5,
@@ -1304,6 +1619,10 @@
           "name": "Mistral Medium (latest)",
           "release_date": "2026-04-29",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.5,
@@ -1346,6 +1665,10 @@
           "name": "Mistral Small 4",
           "release_date": "2026-03-16",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.15,
@@ -1360,6 +1683,10 @@
           "name": "Mistral Small (latest)",
           "release_date": "2026-03-16",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.15,
@@ -1459,6 +1786,10 @@
           "release_date": "2026-06-13",
           "status": "beta",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 1.4,
@@ -1570,6 +1901,12 @@
           "name": "GPT-5",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -1585,6 +1922,12 @@
           "name": "GPT-5 Mini",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -1600,6 +1943,12 @@
           "name": "GPT-5 Nano",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.05,
@@ -1615,6 +1964,9 @@
           "name": "GPT-5 Pro",
           "release_date": "2025-10-06",
           "reasoning": true,
+          "efforts": [
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 15.0,
@@ -1629,6 +1981,12 @@
           "name": "GPT-5.1",
           "release_date": "2025-11-13",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -1644,6 +2002,13 @@
           "name": "GPT-5.2",
           "release_date": "2025-12-11",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -1659,6 +2024,9 @@
           "name": "GPT-5.2 Chat",
           "release_date": "2025-12-11",
           "reasoning": true,
+          "efforts": [
+            "medium"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -1674,6 +2042,11 @@
           "name": "GPT-5.2 Pro",
           "release_date": "2025-12-11",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 21.0,
@@ -1703,6 +2076,13 @@
           "name": "GPT-5.3 Codex",
           "release_date": "2026-02-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -1718,6 +2098,13 @@
           "name": "GPT-5.3 Codex Spark",
           "release_date": "2026-02-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -1733,6 +2120,13 @@
           "name": "GPT-5.4",
           "release_date": "2026-03-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.5,
@@ -1748,6 +2142,13 @@
           "name": "GPT-5.4 mini",
           "release_date": "2026-03-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -1763,6 +2164,13 @@
           "name": "GPT-5.4 nano",
           "release_date": "2026-03-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -1778,6 +2186,11 @@
           "name": "GPT-5.4 Pro",
           "release_date": "2026-03-05",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 30.0,
@@ -1792,6 +2205,13 @@
           "name": "GPT-5.5",
           "release_date": "2026-04-23",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -1807,6 +2227,11 @@
           "name": "GPT-5.5 Pro",
           "release_date": "2026-04-23",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 30.0,
@@ -1821,6 +2246,14 @@
           "name": "GPT-5.6",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 4.0,
@@ -1837,6 +2270,14 @@
           "name": "GPT-5.6 Luna",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -1853,6 +2294,14 @@
           "name": "GPT-5.6 Sol",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 4.0,
@@ -1869,6 +2318,14 @@
           "name": "GPT-5.6 Terra",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -1885,6 +2342,11 @@
           "name": "o3",
           "release_date": "2025-04-16",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -1900,6 +2362,11 @@
           "name": "o3-pro",
           "release_date": "2025-06-10",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 20.0,
@@ -1920,6 +2387,13 @@
           "name": "GPT-5.4",
           "release_date": "2026-03-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "limit": {
             "context": 1050000,
@@ -1930,6 +2404,13 @@
           "name": "GPT-5.5",
           "release_date": "2026-04-23",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "limit": {
             "context": 1050000,
@@ -1940,6 +2421,14 @@
           "name": "GPT-5.6",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "limit": {
             "context": 1050000,
@@ -1950,6 +2439,14 @@
           "name": "GPT-5.6 Luna",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "limit": {
             "context": 1050000,
@@ -1960,6 +2457,14 @@
           "name": "GPT-5.6 Sol",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "limit": {
             "context": 1050000,
@@ -1970,6 +2475,14 @@
           "name": "GPT-5.6 Terra",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "limit": {
             "context": 1050000,
@@ -2118,6 +2631,13 @@
           "name": "Claude Fable 5",
           "release_date": "2026-06-09",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 10.0,
@@ -2134,6 +2654,13 @@
           "name": "Claude Fable 5.1",
           "release_date": "2026-09-01",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 10.0,
@@ -2214,6 +2741,12 @@
           "name": "Claude Opus 4.6",
           "release_date": "2026-02-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -2230,6 +2763,13 @@
           "name": "Claude Opus 4.7",
           "release_date": "2026-04-16",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -2246,6 +2786,13 @@
           "name": "Claude Opus 4.8",
           "release_date": "2026-05-28",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -2262,6 +2809,13 @@
           "name": "Claude Opus 5",
           "release_date": "2026-07-24",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -2310,6 +2864,12 @@
           "name": "Claude Sonnet 4.6",
           "release_date": "2026-02-17",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 3.0,
@@ -2326,6 +2886,13 @@
           "name": "Claude Sonnet 5",
           "release_date": "2026-06-30",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -2399,6 +2966,11 @@
           "name": "Seed 2.0 Code",
           "release_date": "2026-02-14",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.5,
@@ -2413,6 +2985,12 @@
           "name": "Seed 2.0 Lite",
           "release_date": "2026-02-14",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -2427,6 +3005,12 @@
           "name": "Seed 2.0 Mini",
           "release_date": "2026-02-14",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.1,
@@ -2599,6 +3183,10 @@
           "name": "DeepSeek V4 Flash",
           "release_date": "2026-04-24",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.08554,
@@ -2614,6 +3202,11 @@
           "name": "DeepSeek V4 Flash 0731",
           "release_date": "2026-07-31",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.065,
@@ -2629,6 +3222,11 @@
           "name": "DeepSeek V4 Flash Vision Exp",
           "release_date": "2026-08-21",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.22,
@@ -2644,6 +3242,10 @@
           "name": "DeepSeek V4 Pro",
           "release_date": "2026-04-24",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh"
+          ],
           "attachment": false,
           "cost": {
             "input": 1.035996,
@@ -2659,6 +3261,11 @@
           "name": "DeepSeek V4 Pro 0813",
           "release_date": "2026-08-12",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 1.1154,
@@ -2768,6 +3375,12 @@
           "name": "Gemini 3 Flash Preview",
           "release_date": "2025-12-17",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.5,
@@ -2784,6 +3397,12 @@
           "name": "Gemini 3.1 Flash Lite",
           "release_date": "2026-05-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -2800,6 +3419,12 @@
           "name": "Gemini 3.1 Flash Lite Preview",
           "release_date": "2026-03-03",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -2816,6 +3441,11 @@
           "name": "Gemini 3.1 Pro Preview",
           "release_date": "2026-02-19",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -2832,6 +3462,11 @@
           "name": "Gemini 3.1 Pro Preview Custom Tools",
           "release_date": "2026-02-19",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -2848,6 +3483,12 @@
           "name": "Gemini 3.5 Flash",
           "release_date": "2026-05-19",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.5,
@@ -2864,6 +3505,12 @@
           "name": "Gemini 3.5 Flash Lite",
           "release_date": "2026-07-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.3,
@@ -2880,6 +3527,12 @@
           "name": "Gemini 3.6 Flash",
           "release_date": "2026-07-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -2896,6 +3549,11 @@
           "name": "Gemini 3.7 Flash",
           "release_date": "2026-08-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -3013,6 +3671,11 @@
           "name": "Granite 4.2 8B",
           "release_date": "2026-08-31",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.1,
@@ -3028,6 +3691,12 @@
           "name": "Mercury 2",
           "release_date": "2026-03-04",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.25,
@@ -3043,6 +3712,12 @@
           "name": "Mercury 2.5 Preview",
           "release_date": "2026-08-31",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.04,
@@ -3218,6 +3893,12 @@
           "name": "Muse Glimmer 30B",
           "release_date": "2026-08-10",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.3,
@@ -3233,6 +3914,13 @@
           "name": "Muse Spark 1.1",
           "release_date": "2026-04-08",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -3248,6 +3936,13 @@
           "name": "Muse Spark 1.2",
           "release_date": "2026-08-05",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -3263,6 +3958,13 @@
           "name": "Muse Spark 1.2 Contributor",
           "release_date": "2026-08-21",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.1,
@@ -3529,6 +4231,10 @@
           "name": "Mistral Medium 3.5",
           "release_date": "2026-04-30",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.5,
@@ -3587,6 +4293,10 @@
           "name": "Mistral Small 4",
           "release_date": "2026-03-16",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.15,
@@ -3734,6 +4444,11 @@
           "name": "Kimi K3",
           "release_date": "2026-07-16",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 3.0,
@@ -3808,6 +4523,10 @@
           "name": "Nemotron 3 Super 120B A12B",
           "release_date": "2026-03-11",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.085,
@@ -3822,6 +4541,10 @@
           "name": "Nemotron 3 Super (free)",
           "release_date": "2026-03-11",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.0,
@@ -3836,6 +4559,10 @@
           "name": "Nemotron 3 Ultra 550B A55B",
           "release_date": "2026-06-04",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.625,
@@ -3851,6 +4578,10 @@
           "name": "Nemotron 3 Ultra (free)",
           "release_date": "2026-06-04",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.0,
@@ -4112,6 +4843,12 @@
           "name": "GPT-5",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -4127,6 +4864,12 @@
           "name": "GPT-5 Mini",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -4142,6 +4885,12 @@
           "name": "GPT-5 Nano",
           "release_date": "2025-08-07",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.05,
@@ -4157,6 +4906,9 @@
           "name": "GPT-5 Pro",
           "release_date": "2025-10-06",
           "reasoning": true,
+          "efforts": [
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 15.0,
@@ -4171,6 +4923,12 @@
           "name": "GPT-5.1",
           "release_date": "2025-11-13",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -4186,6 +4944,11 @@
           "name": "GPT-5.1 Codex",
           "release_date": "2025-11-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -4201,6 +4964,12 @@
           "name": "GPT-5.1 Codex Max",
           "release_date": "2025-11-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -4216,6 +4985,11 @@
           "name": "GPT-5.1 Codex mini",
           "release_date": "2025-11-13",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.25,
@@ -4231,6 +5005,13 @@
           "name": "GPT-5.2",
           "release_date": "2025-12-11",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -4261,6 +5042,12 @@
           "name": "GPT-5.2 Codex",
           "release_date": "2025-12-11",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -4276,6 +5063,11 @@
           "name": "GPT-5.2 Pro",
           "release_date": "2025-12-11",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 21.0,
@@ -4290,6 +5082,13 @@
           "name": "GPT-5.3 Codex",
           "release_date": "2026-02-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.75,
@@ -4305,6 +5104,13 @@
           "name": "GPT-5.4",
           "release_date": "2026-03-05",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.5,
@@ -4320,6 +5126,13 @@
           "name": "GPT-5.4 mini",
           "release_date": "2026-03-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -4335,6 +5148,13 @@
           "name": "GPT-5.4 nano",
           "release_date": "2026-03-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -4350,6 +5170,11 @@
           "name": "GPT-5.4 Pro",
           "release_date": "2026-03-05",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 30.0,
@@ -4364,6 +5189,13 @@
           "name": "GPT-5.5",
           "release_date": "2026-04-23",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -4379,6 +5211,11 @@
           "name": "GPT-5.5 Pro",
           "release_date": "2026-04-23",
           "reasoning": true,
+          "efforts": [
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 30.0,
@@ -4393,6 +5230,14 @@
           "name": "GPT-5.6 Luna",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -4409,6 +5254,14 @@
           "name": "GPT-5.6 Luna Pro",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -4425,6 +5278,14 @@
           "name": "GPT-5.6 Sol",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -4441,6 +5302,14 @@
           "name": "GPT-5.6 Sol Pro",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -4457,6 +5326,14 @@
           "name": "GPT-5.6 Terra",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -4473,6 +5350,14 @@
           "name": "GPT-5.6 Terra Pro",
           "release_date": "2026-07-09",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -4504,6 +5389,11 @@
           "name": "GPT OSS 120B",
           "release_date": "2025-08-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.037,
@@ -4518,6 +5408,11 @@
           "name": "GPT OSS 20B",
           "release_date": "2025-08-05",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.03,
@@ -4533,6 +5428,11 @@
           "name": "gpt-oss-safeguard-20b",
           "release_date": "2025-10-29",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.075,
@@ -4593,6 +5493,9 @@
           "name": "o3 Mini High",
           "release_date": "2025-02-12",
           "reasoning": true,
+          "efforts": [
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.1,
@@ -4637,6 +5540,9 @@
           "name": "o4 Mini High",
           "release_date": "2025-04-16",
           "reasoning": true,
+          "efforts": [
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.1,
@@ -5380,6 +6286,11 @@
           "name": "Qwen3.8 2.4T A95B",
           "release_date": "2026-08-12",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "xhigh"
+          ],
           "attachment": false,
           "cost": {
             "input": 2.0,
@@ -5395,6 +6306,11 @@
           "name": "Qwen3.8 27B",
           "release_date": "2026-08-14",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.425,
@@ -5427,6 +6343,13 @@
           "name": "Qwen3.8 Max",
           "release_date": "2026-08-03",
           "reasoning": true,
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -5471,6 +6394,11 @@
           "name": "Fugu Ultra",
           "release_date": "2026-06-15",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -5486,6 +6414,10 @@
           "name": "Sakana Namazu",
           "release_date": "2026-08-03",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.95,
@@ -5529,6 +6461,11 @@
           "name": "Step 3.7 Flash",
           "release_date": "2026-05-29",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.2,
@@ -5544,6 +6481,11 @@
           "name": "Hy3",
           "release_date": "2026-07-06",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.132,
@@ -5559,6 +6501,11 @@
           "name": "Hy3 preview",
           "release_date": "2026-04-20",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.18,
@@ -5574,6 +6521,11 @@
           "name": "Hy4 preview",
           "release_date": "2026-08-28",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.834,
@@ -5603,6 +6555,14 @@
           "name": "Inkling",
           "release_date": "2026-07-15",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.0,
@@ -5618,6 +6578,14 @@
           "name": "Inkling Small",
           "release_date": "2026-07-30",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.45,
@@ -5633,6 +6601,14 @@
           "name": "Inkling Small (free)",
           "release_date": "2026-07-30",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.0,
@@ -5647,6 +6623,14 @@
           "name": "Inkling (free)",
           "release_date": "2026-07-15",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.0,
@@ -5706,6 +6690,12 @@
           "name": "Grok 4.3",
           "release_date": "2026-04-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -5721,6 +6711,11 @@
           "name": "Grok 4.5",
           "release_date": "2026-07-08",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -5736,6 +6731,12 @@
           "name": "Grok 4.6",
           "release_date": "2026-08-12",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -5946,6 +6947,10 @@
           "name": "GLM-5.2",
           "release_date": "2026-06-13",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.966,
@@ -5961,6 +6966,10 @@
           "name": "GLM 5.2 (free)",
           "release_date": "2026-06-13",
           "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.0,
@@ -5975,6 +6984,11 @@
           "name": "GLM-5.3",
           "release_date": "2026-08-14",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 1.4,
@@ -5990,6 +7004,11 @@
           "name": "GLM-5.3-Flash",
           "release_date": "2026-08-26",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.075,
@@ -6020,6 +7039,13 @@
           "name": "Claude Fable Latest",
           "release_date": "2026-06-09",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 10.0,
@@ -6052,6 +7078,13 @@
           "name": "Claude Opus Latest",
           "release_date": "2026-04-21",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 5.0,
@@ -6068,6 +7101,13 @@
           "name": "Anthropic Claude Sonnet Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -6084,6 +7124,11 @@
           "name": "DeepSeek V4 Flash Latest",
           "release_date": "2026-08-01",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.05,
@@ -6099,6 +7144,11 @@
           "name": "Google Gemini Flash Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -6115,6 +7165,11 @@
           "name": "Google Gemini Pro Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -6131,6 +7186,11 @@
           "name": "MoonshotAI Kimi Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.55,
@@ -6146,6 +7206,14 @@
           "name": "OpenAI GPT Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -6162,6 +7230,13 @@
           "name": "OpenAI GPT Mini Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.75,
@@ -6177,6 +7252,12 @@
           "name": "Grok Latest",
           "release_date": "2026-07-08",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -6192,6 +7273,11 @@
           "name": "GLM Flash Latest",
           "release_date": "2026-08-27",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.075,
@@ -6207,6 +7293,11 @@
           "name": "GLM Latest",
           "release_date": "2026-08-19",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
           "attachment": false,
           "cost": {
             "input": 1.15,
@@ -6258,6 +7349,12 @@
           "name": "Grok 4.3",
           "release_date": "2026-04-17",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 1.25,
@@ -6273,6 +7370,11 @@
           "name": "Grok 4.5",
           "release_date": "2026-07-08",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,
@@ -6288,6 +7390,12 @@
           "name": "Grok 4.6",
           "release_date": "2026-08-12",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "attachment": true,
           "cost": {
             "input": 2.0,

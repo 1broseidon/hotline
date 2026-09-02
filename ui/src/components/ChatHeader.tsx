@@ -1,5 +1,6 @@
-import type { ConfigChoice } from "../generated/contract";
+import type { ConfigChoice, ScheduledJob } from "../generated/contract";
 import { MoreIcon, SearchIcon } from "../icons";
+import { nextText } from "../room";
 import type { RosterEntry } from "../wire";
 import { Chrome } from "./Chrome";
 
@@ -8,8 +9,9 @@ const TOAD_AGENT = "pi";
 
 /**
  * Who you are talking to, what their session is doing, the model, the mode,
- * and the doors that belong to this conversation: search, a new chapter, and
- * the teammate itself.
+ * and the doors that belong to this conversation: search, a new chapter,
+ * the teammate itself, and — when they have jobs — a count that opens the
+ * teammate pane on those jobs.
  *
  * The session's own list wins when it has one, because a running agent knows
  * what it can actually be switched to. Toad Agent can still be pointed at the
@@ -20,23 +22,27 @@ const TOAD_AGENT = "pi";
 export function ChatHeader({
 	entry,
 	models,
+	jobs,
 	searchOpen,
 	chapterBusy,
 	chapterSaid,
 	onSetModel,
 	onSetMode,
 	onOpenTeammate,
+	onOpenSchedules,
 	onOpenSearch,
 	onNewChapter,
 }: {
 	entry: RosterEntry;
 	models: ConfigChoice[];
+	jobs: ScheduledJob[];
 	searchOpen: boolean;
 	chapterBusy: boolean;
 	chapterSaid: string | null;
 	onSetModel(modelId: string): void;
 	onSetMode(modeId: string): void;
 	onOpenTeammate(): void;
+	onOpenSchedules(): void;
 	onOpenSearch(): void;
 	onNewChapter(): void;
 }) {
@@ -47,6 +53,10 @@ export function ChatHeader({
 	const showModel = choices.length > 0 || (toad && current !== "");
 	const modes = session.modes;
 	const currentMode = session.currentModeId ?? persona.modeId ?? "";
+	const next = jobs.reduce<ScheduledJob | null>(
+		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
+		null,
+	);
 
 	return (
 		<header>
@@ -63,6 +73,22 @@ export function ChatHeader({
 				<p className="min-w-0 truncate font-mono text-xs text-ink-3">{persona.cwd}</p>
 
 				<p className="ml-auto shrink-0 text-xs text-ink-3">{session.state}</p>
+
+				{next !== null && (
+					<button
+						type="button"
+						className="shrink-0 px-1.5 py-0.5 text-xs text-ink-3 hover:bg-paper-3 hover:text-ink-2"
+						title="Schedules"
+						aria-label={
+							jobs.length === 1
+								? `1 scheduled, next ${nextText(next.nextAt)}`
+								: `${jobs.length} scheduled, next ${nextText(next.nextAt)}`
+						}
+						onClick={onOpenSchedules}
+					>
+						{jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`}
+					</button>
+				)}
 
 				{showModel && (
 					<select

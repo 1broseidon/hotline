@@ -3,6 +3,7 @@ import type {
 	McpPolicy,
 	Persona,
 	PolicyMode,
+	ScheduledJob,
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
@@ -11,9 +12,11 @@ import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
 import { revealPath } from "../native";
 import { wire } from "../wire";
 import { PathField } from "./PathField";
+import { Schedules } from "./Schedules";
 
 /**
- * Editing a teammate: the four things the person decides, and the way out.
+ * Editing a teammate: the four things the person decides, the jobs that
+ * will wake them, and the way out.
  *
  * Name, goal and working directory are the identity and the wall. Reach is
  * the one policy — the working directory, or the whole machine — and it is a
@@ -22,10 +25,14 @@ import { PathField } from "./PathField";
  */
 export function Teammate({
 	persona,
+	jobs,
+	focusSchedules,
 	onClose,
 	onDeleted,
 }: {
 	persona: Persona;
+	jobs: ScheduledJob[];
+	focusSchedules: boolean;
 	onClose(): void;
 	onDeleted(): void;
 }) {
@@ -92,92 +99,96 @@ export function Teammate({
 	const machine = persona.reach === "machine";
 
 	return (
-		<form
-			className="flex flex-col gap-3"
-			onSubmit={(event) => {
-				event.preventDefault();
-				saveName();
-				saveGoal();
-				saveCwd();
-			}}
-		>
-			<div>
-				<label className="label" htmlFor="edit-name">
-					Name
-				</label>
-				<input
-					id="edit-name"
-					className="field"
-					value={name}
-					onChange={(event) => setName(event.target.value)}
-					onBlur={saveName}
-				/>
-			</div>
-
-			<div>
-				<label className="label" htmlFor="edit-goal">
-					Goal
-				</label>
-				<textarea
-					id="edit-goal"
-					className="field resize-none"
-					rows={3}
-					placeholder="What this teammate is for."
-					value={goal}
-					onChange={(event) => setGoal(event.target.value)}
-					onBlur={saveGoal}
-				/>
-			</div>
-
-			<div>
-				<label className="label" htmlFor="edit-cwd">
-					Working directory
-				</label>
-				<PathField id="edit-cwd" value={cwd} onChange={setCwd} onCommit={(value) => saveCwd(value)} />
-				<div className="mt-2">
-					<button
-						type="button"
-						className="btn-quiet inline-flex items-center gap-1.5"
-						onClick={() => void revealPath(persona.cwd)}
-					>
-						<RevealIcon />
-						Reveal workspace
-					</button>
-				</div>
-			</div>
-
-			<div>
-				<p className="label">Reach</p>
-				<label className="flex items-center gap-2 text-sm text-ink-2">
+		<div className="flex flex-col gap-3">
+			<form
+				className="flex flex-col gap-3"
+				onSubmit={(event) => {
+					event.preventDefault();
+					saveName();
+					saveGoal();
+					saveCwd();
+				}}
+			>
+				<div>
+					<label className="label" htmlFor="edit-name">
+						Name
+					</label>
 					<input
-						type="checkbox"
-						checked={machine}
-						disabled={busy}
-						onChange={(event) =>
-							// A missing key leaves the old reach. The generated
-							// patch is Partial<Persona>, so the wall is the
-							// word, not JSON null.
-							save({ reach: event.target.checked ? "machine" : "workspace" })
-						}
+						id="edit-name"
+						className="field"
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						onBlur={saveName}
 					/>
-					Whole machine
-				</label>
-				<p className="mt-1 text-xs leading-relaxed text-ink-3">
-					{machine
-						? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
-						: "Tools stop at the working directory: nothing outside it can be read, changed, or run."}
-				</p>
-			</div>
+				</div>
 
-			<McpGrant
-				personaId={persona.id}
-				policy={persona.mcpPolicy}
-				servers={servers}
-				disabled={busy}
-				onChange={(mcpPolicy) => save({ mcpPolicy })}
-			/>
+				<div>
+					<label className="label" htmlFor="edit-goal">
+						Goal
+					</label>
+					<textarea
+						id="edit-goal"
+						className="field resize-none"
+						rows={3}
+						placeholder="What this teammate is for."
+						value={goal}
+						onChange={(event) => setGoal(event.target.value)}
+						onBlur={saveGoal}
+					/>
+				</div>
 
-			<ToolLedger personaId={persona.id} />
+				<div>
+					<label className="label" htmlFor="edit-cwd">
+						Working directory
+					</label>
+					<PathField id="edit-cwd" value={cwd} onChange={setCwd} onCommit={(value) => saveCwd(value)} />
+					<div className="mt-2">
+						<button
+							type="button"
+							className="btn-quiet inline-flex items-center gap-1.5"
+							onClick={() => void revealPath(persona.cwd)}
+						>
+							<RevealIcon />
+							Reveal workspace
+						</button>
+					</div>
+				</div>
+
+				<div>
+					<p className="label">Reach</p>
+					<label className="flex items-center gap-2 text-sm text-ink-2">
+						<input
+							type="checkbox"
+							checked={machine}
+							disabled={busy}
+							onChange={(event) =>
+								// A missing key leaves the old reach. The generated
+								// patch is Partial<Persona>, so the wall is the
+								// word, not JSON null.
+								save({ reach: event.target.checked ? "machine" : "workspace" })
+							}
+						/>
+						Whole machine
+					</label>
+					<p className="mt-1 text-xs leading-relaxed text-ink-3">
+						{machine
+							? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
+							: "Tools stop at the working directory: nothing outside it can be read, changed, or run."}
+					</p>
+				</div>
+
+				<McpGrant
+					personaId={persona.id}
+					policy={persona.mcpPolicy}
+					servers={servers}
+					disabled={busy}
+					onChange={(mcpPolicy) => save({ mcpPolicy })}
+				/>
+
+				<ToolLedger personaId={persona.id} />
+			</form>
+
+			<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
 
 			<section className="mt-2 border-t border-rule pt-4">
 				<p className="label">Remove teammate</p>
@@ -217,7 +228,7 @@ export function Teammate({
 					Done
 				</button>
 			</div>
-		</form>
+		</div>
 	);
 }
 

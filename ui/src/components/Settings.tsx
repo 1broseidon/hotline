@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { Credential, Persona, Report } from "../generated/contract";
+import type { BackendChoice, Credential, Persona, Report, ScheduledJob } from "../generated/contract";
 import { CloseIcon } from "../icons";
-import { mcpServerDetail, mcpServersFrom, type McpHttpAuth, type McpServer } from "../mcp";
+import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
+import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { wire } from "../wire";
+import { BackendPicker } from "./BackendPicker";
 import { Chrome } from "./Chrome";
 import { PathField } from "./PathField";
 import { Teammate } from "./Teammate";
@@ -14,8 +16,6 @@ const PROVIDERS = [
 	{ id: "openrouter", name: "OpenRouter" },
 ] as const;
 
-/** A chapter closes after this many idle hours unless someone has set another. */
-const DEFAULT_IDLE_HOURS = 8;
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
@@ -29,17 +29,6 @@ const APP_SECTIONS: { id: Exclude<SettingsSection, "teammate">; title: string }[
 ];
 
 /**
- * One line on the room stream. Settings are folded from `kind: "setting"`:
- * `id` is the key, `value` the value, and `deleted` puts the default back.
- */
-type RoomItem = {
-	kind?: string;
-	id?: string;
-	value?: unknown;
-	deleted?: boolean;
-};
-
-/**
  * Settings, as a pane: a left index and the section on the right. The
  * conversation is gone while this is up. A selected teammate is one more
  * row in the index, not a second window.
@@ -48,12 +37,16 @@ export function Settings({
 	section,
 	onSection,
 	teammate,
+	jobs,
+	focusSchedules,
 	onClose,
 	onDeleted,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
 	teammate: Persona | null;
+	jobs: ScheduledJob[];
+	focusSchedules: boolean;
 	onClose(): void;
 	onDeleted(): void;
 }) {
@@ -108,6 +101,13 @@ export function Settings({
 		if (!Number.isInteger(next) || next < MIN_IDLE_HOURS || next > MAX_IDLE_HOURS) return;
 		if (next === settings.chapterIdleHours) return;
 		void wire.command("settings.update", { patch: { chapterIdleHours: next } }).catch((error: Error) => {
+			setRefusal(error.message);
+		});
+	};
+
+	const saveBackend = (id: string) => {
+		if (id === settings.defaultBackendId) return;
+		void wire.command("settings.update", { patch: { defaultBackendId: id } }).catch((error: Error) => {
 			setRefusal(error.message);
 		});
 	};
@@ -168,6 +168,7 @@ export function Settings({
 								hours={hours}
 								defaultBackendId={settings.defaultBackendId}
 								onHours={saveHours}
+								onBackend={saveBackend}
 							/>
 						)}
 						{showing === "keys" && (
@@ -194,7 +195,13 @@ export function Settings({
 							/>
 						)}
 						{showing === "teammate" && teammate && (
-							<Teammate persona={teammate} onClose={onClose} onDeleted={onDeleted} />
+							<Teammate
+								persona={teammate}
+								jobs={jobs.filter((job) => job.personaId === teammate.id)}
+								focusSchedules={focusSchedules}
+								onClose={onClose}
+								onDeleted={onDeleted}
+							/>
 						)}
 						{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
 					</div>
@@ -208,11 +215,22 @@ function GeneralSection({
 	hours,
 	defaultBackendId,
 	onHours,
+	onBackend,
 }: {
 	hours: string;
 	defaultBackendId: string;
 	onHours(raw: string): void;
+	onBackend(id: string): void;
 }) {
+	const [backends, setBackends] = useState<BackendChoice[]>([]);
+
+	useEffect(() => {
+		void wire
+			.command("backends.list", {})
+			.then(setBackends)
+			.catch(() => setBackends([]));
+	}, []);
+
 	return (
 		<section className="flex flex-col gap-4">
 			<div>
@@ -238,18 +256,19 @@ function GeneralSection({
 				</p>
 			</div>
 			<div>
-				<label className="label" htmlFor="setting-backend">
+				<p className="label" id="setting-backend">
 					Default backend
-				</label>
-				<input
-					id="setting-backend"
-					className="field font-mono text-xs"
-					value={defaultBackendId}
-					readOnly
-				/>
-				<p className="mt-1 text-xs leading-relaxed text-ink-3">
-					What a new teammate runs on. Only Toad Agent (pi) is wired in this build.
 				</p>
+				{backends.length > 0 && (
+					<BackendPicker
+						backends={backends}
+						selected={defaultBackendId}
+						name="setting-backend"
+						labelledBy="setting-backend"
+						onSelect={onBackend}
+					/>
+				)}
+				<p className="mt-1 text-xs leading-relaxed text-ink-3">What a new teammate runs on.</p>
 			</div>
 		</section>
 	);
@@ -610,63 +629,6 @@ function ImportReport({ report }: { report: Report }) {
 			)}
 		</div>
 	);
-}
-
-/**
- * Subscribe to the room and fold its setting events over the defaults. A
- * reconnect delivers a fresh snapshot, so the map is replaced rather than
- * merged.
- */
-function useRoomSettings(): {
-	chapterIdleHours: number;
-	defaultBackendId: string;
-	mcpServers: McpServer[];
-} {
-	const [events, setEvents] = useState<Map<string, RoomItem>>(new Map());
-
-	useEffect(() => {
-		return wire.subscribe<RoomItem>("room", {
-			snapshot: (items) => setEvents(takeSettings(items)),
-			event: (item) => {
-				if (item.kind !== "setting" || typeof item.id !== "string") return;
-				const id = item.id;
-				setEvents((known) => {
-					const next = new Map(known);
-					next.set(id, item);
-					return next;
-				});
-			},
-		});
-	}, []);
-
-	return {
-		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
-		defaultBackendId: stringSetting(events.get("defaultBackendId"), "pi"),
-		mcpServers: listSetting(events.get("mcpServers")),
-	};
-}
-
-function listSetting(event: RoomItem | undefined): McpServer[] {
-	if (!event || event.deleted) return [];
-	return mcpServersFrom(event.value);
-}
-
-function takeSettings(items: RoomItem[]): Map<string, RoomItem> {
-	const map = new Map<string, RoomItem>();
-	for (const item of items) {
-		if (item.kind === "setting" && typeof item.id === "string") map.set(item.id, item);
-	}
-	return map;
-}
-
-function numberSetting(event: RoomItem | undefined, fallback: number): number {
-	if (!event || event.deleted || typeof event.value !== "number") return fallback;
-	return event.value;
-}
-
-function stringSetting(event: RoomItem | undefined, fallback: string): string {
-	if (!event || event.deleted || typeof event.value !== "string") return fallback;
-	return event.value;
 }
 
 /**

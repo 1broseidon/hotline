@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Attachment, ConfigChoice } from "./generated/contract";
+import type { Attachment, ConfigChoice, ScheduledJob } from "./generated/contract";
 import { Chrome } from "./components/Chrome";
 import { ChatHeader } from "./components/ChatHeader";
 import { Composer } from "./components/Composer";
@@ -10,6 +10,7 @@ import { Settings, type SettingsSection } from "./components/Settings";
 import { Transcript, type ReplyTarget } from "./components/Transcript";
 import { confirmRemove, listenMenu } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
+import { useRoomJobs } from "./room";
 import { useTape } from "./tape";
 import { wire, type Connection, type RosterEntry } from "./wire";
 
@@ -23,8 +24,13 @@ export function App() {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+	const [focusSchedules, setFocusSchedules] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
+	/* Jobs live on the room stream as kind `schedule`, with a tombstone on
+	 * delete. Folding them here is the same as settings: one subscription,
+	 * no `schedule.list` to go stale between events. */
+	const jobs = useRoomJobs();
 
 	useEffect(() => {
 		wire.connect();
@@ -93,7 +99,14 @@ export function App() {
 	const closePane = useCallback(() => setPane(null), []);
 	const openSettings = useCallback((section: SettingsSection = "general") => {
 		setSearchOpen(false);
+		setFocusSchedules(false);
 		setSettingsSection(section);
+		setPane("settings");
+	}, []);
+	const openTeammate = useCallback((schedules = false) => {
+		setSearchOpen(false);
+		setFocusSchedules(schedules);
+		setSettingsSection("teammate");
 		setPane("settings");
 	}, []);
 	const openNew = useCallback(() => {
@@ -104,6 +117,7 @@ export function App() {
 		setPane((current) => {
 			if (current === "settings") return null;
 			setSearchOpen(false);
+			setFocusSchedules(false);
 			setSettingsSection((section) => (section === "teammate" ? "general" : section));
 			return "settings";
 		});
@@ -113,6 +127,7 @@ export function App() {
 		setPane((current) => {
 			if (current === "settings" && settingsSection === "teammate") return null;
 			setSearchOpen(false);
+			setFocusSchedules(false);
 			setSettingsSection("teammate");
 			return "settings";
 		});
@@ -258,7 +273,7 @@ export function App() {
 					onSettings={() => openSettings("general")}
 					onEdit={(id) => {
 						setSelectedId(id);
-						openSettings("teammate");
+						openTeammate();
 					}}
 					onDelete={(id, name) => void removeTeammate(id, name)}
 				/>
@@ -267,8 +282,13 @@ export function App() {
 					{pane === "settings" ? (
 						<Settings
 							section={settingsSection}
-							onSection={setSettingsSection}
+							onSection={(next) => {
+								if (next !== "teammate") setFocusSchedules(false);
+								setSettingsSection(next);
+							}}
 							teammate={selected?.persona ?? null}
+							jobs={jobs}
+							focusSchedules={focusSchedules}
 							onClose={closePane}
 							onDeleted={() => {
 								setSelectedId(null);
@@ -290,9 +310,11 @@ export function App() {
 							entry={selected}
 							roster={roster}
 							models={models}
+							jobs={jobs}
 							searchOpen={searchOpen}
 							focus={focus}
-							onOpenTeammate={() => openSettings("teammate")}
+							onOpenTeammate={() => openTeammate()}
+							onOpenSchedules={() => openTeammate(true)}
 							onOpenSearch={() => setSearchOpen((open) => !open)}
 							onCloseSearch={() => setSearchOpen(false)}
 							onPick={(personaId, eventId) => {
@@ -328,9 +350,11 @@ function Conversation({
 	entry,
 	roster,
 	models,
+	jobs,
 	searchOpen,
 	focus,
 	onOpenTeammate,
+	onOpenSchedules,
 	onOpenSearch,
 	onCloseSearch,
 	onPick,
@@ -338,9 +362,11 @@ function Conversation({
 	entry: RosterEntry;
 	roster: RosterEntry[];
 	models: ConfigChoice[];
+	jobs: ScheduledJob[];
 	searchOpen: boolean;
 	focus: { eventId: string; at: number } | null;
 	onOpenTeammate(): void;
+	onOpenSchedules(): void;
 	onOpenSearch(): void;
 	onCloseSearch(): void;
 	onPick(personaId: string, eventId: string): void;
@@ -395,12 +421,14 @@ function Conversation({
 			<ChatHeader
 				entry={entry}
 				models={models}
+				jobs={jobs.filter((job) => job.personaId === personaId)}
 				searchOpen={searchOpen}
 				chapterBusy={chapterBusy}
 				chapterSaid={chapterSaid}
 				onSetModel={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
 				onSetMode={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
 				onOpenTeammate={onOpenTeammate}
+				onOpenSchedules={onOpenSchedules}
 				onOpenSearch={onOpenSearch}
 				onNewChapter={startChapter}
 			/>

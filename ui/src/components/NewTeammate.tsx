@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, PersonaDraft } from "../generated/contract";
 import { CloseIcon } from "../icons";
+import { useRoomSettings } from "../room";
 import { wire } from "../wire";
+import { BackendPicker } from "./BackendPicker";
 import { Chrome } from "./Chrome";
 import { PathField } from "./PathField";
 
@@ -13,8 +15,9 @@ const TOAD_AGENT = "pi";
  *
  * A teammate is an identity (`goal`), a workspace (`cwd`), a harness
  * (`backendId`) and — for Toad Agent only — a disposition (`modelId`) under
- * a name. An ACP harness brings its own models once the session is up, so
- * that field is not asked here.
+ * a name. The harness defaults to the room's `defaultBackendId`. An ACP
+ * harness brings its own models once the session is up, so that field is
+ * not asked here.
  *
  * Created, the teammate is started at once and opened — nobody adds a
  * colleague in order to look at them in a list. The form replaces the
@@ -29,10 +32,11 @@ export function NewTeammate({
 	onCreated(personaId: string): void;
 	onClose(): void;
 }) {
+	const { defaultBackendId } = useRoomSettings();
 	const [name, setName] = useState("");
 	const [goal, setGoal] = useState("");
 	const [cwd, setCwd] = useState("");
-	const [backendId, setBackendId] = useState("");
+	const [picked, setPicked] = useState<string | null>(null);
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [modelId, setModelId] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -41,18 +45,17 @@ export function NewTeammate({
 	useEffect(() => {
 		void wire
 			.command("backends.list", {})
-			.then((list) => {
-				setBackends(list);
-				setBackendId((current) => {
-					if (current && list.some((one) => one.id === current && one.unavailable === undefined)) {
-						return current;
-					}
-					return list.find((one) => one.unavailable === undefined)?.id ?? "";
-				});
-			})
+			.then(setBackends)
 			.catch((error: Error) => setRefusal(error.message));
 	}, []);
 
+	const available = (id: string) =>
+		backends.some((one) => one.id === id && one.unavailable === undefined);
+	const backendId =
+		picked ??
+		(available(defaultBackendId)
+			? defaultBackendId
+			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
 	const onToad = backendId === TOAD_AGENT || backendId === "";
 
 	const submit = async () => {
@@ -130,16 +133,13 @@ export function NewTeammate({
 							<p className="label" id="new-backend">
 								Runs on
 							</p>
-							<div role="radiogroup" aria-labelledby="new-backend" className="flex flex-col gap-1.5">
-								{backends.map((backend) => (
-									<BackendRow
-										key={backend.id}
-										backend={backend}
-										selected={backendId === backend.id}
-										onSelect={() => setBackendId(backend.id)}
-									/>
-								))}
-							</div>
+							<BackendPicker
+								backends={backends}
+								selected={backendId}
+								name="new-backend"
+								labelledBy="new-backend"
+								onSelect={setPicked}
+							/>
 						</div>
 					)}
 
@@ -177,44 +177,5 @@ export function NewTeammate({
 				</form>
 			</div>
 		</div>
-	);
-}
-
-/**
- * One harness the room can name. An unavailable row stays in the list so
- * the missing piece is a sentence next to the name, not a hole.
- */
-function BackendRow({
-	backend,
-	selected,
-	onSelect,
-}: {
-	backend: BackendChoice;
-	selected: boolean;
-	onSelect(): void;
-}) {
-	const missing = backend.unavailable;
-	return (
-		<label
-			className={`flex items-start gap-2 border border-rule px-2.5 py-2 text-sm ${
-				missing ? "text-ink-3 opacity-60" : "bg-paper-2 text-ink-2"
-			}`}
-		>
-			<input
-				type="radio"
-				name="new-backend"
-				className="mt-0.5"
-				checked={selected}
-				disabled={missing !== undefined}
-				onChange={onSelect}
-			/>
-			<span className="min-w-0 flex-1">
-				<span className={`font-medium ${missing ? "text-ink-3" : "text-ink"}`}>{backend.name}</span>
-				{backend.description !== "" && (
-					<span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{backend.description}</span>
-				)}
-				{missing !== undefined && <span className="mt-0.5 block text-xs leading-relaxed">{missing}</span>}
-			</span>
-		</label>
 	);
 }

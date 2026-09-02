@@ -20,11 +20,11 @@
 //! turn, and no request has to carry a secret it is not about.
 
 use crate::contract::Reach;
+use crate::log::{Log, StreamId};
 use crate::tools::{
     Calculator, CurrentTime, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles,
     Workspace, WriteFile,
 };
-use crate::transcript;
 use futures_util::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::message::{Message, ReasoningContent, ToolResultContent};
@@ -196,7 +196,7 @@ impl Session {
 /// Every session this shell runs, and the one socket their news goes out on
 /// and the main's answers come back on.
 pub struct Runtime {
-    root: PathBuf,
+    log: Log,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     main: Mutex<Option<mpsc::UnboundedSender<String>>>,
     /// Questions asked of the main and not yet answered, by the id this side
@@ -207,9 +207,9 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(log: Log) -> Self {
         Self {
-            root,
+            log,
             sessions: Mutex::new(HashMap::new()),
             main: Mutex::new(None),
             asked: Mutex::new(HashMap::new()),
@@ -218,7 +218,7 @@ impl Runtime {
     }
 
     pub fn root(&self) -> &Path {
-        &self.root
+        self.log.root()
     }
 
     /// The main's socket is where pushes and questions go; there is one main.
@@ -371,7 +371,9 @@ impl Runtime {
                         .to_string()
                 })?,
         };
-        let history = transcript::load(&self.root, &start.persona_id)
+        let history = self
+            .log
+            .load(&StreamId::Tape(start.persona_id.clone()))
             .into_iter()
             .filter_map(|event| {
                 let text = event.get("text")?.as_str()?.to_string();

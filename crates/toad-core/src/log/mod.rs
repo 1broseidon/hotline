@@ -169,7 +169,10 @@ impl Log {
     /// history loads it. A receiver that falls [`SUBSCRIPTION_DEPTH`] events
     /// behind is told it lagged, which is its own problem to recover from.
     pub fn subscribe(&self, stream: &StreamId) -> broadcast::Receiver<Value> {
-        let mut subscribers = self.subscribers.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut subscribers = self
+            .subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         subscribers
             .entry(stream.clone())
             .or_insert_with(|| broadcast::channel(SUBSCRIPTION_DEPTH).0)
@@ -180,7 +183,10 @@ impl Log {
     /// an event the log then failed to write would be acting on a fact the
     /// next load does not have.
     fn publish(&self, stream: &StreamId, event: &Value) {
-        let subscribers = self.subscribers.lock().unwrap_or_else(PoisonError::into_inner);
+        let subscribers = self
+            .subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = subscribers.get(stream) {
             // No receivers left is not a failure; the last one hung up.
             let _ = sender.send(event.clone());

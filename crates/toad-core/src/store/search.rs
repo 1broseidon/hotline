@@ -20,15 +20,15 @@
 //! is [`Indexer`], and there is one of those, in the process that owns the
 //! tapes.
 
+use crate::log::{Log, StreamId, open_epoch};
 use crate::paths::{index_path, transcript_path, transcript_segment_path};
 use crate::store::chapters::{chapters_of, open_chapter, slice_of};
-use crate::transcript;
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OpenFlags, Row};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 /// Whose conversation is searched. The two methods differ in exactly this: a
@@ -292,8 +292,7 @@ const SCHEMA: [&str; 5] = [
 /// milliseconds are rounded the way Node rounds `mtimeMs`, or a tape the main
 /// indexed would look changed to this build and be re-read for nothing.
 fn file_stamp(root: &Path, persona_id: &str) -> Option<(i64, i64)> {
-    let active =
-        transcript_segment_path(root, persona_id, transcript::open_epoch(root, persona_id));
+    let active = transcript_segment_path(root, persona_id, open_epoch(root, persona_id));
     let file = if active.exists() {
         active
     } else {
@@ -421,7 +420,7 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
 /// that appended to the tape should log a failure here and carry on, but which
 /// caller and which log is the caller's to decide.
 pub struct Indexer {
-    root: PathBuf,
+    log: Log,
     database: Connection,
     /// Absent means "not looked up yet"; `Some(None)` means "looked, and no
     /// chapter is open". The main draws the same distinction with `Map.has`.
@@ -429,21 +428,27 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    /// Opens the index for writing, creating the file and its schema.
-    pub fn open(root: &Path) -> rusqlite::Result<Self> {
+    /// Opens the index for writing, creating the file and its schema. The
+    /// index is an index *of that log*: every rebuild re-reads its tapes.
+    pub fn open(log: &Log) -> rusqlite::Result<Self> {
         // A directory that cannot be made is a file that cannot be opened, and
         // the open below is the one that says so properly.
-        let _ = fs::create_dir_all(root);
-        let database = Connection::open(index_path(root))?;
+        let _ = fs::create_dir_all(log.root());
+        let database = Connection::open(index_path(log.root()))?;
         database.pragma_update(None, "journal_mode", "WAL")?;
         for statement in SCHEMA {
             database.execute(statement, [])?;
         }
         Ok(Self {
-            root: root.to_path_buf(),
+            log: log.clone(),
             database,
             open_chapters: HashMap::new(),
         })
+    }
+
+    /// The teammate's tape, folded — what a rebuild reads.
+    fn tape(&self, persona_id: &str) -> Vec<Value> {
+        self.log.load(&StreamId::Tape(persona_id.to_string()))
     }
 
     /// Indexes one event as it lands.
@@ -463,13 +468,13 @@ impl Indexer {
             let id = event.get("id").and_then(Value::as_str).map(str::to_string);
             self.open_chapters
                 .insert(persona_id.to_string(), id.filter(|_| still_open));
-            return stamp(&self.database, &self.root, persona_id);
+            return stamp(&self.database, self.log.root(), persona_id);
         }
         if kind != "user" && kind != "agent" {
             return Ok(());
         }
         if !self.open_chapters.contains_key(persona_id) {
-            let events = transcript::load(&self.root, persona_id);
+            let events = self.tape(persona_id);
             let open = open_chapter(&events)
                 .and_then(|chapter| chapter.get("id"))
                 .and_then(Value::as_str)
@@ -492,12 +497,12 @@ impl Indexer {
         }
         let chapter_id = self.open_chapters.get(persona_id).cloned().flatten();
         index_message(&self.database, persona_id, chapter_id.as_deref(), event)?;
-        stamp(&self.database, &self.root, persona_id)
+        stamp(&self.database, self.log.root(), persona_id)
     }
 
     /// Throws the teammate's rows away and re-reads the tape.
     pub fn reindex(&mut self, persona_id: &str) -> rusqlite::Result<()> {
-        let events = transcript::load(&self.root, persona_id);
+        let events = self.tape(persona_id);
         let transaction = self.database.transaction()?;
         for table in ["messages", "chapters", "chapters_fts"] {
             transaction.execute(
@@ -526,7 +531,7 @@ impl Indexer {
                 index_message(&transaction, persona_id, id, event)?;
             }
         }
-        stamp(&transaction, &self.root, persona_id)?;
+        stamp(&transaction, self.log.root(), persona_id)?;
         transaction.commit()?;
         let open = open_chapter(&events)
             .and_then(|chapter| chapter.get("id"))
@@ -556,7 +561,7 @@ impl Indexer {
     /// unindexed — is re-read whole.
     pub fn sync(&mut self, persona_ids: &[String]) -> rusqlite::Result<()> {
         for persona_id in persona_ids {
-            let Some(stamp) = file_stamp(&self.root, persona_id) else {
+            let Some(stamp) = file_stamp(self.log.root(), persona_id) else {
                 continue;
             };
             let known = self
@@ -586,23 +591,26 @@ pub(crate) mod fixture {
     //! here rather than in front of somebody searching.
 
     use super::Indexer;
+    use crate::log::Log;
     use rusqlite::Connection;
     use std::path::PathBuf;
 
-    /// A data directory and an index in it, emptied first so a rerun is a run.
-    pub fn indexer(name: &str) -> (PathBuf, Indexer) {
+    /// A data directory, its log, and an index of it, emptied first so a rerun
+    /// is a run.
+    pub fn indexer(name: &str) -> (PathBuf, Log, Indexer) {
         let root =
             std::env::temp_dir().join(format!("toad-core-search-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let indexer = Indexer::open(&root).unwrap();
-        (root, indexer)
+        let log = Log::open(&root);
+        let indexer = Indexer::open(&log).unwrap();
+        (root, log, indexer)
     }
 
     /// The same index, for the tests that put rows in by hand because what
     /// they are about is the question and not the indexing.
     pub fn index(name: &str) -> (PathBuf, Connection) {
-        let (root, indexer) = indexer(name);
+        let (root, _log, indexer) = indexer(name);
         (root, indexer.database)
     }
 
@@ -879,21 +887,22 @@ mod tests {
 
     /// A tape written through the writer this crate ships, so the indexer and
     /// a reindex are looking at the same file.
-    fn tape(root: &Path, persona_id: &str, events: &[Value]) {
+    fn tape(log: &Log, persona_id: &str, events: &[Value]) {
         for event in events {
-            transcript::append(root, persona_id, event).unwrap();
+            log.append(&StreamId::Tape(persona_id.to_string()), event)
+                .unwrap();
         }
     }
 
     #[test]
     fn a_message_lands_under_the_open_chapter_and_a_replay_of_it_lands_nowhere() {
-        let (root, mut indexer) = indexer("write-message");
+        let (_root, log, mut indexer) = indexer("write-message");
         let events = [
             chapter_event("c1", 100, false),
             message_event("m1", 110, "user", "the harbour crane is stuck"),
             message_event("m2", 120, "agent", "   "),
         ];
-        tape(&root, "ada", &events);
+        tape(&log, "ada", &events);
         for event in &events {
             indexer.index_event("ada", event).unwrap();
         }
@@ -916,14 +925,14 @@ mod tests {
 
     #[test]
     fn closing_a_chapter_updates_its_row_rather_than_adding_a_second_one() {
-        let (root, mut indexer) = indexer("write-chapter");
+        let (_root, log, mut indexer) = indexer("write-chapter");
         let events = [
             chapter_event("c1", 100, false),
             message_event("m1", 110, "user", "the harbour crane is stuck"),
             chapter_event("c1", 100, true),
             message_event("m2", 150, "user", "after the chapter"),
         ];
-        tape(&root, "ada", &events);
+        tape(&log, "ada", &events);
         for event in &events {
             indexer.index_event("ada", event).unwrap();
         }
@@ -958,7 +967,7 @@ mod tests {
 
     #[test]
     fn a_teammate_the_index_forgets_leaves_no_row_and_no_stamp() {
-        let (root, mut indexer) = indexer("forget");
+        let (_root, log, mut indexer) = indexer("forget");
         // A chapter id apiece: the id is the primary key, so two teammates
         // sharing one would be one row and this test would prove nothing.
         for (persona_id, chapter_id) in [("ada", "c1"), ("bob", "c2")] {
@@ -966,7 +975,7 @@ mod tests {
                 chapter_event(chapter_id, 100, false),
                 message_event("m1", 110, "user", "the harbour crane is stuck"),
             ];
-            tape(&root, persona_id, &events);
+            tape(&log, persona_id, &events);
             for event in &events {
                 indexer.index_event(persona_id, event).unwrap();
             }
@@ -989,9 +998,9 @@ mod tests {
 
     #[test]
     fn a_stamp_that_matches_the_file_stops_a_sync_and_a_changed_file_restarts_it() {
-        let (root, mut indexer) = indexer("sync");
+        let (_root, log, mut indexer) = indexer("sync");
         tape(
-            &root,
+            &log,
             "ada",
             &[message_event(
                 "m1",
@@ -1015,12 +1024,11 @@ mod tests {
         assert_eq!(messages(&indexer.database).len(), 2);
 
         // The file changed, so the whole teammate is re-read and the ghost goes.
-        transcript::append(
-            &root,
+        tape(
+            &log,
             "ada",
-            &message_event("m2", 120, "agent", "the crane is fixed"),
-        )
-        .unwrap();
+            &[message_event("m2", 120, "agent", "the crane is fixed")],
+        );
         indexer.sync(&["ada".to_string()]).unwrap();
         let found: Vec<String> = messages(&indexer.database)
             .iter()
@@ -1053,7 +1061,7 @@ mod tests {
     /// than fixed.
     #[test]
     fn an_index_this_writes_is_the_one_the_main_writes() {
-        let (root, mut indexer) = indexer("pin");
+        let (_root, log, mut indexer) = indexer("pin");
         let events = [
             chapter_event("c1", 100, false),
             message_event("m1", 110, "user", "the harbour crane is stuck"),
@@ -1062,7 +1070,7 @@ mod tests {
             chapter_event("c1", 100, true),
             message_event("m4", 150, "user", "after the chapter"),
         ];
-        tape(&root, "pin-index", &events);
+        tape(&log, "pin-index", &events);
         for event in &events {
             indexer.index_event("pin-index", event).unwrap();
         }

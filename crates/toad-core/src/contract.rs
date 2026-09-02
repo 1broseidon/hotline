@@ -1011,23 +1011,24 @@ mod tests {
     //! take what those readers emit, parse it, write it again, and find
     //! nothing changed. A field spelled differently here, or dropped, or
     //! written as `null` where the reader wrote nothing at all, fails here.
-    //! The persona's proof returns with the importer, which is the one reader
-    //! of a teammate the previous Toad wrote.
+    //! The persona's proof is `room::roster`'s, because the room stream is
+    //! where a teammate is written down.
 
     use super::*;
+    use crate::log::{Log, StreamId};
     use crate::paths::transcript_segments_dir;
     use crate::store::search::fixture::{chapter, index, message};
     use crate::store::{chapters, previews, search};
-    use crate::transcript;
     use serde_json::{Value, json};
     use std::path::{Path, PathBuf};
 
-    fn scratch(name: &str) -> PathBuf {
+    fn scratch(name: &str) -> (PathBuf, Log) {
         let dir =
             std::env::temp_dir().join(format!("toad-core-contract-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("transcripts")).unwrap();
-        dir
+        let log = Log::open(&dir);
+        (dir, log)
     }
 
     /// Parse `value` as `T` and write it back out. Anything but the value that
@@ -1101,10 +1102,10 @@ mod tests {
 
     #[test]
     fn every_line_the_tape_holds_reads_back_as_the_transcript_event_it_was() {
-        let root = scratch("contract-transcript");
+        let (root, log) = scratch("contract-transcript");
         write_tape(&root, "ada", &every_kind());
 
-        let loaded = transcript::load(&root, "ada");
+        let loaded = log.load(&StreamId::Tape("ada".into()));
         assert_eq!(loaded.len(), every_kind().len());
         for event in &loaded {
             assert_eq!(&round_trip::<TranscriptEvent>(event), event);
@@ -1113,10 +1114,10 @@ mod tests {
 
     #[test]
     fn the_drawers_chapters_and_the_rosters_preview_read_back_unchanged() {
-        let root = scratch("contract-views");
+        let (root, log) = scratch("contract-views");
         write_tape(&root, "ada", &every_kind());
 
-        let listed = chapters::list(&root, "ada");
+        let listed = chapters::list(&log, "ada");
         assert_eq!(listed.len(), 2);
         for summary in &listed {
             assert_eq!(&round_trip::<ChapterSummary>(summary), summary);

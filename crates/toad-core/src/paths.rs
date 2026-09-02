@@ -105,15 +105,13 @@ fn managed_path(directory: &Path, logical: &str, suffix: &str) -> PathBuf {
     encoded
 }
 
-/// The record store: owner-stamped rosters, their oplog, and their tombstones.
-pub fn store_path(root: &Path) -> PathBuf {
-    root.join("store.sqlite")
-}
-
-/// App preferences and remembered window state, kept apart from the roster.
-/// `SETTINGS_FILE` in `src/bun/paths.ts`.
-pub fn settings_path(root: &Path) -> PathBuf {
-    root.join("settings.json")
+/// The room's own stream: the roster, the settings, and everything else the
+/// room remembers. One file and no epochs — only a tape is shipped by segment,
+/// so only a tape needs them. It replaces the previous Toad's `store.sqlite`
+/// and `settings.json`, which the importer will read from a directory it is
+/// given rather than from here.
+pub fn room_path(root: &Path) -> PathBuf {
+    root.join("room.jsonl")
 }
 
 /// The search index: FTS5 over every teammate's messages and chapters.

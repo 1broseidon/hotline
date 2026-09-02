@@ -6,9 +6,8 @@
 //! in its slice — and a tape written before chapters existed has no
 //! markers, so it lists as empty.
 
-use crate::transcript;
+use crate::log::{Log, StreamId};
 use serde_json::{Map, Value, json};
-use std::path::Path;
 
 fn is_chapter(event: &Value) -> bool {
     event.get("kind").and_then(Value::as_str) == Some("chapter")
@@ -83,8 +82,8 @@ pub fn summarize(events: &[Value]) -> Vec<Value> {
     summaries
 }
 
-pub fn list(root: &Path, persona_id: &str) -> Vec<Value> {
-    summarize(&transcript::load(root, persona_id))
+pub fn list(log: &Log, persona_id: &str) -> Vec<Value> {
+    summarize(&log.load(&StreamId::Tape(persona_id.to_string())))
 }
 
 #[cfg(test)]
@@ -93,14 +92,15 @@ mod tests {
     use crate::paths::transcript_segments_dir;
     use serde_json::json;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    fn scratch(name: &str) -> PathBuf {
+    fn scratch(name: &str) -> (PathBuf, Log) {
         let dir =
             std::env::temp_dir().join(format!("toad-core-chapters-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("transcripts")).unwrap();
-        dir
+        let log = Log::open(&dir);
+        (dir, log)
     }
 
     fn write_tape(root: &Path, persona_id: &str, events: &[Value]) {
@@ -112,13 +112,13 @@ mod tests {
 
     #[test]
     fn an_empty_tape_lists_no_chapters() {
-        let root = scratch("empty");
-        assert!(list(&root, "nobody").is_empty());
+        let (_root, log) = scratch("empty");
+        assert!(list(&log, "nobody").is_empty());
     }
 
     #[test]
     fn a_tape_with_no_markers_lists_no_chapters() {
-        let root = scratch("no-markers");
+        let (root, log) = scratch("no-markers");
         write_tape(
             &root,
             "p",
@@ -127,12 +127,12 @@ mod tests {
                 json!({"kind": "agent", "id": "a1", "ts": 2, "text": "hello"}),
             ],
         );
-        assert!(list(&root, "p").is_empty());
+        assert!(list(&log, "p").is_empty());
     }
 
     #[test]
     fn two_chapters_newest_first_with_message_counts() {
-        let root = scratch("two");
+        let (root, log) = scratch("two");
         write_tape(
             &root,
             "p",
@@ -158,7 +158,7 @@ mod tests {
         );
 
         assert_eq!(
-            list(&root, "p"),
+            list(&log, "p"),
             vec![
                 json!({
                     "id": "c2",

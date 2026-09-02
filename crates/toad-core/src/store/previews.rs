@@ -4,10 +4,11 @@
 //! local teammate at startup, and a transcript is only bounded by how much
 //! has been said. The tail is read raw, not folded — a chapter marker or a
 //! tool call mutates in place by id, but a message never does, so the id
-//! folding `transcript::load` does for the rest of the tape buys nothing
-//! here and costs a second full read.
+//! folding `Log::load` does for the rest of the tape buys nothing here and
+//! costs a second full read. That is why this reads the tape's segments
+//! itself instead of asking the log for the fold.
 
-use crate::transcript::{parse_lines, segments_of};
+use crate::log::{parse_lines, segments_of};
 use serde_json::{Value, json};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};

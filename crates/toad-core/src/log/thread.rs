@@ -1,75 +1,41 @@
-//! The tape of one conversation between two teammates.
+//! Where one pair of teammates' conversation lives, and the sidecar beside it.
 //!
-//! A peer thread is a tape like a teammate's own, minus the epochs: nobody
-//! replicates it, so there is one JSONL file per pair and no segments to keep
-//! apart. It folds by `id` for the same reason the teammate's tape does — a
-//! tool call and a permission card are written more than once — and it carries
-//! a small JSON sidecar naming the two participants, which sessions they have
-//! resumed, and what to call a side the roster cannot resolve.
+//! A thread is a stream like any other, minus the epochs: nobody replicates
+//! it, so there is one file per pair — `threads/<key>.jsonl` — and no segments
+//! to keep apart. Beside it sits a small JSON sidecar naming the two
+//! participants, which sessions they have resumed, and what to call a side the
+//! roster cannot resolve. The sidecar is not events: it is a record of who is
+//! in the room, rewritten in place.
 //!
-//! Written to be byte-for-byte what `src/bun/store/threads.ts` writes.
+//! Written to be byte-for-byte what the previous Toad's `store/threads.ts`
+//! writes, so a data directory imports with its threads unchanged.
 
 use crate::paths::{decode_file_component, thread_meta_path, thread_path, threads_dir};
-use crate::transcript::{fold, parse_lines};
 use serde_json::{Map, Value};
 use std::fs;
-use std::fs::OpenOptions;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
 fn missing_key(key: &str) -> io::Error {
     io::Error::other(format!("Invalid thread key: {key}"))
 }
 
-/// Adds one event to the end of the thread's tape.
-pub fn append(root: &Path, key: &str, event: &Value) -> io::Result<()> {
-    let file = thread_path(root, key).ok_or_else(|| missing_key(key))?;
-    fs::create_dir_all(threads_dir(root))?;
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&file)?
-        .write_all(format!("{event}\n").as_bytes())
-}
-
-/// The whole conversation, folded. A pair that has never spoken has none.
-pub fn load(root: &Path, key: &str) -> Vec<Value> {
-    let Some(file) = thread_path(root, key) else {
-        return Vec::new();
-    };
-    let Ok(text) = fs::read_to_string(&file) else {
-        return Vec::new();
-    };
-    fold(parse_lines(&text))
-}
-
-/// Rewrites the file with folded history.
+/// The file a thread's events are written to.
 ///
-/// Unlike the teammate's tape this always writes when there is anything to
-/// write, and announces nothing: a thread has no mirror to tell, so there is
-/// no cost to weigh a needless rewrite against.
-pub fn compact(root: &Path, key: &str) -> io::Result<()> {
-    let events = load(root, key);
-    if events.is_empty() {
-        return Ok(());
-    }
-    let file = thread_path(root, key).ok_or_else(|| missing_key(key))?;
-    let text = events
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<String>>()
-        .join("\n")
-        + "\n";
-    fs::write(&file, text)
+/// A key that does not spell itself the same way again — unsorted, three
+/// sided, or climbing out of the directory — names no file, so it is refused
+/// rather than written somewhere surprising.
+pub(crate) fn file(root: &Path, key: &str) -> io::Result<std::path::PathBuf> {
+    thread_path(root, key).ok_or_else(|| missing_key(key))
 }
 
 /// The sidecar, or nothing when it is absent, unreadable, or of another
 /// version.
 ///
-/// Read as free-form JSON rather than into a struct on purpose: the main parses
-/// it with a cast, which keeps every field the file had, so a Rust writer that
-/// dropped the fields it does not know about would quietly delete a newer
-/// build's work on the next `set_label`.
+/// Read as free-form JSON rather than into a struct on purpose: the previous
+/// Toad parses it with a cast, which keeps every field the file had, so a
+/// writer that dropped the fields it does not know about would quietly delete
+/// a newer build's work on the next `set_label`.
 fn read_meta(root: &Path, key: &str) -> Option<Map<String, Value>> {
     let file = thread_meta_path(root, key)?;
     let meta: Value = serde_json::from_str(&fs::read_to_string(&file).ok()?).ok()?;
@@ -114,10 +80,11 @@ pub fn set_label(root: &Path, key: &str, side_id: &str, label: &str) -> io::Resu
 
 /// Every thread this desk holds a sidecar for.
 ///
-/// The sidecar and not the tape, because a conversation exists from the moment
-/// it is opened, whether or not anybody has said anything yet. A name that does
-/// not decode back into a well-formed key is skipped: it is not a thread, and
-/// asking for its path would be asking for a file outside the directory.
+/// The sidecar and not the stream, because a conversation exists from the
+/// moment it is opened, whether or not anybody has said anything yet. A name
+/// that does not decode back into a well-formed key is skipped: it is not a
+/// thread, and asking for its path would be asking for a file outside the
+/// directory.
 pub fn list_all_keys(root: &Path) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
     let Ok(entries) = fs::read_dir(threads_dir(root)) else {
@@ -139,16 +106,21 @@ pub fn list_all_keys(root: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transcript::expire_orphaned_permissions;
+    use crate::log::{Log, StreamId, expire_orphaned_permissions};
     use serde_json::json;
     use std::path::PathBuf;
 
-    fn scratch(name: &str) -> PathBuf {
+    fn scratch(name: &str) -> (PathBuf, Log) {
         let root =
-            std::env::temp_dir().join(format!("toad-core-threads-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("toad-core-thread-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(threads_dir(&root)).unwrap();
-        root
+        let log = Log::open(&root);
+        (root, log)
+    }
+
+    fn stream(key: &str) -> StreamId {
+        StreamId::Thread(key.to_string())
     }
 
     fn user(id: &str, ts: i64, text: &str) -> Value {
@@ -183,35 +155,35 @@ mod tests {
 
     #[test]
     fn a_thread_nobody_has_opened_is_empty() {
-        let root = scratch("empty");
-        assert!(load(&root, "ada~bob").is_empty());
+        let (root, log) = scratch("empty");
+        assert!(log.load(&stream("ada~bob")).is_empty());
         assert!(list_all_keys(&root).is_empty());
     }
 
     #[test]
     fn a_key_that_is_not_one_is_refused_rather_than_written() {
-        let root = scratch("refuse");
+        let (root, log) = scratch("refuse");
         // Unsorted, three-sided, and a climb out of the directory: none of the
         // three spells itself the same way again, so none of them names a file.
         for key in ["bob~ada", "ada~bob~cal", "..~ada", "ada"] {
-            assert!(append(&root, key, &user("u1", 1, "no")).is_err());
-            assert!(load(&root, key).is_empty());
+            assert!(log.append(&stream(key), &user("u1", 1, "no")).is_err());
+            assert!(log.load(&stream(key)).is_empty());
         }
         assert!(list_all_keys(&root).is_empty());
     }
 
     #[test]
     fn later_lines_supersede_earlier_ones_by_id() {
-        let root = scratch("fold");
+        let (_root, log) = scratch("fold");
         for event in [
             user("u1", 1000, "can you look"),
             tool("t1", 1001, "pending"),
             tool("t1", 1003, "completed"),
         ] {
-            append(&root, "ada~bob", &event).unwrap();
+            log.append(&stream("ada~bob"), &event).unwrap();
         }
 
-        let events = load(&root, "ada~bob");
+        let events = log.load(&stream("ada~bob"));
         let ids: Vec<&str> = events.iter().map(|e| e["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["u1", "t1"]);
         assert_eq!(events[1]["status"], "completed");
@@ -219,24 +191,25 @@ mod tests {
 
     #[test]
     fn compact_rewrites_the_file_with_the_fold() {
-        let root = scratch("compact");
+        let (root, log) = scratch("compact");
         for event in [tool("t1", 1, "pending"), tool("t1", 2, "completed")] {
-            append(&root, "ada~bob", &event).unwrap();
+            log.append(&stream("ada~bob"), &event).unwrap();
         }
-        compact(&root, "ada~bob").unwrap();
+        // A thread has one file and no epochs, so the epoch it names is 1.
+        assert_eq!(log.compact(&stream("ada~bob")).unwrap(), Some(1));
 
         assert_eq!(
             fs::read_to_string(thread_path(&root, "ada~bob").unwrap()).unwrap(),
             format!("{}\n", tool("t1", 2, "completed"))
         );
         // An empty thread has nothing to fold, and compacting it creates no file.
-        compact(&root, "cal~dee").unwrap();
+        assert_eq!(log.compact(&stream("cal~dee")).unwrap(), None);
         assert!(!thread_path(&root, "cal~dee").unwrap().exists());
     }
 
     #[test]
     fn a_label_lands_on_the_sidecar_and_a_repeat_of_it_writes_nothing() {
-        let root = scratch("label");
+        let (root, _log) = scratch("label");
         let file = thread_meta_path(&root, "ada~bob").unwrap();
         fs::write(
             &file,
@@ -266,7 +239,7 @@ mod tests {
 
     #[test]
     fn a_sidecar_of_another_version_or_of_no_json_is_no_sidecar() {
-        let root = scratch("version");
+        let (root, _log) = scratch("version");
         fs::write(
             thread_meta_path(&root, "ada~bob").unwrap(),
             r#"{"version":2,"a":"ada","b":"bob"}"#,
@@ -286,23 +259,23 @@ mod tests {
 
     #[test]
     fn the_startup_fold_expires_the_cards_the_restart_orphaned() {
-        // The sequence in `src/bun/index.ts`: for every key, expire the
-        // orphaned cards, append the expiries, then compact.
-        let root = scratch("startup");
+        // The sequence at startup: for every key, expire the orphaned cards,
+        // append the expiries, then compact.
+        let (_root, log) = scratch("startup");
         for event in [
             user("u1", 1000, "can you look"),
             permission("p1", 1002),
             tool("t1", 1003, "completed"),
         ] {
-            append(&root, "ada~bob", &event).unwrap();
+            log.append(&stream("ada~bob"), &event).unwrap();
         }
 
-        for expired in expire_orphaned_permissions(&load(&root, "ada~bob"), 2000) {
-            append(&root, "ada~bob", &expired).unwrap();
+        for expired in expire_orphaned_permissions(&log.load(&stream("ada~bob")), 2000) {
+            log.append(&stream("ada~bob"), &expired).unwrap();
         }
-        compact(&root, "ada~bob").unwrap();
+        assert_eq!(log.compact(&stream("ada~bob")).unwrap(), Some(1));
 
-        let events = load(&root, "ada~bob");
+        let events = log.load(&stream("ada~bob"));
         assert_eq!(events.len(), 3);
         assert_eq!(events[1]["decision"], "expired");
         assert_eq!(events[1]["ts"], 2000);
@@ -310,22 +283,22 @@ mod tests {
         assert!(expire_orphaned_permissions(&events, 3000).is_empty());
     }
 
-    /// The bytes below came out of the main's own writer. Produced by running,
-    /// against a throwaway `TOAD_DATA_DIR`, a script that calls
+    /// The bytes below came out of the previous Toad's own writer. Produced by
+    /// running, against a throwaway `TOAD_DATA_DIR`, a script that calls
     /// `src/bun/store/threads.ts`'s `append` with these four events, then
     /// `expireOrphanedPermissions(threads.load(key), 2000)`, appends what it
     /// answers, calls `compact`, and prints the file — and then writes the
     /// sidecar with fixed timestamps and calls `setLabel(key, "bob", …)`.
     #[test]
-    fn a_thread_this_writes_is_byte_for_byte_the_one_the_main_writes() {
-        let root = scratch("bytes");
+    fn a_thread_this_writes_is_byte_for_byte_the_one_the_previous_toad_writes() {
+        let (root, log) = scratch("bytes");
         for event in [
             user("u1", 1000, "can you look"),
             tool("t1", 1001, "pending"),
             permission("p1", 1002),
             tool("t1", 1003, "completed"),
         ] {
-            append(&root, "ada~bob", &event).unwrap();
+            log.append(&stream("ada~bob"), &event).unwrap();
         }
         let before = fs::read_to_string(thread_path(&root, "ada~bob").unwrap()).unwrap();
         assert_eq!(
@@ -333,10 +306,10 @@ mod tests {
             "{\"kind\":\"user\",\"id\":\"u1\",\"ts\":1000,\"text\":\"can you look\"}\n{\"kind\":\"tool\",\"id\":\"t1\",\"ts\":1001,\"toolCallId\":\"t1\",\"title\":\"run\",\"status\":\"pending\"}\n{\"kind\":\"permission\",\"id\":\"p1\",\"ts\":1002,\"requestId\":\"req-p1\",\"title\":\"read a file\",\"options\":[{\"optionId\":\"allow\",\"name\":\"Allow\",\"kind\":\"allow_once\"}]}\n{\"kind\":\"tool\",\"id\":\"t1\",\"ts\":1003,\"toolCallId\":\"t1\",\"title\":\"run\",\"status\":\"completed\"}\n"
         );
 
-        for expired in expire_orphaned_permissions(&load(&root, "ada~bob"), 2000) {
-            append(&root, "ada~bob", &expired).unwrap();
+        for expired in expire_orphaned_permissions(&log.load(&stream("ada~bob")), 2000) {
+            log.append(&stream("ada~bob"), &expired).unwrap();
         }
-        compact(&root, "ada~bob").unwrap();
+        assert_eq!(log.compact(&stream("ada~bob")).unwrap(), Some(1));
         assert_eq!(
             fs::read_to_string(thread_path(&root, "ada~bob").unwrap()).unwrap(),
             "{\"kind\":\"user\",\"id\":\"u1\",\"ts\":1000,\"text\":\"can you look\"}\n{\"kind\":\"tool\",\"id\":\"t1\",\"ts\":1003,\"toolCallId\":\"t1\",\"title\":\"run\",\"status\":\"completed\"}\n{\"kind\":\"permission\",\"id\":\"p1\",\"ts\":2000,\"requestId\":\"req-p1\",\"title\":\"read a file\",\"options\":[{\"optionId\":\"allow\",\"name\":\"Allow\",\"kind\":\"allow_once\"}],\"decision\":\"expired\"}\n"

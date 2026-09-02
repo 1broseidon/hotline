@@ -12,7 +12,7 @@ use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
-    io::{ErrorKind, Read, Write},
+    io::{BufRead, BufReader, ErrorKind, Read, Write},
     path::{Component, Path, PathBuf},
     sync::{
         Arc,
@@ -20,9 +20,9 @@ use std::{
     },
 };
 
-const MAX_FILE_BYTES: u64 = 256 * 1024;
-const DEFAULT_READ_LINES: usize = 200;
-const MAX_READ_LINES: usize = 400;
+/// How many lines a read returns when the agent does not ask. Paging is always
+/// available: the answer names how many lines remain.
+const DEFAULT_READ_LINES: usize = 2000;
 const MAX_DIRECTORY_ENTRIES: usize = 500;
 const MAX_SEARCH_FILE_BYTES: u64 = 1024 * 1024;
 const DEFAULT_SEARCH_RESULTS: usize = 100;
@@ -31,8 +31,9 @@ const MAX_SEARCH_LINE_CHARS: usize = 500;
 const DEFAULT_FIND_RESULTS: usize = 500;
 const MAX_FIND_RESULTS: usize = 1_000;
 const MAX_PATTERN_CHARS: usize = 1_000;
-const MAX_TOOL_OUTPUT_BYTES: usize = 50 * 1024;
-const MAX_WRITE_BYTES: usize = 256 * 1024;
+/// An absurd ceiling, not a working limit: a teammate writing source and notes
+/// never hits it, and a call that does is a mistake we refuse to land.
+const MAX_WRITE_BYTES: usize = 64 * 1024 * 1024;
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(1);
 
 struct WorkspaceInner {
@@ -145,7 +146,7 @@ impl Workspace {
 
     fn read_file(&self, args: ReadFileArgs) -> Result<String, ToolError> {
         let relative = self.canonical_subpath(&args.path, false)?;
-        let mut file = self
+        let file = self
             .inner
             .dir
             .open(&relative)
@@ -155,24 +156,59 @@ impl Workspace {
             return Err(ToolError::new(format!("{} is not a file.", args.path)));
         }
 
-        let mut bytes = Vec::new();
-        Read::by_ref(&mut file)
-            .take(MAX_FILE_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_FILE_BYTES {
-            return Err(ToolError::new(format!(
-                "{} exceeds the {MAX_FILE_BYTES}-byte read limit.",
-                args.path
-            )));
+        let start_line = args.start_line.unwrap_or(1);
+        let max_lines = args.max_lines.unwrap_or(DEFAULT_READ_LINES);
+        if start_line == 0 {
+            return Err(ToolError::new("start_line must be at least 1."));
+        }
+        if max_lines == 0 {
+            return Err(ToolError::new("max_lines must be at least 1."));
         }
 
-        let content = String::from_utf8(bytes)
-            .map_err(|_| ToolError::new(format!("{} is not a UTF-8 text file.", args.path)))?;
-        render_lines(
-            &content,
-            args.start_line.unwrap_or(1),
-            args.max_lines.unwrap_or(DEFAULT_READ_LINES),
-        )
+        let mut reader = BufReader::new(file);
+        let mut raw = Vec::new();
+        let mut line_no = 0usize;
+        let mut selected = Vec::new();
+        let mut remaining = 0usize;
+        loop {
+            raw.clear();
+            let n = reader.read_until(b'\n', &mut raw)?;
+            if n == 0 {
+                break;
+            }
+            if raw.contains(&0) {
+                return Err(ToolError::new(format!(
+                    "{} is binary, not a UTF-8 text file.",
+                    args.path
+                )));
+            }
+            if raw.last() == Some(&b'\n') {
+                raw.pop();
+                if raw.last() == Some(&b'\r') {
+                    raw.pop();
+                }
+            }
+            let line = std::str::from_utf8(&raw).map_err(|_| {
+                ToolError::new(format!("{} is binary, not a UTF-8 text file.", args.path))
+            })?;
+            line_no += 1;
+            if line_no < start_line {
+                continue;
+            }
+            if selected.len() < max_lines {
+                selected.push(format!("{line_no}|{line}"));
+            } else {
+                remaining += 1;
+            }
+        }
+
+        if selected.is_empty() {
+            return Ok("(no lines in the requested range)".to_string());
+        }
+        if remaining > 0 {
+            selected.push(remaining_line(remaining));
+        }
+        Ok(selected.join("\n"))
     }
 
     fn list_directory(&self, args: ListDirectoryArgs) -> Result<String, ToolError> {
@@ -196,23 +232,15 @@ impl Workspace {
         }
         entries.sort_unstable();
 
-        let mut truncated = entries.len() > MAX_DIRECTORY_ENTRIES;
+        let truncated = entries.len() > MAX_DIRECTORY_ENTRIES;
         entries.truncate(MAX_DIRECTORY_ENTRIES);
         if entries.is_empty() {
             return Ok("(empty directory)".to_string());
         }
-        let mut output = Vec::new();
-        let mut output_bytes = 0;
-        for entry in entries {
-            if !push_bounded(&mut output, &mut output_bytes, entry) {
-                truncated = true;
-                break;
-            }
-        }
         if truncated {
-            push_truncation_notice(&mut output, "… directory listing truncated");
+            entries.push("… directory listing truncated".to_string());
         }
-        Ok(output.join("\n"))
+        Ok(entries.join("\n"))
     }
 
     fn search_files(&self, args: SearchFilesArgs) -> Result<String, ToolError> {
@@ -234,7 +262,6 @@ impl Workspace {
             .map_err(|error| ToolError::new(format!("Invalid search pattern: {error}")))?;
 
         let mut results = Vec::new();
-        let mut output_bytes = 0;
         let mut truncated = false;
         for entry in walk(
             &start,
@@ -270,10 +297,8 @@ impl Workspace {
                     &matcher,
                     file,
                     UTF8(|line_number, line| {
-                        let result = format!("{shown_path}:{line_number}:{}", clip_line(line));
-                        if !push_bounded(&mut results, &mut output_bytes, result)
-                            || results.len() >= limit
-                        {
+                        results.push(format!("{shown_path}:{line_number}:{}", clip_line(line)));
+                        if results.len() >= limit {
                             truncated = true;
                             return Ok(false);
                         }
@@ -292,7 +317,7 @@ impl Workspace {
             return Ok("(no matches)".to_string());
         }
         if truncated {
-            push_truncation_notice(&mut results, "… search results truncated");
+            results.push("… search results truncated".to_string());
         }
         Ok(results.join("\n"))
     }
@@ -311,7 +336,6 @@ impl Workspace {
             .compile_matcher();
 
         let mut results = Vec::new();
-        let mut output_bytes = 0;
         let mut truncated = false;
         for entry in walk(&start, None, args.include_hidden.unwrap_or(false)) {
             let entry = match entry {
@@ -331,7 +355,8 @@ impl Workspace {
             } else {
                 shown
             };
-            if !push_bounded(&mut results, &mut output_bytes, result) || results.len() >= limit {
+            results.push(result);
+            if results.len() >= limit {
                 truncated = true;
                 break;
             }
@@ -341,7 +366,7 @@ impl Workspace {
             return Ok("(no matching paths)".to_string());
         }
         if truncated {
-            push_truncation_notice(&mut results, "… path results truncated");
+            results.push("… path results truncated".to_string());
         }
         Ok(results.join("\n"))
     }
@@ -420,9 +445,10 @@ impl Workspace {
             )));
         }
         let bytes = mutation.after.len();
+        let lines = String::from_utf8_lossy(&mutation.after).lines().count();
         self.atomic_write(&mutation.relative, &mutation.after)?;
         Ok(format!(
-            "Wrote {bytes} bytes to {}.",
+            "Wrote {bytes} bytes ({lines} lines) to {}.",
             display_relative(&mutation.relative)
         ))
     }
@@ -700,64 +726,11 @@ fn clip_line(line: &str) -> String {
     clipped
 }
 
-fn push_bounded(lines: &mut Vec<String>, bytes: &mut usize, line: String) -> bool {
-    let needed = line.len() + usize::from(!lines.is_empty());
-    if *bytes + needed > MAX_TOOL_OUTPUT_BYTES {
-        return false;
+fn remaining_line(count: usize) -> String {
+    match count {
+        1 => "1 line remains".to_string(),
+        n => format!("{n} lines remain"),
     }
-    *bytes += needed;
-    lines.push(line);
-    true
-}
-
-fn push_truncation_notice(lines: &mut Vec<String>, notice: &str) {
-    while !lines.is_empty()
-        && lines.iter().map(String::len).sum::<usize>() + lines.len() + notice.len()
-            > MAX_TOOL_OUTPUT_BYTES
-    {
-        lines.pop();
-    }
-    lines.push(notice.to_string());
-}
-
-fn render_lines(content: &str, start_line: usize, max_lines: usize) -> Result<String, ToolError> {
-    if start_line == 0 {
-        return Err(ToolError::new("start_line must be at least 1."));
-    }
-    if max_lines == 0 || max_lines > MAX_READ_LINES {
-        return Err(ToolError::new(format!(
-            "max_lines must be between 1 and {MAX_READ_LINES}."
-        )));
-    }
-
-    let mut lines = Vec::new();
-    let mut output_bytes = 0;
-    let mut truncated = false;
-    for (index, line) in content
-        .lines()
-        .enumerate()
-        .skip(start_line - 1)
-        .take(max_lines)
-    {
-        if !push_bounded(
-            &mut lines,
-            &mut output_bytes,
-            format!("{}|{line}", index + 1),
-        ) {
-            truncated = true;
-            break;
-        }
-    }
-    if truncated {
-        push_truncation_notice(&mut lines, "… file output truncated");
-    }
-    let rendered = lines.join("\n");
-
-    Ok(if rendered.is_empty() {
-        "(no lines in the requested range)".to_string()
-    } else {
-        rendered
-    })
 }
 
 #[derive(Deserialize)]
@@ -843,8 +816,7 @@ impl Tool for ReadFile {
 
     fn description(&self) -> String {
         format!(
-            "Read a UTF-8 text file with line numbers. Files are limited to {} KiB and each call returns at most {MAX_READ_LINES} lines. {}",
-            MAX_FILE_BYTES / 1024,
+            "Read a UTF-8 text file with line numbers; each call answers a slice (default {DEFAULT_READ_LINES} lines) and says how many lines remain, and binary content is refused. {}",
             self.workspace.paths_reach()
         )
     }
@@ -865,8 +837,7 @@ impl Tool for ReadFile {
                 "max_lines": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": MAX_READ_LINES,
-                    "description": "Maximum number of lines to return."
+                    "description": format!("Lines to return from start_line. Defaults to {DEFAULT_READ_LINES}.")
                 }
             },
             "required": ["path"],
@@ -1074,7 +1045,8 @@ impl Tool for WriteFile {
 
     fn description(&self) -> String {
         format!(
-            "Create or replace a UTF-8 file. {}",
+            "Create or replace a UTF-8 file of up to {} MiB and say how many bytes and lines were written. {}",
+            MAX_WRITE_BYTES / (1024 * 1024),
             self.workspace.paths_reach()
         )
     }
@@ -1146,10 +1118,10 @@ impl Tool for EditFile {
 
     fn description(&self) -> String {
         format!(
-            "Edit a UTF-8 text file by replacing exact text. A non-unique match is rejected unless replace_all is true. {}",
+            "Edit a UTF-8 text file by replacing exact text; a non-unique match is rejected unless replace_all is true, writes are capped at {} MiB, and the result says how many bytes and lines were written. {}",
+            MAX_WRITE_BYTES / (1024 * 1024),
             self.workspace.paths_reach()
         )
-            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -1200,9 +1172,12 @@ impl Tool for EditFile {
 #[cfg(test)]
 mod tests {
     use super::{
-        EditFileArgs, FindFilesArgs, Reach, ReadFileArgs, SearchFilesArgs, Workspace,
-        WriteFileArgs, normalize_relative_path, render_lines,
+        DEFAULT_READ_LINES, EditFile, EditFileArgs, FindFiles, FindFilesArgs, ListDirectory, Reach,
+        ReadFile, ReadFileArgs, SearchFiles, SearchFilesArgs, Workspace, WriteFile, WriteFileArgs,
+        normalize_relative_path,
     };
+    use crate::tools::RunCommand;
+    use rig::tool::Tool;
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -1235,9 +1210,69 @@ mod tests {
     }
 
     #[test]
-    fn file_reads_are_line_numbered_and_bounded() {
-        let result = render_lines("one\ntwo\nthree\nfour", 2, 2).unwrap();
-        assert_eq!(result, "2|two\n3|three");
+    fn file_reads_are_line_numbered_and_say_what_remains() {
+        let directory = TestDirectory::new();
+        fs::write(
+            directory.path().join("notes.txt"),
+            "one\ntwo\nthree\nfour\n",
+        )
+        .unwrap();
+        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let result = workspace
+            .read_file(ReadFileArgs {
+                path: "notes.txt".to_string(),
+                start_line: Some(2),
+                max_lines: Some(2),
+            })
+            .unwrap();
+        assert_eq!(result, "2|two\n3|three\n1 line remains");
+    }
+
+    #[test]
+    fn a_read_of_a_file_longer_than_the_default_slice_answers_the_slice_and_the_remainder() {
+        let directory = TestDirectory::new();
+        let total = DEFAULT_READ_LINES + 5;
+        let mut content = String::new();
+        for index in 1..=total {
+            content.push_str(&format!("line-{index}\n"));
+        }
+        fs::write(directory.path().join("long.txt"), content).unwrap();
+        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let result = workspace
+            .read_file(ReadFileArgs {
+                path: "long.txt".to_string(),
+                start_line: None,
+                max_lines: None,
+            })
+            .unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), DEFAULT_READ_LINES + 1);
+        assert_eq!(lines[0], "1|line-1");
+        assert_eq!(
+            lines[DEFAULT_READ_LINES - 1],
+            format!("{DEFAULT_READ_LINES}|line-{DEFAULT_READ_LINES}")
+        );
+        assert_eq!(lines[DEFAULT_READ_LINES], "5 lines remain");
+        assert!(!result.contains(&format!(
+            "{}|line-{}",
+            DEFAULT_READ_LINES + 1,
+            DEFAULT_READ_LINES + 1
+        )));
+    }
+
+    #[test]
+    fn a_binary_file_is_refused_with_a_sentence() {
+        let directory = TestDirectory::new();
+        fs::write(directory.path().join("blob.bin"), [b'a', 0, b'b']).unwrap();
+        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let error = workspace
+            .read_file(ReadFileArgs {
+                path: "blob.bin".to_string(),
+                start_line: None,
+                max_lines: None,
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("binary"), "{}", error);
     }
 
     #[test]
@@ -1317,11 +1352,64 @@ mod tests {
                 overwrite: None,
             })
             .unwrap();
-        workspace.commit_mutation(write).unwrap();
+        let wrote = workspace.commit_mutation(write).unwrap();
         assert_eq!(
             fs::read_to_string(directory.path().join("new.txt")).unwrap(),
             "created\n"
         );
+        assert!(
+            wrote.contains("bytes") && wrote.contains("lines"),
+            "{wrote}"
+        );
+    }
+
+    #[test]
+    fn write_of_a_large_file_succeeds() {
+        let directory = TestDirectory::new();
+        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let content = "hello world\n".repeat(30_000);
+        let bytes = content.len();
+        let lines = content.lines().count();
+        let write = workspace
+            .prepare_write(WriteFileArgs {
+                path: "big.txt".to_string(),
+                content: content.clone(),
+                overwrite: None,
+            })
+            .unwrap();
+        let result = workspace.commit_mutation(write).unwrap();
+        assert!(
+            result.contains(&format!("{bytes} bytes"))
+                && result.contains(&format!("{lines} lines")),
+            "{result}"
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join("big.txt")).unwrap(),
+            content
+        );
+    }
+
+    #[test]
+    fn descriptions_mention_no_stale_limits() {
+        let directory = TestDirectory::new();
+        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let descriptions = [
+            ListDirectory::new(workspace.clone()).description(),
+            ReadFile::new(workspace.clone()).description(),
+            SearchFiles::new(workspace.clone()).description(),
+            FindFiles::new(workspace.clone()).description(),
+            WriteFile::new(workspace.clone()).description(),
+            EditFile::new(workspace.clone()).description(),
+            RunCommand::new(workspace).description(),
+        ];
+        for text in descriptions {
+            for stale in ["256 KiB", "16 KiB", "50 KiB", "400 lines", "200 lines"] {
+                assert!(
+                    !text.contains(stale),
+                    "stale limit {stale:?} still in: {text}"
+                );
+            }
+        }
     }
 
     #[test]

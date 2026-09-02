@@ -48,6 +48,7 @@ use chrono::Local;
 use quiet::QuietWindow;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -105,23 +106,32 @@ pub trait ProviderKeys: Send + Sync {
 pub trait Agents: Send + Sync {
     /// A teammate's agent, told the preamble and seeded with what has been
     /// said in the chapter it is joining.
-    fn agent(&self, preamble: String, said: Vec<Said>) -> Arc<dyn Driver>;
+    fn agent(&self, persona: &Persona, preamble: String, said: Vec<Said>) -> Arc<dyn Driver>;
 
     /// One answer, with no tools and no conversation.
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
 }
 
 /// Toad Agent, on whatever keys the desk holds at the moment it is asked.
-struct RigAgents(Arc<dyn ProviderKeys>);
+/// The root is where a tool's oversized output is kept beside the tape.
+struct RigAgents {
+    keys: Arc<dyn ProviderKeys>,
+    root: PathBuf,
+}
 
 #[async_trait]
 impl Agents for RigAgents {
-    fn agent(&self, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
-        Arc::new(InProcess::new(self.0.clone(), preamble, said))
+    fn agent(&self, persona: &Persona, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
+        Arc::new(InProcess::new(
+            self.keys.clone(),
+            preamble,
+            said,
+            self.root.join("tool-output").join(&persona.id),
+        ))
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
-        rig::complete(&self.0.provider_keys(), model_id, system, prompt).await
+        rig::complete(&self.keys.provider_keys(), model_id, system, prompt).await
     }
 }
 
@@ -232,7 +242,8 @@ pub struct Room {
 
 impl Room {
     pub fn new(log: Log, keys: Arc<dyn ProviderKeys>) -> Arc<Self> {
-        Self::with_agents(log, keys.clone(), Arc::new(RigAgents(keys)))
+        let root = log.root().to_path_buf();
+        Self::with_agents(log, keys.clone(), Arc::new(RigAgents { keys, root }))
     }
 
     /// The room, on an agent seam a test can script. [`Room::new`] is this on
@@ -319,6 +330,7 @@ impl Room {
         let events = self.tape(&persona.id);
         let reach = persona.reach.unwrap_or_default();
         let driver = self.agents.agent(
+            &persona,
             preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
             said(&events),
         );

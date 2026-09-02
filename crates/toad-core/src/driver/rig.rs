@@ -35,7 +35,7 @@ use rig::providers::{anthropic, openai, openrouter};
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 
@@ -90,6 +90,11 @@ const AGENT_NAME: &str = "Toad Agent";
 
 /// Only the tool's subject, not the whole command, goes in the title line.
 const TITLE_CHARS: usize = 120;
+
+/// How much of a tool's result the model is shown. Big enough for a build log;
+/// anything larger is kept in full on disk beside the tape, and the text the
+/// model sees ends with that path so the agent can read the rest.
+const MODEL_TOOL_OUTPUT_BYTES: usize = 256 * 1024;
 
 /// The models the given provider keys unlock, as the picker lists them.
 pub fn models(keys: &HashMap<String, String>) -> Vec<ConfigChoice> {
@@ -165,10 +170,19 @@ pub struct InProcess {
     model: Mutex<String>,
     history: Arc<AsyncMutex<Vec<Message>>>,
     cancel: Arc<Notify>,
+    /// Directory oversized tool results are written into, one `{call id}.txt`
+    /// each. Created on first use so a teammate that never overflows never
+    /// gets a folder.
+    output_dir: PathBuf,
 }
 
 impl InProcess {
-    pub fn new(keys: Arc<dyn ProviderKeys>, preamble: String, said: Vec<Said>) -> Self {
+    pub fn new(
+        keys: Arc<dyn ProviderKeys>,
+        preamble: String,
+        said: Vec<Said>,
+        output_dir: PathBuf,
+    ) -> Self {
         let history = said
             .into_iter()
             .map(|line| match line {
@@ -183,6 +197,7 @@ impl InProcess {
             model: Mutex::new(String::new()),
             history: Arc::new(AsyncMutex::new(history)),
             cancel: Arc::new(Notify::new()),
+            output_dir,
         }
     }
 
@@ -226,6 +241,7 @@ impl Driver for InProcess {
             reach,
             history: self.history.clone(),
             cancel: self.cancel.clone(),
+            output_dir: self.output_dir.clone(),
         };
         tokio::spawn(async move {
             if let Err(error) = turn.run(&sender, text).await {
@@ -271,13 +287,14 @@ struct Turn {
     reach: Reach,
     history: Arc<AsyncMutex<Vec<Message>>>,
     cancel: Arc<Notify>,
+    output_dir: PathBuf,
 }
 
 impl Turn {
     async fn run(&self, sender: &mpsc::Sender<Update>, text: String) -> Result<(), String> {
         let workspace =
             Workspace::open(self.cwd.clone(), self.reach).map_err(|error| error.to_string())?;
-        let outcomes = ToolOutcomes::default();
+        let outcomes = ToolOutcomes::new(self.output_dir.clone());
         let agent = agent_builder(&self.keys, &self.model)?
             .preamble(&self.preamble)
             .tool(ListDirectory::new(workspace.clone()))
@@ -411,19 +428,35 @@ impl Turn {
     }
 }
 
-/// Which tool calls failed, by the id the stream will name them with.
+/// Which tool calls failed, by the id the stream will name them with, and the
+/// rewrite that keeps an oversized result off the model's context.
 ///
 /// Rig hands the canonical result — the one carrying the disposition — only to
-/// a hook, so this is registered as one and the turn loop reads it back.
-#[derive(Clone, Default)]
-struct ToolOutcomes(Arc<Mutex<HashMap<String, bool>>>);
+/// a hook, so this is registered as one and the turn loop reads the outcome
+/// back. The same hook is the only place that can change what the model is
+/// shown, so a result that does not fit is written to disk here and rewritten
+/// to the elided text plus that path.
+#[derive(Clone)]
+struct ToolOutcomes {
+    outcomes: Arc<Mutex<HashMap<String, bool>>>,
+    output_dir: PathBuf,
+}
 
 impl ToolOutcomes {
+    fn new(output_dir: PathBuf) -> Self {
+        Self {
+            outcomes: Arc::new(Mutex::new(HashMap::new())),
+            output_dir,
+        }
+    }
+
     /// Whether that call succeeded. A call the hook never saw reads as
     /// succeeded: the transcript's job is to mark the failures it knows about,
     /// not to accuse a tool of failing because Rig went quiet.
     fn take(&self, internal_call_id: &str) -> bool {
-        lock(&self.0).remove(internal_call_id).unwrap_or(true)
+        lock(&self.outcomes)
+            .remove(internal_call_id)
+            .unwrap_or(true)
     }
 }
 
@@ -433,12 +466,71 @@ impl AgentHook for ToolOutcomes {
         _context: &HookContext,
         event: ToolResultEvent<'_>,
     ) -> ToolResultAction {
-        lock(&self.0).insert(
+        lock(&self.outcomes).insert(
             event.internal_call_id.to_string(),
             event.raw_result.is_success(),
         );
-        ToolResultAction::Keep
+        let text = event.presentation.render();
+        if text.len() <= MODEL_TOOL_OUTPUT_BYTES {
+            return ToolResultAction::Keep;
+        }
+        ToolResultAction::rewrite(hand_to_model(
+            &self.output_dir,
+            event.internal_call_id,
+            &text,
+        ))
     }
+}
+
+/// The text the model is given for a tool result: the whole thing when it
+/// fits, otherwise the head and tail with the rest written to
+/// `{output_dir}/{call_id}.txt` and that path on the last line.
+fn hand_to_model(output_dir: &Path, call_id: &str, output: &str) -> String {
+    if output.len() <= MODEL_TOOL_OUTPUT_BYTES {
+        return output.to_string();
+    }
+    let elided = elide(output, MODEL_TOOL_OUTPUT_BYTES);
+    let path = output_dir.join(format!("{call_id}.txt"));
+    match std::fs::create_dir_all(output_dir).and_then(|_| std::fs::write(&path, output)) {
+        Ok(()) => {
+            let named = path.canonicalize().unwrap_or(path);
+            format!("{elided}\nFull output: {}", named.display())
+        }
+        Err(_) => elided,
+    }
+}
+
+/// The head and the tail of the output, with one line where the middle was.
+///
+/// A cut in the middle is the honest one: the head holds what the command
+/// said it was doing and the tail holds how it ended, and a build log that
+/// only kept its first quarter would hide the error the agent ran it for.
+fn elide(text: &str, limit: usize) -> String {
+    if text.len() <= limit {
+        return text.to_string();
+    }
+    let half = limit / 2;
+    let head = floor_boundary(text, half);
+    let tail = ceil_boundary(text, text.len() - half);
+    let cut = tail - head;
+    format!(
+        "{}\n[… {cut} bytes elided …]\n{}",
+        &text[..head],
+        &text[tail..]
+    )
+}
+
+fn floor_boundary(text: &str, at: usize) -> usize {
+    (0..=at)
+        .rev()
+        .find(|at| text.is_char_boundary(*at))
+        .unwrap_or(0)
+}
+
+fn ceil_boundary(text: &str, at: usize) -> usize {
+    (at..=text.len())
+        .find(|at| text.is_char_boundary(*at))
+        .unwrap_or(text.len())
 }
 
 /// A message being streamed: its id, whether it is speech or thought, and
@@ -549,6 +641,8 @@ fn describe_tool(name: &str, arguments: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::Reach;
+    use rig::tool::{Tool, ToolContext};
     use serde_json::json;
 
     #[test]
@@ -583,10 +677,72 @@ mod tests {
     /// the answer is taken only once because a tape event is written once.
     #[test]
     fn a_tool_outcome_is_read_back_by_the_call_id_the_stream_names() {
-        let outcomes = ToolOutcomes::default();
+        let outcomes = ToolOutcomes::new(PathBuf::new());
         assert!(outcomes.take("call-1"));
-        lock(&outcomes.0).insert("call-1".to_string(), false);
+        lock(&outcomes.outcomes).insert("call-1".to_string(), false);
         assert!(!outcomes.take("call-1"));
         assert!(outcomes.take("call-1"));
+    }
+
+    #[test]
+    fn output_under_the_limit_is_untouched() {
+        assert_eq!(elide("hello", 16), "hello");
+    }
+
+    /// The head and the tail both survive, and the line between them says how
+    /// much did not.
+    #[test]
+    fn a_long_output_keeps_both_ends_and_says_what_it_cut() {
+        let text = format!("start{}end", "x".repeat(1_000));
+        let elided = elide(&text, 100);
+        assert!(elided.starts_with("start"));
+        assert!(elided.ends_with("end"));
+        assert!(elided.contains("[… 908 bytes elided …]"), "{elided}");
+    }
+
+    /// The cut lands on a character boundary, never inside one.
+    #[test]
+    fn a_multibyte_output_is_cut_between_characters() {
+        let text = "é".repeat(1_000);
+        let elided = elide(&text, 101);
+        assert!(elided.contains("[…"));
+        assert!(elided.starts_with('é'));
+        assert!(elided.ends_with('é'));
+    }
+
+    /// A command whose output exceeds what the model is handed lands its full
+    /// output on disk, and the text the model sees names that path.
+    #[tokio::test]
+    async fn a_shell_command_whose_output_exceeds_the_elision_lands_on_disk() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "toad-core-tool-output-{}-{nonce}",
+            std::process::id()
+        ));
+        let workspace_dir = root.join("workspace");
+        let output_dir = root.join("tool-output");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        let body = "x".repeat(MODEL_TOOL_OUTPUT_BYTES + 64);
+        std::fs::write(workspace_dir.join("big.txt"), &body).unwrap();
+        let workspace = Workspace::open(workspace_dir, Reach::Workspace).unwrap();
+        let args: <RunCommand as Tool>::Args =
+            serde_json::from_value(json!({"command": "cat big.txt"})).unwrap();
+        let output = RunCommand::new(workspace)
+            .call(&mut ToolContext::new(), args)
+            .await
+            .unwrap();
+        assert_eq!(output, body);
+
+        let handed = hand_to_model(&output_dir, "call-1", &output);
+        let saved = output_dir.join("call-1.txt");
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), body);
+        let named = saved.canonicalize().unwrap();
+        assert!(handed.contains(&named.display().to_string()), "{handed}");
+        assert!(handed.contains("elided"), "{handed}");
+        assert!(handed.starts_with('x') && handed.contains("Full output:"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

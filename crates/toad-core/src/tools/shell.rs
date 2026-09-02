@@ -17,11 +17,6 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 
-/// How much of the output the model is shown. Big enough for a build log; the
-/// middle of anything larger is cut, because the head says what was run and
-/// the tail says how it ended.
-const OUTPUT_LIMIT: usize = 256 * 1024;
-
 #[derive(Deserialize)]
 pub struct RunCommandArgs {
     command: String,
@@ -127,7 +122,6 @@ impl Tool for RunCommand {
             text.push_str("\n[stderr]\n");
             text.push_str(&errors);
         }
-        let mut text = elide(&text, OUTPUT_LIMIT);
         let status = output.status.code().unwrap_or(-1);
         if status != 0 {
             text.push_str(&format!("\n[exit status {status}]"));
@@ -167,39 +161,6 @@ impl Drop for ProcessGroup {
             unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
         }
     }
-}
-
-/// The head and the tail of the output, with one line where the middle was.
-///
-/// A cut in the middle is the honest one: the head holds what the command
-/// said it was doing and the tail holds how it ended, and a build log that
-/// only kept its first quarter would hide the error the agent ran it for.
-fn elide(text: &str, limit: usize) -> String {
-    if text.len() <= limit {
-        return text.to_string();
-    }
-    let half = limit / 2;
-    let head = floor_boundary(text, half);
-    let tail = ceil_boundary(text, text.len() - half);
-    let cut = tail - head;
-    format!(
-        "{}\n[… {cut} bytes elided …]\n{}",
-        &text[..head],
-        &text[tail..]
-    )
-}
-
-fn floor_boundary(text: &str, at: usize) -> usize {
-    (0..=at)
-        .rev()
-        .find(|at| text.is_char_boundary(*at))
-        .unwrap_or(0)
-}
-
-fn ceil_boundary(text: &str, at: usize) -> usize {
-    (at..=text.len())
-        .find(|at| text.is_char_boundary(*at))
-        .unwrap_or(text.len())
 }
 
 #[cfg(test)]
@@ -243,29 +204,28 @@ mod tests {
         assert!(died, "the command's own child outlived the command");
     }
 
-    #[test]
-    fn output_under_the_limit_is_untouched() {
-        assert_eq!(elide("hello", 16), "hello");
-    }
-
-    /// The head and the tail both survive, and the line between them says how
-    /// much did not.
-    #[test]
-    fn a_long_output_keeps_both_ends_and_says_what_it_cut() {
-        let text = format!("start{}end", "x".repeat(1_000));
-        let elided = elide(&text, 100);
-        assert!(elided.starts_with("start"));
-        assert!(elided.ends_with("end"));
-        assert!(elided.contains("[… 908 bytes elided …]"), "{elided}");
-    }
-
-    /// The cut lands on a character boundary, never inside one.
-    #[test]
-    fn a_multibyte_output_is_cut_between_characters() {
-        let text = "é".repeat(1_000);
-        let elided = elide(&text, 101);
-        assert!(elided.contains("[…"));
-        assert!(elided.starts_with('é'));
-        assert!(elided.ends_with('é'));
+    /// The command's own output is not cut here: the driver keeps the full
+    /// result on disk when it is more than the model is handed.
+    #[tokio::test]
+    async fn a_long_output_is_returned_in_full() {
+        let root =
+            std::env::temp_dir().join(format!("toad-core-shell-long-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let body = "x".repeat(300_000);
+        std::fs::write(root.join("big.txt"), &body).unwrap();
+        let workspace = Workspace::open(root.clone(), Reach::Workspace).unwrap();
+        let output = RunCommand::new(workspace)
+            .call(
+                &mut ToolContext::new(),
+                RunCommandArgs {
+                    command: "cat big.txt".to_string(),
+                    timeout_seconds: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(output, body);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -153,7 +153,7 @@ impl Fake {
 
 #[async_trait]
 impl Agents for Fake {
-    fn agent(&self, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
+    fn agent(&self, _persona: &Persona, preamble: String, said: Vec<Said>) -> Arc<dyn Driver> {
         lock(&self.preambles).push(preamble);
         lock(&self.seeds).push(said);
         self.driver.clone()

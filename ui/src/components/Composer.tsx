@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
-import { ArrowUpIcon, CloseIcon, StopIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
+import { pickFiles } from "../native";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -11,21 +12,24 @@ function isWorking(state: SessionState): boolean {
 	return state === "starting" || state === "thinking";
 }
 
-/** A session that has to be started before anything can be said to it. */
+/** A session that is started on the way, before what was typed is said. */
 function isDown(state: SessionState): boolean {
 	return state === "idle" || state === "stopped" || state === "error";
 }
 
 /**
- * Where you type.
+ * Where you type: one pill, the way a message to a person is typed.
  *
- * A stopped teammate is started by talking to it: a message typed at a
- * session that is not running starts one and then says the message, because
- * the person meant to send it either way. Start is for the other case —
- * waking a teammate with nothing to say yet. A reply being composed sits as
- * a one-line quote above the field; chips above the field are files dropped
- * on the window, never a path typed or pasted into it. Escape puts the chips
- * down first, then the quote, then it interrupts a turn.
+ * The field is always open, because the teammate is always there. Whether
+ * a session is up behind them is plumbing: a message typed at one that is
+ * not running starts it and then says the message, and nothing on screen
+ * asks the person to know the difference. The send key is there only when
+ * there is something to send, and is the stop key while the teammate is
+ * working; nothing in the pill is ever greyed out, waiting. Attach is the
+ * plus at the left end. A reply being composed is a one-line quote at the
+ * head of the pill, and chips there are files picked or dropped, never a
+ * path typed or pasted into it. Escape puts the chips down first, then the
+ * quote, then it interrupts a turn.
  */
 export function Composer({
 	personaId,
@@ -67,8 +71,8 @@ export function Composer({
 		if (replyQuote !== null) area.current?.focus();
 	}, [replyQuote]);
 
-	// A drop is the only way a path becomes a chip. The field never parses
-	// what was typed or pasted, so a path you meant as words stays words.
+	// A drop or the picker is how a path becomes a chip. The field never
+	// parses what was typed or pasted, so a path you meant as words stays words.
 	useEffect(() => {
 		let cancelled = false;
 		let stop: (() => void) | undefined;
@@ -125,23 +129,34 @@ export function Composer({
 		onSend(trimmed, sending);
 	};
 
+	const attach = async () => {
+		const paths = await pickFiles();
+		if (paths.length > 0) setAttachments((known) => mergeDropped(known, paths));
+		area.current?.focus();
+	};
+
 	return (
-		<div className="shrink-0 px-8 pb-5 pt-2">
-			<div className="mx-auto w-full max-w-[46rem]">
-				{replyQuote !== null && (
-					<div className="mb-2 flex items-center gap-2">
-						<p className="quote mb-0 min-w-0 flex-1">
-							<span className="text-ink-3">Replying to </span>
-							{replyQuote}
-						</p>
-						<button type="button" className="chip-x" aria-label="Stop replying" onClick={onClearReply}>
-							<CloseIcon />
-						</button>
-					</div>
-				)}
-				<div className="composer px-3 pb-2 pt-2.5">
+		/* Positioned, so it paints over the scroller before it, which is
+		   positioned too and would otherwise sit on the pill's top edge. */
+		<div className="relative shrink-0 px-6 pb-4">
+			<div className="composer mx-auto w-full max-w-[46rem]">
+				<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
+					<PlusIcon />
+				</button>
+				<div className="composer-body">
+					{replyQuote !== null && (
+						<div className="flex items-center gap-2 pt-1">
+							<p className="quote mb-0 min-w-0 flex-1">
+								<span className="text-ink-3">Replying to </span>
+								{replyQuote}
+							</p>
+							<button type="button" className="chip-x" aria-label="Stop replying" onClick={onClearReply}>
+								<CloseIcon />
+							</button>
+						</div>
+					)}
 					{attachments.length > 0 && (
-						<ul className="mb-2 flex flex-wrap gap-1.5">
+						<ul className="flex flex-wrap gap-1.5 pt-1.5">
 							{attachments.map((item) => (
 								<li key={item.path} className="chip" title={item.path}>
 									<span className="chip-name">{item.name}</span>
@@ -186,42 +201,25 @@ export function Composer({
 							}
 						}}
 					/>
-					<div className="mt-1.5 flex h-[26px] items-center justify-between gap-2">
-						<p className="truncate text-xs text-ink-4">
-							{down
-								? "Sending starts the session."
-								: working
-									? "Escape interrupts."
-									: "Shift+Enter for a new line."}
-						</p>
-						{working ? (
-							<button
-								type="button"
-								className="control btn send"
-								title="Interrupt (Esc)"
-								aria-label="Interrupt"
-								onClick={onCancel}
-							>
-								<StopIcon />
-							</button>
-						) : down && !hasContent ? (
-							<button type="button" className="control btn btn-sm" onClick={onStart}>
-								Start
-							</button>
-						) : (
-							<button
-								type="button"
-								className="control btn-primary send"
-								title="Send (Enter)"
-								aria-label="Send"
-								disabled={!hasContent}
-								onClick={submit}
-							>
-								<ArrowUpIcon />
-							</button>
-						)}
-					</div>
 				</div>
+				{working ? (
+					<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
+						<StopIcon />
+					</button>
+				) : (
+					<button
+						type="button"
+						className="composer-key composer-send"
+						title="Send (Enter)"
+						aria-label="Send"
+						aria-hidden={!hasContent}
+						tabIndex={hasContent ? 0 : -1}
+						data-shown={hasContent ? "true" : undefined}
+						onClick={submit}
+					>
+						<ArrowUpIcon />
+					</button>
+				)}
 			</div>
 		</div>
 	);

@@ -24,6 +24,27 @@ export const PlusIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+/* The window's own controls, drawn small: a frame's glyphs are marks on
+ * the chrome, not buttons in the page. */
+export const MinimizeIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M4 8.5h8" />
+	</svg>
+);
+
+export const MaximizeIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<rect x="4.5" y="4.5" width="7" height="7" rx="0.75" />
+	</svg>
+);
+
+export const RestoreIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<rect x="4" y="6" width="6" height="6" rx="0.75" />
+		<path d="M6.5 6V4.75A.75.75 0 0 1 7.25 4h4a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-.75.75H10" />
+	</svg>
+);
+
 export const CloseIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
@@ -75,6 +96,12 @@ export const FolderIcon = ({ className }: IconProps) => (
 export const ArrowUpIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box} strokeWidth={1.75}>
 		<path d="M8 12.5v-9M4.25 7.25L8 3.5l3.75 3.75" />
+	</svg>
+);
+
+export const ArrowLeftIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box} strokeWidth={1.75}>
+		<path d="M12.5 8h-9M7.25 4.25L3.5 8l3.75 3.75" />
 	</svg>
 );
 

@@ -1,23 +1,26 @@
 import { chordKeys } from "../chords";
-import { GearIcon, PlusIcon } from "../icons";
+import { GearIcon, MoreIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
+import { MenuButton, type MenuEntry } from "../ui/Menu";
 
 /**
  * Each teammate carries a vital sign rather than a status pill: the rail is
  * a roster you watch, so the one moving thing in the whole window is
- * whichever agent is currently working. A resting teammate has no mark.
+ * whichever agent is currently working. A teammate at rest has no mark and
+ * no label, whether or not a session is up behind them — that is plumbing,
+ * and they are there either way.
  */
 const VITAL: Record<SessionState, { color: string | null; beating: boolean; label: string }> = {
-	idle: { color: null, beating: false, label: "Not running" },
+	idle: { color: null, beating: false, label: "" },
 	starting: { color: "var(--warn)", beating: true, label: "Starting" },
-	ready: { color: "var(--ink-4)", beating: false, label: "Ready" },
+	ready: { color: null, beating: false, label: "" },
 	thinking: { color: "var(--accent)", beating: true, label: "Working" },
 	error: { color: "var(--danger)", beating: false, label: "Error" },
-	stopped: { color: null, beating: false, label: "Stopped" },
+	stopped: { color: null, beating: false, label: "" },
 };
 
 export function Rail({
@@ -30,6 +33,7 @@ export function Rail({
 	onSettings,
 	onEdit,
 	onDelete,
+	onHelp,
 }: {
 	entries: RosterEntry[];
 	selectedId: string | null;
@@ -41,9 +45,17 @@ export function Rail({
 	onSettings(): void;
 	onEdit(personaId: string): void;
 	onDelete(personaId: string, name: string): void;
+	onHelp(id: "shortcuts" | "about" | "github"): void;
 }) {
+	/* The help a menu bar would carry. Here because on Linux and Windows
+	 * there is no menu bar, and a page nobody can reach is not a page. */
+	const help: MenuEntry[] = [
+		{ kind: "item", id: "shortcuts", text: "Keyboard shortcuts", onSelect: () => onHelp("shortcuts") },
+		{ kind: "item", id: "about", text: "About Toad", onSelect: () => onHelp("about") },
+		{ kind: "item", id: "github", text: "Toad on GitHub", onSelect: () => onHelp("github") },
+	];
 	return (
-		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col border-r border-line bg-sidebar">
+		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col">
 			<Band rail>
 				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Team</h1>
 				<button
@@ -57,7 +69,7 @@ export function Rail({
 				</button>
 			</Band>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
 				{entries.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-ink-3">
 						No teammates yet. Each one keeps its own working directory, its own goal and its
@@ -79,7 +91,7 @@ export function Rail({
 				)}
 			</div>
 
-			<footer className="flex h-9 shrink-0 items-center gap-1 border-t border-line px-2">
+			<footer className="flex h-10 shrink-0 items-center gap-1 px-2">
 				<button
 					type="button"
 					className="control btn-quiet -ml-1 gap-1.5 px-2 text-sm"
@@ -89,8 +101,11 @@ export function Rail({
 					<GearIcon className="text-ink-3" />
 					Settings
 				</button>
+				<MenuButton className="control btn-icon" label="More" entries={help}>
+					<MoreIcon />
+				</MenuButton>
 				{connection !== "open" && (
-					<p role="status" className="ml-auto flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-3">
+					<p role="status" className="instrument ml-auto flex min-w-0 items-center gap-1.5 truncate">
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--warn)" }} />
 						Reconnecting
 					</p>
@@ -124,13 +139,13 @@ function Row({
 		? activity
 		: preview
 			? `${preview.from === "me" ? "You: " : ""}${oneLine(preview.text)}`
-			: vital.label;
+			: vital.label || oneLine(entry.persona.goal);
 	return (
 		<button
 			type="button"
 			data-teammate-row
 			aria-current={active ? "true" : undefined}
-			aria-label={`${entry.persona.name}, ${vital.label.toLowerCase()}${unread ? ", unread" : ""}`}
+			aria-label={`${entry.persona.name}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}`}
 			className="rail-row group relative"
 			onClick={onSelect}
 			onContextMenu={(event) => {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { BackendChoice, Credential, Provider, Report } from "../generated/contract";
 import { chordKeys } from "../chords";
-import { CloseIcon } from "../icons";
+import { ArrowLeftIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
-import { onTablistKey, Picker } from "../ui/Menu";
+import { Picker } from "../ui/Menu";
+import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
@@ -13,29 +14,70 @@ import { PathField } from "./PathField";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "keys" | "tools" | "import";
+export type SettingsSection = "general" | "providers" | "tools" | "import";
 
-const SECTIONS: { id: SettingsSection; title: string }[] = [
-	{ id: "general", title: "General" },
-	{ id: "keys", title: "Keys" },
-	{ id: "tools", title: "Tools" },
-	{ id: "import", title: "Import" },
+const SECTIONS: { id: SettingsSection; title: string; detail: string }[] = [
+	{ id: "general", title: "General", detail: "Chapters and the default harness" },
+	{ id: "providers", title: "Providers", detail: "Keys, and the models they unlock" },
+	{ id: "tools", title: "Tools", detail: "MCP servers teammates may use" },
+	{ id: "import", title: "Import", detail: "A previous Toad's room" },
 ];
 
 /**
- * The room's settings, as a pane in the conversation's place: the sections
- * are tabs in the band, and each one is a column of grouped rows. What a
- * teammate is, is not here; that is the teammate's own pane.
+ * The rail while settings are open: the sections stand where the team
+ * stood, one row each, and the band carries the way back where the team's
+ * plus was. Settings is a place you go, not a card over the room, so the
+ * room steps aside until you come back.
  */
-export function Settings({
+export function SettingsRail({
 	section,
 	onSection,
-	onClose,
+	onBack,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
-	onClose(): void;
+	onBack(): void;
 }) {
+	return (
+		<nav aria-label="Settings" className="flex w-60 shrink-0 flex-col">
+			<Band rail>
+				<button
+					type="button"
+					className="control btn-icon -ml-1"
+					title={`Back (${chordKeys("close")})`}
+					aria-label="Back to the team"
+					onClick={onBack}
+				>
+					<ArrowLeftIcon />
+				</button>
+				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Settings</h1>
+			</Band>
+			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
+				{SECTIONS.map((one) => (
+					<button
+						key={one.id}
+						type="button"
+						className="rail-row"
+						aria-current={section === one.id ? "true" : undefined}
+						onClick={() => onSection(one.id)}
+					>
+						<span className="min-w-0 flex-1">
+							<span className="block h-[18px] truncate font-medium text-ink">{one.title}</span>
+							<span className="block h-4 truncate text-sm text-ink-3">{one.detail}</span>
+						</span>
+					</button>
+				))}
+			</div>
+		</nav>
+	);
+}
+
+/**
+ * The room's settings, as a pane in the conversation's place: one section
+ * at a time, chosen in the rail, each a column of grouped rows. What a
+ * teammate is, is not here; that is the teammate's own pane.
+ */
+export function Settings({ section }: { section: SettingsSection }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -47,31 +89,11 @@ export function Settings({
 	return (
 		<div className="pane">
 			<Band>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Settings</h2>
-				<div
-					className="segmented absolute left-1/2 -translate-x-1/2"
-					role="tablist"
-					aria-label="Settings sections"
-					onKeyDown={onTablistKey}
-				>
-					{SECTIONS.map((one) => (
-						<button
-							key={one.id}
-							type="button"
-							role="tab"
-							className="segment"
-							aria-selected={section === one.id}
-							onClick={() => onSection(one.id)}
-						>
-							{one.title}
-						</button>
-					))}
-				</div>
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">
+					{SECTIONS.find((one) => one.id === section)?.title}
+				</h2>
 			</Band>
-			<div className="pane-scroll">
+			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					{section === "general" && (
 						<GeneralSection
@@ -81,7 +103,7 @@ export function Settings({
 							onBackend={(id) => patch({ defaultBackendId: id })}
 						/>
 					)}
-					{section === "keys" && <KeysSection onRefuse={setRefusal} />}
+					{section === "providers" && <ProvidersSection onRefuse={setRefusal} />}
 					{section === "tools" && <ToolsSection servers={settings.mcpServers} onRefuse={setRefusal} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
 					{refusal !== null && (
@@ -90,7 +112,7 @@ export function Settings({
 						</p>
 					)}
 				</div>
-			</div>
+			</Scroll>
 		</div>
 	);
 }
@@ -179,7 +201,7 @@ function GeneralSection({
 	);
 }
 
-function KeysSection({ onRefuse }: { onRefuse(message: string | null): void }) {
+function ProvidersSection({ onRefuse }: { onRefuse(message: string | null): void }) {
 	const [held, setHeld] = useState<Credential[] | null>(null);
 	/* The providers a key can be for come from the core's model catalogue,
 	 * so a provider added there is offered here without the window knowing

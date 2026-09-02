@@ -1,0 +1,240 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: ui/design.md · designed-as-app
+ * Hallmark · pre-emit critique: P5 H4 E4 S5 R5 V4
+ *
+ * The window's tokens. Every colour, length, face and easing the window uses
+ * is named here once and referenced by name everywhere else; a value that is
+ * not here is a value the window may not use. The system these serve is
+ * locked in ui/design.md, and this file is amended, never forked.
+ *
+ * Dark is the designed theme and is written first. Light re-values the same
+ * names so nothing else in the tree knows there are two. */
+
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+:root {
+	color-scheme: dark;
+
+	/* ------------------------------------------------------------- planes
+	 * Depth is lightness, not shadow. Five steps in one cool slate lane
+	 * (hue 250, a trace of chroma) so the window reads as one material and
+	 * green reads as a signal on it rather than a part of it. Things that
+	 * are further from you are darker; the well is the floor. */
+	--well: oklch(12% 0.006 250); /* the window's ground: behind the rail, in the gaps */
+	--edge: oklch(30% 0.024 252); /* the window's own outline where the shell draws no frame */
+	--canvas: oklch(16% 0.006 250); /* a pane: the conversation, settings, the inspector */
+	--raised: oklch(20% 0.007 250); /* a card, a step's output, a grouped list */
+	--pop: oklch(24% 0.008 250); /* what sits on top: a menu, the composer, a key you press */
+	--pressed: oklch(28% 0.008 250); /* a pop surface under the pointer or the finger */
+
+	/* A raised surface catches the light along its top edge. One pixel, four
+	 * percent: felt, not seen. */
+	--top-light: inset 0 1px 0 oklch(100% 0 0 / 0.04);
+
+	/* ---------------------------------------------------------------- ink
+	 * Four voices. ink says it; ink-2 explains; ink-3 annotates; ink-4 is
+	 * furniture you only read when you look for it. */
+	--ink: oklch(95% 0.004 250);
+	--ink-2: oklch(78% 0.006 250);
+	--ink-3: oklch(62% 0.008 250);
+	--ink-4: oklch(46% 0.008 250);
+
+	/* Fills are alpha, so the same rule reads right on every plane. */
+	--fill-hover: oklch(100% 0 0 / 0.05);
+	--fill-active: oklch(100% 0 0 / 0.09);
+	--fill-selected: oklch(100% 0 0 / 0.08);
+	--fill-code: oklch(100% 0 0 / 0.05);
+
+	/* ---------------------------------------------------------- hairlines
+	 * A line is one device pixel, and it is a plane's edge, never a
+	 * decoration between things that are already different planes. */
+	--line: oklch(100% 0 0 / 0.09);
+	--line-strong: oklch(100% 0 0 / 0.16);
+	/* The scrollbar's thumb: solid, so it reads as a handle over any content
+	 * it passes, and quieter than a reading until a hand is near. */
+	--thumb: oklch(34% 0.008 250);
+	--thumb-hover: oklch(46% 0.008 250);
+	--hairline: 1px;
+
+	/* ------------------------------------------------------------- signal
+	 * Wet leaf. One colour, on a budget: an agent at work, the focus ring,
+	 * the primary action, the card that is waiting on you. It is never a
+	 * background and never decoration, so it means something when it shows. */
+	--accent: oklch(76% 0.17 142);
+	--accent-hover: oklch(81% 0.17 142);
+	--on-accent: oklch(16% 0.04 142);
+	--accent-soft: oklch(76% 0.17 142 / 0.16);
+
+	/* Speech is bubbles on two sides, told apart by weight, never by hue.
+	 * Yours are a slate wash, the lane's own hue with a little more chroma;
+	 * theirs are the raised plane, so the words sit up off the canvas and
+	 * the accent stays out of the conversation. */
+	--said-me: oklch(30% 0.034 255);
+	--said-them: oklch(21% 0.008 250);
+
+	--warn: oklch(80% 0.14 80);
+	--danger: oklch(72% 0.17 25);
+	--danger-soft: oklch(72% 0.17 25 / 0.14);
+
+	/* A teammate's face: seven hues at one lightness and one chroma, so no
+	 * teammate is louder than another. Red is absent on purpose. */
+	--face-l: 72%;
+	--face-c: 0.10;
+	--face-ink: oklch(17% 0.02 250);
+
+	/* ---------------------------------------------------------- elevation
+	 * Exactly one thing in the window rests on a shadow: the composer, which
+	 * floats over the conversation. A menu borrows the same shadow for the
+	 * moment it is open. Nothing else casts one. */
+	--shadow-float:
+		0 0 0 var(--hairline) oklch(100% 0 0 / 0.08),
+		0 1px 2px oklch(0% 0 0 / 0.3),
+		0 12px 32px -8px oklch(0% 0 0 / 0.55);
+	--scrim: oklch(0% 0 0 / 0.45);
+
+	/* ------------------------------------------------------------- radius
+	 * Concentric from the OS window inward: a pane is 10, a card in it is 8,
+	 * a control on the card is 6, a chip in the control is 4. Nothing inside
+	 * is rounder than what holds it, except a circle. A bubble is a shape,
+	 * not a container, and gets 12. */
+	--radius-chip: 4px;
+	--radius-control: 6px;
+	--radius-card: 8px;
+	--radius-pane: 10px;
+	--radius-bubble: 12px;
+
+	/* ------------------------------------------------------------- motion
+	 * Three durations and one curve (named in the Tailwind block below), no
+	 * overshoot. 90 answers a press, 130 opens
+	 * something small, 220 moves something across the pane. A working
+	 * teammate's mark breathes on its own; nothing else moves unasked. */
+	--dur-press: 90ms;
+	--dur-open: 130ms;
+	--dur-move: 220ms;
+	--dur-breath: 1800ms;
+}
+
+/* Light re-values every name. The ladder inverts: the well is the darkest
+ * thing and a pop surface is white, so depth still reads as lightness. */
+@media (prefers-color-scheme: light) {
+	:root {
+		color-scheme: light;
+
+		--well: oklch(92.5% 0.005 250);
+		--edge: oklch(78% 0.02 252);
+		--canvas: oklch(98.5% 0.003 250);
+		--raised: oklch(96.5% 0.004 250);
+		--pop: oklch(100% 0 0);
+		--pressed: oklch(95% 0.005 250);
+		--top-light: inset 0 1px 0 oklch(100% 0 0 / 0.6);
+
+		--ink: oklch(20% 0.01 250);
+		--ink-2: oklch(42% 0.01 250);
+		--ink-3: oklch(56% 0.01 250);
+		--ink-4: oklch(68% 0.008 250);
+
+		--fill-hover: oklch(20% 0.01 250 / 0.06);
+		--fill-active: oklch(20% 0.01 250 / 0.1);
+		--fill-selected: oklch(20% 0.01 250 / 0.08);
+		--fill-code: oklch(20% 0.01 250 / 0.05);
+
+		--line: oklch(20% 0.01 250 / 0.1);
+		--line-strong: oklch(20% 0.01 250 / 0.2);
+		--thumb: oklch(80% 0.008 250);
+		--thumb-hover: oklch(68% 0.008 250);
+
+		--accent: oklch(54% 0.16 145);
+		--accent-hover: oklch(49% 0.16 145);
+		--on-accent: oklch(99% 0.01 145);
+		--accent-soft: oklch(54% 0.16 145 / 0.14);
+		--said-me: oklch(93.5% 0.02 255);
+		--said-them: oklch(95% 0.005 250);
+
+		--warn: oklch(64% 0.15 75);
+		--danger: oklch(55% 0.19 27);
+		--danger-soft: oklch(55% 0.19 27 / 0.1);
+
+		--face-l: 76%;
+		--face-c: 0.10;
+		--face-ink: oklch(22% 0.02 250);
+
+		--shadow-float:
+			0 0 0 var(--hairline) oklch(20% 0.01 250 / 0.1),
+			0 1px 2px oklch(20% 0.01 250 / 0.08),
+			0 12px 32px -8px oklch(20% 0.01 250 / 0.22);
+		--scrim: oklch(20% 0.01 250 / 0.28);
+	}
+}
+
+/* A hairline is one device pixel, not one CSS pixel. */
+@media (min-resolution: 2dppx) {
+	:root {
+		--hairline: 0.5px;
+	}
+}
+
+/* ---------------------------------------------------------------- Tailwind
+ * The same names, as utilities. Spacing is a 4px grid. The type scale is six
+ * sizes with fixed leading so rows line up across panes; `read` is what
+ * speech is set in. Plex is the window's voice: the sans says things, the
+ * mono is the instrument face for anything measured or typed — a time, a
+ * path, a tool's name, a count. */
+@theme inline {
+	--spacing: 4px;
+
+	--color-well: var(--well);
+	--color-canvas: var(--canvas);
+	--color-raised: var(--raised);
+	--color-pop: var(--pop);
+	--color-pressed: var(--pressed);
+
+	--color-ink: var(--ink);
+	--color-ink-2: var(--ink-2);
+	--color-ink-3: var(--ink-3);
+	--color-ink-4: var(--ink-4);
+
+	--color-hover: var(--fill-hover);
+	--color-active: var(--fill-active);
+	--color-selected: var(--fill-selected);
+	--color-code: var(--fill-code);
+
+	--color-line: var(--line);
+	--color-line-strong: var(--line-strong);
+
+	--color-accent: var(--accent);
+	--color-accent-hover: var(--accent-hover);
+	--color-on-accent: var(--on-accent);
+	--color-accent-soft: var(--accent-soft);
+	--color-said-me: var(--said-me);
+	--color-said-them: var(--said-them);
+
+	--color-warn: var(--warn);
+	--color-danger: var(--danger);
+	--color-danger-soft: var(--danger-soft);
+
+	--radius-sm: var(--radius-chip);
+	--radius-md: var(--radius-control);
+	--radius-lg: var(--radius-card);
+	--radius-xl: var(--radius-pane);
+
+	--text-xs: 11px;
+	--text-xs--line-height: 14px;
+	--text-sm: 12px;
+	--text-sm--line-height: 16px;
+	--text-md: 13px;
+	--text-md--line-height: 18px;
+	--text-lg: 15px;
+	--text-lg--line-height: 20px;
+	--text-read: 14px;
+	--text-read--line-height: 22px;
+	--text-xl: 20px;
+	--text-xl--line-height: 26px;
+
+	--font-sans: "IBM Plex Sans", -apple-system, "Segoe UI Variable Text", system-ui, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

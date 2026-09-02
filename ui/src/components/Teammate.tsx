@@ -15,6 +15,7 @@ import { revealPath } from "../native";
 import { firstLine } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
+import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
@@ -115,7 +116,7 @@ export function Teammate({
 					<CloseIcon />
 				</button>
 			</Band>
-			<div className="pane-scroll">
+			<Scroll>
 				<div className="flex flex-col gap-5 px-4 py-4">
 					<form
 						className="flex flex-col gap-4"
@@ -248,7 +249,7 @@ export function Teammate({
 						</p>
 					)}
 				</div>
-			</div>
+			</Scroll>
 		</aside>
 	);
 }

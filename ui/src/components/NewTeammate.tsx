@@ -5,6 +5,7 @@ import { CloseIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
+import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
@@ -86,7 +87,7 @@ export function NewTeammate({
 					<CloseIcon />
 				</button>
 			</Band>
-			<div className="pane-scroll">
+			<Scroll>
 				<form
 					className="pane-column flex flex-col gap-5"
 					onSubmit={(event) => {
@@ -153,8 +154,8 @@ export function NewTeammate({
 							<Picker
 								field
 								value={modelId}
-								choices={[{ id: "", name: "The room's default" }, ...models]}
-								placeholder="The room's default"
+								choices={[{ id: "", name: models[0] === undefined ? "Whichever a key unlocks" : `${models[0].name} — the default` }, ...models]}
+								placeholder="Model"
 								label="Model"
 								onChange={setModelId}
 							/>
@@ -176,7 +177,7 @@ export function NewTeammate({
 						</button>
 					</div>
 				</form>
-			</div>
+			</Scroll>
 		</div>
 	);
 }

@@ -1,6 +1,7 @@
 import { CHORDS, CHORD_GROUPS, chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { Band } from "../ui/Band";
+import { Scroll } from "../ui/Scroll";
 
 /**
  * Every chord the window hears, as a pane. The rows are the table the
@@ -21,7 +22,7 @@ export function Shortcuts({ onClose }: { onClose(): void }) {
 					<CloseIcon />
 				</button>
 			</Band>
-			<div className="pane-scroll">
+			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					{CHORD_GROUPS.map((group) => (
 						<section key={group.id}>
@@ -39,7 +40,7 @@ export function Shortcuts({ onClose }: { onClose(): void }) {
 						</section>
 					))}
 				</div>
-			</div>
+			</Scroll>
 		</div>
 	);
 }

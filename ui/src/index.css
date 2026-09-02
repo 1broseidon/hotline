@@ -1,169 +1,18 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
 /* ---------------------------------------------------------------------------
- * The window's system: one set of tokens, read by Tailwind and by the few
- * component rules below.
+ * The window: a well, and panes standing in it.
  *
- * Surfaces are near-neutral with a trace of moss in them, so the window reads
- * as one material under two lights rather than as grey. Green is the one
- * signal colour: an agent at work, the primary action, the focus ring, the
- * line you sent. It appears rarely, so it means something when it does.
+ * The rail sits directly in the well. Every other pane — the conversation,
+ * the inspector, settings — is a rounded canvas set into the well with one
+ * hairline at its edge, so the window reads as a desk with things on it,
+ * not as a grid of borders. Depth is lightness (ui/tokens.css); the only
+ * shadow is under the composer, which floats.
  *
- * Every length is on a 4px grid; every hairline is one device pixel; the type
- * scale is six sizes with fixed line heights so rows line up across panes.
+ * Every length is on a 4px grid; every hairline is one device pixel; the
+ * type scale is six sizes with fixed leading so rows line up across panes.
  * ------------------------------------------------------------------------- */
-
-:root {
-	color-scheme: light dark;
-
-	/* surfaces */
-	--bg: oklch(99.2% 0.002 150);
-	--bg-sidebar: oklch(96.4% 0.004 150);
-	--bg-inset: oklch(97.4% 0.003 150);
-	--bg-raised: oklch(100% 0 0);
-	--bg-control: oklch(100% 0 0);
-
-	/* ink */
-	--ink: oklch(21% 0.008 150);
-	--ink-2: oklch(44% 0.008 150);
-	--ink-3: oklch(58% 0.008 150);
-	--ink-4: oklch(71% 0.006 150);
-
-	/* fills, as alpha over any surface */
-	--fill-hover: oklch(20% 0.01 150 / 0.06);
-	--fill-active: oklch(20% 0.01 150 / 0.1);
-	--fill-selected: oklch(20% 0.01 150 / 0.09);
-	--fill-code: oklch(20% 0.01 150 / 0.05);
-
-	/* hairlines */
-	--line: oklch(20% 0.01 150 / 0.12);
-	--line-strong: oklch(20% 0.01 150 / 0.22);
-	--hairline: 1px;
-
-	/* the signal */
-	--accent: oklch(56% 0.15 152);
-	--accent-hover: oklch(51% 0.15 152);
-	--on-accent: oklch(99% 0.01 152);
-	--accent-soft: oklch(56% 0.15 152 / 0.13);
-	--said-me: oklch(94.5% 0.035 152);
-
-	--warn: oklch(66% 0.15 75);
-	--danger: oklch(55% 0.19 27);
-	--danger-soft: oklch(55% 0.19 27 / 0.1);
-
-	--shadow-pop:
-		0 0 0 var(--hairline) oklch(20% 0.01 150 / 0.14),
-		0 10px 30px oklch(20% 0.01 150 / 0.14),
-		0 2px 6px oklch(20% 0.01 150 / 0.08);
-	--scrim: oklch(20% 0.01 150 / 0.28);
-}
-
-@media (prefers-color-scheme: dark) {
-	:root {
-		--bg: oklch(19.5% 0.004 150);
-		--bg-sidebar: oklch(23.5% 0.005 150);
-		--bg-inset: oklch(17% 0.004 150);
-		--bg-raised: oklch(27% 0.005 150);
-		--bg-control: oklch(30% 0.005 150);
-
-		--ink: oklch(93% 0.004 150);
-		--ink-2: oklch(74% 0.005 150);
-		--ink-3: oklch(60% 0.005 150);
-		--ink-4: oklch(46% 0.005 150);
-
-		--fill-hover: oklch(100% 0 0 / 0.06);
-		--fill-active: oklch(100% 0 0 / 0.1);
-		--fill-selected: oklch(100% 0 0 / 0.1);
-		--fill-code: oklch(100% 0 0 / 0.06);
-
-		--line: oklch(100% 0 0 / 0.1);
-		--line-strong: oklch(100% 0 0 / 0.2);
-
-		--accent: oklch(74% 0.16 152);
-		--accent-hover: oklch(79% 0.16 152);
-		--on-accent: oklch(18% 0.03 152);
-		--accent-soft: oklch(74% 0.16 152 / 0.16);
-		--said-me: oklch(31% 0.05 152);
-
-		--warn: oklch(78% 0.14 78);
-		--danger: oklch(70% 0.17 25);
-		--danger-soft: oklch(70% 0.17 25 / 0.14);
-
-		--shadow-pop:
-			0 0 0 var(--hairline) oklch(100% 0 0 / 0.12),
-			0 12px 32px oklch(0% 0 0 / 0.5),
-			0 2px 6px oklch(0% 0 0 / 0.3);
-		--scrim: oklch(0% 0 0 / 0.45);
-	}
-}
-
-/* A hairline is one device pixel, not one CSS pixel. */
-@media (min-resolution: 2dppx) {
-	:root {
-		--hairline: 0.5px;
-	}
-}
-
-@theme inline {
-	--spacing: 4px;
-
-	--color-bg: var(--bg);
-	--color-sidebar: var(--bg-sidebar);
-	--color-inset: var(--bg-inset);
-	--color-raised: var(--bg-raised);
-	--color-control: var(--bg-control);
-
-	--color-ink: var(--ink);
-	--color-ink-2: var(--ink-2);
-	--color-ink-3: var(--ink-3);
-	--color-ink-4: var(--ink-4);
-
-	--color-hover: var(--fill-hover);
-	--color-active: var(--fill-active);
-	--color-selected: var(--fill-selected);
-	--color-code: var(--fill-code);
-
-	--color-line: var(--line);
-	--color-line-strong: var(--line-strong);
-
-	--color-accent: var(--accent);
-	--color-accent-hover: var(--accent-hover);
-	--color-on-accent: var(--on-accent);
-	--color-accent-soft: var(--accent-soft);
-	--color-said-me: var(--said-me);
-
-	--color-warn: var(--warn);
-	--color-danger: var(--danger);
-	--color-danger-soft: var(--danger-soft);
-
-	--radius-sm: 4px;
-	--radius-md: 6px;
-	--radius-lg: 10px;
-	--radius-xl: 16px;
-
-	/* Six sizes, fixed leading. `read` is what speech is set in. */
-	--text-xs: 11px;
-	--text-xs--line-height: 14px;
-	--text-sm: 12px;
-	--text-sm--line-height: 16px;
-	--text-md: 13px;
-	--text-md--line-height: 18px;
-	--text-lg: 15px;
-	--text-lg--line-height: 20px;
-	--text-read: 14px;
-	--text-read--line-height: 22px;
-	--text-xl: 20px;
-	--text-xl--line-height: 26px;
-
-	--font-sans:
-		-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
-		system-ui, "Inter", "Noto Sans", sans-serif;
-	--font-mono:
-		ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "JetBrains Mono",
-		"Liberation Mono", monospace;
-
-	--ease-out: cubic-bezier(0.2, 0, 0, 1);
-}
 
 @layer base {
 	html,
@@ -174,14 +23,15 @@
 	}
 
 	body {
-		background: var(--bg);
+		background: var(--well);
 		color: var(--ink);
 		font-family: var(--font-sans);
 		font-size: var(--text-md);
 		line-height: var(--text-md--line-height);
+		font-feature-settings: "tnum";
 		-webkit-font-smoothing: antialiased;
 		text-rendering: optimizeLegibility;
-		overflow: hidden;
+		overflow: clip;
 		/* A window's furniture is pressed, never selected. What was said, and
 		 * anything you would paste into a terminal, opts back in below. */
 		user-select: none;
@@ -199,40 +49,24 @@
 		cursor: default;
 	}
 
-	/* Keyboard focus is a ring; pointer focus is nothing. */
-	:focus {
+	/* Nothing in the window rings. A pointer never leaves focus on a key
+	 * (main.tsx), and the keyboard's place is shown the way a hand's is:
+	 * the control takes its hover fill. A field brightens its own edge. */
+	:focus,
+	:focus-visible {
 		outline: none;
 	}
-	:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
+	:where(.control, .rail-row, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control):focus-visible {
+		background-color: var(--fill-hover);
 	}
 
-	/* Overlay-thin scrollbars that keep out of the way until the pane is
-	 * under the pointer. macOS draws its own; this is for the others. */
+	/* Every pane scrolls through ui/src/ui/Scroll.tsx, which hides the
+	 * toolkit's bar and draws its own thumb. What is left to the toolkit —
+	 * a code block, a tool's output, a menu — takes the same colours,
+	 * which is all WebKitGTK lets a page say about a scrollbar. */
 	* {
 		scrollbar-width: thin;
-		scrollbar-color: transparent transparent;
-	}
-	*:hover {
-		scrollbar-color: var(--line-strong) transparent;
-	}
-	*::-webkit-scrollbar {
-		width: 10px;
-		height: 10px;
-	}
-	*::-webkit-scrollbar-thumb {
-		background: transparent;
-		border: 3px solid transparent;
-		border-radius: 8px;
-		background-clip: padding-box;
-	}
-	*:hover::-webkit-scrollbar-thumb {
-		background-color: var(--line-strong);
-	}
-	*::-webkit-scrollbar-track,
-	*::-webkit-scrollbar-corner {
-		background: transparent;
+		scrollbar-color: var(--thumb) transparent;
 	}
 
 	input,
@@ -267,17 +101,123 @@
 }
 
 @layer components {
+	/* ---------------------------------------------------------- instrument
+	 * The mono voice: a time, a path, a tool's name, a count, a state. Small,
+	 * a little spaced, and never the colour of speech. */
+	.instrument {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-3);
+	}
+
+	/* A frameless window on a dark desktop has no edge of its own. One
+	 * device pixel, a shade lighter and bluer than the well, drawn over
+	 * everything so nothing flush to the corner paints across it. */
+	html[data-platform="linux"] body::after,
+	html[data-platform="windows"] body::after {
+		content: "";
+		position: fixed;
+		inset: 0;
+		z-index: 2147483647;
+		pointer-events: none;
+		box-shadow: inset 0 0 0 var(--hairline) var(--edge);
+	}
+
+	/* On Linux the window is see-through and the page is the frame: the well
+	 * ends at the same radius a pane has, and the hairline follows it. A
+	 * maximised window fills its screen edge to edge and rounds nothing. */
+	html[data-platform="linux"],
+	html[data-platform="linux"] body {
+		background: transparent;
+	}
+	html[data-platform="linux"] #root {
+		overflow: clip;
+		border-radius: var(--radius-pane);
+		background: var(--well);
+	}
+	html[data-platform="linux"] body::after {
+		border-radius: var(--radius-pane);
+	}
+	html[data-platform="linux"][data-maximized] #root,
+	html[data-platform="linux"][data-maximized] body::after {
+		border-radius: 0;
+	}
+
+	/* ------------------------------------------------------------ titlebar
+	 * Where the shell draws no frame, this strip is the window's: the well
+	 * itself, so the window is one material to its edge. The title is a
+	 * reading, not a heading; the controls are marks on the chrome. */
+	.titlebar {
+		position: relative;
+		display: flex;
+		height: 32px;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+	}
+	.titlebar-drag {
+		position: absolute;
+		inset: 0;
+	}
+	.titlebar-mark {
+		position: absolute;
+		left: 14px;
+		top: 50%;
+		transform: translateY(-50%);
+		pointer-events: none;
+		color: var(--ink-3);
+	}
+	.titlebar-title {
+		position: relative;
+		pointer-events: none;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 500;
+		color: var(--ink-3);
+	}
+	.titlebar-controls {
+		position: absolute;
+		top: 0;
+		right: 0;
+		display: flex;
+		height: 100%;
+	}
+	.window-control {
+		display: flex;
+		width: 44px;
+		height: 100%;
+		align-items: center;
+		justify-content: center;
+		color: var(--ink-3);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.window-control:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.window-control:active {
+		background: var(--fill-active);
+	}
+	.window-control-close:hover {
+		background: var(--danger-soft);
+		color: var(--danger);
+	}
+
 	/* ---------------------------------------------------------------- band
-	 * The 38px strip along the top of every pane. It drags the window; a
-	 * double-click maximises; anything inside it still takes the click. On
+	 * The 40px strip along the top of every pane. It drags the window; a
+	 * double-click maximises; anything inside it still takes the click. It
+	 * has no line under it: what scrolls fades out beneath it instead. On
 	 * macOS the rail's band leaves room for the traffic lights. */
 	.band {
 		position: relative;
 		display: flex;
-		height: 38px;
+		height: 40px;
 		flex-shrink: 0;
 		align-items: center;
-		border-bottom: var(--hairline) solid var(--line);
 	}
 	.band-drag {
 		position: absolute;
@@ -305,37 +245,38 @@
 		justify-content: center;
 		gap: 6px;
 		padding: 0 10px;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 		font-size: var(--text-md);
 		line-height: 1;
 		font-weight: 500;
 		white-space: nowrap;
 		transition:
-			background-color 80ms var(--ease-out),
-			box-shadow 80ms var(--ease-out),
-			opacity 80ms var(--ease-out);
+			background-color var(--dur-press) var(--ease-out),
+			box-shadow var(--dur-press) var(--ease-out),
+			opacity var(--dur-press) var(--ease-out);
 	}
 	.control:disabled {
 		opacity: 0.45;
 	}
 
+	/* A key: pop plane, lit along the top, one hairline round it. */
 	.btn {
-		background: var(--bg-control);
+		background: var(--pop);
 		color: var(--ink);
 		box-shadow:
-			inset 0 0 0 var(--hairline) var(--line-strong),
-			0 1px 1px oklch(0% 0 0 / 0.05);
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong);
 	}
 	.btn:hover:not(:disabled) {
-		background: color-mix(in oklab, var(--bg-control), var(--ink) 4%);
+		background: var(--pressed);
 	}
 	.btn:active:not(:disabled) {
-		background: color-mix(in oklab, var(--bg-control), var(--ink) 9%);
+		background: var(--pressed);
+		box-shadow: 0 0 0 var(--hairline) var(--line-strong);
 	}
 	.btn-primary {
 		background: var(--accent);
 		color: var(--on-accent);
-		box-shadow: 0 1px 1px oklch(0% 0 0 / 0.08);
 	}
 	.btn-primary:hover:not(:disabled) {
 		background: var(--accent-hover);
@@ -399,47 +340,44 @@
 		flex-shrink: 0;
 		color: var(--ink-3);
 	}
-	/* The same pull-down inside a form: framed like a field. */
+	/* The same pull-down inside a form: framed like a key. */
 	.picker-field {
 		width: 100%;
 		max-width: none;
 		justify-content: space-between;
 		height: 28px;
 		padding: 0 8px 0 10px;
-		background: var(--bg-control);
+		background: var(--pop);
 		color: var(--ink);
 		box-shadow:
-			inset 0 0 0 var(--hairline) var(--line-strong),
-			0 1px 1px oklch(0% 0 0 / 0.05);
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong);
 	}
 	.picker-field:hover:not(:disabled),
 	.picker-field[aria-expanded="true"] {
-		background: color-mix(in oklab, var(--bg-control), var(--ink) 4%);
+		background: var(--pressed);
 		color: var(--ink);
 	}
 
-	/* -------------------------------------------------------------- fields */
+	/* -------------------------------------------------------------- fields
+	 * You type into a well: the field is sunk into whatever it sits on, the
+	 * opposite of a key. */
 	.field {
 		display: block;
 		width: 100%;
 		min-height: 28px;
 		padding: 5px 8px;
-		border: var(--hairline) solid var(--line-strong);
-		border-radius: var(--radius-md);
-		background: var(--bg-control);
+		border: 0;
+		border-radius: var(--radius-control);
+		background: var(--well);
 		color: var(--ink);
 		font-size: var(--text-md);
-		line-height: 16px;
-		box-shadow: inset 0 1px 1px oklch(0% 0 0 / 0.03);
-		transition:
-			border-color 80ms var(--ease-out),
-			box-shadow 80ms var(--ease-out);
+		line-height: 18px;
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		transition: box-shadow var(--dur-press) var(--ease-out);
 	}
-	.field:focus,
-	.field:focus-visible {
-		outline: none;
-		border-color: var(--accent);
-		box-shadow: 0 0 0 3px var(--accent-soft);
+	.field:focus {
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
 	}
 	.field:disabled {
 		opacity: 0.5;
@@ -464,13 +402,15 @@
 		color: var(--ink-3);
 	}
 
-	/* A form is a column of rows; a group is rows inside one inset frame,
-	 * which is how a settings pane on the desk carries a list. */
+	/* A form is a column of rows; a group is rows on one raised card, which
+	 * is how a settings pane carries a list. */
 	.grouped {
-		border: var(--hairline) solid var(--line);
-		border-radius: var(--radius-lg);
-		background: var(--bg-inset);
-		overflow: hidden;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+		overflow: clip;
 	}
 	.group-row {
 		display: flex;
@@ -538,23 +478,23 @@
 		width: 14px;
 		height: 14px;
 		margin: 0;
-		border: var(--hairline) solid var(--line-strong);
-		background: var(--bg-control);
-		box-shadow: 0 1px 1px oklch(0% 0 0 / 0.05);
+		border: 0;
+		background: var(--well);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
 		display: inline-grid;
 		place-items: center;
-		transition: background-color 80ms var(--ease-out);
+		transition: background-color var(--dur-press) var(--ease-out);
 	}
 	.check {
-		border-radius: 3.5px;
+		border-radius: var(--radius-chip);
 	}
 	.radio {
 		border-radius: 50%;
 	}
 	.check:checked,
 	.radio:checked {
-		border-color: transparent;
 		background: var(--accent);
+		box-shadow: none;
 	}
 	.check:checked::after {
 		content: "";
@@ -585,7 +525,7 @@
 		margin: 0;
 		border-radius: 8px;
 		background: var(--line-strong);
-		transition: background-color 120ms var(--ease-out);
+		transition: background-color var(--dur-open) var(--ease-out);
 	}
 	.switch::after {
 		content: "";
@@ -595,14 +535,14 @@
 		width: 13px;
 		height: 13px;
 		border-radius: 50%;
-		background: white;
-		box-shadow: 0 1px 2px oklch(0% 0 0 / 0.25);
-		transition: transform 120ms var(--ease-out);
+		background: var(--ink);
+		transition: transform var(--dur-open) var(--ease-out);
 	}
 	.switch:checked {
 		background: var(--accent);
 	}
 	.switch:checked::after {
+		background: var(--on-accent);
 		transform: translateX(10px);
 	}
 	.switch:disabled {
@@ -614,29 +554,30 @@
 		display: inline-flex;
 		height: 26px;
 		padding: 2px;
-		border-radius: var(--radius-md);
-		background: var(--fill-hover);
+		border-radius: var(--radius-control);
+		background: var(--well);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 	}
 	.segment {
 		display: inline-flex;
 		align-items: center;
 		padding: 0 10px;
-		border-radius: 4px;
+		border-radius: var(--radius-chip);
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--ink-2);
 	}
 	.segment[aria-selected="true"] {
-		background: var(--bg-raised);
+		background: var(--pop);
 		color: var(--ink);
 		box-shadow:
-			0 0 0 var(--hairline) var(--line),
-			0 1px 2px oklch(0% 0 0 / 0.08);
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
 	}
 
 	/* ---------------------------------------------------------------- menu
 	 * The one popover: a picker's list, the overflow menu, the search's
-	 * results. Raised, one hairline, short physical entrance. */
+	 * results. On the pop plane, borrowing the float shadow while open. */
 	.menu {
 		position: fixed;
 		z-index: 40;
@@ -645,10 +586,12 @@
 		max-height: min(60vh, 420px);
 		overflow-y: auto;
 		padding: 4px;
-		border-radius: var(--radius-lg);
-		background: var(--bg-raised);
-		box-shadow: var(--shadow-pop);
-		animation: pop-in 120ms var(--ease-out) both;
+		border-radius: var(--radius-card);
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			var(--shadow-float);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
 	}
 	.menu-item {
 		display: flex;
@@ -657,7 +600,7 @@
 		align-items: center;
 		gap: 8px;
 		padding: 4px 8px 4px 6px;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 		text-align: left;
 		color: var(--ink);
 	}
@@ -696,8 +639,7 @@
 		padding: 6px 8px 2px;
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
-		font-weight: 600;
-		letter-spacing: 0.02em;
+		font-weight: 500;
 		color: var(--ink-3);
 	}
 	.menu-rule {
@@ -707,7 +649,8 @@
 	}
 	.menu-shortcut {
 		flex-shrink: 0;
-		font-size: var(--text-sm);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
 		color: var(--ink-3);
 	}
 	.menu-item[data-active="true"] .menu-shortcut {
@@ -718,7 +661,7 @@
 	@keyframes pop-in {
 		from {
 			opacity: 0;
-			transform: translateY(-3px) scale(0.985);
+			transform: translateY(-2px);
 		}
 		to {
 			opacity: 1;
@@ -733,14 +676,14 @@
 		place-items: center;
 		border-radius: 50%;
 		font-weight: 600;
-		color: oklch(18% 0.01 150);
+		color: var(--face-ink);
 		user-select: none;
 	}
 
 	/* A working teammate's mark: it breathes. Nothing else in the window
 	 * moves on its own. */
 	.beat {
-		animation: beat 1.8s var(--ease-out) infinite;
+		animation: beat var(--dur-breath) var(--ease-out) infinite;
 	}
 	@keyframes beat {
 		0%,
@@ -757,9 +700,9 @@
 		display: inline-block;
 		min-width: 16px;
 		padding: 0 4px;
-		border-radius: 3px;
+		border-radius: var(--radius-chip);
 		background: var(--fill-hover);
-		font-family: var(--font-sans);
+		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: 16px;
 		text-align: center;
@@ -768,27 +711,42 @@
 	}
 
 	/* -------------------------------------------------------------- speech
-	 * The reading column. An agent's words are set as text on the page, not
-	 * in a box; yours are the one bubble, on the right, in the signal's
-	 * wash. Both are selectable; everything else in the window is not. */
+	 * A teammate is someone you talk to, so the conversation is drawn the
+	 * way a messages app draws one: what was said, in bubbles, on two sides.
+	 * Theirs on the left in the raised plane, yours on the right in the
+	 * slate wash. No tails: the side already says who is speaking. Both
+	 * are selectable; everything else in the window is not. */
 	.speech {
+		min-width: 0;
+		max-width: 78%;
+		padding: 8px 12px;
+		border-radius: var(--radius-bubble);
 		font-size: var(--text-read);
 		line-height: var(--text-read--line-height);
+		color: var(--ink);
 		overflow-wrap: anywhere;
 	}
 	.said-me {
-		max-width: 78%;
-		padding: 8px 12px;
-		border-radius: var(--radius-xl);
-		border-bottom-right-radius: 4px;
 		background: var(--said-me);
-		color: var(--ink);
 		white-space: pre-wrap;
 	}
 	.said-them {
-		min-width: 0;
-		max-width: 100%;
-		color: var(--ink);
+		background: var(--said-them);
+	}
+	/* Inside a run from one speaker the corners that face each other
+	 * tighten, so three lines from one side read as one block of speech
+	 * rather than a stack of separate lozenges. */
+	.said-them.said-run-top {
+		border-top-left-radius: var(--radius-chip);
+	}
+	.said-them.said-run-bottom {
+		border-bottom-left-radius: var(--radius-chip);
+	}
+	.said-me.said-run-top {
+		border-top-right-radius: var(--radius-chip);
+	}
+	.said-me.said-run-bottom {
+		border-bottom-right-radius: var(--radius-chip);
 	}
 	/* A peer thread names both sides. The tape with the person does not. */
 	.said-name {
@@ -825,13 +783,17 @@
 
 	/* The hover-only Reply beside an agent's words. R answers it from the
 	 * keyboard, so this stays out of the tab order. */
+	/* Floats over the seam above the line, the way a message toolbar does,
+	 * so it never sits on the words it answers. */
 	.reply-affordance {
 		position: absolute;
 		right: 0;
-		top: -4px;
+		top: -18px;
+		z-index: 1;
 		opacity: 0;
 		pointer-events: none;
-		transition: opacity 80ms var(--ease-out);
+		box-shadow: var(--top-light), var(--shadow-float);
+		transition: opacity var(--dur-press) var(--ease-out);
 	}
 	.said-group:hover .reply-affordance,
 	.said-group:focus-within .reply-affordance {
@@ -839,8 +801,43 @@
 		pointer-events: auto;
 	}
 
-	/* The machinery between messages, folded: one row per step, a status
-	 * mark, a monospaced title, and the output behind a press. */
+	/* The machinery between messages, folded to one quiet caption: a count
+	 * at rest, the current step while the agent is on it. It is a reading,
+	 * not speech, and the chevron only shows itself to a hand. */
+	.steps-caption {
+		display: inline-flex;
+		max-width: 100%;
+		min-height: 20px;
+		align-items: center;
+		gap: 6px;
+		margin-left: -6px;
+		padding: 0 6px;
+		border-radius: var(--radius-control);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		letter-spacing: 0.04em;
+		color: var(--ink-4);
+		transition: color var(--dur-press) var(--ease-out), background var(--dur-press) var(--ease-out);
+	}
+	.steps-caption:hover,
+	.steps-caption[aria-expanded="true"] {
+		color: var(--ink-3);
+		background: var(--fill-hover);
+	}
+	.steps-caption > svg {
+		flex-shrink: 0;
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.steps-caption:hover > svg,
+	.steps-caption:focus-visible > svg,
+	.steps-caption[aria-expanded="true"] > svg {
+		opacity: 1;
+	}
+
+	/* One row per step once the caption is open: a status mark, an
+	 * instrument title, and the output behind a press. */
 	.step {
 		display: flex;
 		width: 100%;
@@ -848,7 +845,7 @@
 		align-items: center;
 		gap: 8px;
 		padding: 2px 8px;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 		text-align: left;
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
@@ -873,17 +870,18 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
+		letter-spacing: 0.02em;
 	}
 	.step-out {
 		max-height: 320px;
 		margin: 2px 0 6px 22px;
 		padding: 8px 10px;
 		overflow: auto;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 		background: var(--fill-code);
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		line-height: var(--text-sm--line-height);
 		color: var(--ink-2);
 		white-space: pre-wrap;
@@ -896,20 +894,24 @@
 	}
 
 	/* A card in the tape: a permission asked, a hand to a person. Not
-	 * speech, so it is framed, and its title is often a command line that
-	 * has to wrap inside the frame. */
+	 * speech, so it is a raised thing, and its title is often a command line
+	 * that has to wrap inside the frame. */
 	.card {
 		max-width: 78%;
 		margin: 4px 0;
 		padding: 10px 12px;
-		border: var(--hairline) solid var(--line);
-		border-radius: var(--radius-lg);
-		background: var(--bg-inset);
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
 		overflow-wrap: anywhere;
 	}
 	.card-live {
-		border-color: var(--accent);
-		box-shadow: 0 0 0 3px var(--accent-soft);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--accent),
+			0 0 0 3px var(--accent-soft);
 	}
 	.card-actions {
 		display: flex;
@@ -930,12 +932,14 @@
 		overflow-wrap: anywhere;
 		line-height: 16px;
 	}
+	/* A card's kind, and the rail's heading: the instrument voice, in
+	 * sentence case. Not a label shouting over every section. */
 	.eyebrow {
+		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
-		font-weight: 600;
+		font-weight: 500;
 		letter-spacing: 0.04em;
-		text-transform: uppercase;
 		color: var(--ink-3);
 	}
 
@@ -945,9 +949,10 @@
 		align-items: center;
 		gap: 12px;
 		padding: 8px 0;
+		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		line-height: var(--text-xs--line-height);
-		font-weight: 500;
+		letter-spacing: 0.04em;
 		color: var(--ink-3);
 	}
 	.rule-line::before,
@@ -975,7 +980,7 @@
 	/* A row a search just landed on. Lit briefly, then ordinary again. */
 	.row-lit {
 		animation: row-lit 1.8s var(--ease-out) both;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 	}
 	@keyframes row-lit {
 		0%,
@@ -989,27 +994,45 @@
 		}
 	}
 
-	/* ---------------------------------------------------------- composer */
+	/* ---------------------------------------------------------- composer
+	 * The one thing that floats: a pill, the way a message to a person is
+	 * typed. One row, 40px tall, that grows a line at a time. The keys at
+	 * either end are 28px and sit on the row's floor, so on one line they
+	 * are centred and on five they stay by the last line, where the hand
+	 * is. Padding is measured against the radius, not the grid: 6px keeps
+	 * the words clear of the curve. Focus is the caret; the pill only
+	 * brightens its edge and settles deeper into its shadow. */
 	.composer {
 		display: flex;
-		flex-direction: column;
-		border: var(--hairline) solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		background: var(--bg-control);
-		box-shadow: 0 1px 2px oklch(0% 0 0 / 0.04);
-		transition:
-			border-color 80ms var(--ease-out),
-			box-shadow 80ms var(--ease-out);
+		align-items: flex-end;
+		gap: 2px;
+		padding: 6px;
+		border-radius: 20px;
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-float);
+		transition: box-shadow var(--dur-press) var(--ease-out);
 	}
 	.composer:focus-within {
-		border-color: var(--accent);
-		box-shadow: 0 0 0 3px var(--accent-soft);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong),
+			0 12px 32px -8px oklch(0% 0 0 / 0.55);
+	}
+	.composer-body {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		flex-direction: column;
+		padding: 0 6px;
 	}
 	.composer textarea {
 		display: block;
 		width: 100%;
 		min-height: 22px;
-		padding: 0;
+		padding: 3px 0;
 		border: 0;
 		background: none;
 		resize: none;
@@ -1019,6 +1042,57 @@
 	}
 	.composer textarea:focus {
 		outline: none;
+	}
+	.composer textarea::placeholder {
+		color: var(--ink-3);
+	}
+	.composer-key {
+		display: flex;
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out),
+			opacity var(--dur-press) var(--ease-out),
+			transform var(--dur-press) var(--ease-out);
+	}
+	.composer-attach {
+		color: var(--ink-3);
+	}
+	.composer-attach:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	/* The send key is a thing that arrives with the first character, not a
+	 * thing that waits greyed out for it. */
+	.composer-send {
+		background: var(--accent);
+		color: var(--on-accent);
+		opacity: 0;
+		transform: scale(0.6);
+		pointer-events: none;
+	}
+	.composer-send[data-shown] {
+		opacity: 1;
+		transform: none;
+		pointer-events: auto;
+	}
+	.composer-send:hover {
+		background: var(--accent-hover);
+	}
+	.composer-stop {
+		background: var(--fill-active);
+		color: var(--ink);
+	}
+	.composer-stop:hover {
+		background: var(--line-strong);
+	}
+	.composer-key:active {
+		transform: scale(0.94);
 	}
 	.send {
 		width: 26px;
@@ -1035,7 +1109,7 @@
 		align-items: center;
 		gap: 6px;
 		padding: 0 4px 0 8px;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-chip);
 		background: var(--fill-hover);
 		color: var(--ink-2);
 		font-size: var(--text-sm);
@@ -1057,7 +1131,7 @@
 		height: 16px;
 		flex-shrink: 0;
 		place-items: center;
-		border-radius: 3px;
+		border-radius: var(--radius-chip);
 		color: var(--ink-3);
 	}
 	.chip-x:hover {
@@ -1065,16 +1139,18 @@
 		color: var(--ink);
 	}
 
-	/* ------------------------------------------------------------- rail */
+	/* ---------------------------------------------------------------- rail
+	 * The roster stands in the well itself, no pane round it. A row is a
+	 * fill, never a line. */
 	.rail-row {
 		display: flex;
 		width: 100%;
 		align-items: center;
 		gap: 10px;
-		padding: 6px 8px 6px 12px;
-		border-radius: var(--radius-md);
+		padding: 6px 8px 6px 10px;
+		border-radius: var(--radius-control);
 		text-align: left;
-		transition: background-color 60ms var(--ease-out);
+		transition: background-color var(--dur-press) var(--ease-out);
 	}
 	.rail-row:hover {
 		background: var(--fill-hover);
@@ -1086,52 +1162,120 @@
 		background: var(--fill-active);
 	}
 
-	/* ------------------------------------------------------------- panes */
-	.pane {
+	/* --------------------------------------------------------------- panes
+	 * A pane is a canvas standing in the well: rounded, one hairline, lit
+	 * along the top. What scrolls inside it fades under the band and above
+	 * the composer instead of hitting a line. */
+	.pane,
+	.inspector {
 		display: flex;
 		min-width: 0;
 		min-height: 0;
+		flex-direction: column;
+		border-radius: var(--radius-pane);
+		background: var(--canvas);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+		overflow: clip;
+	}
+	.pane {
+		flex: 1;
+	}
+	/* The scroller (ui/src/ui/Scroll.tsx): the host fills its pane, the
+	 * inner element scrolls with the toolkit's bar hidden, and the thumb is
+	 * drawn over the content's right edge, six pixels in a twelve-pixel
+	 * track. What scrolls fades out under the band and above the composer:
+	 * two bands of the pane's own colour stuck to the scrollport's edges
+	 * rather than a mask, because a mask would take the thumb with the
+	 * words. A scroller carries no padding of its own — the band sits where
+	 * the content starts, so the padding belongs to the column inside. */
+	.scroll-host {
+		position: relative;
+		/* The fades and the thumb stack inside the host, so what comes after
+		 * it — the composer, floating over the last lines — is not painted
+		 * under the bottom fade. */
+		isolation: isolate;
+		display: flex;
+		min-height: 0;
 		flex: 1;
 		flex-direction: column;
-		background: var(--bg);
 	}
-	/* The conversation band names the teammate, then the path, then the
-	 * pickers. Once the column is narrower than the pickers need, the path
-	 * collapses to a few characters of RTL ellipsis that read as a stray
-	 * chip. Hide it; the name button still carries the path as its title. */
-	.conversation {
-		container-type: inline-size;
-	}
-	@container (max-width: 720px) {
-		.band-path {
-			display: none;
-		}
-	}
-	.pane-scroll {
+	.scroller {
 		min-height: 0;
 		flex: 1;
 		overflow-y: auto;
+		scrollbar-width: none;
+	}
+	.scroller::-webkit-scrollbar {
+		display: none;
+	}
+	.scroller::before,
+	.scroller::after {
+		content: "";
+		position: sticky;
+		z-index: 1;
+		display: block;
+		height: 16px;
+		pointer-events: none;
+	}
+	.scroller::before {
+		top: 0;
+		margin-bottom: -16px;
+		background: linear-gradient(to bottom, var(--canvas), transparent);
+	}
+	.scroller::after {
+		bottom: 0;
+		margin-top: -16px;
+		background: linear-gradient(to top, var(--canvas), transparent);
+	}
+	.scroll-track {
+		position: absolute;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 2;
+		width: 12px;
+	}
+	.scroll-thumb {
+		position: absolute;
+		right: 3px;
+		width: 6px;
+		border-radius: 3px;
+		background: var(--thumb);
+		opacity: 0;
+		transition:
+			opacity var(--dur-press) var(--ease-out),
+			background var(--dur-press) var(--ease-out);
+	}
+	/* Slower to leave than to arrive: a thumb that vanishes the instant
+	 * the content stops reads as taken away rather than as done with. */
+	.scroll-thumb-shown,
+	.scroll-track:hover .scroll-thumb,
+	.scroll-thumb-held {
+		opacity: 1;
+	}
+	.scroll-thumb:not(.scroll-thumb-shown):not(.scroll-thumb-held) {
+		transition-duration: 320ms, var(--dur-press);
+	}
+	.scroll-track:hover .scroll-thumb,
+	.scroll-thumb-held {
+		background: var(--thumb-hover);
 	}
 	.pane-column {
 		width: 100%;
 		max-width: 560px;
 		margin: 0 auto;
-		padding: 24px 24px 40px;
+		padding: 16px 24px 40px;
 	}
 	.inspector {
-		display: flex;
 		width: 320px;
-		min-width: 0;
 		flex-shrink: 0;
-		flex-direction: column;
-		border-left: var(--hairline) solid var(--line);
-		background: var(--bg-sidebar);
 	}
 	@media (max-width: 980px) {
 		.inspector {
 			width: auto;
 			flex: 1;
-			border-left: 0;
 		}
 		.inspector ~ .conversation,
 		.conversation:has(~ .inspector) {
@@ -1145,17 +1289,19 @@
 	 * both close it. */
 	.search-panel {
 		position: absolute;
-		top: 6px;
+		top: 4px;
 		right: 8px;
 		z-index: 20;
 		display: flex;
 		width: min(400px, calc(100% - 16px));
 		max-height: calc(100% - 12px);
 		flex-direction: column;
-		border-radius: var(--radius-lg);
-		background: var(--bg-raised);
-		box-shadow: var(--shadow-pop);
-		animation: pop-in 120ms var(--ease-out) both;
+		border-radius: var(--radius-card);
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			var(--shadow-float);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
 	}
 	.search-field {
 		display: flex;
@@ -1163,15 +1309,13 @@
 		align-items: center;
 		gap: 8px;
 		padding: 0 10px;
-		border-radius: var(--radius-md);
-		background: var(--fill-hover);
+		border-radius: var(--radius-control);
+		background: var(--well);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 		color: var(--ink-3);
 	}
 	.search-field:focus-within {
-		background: var(--bg-control);
-		box-shadow:
-			0 0 0 var(--hairline) var(--accent),
-			0 0 0 3px var(--accent-soft);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
 	}
 	.search-field input {
 		min-width: 0;
@@ -1189,7 +1333,7 @@
 		flex-direction: column;
 		gap: 1px;
 		padding: 6px 8px;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 		text-align: left;
 	}
 	.hit:hover {
@@ -1237,12 +1381,12 @@
 		font-size: 0.86em;
 		background: var(--fill-code);
 		padding: 0.1em 0.35em;
-		border-radius: 4px;
+		border-radius: var(--radius-chip);
 	}
 	.md pre {
 		margin: 0.6em 0;
 		padding: 10px 12px;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-control);
 		background: var(--fill-code);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);

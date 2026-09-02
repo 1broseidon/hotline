@@ -44,6 +44,7 @@ crates/toad-core/models.json  the model catalogue: a filtered snapshot of models
 crates/toad-core/tests/  headless proofs driving the real core over the wire
 crates/toad-desktop/     the Tauri 2 shell: plugins, the menu, the door
 ui/                      the React window, built against the generated contract; ui/src/ui is the design system
+assets/                  the mark and the app tile it sits on; `make icons` renders the icon set from them
 docs/                    what is
 ```
 
@@ -61,6 +62,7 @@ make dev        # the Tauri shell, Vite with hot reload, on .toad-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the window's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
 make build      # a release bundle under target/release/bundle (unsigned)
+make icons      # every platform's app icon, from assets/toad-tile.svg
 ```
 
 `make dev` exports `TOAD_DATA_DIR` to `.toad-dev` in the checkout, then
@@ -87,9 +89,14 @@ skipped unless you set the env they name — see [The harness](#the-harness).
 The shell is `crates/toad-desktop`. Plugins remember the window's place,
 post toasts, pick folders, open links, and write the clipboard; the
 judgement for those lives in the page (`ui/src/native.ts`, `ui/src/notify.ts`),
-not in the shell. The menu bar is this process's: its items emit
-`toad://menu` and the window handles them. On macOS the title bar is
-overlay so the rail header can sit on the traffic-light centre line.
+not in the shell. The window has no system frame on Linux and Windows:
+the page draws its own top strip (`ui/src/ui/Titlebar.tsx`) with the
+window's title, the mark, and its minimize, maximize and close, and every
+band drags. On Linux the window is transparent and the page rounds its own
+corners to the pane radius, squared off while maximised; Windows rounds a
+top-level window itself. On macOS the frame stays, with the title bar overlay so the rail header
+can sit on the traffic-light centre line, and the menu bar is this
+process's: its items emit `toad://menu` and the window handles them.
 Capabilities for the main window are
 `crates/toad-desktop/capabilities/default.json`.
 
@@ -101,19 +108,35 @@ Capabilities for the main window are
 | `opener` | open a link, reveal a path in the file manager |
 | `clipboard-manager` | write the clipboard |
 
-The menu (Ctrl, not Cmd — the window's own listener is Ctrl on every
-platform): Settings `Ctrl+,`, Search `Ctrl+F`, New Teammate `Ctrl+N`,
-Teammate `Ctrl+I`, Teammate 1–9 `Ctrl+1`…`Ctrl+9`. The App menu is
-Settings, About, Quit. Help opens Keyboard shortcuts, About Toad, and
-Toad on GitHub. On macOS the title bar is overlay so the rail header can
-sit on the traffic-light centre line.
+The macOS menu (Ctrl, not Cmd — the window's own listener is Ctrl on
+every platform): Settings `Ctrl+,`, Search `Ctrl+F`, New Teammate
+`Ctrl+N`, Teammate `Ctrl+I`, Teammate 1–9 `Ctrl+1`…`Ctrl+9`. The App
+menu is Settings, About, Quit. Help opens Keyboard shortcuts, About Toad,
+and Toad on GitHub. Where there is no menu bar, the same three help items
+sit under the More button beside Settings at the foot of the rail, and
+the chords are the window's own.
 
-The page is `ui/`. `ui/src/ui` is the design system (Avatar, Band, Menu):
-every length is on a 4px grid, the type scale is six sizes, every hairline
-is one device pixel, and green is the one signal colour. Settings, New
+The app icon is `assets/toad-tile.svg`: the mark from `assets/toad-mark.svg`
+on a dark rounded tile, in the page's own colours. `make icons` runs
+`cargo tauri icon` on it and writes every size the bundler wants into
+`crates/toad-desktop/icons/`, then drops the Android and iOS sets it also
+produces; the PNGs are tracked so a checkout builds without the CLI's
+rasteriser. The first PNG in `tauri.conf.json`'s icon list is the window's
+own icon on Linux, which is why the 128px one leads it: X drops an icon
+larger than a quarter megabyte, and 256px is a few bytes over. In the page the
+same drawing is `ui/src/ui/ToadMark.tsx`.
+
+The page is `ui/`. The design system is written down in `ui/design.md`
+and spelled as tokens in `ui/src/tokens.css` — five planes of one cool
+hue, IBM Plex Sans and Mono, a 4px grid, six type sizes, hairlines of one
+device pixel, and green as the one signal colour; `ui/src/ui` holds its
+components (Avatar, Band, Menu). A colour or a face is always a token,
+never a literal in a component. Settings, New
 Teammate, Keyboard shortcuts and About are panes that replace the
-conversation, not a card over it; Settings' sections are tabs in the band
-— General, Keys, Tools, Import. The teammate inspector sits beside the
+conversation, not a card over it. While Settings is open the rail is its
+sections — General, Providers, Tools, Import — with a back key in its band
+where the team's plus was, and the pane shows one section at a time. The
+teammate inspector sits beside the
 conversation; search is a popover that hangs under the band over the
 conversation already on screen. Band is the chrome strip: it drags the
 window, and a double-click maximises.

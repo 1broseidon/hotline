@@ -66,8 +66,12 @@ export function watchNotificationClicks(): () => void {
 }
 
 /** The chrome names who is open, so the task bar is the rail's selected row. */
+export function windowTitle(name: string | null): string {
+	return name === null ? "Toad" : `${name} — Toad`;
+}
+
 export function setWindowTitle(name: string | null): void {
-	const title = name === null ? "Toad" : `${name} — Toad`;
+	const title = windowTitle(name);
 	document.title = title;
 	try {
 		void getCurrentWindow().setTitle(title);

@@ -9,7 +9,7 @@ import { toggleMaximize } from "../native";
  */
 export function Band({ children, rail = false }: { children: ReactNode; rail?: boolean }) {
 	return (
-		<div className={rail ? "band band-rail bg-sidebar" : "band bg-bg"}>
+		<div className={rail ? "band band-rail" : "band"}>
 			<div data-tauri-drag-region className="band-drag" onDoubleClick={() => void toggleMaximize()} />
 			<div className="band-row">{children}</div>
 		</div>

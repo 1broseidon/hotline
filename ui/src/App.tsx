@@ -4,13 +4,14 @@ import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail } from "./components/Rail";
-import { Settings, type SettingsSection } from "./components/Settings";
+import { Titlebar } from "./ui/Titlebar";
+import { Settings, SettingsRail, type SettingsSection } from "./components/Settings";
 import { Shortcuts } from "./components/Shortcuts";
 import { Teammate } from "./components/Teammate";
 import { Thread, type OpenThread } from "./components/Thread";
 import { matchChord } from "./chords";
 import { PlusIcon } from "./icons";
-import { confirmRemove, listenMenu, openLink } from "./native";
+import { confirmRemove, drawsFrame, listenMenu, openLink } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
 import { useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
@@ -263,7 +264,12 @@ export function App() {
 	}, []);
 
 	return (
-		<div className="flex h-full">
+		<div className="flex h-full flex-col">
+			{drawsFrame() && <Titlebar name={selected?.persona.name ?? null} />}
+			<div className={drawsFrame() ? "flex min-h-0 flex-1 gap-2 p-2 pt-0" : "flex min-h-0 flex-1 gap-2 p-2"}>
+			{pane === "settings" ? (
+				<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={() => setPane(null)} />
+			) : (
 			<Rail
 				entries={roster}
 				selectedId={selectedId}
@@ -277,11 +283,16 @@ export function App() {
 					setInspector(true);
 				}}
 				onDelete={(id, name) => void removeTeammate(id, name)}
+				onHelp={(id) => {
+					if (id === "github") void openLink("https://github.com/1broseidon/toad");
+					else togglePane(id);
+				}}
 			/>
+			)}
 
-			<main className="flex min-w-0 flex-1">
+			<main className="flex min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
-					<Settings section={settingsSection} onSection={setSettingsSection} onClose={() => setPane(null)} />
+					<Settings section={settingsSection} />
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={() => setPane(null)} />
 				) : pane === "about" ? (
@@ -364,6 +375,7 @@ export function App() {
 					</div>
 				)}
 			</main>
+			</div>
 		</div>
 	);
 }

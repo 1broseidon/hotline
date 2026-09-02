@@ -21,6 +21,12 @@ export function platform(): string {
 	return window.__toadDesk?.platform ?? "web";
 }
 
+/** Whether the page draws the window's frame. macOS keeps its traffic lights. */
+export function drawsFrame(): boolean {
+	const os = platform();
+	return os === "linux" || os === "windows";
+}
+
 export function appVersion(): string {
 	return window.__toadDesk?.version ?? "";
 }
@@ -35,6 +41,16 @@ export async function pickDirectory(): Promise<string | null> {
 		return typeof selected === "string" ? selected : null;
 	} catch {
 		return null;
+	}
+}
+
+/** Files chosen to ride with a message; none when the picker was dismissed. */
+export async function pickFiles(): Promise<string[]> {
+	try {
+		const selected = await open({ multiple: true });
+		return Array.isArray(selected) ? selected : typeof selected === "string" ? [selected] : [];
+	} catch {
+		return [];
 	}
 }
 
@@ -80,6 +96,49 @@ export async function toggleMaximize(): Promise<void> {
 	} catch {
 		// A browser tab is not a window.
 	}
+}
+
+export async function minimizeWindow(): Promise<void> {
+	try {
+		await getCurrentWindow().minimize();
+	} catch {
+		// A browser tab is not a window.
+	}
+}
+
+export async function closeWindow(): Promise<void> {
+	try {
+		await getCurrentWindow().close();
+	} catch {
+		// A browser tab is not a window.
+	}
+}
+
+/** Tells `onChange` whether the window is maximised, now and on every resize. */
+export function watchMaximized(onChange: (maximized: boolean) => void): () => void {
+	let stop: (() => void) | undefined;
+	let gone = false;
+	const current = getCurrentWindow();
+	const read = () => {
+		current
+			.isMaximized()
+			.then((maximized) => {
+				if (!gone) onChange(maximized);
+			})
+			.catch(() => {});
+	};
+	read();
+	current
+		.onResized(read)
+		.then((unlisten) => {
+			if (gone) unlisten();
+			else stop = unlisten;
+		})
+		.catch(() => {});
+	return () => {
+		gone = true;
+		stop?.();
+	};
 }
 
 export function listenMenu(onAction: (id: string) => void): () => void {

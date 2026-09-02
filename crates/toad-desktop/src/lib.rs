@@ -5,13 +5,18 @@
 //! opens a window on it. Everything the window does from then on is the
 //! wire's business. Plugins remember the window's place, post toasts, pick
 //! folders, open links, and write the clipboard; the judgement for those
-//! lives in the page, not here. The menu bar is this process's: its items
-//! emit an event the window handles.
+//! lives in the page, not here. On macOS the menu bar is this process's,
+//! and its items emit an event the window handles. On Linux and Windows
+//! there is no menu bar and no system frame: the page draws the window's
+//! own top strip and controls, so the window is one material to its edge.
 
 use rand::RngCore;
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
+#[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, WebviewUrl, WebviewWindowBuilder};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use toad_core::desk::Desk;
 use toad_core::paths::data_root;
 use toad_core::wire::Door;
@@ -34,17 +39,16 @@ fn random_token() -> String {
 /// nobody can see is no shortcut. Ctrl, not Cmd, because the window's own
 /// listener is Ctrl on every platform. The rows themselves live in
 /// `ui/src/chords.ts`; a change here that is not a change there is a drift.
+/// macOS only: a Mac app without a menu bar has no Quit and no Paste, while
+/// elsewhere the webview answers those chords itself and the page lists
+/// the rest under the rail's More menu.
+#[cfg(target_os = "macos")]
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let settings = MenuItemBuilder::with_id("settings", "Settings")
         .accelerator("Ctrl+,")
         .build(app)?;
-    let app_title = if cfg!(target_os = "macos") {
-        "Toad"
-    } else {
-        "App"
-    };
     let about = MenuItemBuilder::with_id("about", "About").build(app)?;
-    let app_menu = SubmenuBuilder::new(app, app_title)
+    let app_menu = SubmenuBuilder::new(app, "Toad")
         .item(&settings)
         .item(&about)
         .separator()
@@ -147,6 +151,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
             install_menu(app)?;
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Toad")
@@ -155,12 +160,19 @@ pub fn run() {
                 .center()
                 .initialization_script(&script);
             // Overlay puts the traffic lights on the page so the rail header
-            // can sit on their centre line. Elsewhere the OS keeps a plain bar
-            // and this builder leaves decorations alone.
+            // can sit on their centre line. Elsewhere the system frame is
+            // dropped and the page draws its own strip and controls.
             #[cfg(target_os = "macos")]
             let window = window
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true);
+            #[cfg(not(target_os = "macos"))]
+            let window = window.decorations(false);
+            // A frameless window on Linux is a rectangle unless it is see-through
+            // and the page rounds itself; Windows rounds a top-level window on
+            // its own and would lose its shadow for the transparency.
+            #[cfg(target_os = "linux")]
+            let window = window.transparent(true);
             window.build()?;
             Ok(())
         })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob, SessionState, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
@@ -17,20 +17,16 @@ import { Transcript, type ReplyTarget } from "./Transcript";
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
 const TOAD_AGENT = "pi";
 
-const STATE_TEXT: Record<SessionState, string> = {
-	idle: "Not running",
-	starting: "Starting",
-	ready: "Ready",
-	thinking: "Working",
-	error: "Error",
-	stopped: "Stopped",
-};
-
 /**
  * One teammate's conversation: the band naming them, the transcript, the
  * composer, and the search over it. Keyed by teammate above, so switching
  * tears the tape subscription down and puts up another rather than folding
  * two conversations into one column.
+ *
+ * A teammate is always there. Whether a session is up behind them is
+ * plumbing the band never reports: the one state it shows is the beat
+ * while they work, and a message to a resting teammate starts the session
+ * on its way. Stopping is the one deliberate act, under More.
  */
 export function Conversation({
 	entry,
@@ -120,7 +116,13 @@ export function Conversation({
 
 	const toad = persona.backendId === TOAD_AGENT;
 	const modelChoices = session.models.length > 0 ? session.models : toad ? models : [];
-	const currentModel = session.currentModelId ?? persona.modelId ?? "";
+	// The band names the model a turn would run on, whether or not a session
+	// is up. For Toad Agent that is the driver's own rule: the teammate's
+	// choice when its provider has a key, else the newest model any key
+	// unlocks, which is the first choice listed.
+	const currentModel =
+		session.currentModelId ??
+		(toad ? toadModel(persona.modelId, modelChoices) : (persona.modelId ?? ""));
 	const showModel = modelChoices.length > 0 || (toad && currentModel !== "");
 	const currentMode = session.currentModeId ?? persona.modeId ?? "";
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
@@ -142,9 +144,7 @@ export function Conversation({
 		{ kind: "item", id: "reveal", text: "Reveal working directory", onSelect: () => void revealPath(persona.cwd) },
 		{ kind: "rule" },
 		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
-		running
-			? { kind: "item", id: "stop", text: "Stop the session", onSelect: stop }
-			: { kind: "item", id: "start", text: "Start the session", onSelect: start },
+		...(running ? [{ kind: "item", id: "stop", text: "Stop the session", onSelect: stop } as MenuEntry] : []),
 		{ kind: "rule" },
 		{ kind: "item", id: "delete", text: "Remove teammate…", danger: true, onSelect: onDelete },
 	];
@@ -163,25 +163,17 @@ export function Conversation({
 				<button
 					type="button"
 					className="control btn-quiet -ml-1 min-w-0 shrink gap-2 pl-1 pr-2"
-					title={persona.cwd}
-					aria-label={`${persona.name}, ${STATE_TEXT[session.state].toLowerCase()}`}
+					aria-label={session.state === "thinking" ? `${persona.name}, working` : persona.name}
 					onClick={onToggleInspector}
 				>
 					<Avatar id={persona.id} name={persona.name} size={20} />
 					<span className="truncate text-lg font-semibold text-ink">{persona.name}</span>
-					<span className="flex items-center gap-1.5 text-sm font-normal text-ink-3">
-						{session.state === "thinking" && (
-							<span aria-hidden="true" className="beat h-1.5 w-1.5 rounded-full bg-accent" />
-						)}
-						{session.state === "thinking" && entry.activity !== undefined
-							? "Working"
-							: STATE_TEXT[session.state]}
-					</span>
+					{session.state === "thinking" && (
+						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+					)}
 				</button>
 
-				<span className="band-path min-w-0 flex-1 truncate px-2 font-mono text-xs text-ink-4" dir="rtl" title={persona.cwd}>
-					<bdi>{persona.cwd}</bdi>
-				</span>
+				<span className="min-w-0 flex-1" />
 
 				{next !== null && (
 					<button
@@ -244,7 +236,7 @@ export function Conversation({
 			{said !== null && (
 				<p
 					role="status"
-					className="flex shrink-0 items-center gap-2 border-b border-line bg-danger-soft px-4 py-1.5 text-sm text-ink"
+					className="flex shrink-0 items-center gap-2 bg-danger-soft px-4 py-1.5 text-sm text-ink"
 				>
 					<WarningIcon className="shrink-0 text-danger" />
 					<span className="min-w-0 flex-1 selectable">{said}</span>
@@ -283,6 +275,12 @@ export function Conversation({
 			</div>
 		</section>
 	);
+}
+
+/** The model Toad Agent starts on: see `InProcess::start` in the core. */
+function toadModel(chosen: string | undefined, choices: ConfigChoice[]): string {
+	if (chosen !== undefined && choices.some((one) => one.id === chosen)) return chosen;
+	return choices[0]?.id ?? "";
 }
 
 /**

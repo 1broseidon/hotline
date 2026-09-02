@@ -12,6 +12,7 @@ import { chordKeys } from "../chords";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
 import { Avatar } from "../ui/Avatar";
+import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 
@@ -40,11 +41,12 @@ type Block =
 /**
  * The conversation, and only the conversation.
  *
- * An agent's words are set as text in the reading column; yours are the one
- * bubble, on the right. The machinery an agent runs on is folded, not
- * hidden: a block of steps opens while the agent is working and closes to a
- * count when its next message lands, and any row in it opens on a press.
- * A transcript that lies about what happened is not worth having.
+ * Drawn the way a messages app draws a 1:1: their words in bubbles on the
+ * left, yours on the right, a run from one side tightening its corners.
+ * The machinery an agent runs on is folded, not hidden: what happened
+ * between two messages is one quiet caption, the current step while the
+ * agent is on it and a count once it has moved on, and any row in it opens
+ * on a press. A transcript that lies about what happened is not worth having.
  *
  * Imported tapes also hold permission cards, plans, peer markers, hands-to-
  * human and computer frames. A card with no decision is live: answering it
@@ -124,26 +126,43 @@ export function Transcript({
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
 				<Avatar id={personaId} name={name} size={48} />
 				<p className="text-lg font-semibold">{name}</p>
-				<p className="text-center text-sm text-ink-3">Nothing said yet. Start below.</p>
+				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
 			</div>
 		);
 	}
 
 	const blocks = toBlocks(events, streaming);
 	const streamingSay = streaming.find((one) => one.kind === "agent");
+	// Which side each block speaks from, with the machinery between two
+	// messages transparent, so two agent lines around a tool call are still
+	// one run of speech.
+	const sides = blocks.map(sideOf);
+	const sideBefore = (index: number): Side => {
+		for (let at = index - 1; at >= 0; at--) if (sides[at] !== null) return sides[at]!;
+		return null;
+	};
+	const sideAfter = (index: number): Side => {
+		for (let at = index + 1; at < sides.length; at++) if (sides[at] !== null) return sides[at]!;
+		return streamingSay !== undefined ? "them" : null;
+	};
 
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col">
-		<div ref={scroller} className="flex-1 overflow-y-auto px-8 py-6">
+		<Scroll scrollerRef={scroller}>
 			{/* `justify-end` rests a short conversation on the composer rather
 			    than stranding it at the top of an empty pane. */}
-			<div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end">
+			<div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 py-6">
 				{blocks.map((block, index) => {
 					const previous = blocks[index - 1];
 					const stamp =
 						!isChapter(block) &&
 						(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
 					const id = block.kind === "event" ? block.event.id : block.id;
+					const side = sides[index] ?? null;
+					const run: Run = {
+						top: side !== null && !stamp && sideBefore(index) === side,
+						bottom: side !== null && sideAfter(index) === side,
+					};
 					return (
 						<div key={id} data-event-id={id}>
 							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
@@ -157,6 +176,7 @@ export function Transcript({
 									personaId={personaId}
 									event={block.event}
 									said={said}
+									run={run}
 									speakers={speakers}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
@@ -167,15 +187,15 @@ export function Transcript({
 					);
 				})}
 				{streamingSay !== undefined && (
-					<div className="said-group relative mt-3">
-						<div className="speech said-them said-streaming">
+					<div className={`said-group relative ${sideBefore(blocks.length) === "them" ? "mt-1" : "mt-3"}`}>
+						<div className={`speech said-them said-streaming ${sideBefore(blocks.length) === "them" ? "said-run-top" : ""}`}>
 							<Markdown text={streamingSay.text} />
 							<span aria-hidden="true" className="beat ml-0.5 inline-block h-[14px] w-[2px] translate-y-[2px] bg-accent" />
 						</div>
 					</div>
 				)}
 			</div>
-		</div>
+		</Scroll>
 		{!following && (
 			<button
 				type="button"
@@ -194,6 +214,29 @@ export function Transcript({
 		)}
 		</div>
 	);
+}
+
+/**
+ * Whose bubble a block is. Anything else on screen — a card, a notice, a
+ * chapter line — is `other`, and breaks a run; the machinery between two
+ * messages and a turn that draws nothing are `null`, and do not.
+ */
+type Side = "me" | "them" | "other" | null;
+
+/** Whether the bubble continues a run from the same side above, and below. */
+type Run = { top: boolean; bottom: boolean };
+
+function sideOf(block: Block): Side {
+	if (block.kind !== "event") return null;
+	const event = block.event;
+	if (event.kind === "user") return event.scheduled === undefined ? "me" : "other";
+	if (event.kind === "agent") return "them";
+	if (event.kind === "turn") return event.stopReason === "end_turn" ? null : "other";
+	return "other";
+}
+
+function runClass(run: Run): string {
+	return `${run.top ? "said-run-top" : ""} ${run.bottom ? "said-run-bottom" : ""}`;
 }
 
 /** Fold runs of thoughts and tools into one block; a streaming thought joins the tail. */
@@ -261,6 +304,7 @@ function Row({
 	personaId,
 	event,
 	said,
+	run,
 	speakers,
 	onReply,
 	onOpenThread,
@@ -269,6 +313,7 @@ function Row({
 	personaId: string;
 	event: Exclude<TranscriptEvent, Step>;
 	said: Map<string, string>;
+	run: Run;
 	speakers: Speakers | undefined;
 	onReply?(target: ReplyTarget): void;
 	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
@@ -281,30 +326,22 @@ function Row({
 			) : speakers !== undefined ? (
 				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
-				<UserBubble event={event} said={said} onJump={onJump} />
+				<UserBubble event={event} said={said} run={run} onJump={onJump} />
 			);
 
 		case "agent":
 			return speakers !== undefined ? (
 				<NamedSay name={speakers.mine === "agent" ? speakers.me : speakers.them} mine={speakers.mine === "agent"} text={event.text} />
 			) : (
-				<AgentSay event={event} {...(onReply !== undefined ? { onReply } : {})} />
+				<AgentSay event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
-		/* Where the turn stopped. Drawn only when it says something the last
-		 * message did not: a count, or a stop that was not the agent's choice. */
-		case "turn": {
-			const tokens = event.usage?.totalTokens;
-			const ordinary = event.stopReason === "end_turn";
-			if (ordinary && tokens === undefined) return null;
-			return (
-				<p className="mt-1 text-right text-xs text-ink-4">
-					{!ordinary && <span className="text-ink-3">{event.stopReason.replace(/_/g, " ")}</span>}
-					{!ordinary && tokens !== undefined && " · "}
-					{tokens !== undefined && `${tokensText(tokens)} tokens`}
-				</p>
-			);
-		}
+		/* Where the turn stopped. Drawn only when the stop was not the agent's
+		 * own choice; a count of tokens is the harness's business, not the
+		 * conversation's. */
+		case "turn":
+			if (event.stopReason === "end_turn") return null;
+			return <p className="instrument mt-1 text-right text-ink-4">{event.stopReason.replace(/_/g, " ")}</p>;
 
 		case "notice":
 			return (
@@ -359,43 +396,26 @@ function Row({
 }
 
 /**
- * The machinery between two messages. Open while the agent is on it, with
- * the latest step named in the summary; closed to a count once it has moved
- * on, unless you opened it yourself.
+ * The machinery between two messages, as one caption. While the agent is
+ * on it the caption names the current step and the rows stay open; once
+ * it has moved on the caption is a count and the rows close, unless you
+ * opened them yourself.
  */
 function Steps({ items, live }: { items: Step[]; live: boolean }) {
 	const [toggled, setToggled] = useState<boolean | null>(null);
 	const open = toggled ?? live;
-	const tools = items.filter((one) => one.kind === "tool").length;
-	const thoughts = items.length - tools;
 	const latest = items[items.length - 1];
 	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
 	const summary = live
-		? latest?.kind === "tool"
-			? latest.title
-			: "Thinking"
-		: [tools > 0 && `${tools} ${tools === 1 ? "tool" : "tools"}`, thoughts > 0 && `${thoughts} ${thoughts === 1 ? "thought" : "thoughts"}`]
-				.filter(Boolean)
-				.join(" · ");
+		? (latest?.kind === "tool" ? latest.title : "Thinking")
+		: `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
 
 	return (
-		<div className="mt-2">
-			<button
-				type="button"
-				className="step w-auto max-w-full"
-				aria-expanded={open}
-				onClick={() => setToggled(!open)}
-			>
-				<span
-					aria-hidden="true"
-					className={`step-mark ${live ? "beat" : ""}`}
-					style={{ background: live ? "var(--accent)" : failed ? "var(--danger)" : "var(--ink-4)" }}
-				/>
-				<span className={`step-title ${live && latest?.kind === "tool" ? "" : "font-sans"}`}>
-					{live && <span className="font-sans text-ink-3">Working · </span>}
-					{summary}
-				</span>
-				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+		<div className="my-2">
+			<button type="button" className="steps-caption" aria-expanded={open} onClick={() => setToggled(!open)}>
+				{live && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+				<span className={`truncate ${failed && !live ? "text-danger" : ""}`}>{summary}</span>
+				{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
 			</button>
 			{open && (
 				<div className="steps ml-[11px]">
@@ -415,16 +435,18 @@ function Steps({ items, live }: { items: Step[]; live: boolean }) {
 /** An agent's line, focusable so R can answer it without a pointer. */
 function AgentSay({
 	event,
+	run,
 	onReply,
 }: {
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
+	run: Run;
 	onReply?(target: ReplyTarget): void;
 }) {
 	const reply = () => onReply?.({ eventId: event.id, text: firstLine(event.text) });
 	return (
-		<div className="said-group relative mt-3">
+		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			<div
-				className="speech said-them rounded-md"
+				className={`speech said-them ${runClass(run)}`}
 				tabIndex={onReply === undefined ? undefined : 0}
 				onKeyDown={(key) => {
 					if (onReply === undefined) return;
@@ -483,18 +505,20 @@ function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: str
 function UserBubble({
 	event,
 	said,
+	run,
 	onJump,
 }: {
 	event: Extract<TranscriptEvent, { kind: "user" }>;
 	said: Map<string, string>;
+	run: Run;
 	onJump(eventId: string): void;
 }) {
 	const answered = event.replyTo;
 	const quote = answered !== undefined ? said.get(answered) : undefined;
 	const text = quote !== undefined ? unquoted(event.text) : event.text;
 	return (
-		<div className="mt-3 flex justify-end">
-			<div className="speech said-me">
+		<div className={`flex justify-end ${run.top ? "mt-1" : "mt-3"}`}>
+			<div className={`speech said-me ${runClass(run)}`}>
 				{quote !== undefined && answered !== undefined && (
 					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
 						{quote}
@@ -802,7 +826,7 @@ function ComputerFrame({ dataUrl }: { dataUrl: string }) {
 	return (
 		<button
 			type="button"
-			className="mt-2 block overflow-hidden rounded-md border border-line bg-inset p-0 text-left transition-[width]"
+			className="mt-2 block overflow-hidden rounded-md border border-line bg-raised p-0 text-left transition-[width]"
 			style={{ width: open ? "min(24rem, 100%)" : "7rem" }}
 			aria-expanded={open}
 			title={open ? "Hide the capture" : "Show the capture"}
@@ -821,12 +845,6 @@ function ComputerFrame({ dataUrl }: { dataUrl: string }) {
 function firstLine(text: string): string {
 	const line = text.trim().split("\n", 1)[0] ?? "";
 	return line.length > 70 ? `${line.slice(0, 70)}…` : line;
-}
-
-function tokensText(count: number): string {
-	if (count < 1_000) return String(count);
-	if (count < 100_000) return `${(count / 1_000).toFixed(1)}k`;
-	return `${Math.round(count / 1_000)}k`;
 }
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });

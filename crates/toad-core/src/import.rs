@@ -45,7 +45,6 @@ pub struct Skipped {
     pub reason: String,
 }
 
-const TOAD_AGENT: &str = "pi";
 const IMPORTED_SETTINGS: [&str; 2] = ["chapterIdleHours", "defaultBackendId"];
 const IMPORTED_PROVIDERS: [&str; 3] = ["anthropic", "openai", "openrouter"];
 
@@ -104,11 +103,6 @@ fn import_teammates(
             });
             continue;
         }
-        let backend = value
-            .get("backendId")
-            .and_then(Value::as_str)
-            .unwrap_or(TOAD_AGENT)
-            .to_string();
         let persona = match persona_from_legacy(value) {
             Ok(persona) => persona,
             Err(reason) => {
@@ -122,12 +116,6 @@ fn import_teammates(
         append_persona(log, &persona)?;
         report.teammates += 1;
         imported.push(id.clone());
-        if backend != TOAD_AGENT {
-            report.skipped.push(Skipped {
-                item: format!("teammate {id}"),
-                reason: format!("backend is {backend}; this build runs Toad Agent only"),
-            });
-        }
     }
     Ok(imported)
 }
@@ -657,10 +645,10 @@ mod tests {
             .iter()
             .map(|skipped| (skipped.item.as_str(), skipped.reason.as_str()))
             .collect();
+        // A teammate on another harness comes over as it is: whether that
+        // harness can start here is the session's question, not the import's.
         assert!(
-            reasons.iter().any(|(item, reason)| {
-                *item == "teammate cal" && reason.contains("this build runs Toad Agent only")
-            }),
+            !reasons.iter().any(|(item, _)| *item == "teammate cal"),
             "{reasons:?}"
         );
         assert!(

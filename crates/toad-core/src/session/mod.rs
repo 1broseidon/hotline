@@ -659,9 +659,15 @@ impl Room {
         }
         self.stop(persona_id)?;
         // A restart that fails to start (a key gone, a harness missing) leaves
-        // the teammate stopped — stop already ran — with the start's error in
-        // SessionInfo.error, which is what a failed start does today.
-        self.start_now(persona_id).await?;
+        // the teammate stopped — stop already ran — and the band has to say
+        // why, because nobody pressed Start to be handed the error.
+        if let Err(error) = self.start_now(persona_id).await {
+            let mut info = idle_info(persona_id);
+            info.state = SessionState::Stopped;
+            info.error = Some(error.clone());
+            let _ = self.info_changes.send(info);
+            return Err(error);
+        }
         Ok(())
     }
 

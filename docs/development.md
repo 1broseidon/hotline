@@ -181,8 +181,10 @@ cargo run -p toad-core --bin toad-import -- <from> <to>
 
 Reads the previous Toad's layout at `<from>` and writes this tree's
 streams and vault at `<to>`. The source is never written: `store.sqlite`
-is opened from a copy so SQLite cannot leave `-wal`/`-shm` beside it,
-and a copy that cannot be read is an error rather than a smaller roster.
+is copied (the database and its `-wal`, never the `-shm`) into a private
+temporary directory so SQLite cannot leave sidecars beside a directory it
+must not write, and a copy that does not check out is an error rather
+than a smaller roster.
 Tapes are copied, secrets are read out of the old vault. A teammate
 already in the roster, a tape that already exists here, and a setting
 already set are left alone, so running it twice is the same as running it

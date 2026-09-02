@@ -1,13 +1,14 @@
 //! Import an existing Toad data directory into this room.
 //!
-//! The source is never written: `store.sqlite` is opened read-only, tapes are
-//! copied, and secrets are read out of the old vault. A store that exists
-//! but cannot be read is an error, not an import of nothing. A tape lands
-//! before the roster row that names it, so an import cut short leaves a
-//! teammate this room has not heard of, not one whose conversation is gone;
-//! a teammate already in the roster is left alone unless its tape is the
-//! part still owed, and a tape that already exists here is not overwritten,
-//! so running the import twice is the same as running it once.
+//! The source is never written: `store.sqlite` is read from a private copy
+//! of the database and its `-wal` (never the `-shm`), tapes are copied, and
+//! secrets are read out of the old vault. A store that exists but cannot be
+//! read is an error, not an import of nothing. A tape lands before the
+//! roster row that names it, so an import cut short leaves a teammate this
+//! room has not heard of, not one whose conversation is gone; a teammate
+//! already in the roster is left alone unless its tape is the part still
+//! owed, and a tape that already exists here is not overwritten, so running
+//! the import twice is the same as running it once.
 //! A teammate's working directory stays where it is — under the old data
 //! directory's `workspaces/` when that was the default — because the
 //! workspace is the project, not a copy of it. Backend ids are mapped onto
@@ -29,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
 use ts_rs::TS;
@@ -499,8 +501,10 @@ fn setting_written(log: &Log, key: &str) -> bool {
     })
 }
 
-/// A copy of `store.sqlite` (and its sidecars, when they are there) so the
-/// importer can open SQLite without creating files in the source.
+/// A copy of `store.sqlite` (and its `-wal`, when that is there) so the
+/// importer can open SQLite without creating files in the source. The
+/// `-shm` is not copied: SQLite rebuilds that index from the wal, and a
+/// `-shm` copied last can describe frames the copied `-wal` lacks.
 struct StoreSnapshot {
     dir: PathBuf,
 }
@@ -517,28 +521,67 @@ impl Drop for StoreSnapshot {
     }
 }
 
+fn snapshot_dir(from: &Path) -> PathBuf {
+    let source = from.canonicalize().unwrap_or_else(|_| from.to_path_buf());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    std::env::temp_dir().join(format!("toad-import-store-{:016x}", hasher.finish()))
+}
+
 fn snapshot_store(from: &Path) -> io::Result<Option<StoreSnapshot>> {
     let store = records::store_path(from);
     if !store.exists() {
         return Ok(None);
     }
-    let dir = std::env::temp_dir().join(format!(
-        "toad-import-store-{}-{}",
-        std::process::id(),
-        uuid::Uuid::new_v4()
-    ));
-    fs::create_dir_all(&dir)?;
-    fs::copy(&store, dir.join("store.sqlite"))?;
+    let dir = snapshot_dir(from);
+    if dir.exists() {
+        if dir.is_dir() {
+            fs::remove_dir_all(&dir)?;
+        } else {
+            fs::remove_file(&dir)?;
+        }
+    }
+    make_private_dir(&dir)?;
+    copy_private(&store, &dir.join("store.sqlite"))?;
     if let Some(name) = store.file_name() {
-        for suffix in ["-wal", "-shm"] {
-            let sidecar = store.with_file_name(format!("{}{suffix}", name.to_string_lossy()));
-            if sidecar.is_file() {
-                fs::copy(&sidecar, dir.join(format!("store.sqlite{suffix}")))?;
-            }
+        let wal = store.with_file_name(format!("{}-wal", name.to_string_lossy()));
+        if wal.is_file() {
+            copy_private(&wal, &dir.join("store.sqlite-wal"))?;
         }
     }
     records::require_readable(&dir, &store)?;
+    // Opening the copy for the check can create a `-shm` beside it. That
+    // file is this process's index of the copy, not part of the snapshot,
+    // and leaving it would look like we copied the source's.
+    let _ = fs::remove_file(dir.join("store.sqlite-shm"));
     Ok(Some(StoreSnapshot { dir }))
+}
+
+fn make_private_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(dir)
+    }
+}
+
+fn copy_private(from: &Path, to: &Path) -> io::Result<()> {
+    fs::copy(from, to)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(to, fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 fn source_secrets(from: &Path) -> io::Result<BTreeMap<String, String>> {
@@ -1120,5 +1163,58 @@ mod tests {
             message.contains("cannot be read") || message.contains("did not copy intact"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn a_store_snapshot_leaves_the_shm_behind_and_checks_the_copy() {
+        let from = store_scratch("import-snapshot");
+        let database = create(&from, "this-desk");
+        database
+            .pragma_update(None, "wal_autocheckpoint", 0)
+            .unwrap();
+        Put::new("ada", "this-desk", json!({ "name": "Ada" })).write(&database);
+
+        let wal = from.join("store.sqlite-wal");
+        let shm = from.join("store.sqlite-shm");
+        assert!(wal.is_file(), "the writer should have created -wal");
+        assert!(shm.is_file(), "the writer should have created -shm");
+
+        let dir = snapshot_dir(&from);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("stale"), "crash leftover").unwrap();
+
+        let snapshot = snapshot_store(&from).unwrap().expect("the store exists");
+        assert_eq!(snapshot.path(), dir);
+        assert!(!snapshot.path().join("stale").exists());
+        assert!(snapshot.path().join("store.sqlite").is_file());
+        assert!(snapshot.path().join("store.sqlite-wal").is_file());
+        assert!(
+            !snapshot.path().join("store.sqlite-shm").exists(),
+            "a copied -shm can describe frames the copied -wal lacks"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dir_mode = fs::metadata(snapshot.path()).unwrap().permissions().mode() & 0o777;
+            assert_eq!(dir_mode, 0o700);
+            let file_mode = fs::metadata(snapshot.path().join("store.sqlite"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(file_mode, 0o600);
+            let wal_mode = fs::metadata(snapshot.path().join("store.sqlite-wal"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(wal_mode, 0o600);
+        }
+
+        let reader = records::open(snapshot.path()).unwrap();
+        assert_eq!(records::list_records(&reader, "persona").len(), 1);
+        records::require_readable(snapshot.path(), &records::store_path(&from)).unwrap();
+        drop(database);
     }
 }

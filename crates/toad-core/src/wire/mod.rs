@@ -271,8 +271,19 @@ enum AcceptAgain {
 fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
     #[cfg(unix)]
     {
+        // accept(2): a network error already pending on the new socket is
+        // reported by accept and is the peer's problem, not the listener's.
         match error.raw_os_error() {
-            Some(libc::ECONNABORTED) | Some(libc::EINTR) => return Some(AcceptAgain::Now),
+            Some(libc::ECONNABORTED)
+            | Some(libc::EINTR)
+            | Some(libc::ECONNRESET)
+            | Some(libc::EPROTO)
+            | Some(libc::ENETDOWN)
+            | Some(libc::ENETUNREACH)
+            | Some(libc::EHOSTDOWN)
+            | Some(libc::EHOSTUNREACH)
+            | Some(libc::ENOPROTOOPT)
+            | Some(libc::EOPNOTSUPP) => return Some(AcceptAgain::Now),
             Some(libc::EMFILE) | Some(libc::ENFILE) => return Some(AcceptAgain::AfterPause),
             _ => {}
         }

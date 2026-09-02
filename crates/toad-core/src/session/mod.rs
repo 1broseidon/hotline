@@ -465,10 +465,16 @@ impl Room {
     }
 
     /// Brings a teammate up, on the driver its backend names. One caller at a
-    /// time per teammate; see [`Room::starts`].
+    /// time per teammate; see [`Room::starts`]. A teammate that is already up
+    /// is the answer: the second caller — a schedule firing as the window
+    /// starts the same teammate — gets the session that exists, not a second
+    /// agent on the same tape that only one of them could ever stop.
     pub async fn start(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
+        if lock(&self.sessions).contains_key(persona_id) {
+            return Ok(self.info(persona_id));
+        }
         self.start_now(persona_id).await
     }
 
@@ -1274,8 +1280,11 @@ impl Room {
     async fn note(&self, persona: &Persona, slice: &[Value]) -> Option<chapters::Note> {
         let model_id = self.note_model(persona)?;
         let prompt = format!(
-            "Here is the chapter, oldest first.\n<toad_chapter_transcript>\n{}\n</toad_chapter_transcript>\nWrite the JSON note now.",
-            chapters::serialize_chapter(slice)
+            "Here is the chapter, oldest first.\n{}\nWrite the JSON note now.",
+            crate::fence::fenced(
+                "toad_chapter_transcript",
+                &chapters::serialize_chapter(slice)
+            )
         );
         let answer = tokio::time::timeout(
             Duration::from_millis(chapters::ANSWER_MS),

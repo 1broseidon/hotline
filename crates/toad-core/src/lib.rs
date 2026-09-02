@@ -12,6 +12,7 @@
 pub mod contract;
 pub mod desk;
 pub mod driver;
+mod fence;
 pub mod import;
 pub mod log;
 pub mod mcp;

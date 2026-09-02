@@ -107,10 +107,15 @@ stops. A result larger than 256 KiB is kept in full under
 head and the tail and that path. The transcript bubble keeps 4,000
 characters of output either way.
 
-`search_thread` and `list_chapters` return quoted JSON: the conversation is
-data, and the one string it must not spell is the tag that closes the fence
-(`<toad_thread_search>`). `<` is rewritten as `\u003c` so neither the JSON
-nor a scan of the text can close it early.
+Anything quoted out of a conversation goes in front of a model inside a
+fence (`fence.rs`): `search_thread` and `list_chapters` results, the wake
+block's last messages and previous handoff note, the user lines a resumed
+chapter is nudged with, a colleague's message, and the chapter transcript
+the note model reads. The conversation is data, and the one string it must
+not spell is the tag that closes its fence. Every `<` in the body is
+rewritten as `\u003c` — the same character to anything parsing JSON, and
+no character at all to anything scanning for a tag — so nothing quoted can
+close the fence early, whichever fence it is in.
 
 The models a key unlocks are Anthropic, OpenAI and OpenRouter, as
 `provider/model`. No key, no session: start is refused with a sentence

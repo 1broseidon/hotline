@@ -595,11 +595,8 @@ async fn two_starts_at_once_leave_one_session_in_one_chapter() {
     for teammate in 0..TEAMMATES {
         enrol(&log, &persona(&format!("ada{teammate}")));
     }
-    let room = Room::with_agents(
-        log,
-        Arc::new(DeskKeys),
-        Fake::new(Scripted::new(Vec::new())),
-    );
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
 
     for teammate in 0..TEAMMATES {
         let id = format!("ada{teammate}");
@@ -624,6 +621,11 @@ async fn two_starts_at_once_leave_one_session_in_one_chapter() {
         );
         assert_eq!(room.info(&id).state, SessionState::Ready);
     }
+    assert_eq!(
+        lock(&agents.preambles).len(),
+        TEAMMATES,
+        "a second start on a teammate that was up built a second agent"
+    );
 }
 
 /// Two messages arriving on a closed chapter open one chapter between them,

@@ -619,7 +619,9 @@ impl ChildAgent {
         // `session/new` is still in flight promotes rows that have to exist by
         // then, and a ledger published afterwards would overwrite what was
         // watched with "declared". An agent that refused to initialize was
-        // given nothing and still gets no ledger at all.
+        // given nothing and still gets no ledger at all; one that initialized
+        // and then refused `session/new` keeps the ledger it was handed,
+        // because the rows were declared to it whether or not it went on.
         self.publish_ledger(persona, serving);
         self.open_session(&connection, persona, capabilities)
             .await?;

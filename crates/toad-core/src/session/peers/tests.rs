@@ -531,3 +531,37 @@ mod receipts {
         assert!(read_receipt_updates(&machinery, &["th".to_string()]).is_empty());
     }
 }
+
+/// A permission raised inside a peer turn is on a stream no seat draws a
+/// card for, so nobody ever answers it; when the turn ends the card is
+/// expired on the thread the way a tape's would be, and the thread stops
+/// saying somebody is waiting.
+#[tokio::test]
+async fn a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends() {
+    let mut script = vec![Update::Permission {
+        request_id: "r1".to_string(),
+        title: "Run ls".to_string(),
+        options: vec![crate::contract::PermissionOption {
+            option_id: "once".to_string(),
+            name: "Allow once".to_string(),
+            kind: None,
+        }],
+    }];
+    script.extend(answers("a1", "aye"));
+    let room = room("peer-permission", Fake::new(Scripted::new(script)));
+
+    room.deliver("ada", "Bob", "may I look?").await.unwrap();
+
+    let events = thread_of(&room, "ada~bob");
+    let card = events
+        .iter()
+        .find(|event| kind_of(event) == "permission")
+        .expect("the card is on the thread");
+    assert_eq!(card["decision"], "expired", "{card}");
+    assert!(
+        room.peer_threads("ada")
+            .iter()
+            .all(|thread| !thread.waiting),
+        "a thread whose turn ended still says somebody is waiting"
+    );
+}

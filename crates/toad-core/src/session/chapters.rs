@@ -168,8 +168,11 @@ pub(super) fn resume_nudge(said: &[String]) -> String {
         "Pick up where the work left off and tell the user where things stand. ".to_string()
     } else {
         format!(
-            "Since it was last active the user said:\n<toad_user_messages>\n{}\n</toad_user_messages>\nTreat that as the user's current message and answer it now. ",
-            Value::from(said.to_vec())
+            "Since it was last active the user said:\n{}\nTreat that as the user's current message and answer it now. ",
+            crate::fence::fenced(
+                "toad_user_messages",
+                &Value::from(said.to_vec()).to_string()
+            )
         )
     };
     format!(
@@ -409,10 +412,10 @@ fn wake_note(chapter: &Value, ended: i64, now: i64, quoted: Option<String>) -> S
             _ => "",
         };
         parts.push(format!(
-            "It is now {}. The previous chapter, \"{title}\", ended {}{status}. Its handoff note:\n\
-             <toad_previous_chapter>\n{note}\n</toad_previous_chapter>",
+            "It is now {}. The previous chapter, \"{title}\", ended {}{status}. Its handoff note:\n{}",
             stamp(now),
             ago(now - ended),
+            crate::fence::fenced("toad_previous_chapter", note),
         ));
     }
     if let Some(quoted) = quoted {
@@ -422,7 +425,8 @@ fn wake_note(chapter: &Value, ended: i64, now: i64, quoted: Option<String>) -> S
             " in that chapter"
         };
         parts.push(format!(
-            "The last things said{whose}:\n<toad_conversation_history>\n{quoted}\n</toad_conversation_history>"
+            "The last things said{whose}:\n{}",
+            crate::fence::fenced("toad_conversation_history", &quoted)
         ));
     }
     parts.push(

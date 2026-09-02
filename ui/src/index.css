@@ -1,0 +1,261 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+ * The palette, twice.
+ *
+ * Green is the app's one signal colour: an agent at work, a focus ring, a
+ * link. Everything else is near-neutral, so that when green appears it means
+ * something. The two themes are the same instrument under different light —
+ * the dark one is the room the reference tree ships, the light one is the
+ * same hues with paper and ink swapped, which is why every value is named
+ * once here and referenced once below.
+ * ------------------------------------------------------------------------- */
+
+:root {
+	color-scheme: light dark;
+
+	--paper: oklch(98.5% 0.001 250);
+	--paper-2: oklch(95.5% 0.002 250);
+	--paper-3: oklch(92% 0.003 250);
+	--paper-4: oklch(88% 0.004 250);
+
+	--ink: oklch(22% 0.004 250);
+	--ink-2: oklch(42% 0.005 250);
+	--ink-3: oklch(56% 0.005 250);
+
+	--rule: oklch(89% 0.003 250);
+	--rule-strong: oklch(72% 0.004 250);
+
+	--accent: oklch(52% 0.15 142);
+	--accent-ink: oklch(99% 0.01 142);
+	--accent-wash: oklch(52% 0.15 142 / 0.1);
+
+	--warn: oklch(58% 0.13 78);
+	--danger: oklch(53% 0.19 25);
+
+	--said-them: oklch(94% 0.003 250);
+	--said-me: oklch(90% 0.03 255);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--paper: oklch(11% 0.002 250);
+		--paper-2: oklch(16% 0.003 250);
+		--paper-3: oklch(20% 0.003 250);
+		--paper-4: oklch(24.5% 0.004 250);
+
+		--ink: oklch(95% 0.002 250);
+		--ink-2: oklch(80% 0.003 250);
+		--ink-3: oklch(67% 0.003 250);
+
+		--rule: oklch(26% 0.003 250);
+		--rule-strong: oklch(48.5% 0.004 250);
+
+		--accent: oklch(76% 0.17 142);
+		--accent-ink: oklch(16% 0.02 150);
+		--accent-wash: oklch(76% 0.17 142 / 0.12);
+
+		--warn: oklch(80% 0.14 78);
+		--danger: oklch(72% 0.16 25);
+
+		--said-them: oklch(19.5% 0.003 250);
+		--said-me: oklch(32% 0.034 255);
+	}
+}
+
+@theme inline {
+	--color-paper: var(--paper);
+	--color-paper-2: var(--paper-2);
+	--color-paper-3: var(--paper-3);
+	--color-paper-4: var(--paper-4);
+
+	--color-ink: var(--ink);
+	--color-ink-2: var(--ink-2);
+	--color-ink-3: var(--ink-3);
+
+	--color-rule: var(--rule);
+	--color-rule-strong: var(--rule-strong);
+
+	--color-accent: var(--accent);
+	--color-accent-ink: var(--accent-ink);
+	--color-accent-wash: var(--accent-wash);
+
+	--color-warn: var(--warn);
+	--color-danger: var(--danger);
+
+	--color-said-them: var(--said-them);
+	--color-said-me: var(--said-me);
+
+	--font-sans:
+		-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+		sans-serif;
+	--font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@layer base {
+	html,
+	body,
+	#root {
+		height: 100%;
+		margin: 0;
+	}
+
+	body {
+		background: var(--paper-2);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: 0.875rem;
+		line-height: 1.6;
+		-webkit-font-smoothing: antialiased;
+		overflow: hidden;
+	}
+
+	/* This is a window, not a page: its furniture is pressed, never selected.
+	 * Speech and anything you would paste into a terminal opt back in. */
+	body {
+		user-select: none;
+		cursor: default;
+	}
+	:where(.bubble, .md, pre, code, input, textarea) {
+		user-select: text;
+		cursor: auto;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+}
+
+@layer components {
+	/* ------------------------------------------------------------- controls */
+	.field {
+		@apply w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-ink outline-none;
+	}
+	.field:focus {
+		border-color: var(--accent);
+	}
+	.label {
+		@apply mb-1 block text-xs text-ink-3;
+	}
+	.btn-primary,
+	.btn-quiet {
+		@apply shrink-0 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-40;
+	}
+	.btn-primary {
+		background: var(--accent);
+		color: var(--accent-ink);
+	}
+	.btn-quiet {
+		@apply border border-rule text-ink-2;
+	}
+	.btn-quiet:hover:not(:disabled) {
+		background: var(--paper-3);
+	}
+
+	/* ---------------------------------------------------------------- speech */
+	.bubble {
+		@apply max-w-[85%] rounded-2xl px-3.5 py-2 text-ink;
+		overflow-wrap: anywhere;
+	}
+	.bubble-me {
+		background: var(--said-me);
+		white-space: pre-wrap;
+	}
+	.bubble-them {
+		background: var(--said-them);
+	}
+
+	/* An expander for the machinery: a thought, a tool's output. Quiet enough
+	 * that a transcript of forty tool calls still reads as a conversation. */
+	.aside {
+		@apply inline-flex max-w-full items-center gap-2 rounded-md px-2 py-0.5 text-left text-xs text-ink-3;
+	}
+	.aside:hover:not(:disabled) {
+		background: var(--paper-3);
+	}
+
+	/* --------------------------------------------------------------- markdown
+	 * Not a document: emphasis, code, links, lists and tables survive because
+	 * a person types those into a chat. Headings arrive as bold text, because
+	 * a person would not send you an <h2>.  */
+	.md > :first-child {
+		margin-top: 0;
+	}
+	.md > :last-child {
+		margin-bottom: 0;
+	}
+	.md p {
+		margin: 0.5em 0;
+	}
+	.md ul,
+	.md ol {
+		margin: 0.5em 0;
+		padding-left: 1.25em;
+	}
+	.md ul {
+		list-style: disc;
+	}
+	.md ol {
+		list-style: decimal;
+	}
+	.md li {
+		margin: 0.15em 0;
+	}
+	.md code {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
+		background: var(--paper-3);
+		border-radius: 4px;
+		padding: 0.1em 0.3em;
+	}
+	.md pre {
+		margin: 0.5em 0;
+		padding: 0.6em 0.75em;
+		border-radius: 8px;
+		background: var(--paper-3);
+		overflow-x: auto;
+	}
+	.md pre code {
+		background: none;
+		padding: 0;
+	}
+	.md blockquote {
+		margin: 0.5em 0;
+		padding-left: 0.75em;
+		border-left: 2px solid var(--rule-strong);
+		color: var(--ink-2);
+	}
+	.md a {
+		color: var(--accent);
+		text-decoration: underline;
+	}
+	.md table {
+		border-collapse: collapse;
+		font-size: 0.95em;
+	}
+	.md th,
+	.md td {
+		border: 1px solid var(--rule);
+		padding: 0.25em 0.5em;
+	}
+}
+
+/* The one moving thing in the window is whichever agent is working. */
+@keyframes throat {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.28;
+	}
+}
+.animate-throat {
+	animation: throat 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.animate-throat {
+		animation: none;
+	}
+}

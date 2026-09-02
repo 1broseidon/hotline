@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduleKind, ScheduledJob } from "../generated/contract";
+import { CloseIcon } from "../icons";
 import { durationText, firstLine, nextText } from "../room";
+import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 
 const MINUTE = 60_000;
@@ -13,10 +15,10 @@ const MAX_LOOP = 7 * DAY;
 
 type Unit = "minutes" | "hours" | "days";
 
-const UNITS: { id: Unit; ms: number; label: string }[] = [
-	{ id: "minutes", ms: MINUTE, label: "minutes" },
-	{ id: "hours", ms: HOUR, label: "hours" },
-	{ id: "days", ms: DAY, label: "days" },
+const UNITS: { id: Unit; ms: number; name: string }[] = [
+	{ id: "minutes", ms: MINUTE, name: "minutes" },
+	{ id: "hours", ms: HOUR, name: "hours" },
+	{ id: "days", ms: DAY, name: "days" },
 ];
 
 /**
@@ -45,19 +47,17 @@ export function Schedules({
 	}, [focus]);
 
 	return (
-		<section className="flex flex-col gap-3">
+		<section>
 			<h3 ref={heading} id="schedules" tabIndex={-1} className="label outline-none">
 				Schedules
 			</h3>
-			{jobs.length === 0 ? (
-				<p className="text-xs leading-relaxed text-ink-3">Nothing scheduled.</p>
-			) : (
-				<ul className="flex flex-col">
-					{jobs.map((job) => (
-						<JobRow key={job.id} job={job} now={now} />
-					))}
-				</ul>
-			)}
+			<div className="grouped">
+				{jobs.length === 0 ? (
+					<p className="group-row text-sm text-ink-3">Nothing scheduled.</p>
+				) : (
+					jobs.map((job) => <JobRow key={job.id} job={job} now={now} />)
+				)}
+			</div>
 			<AddJob personaId={personaId} />
 		</section>
 	);
@@ -92,45 +92,40 @@ function JobRow({ job, now }: { job: ScheduledJob; now: number }) {
 		}
 	};
 
-	const kind = job.kind === "loop" && job.every !== undefined ? `loop · ${durationText(job.every)}` : "once";
+	const kind = job.kind === "loop" && job.every !== undefined ? `Every ${durationText(job.every)}` : "Once";
 
 	return (
-		<li className="flex items-start gap-2 border-b border-rule py-1.5 text-xs">
-			<div className="min-w-0 flex-1">
-				<p className="text-ink-2">
-					<span className="text-ink-3">{kind}</span>
-					<span className="mx-1.5 text-ink-3">·</span>
-					<span>{nextText(job.nextAt, now)}</span>
-					{job.quiet === true && (
-						<>
-							<span className="mx-1.5 text-ink-3">·</span>
-							<span className="text-ink-3">quiet</span>
-						</>
-					)}
-				</p>
-				<p className="truncate text-ink-2">{firstLine(job.prompt)}</p>
-				{said !== null && <p className="mt-1 text-[var(--danger)]">{said}</p>}
-			</div>
-			<div className="flex shrink-0 flex-col items-end gap-1">
-				<label className="flex items-center gap-1.5 text-ink-2">
+		<div className="group-row items-start gap-2 py-2">
+			<span className="group-row-text">
+				<span className="group-row-title" title={job.prompt}>
+					{firstLine(job.prompt)}
+				</span>
+				<span className="group-row-detail">
+					{kind} · {nextText(job.nextAt, now)}
+				</span>
+				<label className="mt-1.5 flex items-center gap-2 text-sm text-ink-2">
 					<input
 						type="checkbox"
+						className="check"
 						checked={job.quiet === true}
 						disabled={busy}
 						onChange={(event) => void setQuiet(event.target.checked)}
 					/>
 					Quiet
 				</label>
-				<button
-					type="button"
-					className="text-[var(--danger)]"
-					disabled={busy}
-					onClick={() => void cancel()}
-				>
-					Cancel
-				</button>
-			</div>
-		</li>
+				{said !== null && <span className="mt-1 block text-sm text-danger">{said}</span>}
+			</span>
+			<button
+				type="button"
+				className="control btn-icon -mr-1.5 -mt-1"
+				aria-label="Cancel this schedule"
+				title="Cancel"
+				disabled={busy}
+				onClick={() => void cancel()}
+			>
+				<CloseIcon />
+			</button>
+		</div>
 	);
 }
 
@@ -169,32 +164,14 @@ function AddJob({ personaId }: { personaId: string }) {
 	};
 
 	return (
-		<div className="flex flex-col gap-3">
-			<p className="label">Add a schedule</p>
-			<div>
-				<p className="label" id="job-kind">
-					When
-				</p>
-				<div role="radiogroup" aria-labelledby="job-kind" className="flex flex-col gap-1.5">
-					<label className="flex items-center gap-2 text-sm text-ink-2">
-						<input
-							type="radio"
-							name={`job-kind-${personaId}`}
-							checked={kind === "schedule"}
-							onChange={() => setKind("schedule")}
-						/>
-						Once
-					</label>
-					<label className="flex items-center gap-2 text-sm text-ink-2">
-						<input
-							type="radio"
-							name={`job-kind-${personaId}`}
-							checked={kind === "loop"}
-							onChange={() => setKind("loop")}
-						/>
-						Every
-					</label>
-				</div>
+		<div className="mt-3 flex flex-col gap-3">
+			<div className="segmented self-start" role="tablist" aria-label="When">
+				<button type="button" role="tab" className="segment" aria-selected={kind === "schedule"} onClick={() => setKind("schedule")}>
+					Once
+				</button>
+				<button type="button" role="tab" className="segment" aria-selected={kind === "loop"} onClick={() => setKind("loop")}>
+					Repeating
+				</button>
 			</div>
 			{kind === "schedule" ? (
 				<div>
@@ -218,49 +195,48 @@ function AddJob({ personaId }: { personaId: string }) {
 						<input
 							id="job-every"
 							type="number"
-							className="field w-24"
+							className="field w-16 text-right"
 							min={1}
 							step={1}
 							value={count}
 							onChange={(event) => setCount(event.target.value)}
 						/>
-						<select
-							className="field w-auto"
-							aria-label="Interval unit"
-							value={unit}
-							onChange={(event) => setUnit(event.target.value as Unit)}
-						>
-							{UNITS.map((one) => (
-								<option key={one.id} value={one.id}>
-									{one.label}
-								</option>
-							))}
-						</select>
+						<div className="flex-1">
+							<Picker
+								field
+								value={unit}
+								choices={UNITS}
+								placeholder="Unit"
+								label="Interval unit"
+								onChange={(next) => setUnit(next as Unit)}
+							/>
+						</div>
 					</div>
 				</div>
 			)}
 			<div>
 				<label className="label" htmlFor="job-prompt">
-					Prompt
+					Say
 				</label>
 				<textarea
 					id="job-prompt"
-					className="field resize-none"
-					rows={3}
+					className="field"
+					rows={2}
+					placeholder="What to ask when it fires."
 					value={prompt}
 					onChange={(event) => setPrompt(event.target.value)}
 				/>
 			</div>
-			<label className="flex items-center gap-2 text-sm text-ink-2">
-				<input type="checkbox" checked={quiet} onChange={(event) => setQuiet(event.target.checked)} />
-				Quiet
+			<label className="flex items-start gap-2 text-sm text-ink-2">
+				<input type="checkbox" className="check mt-px" checked={quiet} onChange={(event) => setQuiet(event.target.checked)} />
+				<span>
+					Quiet
+					<span className="block text-xs text-ink-3">The run&rsquo;s words land in the tape as thoughts.</span>
+				</span>
 			</label>
-			<p className="text-xs leading-relaxed text-ink-3">
-				Quiet writes the run&rsquo;s words to the tape as thoughts.
-			</p>
-			{said !== null && <p className="text-xs text-[var(--danger)]">{said}</p>}
+			{said !== null && <p className="text-sm text-danger">{said}</p>}
 			<div className="flex justify-end">
-				<button type="button" className="btn-primary" disabled={busy || prompt.trim() === ""} onClick={() => void add()}>
+				<button type="button" className="control btn" disabled={busy || prompt.trim() === ""} onClick={() => void add()}>
 					{busy ? "Scheduling…" : "Add schedule"}
 				</button>
 			</div>

@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob } from "./generated/contract";
-import { Chrome } from "./components/Chrome";
-import { ChatHeader } from "./components/ChatHeader";
-import { Composer } from "./components/Composer";
+import type { ConfigChoice } from "./generated/contract";
+import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail } from "./components/Rail";
-import { SearchDrawer } from "./components/SearchDrawer";
 import { Settings, type SettingsSection } from "./components/Settings";
-import { Transcript, type ReplyTarget } from "./components/Transcript";
+import { Teammate } from "./components/Teammate";
+import { PlusIcon } from "./icons";
 import { confirmRemove, listenMenu } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
 import { useRoomJobs } from "./room";
-import { useTape } from "./tape";
+import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 
+/** What stands in the conversation's place: a room-wide pane, or nothing. */
 type Pane = "settings" | "new-teammate" | null;
 
 export function App() {
@@ -24,12 +23,12 @@ export function App() {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+	/* The teammate's own pane sits beside the conversation, not in its place:
+	 * you edit a colleague while watching them work. */
+	const [inspector, setInspector] = useState(false);
 	const [focusSchedules, setFocusSchedules] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
-	/* Jobs live on the room stream as kind `schedule`, with a tombstone on
-	 * delete. Folding them here is the same as settings: one subscription,
-	 * no `schedule.list` to go stale between events. */
 	const jobs = useRoomJobs();
 
 	useEffect(() => {
@@ -69,8 +68,7 @@ export function App() {
 	const selected = roster.find((one) => one.persona.id === selectedId) ?? null;
 
 	/* Opening a teammate, or sitting on one while a new line lands, is what
-	 * "shown" means. The rail then has a ts to compare against, so it does
-	 * not have to open every tape. */
+	 * "shown" means. The rail then has a ts to compare against. */
 	useEffect(() => {
 		if (selectedId === null || selected?.latest == null) return;
 		const latest = selected.latest;
@@ -83,10 +81,6 @@ export function App() {
 	}, [selectedId, selected?.latest]);
 
 	useEffect(() => {
-		if (settingsSection === "teammate" && selected === null) setSettingsSection("general");
-	}, [settingsSection, selected]);
-
-	useEffect(() => {
 		noticeRoster(roster);
 	}, [roster]);
 
@@ -96,49 +90,35 @@ export function App() {
 
 	useEffect(() => watchNotificationClicks(), []);
 
-	const closePane = useCallback(() => setPane(null), []);
-	const openSettings = useCallback((section: SettingsSection = "general") => {
+	/* A different teammate is a different conversation: the search was asking
+	 * about the one that just left, and the inspector was editing them. */
+	useEffect(() => {
 		setSearchOpen(false);
 		setFocusSchedules(false);
-		setSettingsSection(section);
-		setPane("settings");
-	}, []);
-	const openTeammate = useCallback((schedules = false) => {
-		setSearchOpen(false);
-		setFocusSchedules(schedules);
-		setSettingsSection("teammate");
-		setPane("settings");
-	}, []);
-	const openNew = useCallback(() => {
-		setSearchOpen(false);
-		setPane("new-teammate");
+	}, [selectedId]);
+
+	const select = useCallback((personaId: string) => {
+		setSelectedId(personaId);
+		setPane(null);
 	}, []);
 	const toggleSettings = useCallback(() => {
-		setPane((current) => {
-			if (current === "settings") return null;
-			setSearchOpen(false);
-			setFocusSchedules(false);
-			setSettingsSection((section) => (section === "teammate" ? "general" : section));
-			return "settings";
-		});
+		setSearchOpen(false);
+		setPane((current) => (current === "settings" ? null : "settings"));
 	}, []);
-	const toggleTeammate = useCallback(() => {
-		if (selectedId === null) return;
-		setPane((current) => {
-			if (current === "settings" && settingsSection === "teammate") return null;
-			setSearchOpen(false);
-			setFocusSchedules(false);
-			setSettingsSection("teammate");
-			return "settings";
-		});
-	}, [selectedId, settingsSection]);
 	const toggleNew = useCallback(() => {
-		setPane((current) => {
-			if (current === "new-teammate") return null;
-			setSearchOpen(false);
-			return "new-teammate";
-		});
+		setSearchOpen(false);
+		setPane((current) => (current === "new-teammate" ? null : "new-teammate"));
 	}, []);
+	const toggleInspector = useCallback(
+		(schedules = false) => {
+			if (selectedId === null) return;
+			setPane(null);
+			setSearchOpen(false);
+			setFocusSchedules(schedules);
+			setInspector((open) => schedules || !open);
+		},
+		[selectedId],
+	);
 
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string) => {
@@ -147,24 +127,32 @@ export function App() {
 				await wire.command("persona.delete", { id: personaId });
 				if (selectedId === personaId) {
 					setSelectedId(null);
-					setPane(null);
+					setInspector(false);
 				}
 			} catch {
-				// The pane's own type-to-confirm is still there if this fails.
+				// The inspector's own type-to-confirm is still there if this fails.
 			}
 		},
 		[selectedId],
 	);
 
-	// Opening a teammate is Ctrl+1 through Ctrl+9, in the rail's own order; the
-	// rail says so on each row, because a shortcut nobody can see is no
-	// shortcut. Ctrl+N adds one, Ctrl+, is settings, Ctrl+I is the teammate
-	// on screen, Ctrl+F searches the conversation that is already on screen.
+	// Opening a teammate is Ctrl+1 through Ctrl+9, in the rail's own order.
+	// Ctrl+N adds one, Ctrl+, is settings, Ctrl+I is the teammate on screen,
+	// Ctrl+F searches the conversation that is already on screen. Escape
+	// closes whatever is on top: the search, then a pane, then the inspector.
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape" && pane !== null) {
-				event.preventDefault();
-				setPane(null);
+			if (event.key === "Escape") {
+				if (searchOpen) return; // the search closes itself
+				if (pane !== null) {
+					event.preventDefault();
+					setPane(null);
+					return;
+				}
+				if (inspector && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
+					event.preventDefault();
+					setInspector(false);
+				}
 				return;
 			}
 			if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
@@ -183,7 +171,7 @@ export function App() {
 			if (event.key === "i" || event.code === "KeyI") {
 				if (selectedId === null) return;
 				event.preventDefault();
-				if (takeChord()) toggleTeammate();
+				if (takeChord()) toggleInspector();
 				return;
 			}
 			if (event.key === "f" || event.code === "KeyF") {
@@ -197,12 +185,11 @@ export function App() {
 			const entry = roster[seat - 1];
 			if (!entry) return;
 			event.preventDefault();
-			setSelectedId(entry.persona.id);
-			setPane(null);
+			select(entry.persona.id);
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, toggleNew, toggleSettings, toggleTeammate]);
+	}, [roster, selectedId, pane, inspector, searchOpen, select, toggleNew, toggleSettings, toggleInspector]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -215,7 +202,7 @@ export function App() {
 				return;
 			}
 			if (id === "teammate") {
-				if (takeChord()) toggleTeammate();
+				if (takeChord()) toggleInspector();
 				return;
 			}
 			if (id === "search") {
@@ -226,19 +213,10 @@ export function App() {
 			if (id.startsWith("teammate-")) {
 				const seat = Number(id.slice("teammate-".length));
 				const entry = roster[seat - 1];
-				if (!entry) return;
-				setSelectedId(entry.persona.id);
-				setPane(null);
+				if (entry) select(entry.persona.id);
 			}
 		});
-	}, [roster, selectedId, pane, toggleNew, toggleSettings, toggleTeammate]);
-
-	/* A different teammate is a different conversation: the drawer was asking
-	 * about the one that just left, so it closes rather than swapping its
-	 * contents underneath a query you typed for someone else. */
-	useEffect(() => {
-		setSearchOpen(false);
-	}, [selectedId]);
+	}, [roster, selectedId, pane, select, toggleNew, toggleSettings, toggleInspector]);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
@@ -254,216 +232,95 @@ export function App() {
 	}, []);
 
 	return (
-		<div className="flex h-full flex-col">
-			{connection !== "open" && (
-				<p role="status" className="border-b border-rule bg-paper-3 px-4 py-1 text-center text-xs text-ink-3">
-					Reconnecting to Toad…
-				</p>
-			)}
-			<div className="relative flex min-h-0 flex-1">
-				<Rail
-					entries={roster}
-					selectedId={selectedId}
-					seen={seen}
-					onSelect={(id) => {
-						setSelectedId(id);
-						setPane(null);
-					}}
-					onNew={openNew}
-					onSettings={() => openSettings("general")}
-					onEdit={(id) => {
-						setSelectedId(id);
-						openTeammate();
-					}}
-					onDelete={(id, name) => void removeTeammate(id, name)}
-				/>
+		<div className="flex h-full">
+			<Rail
+				entries={roster}
+				selectedId={selectedId}
+				seen={seen}
+				connection={connection}
+				onSelect={select}
+				onNew={toggleNew}
+				onSettings={toggleSettings}
+				onEdit={(id) => {
+					select(id);
+					setInspector(true);
+				}}
+				onDelete={(id, name) => void removeTeammate(id, name)}
+			/>
 
-				<main className="flex min-w-0 flex-1 flex-col bg-paper">
-					{pane === "settings" ? (
-						<Settings
-							section={settingsSection}
-							onSection={(next) => {
-								if (next !== "teammate") setFocusSchedules(false);
-								setSettingsSection(next);
-							}}
-							teammate={selected?.persona ?? null}
-							jobs={jobs}
-							focusSchedules={focusSchedules}
-							onClose={closePane}
-							onDeleted={() => {
-								setSelectedId(null);
-								setPane(null);
-							}}
-						/>
-					) : pane === "new-teammate" ? (
-						<NewTeammate
-							models={models}
-							onCreated={(personaId) => {
-								setSelectedId(personaId);
-								setPane(null);
-							}}
-							onClose={closePane}
-						/>
-					) : selected ? (
+			<main className="flex min-w-0 flex-1">
+				{pane === "settings" ? (
+					<Settings section={settingsSection} onSection={setSettingsSection} onClose={() => setPane(null)} />
+				) : pane === "new-teammate" ? (
+					<NewTeammate
+						models={models}
+						onCreated={(personaId) => {
+							setSelectedId(personaId);
+							setPane(null);
+						}}
+						onClose={() => setPane(null)}
+					/>
+				) : selected ? (
+					<>
 						<Conversation
 							key={selected.persona.id}
 							entry={selected}
 							roster={roster}
 							models={models}
-							jobs={jobs}
+							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							searchOpen={searchOpen}
+							inspectorOpen={inspector}
 							focus={focus}
-							onOpenTeammate={() => openTeammate()}
-							onOpenSchedules={() => openTeammate(true)}
-							onOpenSearch={() => setSearchOpen((open) => !open)}
+							onToggleInspector={() => toggleInspector()}
+							onOpenSchedules={() => toggleInspector(true)}
+							onToggleSearch={() => setSearchOpen((open) => !open)}
 							onCloseSearch={() => setSearchOpen(false)}
+							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onPick={(personaId, eventId) => {
 								setSearchOpen(false);
 								setSelectedId(personaId);
 								setFocus({ eventId, at: Date.now() });
 							}}
 						/>
-					) : (
-						<div className="flex min-h-0 flex-1 flex-col">
-							<Chrome>
-								<span className="text-ink-3" />
-							</Chrome>
-							<div className="flex flex-1 items-center justify-center px-6">
-								<p className="max-w-sm text-center text-ink-3">
-									Pick a teammate on the left, or add one.
-								</p>
-							</div>
+						{inspector && (
+							<Teammate
+								key={`inspector-${selected.persona.id}`}
+								persona={selected.persona}
+								jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
+								focusSchedules={focusSchedules}
+								onClose={() => setInspector(false)}
+								onDeleted={() => {
+									setSelectedId(null);
+									setInspector(false);
+								}}
+							/>
+						)}
+					</>
+				) : (
+					<div className="pane">
+						<Band>
+							<span />
+						</Band>
+						<div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 pb-10">
+							<p className="text-center text-ink-3">
+								{roster.length === 0
+									? "Add a teammate to open the room."
+									: "Pick a teammate on the left."}
+							</p>
+							{roster.length === 0 && (
+								<button type="button" className="control btn" onClick={toggleNew}>
+									<PlusIcon />
+									New teammate
+								</button>
+							)}
 						</div>
-					)}
-				</main>
-			</div>
+					</div>
+				)}
+			</main>
 		</div>
 	);
 }
 
-/**
- * One teammate's conversation. Keyed by teammate above, so switching tears the
- * tape subscription down and puts up another rather than folding two
- * conversations into one column.
- */
-function Conversation({
-	entry,
-	roster,
-	models,
-	jobs,
-	searchOpen,
-	focus,
-	onOpenTeammate,
-	onOpenSchedules,
-	onOpenSearch,
-	onCloseSearch,
-	onPick,
-}: {
-	entry: RosterEntry;
-	roster: RosterEntry[];
-	models: ConfigChoice[];
-	jobs: ScheduledJob[];
-	searchOpen: boolean;
-	focus: { eventId: string; at: number } | null;
-	onOpenTeammate(): void;
-	onOpenSchedules(): void;
-	onOpenSearch(): void;
-	onCloseSearch(): void;
-	onPick(personaId: string, eventId: string): void;
-}) {
-	const personaId = entry.persona.id;
-	const { events, streaming } = useTape(personaId);
-	const [replying, setReplying] = useState<ReplyTarget | null>(null);
-	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
-	const [chapterBusy, setChapterBusy] = useState(false);
-
-	const send = useCallback(
-		(text: string, attachments: Attachment[]) => {
-			void wire.command("session.prompt", {
-				personaId,
-				text,
-				...(replying ? { replyTo: replying.eventId } : {}),
-				...(attachments.length > 0 ? { attachments } : {}),
-			});
-			setReplying(null);
-		},
-		[personaId, replying],
-	);
-	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
-	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
-	/* Success is the tape: the marker is superseded in place and the title
-	 * lands on its line. Only a refusal needs a sentence here. */
-	const startChapter = useCallback(() => {
-		setChapterSaid(null);
-		setChapterBusy(true);
-		void wire
-			.command("chapter.start_fresh", { personaId })
-			.catch((error: Error) => setChapterSaid(error.message))
-			.finally(() => setChapterBusy(false));
-	}, [personaId]);
-
-	// Escape clears a quote that is up even when the field is not focused.
-	// Chips are put down first, on the window in capture, so this listener
-	// does not also drop the quote on the same press. The composer handles
-	// the key when the field has it, so a turn is not cancelled then either.
-	useEffect(() => {
-		if (replying === null) return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			setReplying(null);
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [replying]);
-
-	return (
-		<>
-			<ChatHeader
-				entry={entry}
-				models={models}
-				jobs={jobs.filter((job) => job.personaId === personaId)}
-				searchOpen={searchOpen}
-				chapterBusy={chapterBusy}
-				chapterSaid={chapterSaid}
-				onSetModel={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
-				onSetMode={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
-				onOpenTeammate={onOpenTeammate}
-				onOpenSchedules={onOpenSchedules}
-				onOpenSearch={onOpenSearch}
-				onNewChapter={startChapter}
-			/>
-			<div className="relative flex min-h-0 flex-1 flex-col">
-				<Transcript
-					personaId={personaId}
-					events={events}
-					streaming={streaming}
-					focus={focus}
-					onReply={setReplying}
-				/>
-				<Composer
-					personaId={personaId}
-					state={entry.session.state}
-					replyQuote={replying?.text ?? null}
-					onSend={send}
-					onStart={start}
-					onCancel={cancel}
-					onClearReply={() => setReplying(null)}
-				/>
-				{searchOpen && (
-					<SearchDrawer
-						personaId={personaId}
-						roster={roster}
-						onClose={onCloseSearch}
-						onPick={onPick}
-					/>
-				)}
-			</div>
-		</>
-	);
-}
-
-/** Where this window last stood in each tape. Private mode or a full disk
- * just means every teammate looks unread until you open them again. */
 /** The menu bar and the window both hear the same chord; one press is one
  * action, even when both fire. */
 let lastChordAt = 0;
@@ -474,6 +331,8 @@ function takeChord(): boolean {
 	return true;
 }
 
+/** Where this window last stood in each tape. Private mode or a full disk
+ * just means every teammate looks unread until you open them again. */
 const SEEN_KEY = "toad.rail.seen";
 
 function loadSeen(): Record<string, number> {

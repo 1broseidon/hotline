@@ -1,27 +1,29 @@
-import { CogIcon, PlusIcon } from "../icons";
+import { GearIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
-import type { RosterEntry } from "../wire";
-import { Chrome } from "./Chrome";
+import type { Connection, RosterEntry } from "../wire";
+import { Avatar } from "../ui/Avatar";
+import { Band } from "../ui/Band";
 
 /**
- * Each teammate carries a vital sign rather than a status pill: the rail is a
- * roster you watch, so the one moving thing in the whole window is whichever
- * agent is currently working.
+ * Each teammate carries a vital sign rather than a status pill: the rail is
+ * a roster you watch, so the one moving thing in the whole window is
+ * whichever agent is currently working. A resting teammate has no mark.
  */
-const VITAL: Record<SessionState, { color: string; beating: boolean; label: string }> = {
-	idle: { color: "var(--rule-strong)", beating: false, label: "idle" },
-	starting: { color: "var(--warn)", beating: true, label: "starting" },
-	ready: { color: "var(--accent)", beating: false, label: "ready" },
-	thinking: { color: "var(--accent)", beating: true, label: "working" },
-	error: { color: "var(--danger)", beating: false, label: "error" },
-	stopped: { color: "var(--rule-strong)", beating: false, label: "stopped" },
+const VITAL: Record<SessionState, { color: string | null; beating: boolean; label: string }> = {
+	idle: { color: null, beating: false, label: "Not running" },
+	starting: { color: "var(--warn)", beating: true, label: "Starting" },
+	ready: { color: "var(--ink-4)", beating: false, label: "Ready" },
+	thinking: { color: "var(--accent)", beating: true, label: "Working" },
+	error: { color: "var(--danger)", beating: false, label: "Error" },
+	stopped: { color: null, beating: false, label: "Stopped" },
 };
 
 export function Rail({
 	entries,
 	selectedId,
 	seen,
+	connection,
 	onSelect,
 	onNew,
 	onSettings,
@@ -32,6 +34,7 @@ export function Rail({
 	selectedId: string | null;
 	/** The latest ts the window has already shown for each teammate. */
 	seen: Record<string, number>;
+	connection: Connection;
 	onSelect(personaId: string): void;
 	onNew(): void;
 	onSettings(): void;
@@ -39,34 +42,25 @@ export function Rail({
 	onDelete(personaId: string, name: string): void;
 }) {
 	return (
-		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col border-r border-rule bg-paper-2">
-			<Chrome className="rail-chrome">
-				<h1 className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wider text-ink-3">Team</h1>
+		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col border-r border-line bg-sidebar">
+			<Band rail>
+				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Team</h1>
 				<button
 					type="button"
-					className="btn-icon"
-					title="Settings (Ctrl+,)"
-					aria-label="Settings"
-					onClick={onSettings}
-				>
-					<CogIcon />
-				</button>
-				<button
-					type="button"
-					className="btn-icon"
+					className="control btn-icon"
 					title="New teammate (Ctrl+N)"
 					aria-label="New teammate"
 					onClick={onNew}
 				>
 					<PlusIcon />
 				</button>
-			</Chrome>
+			</Band>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
+			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 				{entries.length === 0 ? (
-					<p className="px-2 py-3 text-xs leading-relaxed text-ink-3">
-						Add a teammate to get started. Each one keeps its own working directory, its own
-						identity, and its own conversation.
+					<p className="px-2 py-3 text-sm text-ink-3">
+						No teammates yet. Each one keeps its own working directory, its own goal and its
+						own conversation.
 					</p>
 				) : (
 					entries.map((entry, index) => (
@@ -83,6 +77,24 @@ export function Rail({
 					))
 				)}
 			</div>
+
+			<footer className="flex h-9 shrink-0 items-center gap-1 border-t border-line px-2">
+				<button
+					type="button"
+					className="control btn-quiet -ml-1 gap-1.5 px-2 text-sm"
+					title="Settings (Ctrl+,)"
+					onClick={onSettings}
+				>
+					<GearIcon className="text-ink-3" />
+					Settings
+				</button>
+				{connection !== "open" && (
+					<p role="status" className="ml-auto flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-3">
+						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--warn)" }} />
+						Reconnecting
+					</p>
+				)}
+			</footer>
 		</nav>
 	);
 }
@@ -106,65 +118,59 @@ function Row({
 }) {
 	const vital = VITAL[entry.session.state];
 	const { preview, activity } = entry;
-	const working = entry.session.state === "thinking" && activity;
+	const working = entry.session.state === "thinking" && activity !== undefined;
+	const line = working
+		? activity
+		: preview
+			? `${preview.from === "me" ? "You: " : ""}${oneLine(preview.text)}`
+			: vital.label;
 	return (
 		<button
 			type="button"
 			data-teammate-row
 			aria-current={active ? "true" : undefined}
-			aria-label={unread ? `${entry.persona.name}, unread` : undefined}
+			aria-label={`${entry.persona.name}, ${vital.label.toLowerCase()}${unread ? ", unread" : ""}`}
+			className="rail-row group relative"
 			onClick={onSelect}
 			onContextMenu={(event) => {
 				event.preventDefault();
 				void popupTeammateMenu({ onOpen: onSelect, onEdit, onDelete });
 			}}
-			className={`flex w-full items-center gap-2.5 px-2 py-1.5 text-left ${
-				active ? "bg-paper-4" : "hover:bg-paper-3"
-			}`}
 		>
-			<span
-				aria-hidden="true"
-				className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-semibold"
-				style={{ background: faceOf(entry.persona.id), color: "oklch(17% 0.004 250)" }}
-			>
-				{initialOf(entry.persona.name)}
-			</span>
-
+			{unread && (
+				<span
+					aria-hidden="true"
+					className="absolute left-[3px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent"
+				/>
+			)}
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} />
 			<span className="min-w-0 flex-1">
-				<span className="flex items-center gap-1.5">
-					{/* Bold, not a second dot: the row already has a vital, and a
-					    mark next to it would shout. A heavier name is enough to
-					    notice without counting. */}
-					<span
-						className={`truncate ${
-							unread
-								? "font-semibold text-ink"
-								: `font-medium ${active ? "text-ink" : "text-ink-2"}`
-						}`}
-					>
+				<span className="flex h-[18px] items-center gap-1.5">
+					<span className={`min-w-0 flex-1 truncate ${unread ? "font-semibold text-ink" : "font-medium text-ink"}`}>
 						{entry.persona.name}
 					</span>
-					<span
-						aria-hidden="true"
-						className={`ml-auto h-2 w-2 shrink-0 rounded-full ${vital.beating ? "animate-throat" : ""}`}
-						style={{ background: vital.color }}
-					/>
-					<span className="sr-only">{vital.label}</span>
+					{shortcut !== null && (
+						<kbd
+							aria-hidden="true"
+							className="kbd opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+						>
+							⌃{shortcut}
+						</kbd>
+					)}
+					{vital.color !== null && (
+						<span
+							aria-hidden="true"
+							className={`h-2 w-2 shrink-0 rounded-full ${vital.beating ? "beat" : ""}`}
+							style={{ background: vital.color }}
+						/>
+					)}
 				</span>
-				<span className="block truncate text-xs text-ink-3">
-					{working
-						? activity
-						: preview
-							? `${preview.from === "me" ? "you: " : ""}${oneLine(preview.text)}`
-							: vital.label}
+				<span
+					className={`block h-4 truncate text-sm ${unread ? "text-ink-2" : "text-ink-3"} ${working ? "font-mono text-xs leading-4" : ""}`}
+				>
+					{line}
 				</span>
 			</span>
-
-			{shortcut !== null && (
-				<span aria-hidden="true" className="shrink-0 font-mono text-[0.6875rem] text-ink-3">
-					⌃{shortcut}
-				</span>
-			)}
 		</button>
 	);
 }
@@ -184,35 +190,17 @@ function unreadOf(
 
 /**
  * A preview is one line in a narrow rail, whatever shape it was written in.
- * The markdown an agent writes is rendered in the bubble and stripped here:
+ * The markdown an agent writes is rendered in the column and stripped here:
  * asterisks and backticks in a two-inch column are noise, not emphasis.
  */
 function oneLine(source: string): string {
 	return source
-		.replace(/^\s{0,3}(```|~~~).*$/gm, "") // fence delimiters, keeping the body
-		.replace(/^\s{0,3}#{1,6}\s+/gm, "") // heading hashes
-		.replace(/^\s{0,3}>\s?/gm, "") // quote marks
-		.replace(/^\s*([-*+]|\d{1,9}[.)])\s+/gm, "") // list markers
-		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links and images, keeping the text
-		.replace(/[*_~`]/g, "") // emphasis and code marks
+		.replace(/^\s{0,3}(```|~~~).*$/gm, "")
+		.replace(/^\s{0,3}#{1,6}\s+/gm, "")
+		.replace(/^\s{0,3}>\s?/gm, "")
+		.replace(/^\s*([-*+]|\d{1,9}[.)])\s+/gm, "")
+		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/[*_~`]/g, "")
 		.replace(/\s+/g, " ")
 		.trim();
-}
-
-/**
- * A face colour from the id rather than from the roster position, so a
- * teammate does not change colour when the one above it is deleted. Red is
- * missing on purpose: it is the colour of something being wrong.
- */
-function faceOf(personaId: string): string {
-	let hash = 0;
-	for (let index = 0; index < personaId.length; index++) {
-		hash = (hash * 31 + personaId.charCodeAt(index)) % 1_000_003;
-	}
-	return `oklch(72% 0.13 ${70 + (hash % 7) * 43})`;
-}
-
-/** The first letter that is one, so "⌘kill bill" and " Ada" both read right. */
-function initialOf(name: string): string {
-	return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toUpperCase();
 }

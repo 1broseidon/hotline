@@ -1,93 +1,168 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
- * The palette, twice.
+ * The window's system: one set of tokens, read by Tailwind and by the few
+ * component rules below.
  *
- * Green is the app's one signal colour: an agent at work, a focus ring, a
- * link. Everything else is near-neutral, so that when green appears it means
- * something. The two themes are the same instrument under different light —
- * the dark one is the room the reference tree ships, the light one is the
- * same hues with paper and ink swapped, which is why every value is named
- * once here and referenced once below.
+ * Surfaces are near-neutral with a trace of moss in them, so the window reads
+ * as one material under two lights rather than as grey. Green is the one
+ * signal colour: an agent at work, the primary action, the focus ring, the
+ * line you sent. It appears rarely, so it means something when it does.
+ *
+ * Every length is on a 4px grid; every hairline is one device pixel; the type
+ * scale is six sizes with fixed line heights so rows line up across panes.
  * ------------------------------------------------------------------------- */
 
 :root {
 	color-scheme: light dark;
 
-	--paper: oklch(98.5% 0.001 250);
-	--paper-2: oklch(95.5% 0.002 250);
-	--paper-3: oklch(92% 0.003 250);
-	--paper-4: oklch(88% 0.004 250);
+	/* surfaces */
+	--bg: oklch(99.2% 0.002 150);
+	--bg-sidebar: oklch(96.4% 0.004 150);
+	--bg-inset: oklch(97.4% 0.003 150);
+	--bg-raised: oklch(100% 0 0);
+	--bg-control: oklch(100% 0 0);
 
-	--ink: oklch(22% 0.004 250);
-	--ink-2: oklch(42% 0.005 250);
-	--ink-3: oklch(56% 0.005 250);
+	/* ink */
+	--ink: oklch(21% 0.008 150);
+	--ink-2: oklch(44% 0.008 150);
+	--ink-3: oklch(58% 0.008 150);
+	--ink-4: oklch(71% 0.006 150);
 
-	--rule: oklch(89% 0.003 250);
-	--rule-strong: oklch(72% 0.004 250);
+	/* fills, as alpha over any surface */
+	--fill-hover: oklch(20% 0.01 150 / 0.06);
+	--fill-active: oklch(20% 0.01 150 / 0.1);
+	--fill-selected: oklch(20% 0.01 150 / 0.09);
+	--fill-code: oklch(20% 0.01 150 / 0.05);
 
-	--accent: oklch(52% 0.15 142);
-	--accent-ink: oklch(99% 0.01 142);
-	--accent-wash: oklch(52% 0.15 142 / 0.1);
+	/* hairlines */
+	--line: oklch(20% 0.01 150 / 0.12);
+	--line-strong: oklch(20% 0.01 150 / 0.22);
+	--hairline: 1px;
 
-	--warn: oklch(58% 0.13 78);
-	--danger: oklch(53% 0.19 25);
+	/* the signal */
+	--accent: oklch(56% 0.15 152);
+	--accent-hover: oklch(51% 0.15 152);
+	--on-accent: oklch(99% 0.01 152);
+	--accent-soft: oklch(56% 0.15 152 / 0.13);
+	--said-me: oklch(94.5% 0.035 152);
 
-	--said-them: oklch(94% 0.003 250);
-	--said-me: oklch(90% 0.03 255);
+	--warn: oklch(66% 0.15 75);
+	--danger: oklch(55% 0.19 27);
+	--danger-soft: oklch(55% 0.19 27 / 0.1);
+
+	--shadow-pop:
+		0 0 0 var(--hairline) oklch(20% 0.01 150 / 0.14),
+		0 10px 30px oklch(20% 0.01 150 / 0.14),
+		0 2px 6px oklch(20% 0.01 150 / 0.08);
+	--scrim: oklch(20% 0.01 150 / 0.28);
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--paper: oklch(11% 0.002 250);
-		--paper-2: oklch(16% 0.003 250);
-		--paper-3: oklch(20% 0.003 250);
-		--paper-4: oklch(24.5% 0.004 250);
+		--bg: oklch(19.5% 0.004 150);
+		--bg-sidebar: oklch(23.5% 0.005 150);
+		--bg-inset: oklch(17% 0.004 150);
+		--bg-raised: oklch(27% 0.005 150);
+		--bg-control: oklch(30% 0.005 150);
 
-		--ink: oklch(95% 0.002 250);
-		--ink-2: oklch(80% 0.003 250);
-		--ink-3: oklch(67% 0.003 250);
+		--ink: oklch(93% 0.004 150);
+		--ink-2: oklch(74% 0.005 150);
+		--ink-3: oklch(60% 0.005 150);
+		--ink-4: oklch(46% 0.005 150);
 
-		--rule: oklch(26% 0.003 250);
-		--rule-strong: oklch(48.5% 0.004 250);
+		--fill-hover: oklch(100% 0 0 / 0.06);
+		--fill-active: oklch(100% 0 0 / 0.1);
+		--fill-selected: oklch(100% 0 0 / 0.1);
+		--fill-code: oklch(100% 0 0 / 0.06);
 
-		--accent: oklch(76% 0.17 142);
-		--accent-ink: oklch(16% 0.02 150);
-		--accent-wash: oklch(76% 0.17 142 / 0.12);
+		--line: oklch(100% 0 0 / 0.1);
+		--line-strong: oklch(100% 0 0 / 0.2);
 
-		--warn: oklch(80% 0.14 78);
-		--danger: oklch(72% 0.16 25);
+		--accent: oklch(74% 0.16 152);
+		--accent-hover: oklch(79% 0.16 152);
+		--on-accent: oklch(18% 0.03 152);
+		--accent-soft: oklch(74% 0.16 152 / 0.16);
+		--said-me: oklch(31% 0.05 152);
 
-		--said-them: oklch(19.5% 0.003 250);
-		--said-me: oklch(32% 0.034 255);
+		--warn: oklch(78% 0.14 78);
+		--danger: oklch(70% 0.17 25);
+		--danger-soft: oklch(70% 0.17 25 / 0.14);
+
+		--shadow-pop:
+			0 0 0 var(--hairline) oklch(100% 0 0 / 0.12),
+			0 12px 32px oklch(0% 0 0 / 0.5),
+			0 2px 6px oklch(0% 0 0 / 0.3);
+		--scrim: oklch(0% 0 0 / 0.45);
+	}
+}
+
+/* A hairline is one device pixel, not one CSS pixel. */
+@media (min-resolution: 2dppx) {
+	:root {
+		--hairline: 0.5px;
 	}
 }
 
 @theme inline {
-	--color-paper: var(--paper);
-	--color-paper-2: var(--paper-2);
-	--color-paper-3: var(--paper-3);
-	--color-paper-4: var(--paper-4);
+	--spacing: 4px;
+
+	--color-bg: var(--bg);
+	--color-sidebar: var(--bg-sidebar);
+	--color-inset: var(--bg-inset);
+	--color-raised: var(--bg-raised);
+	--color-control: var(--bg-control);
 
 	--color-ink: var(--ink);
 	--color-ink-2: var(--ink-2);
 	--color-ink-3: var(--ink-3);
+	--color-ink-4: var(--ink-4);
 
-	--color-rule: var(--rule);
-	--color-rule-strong: var(--rule-strong);
+	--color-hover: var(--fill-hover);
+	--color-active: var(--fill-active);
+	--color-selected: var(--fill-selected);
+	--color-code: var(--fill-code);
+
+	--color-line: var(--line);
+	--color-line-strong: var(--line-strong);
 
 	--color-accent: var(--accent);
-	--color-accent-ink: var(--accent-ink);
-	--color-accent-wash: var(--accent-wash);
+	--color-accent-hover: var(--accent-hover);
+	--color-on-accent: var(--on-accent);
+	--color-accent-soft: var(--accent-soft);
+	--color-said-me: var(--said-me);
 
 	--color-warn: var(--warn);
 	--color-danger: var(--danger);
+	--color-danger-soft: var(--danger-soft);
 
-	--color-said-them: var(--said-them);
-	--color-said-me: var(--said-me);
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 10px;
+	--radius-xl: 16px;
 
-	--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-	--font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+	/* Six sizes, fixed leading. `read` is what speech is set in. */
+	--text-xs: 11px;
+	--text-xs--line-height: 14px;
+	--text-sm: 12px;
+	--text-sm--line-height: 16px;
+	--text-md: 13px;
+	--text-md--line-height: 18px;
+	--text-lg: 15px;
+	--text-lg--line-height: 20px;
+	--text-read: 14px;
+	--text-read--line-height: 22px;
+	--text-xl: 20px;
+	--text-xl--line-height: 26px;
+
+	--font-sans:
+		-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
+		system-ui, "Inter", "Noto Sans", sans-serif;
+	--font-mono:
+		ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "JetBrains Mono",
+		"Liberation Mono", monospace;
+
+	--ease-out: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @layer base {
@@ -99,343 +174,855 @@
 	}
 
 	body {
-		background: var(--paper-2);
+		background: var(--bg);
 		color: var(--ink);
 		font-family: var(--font-sans);
-		font-size: 13px;
-		line-height: 1.45;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
 		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
 		overflow: hidden;
-	}
-
-	/* This is a window, not a page: its furniture is pressed, never selected.
-	 * Speech and anything you would paste into a terminal opt back in. */
-	body {
+		/* A window's furniture is pressed, never selected. What was said, and
+		 * anything you would paste into a terminal, opts back in below. */
 		user-select: none;
 		cursor: default;
 	}
-	:where(.bubble, .tape-card, .plan-list, .md, pre, code, input, textarea) {
+	:where(.speech, .md, pre, code, kbd, input, textarea, .selectable) {
 		user-select: text;
 		cursor: auto;
 	}
 
+	button,
+	summary,
+	label,
+	select {
+		cursor: default;
+	}
+
+	/* Keyboard focus is a ring; pointer focus is nothing. */
+	:focus {
+		outline: none;
+	}
 	:focus-visible {
 		outline: 2px solid var(--accent);
 		outline-offset: 2px;
 	}
 
-	button,
-	select,
-	summary {
-		cursor: default;
-	}
-
-	/* Overlay-thin: a window's scrollbars are a hint, not a column. */
+	/* Overlay-thin scrollbars that keep out of the way until the pane is
+	 * under the pointer. macOS draws its own; this is for the others. */
 	* {
 		scrollbar-width: thin;
-		scrollbar-color: var(--rule-strong) transparent;
+		scrollbar-color: transparent transparent;
+	}
+	*:hover {
+		scrollbar-color: var(--line-strong) transparent;
 	}
 	*::-webkit-scrollbar {
-		width: 8px;
-		height: 8px;
+		width: 10px;
+		height: 10px;
 	}
 	*::-webkit-scrollbar-thumb {
-		background: var(--rule-strong);
+		background: transparent;
+		border: 3px solid transparent;
+		border-radius: 8px;
+		background-clip: padding-box;
 	}
-	*::-webkit-scrollbar-track {
+	*:hover::-webkit-scrollbar-thumb {
+		background-color: var(--line-strong);
+	}
+	*::-webkit-scrollbar-track,
+	*::-webkit-scrollbar-corner {
 		background: transparent;
 	}
 
-	input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+	input,
 	textarea,
-	select {
-		appearance: none;
-		border-radius: 0;
+	button {
 		font: inherit;
+		color: inherit;
+		letter-spacing: inherit;
 	}
-	select {
-		background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='none' stroke='%23888' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/></svg>");
-		background-repeat: no-repeat;
-		background-position: right 0.5rem center;
-		padding-right: 1.5rem;
+	input::placeholder,
+	textarea::placeholder {
+		color: var(--ink-4);
+		opacity: 1;
+	}
+	input[type="number"] {
+		appearance: textfield;
+	}
+	input[type="number"]::-webkit-inner-spin-button,
+	input[type="number"]::-webkit-outer-spin-button {
+		appearance: none;
+		margin: 0;
+	}
+	input[type="search"]::-webkit-search-cancel-button,
+	input[type="search"]::-webkit-search-decoration {
+		appearance: none;
+	}
+	/* The clock in a one-shot schedule keeps the platform's own segments;
+	 * only its frame is ours. */
+	input[type="datetime-local"] {
+		color-scheme: light dark;
 	}
 }
 
 @layer components {
-	/* The band the rail and the conversation header share: one height so the
-	 * traffic lights, the Team mark, and the name sit on the same line. */
-	.chrome {
+	/* ---------------------------------------------------------------- band
+	 * The 38px strip along the top of every pane. It drags the window; a
+	 * double-click maximises; anything inside it still takes the click. On
+	 * macOS the rail's band leaves room for the traffic lights. */
+	.band {
 		position: relative;
 		display: flex;
-		align-items: stretch;
-		min-height: 28px;
+		height: 38px;
 		flex-shrink: 0;
-		border-bottom: 1px solid var(--rule);
-		background: var(--paper);
+		align-items: center;
+		border-bottom: var(--hairline) solid var(--line);
 	}
-	.chrome-drag {
+	.band-drag {
 		position: absolute;
 		inset: 0;
 	}
-	.chrome-row {
+	.band-row {
 		position: relative;
 		display: flex;
 		min-width: 0;
 		flex: 1;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0 0.75rem;
+		gap: 4px;
+		padding: 0 8px;
 	}
-	.rail-chrome .chrome-row {
-		background: var(--paper-2);
-	}
-	html[data-platform="macos"] .rail-chrome .chrome-row {
-		padding-left: 78px;
+	html[data-platform="macos"] .band-rail .band-row {
+		padding-left: 80px;
 	}
 
-	.settings-index {
-		display: flex;
-		width: 11rem;
+	/* ------------------------------------------------------------ controls */
+	.control {
+		display: inline-flex;
+		height: 26px;
 		flex-shrink: 0;
-		flex-direction: column;
-		border-right: 1px solid var(--rule);
-		background: var(--paper-2);
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: 0 10px;
+		border-radius: var(--radius-md);
+		font-size: var(--text-md);
+		line-height: 1;
+		font-weight: 500;
+		white-space: nowrap;
+		transition:
+			background-color 80ms var(--ease-out),
+			box-shadow 80ms var(--ease-out),
+			opacity 80ms var(--ease-out);
 	}
-	.settings-section {
-		display: block;
-		width: 100%;
-		padding: 0.4rem 0.75rem;
-		text-align: left;
-		color: var(--ink-2);
-	}
-	.settings-section[aria-current="page"] {
-		background: var(--paper-4);
-		color: var(--ink);
-	}
-	.settings-body {
-		min-width: 0;
-		flex: 1;
-		overflow-y: auto;
-		padding: 1rem 1.25rem 1.5rem;
+	.control:disabled {
+		opacity: 0.45;
 	}
 
-	/* ------------------------------------------------------------- controls */
-	.field {
-		@apply w-full border border-rule bg-paper px-2 py-1 text-ink outline-none;
+	.btn {
+		background: var(--bg-control);
+		color: var(--ink);
+		box-shadow:
+			inset 0 0 0 var(--hairline) var(--line-strong),
+			0 1px 1px oklch(0% 0 0 / 0.05);
 	}
-	.field:focus-visible {
-		border-color: var(--accent);
+	.btn:hover:not(:disabled) {
+		background: color-mix(in oklab, var(--bg-control), var(--ink) 4%);
 	}
-	.label {
-		@apply mb-1 block text-xs text-ink-3;
-	}
-	.btn-primary,
-	.btn-quiet {
-		@apply shrink-0 px-2.5 py-1 text-xs font-medium disabled:opacity-40;
+	.btn:active:not(:disabled) {
+		background: color-mix(in oklab, var(--bg-control), var(--ink) 9%);
 	}
 	.btn-primary {
 		background: var(--accent);
-		color: var(--accent-ink);
+		color: var(--on-accent);
+		box-shadow: 0 1px 1px oklch(0% 0 0 / 0.08);
+	}
+	.btn-primary:hover:not(:disabled) {
+		background: var(--accent-hover);
+	}
+	.btn-danger {
+		color: var(--danger);
 	}
 	.btn-quiet {
-		@apply border border-rule text-ink-2;
+		color: var(--ink-2);
 	}
 	.btn-quiet:hover:not(:disabled) {
-		background: var(--paper-3);
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.btn-quiet:active:not(:disabled),
+	.btn-quiet[aria-expanded="true"],
+	.btn-quiet[aria-pressed="true"] {
+		background: var(--fill-active);
+		color: var(--ink);
 	}
 	.btn-icon {
-		display: grid;
-		height: 22px;
-		width: 22px;
-		place-items: center;
-		color: var(--ink-3);
+		width: 26px;
+		padding: 0;
+		color: var(--ink-2);
 	}
 	.btn-icon:hover:not(:disabled) {
-		background: var(--paper-3);
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.btn-icon:active:not(:disabled),
+	.btn-icon[aria-expanded="true"],
+	.btn-icon[aria-pressed="true"] {
+		background: var(--fill-active);
+		color: var(--ink);
+	}
+	.btn-sm {
+		height: 22px;
+		padding: 0 8px;
+		font-size: var(--text-sm);
+	}
+
+	/* A picker in the band: label, then a chevron. Looks like a pull-down. */
+	.picker {
+		max-width: 220px;
+		padding: 0 6px 0 8px;
 		color: var(--ink-2);
+		font-weight: 500;
 	}
-
-	/* A permission or a hand-to-human, as a card rather than a bubble: it is
-	 * not speech, and the title is often a command line that has to wrap
-	 * inside the card instead of stretching the column. */
-	.tape-card {
-		max-width: 85%;
-		margin: 0.25rem 0;
-		border: 1px solid var(--rule);
-		background: var(--said-them);
-		padding: 0.5rem 0.75rem 0.6rem;
-		overflow-wrap: anywhere;
+	.picker:hover:not(:disabled),
+	.picker[aria-expanded="true"] {
+		background: var(--fill-hover);
+		color: var(--ink);
 	}
-
-	/* The answers under a permission card. The label is the backend's — a
-	 * whole sentence, sometimes with a path — so these buttons are the one
-	 * place `shrink-0` has to invert. Three things, and all three are
-	 * needed: shrink so a long line can give, min-width 0 so the shrink is
-	 * not floored at the label, and wrap so the words then break inside
-	 * the button instead of taking the conversation's scroll width. */
-	.ask-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.375rem;
+	.picker-label {
 		min-width: 0;
-		margin-top: 0.5rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
-	.ask-actions > button {
-		flex-shrink: 1;
-		min-width: 0;
-		max-width: 100%;
-		white-space: normal;
-		overflow-wrap: anywhere;
-	}
-
-	/* The agent's plan: one line per entry, compact enough that a long
-	 * checklist still reads as machinery and not as another message. */
-	.plan-list {
-		max-width: 85%;
-		margin: 0.25rem 0;
-		padding: 0;
-		list-style: none;
-		font-size: 0.75rem;
-		color: var(--ink-2);
-	}
-	.plan-row {
-		display: flex;
-		align-items: baseline;
-		gap: 0.5rem;
-		padding: 0.1rem 0;
-	}
-	.plan-mark,
-	.plan-status {
+	.picker-chevron {
 		flex-shrink: 0;
 		color: var(--ink-3);
 	}
-	.plan-mark {
-		font-family: var(--font-mono);
-		width: 0.75rem;
+	/* The same pull-down inside a form: framed like a field. */
+	.picker-field {
+		width: 100%;
+		max-width: none;
+		justify-content: space-between;
+		height: 28px;
+		padding: 0 8px 0 10px;
+		background: var(--bg-control);
+		color: var(--ink);
+		box-shadow:
+			inset 0 0 0 var(--hairline) var(--line-strong),
+			0 1px 1px oklch(0% 0 0 / 0.05);
+	}
+	.picker-field:hover:not(:disabled),
+	.picker-field[aria-expanded="true"] {
+		background: color-mix(in oklab, var(--bg-control), var(--ink) 4%);
+		color: var(--ink);
 	}
 
-	/* A computer capture in the tape: a thumbnail until asked for, so a
-	 * run of frames does not become a film strip of full screens. */
-	.frame-thumb {
-		display: block;
-		width: 7rem;
-		margin: 0.25rem 0;
-		padding: 0;
-		overflow: hidden;
-		border: 1px solid var(--rule);
-		background: var(--paper-3);
-		text-align: left;
-	}
-	.frame-thumb[aria-expanded="true"] {
-		width: min(24rem, 100%);
-	}
-	.frame-thumb img {
+	/* -------------------------------------------------------------- fields */
+	.field {
 		display: block;
 		width: 100%;
+		min-height: 28px;
+		padding: 5px 8px;
+		border: var(--hairline) solid var(--line-strong);
+		border-radius: var(--radius-md);
+		background: var(--bg-control);
+		color: var(--ink);
+		font-size: var(--text-md);
+		line-height: 16px;
+		box-shadow: inset 0 1px 1px oklch(0% 0 0 / 0.03);
+		transition:
+			border-color 80ms var(--ease-out),
+			box-shadow 80ms var(--ease-out);
+	}
+	.field:focus,
+	.field:focus-visible {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px var(--accent-soft);
+	}
+	.field:disabled {
+		opacity: 0.5;
+	}
+	textarea.field {
+		resize: none;
 	}
 
-	/* ---------------------------------------------------------------- speech */
-	.bubble {
-		@apply max-w-[85%] px-3 py-1.5 text-ink;
-		overflow-wrap: anywhere;
-	}
-	.bubble-me {
-		background: var(--said-me);
-		white-space: pre-wrap;
-	}
-	.bubble-them {
-		background: var(--said-them);
-	}
-
-	/* A reply's quote at the head of your bubble: the borrowed words carry a
-	 * bar and a quieter voice, and your own line stands clear beneath them. */
-	.bubble-quote {
+	/* A field's name, above it, and the sentence under it. */
+	.label {
 		display: block;
-		width: 100%;
-		margin-bottom: 0.4rem;
-		padding-left: 0.5rem;
-		border-left: 2px solid var(--rule-strong);
+		margin-bottom: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 500;
 		color: var(--ink-2);
-		font-size: 0.8125rem;
-		text-align: left;
+	}
+	.hint {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+
+	/* A form is a column of rows; a group is rows inside one inset frame,
+	 * which is how a settings pane on the desk carries a list. */
+	.grouped {
+		border: var(--hairline) solid var(--line);
+		border-radius: var(--radius-lg);
+		background: var(--bg-inset);
+		overflow: hidden;
+	}
+	.group-row {
+		display: flex;
+		min-height: 40px;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 12px;
+	}
+	.group-row + .group-row {
+		border-top: var(--hairline) solid var(--line);
+	}
+	.group-row-text {
+		min-width: 0;
+		flex: 1;
+	}
+	.group-row-title {
+		display: block;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
+		color: var(--ink);
 	}
-	.bubble-quote:hover {
-		background: var(--paper-3);
-	}
-
-	/* Hover or focus on the agent line reveals it; it is out of tab order
-	 * because R on the focused message is the keyboard path. */
-	.reply-affordance {
-		position: absolute;
-		left: 100%;
-		top: 0.4rem;
-		margin-left: 0.4rem;
-		padding: 0.125rem 0.5rem;
-		font-size: 0.75rem;
+	.group-row-detail {
+		display: block;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
 		color: var(--ink-3);
-		opacity: 0;
-		pointer-events: none;
 	}
-	.group-msg:hover .reply-affordance,
-	.group-msg:focus-within .reply-affordance {
-		opacity: 1;
-		pointer-events: auto;
-	}
-	.reply-affordance:hover {
-		background: var(--paper-3);
+	.group-title {
+		margin: 0 0 6px 12px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 500;
 		color: var(--ink-2);
 	}
-
-	/* The quote being answered, above the composer's field. */
-	.reply-chip {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
+	.group-hint {
+		margin: 6px 12px 0;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
 	}
-	.reply-chip-quote {
+	/* A selectable row: the whole row is the control. */
+	.group-row-choice {
+		cursor: default;
+	}
+	.group-row-choice:hover {
+		background: var(--fill-hover);
+	}
+	.group-row-choice[data-off="true"] {
+		color: var(--ink-3);
+	}
+
+	/* ------------------------------------------------------- toggles
+	 * Drawn by hand so they are the same on every platform: a check, a
+	 * radio and a switch, each a real input for the keyboard's sake. */
+	.check,
+	.radio {
+		appearance: none;
+		flex-shrink: 0;
+		width: 14px;
+		height: 14px;
+		margin: 0;
+		border: var(--hairline) solid var(--line-strong);
+		background: var(--bg-control);
+		box-shadow: 0 1px 1px oklch(0% 0 0 / 0.05);
+		display: inline-grid;
+		place-items: center;
+		transition: background-color 80ms var(--ease-out);
+	}
+	.check {
+		border-radius: 3.5px;
+	}
+	.radio {
+		border-radius: 50%;
+	}
+	.check:checked,
+	.radio:checked {
+		border-color: transparent;
+		background: var(--accent);
+	}
+	.check:checked::after {
+		content: "";
+		width: 8px;
+		height: 8px;
+		background: var(--on-accent);
+		mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'><path fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1.5 4.2 3.2 5.9 6.5 2.3'/></svg>")
+			center / contain no-repeat;
+	}
+	.radio:checked::after {
+		content: "";
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: var(--on-accent);
+	}
+	.check:disabled,
+	.radio:disabled {
+		opacity: 0.5;
+	}
+
+	.switch {
+		appearance: none;
+		position: relative;
+		flex-shrink: 0;
+		width: 26px;
+		height: 16px;
+		margin: 0;
+		border-radius: 8px;
+		background: var(--line-strong);
+		transition: background-color 120ms var(--ease-out);
+	}
+	.switch::after {
+		content: "";
+		position: absolute;
+		top: 1.5px;
+		left: 1.5px;
+		width: 13px;
+		height: 13px;
+		border-radius: 50%;
+		background: white;
+		box-shadow: 0 1px 2px oklch(0% 0 0 / 0.25);
+		transition: transform 120ms var(--ease-out);
+	}
+	.switch:checked {
+		background: var(--accent);
+	}
+	.switch:checked::after {
+		transform: translateX(10px);
+	}
+	.switch:disabled {
+		opacity: 0.5;
+	}
+
+	/* --------------------------------------------------------- segmented */
+	.segmented {
+		display: inline-flex;
+		height: 26px;
+		padding: 2px;
+		border-radius: var(--radius-md);
+		background: var(--fill-hover);
+	}
+	.segment {
+		display: inline-flex;
+		align-items: center;
+		padding: 0 10px;
+		border-radius: 4px;
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--ink-2);
+	}
+	.segment[aria-selected="true"] {
+		background: var(--bg-raised);
+		color: var(--ink);
+		box-shadow:
+			0 0 0 var(--hairline) var(--line),
+			0 1px 2px oklch(0% 0 0 / 0.08);
+	}
+
+	/* ---------------------------------------------------------------- menu
+	 * The one popover: a picker's list, the overflow menu, the search's
+	 * results. Raised, one hairline, short physical entrance. */
+	.menu {
+		position: fixed;
+		z-index: 40;
+		min-width: 160px;
+		max-width: 320px;
+		max-height: min(60vh, 420px);
+		overflow-y: auto;
+		padding: 4px;
+		border-radius: var(--radius-lg);
+		background: var(--bg-raised);
+		box-shadow: var(--shadow-pop);
+		animation: pop-in 120ms var(--ease-out) both;
+	}
+	.menu-item {
+		display: flex;
+		width: 100%;
+		min-height: 26px;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px 4px 6px;
+		border-radius: var(--radius-md);
+		text-align: left;
+		color: var(--ink);
+	}
+	.menu-item[aria-disabled="true"] {
+		color: var(--ink-4);
+	}
+	.menu-item[data-active="true"] {
+		background: var(--accent);
+		color: var(--on-accent);
+	}
+	.menu-item-check {
+		width: 12px;
+		flex-shrink: 0;
+	}
+	.menu-item-text {
 		min-width: 0;
 		flex: 1;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		padding-left: 0.5rem;
-		border-left: 2px solid var(--rule-strong);
-		color: var(--ink-3);
-		font-size: 0.75rem;
 	}
-	.reply-chip-clear {
+	.menu-item-detail {
+		display: block;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	.menu-item[data-active="true"] .menu-item-detail {
+		color: inherit;
+		opacity: 0.8;
+	}
+	.menu-heading {
+		padding: 6px 8px 2px;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--ink-3);
+	}
+	.menu-rule {
+		height: var(--hairline);
+		margin: 4px 6px;
+		background: var(--line);
+	}
+	.menu-shortcut {
 		flex-shrink: 0;
-		display: grid;
-		place-items: center;
-		padding: 0.1rem;
+		font-size: var(--text-sm);
 		color: var(--ink-3);
 	}
-	.reply-chip-clear:hover {
-		background: var(--paper-3);
-		color: var(--ink);
+	.menu-item[data-active="true"] .menu-shortcut {
+		color: inherit;
+		opacity: 0.8;
 	}
 
-	/* What is attached but not yet sent, above the field it will go with. */
-	.chip-tray {
+	@keyframes pop-in {
+		from {
+			opacity: 0;
+			transform: translateY(-3px) scale(0.985);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	/* ------------------------------------------------------------- avatar */
+	.avatar {
+		display: inline-grid;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		font-weight: 600;
+		color: oklch(18% 0.01 150);
+		user-select: none;
+	}
+
+	/* A working teammate's mark: it breathes. Nothing else in the window
+	 * moves on its own. */
+	.beat {
+		animation: beat 1.8s var(--ease-out) infinite;
+	}
+	@keyframes beat {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.3;
+		}
+	}
+
+	/* ------------------------------------------------------------- kbd */
+	.kbd {
+		display: inline-block;
+		min-width: 16px;
+		padding: 0 4px;
+		border-radius: 3px;
+		background: var(--fill-hover);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 16px;
+		text-align: center;
+		color: var(--ink-3);
+		user-select: none;
+	}
+
+	/* -------------------------------------------------------------- speech
+	 * The reading column. An agent's words are set as text on the page, not
+	 * in a box; yours are the one bubble, on the right, in the signal's
+	 * wash. Both are selectable; everything else in the window is not. */
+	.speech {
+		font-size: var(--text-read);
+		line-height: var(--text-read--line-height);
+		overflow-wrap: anywhere;
+	}
+	.said-me {
+		max-width: 78%;
+		padding: 8px 12px;
+		border-radius: var(--radius-xl);
+		border-bottom-right-radius: 4px;
+		background: var(--said-me);
+		color: var(--ink);
+		white-space: pre-wrap;
+	}
+	.said-them {
+		min-width: 0;
+		max-width: 100%;
+		color: var(--ink);
+	}
+	/* While the words are still arriving, the caret sits on the last line. */
+	.said-streaming .md > :last-child {
+		display: inline;
+	}
+
+	/* A reply's quote: a bar and a quieter voice above your own line. */
+	.quote {
+		display: block;
+		width: 100%;
+		margin-bottom: 6px;
+		padding: 2px 0 2px 8px;
+		border-left: 2px solid var(--accent);
+		border-radius: 2px;
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		text-align: left;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.quote:hover {
+		background: var(--fill-hover);
+	}
+
+	/* The hover-only Reply beside an agent's words. R answers it from the
+	 * keyboard, so this stays out of the tab order. */
+	.reply-affordance {
+		position: absolute;
+		right: 0;
+		top: -4px;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 80ms var(--ease-out);
+	}
+	.said-group:hover .reply-affordance,
+	.said-group:focus-within .reply-affordance {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	/* The machinery between messages, folded: one row per step, a status
+	 * mark, a monospaced title, and the output behind a press. */
+	.step {
+		display: flex;
+		width: 100%;
+		min-height: 24px;
+		align-items: center;
+		gap: 8px;
+		padding: 2px 8px;
+		border-radius: var(--radius-md);
+		text-align: left;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
+	.step:hover:not(:disabled) {
+		background: var(--fill-hover);
+	}
+	.step:disabled {
+		color: var(--ink-3);
+	}
+	.step-mark {
+		flex-shrink: 0;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+	}
+	.step-title {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+	}
+	.step-out {
+		max-height: 320px;
+		margin: 2px 0 6px 22px;
+		padding: 8px 10px;
+		overflow: auto;
+		border-radius: var(--radius-md);
+		background: var(--fill-code);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.steps {
+		margin: 4px 0;
+		border-left: 2px solid var(--line);
+		padding-left: 6px;
+	}
+
+	/* A card in the tape: a permission asked, a hand to a person. Not
+	 * speech, so it is framed, and its title is often a command line that
+	 * has to wrap inside the frame. */
+	.card {
+		max-width: 78%;
+		margin: 4px 0;
+		padding: 10px 12px;
+		border: var(--hairline) solid var(--line);
+		border-radius: var(--radius-lg);
+		background: var(--bg-inset);
+		overflow-wrap: anywhere;
+	}
+	.card-live {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px var(--accent-soft);
+	}
+	.card-actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.375rem;
-		margin-bottom: 0.5rem;
+		gap: 6px;
+		min-width: 0;
+		margin-top: 10px;
 	}
+	.card-actions > .control {
+		flex-shrink: 1;
+		height: auto;
+		min-height: 26px;
+		min-width: 0;
+		max-width: 100%;
+		padding-top: 4px;
+		padding-bottom: 4px;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		line-height: 16px;
+	}
+	.eyebrow {
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+	}
+
+	/* A line across the column with a word on it: a date, a chapter. */
+	.rule-line {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 0;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		font-weight: 500;
+		color: var(--ink-3);
+	}
+	.rule-line::before,
+	.rule-line::after {
+		content: "";
+		height: var(--hairline);
+		flex: 1;
+		background: var(--line);
+	}
+	.rule-line-plain {
+		justify-content: center;
+	}
+	.rule-line-plain::before,
+	.rule-line-plain::after {
+		display: none;
+	}
+
+	/* A row a search just landed on. Lit briefly, then ordinary again. */
+	.row-lit {
+		animation: row-lit 1.8s var(--ease-out) both;
+		border-radius: var(--radius-md);
+	}
+	@keyframes row-lit {
+		0%,
+		30% {
+			box-shadow: 0 0 0 6px var(--accent-soft);
+			background-color: var(--accent-soft);
+		}
+		100% {
+			box-shadow: 0 0 0 6px transparent;
+			background-color: transparent;
+		}
+	}
+
+	/* ---------------------------------------------------------- composer */
+	.composer {
+		display: flex;
+		flex-direction: column;
+		border: var(--hairline) solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		background: var(--bg-control);
+		box-shadow: 0 1px 2px oklch(0% 0 0 / 0.04);
+		transition:
+			border-color 80ms var(--ease-out),
+			box-shadow 80ms var(--ease-out);
+	}
+	.composer:focus-within {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px var(--accent-soft);
+	}
+	.composer textarea {
+		display: block;
+		width: 100%;
+		min-height: 22px;
+		padding: 0;
+		border: 0;
+		background: none;
+		resize: none;
+		font-size: var(--text-read);
+		line-height: var(--text-read--line-height);
+		color: var(--ink);
+	}
+	.composer textarea:focus {
+		outline: none;
+	}
+	.send {
+		width: 26px;
+		height: 26px;
+		border-radius: 50%;
+		padding: 0;
+	}
+
+	/* A file waiting to be sent, and a file that was. */
 	.chip {
 		display: inline-flex;
-		max-width: 14rem;
+		max-width: 240px;
+		height: 24px;
 		align-items: center;
-		gap: 0.375rem;
-		border: 1px solid var(--rule);
-		background: var(--paper-3);
-		padding: 0.125rem 0.25rem 0.125rem 0.5rem;
+		gap: 6px;
+		padding: 0 4px 0 8px;
+		border-radius: var(--radius-md);
+		background: var(--fill-hover);
 		color: var(--ink-2);
-		font-size: 0.75rem;
+		font-size: var(--text-sm);
 	}
 	.chip-name {
 		overflow: hidden;
@@ -445,101 +1032,152 @@
 	.chip-size {
 		flex-shrink: 0;
 		font-family: var(--font-mono);
+		font-size: var(--text-xs);
 		color: var(--ink-3);
 	}
-	.chip-drop {
-		flex-shrink: 0;
+	.chip-x {
 		display: grid;
+		width: 16px;
+		height: 16px;
+		flex-shrink: 0;
 		place-items: center;
-		padding: 0.1rem;
+		border-radius: 3px;
 		color: var(--ink-3);
 	}
-	.chip-drop:hover {
-		background: var(--paper-4);
+	.chip-x:hover {
+		background: var(--fill-active);
 		color: var(--ink);
 	}
 
-	/* Paths that rode with a user line, under the words they were sent with. */
-	.bubble-files {
+	/* ------------------------------------------------------------- rail */
+	.rail-row {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		margin-top: 0.4rem;
-		white-space: normal;
-	}
-	.bubble-file {
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		border: 1px solid var(--rule);
-		padding: 0.05rem 0.4rem;
-		font-size: 0.75rem;
-		color: var(--ink-2);
-	}
-
-	/* An expander for the machinery: a thought, a tool's output. Quiet enough
-	 * that a transcript of forty tool calls still reads as a conversation. */
-	.aside {
-		@apply inline-flex max-w-full items-center gap-2 px-2 py-0.5 text-left text-xs text-ink-3;
-	}
-	.aside:hover:not(:disabled) {
-		background: var(--paper-3);
-	}
-
-	/* --------------------------------------------------------------- search
-	 * A right-hand drawer over the conversation, not a sheet: you are looking
-	 * for a line that is already on screen, and picking one should land in it.
-	 * No close glyph — Escape and the conversation behind it are the two ways
-	 * out, the same grammar the reference drawer uses. */
-	.search-scrim {
-		position: absolute;
-		inset: 0;
-		background: oklch(6% 0.002 250 / 0.35);
-	}
-	.search-drawer {
-		position: relative;
-		z-index: 1;
-		display: flex;
-		flex-direction: column;
-		width: min(20rem, 100%);
-		height: 100%;
-		background: var(--paper);
-		border-left: 1px solid var(--rule);
-	}
-	.search-hit {
-		display: flex;
-		flex-direction: column;
 		width: 100%;
-		padding: 0.5rem 0.75rem;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 8px 6px 12px;
+		border-radius: var(--radius-md);
 		text-align: left;
+		transition: background-color 60ms var(--ease-out);
 	}
-	.search-hit:hover {
-		background: var(--paper-3);
+	.rail-row:hover {
+		background: var(--fill-hover);
 	}
-	.search-note {
-		cursor: default;
-		font-size: 0.75rem;
+	.rail-row[aria-current="true"] {
+		background: var(--fill-selected);
+	}
+	.rail-row:active {
+		background: var(--fill-active);
+	}
+
+	/* ------------------------------------------------------------- panes */
+	.pane {
+		display: flex;
+		min-width: 0;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+		background: var(--bg);
+	}
+	.pane-scroll {
+		min-height: 0;
+		flex: 1;
+		overflow-y: auto;
+	}
+	.pane-column {
+		width: 100%;
+		max-width: 560px;
+		margin: 0 auto;
+		padding: 24px 24px 40px;
+	}
+	.inspector {
+		display: flex;
+		width: 320px;
+		min-width: 0;
+		flex-shrink: 0;
+		flex-direction: column;
+		border-left: var(--hairline) solid var(--line);
+		background: var(--bg-sidebar);
+	}
+	@media (max-width: 980px) {
+		.inspector {
+			width: auto;
+			flex: 1;
+			border-left: 0;
+		}
+		.inspector ~ .conversation,
+		.conversation:has(~ .inspector) {
+			display: none;
+		}
+	}
+
+	/* ------------------------------------------------------------- search
+	 * A panel under the band, at the right, over the conversation: what you
+	 * are looking for is already on screen behind it. Click-away and Escape
+	 * both close it. */
+	.search-panel {
+		position: absolute;
+		top: 6px;
+		right: 8px;
+		z-index: 20;
+		display: flex;
+		width: min(400px, calc(100% - 16px));
+		max-height: calc(100% - 12px);
+		flex-direction: column;
+		border-radius: var(--radius-lg);
+		background: var(--bg-raised);
+		box-shadow: var(--shadow-pop);
+		animation: pop-in 120ms var(--ease-out) both;
+	}
+	.search-field {
+		display: flex;
+		height: 30px;
+		align-items: center;
+		gap: 8px;
+		padding: 0 10px;
+		border-radius: var(--radius-md);
+		background: var(--fill-hover);
 		color: var(--ink-3);
 	}
-
-	/* A row a search just landed on. Lit briefly, then ordinary again. */
-	.row-lit {
-		animation: row-lit 1.6s ease-out both;
+	.search-field:focus-within {
+		background: var(--bg-control);
+		box-shadow:
+			0 0 0 var(--hairline) var(--accent),
+			0 0 0 3px var(--accent-soft);
 	}
-	@keyframes row-lit {
-		0% {
-			background-color: var(--paper-4);
-		}
-		100% {
-			background-color: transparent;
-		}
+	.search-field input {
+		min-width: 0;
+		flex: 1;
+		border: 0;
+		background: none;
+		color: var(--ink);
+	}
+	.search-field input:focus {
+		outline: none;
+	}
+	.hit {
+		display: flex;
+		width: 100%;
+		flex-direction: column;
+		gap: 1px;
+		padding: 6px 8px;
+		border-radius: var(--radius-md);
+		text-align: left;
+	}
+	.hit:hover {
+		background: var(--fill-hover);
+	}
+	.hit[data-active="true"] {
+		background: var(--accent);
+		color: var(--on-accent);
+	}
+	.hit[data-active="true"] * {
+		color: inherit;
 	}
 
-	/* --------------------------------------------------------------- markdown
+	/* ----------------------------------------------------------- markdown
 	 * Not a document: emphasis, code, links, lists and tables survive because
-	 * a person types those into a chat. Headings arrive as bold text, because
-	 * a person would not send you an <h2>.  */
+	 * a person types those into a chat. Headings arrive as bold text. */
 	.md > :first-child {
 		margin-top: 0;
 	}
@@ -547,12 +1185,12 @@
 		margin-bottom: 0;
 	}
 	.md p {
-		margin: 0.5em 0;
+		margin: 0.6em 0;
 	}
 	.md ul,
 	.md ol {
-		margin: 0.5em 0;
-		padding-left: 1.25em;
+		margin: 0.6em 0;
+		padding-left: 1.4em;
 	}
 	.md ul {
 		list-style: disc;
@@ -561,64 +1199,78 @@
 		list-style: decimal;
 	}
 	.md li {
-		margin: 0.15em 0;
+		margin: 0.2em 0;
+	}
+	.md li::marker {
+		color: var(--ink-3);
 	}
 	.md code {
 		font-family: var(--font-mono);
-		font-size: 0.9em;
-		background: var(--paper-3);
-		padding: 0.1em 0.3em;
+		font-size: 0.86em;
+		background: var(--fill-code);
+		padding: 0.1em 0.35em;
+		border-radius: 4px;
 	}
 	.md pre {
-		margin: 0.5em 0;
-		padding: 0.6em 0.75em;
-		background: var(--paper-3);
+		margin: 0.6em 0;
+		padding: 10px 12px;
+		border-radius: var(--radius-md);
+		background: var(--fill-code);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
 		overflow-x: auto;
 	}
 	.md pre code {
 		background: none;
 		padding: 0;
+		font-size: inherit;
 	}
 	.md blockquote {
-		margin: 0.5em 0;
-		padding-left: 0.75em;
-		border-left: 2px solid var(--rule-strong);
+		margin: 0.6em 0;
+		padding-left: 10px;
+		border-left: 2px solid var(--line-strong);
 		color: var(--ink-2);
 	}
 	.md a {
 		color: var(--accent);
 		text-decoration: underline;
+		text-decoration-color: color-mix(in oklab, var(--accent), transparent 60%);
+		text-underline-offset: 2px;
+	}
+	.md a:hover {
+		text-decoration-color: var(--accent);
 	}
 	.md table {
 		border-collapse: collapse;
-		font-size: 0.95em;
+		font-size: var(--text-md);
+		line-height: var(--text-md--line-height);
 	}
 	.md th,
 	.md td {
-		border: 1px solid var(--rule);
-		padding: 0.25em 0.5em;
+		border: var(--hairline) solid var(--line);
+		padding: 4px 10px;
+		text-align: left;
+	}
+	.md th {
+		font-weight: 600;
+		background: var(--fill-code);
+	}
+	.md strong {
+		font-weight: 600;
 	}
 }
 
-/* The one moving thing in the window is whichever agent is working. */
-@keyframes throat {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	50% {
-		opacity: 0.28;
-	}
-}
-.animate-throat {
-	animation: throat 1.6s ease-in-out infinite;
-}
 @media (prefers-reduced-motion: reduce) {
-	.animate-throat {
+	.beat,
+	.menu,
+	.search-panel,
+	.row-lit {
 		animation: none;
 	}
 	.row-lit {
-		animation: none;
-		background-color: var(--paper-4);
+		background-color: var(--accent-soft);
+	}
+	* {
+		transition: none !important;
 	}
 }

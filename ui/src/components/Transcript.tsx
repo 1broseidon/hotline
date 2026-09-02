@@ -7,7 +7,9 @@ import type {
 	ToolStatus,
 	TranscriptEvent,
 } from "../generated/contract";
+import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
+import { Avatar } from "../ui/Avatar";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 
@@ -19,31 +21,46 @@ const PIN_SLACK = 80;
 /** A message being answered: the id the wire stamps, the line the chip shows. */
 export type ReplyTarget = { eventId: string; text: string };
 
+type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" }>;
+
+/**
+ * Either one event, or a run of the machinery between two messages —
+ * thoughts and tool calls — folded into one block so a transcript of forty
+ * tool calls still reads as a conversation.
+ */
+type Block =
+	| { kind: "event"; event: Exclude<TranscriptEvent, Step> }
+	| { kind: "steps"; id: string; ts: number; items: Step[] };
+
 /**
  * The conversation, and only the conversation.
  *
- * The machinery an agent runs on — its thoughts, the tools it called — is
- * folded away rather than hidden: a transcript that reads as a chat is the
- * whole point, and a transcript that lies about what happened is not worth
- * having. One press opens either. An agent's line, hovered or focused, offers
- * a quiet Reply; a user line that answers one quotes the original from this
- * fold, and a missing original is not drawn.
+ * An agent's words are set as text in the reading column; yours are the one
+ * bubble, on the right. The machinery an agent runs on is folded, not
+ * hidden: a block of steps opens while the agent is working and closes to a
+ * count when its next message lands, and any row in it opens on a press.
+ * A transcript that lies about what happened is not worth having.
  *
  * Imported tapes also hold permission cards, plans, peer markers, hands-to-
  * human and computer frames. A card with no decision is live: answering it
  * writes through the tape, so the buttons go away when the room supersedes
- * the line. A decided card, including one that expired, names the outcome.
+ * the line.
  */
 export function Transcript({
 	personaId,
+	name,
 	events,
 	streaming,
+	live,
 	focus,
 	onReply,
 }: {
 	personaId: string;
+	name: string;
 	events: TranscriptEvent[];
 	streaming: Streaming[];
+	/** The session is thinking: the trailing block of steps stays open. */
+	live: boolean;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	onReply(target: ReplyTarget): void;
@@ -52,13 +69,11 @@ export function Transcript({
 	/* Following the conversation is the default and stays true until you
 	 * scroll away from the bottom yourself. */
 	const pinned = useRef(true);
-	/* The empty state has no scroller at all, so the first event is what
-	 * mounts one — and the listeners have to go on when it appears, not once
-	 * at mount. */
+	/* The same fact, for the button that offers the way back down. */
+	const [following, setFollowing] = useState(true);
 	const empty = events.length === 0 && streaming.length === 0;
 	/* A reply quote is the same jump as a search hit, asked for from inside
-	 * the transcript rather than from the drawer. The later `at` wins so a
-	 * tap after a search still lands. */
+	 * the transcript rather than from the search. The later `at` wins. */
 	const [jumped, setJumped] = useState<{ eventId: string; at: number } | null>(null);
 	const landing = jumped !== null && (focus === null || jumped.at > focus.at) ? jumped : focus;
 
@@ -75,6 +90,7 @@ export function Transcript({
 		if (!el) return;
 		const measure = () => {
 			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
+			setFollowing(pinned.current);
 		};
 		const pin = () => {
 			if (pinned.current) el.scrollTop = el.scrollHeight;
@@ -90,85 +106,114 @@ export function Transcript({
 			el.removeEventListener("scroll", measure);
 			observer.disconnect();
 		};
+		// The scroll listener above is enough while the events are the same.
 	}, [empty]);
 
 	if (empty) {
 		return (
-			<div className="flex flex-1 items-center justify-center px-6">
-				<p className="max-w-sm text-center text-ink-3">
-					No messages yet. Say something to get started.
-				</p>
+			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
+				<Avatar id={personaId} name={name} size={48} />
+				<p className="text-lg font-semibold">{name}</p>
+				<p className="text-center text-sm text-ink-3">Nothing said yet. Start below.</p>
 			</div>
 		);
 	}
 
+	const blocks = toBlocks(events, streaming);
+	const streamingSay = streaming.find((one) => one.kind === "agent");
+
 	return (
-		<div ref={scroller} className="flex-1 overflow-y-auto px-6 py-5">
+		<div className="relative flex min-h-0 flex-1 flex-col">
+		<div ref={scroller} className="flex-1 overflow-y-auto px-8 py-6">
 			{/* `justify-end` rests a short conversation on the composer rather
 			    than stranding it at the top of an empty pane. */}
-			<div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end gap-1.5">
-				{events.map((event, index) => (
-					<Line
-						key={event.id}
-						personaId={personaId}
-						event={event}
-						previous={events[index - 1]}
-						said={said}
-						onReply={onReply}
-						onJump={(eventId) => setJumped({ eventId, at: Date.now() })}
-					/>
-				))}
-				{streaming.map((one) =>
-					one.kind === "agent" ? (
-						<div key={one.messageId} className="flex">
-							<div className="bubble bubble-them">
-								<Markdown text={one.text} />
-							</div>
+			<div className="mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end">
+				{blocks.map((block, index) => {
+					const previous = blocks[index - 1];
+					const stamp =
+						!isChapter(block) &&
+						(previous === undefined || (!isChapter(previous) && block_ts(block) - block_ts(previous) > STAMP_AFTER));
+					const id = block.kind === "event" ? block.event.id : block.id;
+					return (
+						<div key={id} data-event-id={id}>
+							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
+							{block.kind === "steps" ? (
+								<Steps
+									items={block.items}
+									live={live && index === blocks.length - 1 && streamingSay === undefined}
+								/>
+							) : (
+								<Row personaId={personaId} event={block.event} said={said} onReply={onReply} onJump={(eventId) => setJumped({ eventId, at: Date.now() })} />
+							)}
 						</div>
-					) : (
-						<Thought key={one.messageId} text={one.text} />
-					),
+					);
+				})}
+				{streamingSay !== undefined && (
+					<div className="said-group relative mt-3">
+						<div className="speech said-them said-streaming">
+							<Markdown text={streamingSay.text} />
+							<span aria-hidden="true" className="beat ml-0.5 inline-block h-[14px] w-[2px] translate-y-[2px] bg-accent" />
+						</div>
+					</div>
 				)}
 			</div>
+		</div>
+		{!following && (
+			<button
+				type="button"
+				className="control btn send absolute bottom-3 right-8"
+				title="Jump to the latest"
+				aria-label="Jump to the latest"
+				onClick={() => {
+					const el = scroller.current;
+					if (!el) return;
+					pinned.current = true;
+					el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+				}}
+			>
+				<ArrowDownIcon />
+			</button>
+		)}
 		</div>
 	);
 }
 
-function Line({
-	personaId,
-	event,
-	previous,
-	said,
-	onReply,
-	onJump,
-}: {
-	personaId: string;
-	event: TranscriptEvent;
-	previous: TranscriptEvent | undefined;
-	said: Map<string, string>;
-	onReply(target: ReplyTarget): void;
-	onJump(eventId: string): void;
-}) {
-	const stamp =
-		event.kind !== "chapter" &&
-		previous?.kind !== "chapter" &&
-		(previous === undefined || event.ts - previous.ts > STAMP_AFTER);
+/** Fold runs of thoughts and tools into one block; a streaming thought joins the tail. */
+function toBlocks(events: TranscriptEvent[], streaming: Streaming[]): Block[] {
+	const blocks: Block[] = [];
+	for (const event of events) {
+		if (event.kind === "thought" || event.kind === "tool") {
+			const tail = blocks[blocks.length - 1];
+			if (tail?.kind === "steps") tail.items.push(event);
+			else blocks.push({ kind: "steps", id: event.id, ts: event.ts, items: [event] });
+		} else {
+			blocks.push({ kind: "event", event });
+		}
+	}
+	for (const one of streaming) {
+		if (one.kind !== "thought") continue;
+		const thought: Step = { kind: "thought", id: one.messageId, ts: Date.now(), text: one.text };
+		const tail = blocks[blocks.length - 1];
+		if (tail?.kind === "steps") tail.items.push(thought);
+		else blocks.push({ kind: "steps", id: thought.id, ts: thought.ts, items: [thought] });
+	}
+	return blocks;
+}
 
-	return (
-		<div data-event-id={event.id}>
-			{stamp && <p className="py-2 text-center text-xs text-ink-3">{stampText(event.ts)}</p>}
-			<Row personaId={personaId} event={event} said={said} onReply={onReply} onJump={onJump} />
-		</div>
-	);
+function block_ts(block: Block): number {
+	return block.kind === "event" ? block.event.ts : block.ts;
+}
+
+function isChapter(block: Block): boolean {
+	return block.kind === "event" && block.event.kind === "chapter";
 }
 
 /**
  * A search hit or a reply's quote: unpin, bring the row to the middle, and
- * light it briefly.
- *
- * The tape arrives after the jump is asked for when Everywhere opens another
- * teammate, so this waits until the fold contains the id. `found` going true
- * is the retry; a later append does not change `found` and so does not jump.
+ * light it briefly. The tape arrives after the jump is asked for when
+ * Everywhere opens another teammate, so this waits until the fold contains
+ * the id. `found` going true is the retry; a later append does not change
+ * `found` and so does not jump.
  */
 function useScrollToEvent(
 	scroller: RefObject<HTMLDivElement | null>,
@@ -180,13 +225,16 @@ function useScrollToEvent(
 	useEffect(() => {
 		if (!focus || !found) return;
 		const root = scroller.current;
-		const row = root?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(focus.eventId)}"]`);
+		// A step lives inside its block, so the block is what is found.
+		const row =
+			root?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(focus.eventId)}"]`) ??
+			root?.querySelector<HTMLElement>(`[data-step-id="${CSS.escape(focus.eventId)}"]`)?.closest<HTMLElement>("[data-event-id]");
 		if (!root || !row) return;
 		pinned.current = false;
 		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 		row.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
 		row.classList.add("row-lit");
-		const timer = window.setTimeout(() => row.classList.remove("row-lit"), 1_600);
+		const timer = window.setTimeout(() => row.classList.remove("row-lit"), 1_800);
 		return () => window.clearTimeout(timer);
 	}, [focus, found, scroller, pinned]);
 }
@@ -199,61 +247,61 @@ function Row({
 	onJump,
 }: {
 	personaId: string;
-	event: TranscriptEvent;
+	event: Exclude<TranscriptEvent, Step>;
 	said: Map<string, string>;
 	onReply(target: ReplyTarget): void;
 	onJump(eventId: string): void;
 }) {
 	switch (event.kind) {
 		case "user":
-			return <UserBubble event={event} said={said} onJump={onJump} />;
+			return event.scheduled !== undefined ? (
+				<ScheduledLine name={event.scheduled.name} prompt={event.text} />
+			) : (
+				<UserBubble event={event} said={said} onJump={onJump} />
+			);
 
 		case "agent":
-			return <AgentBubble event={event} onReply={onReply} />;
+			return <AgentSay event={event} onReply={onReply} />;
 
-		case "thought":
-			return <Thought text={event.text} />;
-
-		case "tool":
-			return <Tool title={event.title} status={event.status} output={event.output} />;
-
-		/* Where the turn stopped. Quiet, because the agent finishing is the
-		 * expected thing and only its manner is news. */
-		case "turn":
+		/* Where the turn stopped. Drawn only when it says something the last
+		 * message did not: a count, or a stop that was not the agent's choice. */
+		case "turn": {
+			const tokens = event.usage?.totalTokens;
+			const ordinary = event.stopReason === "end_turn";
+			if (ordinary && tokens === undefined) return null;
 			return (
-				<p className="py-1.5 text-center text-xs text-ink-3">
-					{event.stopReason.replace(/_/g, " ")}
-					{event.usage?.totalTokens !== undefined && ` · ${event.usage.totalTokens} tokens`}
+				<p className="mt-1 text-right text-xs text-ink-4">
+					{!ordinary && <span className="text-ink-3">{event.stopReason.replace(/_/g, " ")}</span>}
+					{!ordinary && tokens !== undefined && " · "}
+					{tokens !== undefined && `${tokensText(tokens)} tokens`}
 				</p>
 			);
+		}
 
 		case "notice":
 			return (
 				<p
-					className="py-1 text-center text-xs"
-					style={{ color: `var(--${event.level === "info" ? "ink-3" : event.level === "warn" ? "warn" : "danger"})` }}
+					className="rule-line rule-line-plain gap-1.5"
+					style={{ color: event.level === "info" ? "var(--ink-3)" : event.level === "warn" ? "var(--warn)" : "var(--danger)" }}
 				>
-					{event.text}
+					{event.level !== "info" && <WarningIcon className="shrink-0" />}
+					<span className="selectable font-normal">{event.text}</span>
 				</p>
 			);
 
-		/* Where the agent's working context reset: the date stamp's own line,
+		/* Where the agent's working context reset: a line across the column
 		 * with the chapter's name on it once it has one. The close arrives as
-		 * one superseded marker — endedAt and title together — so there is no
-		 * interim "writing the note" to draw. Nothing to click; the note lives
-		 * in search. */
+		 * one superseded marker, so there is no interim state to draw. */
 		case "chapter":
 			return (
-				<p className="py-3 text-center text-xs text-ink-3">
-					{stampText(event.ts)}
-					{event.title !== undefined && event.title !== "" && (
-						<span className="ml-2 text-ink-2">{event.title}</span>
-					)}
+				<p className="rule-line mt-2">
+					<span className="max-w-[70%] truncate text-ink-2">
+						{event.title !== undefined && event.title !== "" ? event.title : "New chapter"}
+					</span>
+					<span>{stampText(event.ts)}</span>
 				</p>
 			);
 
-		/* Open cards answer through the wire; the tape then supersedes the
-		 * line, so a decided card is just the outcome and not another click. */
 		case "permission":
 			return <Permission personaId={personaId} event={event} />;
 
@@ -263,17 +311,14 @@ function Row({
 		case "human_action":
 			return <HumanAction reason={event.reason} status={event.status} />;
 
-		/* One quiet line, the way a chapter is a date: the name, who started
-		 * it, how many turns, and whether it is still open. A click that
-		 * opened the thread belongs to a window that has threads. */
+		/* One quiet line, the way a chapter is a date: the name, the role,
+		 * how many turns, and whether it is still open. */
 		case "peer":
 			return (
-				<p className="py-3 text-center text-xs text-ink-3">
-					with {event.seat === "client" ? `${event.withName} (an outside agent)` : event.withName}
-					<span className="ml-2">
-						{event.role} · {event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`} ·{" "}
-						{event.status}
-					</span>
+				<p className="rule-line rule-line-plain">
+					With {event.seat === "client" ? `${event.withName} (outside the room)` : event.withName}
+					<span className="text-ink-4">·</span>
+					{event.role} · {event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`} · {event.status}
 				</p>
 			);
 
@@ -282,8 +327,62 @@ function Row({
 	}
 }
 
+/**
+ * The machinery between two messages. Open while the agent is on it, with
+ * the latest step named in the summary; closed to a count once it has moved
+ * on, unless you opened it yourself.
+ */
+function Steps({ items, live }: { items: Step[]; live: boolean }) {
+	const [toggled, setToggled] = useState<boolean | null>(null);
+	const open = toggled ?? live;
+	const tools = items.filter((one) => one.kind === "tool").length;
+	const thoughts = items.length - tools;
+	const latest = items[items.length - 1];
+	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
+	const summary = live
+		? latest?.kind === "tool"
+			? latest.title
+			: "Thinking"
+		: [tools > 0 && `${tools} ${tools === 1 ? "tool" : "tools"}`, thoughts > 0 && `${thoughts} ${thoughts === 1 ? "thought" : "thoughts"}`]
+				.filter(Boolean)
+				.join(" · ");
+
+	return (
+		<div className="mt-2">
+			<button
+				type="button"
+				className="step w-auto max-w-full"
+				aria-expanded={open}
+				onClick={() => setToggled(!open)}
+			>
+				<span
+					aria-hidden="true"
+					className={`step-mark ${live ? "beat" : ""}`}
+					style={{ background: live ? "var(--accent)" : failed ? "var(--danger)" : "var(--ink-4)" }}
+				/>
+				<span className={`step-title ${live && latest?.kind === "tool" ? "" : "font-sans"}`}>
+					{live && <span className="font-sans text-ink-3">Working · </span>}
+					{summary}
+				</span>
+				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+			</button>
+			{open && (
+				<div className="steps ml-[11px]">
+					{items.map((item) =>
+						item.kind === "thought" ? (
+							<Thought key={item.id} id={item.id} text={item.text} />
+						) : (
+							<Tool key={item.id} id={item.id} title={item.title} status={item.status} output={item.output} />
+						),
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 /** An agent's line, focusable so R can answer it without a pointer. */
-function AgentBubble({
+function AgentSay({
 	event,
 	onReply,
 }: {
@@ -292,9 +391,9 @@ function AgentBubble({
 }) {
 	const reply = () => onReply({ eventId: event.id, text: firstLine(event.text) });
 	return (
-		<div className="group-msg relative mt-2 flex">
+		<div className="said-group relative mt-3">
 			<div
-				className="bubble bubble-them"
+				className="speech said-them rounded-md"
 				tabIndex={0}
 				onKeyDown={(key) => {
 					if (key.repeat) return;
@@ -306,7 +405,14 @@ function AgentBubble({
 			>
 				<Markdown text={event.text} />
 			</div>
-			<button type="button" className="reply-affordance" tabIndex={-1} title="Reply (R)" onClick={reply}>
+			<button
+				type="button"
+				className="reply-affordance control btn btn-sm gap-1"
+				tabIndex={-1}
+				title="Reply (R)"
+				onClick={reply}
+			>
+				<ReplyIcon />
 				Reply
 			</button>
 		</div>
@@ -333,29 +439,46 @@ function UserBubble({
 	const quote = answered !== undefined ? said.get(answered) : undefined;
 	const text = quote !== undefined ? unquoted(event.text) : event.text;
 	return (
-		<div className="mt-2 flex justify-end">
-			<div className="bubble bubble-me">
+		<div className="mt-3 flex justify-end">
+			<div className="speech said-me">
 				{quote !== undefined && answered !== undefined && (
-					<button
-						type="button"
-						className="bubble-quote"
-						title="Go to the message"
-						onClick={() => onJump(answered)}
-					>
+					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
 						{quote}
 					</button>
 				)}
 				{text}
 				{event.attachments !== undefined && event.attachments.length > 0 && (
-					<ul className="bubble-files">
+					<ul className="mt-2 flex flex-wrap gap-1" style={{ whiteSpace: "normal" }}>
 						{event.attachments.map((item) => (
-							<li key={item.path} className="bubble-file" title={item.path}>
-								{item.name}
+							<li key={item.path} className="chip max-w-full pr-2" title={item.path}>
+								<span className="chip-name">{item.name}</span>
 							</li>
 						))}
 					</ul>
 				)}
 			</div>
+		</div>
+	);
+}
+
+/**
+ * A line nobody typed: a schedule fired. One row naming the job, with the
+ * whole prompt behind a press, because debugging a schedule means reading
+ * what it actually said.
+ */
+function ScheduledLine({ name, prompt }: { name: string; prompt: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="mt-3 flex flex-col items-end">
+			<button type="button" className="step w-auto max-w-[78%]" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+				<ClockIcon className="shrink-0 text-ink-3" />
+				<span className="min-w-0 truncate">
+					<span className="text-ink-3">Scheduled · </span>
+					{name}
+				</span>
+				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+			</button>
+			{open && <div className="speech said-me mt-1">{prompt}</div>}
 		</div>
 	);
 }
@@ -376,36 +499,35 @@ function unquoted(text: string): string {
 	return lines.slice(end).join("\n").replace(/^\n+/, "");
 }
 
-/** What the agent was thinking, folded away. */
-function Thought({ text }: { text: string }) {
+/** What the agent was thinking, one line until pressed. */
+function Thought({ id, text }: { id: string; text: string }) {
 	const [open, setOpen] = useState(false);
 	return (
-		<div className="my-0.5 max-w-[85%]">
-			<button type="button" className="aside" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-				thought{open ? "" : ` · ${firstLine(text)}`}
+		<div data-step-id={id}>
+			<button type="button" className="step" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+				<span aria-hidden="true" className="step-mark" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
+				<span className="step-title font-sans italic text-ink-3">{firstLine(text)}</span>
 			</button>
-			{open && (
-				<pre className="mt-1 whitespace-pre-wrap bg-paper-3 px-2.5 py-2 font-mono text-xs text-ink-2">
-					{text}
-				</pre>
-			)}
+			{open && <div className="step-out font-sans not-italic">{text}</div>}
 		</div>
 	);
 }
 
 const STATUS_INK: Record<ToolStatus, string> = {
-	pending: "var(--ink-3)",
+	pending: "var(--ink-4)",
 	in_progress: "var(--accent)",
-	completed: "var(--ink-3)",
+	completed: "var(--ink-4)",
 	failed: "var(--danger)",
 };
 
 /** A tool call: what it was, how it went, and its output behind a press. */
 function Tool({
+	id,
 	title,
 	status,
 	output,
 }: {
+	id: string;
 	title: string;
 	status: ToolStatus;
 	output: ToolOutput[] | undefined;
@@ -413,33 +535,34 @@ function Tool({
 	const [open, setOpen] = useState(false);
 	const hasOutput = output !== undefined && output.length > 0;
 	return (
-		<div className="my-0.5 max-w-[85%]">
+		<div data-step-id={id}>
 			<button
 				type="button"
-				className="aside flex items-center gap-2"
+				className="step"
 				aria-expanded={hasOutput ? open : undefined}
 				disabled={!hasOutput}
 				onClick={() => setOpen((was) => !was)}
 			>
 				<span
 					aria-hidden="true"
-					className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === "in_progress" ? "animate-throat" : ""}`}
+					className={`step-mark ${status === "in_progress" ? "beat" : ""}`}
 					style={{ background: STATUS_INK[status] }}
 				/>
-				<span className="truncate font-mono">{title}</span>
-				<span className="shrink-0">{status.replace(/_/g, " ")}</span>
+				<span className="step-title">{title}</span>
+				{status === "failed" && <span className="shrink-0 text-danger">failed</span>}
+				{status === "in_progress" && <span className="shrink-0 text-ink-3">running</span>}
+				{hasOutput && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
 			</button>
-			{open && hasOutput && (
-				<pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap bg-paper-3 px-2.5 py-2 font-mono text-xs text-ink-2">
-					{output.map(outputText).join("\n\n")}
-				</pre>
-			)}
+			{open && hasOutput && <div className="step-out">{output.map(outputText).join("\n\n")}</div>}
 		</div>
 	);
 }
 
 function outputText(one: ToolOutput): string {
-	return one.type === "text" ? one.text : `${one.path}\n${one.newText}`;
+	if (one.type === "text") return one.text;
+	const before = one.oldText == null ? [] : one.oldText.split("\n").map((line) => `- ${line}`);
+	const after = one.newText.split("\n").map((line) => `+ ${line}`);
+	return [one.path, ...before, ...after].join("\n");
 }
 
 /**
@@ -461,27 +584,27 @@ function Permission({
 		if (answering || event.decision !== undefined) return;
 		setAnswering(true);
 		void wire
-			.command("session.answer_permission", {
-				personaId,
-				requestId: event.requestId,
-				optionId,
-			})
+			.command("session.answer_permission", { personaId, requestId: event.requestId, optionId })
 			.catch(() => setAnswering(false));
 	};
 
 	return (
-		<div className="tape-card">
-			<p>{event.title}</p>
+		<div className={`card mt-3 ${chosen === undefined ? "card-live" : ""}`}>
+			<p className="eyebrow mb-1">{chosen === undefined ? "Asking permission" : "Asked permission"}</p>
+			<p className="selectable">{event.title}</p>
 			{chosen !== undefined ? (
-				<p className="mt-1 text-xs text-ink-3">{chosen}</p>
+				<p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink-3">
+					{event.decision !== "expired" && <CheckIcon className="text-ink-4" />}
+					{chosen}
+				</p>
 			) : (
-				<div className="ask-actions">
+				<div className="card-actions">
 					{event.options.map((option) => (
 						<button
 							key={option.optionId}
 							type="button"
 							disabled={answering}
-							className={optionKindClass(option)}
+							className={`control ${optionKindClass(option)}`}
 							onClick={() => answer(option.optionId)}
 						>
 							{option.name}
@@ -494,7 +617,7 @@ function Permission({
 }
 
 function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): string | undefined {
-	if (event.decision === "expired") return "Expired";
+	if (event.decision === "expired") return "Expired unanswered";
 	if (event.decidedOptionName !== undefined && event.decidedOptionName !== "") {
 		return event.decidedOptionName;
 	}
@@ -504,39 +627,50 @@ function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): 
 }
 
 function optionKindClass(option: PermissionOption): string {
-	return option.kind?.startsWith("allow") ? "btn-primary" : "btn-quiet";
+	return option.kind?.startsWith("allow") ? "btn-primary" : "btn";
 }
 
 /** The agent's working list, one status per line. */
 function Plan({ entries }: { entries: PlanEntry[] }) {
 	if (entries.length === 0) return null;
 	return (
-		<ul className="plan-list">
+		<ul className="mt-2 max-w-[78%] py-1 text-sm">
 			{entries.map((entry, index) => (
-				<li key={`${index}:${entry.content}`} className="plan-row">
-					<span className="plan-mark" aria-hidden="true">
-						{planMark(entry.status)}
+				<li key={`${index}:${entry.content}`} className="flex items-start gap-2 py-0.5 pl-2">
+					<PlanMark status={entry.status} />
+					<span className={`min-w-0 flex-1 ${entry.status === "completed" ? "text-ink-3" : "text-ink-2"}`}>
+						{entry.content}
 					</span>
-					<span className="min-w-0 flex-1">{entry.content}</span>
-					<span className="plan-status">{entry.status.replace(/_/g, " ")}</span>
 				</li>
 			))}
 		</ul>
 	);
 }
 
-function planMark(status: string): string {
-	if (status === "completed") return "✓";
-	if (status === "in_progress") return "…";
-	return "·";
+function PlanMark({ status }: { status: string }) {
+	if (status === "completed") {
+		return <CheckIcon className="mt-px shrink-0 text-accent" />;
+	}
+	if (status === "in_progress") {
+		return (
+			<span className="grid h-4 w-4 shrink-0 place-items-center" aria-label="in progress">
+				<span className="beat h-1.5 w-1.5 rounded-full bg-accent" />
+			</span>
+		);
+	}
+	return (
+		<span className="grid h-4 w-4 shrink-0 place-items-center" aria-label={status}>
+			<span className="h-1.5 w-1.5 rounded-full" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
+		</span>
+	);
 }
 
 /** The agent asked for hands it does not have. Status is the whole afterlife. */
 function HumanAction({ reason, status }: { reason: string; status: HumanActionStatus }) {
 	return (
-		<div className="tape-card">
-			<p className="mb-1 text-xs uppercase tracking-wide text-ink-3">{status}</p>
-			<p>{reason}</p>
+		<div className={`card mt-3 ${status === "pending" ? "card-live" : ""}`}>
+			<p className="eyebrow mb-1">{status === "pending" ? "Needs you" : `Needed you · ${status}`}</p>
+			<p className="selectable">{reason}</p>
 		</div>
 	);
 }
@@ -551,7 +685,8 @@ function ComputerFrame({ dataUrl }: { dataUrl: string }) {
 	return (
 		<button
 			type="button"
-			className="frame-thumb"
+			className="mt-2 block overflow-hidden rounded-md border border-line bg-inset p-0 text-left transition-[width]"
+			style={{ width: open ? "min(24rem, 100%)" : "7rem" }}
 			aria-expanded={open}
 			title={open ? "Hide the capture" : "Show the capture"}
 			onClick={() => setOpen((was) => !was)}
@@ -561,7 +696,7 @@ function ComputerFrame({ dataUrl }: { dataUrl: string }) {
 				setOpen(false);
 			}}
 		>
-			<img src={dataUrl} alt="The computer's screen at capture" />
+			<img src={dataUrl} alt="The computer's screen at capture" className="block w-full" />
 		</button>
 	);
 }
@@ -571,12 +706,14 @@ function firstLine(text: string): string {
 	return line.length > 70 ? `${line.slice(0, 70)}…` : line;
 }
 
+function tokensText(count: number): string {
+	if (count < 1_000) return String(count);
+	if (count < 100_000) return `${(count / 1_000).toFixed(1)}k`;
+	return `${Math.round(count / 1_000)}k`;
+}
+
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-const weekday = new Intl.DateTimeFormat(undefined, {
-	weekday: "short",
-	month: "short",
-	day: "numeric",
-});
+const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
 
 function stampText(at: number): string {
 	const when = new Date(at);

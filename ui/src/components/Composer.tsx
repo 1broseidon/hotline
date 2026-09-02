@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
-import { CloseIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, StopIcon } from "../icons";
 
 /** The field stops growing here, and scrolls from then on. */
-const MAX_HEIGHT = 200;
+const MAX_HEIGHT = 220;
 
 /** A session that is between turns and can be spoken to right now. */
-export function isWorking(state: SessionState): boolean {
+function isWorking(state: SessionState): boolean {
 	return state === "starting" || state === "thinking";
 }
 
@@ -19,16 +19,17 @@ function isDown(state: SessionState): boolean {
 /**
  * Where you type.
  *
- * A stopped teammate is started by talking to it: a message typed at a session
- * that is not running starts one and then says the message, because the person
- * meant to send it either way. The Start button is for the other case — waking
- * a teammate with nothing to say yet. A reply being composed sits as a
- * one-line quote above the field; chips above the field are files dropped on
- * the window, never a path typed or pasted into it. Escape puts the chips
+ * A stopped teammate is started by talking to it: a message typed at a
+ * session that is not running starts one and then says the message, because
+ * the person meant to send it either way. Start is for the other case —
+ * waking a teammate with nothing to say yet. A reply being composed sits as
+ * a one-line quote above the field; chips above the field are files dropped
+ * on the window, never a path typed or pasted into it. Escape puts the chips
  * down first, then the quote, then it interrupts a turn.
  */
 export function Composer({
 	personaId,
+	name,
 	state,
 	replyQuote,
 	onSend,
@@ -37,6 +38,7 @@ export function Composer({
 	onClearReply,
 }: {
 	personaId: string;
+	name: string;
 	state: SessionState;
 	replyQuote: string | null;
 	onSend(text: string, attachments: Attachment[]): void;
@@ -49,8 +51,7 @@ export function Composer({
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
 	const down = isDown(state);
-	const hasText = text.trim().length > 0;
-	const hasContent = hasText || attachments.length > 0;
+	const hasContent = text.trim().length > 0 || attachments.length > 0;
 
 	// Grow with content, up to a ceiling. Before paint, because measuring after
 	// it draws a wrapped line at the old height for one frame first.
@@ -119,54 +120,47 @@ export function Composer({
 	};
 
 	return (
-		<div className="border-t border-rule bg-paper px-6 py-3">
+		<div className="shrink-0 px-8 pb-5 pt-2">
 			<div className="mx-auto w-full max-w-[46rem]">
 				{replyQuote !== null && (
-					<div className="reply-chip">
-						<p className="reply-chip-quote">{replyQuote}</p>
-						<button
-							type="button"
-							className="reply-chip-clear"
-							aria-label="Stop replying"
-							onClick={onClearReply}
-						>
+					<div className="mb-2 flex items-center gap-2">
+						<p className="quote mb-0 min-w-0 flex-1">
+							<span className="text-ink-3">Replying to </span>
+							{replyQuote}
+						</p>
+						<button type="button" className="chip-x" aria-label="Stop replying" onClick={onClearReply}>
 							<CloseIcon />
 						</button>
 					</div>
 				)}
-				{attachments.length > 0 && (
-					<ul className="chip-tray">
-						{attachments.map((item) => (
-							<li key={item.path} className="chip" title={item.path}>
-								<span className="chip-name">{item.name}</span>
-								{item.size !== undefined && (
-									<span className="chip-size">{sizeText(item.size)}</span>
-								)}
-								<button
-									type="button"
-									className="chip-drop"
-									aria-label={`Remove ${item.name}`}
-									onClick={() =>
-										setAttachments((known) => known.filter((one) => one.path !== item.path))
-									}
-								>
-									<CloseIcon />
-								</button>
-							</li>
-						))}
-					</ul>
-				)}
-				<div className="flex items-end gap-2">
+				<div className="composer px-3 pb-2 pt-2.5">
+					{attachments.length > 0 && (
+						<ul className="mb-2 flex flex-wrap gap-1.5">
+							{attachments.map((item) => (
+								<li key={item.path} className="chip" title={item.path}>
+									<span className="chip-name">{item.name}</span>
+									{item.size !== undefined && <span className="chip-size">{sizeText(item.size)}</span>}
+									<button
+										type="button"
+										className="chip-x"
+										aria-label={`Remove ${item.name}`}
+										onClick={() => setAttachments((known) => known.filter((one) => one.path !== item.path))}
+									>
+										<CloseIcon />
+									</button>
+								</li>
+							))}
+						</ul>
+					)}
 					<textarea
 						ref={area}
 						rows={1}
 						value={text}
-						aria-label="Message your teammate"
-						placeholder={down ? "Message — sending starts the session" : "Message"}
-						className="field resize-none"
+						aria-label={`Message ${name}`}
+						placeholder={`Message ${name}`}
 						onChange={(event) => setText(event.target.value)}
 						onKeyDown={(event) => {
-							if (event.key === "Enter" && !event.shiftKey) {
+							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 								event.preventDefault();
 								submit();
 								return;
@@ -186,26 +180,41 @@ export function Composer({
 							}
 						}}
 					/>
-
-					{working ? (
-						<button type="button" className="btn-quiet" title="Interrupt (Esc)" onClick={onCancel}>
-							Stop
-						</button>
-					) : down && !hasContent ? (
-						<button type="button" className="btn-quiet" onClick={onStart}>
-							Start
-						</button>
-					) : (
-						<button
-							type="button"
-							className="btn-primary"
-							title="Send (Enter)"
-							disabled={!hasContent}
-							onClick={submit}
-						>
-							Send
-						</button>
-					)}
+					<div className="mt-1.5 flex h-[26px] items-center justify-between gap-2">
+						<p className="truncate text-xs text-ink-4">
+							{down
+								? "Sending starts the session."
+								: working
+									? "Escape interrupts."
+									: "Shift+Enter for a new line."}
+						</p>
+						{working ? (
+							<button
+								type="button"
+								className="control btn send"
+								title="Interrupt (Esc)"
+								aria-label="Interrupt"
+								onClick={onCancel}
+							>
+								<StopIcon />
+							</button>
+						) : down && !hasContent ? (
+							<button type="button" className="control btn btn-sm" onClick={onStart}>
+								Start
+							</button>
+						) : (
+							<button
+								type="button"
+								className="control btn-primary send"
+								title="Send (Enter)"
+								aria-label="Send"
+								disabled={!hasContent}
+								onClick={submit}
+							>
+								<ArrowUpIcon />
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 		</div>
@@ -248,19 +257,7 @@ function sizeText(bytes: number): string {
 }
 
 const IMAGE_EXTENSIONS = new Set([
-	"avif",
-	"bmp",
-	"gif",
-	"heic",
-	"heif",
-	"ico",
-	"jpeg",
-	"jpg",
-	"png",
-	"svg",
-	"tif",
-	"tiff",
-	"webp",
+	"avif", "bmp", "gif", "heic", "heif", "ico", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp",
 ]);
 
 const MIME_BY_EXTENSION: Record<string, string> = {

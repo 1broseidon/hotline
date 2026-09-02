@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, PersonaDraft } from "../generated/contract";
 import { CloseIcon } from "../icons";
 import { useRoomSettings } from "../room";
+import { Band } from "../ui/Band";
+import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
-import { Chrome } from "./Chrome";
 import { PathField } from "./PathField";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
@@ -20,8 +21,7 @@ const TOAD_AGENT = "pi";
  * not asked here.
  *
  * Created, the teammate is started at once and opened — nobody adds a
- * colleague in order to look at them in a list. The form replaces the
- * conversation; it is not a card over the window.
+ * colleague in order to look at them in a list.
  */
 export function NewTeammate({
 	models,
@@ -49,8 +49,7 @@ export function NewTeammate({
 			.catch((error: Error) => setRefusal(error.message));
 	}, []);
 
-	const available = (id: string) =>
-		backends.some((one) => one.id === id && one.unavailable === undefined);
+	const available = (id: string) => backends.some((one) => one.id === id && one.unavailable === undefined);
 	const backendId =
 		picked ??
 		(available(defaultBackendId)
@@ -79,16 +78,16 @@ export function NewTeammate({
 	};
 
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
-			<Chrome>
-				<h2 className="min-w-0 flex-1 truncate font-medium">New teammate</h2>
-				<button type="button" className="btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+		<div className="pane">
+			<Band>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">New teammate</h2>
+				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
-			</Chrome>
-			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+			</Band>
+			<div className="pane-scroll">
 				<form
-					className="mx-auto flex w-full max-w-xl flex-col gap-3"
+					className="pane-column flex flex-col gap-5"
 					onSubmit={(event) => {
 						event.preventDefault();
 						void submit();
@@ -103,6 +102,7 @@ export function NewTeammate({
 							className="field"
 							value={name}
 							autoFocus
+							autoComplete="off"
 							onChange={(event) => setName(event.target.value)}
 						/>
 					</div>
@@ -113,19 +113,20 @@ export function NewTeammate({
 						</label>
 						<textarea
 							id="new-goal"
-							className="field resize-none"
+							className="field"
 							rows={3}
 							placeholder="What this teammate is for."
 							value={goal}
 							onChange={(event) => setGoal(event.target.value)}
 						/>
+						<p className="hint">Written into the working directory as AGENTS.md, so the agent reads it on every start.</p>
 					</div>
 
 					<div>
 						<label className="label" htmlFor="new-cwd">
 							Working directory
 						</label>
-						<PathField id="new-cwd" value={cwd} onChange={setCwd} />
+						<PathField id="new-cwd" value={cwd} placeholder="A folder under the data directory, unless you pick one" onChange={setCwd} />
 					</div>
 
 					{backends.length > 0 && (
@@ -145,32 +146,31 @@ export function NewTeammate({
 
 					{onToad && (
 						<div>
-							<label className="label" htmlFor="new-model">
+							<p className="label" id="new-model">
 								Model
-							</label>
-							<select
-								id="new-model"
-								className="field"
+							</p>
+							<Picker
+								field
 								value={modelId}
-								onChange={(event) => setModelId(event.target.value)}
-							>
-								<option value="">The room's default</option>
-								{models.map((model) => (
-									<option key={model.id} value={model.id}>
-										{model.group ? `${model.group} · ${model.name}` : model.name}
-									</option>
-								))}
-							</select>
+								choices={[{ id: "", name: "The room's default" }, ...models]}
+								placeholder="The room's default"
+								label="Model"
+								onChange={setModelId}
+							/>
 						</div>
 					)}
 
-					{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
+					)}
 
 					<div className="mt-1 flex justify-end gap-2">
-						<button type="button" className="btn-quiet" onClick={onClose}>
-							Never mind
+						<button type="button" className="control btn" onClick={onClose}>
+							Cancel
 						</button>
-						<button type="submit" className="btn-primary" disabled={busy || name.trim() === ""}>
+						<button type="submit" className="control btn-primary" disabled={busy || name.trim() === ""}>
 							{busy ? "Setting up…" : "Add teammate"}
 						</button>
 					</div>

@@ -50,9 +50,11 @@ export function noticeRoster(entries: RosterEntry[]): void {
 export function watchNotificationClicks(): () => void {
 	let stop: (() => void) | undefined;
 	void onAction(() => {
-		void getCurrentWindow()
-			.setFocus()
-			.catch(() => {});
+		try {
+			void getCurrentWindow().setFocus();
+		} catch {
+			// A browser tab has no window to raise.
+		}
 	})
 		.then((listener) => {
 			stop = () => {
@@ -67,11 +69,11 @@ export function watchNotificationClicks(): () => void {
 export function setWindowTitle(name: string | null): void {
 	const title = name === null ? "Toad" : `${name} — Toad`;
 	document.title = title;
-	void getCurrentWindow()
-		.setTitle(title)
-		.catch(() => {
-			// A browser tab is not the desk; the document title is enough there.
-		});
+	try {
+		void getCurrentWindow().setTitle(title);
+	} catch {
+		// A browser tab is not the desk; the document title is enough there.
+	}
 }
 
 function lastLine(entry: RosterEntry): string {

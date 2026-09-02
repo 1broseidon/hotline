@@ -1,27 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendChoice, Credential, Persona, Report, ScheduledJob } from "../generated/contract";
+import type { BackendChoice, Credential, Report } from "../generated/contract";
 import { CloseIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
+import { Band } from "../ui/Band";
+import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
-import { Chrome } from "./Chrome";
 import { PathField } from "./PathField";
-import { Teammate } from "./Teammate";
 
 /** The providers Toad can run a model on today, in the order they are offered. */
 const PROVIDERS = [
 	{ id: "anthropic", name: "Anthropic" },
 	{ id: "openai", name: "OpenAI" },
 	{ id: "openrouter", name: "OpenRouter" },
-] as const;
+];
 
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "keys" | "tools" | "import" | "teammate";
+export type SettingsSection = "general" | "keys" | "tools" | "import";
 
-const APP_SECTIONS: { id: Exclude<SettingsSection, "teammate">; title: string }[] = [
+const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
 	{ id: "keys", title: "Keys" },
 	{ id: "tools", title: "Tools" },
@@ -29,182 +29,67 @@ const APP_SECTIONS: { id: Exclude<SettingsSection, "teammate">; title: string }[
 ];
 
 /**
- * Settings, as a pane: a left index and the section on the right. The
- * conversation is gone while this is up. A selected teammate is one more
- * row in the index, not a second window.
+ * The room's settings, as a pane in the conversation's place: the sections
+ * are tabs in the band, and each one is a column of grouped rows. What a
+ * teammate is, is not here; that is the teammate's own pane.
  */
 export function Settings({
 	section,
 	onSection,
-	teammate,
-	jobs,
-	focusSchedules,
 	onClose,
-	onDeleted,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
-	teammate: Persona | null;
-	jobs: ScheduledJob[];
-	focusSchedules: boolean;
 	onClose(): void;
-	onDeleted(): void;
 }) {
 	const settings = useRoomSettings();
-	const [held, setHeld] = useState<Credential[]>([]);
-	const [providerId, setProviderId] = useState<string>(PROVIDERS[0].id);
-	const [secret, setSecret] = useState("");
-	const [hours, setHours] = useState(String(DEFAULT_IDLE_HOURS));
-	const [from, setFrom] = useState(previousToadDir);
-	const [report, setReport] = useState<Report | null>(null);
-	const [busy, setBusy] = useState<"key" | "import" | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 
-	useEffect(() => {
-		wire
-			.command("credential.list", {})
-			.then(setHeld)
-			.catch((error: Error) => setRefusal(error.message));
-	}, []);
-
-	useEffect(() => {
-		setHours(String(settings.chapterIdleHours));
-	}, [settings.chapterIdleHours]);
-
-	useEffect(() => {
-		if (section === "teammate" && teammate === null) onSection("general");
-	}, [section, teammate, onSection]);
-
-	const saveKey = async () => {
-		if (!secret.trim() || busy) return;
-		setBusy("key");
+	const patch = (patch: Record<string, unknown>) => {
 		setRefusal(null);
-		try {
-			const label = PROVIDERS.find((one) => one.id === providerId)?.name ?? providerId;
-			const made = await wire.command("credential.create", {
-				providerId,
-				label,
-				secret: secret.trim(),
-			});
-			setHeld((known) => [...known, made]);
-			setSecret("");
-		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
-		} finally {
-			setBusy(null);
-		}
+		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
-
-	const saveHours = (raw: string) => {
-		setHours(raw);
-		const next = Number(raw);
-		if (!Number.isInteger(next) || next < MIN_IDLE_HOURS || next > MAX_IDLE_HOURS) return;
-		if (next === settings.chapterIdleHours) return;
-		void wire.command("settings.update", { patch: { chapterIdleHours: next } }).catch((error: Error) => {
-			setRefusal(error.message);
-		});
-	};
-
-	const saveBackend = (id: string) => {
-		if (id === settings.defaultBackendId) return;
-		void wire.command("settings.update", { patch: { defaultBackendId: id } }).catch((error: Error) => {
-			setRefusal(error.message);
-		});
-	};
-
-	const runImport = async () => {
-		const path = from.trim();
-		if (!path || busy) return;
-		setBusy("import");
-		setRefusal(null);
-		setReport(null);
-		try {
-			setReport(await wire.command("room.import", { from: path }));
-		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
-		} finally {
-			setBusy(null);
-		}
-	};
-
-	const showing = section === "teammate" && teammate === null ? "general" : section;
 
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
-			<Chrome>
-				<h2 className="min-w-0 flex-1 truncate font-medium">Settings</h2>
-				<button type="button" className="btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
-			</Chrome>
-			<div className="flex min-h-0 flex-1">
-				<nav className="settings-index" aria-label="Settings">
-					{APP_SECTIONS.map((one) => (
+		<div className="pane">
+			<Band>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Settings</h2>
+				<div className="segmented absolute left-1/2 -translate-x-1/2" role="tablist" aria-label="Settings sections">
+					{SECTIONS.map((one) => (
 						<button
 							key={one.id}
 							type="button"
-							className="settings-section"
-							aria-current={showing === one.id ? "page" : undefined}
+							role="tab"
+							className="segment"
+							aria-selected={section === one.id}
 							onClick={() => onSection(one.id)}
 						>
 							{one.title}
 						</button>
 					))}
-					{teammate && (
-						<button
-							type="button"
-							className="settings-section"
-							aria-current={showing === "teammate" ? "page" : undefined}
-							onClick={() => onSection("teammate")}
-						>
-							{teammate.name}
-						</button>
+				</div>
+				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+					<CloseIcon />
+				</button>
+			</Band>
+			<div className="pane-scroll">
+				<div className="pane-column flex flex-col gap-6">
+					{section === "general" && (
+						<GeneralSection
+							idleHours={settings.chapterIdleHours}
+							defaultBackendId={settings.defaultBackendId}
+							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
+							onBackend={(id) => patch({ defaultBackendId: id })}
+						/>
 					)}
-				</nav>
-				<div className="settings-body">
-					<div className="mx-auto flex w-full max-w-xl flex-col gap-5">
-						{showing === "general" && (
-							<GeneralSection
-								hours={hours}
-								defaultBackendId={settings.defaultBackendId}
-								onHours={saveHours}
-								onBackend={saveBackend}
-							/>
-						)}
-						{showing === "keys" && (
-							<KeysSection
-								held={held}
-								providerId={providerId}
-								secret={secret}
-								busy={busy !== null}
-								onProvider={setProviderId}
-								onSecret={setSecret}
-								onSave={() => void saveKey()}
-							/>
-						)}
-						{showing === "tools" && (
-							<ToolsSection servers={settings.mcpServers} busy={busy !== null} onRefuse={setRefusal} />
-						)}
-						{showing === "import" && (
-							<ImportSection
-								from={from}
-								busy={busy === "import"}
-								report={report}
-								onFrom={setFrom}
-								onImport={() => void runImport()}
-							/>
-						)}
-						{showing === "teammate" && teammate && (
-							<Teammate
-								persona={teammate}
-								jobs={jobs.filter((job) => job.personaId === teammate.id)}
-								focusSchedules={focusSchedules}
-								onClose={onClose}
-								onDeleted={onDeleted}
-							/>
-						)}
-						{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
-					</div>
+					{section === "keys" && <KeysSection onRefuse={setRefusal} />}
+					{section === "tools" && <ToolsSection servers={settings.mcpServers} onRefuse={setRefusal} />}
+					{section === "import" && <ImportSection onRefuse={setRefusal} />}
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
+					)}
 				</div>
 			</div>
 		</div>
@@ -212,17 +97,22 @@ export function Settings({
 }
 
 function GeneralSection({
-	hours,
+	idleHours,
 	defaultBackendId,
-	onHours,
+	onIdleHours,
 	onBackend,
 }: {
-	hours: string;
+	idleHours: number;
 	defaultBackendId: string;
-	onHours(raw: string): void;
+	onIdleHours(hours: number): void;
 	onBackend(id: string): void;
 }) {
+	const [hours, setHours] = useState(String(idleHours));
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
+
+	useEffect(() => {
+		setHours(String(idleHours));
+	}, [idleHours]);
 
 	useEffect(() => {
 		void wire
@@ -231,35 +121,47 @@ function GeneralSection({
 			.catch(() => setBackends([]));
 	}, []);
 
+	const commitHours = (raw: string) => {
+		setHours(raw);
+		const next = Number(raw);
+		if (!Number.isInteger(next) || next < MIN_IDLE_HOURS || next > MAX_IDLE_HOURS) return;
+		if (next !== idleHours) onIdleHours(next);
+	};
+
 	return (
-		<section className="flex flex-col gap-4">
-			<div>
-				<label className="label" htmlFor="setting-idle">
-					Chapters close after
-				</label>
-				<div className="flex items-center gap-2">
-					<input
-						id="setting-idle"
-						type="number"
-						className="field w-24"
-						min={MIN_IDLE_HOURS}
-						max={MAX_IDLE_HOURS}
-						step={1}
-						value={hours}
-						onChange={(event) => onHours(event.target.value)}
-					/>
-					<span className="text-xs text-ink-3">hours idle</span>
+		<>
+			<section>
+				<h3 className="group-title">Chapters</h3>
+				<div className="grouped">
+					<div className="group-row">
+						<label className="group-row-text" htmlFor="setting-idle">
+							<span className="group-row-title">Close a chapter after</span>
+							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+								How long a teammate sits quiet before its working context closes.
+							</span>
+						</label>
+						<span className="flex items-center gap-2 text-sm text-ink-2">
+							<input
+								id="setting-idle"
+								type="number"
+								className="field w-16 text-right"
+								min={MIN_IDLE_HOURS}
+								max={MAX_IDLE_HOURS}
+								step={1}
+								value={hours}
+								onChange={(event) => commitHours(event.target.value)}
+							/>
+							hours
+						</span>
+					</div>
 				</div>
-				<p className="mt-1 text-xs leading-relaxed text-ink-3">
-					How long a teammate sits quiet before its working context closes. Eight hours is a
-					night&rsquo;s sleep.
-				</p>
-			</div>
-			<div>
-				<p className="label" id="setting-backend">
-					Default backend
-				</p>
-				{backends.length > 0 && (
+				<p className="group-hint">Eight hours is a night&rsquo;s sleep. The default is {DEFAULT_IDLE_HOURS}.</p>
+			</section>
+			<section>
+				<h3 className="group-title" id="setting-backend">
+					New teammates run on
+				</h3>
+				{backends.length > 0 ? (
 					<BackendPicker
 						backends={backends}
 						selected={defaultBackendId}
@@ -267,127 +169,123 @@ function GeneralSection({
 						labelledBy="setting-backend"
 						onSelect={onBackend}
 					/>
+				) : (
+					<div className="grouped">
+						<p className="group-row text-sm text-ink-3">Reading which harnesses this machine can start…</p>
+					</div>
 				)}
-				<p className="mt-1 text-xs leading-relaxed text-ink-3">What a new teammate runs on.</p>
-			</div>
-		</section>
+				<p className="group-hint">The new-teammate form can still pick another.</p>
+			</section>
+		</>
 	);
 }
 
-function KeysSection({
-	held,
-	providerId,
-	secret,
-	busy,
-	onProvider,
-	onSecret,
-	onSave,
-}: {
-	held: Credential[];
-	providerId: string;
-	secret: string;
-	busy: boolean;
-	onProvider(id: string): void;
-	onSecret(value: string): void;
-	onSave(): void;
-}) {
+function KeysSection({ onRefuse }: { onRefuse(message: string | null): void }) {
+	const [held, setHeld] = useState<Credential[] | null>(null);
+	const [providerId, setProviderId] = useState(PROVIDERS[0]!.id);
+	const [secret, setSecret] = useState("");
+	const [busy, setBusy] = useState(false);
+
+	useEffect(() => {
+		wire
+			.command("credential.list", {})
+			.then(setHeld)
+			.catch((error: Error) => {
+				setHeld([]);
+				onRefuse(error.message);
+			});
+	}, [onRefuse]);
+
+	const save = async () => {
+		if (!secret.trim() || busy) return;
+		setBusy(true);
+		onRefuse(null);
+		try {
+			const label = PROVIDERS.find((one) => one.id === providerId)?.name ?? providerId;
+			const made = await wire.command("credential.create", { providerId, label, secret: secret.trim() });
+			setHeld((known) => [...(known ?? []), made]);
+			setSecret("");
+		} catch (error) {
+			onRefuse(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
 	return (
-		<section className="flex flex-col gap-4">
-			{held.length > 0 && (
-				<ul className="flex flex-col">
-					{held.map((one) => (
-						<li key={one.id} className="flex items-center gap-2 border-b border-rule py-1.5 text-xs">
-							<span className="font-medium text-ink-2">{one.label}</span>
-							<span className="font-mono text-ink-3">{one.providerId}</span>
-							<span className="ml-auto text-ink-3">{one.revoked ? "revoked" : "in use"}</span>
-						</li>
-					))}
-				</ul>
-			)}
+		<>
+			<section>
+				<h3 className="group-title">Keys on this desk</h3>
+				<div className="grouped">
+					{held === null ? (
+						<p className="group-row text-sm text-ink-3">Reading…</p>
+					) : held.length === 0 ? (
+						<p className="group-row text-sm text-ink-3">No keys yet. Toad Agent needs one to run a model.</p>
+					) : (
+						held.map((one) => (
+							<div key={one.id} className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title">{one.label}</span>
+									<span className="group-row-detail font-mono">{one.providerId}</span>
+								</span>
+								<span className={`text-sm ${one.revoked ? "text-ink-3" : "text-ink-2"}`}>
+									{one.revoked ? "Revoked" : "In use"}
+								</span>
+							</div>
+						))
+					)}
+				</div>
+				<p className="group-hint">A key never leaves this machine; the room remembers only that it exists.</p>
+			</section>
 			<form
-				className="flex flex-col gap-3"
 				onSubmit={(event) => {
 					event.preventDefault();
-					onSave();
+					void save();
 				}}
 			>
-				<div>
-					<label className="label" htmlFor="key-provider">
-						Provider
-					</label>
-					<select
-						id="key-provider"
-						className="field"
-						value={providerId}
-						onChange={(event) => onProvider(event.target.value)}
-					>
-						{PROVIDERS.map((one) => (
-							<option key={one.id} value={one.id}>
-								{one.name}
-							</option>
-						))}
-					</select>
-				</div>
-				<div>
-					<label className="label" htmlFor="key-secret">
-						API key
-					</label>
-					<input
-						id="key-secret"
-						type="password"
-						className="field font-mono text-xs"
-						spellCheck={false}
-						value={secret}
-						onChange={(event) => onSecret(event.target.value)}
-					/>
-				</div>
-				<div className="flex justify-end">
-					<button type="submit" className="btn-primary" disabled={busy || secret.trim() === ""}>
-						Save key
-					</button>
+				<h3 className="group-title">Add a key</h3>
+				<div className="grouped">
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" id="key-provider">
+							Provider
+						</label>
+						<div className="flex-1">
+							<Picker
+								field
+								value={providerId}
+								choices={PROVIDERS}
+								placeholder="Provider"
+								label="Provider"
+								onChange={setProviderId}
+							/>
+						</div>
+					</div>
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
+							API key
+						</label>
+						<input
+							id="key-secret"
+							type="password"
+							className="field flex-1 font-mono text-sm"
+							spellCheck={false}
+							autoComplete="off"
+							value={secret}
+							onChange={(event) => setSecret(event.target.value)}
+						/>
+					</div>
+					<div className="group-row justify-end">
+						<button type="submit" className="control btn-primary" disabled={busy || secret.trim() === ""}>
+							{busy ? "Saving…" : "Save key"}
+						</button>
+					</div>
 				</div>
 			</form>
-		</section>
+		</>
 	);
 }
 
-function ImportSection({
-	from,
-	busy,
-	report,
-	onFrom,
-	onImport,
-}: {
-	from: string;
-	busy: boolean;
-	report: Report | null;
-	onFrom(value: string): void;
-	onImport(): void;
-}) {
-	return (
-		<section className="flex flex-col gap-4">
-			<div>
-				<label className="label" htmlFor="import-from">
-					Previous Toad data directory
-				</label>
-				<PathField id="import-from" value={from} onChange={onFrom} />
-			</div>
-			<div className="flex justify-end">
-				<button type="button" className="btn-primary" disabled={busy || from.trim() === ""} onClick={onImport}>
-					{busy ? "Importing…" : "Import"}
-				</button>
-			</div>
-			{report !== null && <ImportReport report={report} />}
-		</section>
-	);
-}
-
-type ServerDraft = {
-	name: string;
-	kind: "stdio" | "http";
-	command: string;
-	url: string;
-};
+type ServerDraft = { name: string; kind: "stdio" | "http"; command: string; url: string };
 
 const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: "" };
 
@@ -397,11 +295,9 @@ const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: ""
  */
 function ToolsSection({
 	servers,
-	busy,
 	onRefuse,
 }: {
 	servers: McpServer[];
-	busy: boolean;
 	onRefuse(message: string | null): void;
 }) {
 	const [draft, setDraft] = useState<ServerDraft>(EMPTY_DRAFT);
@@ -427,25 +323,21 @@ function ToolsSection({
 		}
 	};
 
-	const saved = (ok: boolean) => {
-		if (!ok) return;
+	const reset = () => {
 		setDraft(EMPTY_DRAFT);
 		setEditingId(null);
 	};
 
 	const save = () => {
-		if (!ready || busy || writing) return;
+		if (!ready || writing) return;
 		const name = draft.name.trim();
 		const previous = editingId ? servers.find((one) => one.id === editingId) : undefined;
 		const next =
 			draft.kind === "stdio"
 				? stdioFromDraft(name, draft.command, previous)
 				: httpFromDraft(name, draft.url, previous);
-		if (editingId) {
-			void persist(servers.map((one) => (one.id === editingId ? next : one))).then(saved);
-			return;
-		}
-		void persist([...servers, next]).then(saved);
+		const list = editingId ? servers.map((one) => (one.id === editingId ? next : one)) : [...servers, next];
+		void persist(list).then((ok) => ok && reset());
 	};
 
 	const startEdit = (server: McpServer) => {
@@ -459,176 +351,222 @@ function ToolsSection({
 	};
 
 	return (
-		<section className="flex flex-col gap-4">
-			{servers.length > 0 ? (
-				<ul className="flex flex-col">
-					{servers.map((server) => (
-						<li key={server.id} className="flex items-center gap-2 border-b border-rule py-1.5 text-xs">
-							<span className="min-w-0 flex-1">
-								<span className="font-medium text-ink-2">{server.name}</span>
-								<span className="ml-2 text-ink-3">{server.type}</span>
-								<span className="block truncate font-mono text-ink-3">{mcpServerDetail(server)}</span>
-							</span>
-							<button
-								type="button"
-								className="shrink-0 text-ink-3"
-								aria-label={`Edit ${server.name}`}
-								disabled={busy || writing}
-								onClick={() => startEdit(server)}
-							>
-								Edit
-							</button>
-							<button
-								type="button"
-								className="shrink-0 text-[var(--danger)]"
-								aria-label={`Remove ${server.name}`}
-								disabled={busy || writing}
-								onClick={() =>
-									void persist(servers.filter((one) => one.id !== server.id)).then((ok) => {
-										if (ok && editingId === server.id) saved(true);
-									})
-								}
-							>
-								Remove
-							</button>
-						</li>
-					))}
-				</ul>
-			) : (
-				<p className="text-xs leading-relaxed text-ink-3">
-					No servers yet. A teammate runs with its agent&rsquo;s own tools until you add one.
-				</p>
-			)}
+		<>
+			<section>
+				<h3 className="group-title">MCP servers</h3>
+				<div className="grouped">
+					{servers.length === 0 ? (
+						<p className="group-row text-sm text-ink-3">
+							No servers yet. A teammate runs with its agent&rsquo;s own tools until you add one.
+						</p>
+					) : (
+						servers.map((server) => (
+							<div key={server.id} className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title">
+										{server.name}
+										<span className="ml-2 text-sm text-ink-3">{server.type === "stdio" ? "Command" : "HTTP"}</span>
+									</span>
+									<span className="group-row-detail font-mono">{mcpServerDetail(server)}</span>
+								</span>
+								<button
+									type="button"
+									className="control btn-quiet btn-sm"
+									aria-label={`Edit ${server.name}`}
+									disabled={writing}
+									onClick={() => startEdit(server)}
+								>
+									Edit
+								</button>
+								<button
+									type="button"
+									className="control btn-quiet btn-sm btn-danger"
+									aria-label={`Remove ${server.name}`}
+									disabled={writing}
+									onClick={() =>
+										void persist(servers.filter((one) => one.id !== server.id)).then((ok) => {
+											if (ok && editingId === server.id) reset();
+										})
+									}
+								>
+									Remove
+								</button>
+							</div>
+						))
+					)}
+				</div>
+				<p className="group-hint">Which teammates may use a server is set on each teammate.</p>
+			</section>
 			<form
-				className="flex flex-col gap-3"
 				onSubmit={(event) => {
 					event.preventDefault();
 					save();
 				}}
 			>
-				<p className="label">{editingId ? "Edit server" : "Add a server"}</p>
-				<div>
-					<label className="label" htmlFor="tool-type">
-						Type
-					</label>
-					<select
-						id="tool-type"
-						className="field"
-						value={draft.kind}
-						onChange={(event) =>
-							setDraft({ ...draft, kind: event.target.value === "http" ? "http" : "stdio" })
-						}
-					>
-						<option value="stdio">Command</option>
-						<option value="http">HTTP</option>
-					</select>
-				</div>
-				<div>
-					<label className="label" htmlFor="tool-name">
-						Name
-					</label>
-					<input
-						id="tool-name"
-						ref={nameField}
-						className="field"
-						value={draft.name}
-						onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-					/>
-				</div>
-				{draft.kind === "stdio" ? (
-					<div>
-						<label className="label" htmlFor="tool-command">
-							Command
+				<h3 className="group-title">{editingId ? "Edit server" : "Add a server"}</h3>
+				<div className="grouped">
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2">Type</label>
+						<div className="flex-1">
+							<Picker
+								field
+								value={draft.kind}
+								choices={[
+									{ id: "stdio", name: "Command", detail: "Started on this machine and spoken to over stdio" },
+									{ id: "http", name: "HTTP", detail: "Reached at a URL" },
+								]}
+								placeholder="Type"
+								label="Server type"
+								onChange={(kind) => setDraft({ ...draft, kind: kind === "http" ? "http" : "stdio" })}
+							/>
+						</div>
+					</div>
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-name">
+							Name
 						</label>
 						<input
-							id="tool-command"
-							className="field font-mono text-xs"
-							spellCheck={false}
-							placeholder="npx -y @modelcontextprotocol/server-filesystem /some/path"
-							value={draft.command}
-							onChange={(event) => setDraft({ ...draft, command: event.target.value })}
+							id="tool-name"
+							ref={nameField}
+							className="field flex-1"
+							value={draft.name}
+							onChange={(event) => setDraft({ ...draft, name: event.target.value })}
 						/>
 					</div>
-				) : (
-					<div>
-						<label className="label" htmlFor="tool-url">
-							URL
-						</label>
-						<input
-							id="tool-url"
-							className="field font-mono text-xs"
-							spellCheck={false}
-							placeholder="https://example.com/mcp"
-							value={draft.url}
-							onChange={(event) => setDraft({ ...draft, url: event.target.value })}
-						/>
-					</div>
-				)}
-				<p className="text-xs leading-relaxed text-ink-3">OAuth and headers come later.</p>
-				<div className="flex justify-end gap-2">
-					{editingId !== null && (
-						<button
-							type="button"
-							className="btn-quiet"
-							onClick={() => {
-								setDraft(EMPTY_DRAFT);
-								setEditingId(null);
-							}}
-						>
-							Cancel
-						</button>
+					{draft.kind === "stdio" ? (
+						<div className="group-row">
+							<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-command">
+								Command
+							</label>
+							<input
+								id="tool-command"
+								className="field flex-1 font-mono text-sm"
+								spellCheck={false}
+								placeholder="npx -y @modelcontextprotocol/server-filesystem /some/path"
+								value={draft.command}
+								onChange={(event) => setDraft({ ...draft, command: event.target.value })}
+							/>
+						</div>
+					) : (
+						<div className="group-row">
+							<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-url">
+								URL
+							</label>
+							<input
+								id="tool-url"
+								className="field flex-1 font-mono text-sm"
+								spellCheck={false}
+								placeholder="https://example.com/mcp"
+								value={draft.url}
+								onChange={(event) => setDraft({ ...draft, url: event.target.value })}
+							/>
+						</div>
 					)}
-					<button type="submit" className="btn-primary" disabled={busy || writing || !ready}>
-						{editingId ? "Save" : "Add server"}
-					</button>
+					<div className="group-row justify-end">
+						{editingId !== null && (
+							<button type="button" className="control btn" onClick={reset}>
+								Cancel
+							</button>
+						)}
+						<button type="submit" className="control btn-primary" disabled={writing || !ready}>
+							{editingId ? "Save" : "Add server"}
+						</button>
+					</div>
 				</div>
+				<p className="group-hint">Sign-in and headers for HTTP servers come later.</p>
 			</form>
-		</section>
+		</>
 	);
 }
 
 /** The form does not edit env, so an edit of a stdio server keeps the map it already had. */
 function stdioFromDraft(name: string, commandLine: string, previous?: McpServer): McpServer {
 	const [command, ...args] = commandLine.trim().split(/\s+/);
+	const id = previous?.id ?? crypto.randomUUID();
 	const env = previous?.type === "stdio" ? previous.env : undefined;
 	return env
-		? { id: previous?.id ?? crypto.randomUUID(), type: "stdio", name, command: command ?? "", args, env }
-		: { id: previous?.id ?? crypto.randomUUID(), type: "stdio", name, command: command ?? "", args };
+		? { id, type: "stdio", name, command: command ?? "", args, env }
+		: { id, type: "stdio", name, command: command ?? "", args };
 }
 
 /** A new HTTP server is none; an edit keeps whatever auth was already stored. */
 function httpFromDraft(name: string, url: string, previous?: McpServer): McpServer {
 	const auth: McpHttpAuth = previous?.type === "http" ? previous.auth : { mode: "none" };
-	return {
-		id: previous?.id ?? crypto.randomUUID(),
-		type: "http",
-		name,
-		url: url.trim(),
-		auth,
-	};
+	return { id: previous?.id ?? crypto.randomUUID(), type: "http", name, url: url.trim(), auth };
 }
 
-function ImportReport({ report }: { report: Report }) {
+function ImportSection({ onRefuse }: { onRefuse(message: string | null): void }) {
+	const [from, setFrom] = useState(previousToadDir);
+	const [report, setReport] = useState<Report | null>(null);
+	const [busy, setBusy] = useState(false);
+
+	const run = async () => {
+		const path = from.trim();
+		if (!path || busy) return;
+		setBusy(true);
+		onRefuse(null);
+		setReport(null);
+		try {
+			setReport(await wire.command("room.import", { from: path }));
+		} catch (error) {
+			onRefuse(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
 	return (
-		<div className="border border-rule px-2.5 py-2 text-xs text-ink-2">
-			<p>
-				{report.teammates} teammate{report.teammates === 1 ? "" : "s"} · {report.tapes} tape
-				{report.tapes === 1 ? "" : "s"} · {report.settings} setting
-				{report.settings === 1 ? "" : "s"} · {report.keys} key
-				{report.keys === 1 ? "" : "s"}
-			</p>
-			{report.skipped.length > 0 && (
-				<ul className="mt-2 flex flex-col gap-1 text-ink-3">
-					{report.skipped.map((one, index) => (
-						<li key={`${one.item}:${index}`}>
-							<span className="text-ink-2">{one.item}</span>
-							{`: ${one.reason}`}
-						</li>
-					))}
-				</ul>
+		<>
+			<section>
+				<h3 className="group-title">Bring over a previous Toad</h3>
+				<div className="grouped">
+					<div className="group-row flex-col items-stretch gap-1.5">
+						<label className="label mb-0" htmlFor="import-from">
+							Its data directory
+						</label>
+						<PathField id="import-from" value={from} onChange={setFrom} />
+					</div>
+					<div className="group-row justify-end">
+						<button type="button" className="control btn-primary" disabled={busy || from.trim() === ""} onClick={() => void run()}>
+							{busy ? "Importing…" : "Import"}
+						</button>
+					</div>
+				</div>
+				<p className="group-hint">
+					Teammates, their conversations, settings and keys are copied. The other Toad is never written to.
+				</p>
+			</section>
+			{report !== null && (
+				<section>
+					<h3 className="group-title">Imported</h3>
+					<div className="grouped">
+						<div className="group-row">
+							<span className="group-row-text">
+								<span className="group-row-title">
+									{count(report.teammates, "teammate")} · {count(report.tapes, "conversation")} ·{" "}
+									{count(report.settings, "setting")} · {count(report.keys, "key")}
+								</span>
+							</span>
+						</div>
+						{report.skipped.map((one, index) => (
+							<div key={`${one.item}:${index}`} className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title font-mono text-sm">{one.item}</span>
+									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+										Skipped: {one.reason}
+									</span>
+								</span>
+							</div>
+						))}
+					</div>
+				</section>
 			)}
-		</div>
+		</>
 	);
+}
+
+function count(n: number, noun: string): string {
+	return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
 /**

@@ -7,21 +7,25 @@ import type {
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
-import { RevealIcon } from "../icons";
+import { CheckIcon, CloseIcon, RevealIcon, WarningIcon } from "../icons";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
 import { revealPath } from "../native";
+import { Band } from "../ui/Band";
+import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
 
 /**
- * Editing a teammate: the four things the person decides, the jobs that
- * will wake them, and the way out.
+ * One teammate, beside their conversation: the four things the person
+ * decides, the tools they actually have, the jobs that will wake them, and
+ * the way out.
  *
  * Name, goal and working directory are the identity and the wall. Reach is
- * the one policy — the working directory, or the whole machine — and it is a
- * toggle because those are the only two answers. Deleting asks for the name
- * typed back, so a misfire does not take a colleague with it.
+ * the one policy — the working directory, or the whole machine — and it is
+ * a switch because those are the only two answers. Every field saves when
+ * you leave it. Removing asks for the name typed back, so a misfire does
+ * not take a colleague with it.
  */
 export function Teammate({
 	persona,
@@ -70,8 +74,7 @@ export function Teammate({
 	};
 
 	const saveGoal = () => {
-		if (goal === persona.goal) return;
-		save({ goal });
+		if (goal !== persona.goal) save({ goal });
 	};
 
 	const saveCwd = (next = cwd) => {
@@ -99,143 +102,153 @@ export function Teammate({
 	const machine = persona.reach === "machine";
 
 	return (
-		<div className="flex flex-col gap-3">
-			<form
-				className="flex flex-col gap-3"
-				onSubmit={(event) => {
-					event.preventDefault();
-					saveName();
-					saveGoal();
-					saveCwd();
-				}}
-			>
-				<div>
-					<label className="label" htmlFor="edit-name">
-						Name
-					</label>
-					<input
-						id="edit-name"
-						className="field"
-						value={name}
-						onChange={(event) => setName(event.target.value)}
-						onBlur={saveName}
-					/>
-				</div>
-
-				<div>
-					<label className="label" htmlFor="edit-goal">
-						Goal
-					</label>
-					<textarea
-						id="edit-goal"
-						className="field resize-none"
-						rows={3}
-						placeholder="What this teammate is for."
-						value={goal}
-						onChange={(event) => setGoal(event.target.value)}
-						onBlur={saveGoal}
-					/>
-				</div>
-
-				<div>
-					<label className="label" htmlFor="edit-cwd">
-						Working directory
-					</label>
-					<PathField id="edit-cwd" value={cwd} onChange={setCwd} onCommit={(value) => saveCwd(value)} />
-					<div className="mt-2">
-						<button
-							type="button"
-							className="btn-quiet inline-flex items-center gap-1.5"
-							onClick={() => void revealPath(persona.cwd)}
-						>
-							<RevealIcon />
-							Reveal workspace
-						</button>
-					</div>
-				</div>
-
-				<div>
-					<p className="label">Reach</p>
-					<label className="flex items-center gap-2 text-sm text-ink-2">
-						<input
-							type="checkbox"
-							checked={machine}
-							disabled={busy}
-							onChange={(event) =>
-								// A missing key leaves the old reach. The generated
-								// patch is Partial<Persona>, so the wall is the
-								// word, not JSON null.
-								save({ reach: event.target.checked ? "machine" : "workspace" })
-							}
-						/>
-						Whole machine
-					</label>
-					<p className="mt-1 text-xs leading-relaxed text-ink-3">
-						{machine
-							? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
-							: "Tools stop at the working directory: nothing outside it can be read, changed, or run."}
-					</p>
-				</div>
-
-				<McpGrant
-					personaId={persona.id}
-					policy={persona.mcpPolicy}
-					servers={servers}
-					disabled={busy}
-					onChange={(mcpPolicy) => save({ mcpPolicy })}
-				/>
-
-				<ToolLedger personaId={persona.id} />
-			</form>
-
-			<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
-
-			<section className="mt-2 border-t border-rule pt-4">
-				<p className="label">Remove teammate</p>
-				<p className="mb-2 text-xs leading-relaxed text-ink-3">
-					Type <span className="font-medium text-ink-2">{persona.name}</span> to confirm. Their
-					conversation goes too.
-				</p>
-				<input
-					id="edit-confirm"
-					className="field"
-					aria-label="Type the teammate's name to confirm removal"
-					value={confirm}
-					onChange={(event) => setConfirm(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") {
-							event.preventDefault();
-							void remove();
-						}
-					}}
-				/>
-				<div className="mt-3 flex justify-end">
-					<button
-						type="button"
-						className="btn-quiet text-[var(--danger)]"
-						disabled={busy || confirm !== persona.name}
-						onClick={() => void remove()}
-					>
-						Remove teammate
-					</button>
-				</div>
-			</section>
-
-			{refusal !== null && <p className="text-xs text-[var(--danger)]">{refusal}</p>}
-
-			<div className="mt-1 flex justify-end">
-				<button type="button" className="btn-quiet" onClick={onClose}>
-					Done
+		<aside className="inspector" aria-label={`${persona.name}'s settings`}>
+			<Band>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">{persona.name}</h2>
+				<button type="button" className="control btn-icon" title="Close (Esc)" aria-label="Close" onClick={onClose}>
+					<CloseIcon />
 				</button>
+			</Band>
+			<div className="pane-scroll">
+				<div className="flex flex-col gap-5 px-4 py-4">
+					<form
+						className="flex flex-col gap-4"
+						onSubmit={(event) => {
+							event.preventDefault();
+							saveName();
+							saveGoal();
+							saveCwd();
+						}}
+					>
+						<div>
+							<label className="label" htmlFor="edit-name">
+								Name
+							</label>
+							<input
+								id="edit-name"
+								className="field"
+								value={name}
+								autoComplete="off"
+								onChange={(event) => setName(event.target.value)}
+								onBlur={saveName}
+							/>
+						</div>
+
+						<div>
+							<label className="label" htmlFor="edit-goal">
+								Goal
+							</label>
+							<textarea
+								id="edit-goal"
+								className="field"
+								rows={4}
+								placeholder="What this teammate is for."
+								value={goal}
+								onChange={(event) => setGoal(event.target.value)}
+								onBlur={saveGoal}
+							/>
+						</div>
+
+						<div>
+							<div className="mb-1 flex items-center justify-between">
+								<label className="label mb-0" htmlFor="edit-cwd">
+									Working directory
+								</label>
+								<button
+									type="button"
+									className="control btn-quiet btn-sm -mr-2 gap-1"
+									title="Reveal in the file manager"
+									onClick={() => void revealPath(persona.cwd)}
+								>
+									<RevealIcon />
+									Reveal
+								</button>
+							</div>
+							<PathField id="edit-cwd" value={cwd} onChange={setCwd} onCommit={(value) => saveCwd(value)} />
+						</div>
+					</form>
+
+					<section>
+						<h3 className="label">Reach</h3>
+						<div className="grouped">
+							<label className="group-row group-row-choice">
+								<span className="group-row-text">
+									<span className="group-row-title">Whole machine</span>
+									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+										{machine
+											? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
+											: "Off: tools stop at the working directory. Nothing outside it is read, changed or run."}
+									</span>
+								</span>
+								<input
+									type="checkbox"
+									className="switch"
+									checked={machine}
+									disabled={busy}
+									onChange={(event) => save({ reach: event.target.checked ? "machine" : "workspace" })}
+								/>
+							</label>
+						</div>
+					</section>
+
+					<McpGrant
+						policy={persona.mcpPolicy}
+						servers={servers}
+						disabled={busy}
+						onChange={(mcpPolicy) => save({ mcpPolicy })}
+					/>
+
+					<ToolLedger personaId={persona.id} />
+
+					<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
+
+					<section className="border-t border-line pt-4">
+						<h3 className="label">Remove teammate</h3>
+						<p className="hint mt-0 mb-2">
+							Type <span className="font-medium text-ink-2">{persona.name}</span> to confirm. Their conversation goes too.
+						</p>
+						<div className="flex items-center gap-2">
+							<input
+								id="edit-confirm"
+								className="field min-w-0 flex-1"
+								aria-label="Type the teammate's name to confirm removal"
+								placeholder={persona.name}
+								autoComplete="off"
+								value={confirm}
+								onChange={(event) => setConfirm(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter") {
+										event.preventDefault();
+										void remove();
+									}
+								}}
+							/>
+							<button
+								type="button"
+								className="control btn btn-danger"
+								disabled={busy || confirm !== persona.name}
+								onClick={() => void remove()}
+							>
+								Remove
+							</button>
+						</div>
+					</section>
+
+					{refusal !== null && (
+						<p role="status" className="selectable text-sm text-danger">
+							{refusal}
+						</p>
+					)}
+				</div>
 			</div>
-		</div>
+		</aside>
 	);
 }
 
-const GRANT_MODES: { id: PolicyMode; label: string }[] = [
-	{ id: "all", label: "Every server" },
-	{ id: "none", label: "None" },
-	{ id: "some", label: "Some" },
+const GRANT_MODES: { id: PolicyMode; name: string; detail: string }[] = [
+	{ id: "all", name: "Every server", detail: "Whatever the room has, now and later" },
+	{ id: "none", name: "None", detail: "Only the agent's own tools" },
+	{ id: "some", name: "Some", detail: "Only the servers ticked below" },
 ];
 
 /**
@@ -243,23 +256,16 @@ const GRANT_MODES: { id: PolicyMode; label: string }[] = [
  * the mode is not `some`, so toggling back does not lose the ticks.
  */
 function McpGrant({
-	personaId,
 	policy,
 	servers,
 	disabled,
 	onChange,
 }: {
-	personaId: string;
 	policy: McpPolicy;
 	servers: McpServer[];
 	disabled: boolean;
 	onChange(policy: McpPolicy): void;
 }) {
-	const setMode = (mode: PolicyMode) => {
-		if (mode === policy.mode) return;
-		onChange({ ...policy, mode });
-	};
-
 	const toggle = (id: string) => {
 		const serverIds = policy.serverIds.includes(id)
 			? policy.serverIds.filter((item) => item !== id)
@@ -268,53 +274,43 @@ function McpGrant({
 	};
 
 	return (
-		<div>
-			<p className="label">MCP servers</p>
-			<div className="flex flex-col gap-1.5">
-				{GRANT_MODES.map((mode) => (
-					<label key={mode.id} className="flex items-center gap-2 text-sm text-ink-2">
-						<input
-							type="radio"
-							name={`mcp-policy-${personaId}`}
-							checked={policy.mode === mode.id}
-							disabled={disabled}
-							onChange={() => setMode(mode.id)}
-						/>
-						{mode.label}
-					</label>
-				))}
-			</div>
+		<section>
+			<h3 className="label">MCP servers</h3>
+			<Picker
+				field
+				value={policy.mode}
+				choices={GRANT_MODES}
+				placeholder="Grant"
+				label="Which MCP servers this teammate gets"
+				disabled={disabled}
+				onChange={(mode) => {
+					if (mode !== policy.mode) onChange({ ...policy, mode: mode as PolicyMode });
+				}}
+			/>
 			{policy.mode === "some" &&
 				(servers.length === 0 ? (
-					<p className="mt-2 text-xs leading-relaxed text-ink-3">
-						No servers yet. Add one under Settings → Tools.
-					</p>
+					<p className="hint">No servers yet. Add one under Settings → Tools.</p>
 				) : (
-					<ul className="mt-2 flex flex-col">
+					<div className="grouped mt-2">
 						{servers.map((server) => (
-							<li key={server.id}>
-								<label className="flex items-start gap-2 border-b border-rule py-1.5 text-xs">
-									<input
-										type="checkbox"
-										className="mt-0.5"
-										checked={policy.serverIds.includes(server.id)}
-										disabled={disabled}
-										onChange={() => toggle(server.id)}
-									/>
-									<span className="min-w-0 flex-1">
-										<span className="font-medium text-ink-2">{server.name}</span>
-										<span className="ml-2 text-ink-3">{server.type}</span>
-										<span className="block truncate font-mono text-ink-3">
-											{mcpServerDetail(server)}
-										</span>
-									</span>
-								</label>
-							</li>
+							<label key={server.id} className="group-row group-row-choice">
+								<input
+									type="checkbox"
+									className="check"
+									checked={policy.serverIds.includes(server.id)}
+									disabled={disabled}
+									onChange={() => toggle(server.id)}
+								/>
+								<span className="group-row-text">
+									<span className="group-row-title">{server.name}</span>
+									<span className="group-row-detail font-mono">{mcpServerDetail(server)}</span>
+								</span>
+							</label>
 						))}
-					</ul>
+					</div>
 				))}
-			<p className="mt-1 text-xs leading-relaxed text-ink-3">A change reaches the teammate on its next start.</p>
-		</div>
+			<p className="hint">A change reaches the teammate on its next start.</p>
+		</section>
 	);
 }
 
@@ -345,31 +341,44 @@ function ToolLedger({ personaId }: { personaId: string }) {
 	if (ledger === undefined) return null;
 
 	return (
-		<div>
-			<p className="label">Tools</p>
+		<section>
+			<h3 className="label">Tools</h3>
 			{ledger === null ? (
-				<p className="text-xs leading-relaxed text-ink-3">Tools attach at start.</p>
+				<p className="hint mt-0">Tools attach when the session starts. Nothing has started yet.</p>
 			) : (
-				<div className="flex flex-col gap-3">
+				<div className="grouped">
 					{groupedByOrigin(ledger.rows).map(([origin, rows]) => (
 						<div key={origin}>
-							<p className="mb-1 font-mono text-xs text-ink-3">{origin}</p>
-							<ul className="flex flex-col">
-								{rows.map((row) => (
-									<li key={`${row.source}-${row.origin}-${row.name}`} className="border-b border-rule py-1.5">
-										<p className="flex flex-wrap items-baseline gap-x-2 text-xs">
-											<span className="font-mono text-ink">{row.name}</span>
-											<span className="text-ink-3">{row.state}</span>
-										</p>
-										<p className="text-xs leading-relaxed text-ink-3">{row.reason}</p>
-									</li>
-								))}
-							</ul>
+							<p className="border-b border-line bg-hover px-3 py-1 font-mono text-xs text-ink-3">{origin}</p>
+							{rows.map((row) => (
+								<div key={`${row.source}-${row.origin}-${row.name}`} className="group-row items-start gap-2 py-2">
+									<span className="mt-px shrink-0" title={row.state}>
+										{row.state === "verified" ? (
+											<CheckIcon className="text-accent" />
+										) : row.state === "absent" ? (
+											<WarningIcon className="text-danger" />
+										) : (
+											<span className="grid h-4 w-4 place-items-center">
+												<span className="h-1.5 w-1.5 rounded-full" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
+											</span>
+										)}
+									</span>
+									<span className="group-row-text">
+										<span className="group-row-title font-mono text-sm">
+											{row.name}
+											<span className="ml-2 font-sans text-xs text-ink-3">{row.state}</span>
+										</span>
+										<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+											{row.reason}
+										</span>
+									</span>
+								</div>
+							))}
 						</div>
 					))}
 				</div>
 			)}
-		</div>
+		</section>
 	);
 }
 

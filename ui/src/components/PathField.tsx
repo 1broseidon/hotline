@@ -8,11 +8,13 @@ import { pickDirectory } from "../native";
 export function PathField({
 	id,
 	value,
+	placeholder,
 	onChange,
 	onCommit,
 }: {
 	id: string;
 	value: string;
+	placeholder?: string;
 	onChange(value: string): void;
 	onCommit?(value: string): void;
 }) {
@@ -26,13 +28,20 @@ export function PathField({
 		<div className="flex items-center gap-2">
 			<input
 				id={id}
-				className="field min-w-0 flex-1 font-mono text-xs"
+				className="field min-w-0 flex-1 font-mono text-sm"
 				spellCheck={false}
+				placeholder={placeholder}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
 				onBlur={() => onCommit?.(value)}
 			/>
-			<button type="button" className="btn-quiet inline-flex items-center gap-1.5" onClick={() => void choose()}>
+			<button
+				type="button"
+				className="control btn h-7"
+				title="Choose a folder"
+				aria-label="Choose a folder"
+				onClick={() => void choose()}
+			>
 				<FolderIcon />
 				Choose
 			</button>

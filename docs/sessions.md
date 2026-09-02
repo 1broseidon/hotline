@@ -117,9 +117,13 @@ rewritten as `\u003c` — the same character to anything parsing JSON, and
 no character at all to anything scanning for a tag — so nothing quoted can
 close the fence early, whichever fence it is in.
 
-The models a key unlocks are Anthropic, OpenAI and OpenRouter, as
-`provider/model`. No key, no session: start is refused with a sentence
-pointing at Settings → Agents. This agent does not offer modes.
+The models a key unlocks come from the model catalogue
+(`crates/toad-core/models.json`, a filtered snapshot of models.dev — see
+[development.md](development.md#the-model-catalogue)) for the providers
+`models.rs` wires: Anthropic, OpenAI, OpenRouter, Google, xAI, Groq,
+DeepSeek and Mistral, as `provider/model`. No key, no session: start is
+refused with a sentence pointing at Settings → Agents. This agent does not
+offer modes.
 
 ## An ACP child
 

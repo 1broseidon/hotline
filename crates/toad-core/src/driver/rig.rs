@@ -23,10 +23,11 @@
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
 use crate::contract::{
-    AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
+    AgentKind, Attachment, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
 };
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
+use crate::models::{self, Client};
 use crate::session::ProviderKeys;
 use crate::session::ledger::ToolLedger;
 use crate::tools::{
@@ -39,7 +40,7 @@ use rig::agent::MultiTurnStreamItem;
 use rig::agent::hook::{AgentHook, HookContext, ToolResultAction, ToolResultEvent};
 use rig::message::{Message, ReasoningContent, ToolResultContent};
 use rig::prelude::*;
-use rig::providers::{anthropic, openai, openrouter};
+use rig::providers::{anthropic, deepseek, gemini, groq, mistral, openai, openrouter, xai};
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
@@ -48,47 +49,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
-
-/// The providers Toad Agent can speak to, and the models it offers for each.
-/// A model id on the wire is `provider/model`, the shape the room has always
-/// stored, so a teammate's saved choice keeps meaning the same thing.
-struct Provider {
-    id: &'static str,
-    name: &'static str,
-    /// Model id and the label the picker shows for it.
-    models: &'static [(&'static str, &'static str)],
-}
-
-const PROVIDERS: &[Provider] = &[
-    Provider {
-        id: "anthropic",
-        name: "Anthropic",
-        models: &[
-            (anthropic::completion::CLAUDE_OPUS_4_8, "Claude Opus 4.8"),
-            (
-                anthropic::completion::CLAUDE_SONNET_4_6,
-                "Claude Sonnet 4.6",
-            ),
-            (anthropic::completion::CLAUDE_HAIKU_4_5, "Claude Haiku 4.5"),
-        ],
-    },
-    Provider {
-        id: "openai",
-        name: "OpenAI",
-        models: &[(openai::completion::GPT_5_6, "GPT-5.6")],
-    },
-    Provider {
-        id: "openrouter",
-        name: "OpenRouter",
-        models: &[
-            (
-                "anthropic/claude-sonnet-4.6",
-                "Claude Sonnet 4.6 (OpenRouter)",
-            ),
-            ("openai/gpt-5.6", "GPT-5.6 (OpenRouter)"),
-        ],
-    },
-];
 
 /// How many rounds of tool calls one prompt may take. High enough that no
 /// prompt reaches it: the human's Stop is the cap on a long-running turn, and
@@ -105,38 +65,6 @@ const TITLE_CHARS: usize = 120;
 /// anything larger is kept in full on disk beside the tape, and the text the
 /// model sees ends with that path so the agent can read the rest.
 const MODEL_TOOL_OUTPUT_BYTES: usize = 256 * 1024;
-
-/// The models the given provider keys unlock, as the picker lists them.
-pub fn models(keys: &HashMap<String, String>) -> Vec<ConfigChoice> {
-    PROVIDERS
-        .iter()
-        .filter(|provider| keys.contains_key(provider.id))
-        .flat_map(|provider| {
-            provider
-                .models
-                .iter()
-                .map(move |(model, label)| ConfigChoice {
-                    id: format!("{}/{model}", provider.id),
-                    name: (*label).to_string(),
-                    description: Some(provider.id.to_string()),
-                    group: Some(format!("{} — API key", provider.name)),
-                })
-        })
-        .collect()
-}
-
-fn label_of(model_id: &str) -> Option<String> {
-    PROVIDERS
-        .iter()
-        .flat_map(|provider| {
-            provider
-                .models
-                .iter()
-                .map(move |(id, label)| (format!("{}/{id}", provider.id), *label))
-        })
-        .find(|(id, _)| id == model_id)
-        .map(|(_, label)| label.to_string())
-}
 
 /// One answer, with no tools and no conversation: the note that closes a
 /// chapter, and anything else that asks a model a single question.
@@ -240,8 +168,8 @@ impl InProcess {
         let model = lock(&self.model).clone();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
-            models: models(keys),
-            model_label: label_of(&model),
+            models: models::choices(keys),
+            model_label: models::label_of(&model),
             current_model_id: model,
             ..DriverInfo::default()
         }
@@ -254,7 +182,7 @@ impl Driver for InProcess {
         let keys = self.keys.provider_keys();
         let model = match &persona.model_id {
             Some(id) if keys.contains_key(id.split('/').next().unwrap_or("")) => id.clone(),
-            _ => models(&keys)
+            _ => models::choices(&keys)
                 .first()
                 .map(|model| model.id.clone())
                 .ok_or_else(|| {
@@ -729,19 +657,24 @@ fn agent_builder(
     let key = keys
         .get(provider)
         .ok_or_else(|| format!("No key for {provider} is available on this desk."))?;
-    let builder = match provider {
-        "anthropic" => anthropic::Client::new(key.as_str())
-            .map_err(|error| error.to_string())?
-            .agent(model),
-        "openai" => openai::Client::new(key.as_str())
-            .map_err(|error| error.to_string())?
-            .agent(model),
-        "openrouter" => openrouter::Client::new(key.as_str())
-            .map_err(|error| error.to_string())?
-            .agent(model),
-        _ => return Err(format!("{provider} is not a provider Toad Agent can use")),
+    let wiring = models::wiring(provider)
+        .ok_or_else(|| format!("{provider} is not a provider Toad Agent can use"))?;
+    let key = key.as_str();
+    let builder = match wiring.client {
+        Client::Anthropic => anthropic::Client::new(key).map_err(text)?.agent(model),
+        Client::OpenAi => openai::Client::new(key).map_err(text)?.agent(model),
+        Client::OpenRouter => openrouter::Client::new(key).map_err(text)?.agent(model),
+        Client::Gemini => gemini::Client::new(key).map_err(text)?.agent(model),
+        Client::XAi => xai::Client::new(key).map_err(text)?.agent(model),
+        Client::Groq => groq::Client::new(key).map_err(text)?.agent(model),
+        Client::DeepSeek => deepseek::Client::new(key).map_err(text)?.agent(model),
+        Client::Mistral => mistral::Client::new(key).map_err(text)?.agent(model),
     };
     Ok(builder)
+}
+
+fn text(error: impl std::fmt::Display) -> String {
+    error.to_string()
 }
 
 fn lock<T>(held: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -857,21 +790,6 @@ mod tests {
     use crate::contract::Reach;
     use rig::tool::{Tool, ToolContext};
     use serde_json::json;
-
-    #[test]
-    fn models_follow_the_keys_the_desk_holds() {
-        let mut keys = HashMap::new();
-        assert!(models(&keys).is_empty());
-        keys.insert("anthropic".to_string(), "k".to_string());
-        let listed = models(&keys);
-        assert!(
-            listed
-                .iter()
-                .all(|model| model.id.starts_with("anthropic/"))
-        );
-        assert_eq!(listed[0].group.as_deref(), Some("Anthropic — API key"));
-        assert_eq!(label_of(&listed[0].id).as_deref(), Some("Claude Opus 4.8"));
-    }
 
     /// Toad Agent is handed paths rather than bytes, because it opens a file
     /// with its read tool.

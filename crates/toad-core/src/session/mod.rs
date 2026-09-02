@@ -48,7 +48,7 @@ use crate::contract::{
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
-use crate::driver::rig::{InProcess, Said, models};
+use crate::driver::rig::{InProcess, Said};
 use crate::driver::{Driver, MessageKind, PI_BACKEND_ID, Update, clip};
 use crate::log::{Log, StreamId, thread};
 use crate::mcp;
@@ -1017,7 +1017,7 @@ impl Room {
 
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
-        models(&self.keys.provider_keys())
+        crate::models::choices(&self.keys.provider_keys())
     }
 
     /// What tools this teammate was given the last time it started. `None`
@@ -1329,7 +1329,11 @@ impl Room {
             .model_id
             .clone()
             .filter(|id| keys.contains_key(id.split('/').next().unwrap_or_default()))
-            .or_else(|| models(&keys).first().map(|model| model.id.clone()))
+            .or_else(|| {
+                crate::models::choices(&keys)
+                    .first()
+                    .map(|model| model.id.clone())
+            })
     }
 
     /// Closes every chapter that has gone quiet for longer than the room

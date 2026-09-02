@@ -478,6 +478,19 @@ pub struct Credential {
     pub updated_at: i64,
 }
 
+/// A provider Toad Agent can hold a key for, as the key form offers them.
+/// Which ones there are is `models::WIRING`; the name and the doc link come
+/// from the model catalogue.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct Provider {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
+}
+
 /// What a credential's secret is. One word today, because every provider Toad
 /// talks to takes an API key; the subscription logins that do not are a later
 /// phase, and they arrive as a second word here.
@@ -1277,6 +1290,10 @@ pub enum Command {
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},
+    /// Every provider Toad Agent can hold a key for, whether or not this
+    /// desk holds one.
+    #[serde(rename = "providers.list")]
+    ProvidersList {},
     /// Every model the desk's keys can reach, grouped by provider. An empty
     /// struct rather than a unit so `"params": {}` — what a client that
     /// always sends params spells it — reads the same as no params at all.

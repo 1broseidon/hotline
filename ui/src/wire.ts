@@ -7,6 +7,7 @@ import type {
 	GlobalSearchHit,
 	PeerThreadSummary,
 	Persona,
+	Provider,
 	Report,
 	RosterEntry,
 	ScheduledJob,
@@ -65,6 +66,7 @@ type Results = {
 	"credential.delete": null;
 	"credential.list": Credential[];
 	"backends.list": BackendChoice[];
+	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
 	"session.start": SessionInfo;
 	"session.stop": null;

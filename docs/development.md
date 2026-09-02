@@ -30,6 +30,7 @@ crates/toad-core/src/
   vault.rs               secrets beside the room stream
   session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
   driver/                Toad Agent on Rig, and the ACP child with its registry
+  models.rs              the providers Toad Agent reaches, and the model catalogue they serve
   mcp/                   the client of granted servers, and Toad's own teammate tools
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
@@ -38,6 +39,8 @@ crates/toad-core/src/
   wire/                  the door: seats, commands, subscriptions
   bin/toad-import.rs     the importer as a binary
   bin/toad-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
+  bin/toad-models-sync.rs rewrites models.json from models.dev
+crates/toad-core/models.json  the model catalogue: a filtered snapshot of models.dev
 crates/toad-core/tests/  headless proofs driving the real core over the wire
 crates/toad-desktop/     the Tauri 2 shell: plugins, the menu, the door
 ui/                      the React window, built against the generated contract; ui/src/ui is the design system
@@ -140,6 +143,33 @@ A filtered run (`cargo test session`) writes only the types it matched
 and leaves a file the window cannot compile against. Run
 `cargo test -p toad-core` unfiltered before committing that file; `make
 check` catches it. Never run a filtered test as the last run.
+
+## The model catalogue
+
+Toad Agent's picker is not hand-written. `crates/toad-core/models.json` is
+a snapshot of [models.dev](https://models.dev), the catalogue opencode and
+pi draw theirs from, cut down to the providers `models::WIRING` names and
+the models a coding agent can use: ones that call tools, answer in text
+only, and are not deprecated. The core reads it at start with
+`include_str!`; a test refuses a snapshot whose providers are not exactly
+the wired ones.
+
+To refresh it:
+
+```bash
+cargo run -p toad-core --bin toad-models-sync        # fetch, filter, rewrite
+cargo run -p toad-core --bin toad-models-sync -- --from api.json   # from a saved copy
+```
+
+It prints what each provider gained and lost against the snapshot it was
+built with, then writes the file. Read that diff, run `make check`, commit.
+The snapshot lives in git rather than being fetched at run time because a
+catalogue is behaviour — names, prices, limits — and a release should mean
+the same thing on every machine that runs it.
+
+To add a provider: one `Wiring` line in `models.rs`, one `Client` arm in
+`driver/rig.rs` naming the Rig client that speaks to it, and a sync. The
+key form and the picker learn the name from the catalogue.
 
 ## The harness
 

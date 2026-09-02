@@ -88,6 +88,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.delete` | `{id}` | none |
 | `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
+| `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |

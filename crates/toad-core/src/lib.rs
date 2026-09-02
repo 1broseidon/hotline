@@ -16,6 +16,7 @@ mod fence;
 pub mod import;
 pub mod log;
 pub mod mcp;
+pub mod models;
 pub mod paths;
 pub mod room;
 pub mod session;

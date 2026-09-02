@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendChoice, Credential, Report } from "../generated/contract";
+import type { BackendChoice, Credential, Provider, Report } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
@@ -9,13 +9,6 @@ import { onTablistKey, Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
-
-/** The providers Toad can run a model on today, in the order they are offered. */
-const PROVIDERS = [
-	{ id: "anthropic", name: "Anthropic" },
-	{ id: "openai", name: "OpenAI" },
-	{ id: "openrouter", name: "OpenRouter" },
-];
 
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
@@ -188,7 +181,11 @@ function GeneralSection({
 
 function KeysSection({ onRefuse }: { onRefuse(message: string | null): void }) {
 	const [held, setHeld] = useState<Credential[] | null>(null);
-	const [providerId, setProviderId] = useState(PROVIDERS[0]!.id);
+	/* The providers a key can be for come from the core's model catalogue,
+	 * so a provider added there is offered here without the window knowing
+	 * its name. The first one is the default until the person picks. */
+	const [providers, setProviders] = useState<Provider[]>([]);
+	const [providerId, setProviderId] = useState("");
 	const [secret, setSecret] = useState("");
 	const [busy, setBusy] = useState(false);
 
@@ -200,14 +197,21 @@ function KeysSection({ onRefuse }: { onRefuse(message: string | null): void }) {
 				setHeld([]);
 				onRefuse(error.message);
 			});
+		wire
+			.command("providers.list", {})
+			.then((list) => {
+				setProviders(list);
+				setProviderId((current) => current || (list[0]?.id ?? ""));
+			})
+			.catch((error: Error) => onRefuse(error.message));
 	}, [onRefuse]);
 
 	const save = async () => {
-		if (!secret.trim() || busy) return;
+		if (!secret.trim() || !providerId || busy) return;
 		setBusy(true);
 		onRefuse(null);
 		try {
-			const label = PROVIDERS.find((one) => one.id === providerId)?.name ?? providerId;
+			const label = providers.find((one) => one.id === providerId)?.name ?? providerId;
 			const made = await wire.command("credential.create", { providerId, label, secret: secret.trim() });
 			setHeld((known) => [...(known ?? []), made]);
 			setSecret("");
@@ -259,7 +263,7 @@ function KeysSection({ onRefuse }: { onRefuse(message: string | null): void }) {
 							<Picker
 								field
 								value={providerId}
-								choices={PROVIDERS}
+								choices={providers}
 								placeholder="Provider"
 								label="Provider"
 								onChange={setProviderId}
@@ -281,7 +285,11 @@ function KeysSection({ onRefuse }: { onRefuse(message: string | null): void }) {
 						/>
 					</div>
 					<div className="group-row justify-end">
-						<button type="submit" className="control btn-primary" disabled={busy || secret.trim() === ""}>
+						<button
+							type="submit"
+							className="control btn-primary"
+							disabled={busy || !providerId || secret.trim() === ""}
+						>
 							{busy ? "Saving…" : "Save key"}
 						</button>
 					</div>

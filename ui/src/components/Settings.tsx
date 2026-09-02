@@ -4,6 +4,7 @@ import type {
 	CatalogModel,
 	ConfigChoice,
 	Credential,
+	CredentialKind,
 	LoginPrompt,
 	Provider,
 	Report,
@@ -370,6 +371,7 @@ function ProvidersSection({
 			<ModelsShown
 				providerId={filterId}
 				providerName={named?.name ?? filterId}
+				credentialKind={named?.credentialKind ?? "api_key"}
 				enabledModels={enabledModels}
 				onCancel={() => setFilterId(null)}
 				onRefuse={onRefuse}
@@ -549,12 +551,14 @@ function ProvidersSection({
 function ModelsShown({
 	providerId,
 	providerName,
+	credentialKind,
 	enabledModels,
 	onCancel,
 	onRefuse,
 }: {
 	providerId: string;
 	providerName: string;
+	credentialKind: CredentialKind;
 	enabledModels: Record<string, string[]>;
 	onCancel(): void;
 	onRefuse(message: string | null): void;
@@ -564,18 +568,33 @@ function ModelsShown({
 	const [on, setOn] = useState<Set<string>>(new Set());
 	const [busy, setBusy] = useState(false);
 
+	const applyCatalog = (list: CatalogModel[]) => {
+		setCatalog(list);
+		setOn(new Set(list.filter((model) => model.enabled).map((model) => model.id)));
+	};
+
 	useEffect(() => {
 		wire
 			.command("models.catalog", { providerId })
-			.then((list) => {
-				setCatalog(list);
-				setOn(new Set(list.filter((model) => model.enabled).map((model) => model.id)));
-			})
+			.then(applyCatalog)
 			.catch((error: Error) => {
 				onRefuse(error.message);
 				setCatalog([]);
 			});
 	}, [providerId, onRefuse]);
+
+	const refresh = async () => {
+		if (busy) return;
+		setBusy(true);
+		onRefuse(null);
+		try {
+			applyCatalog(await wire.command("credential.refresh_models", { providerId }));
+		} catch (error) {
+			onRefuse(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
 
 	const save = async () => {
 		if (catalog === null || busy) return;
@@ -631,6 +650,16 @@ function ModelsShown({
 					<button type="button" className="control btn-quiet" disabled={catalog === null} onClick={() => setOn(new Set())}>
 						None
 					</button>
+					{credentialKind === "oauth" && (
+						<button
+							type="button"
+							className="control btn-quiet"
+							disabled={catalog === null || busy}
+							onClick={() => void refresh()}
+						>
+							Refresh
+						</button>
+					)}
 				</div>
 				<p className="group-row text-sm text-ink-3">
 					{catalog === null ? "Reading…" : `${on.size} of ${shown} shown`}

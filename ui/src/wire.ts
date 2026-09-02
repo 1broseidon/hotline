@@ -67,6 +67,7 @@ type Results = {
 	"credential.create": Credential;
 	"credential.login": LoginPrompt;
 	"credential.login_status": LoginStatus;
+	"credential.refresh_models": CatalogModel[];
 	"credential.revoke": null;
 	"credential.delete": null;
 	"credential.list": Credential[];

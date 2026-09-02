@@ -124,7 +124,19 @@ The models a credential unlocks come from the model catalogue
 DeepSeek and Mistral as API keys, and GitHub Copilot and ChatGPT
 (`openai-codex`) as subscription logins, as `provider/model`. A saved
 `enabledModels` filter narrows what is offered, never the model a
-teammate is on. A turn runs on the teammate's own model when the desk
+teammate is on.
+
+GitHub Copilot's picker is that catalogue cut to the models the signed-in
+account can run. The list is fetched at sign-in (`GET {api}/models`,
+through Rig) and stored as `models.json` beside the login. A fetch that
+fails leaves the login in place and no list, with a notice that Refresh
+under Settings → Providers retries. Refresh re-reads the list, which is
+also how a login made before this file existed, or a model newly enabled
+on the account, lands in the picker. Toad does not POST
+`/models/{id}/policy {state: "enabled"}` after login the way pi does, so
+a model the account lists as policy-disabled is simply not offered.
+
+A turn runs on the teammate's own model when the desk
 still lists it, else the room's `defaultModelId`, else `lastModelId`,
 else the newest model the keys unlock. A turn never
 starts a login: missing or unrefreshable tokens fail with a sentence

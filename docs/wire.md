@@ -86,6 +86,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
+| `credential.refresh_models` | `{providerId}` | `CatalogModel[]` that provider's catalogue after a re-fetch |
 | `credential.revoke` | `{id}` | none |
 | `credential.delete` | `{id}` | none |
 | `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
@@ -180,9 +181,17 @@ An ACP teammate does not store one: the harness owns its config ids.
 
 `models.catalog` lists every model the catalogue has for one wired
 provider, each with `enabled` set by that filter, whether or not the
-desk holds a credential. An unwired provider is an error. The filter
-narrows what `models.list` and a session's picker offer; a teammate
-already on a filtered-out model stays on it.
+desk holds a credential — except a subscription whose account list is
+on disk, which lists only those models. An unwired provider is an error.
+The filter narrows what `models.list` and a session's picker offer; a
+teammate already on a filtered-out model stays on it.
+
+`credential.refresh_models` re-reads the models a subscription login
+can run and answers with that provider's `models.catalog`. A provider
+without a login, or whose credential is a key, is an error; a fetch
+that fails is the error text. This is how a login made before the
+account list existed, or a model newly enabled on the account, lands
+in the picker.
 
 `credential.login` starts a device-code login for a provider whose
 `credentialKind` is `oauth`, and answers with the code and URL the person

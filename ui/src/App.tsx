@@ -4,13 +4,14 @@ import { useTape } from "./tape";
 import { wire, type Connection, type RosterEntry } from "./wire";
 import { ChatHeader } from "./components/ChatHeader";
 import { Composer } from "./components/Composer";
-import { Keys } from "./components/Keys";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail } from "./components/Rail";
 import { SearchDrawer } from "./components/SearchDrawer";
+import { Settings } from "./components/Settings";
+import { Teammate } from "./components/Teammate";
 import { Transcript } from "./components/Transcript";
 
-type SheetKind = "new-teammate" | "keys" | null;
+type SheetKind = "new-teammate" | "settings" | "teammate" | null;
 
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
@@ -57,15 +58,19 @@ export function App() {
 
 	const selected = roster.find((one) => one.persona.id === selectedId) ?? null;
 
+	useEffect(() => {
+		if (sheet === "teammate" && selected === null) setSheet(null);
+	}, [sheet, selected]);
+
 	// Opening a teammate is Ctrl+1 through Ctrl+9, in the rail's own order; the
 	// rail says so on each row, because a shortcut nobody can see is no
-	// shortcut. Ctrl+N adds one, Ctrl+, is the keys, Ctrl+F searches the
-	// conversation that is already on screen.
+	// shortcut. Ctrl+N adds one, Ctrl+, is settings, Ctrl+I is the teammate
+	// on screen, Ctrl+F searches the conversation that is already on screen.
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
 			// By physical key as well as by character: a layout that puts
-			// something else on the comma key still opens the keys.
+			// something else on the comma key still opens settings.
 			if (event.key === "n" || event.code === "KeyN") {
 				event.preventDefault();
 				setSheet("new-teammate");
@@ -73,7 +78,13 @@ export function App() {
 			}
 			if (event.key === "," || event.code === "Comma") {
 				event.preventDefault();
-				setSheet("keys");
+				setSheet("settings");
+				return;
+			}
+			if (event.key === "i" || event.code === "KeyI") {
+				if (selectedId === null) return;
+				event.preventDefault();
+				setSheet("teammate");
 				return;
 			}
 			if (event.key === "f" || event.code === "KeyF") {
@@ -107,7 +118,7 @@ export function App() {
 				selectedId={selectedId}
 				onSelect={setSelectedId}
 				onNew={() => setSheet("new-teammate")}
-				onKeys={() => setSheet("keys")}
+				onSettings={() => setSheet("settings")}
 			/>
 
 			<main className="flex min-w-0 flex-1 flex-col bg-paper">
@@ -124,7 +135,7 @@ export function App() {
 						models={models}
 						searchOpen={searchOpen}
 						focus={focus}
-						onOpenKeys={() => setSheet("keys")}
+						onOpenTeammate={() => setSheet("teammate")}
 						onOpenSearch={() => setSearchOpen((open) => !open)}
 						onCloseSearch={() => setSearchOpen(false)}
 						onPick={(personaId, eventId) => {
@@ -152,7 +163,17 @@ export function App() {
 					onClose={() => setSheet(null)}
 				/>
 			)}
-			{sheet === "keys" && <Keys onClose={() => setSheet(null)} />}
+			{sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
+			{sheet === "teammate" && selected && (
+				<Teammate
+					persona={selected.persona}
+					onClose={() => setSheet(null)}
+					onDeleted={() => {
+						setSelectedId(null);
+						setSheet(null);
+					}}
+				/>
+			)}
 		</div>
 	);
 }
@@ -168,7 +189,7 @@ function Conversation({
 	models,
 	searchOpen,
 	focus,
-	onOpenKeys,
+	onOpenTeammate,
 	onOpenSearch,
 	onCloseSearch,
 	onPick,
@@ -178,13 +199,14 @@ function Conversation({
 	models: ConfigChoice[];
 	searchOpen: boolean;
 	focus: { eventId: string; at: number } | null;
-	onOpenKeys(): void;
+	onOpenTeammate(): void;
 	onOpenSearch(): void;
 	onCloseSearch(): void;
 	onPick(personaId: string, eventId: string): void;
 }) {
 	const personaId = entry.persona.id;
 	const { events, streaming } = useTape(personaId);
+	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
 
 	const send = useCallback(
 		(text: string) => void wire.command("session.prompt", { personaId, text }),
@@ -192,6 +214,12 @@ function Conversation({
 	);
 	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
+	const startChapter = useCallback(() => {
+		setChapterSaid(null);
+		void wire.command("chapter.start_fresh", { personaId }).catch((error: Error) => {
+			setChapterSaid(error.message);
+		});
+	}, [personaId]);
 
 	return (
 		<>
@@ -199,9 +227,11 @@ function Conversation({
 				entry={entry}
 				models={models}
 				searchOpen={searchOpen}
+				chapterSaid={chapterSaid}
 				onSetModel={(modelId) => void wire.command("session.set_model", { personaId, modelId })}
-				onOpenKeys={onOpenKeys}
+				onOpenTeammate={onOpenTeammate}
 				onOpenSearch={onOpenSearch}
+				onNewChapter={startChapter}
 			/>
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript events={events} streaming={streaming} focus={focus} />

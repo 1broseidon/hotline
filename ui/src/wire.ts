@@ -6,6 +6,7 @@ import type {
 	Persona,
 	PersonaDraft,
 	Preview,
+	Reach,
 	SessionInfo,
 	StreamDelta,
 	ThreadSearchHit,
@@ -38,6 +39,25 @@ export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean }
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
 export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
 
+/**
+ * `room.import`'s answer: how many of each thing came over, and what it left.
+ * Hand-written until the import branch's `Report` lands in the generated file.
+ */
+export type Report = {
+	teammates: number;
+	tapes: number;
+	settings: number;
+	keys: number;
+	skipped: Array<{ item: string; reason: string }>;
+};
+
+/**
+ * A teammate patch as the window sends one. `reach` is `machine` or JSON
+ * `null`: absent is the working directory, and `null` is how a toggle writes
+ * that absence — `undefined` would drop the key and leave the old value.
+ */
+export type PersonaPatch = Partial<Omit<Persona, "reach">> & { reach?: Reach | null };
+
 // ---------------------------------------------------------------------------
 // The command surface
 // ---------------------------------------------------------------------------
@@ -45,8 +65,13 @@ export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean }
 /** Every command the window may send, with what it sends and what it gets back. */
 export type Commands = {
 	"persona.create": { params: { draft: PersonaDraft }; result: Persona };
-	"persona.update": { params: { id: string; patch: Partial<Persona> }; result: Persona };
+	"persona.update": { params: { id: string; patch: PersonaPatch }; result: Persona };
 	"persona.delete": { params: { id: string }; result: null };
+	"settings.update": {
+		params: { patch: Record<string, unknown> };
+		result: Record<string, unknown>;
+	};
+	"room.import": { params: { from: string }; result: Report };
 	"session.start": { params: { personaId: string }; result: SessionInfo };
 	"session.stop": { params: { personaId: string }; result: null };
 	"session.prompt": { params: { personaId: string; text: string }; result: null };
@@ -61,6 +86,7 @@ export type Commands = {
 	"search.thread": { params: { personaId: string; query: string }; result: ThreadSearchResult };
 	"search.all": { params: { query: string }; result: GlobalSearchResult };
 	"chapter.list": { params: { personaId: string }; result: ChapterSummary[] };
+	"chapter.start_fresh": { params: { personaId: string }; result: ChapterSummary };
 };
 
 export type CommandName = keyof Commands;

@@ -20,13 +20,13 @@ export function Rail({
 	selectedId,
 	onSelect,
 	onNew,
-	onKeys,
+	onSettings,
 }: {
 	entries: RosterEntry[];
 	selectedId: string | null;
 	onSelect(personaId: string): void;
 	onNew(): void;
-	onKeys(): void;
+	onSettings(): void;
 }) {
 	return (
 		<nav aria-label="Team" className="flex w-60 shrink-0 flex-col border-r border-rule bg-paper-2">
@@ -36,9 +36,9 @@ export function Rail({
 					<button
 						type="button"
 						className="rounded-md px-1.5 text-sm leading-none text-ink-3 hover:text-ink"
-						title="Keys (Ctrl+,)"
-						aria-label="Keys"
-						onClick={onKeys}
+						title="Settings (Ctrl+,)"
+						aria-label="Settings"
+						onClick={onSettings}
 					>
 						⚙
 					</button>

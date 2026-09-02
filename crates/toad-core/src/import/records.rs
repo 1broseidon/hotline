@@ -7,15 +7,20 @@
 //! leaves. Deletes leave tombstones so a peer that was offline still learns
 //! them.
 //!
-//! Every read here answers empty rather than failing. A store that is missing,
-//! will not open, or holds bytes that are not a database is the only copy of a
-//! roster somebody typed: the main latches it damaged and refuses to write, and
-//! an empty rail is survivable where a broken window is not. So there is no
-//! `Result` in this module's surface — a fault is an empty answer, and the
-//! bytes stay exactly where they are for someone to look at.
+//! Listing helpers used by the roster reader still answer empty rather than
+//! failing. A store that is missing, will not open, or holds bytes that are
+//! not a database is the only copy of a roster somebody typed: the main
+//! latches it damaged and refuses to write, and an empty rail is survivable
+//! where a broken window is not. A fault on that path is an empty answer, and
+//! the bytes stay exactly where they are for someone to look at.
+//!
+//! The importer's path is fallible. A `store.sqlite` that exists but cannot
+//! be opened or queried is an error naming the file, because a report of
+//! zeros is silence about a roster that is still on disk.
 
 use rusqlite::{Connection, OpenFlags, Row};
 use serde_json::{Map, Value};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -53,13 +58,72 @@ pub struct ResourceRecord {
 /// only ever blocked by a checkpoint, and waiting out one beats answering an
 /// empty roster because a teammate was being renamed at that moment.
 pub fn open(root: &Path) -> Option<Connection> {
+    open_readonly(root).ok()
+}
+
+fn open_readonly(root: &Path) -> rusqlite::Result<Connection> {
     let database = Connection::open_with_flags(
         store_path(root),
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
-    database.busy_timeout(Duration::from_secs(5)).ok()?;
-    Some(database)
+    )?;
+    database.busy_timeout(Duration::from_secs(5))?;
+    Ok(database)
+}
+
+/// Opens the store read-only for the importer.
+///
+/// A missing file is `Ok(None)`: a data directory with no store is an empty
+/// roster, not an error. A file that exists but will not open is an error
+/// naming it.
+pub(crate) fn open_for_import(root: &Path) -> io::Result<Option<Connection>> {
+    let path = store_path(root);
+    if !path.exists() {
+        return Ok(None);
+    }
+    open_readonly(root)
+        .map(Some)
+        .map_err(|error| io::Error::other(format!("{} cannot be read ({error})", path.display())))
+}
+
+/// Confirms a store copy can be opened and queried. `named` is the path the
+/// error should mention — the source file, not a temporary copy.
+///
+/// `PRAGMA quick_check` is the torn-copy detector: a `-wal` copied without
+/// its `-shm` still reads, and SQLite rebuilds the index, but a copy whose
+/// frames do not hang together must not become a smaller roster. The
+/// personas count is the same question asked of the table the importer
+/// actually reads.
+pub(crate) fn require_readable(root: &Path, named: &Path) -> io::Result<()> {
+    if !store_path(root).exists() {
+        return Err(io::Error::other(format!(
+            "{} cannot be read",
+            named.display()
+        )));
+    }
+    let database = open_readonly(root).map_err(|error| {
+        io::Error::other(format!("{} cannot be read ({error})", named.display()))
+    })?;
+    let status: String = database
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|error| {
+            io::Error::other(format!("{} cannot be read ({error})", named.display()))
+        })?;
+    if status != "ok" {
+        return Err(io::Error::other(format!(
+            "{} did not copy intact ({status})",
+            named.display()
+        )));
+    }
+    database
+        .query_row(
+            "SELECT count(*) FROM resources WHERE kind = 'persona'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| {
+            io::Error::other(format!("{} cannot be read ({error})", named.display()))
+        })?;
+    Ok(())
 }
 
 /// A JSON column as an object, or nothing when it is absent or not one.
@@ -104,15 +168,18 @@ pub fn local_node_id(database: &Connection) -> Option<String> {
 /// dragged is shown in the order `config.json` had; where a row sits after a
 /// drag is view state the caller applies.
 pub fn list_records(database: &Connection, kind: &str) -> Vec<ResourceRecord> {
-    let Ok(mut statement) =
-        database.prepare("SELECT * FROM resources WHERE kind = ? AND deleted = 0 ORDER BY rowid")
-    else {
-        return Vec::new();
-    };
-    let Ok(rows) = statement.query_map([kind], record_of) else {
-        return Vec::new();
-    };
-    rows.flatten().collect()
+    try_list_records(database, kind).unwrap_or_default()
+}
+
+/// The same listing, failing when the store cannot be queried.
+pub(crate) fn try_list_records(
+    database: &Connection,
+    kind: &str,
+) -> rusqlite::Result<Vec<ResourceRecord>> {
+    let mut statement = database
+        .prepare("SELECT * FROM resources WHERE kind = ? AND deleted = 0 ORDER BY rowid")?;
+    let rows = statement.query_map([kind], record_of)?;
+    rows.collect()
 }
 
 /// One record, tombstone included: whether a deleted row still counts is the

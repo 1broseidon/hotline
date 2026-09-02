@@ -1,12 +1,13 @@
 //! Import an existing Toad data directory into this room.
 //!
 //! The source is never written: `store.sqlite` is opened read-only, tapes are
-//! copied, and secrets are read out of the old vault. A tape lands before
-//! the roster row that names it, so an import cut short leaves a teammate
-//! this room has not heard of, not one whose conversation is gone; a
-//! teammate already in the roster is left alone unless its tape is the part
-//! still owed, and a tape that already exists here is not overwritten, so
-//! running the import twice is the same as running it once.
+//! copied, and secrets are read out of the old vault. A store that exists
+//! but cannot be read is an error, not an import of nothing. A tape lands
+//! before the roster row that names it, so an import cut short leaves a
+//! teammate this room has not heard of, not one whose conversation is gone;
+//! a teammate already in the roster is left alone unless its tape is the
+//! part still owed, and a tape that already exists here is not overwritten,
+//! so running the import twice is the same as running it once.
 //! A teammate's working directory stays where it is — under the old data
 //! directory's `workspaces/` when that was the default — because the
 //! workspace is the project, not a copy of it. Backend ids are mapped onto
@@ -23,7 +24,7 @@ use crate::log::{Log, StreamId};
 use crate::store::search::Indexer;
 use crate::vault::Vault;
 use crate::{paths, room};
-use records::{list_records, open};
+use records::{open_for_import, try_list_records};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashSet};
@@ -303,7 +304,7 @@ fn import_keys(
     vault: &Vault,
     report: &mut Report,
 ) -> io::Result<()> {
-    let Some(database) = open(store_root) else {
+    let Some(database) = open_for_import(store_root)? else {
         return Ok(());
     };
     let secrets = source_secrets(from)?;
@@ -314,7 +315,13 @@ fn import_keys(
         .map(|credential| (credential.provider_id, credential.label))
         .collect();
 
-    for record in list_records(&database, "credential") {
+    let credentials = try_list_records(&database, "credential").map_err(|error| {
+        io::Error::other(format!(
+            "{} cannot be read ({error})",
+            records::store_path(from).display()
+        ))
+    })?;
+    for record in credentials {
         let provider = record
             .replicated
             .get("providerId")
@@ -530,6 +537,7 @@ fn snapshot_store(from: &Path) -> io::Result<Option<StoreSnapshot>> {
             }
         }
     }
+    records::require_readable(&dir, &store)?;
     Ok(Some(StoreSnapshot { dir }))
 }
 
@@ -555,6 +563,7 @@ fn source_secrets(from: &Path) -> io::Result<BTreeMap<String, String>> {
 
 #[cfg(test)]
 mod tests {
+    use super::records;
     use super::records::fixture::{Put, create, scratch as store_scratch};
     use super::*;
     use crate::store::search;
@@ -1089,6 +1098,27 @@ mod tests {
                 .iter()
                 .any(|(item, _)| item.contains("chapterIdleHours")),
             "{skipped:?}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_store_is_an_error() {
+        let from = store_scratch("import-unreadable");
+        fs::write(
+            records::store_path(&from),
+            "this file is emphatically not a sqlite database\n",
+        )
+        .unwrap();
+        let (_to, log, vault) = dest("import-unreadable-dest");
+        let error = import(&from, &log, &vault).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("store.sqlite"),
+            "the error should name the file: {message}"
+        );
+        assert!(
+            message.contains("cannot be read") || message.contains("did not copy intact"),
+            "{message}"
         );
     }
 }

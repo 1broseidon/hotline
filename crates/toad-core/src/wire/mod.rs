@@ -71,6 +71,10 @@ mod tests;
 pub trait RoomHandle: Send + Sync + 'static {
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
+    /// Rebuilds a live session from the teammate's current record.
+    async fn reattach(&self, persona_id: &str) -> Result<(), String>;
+    /// Every live session: a change to the room's servers reaches all of them.
+    async fn reattach_all(&self) -> Result<(), String>;
     async fn prompt(
         &self,
         persona_id: &str,

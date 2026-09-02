@@ -111,6 +111,14 @@ impl RoomHandle for Desk {
         self.room.stop(persona_id)
     }
 
+    async fn reattach(&self, persona_id: &str) -> Result<(), String> {
+        self.room.reattach(persona_id).await
+    }
+
+    async fn reattach_all(&self) -> Result<(), String> {
+        self.room.reattach_all().await
+    }
+
     async fn prompt(
         &self,
         persona_id: &str,

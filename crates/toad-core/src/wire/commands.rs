@@ -25,9 +25,22 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::PersonaCreate { draft } => create_persona(log, draft),
-        Command::PersonaUpdate { id, patch } => update_persona(log, &id, &patch),
+        Command::PersonaUpdate { id, patch } => {
+            let updated = update_persona(log, &id, &patch)?;
+            if persona_patch_reattaches(&patch) {
+                room.reattach(&id).await?;
+            }
+            Ok(updated)
+        }
         Command::PersonaDelete { id } => delete_persona(log, room, &id),
-        Command::SettingsUpdate { patch } => update_settings(log, patch),
+        Command::SettingsUpdate { patch } => {
+            let servers = patch.contains_key("mcpServers");
+            let updated = update_settings(log, patch)?;
+            if servers {
+                room.reattach_all().await?;
+            }
+            Ok(updated)
+        }
 
         Command::CredentialCreate {
             provider_id,
@@ -260,6 +273,25 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
     room::append_persona(log, &updated)?;
     Ok(json!(updated))
+}
+
+/// A patch of these fields rebuilds the driver, so a live session has to
+/// restart for the new tools to take effect. `name`, `team`, `face`,
+/// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
+/// switch live.
+fn persona_patch_reattaches(patch: &Value) -> bool {
+    const KEYS: [&str; 7] = [
+        "cwd",
+        "reach",
+        "goal",
+        "mcpPolicy",
+        "computer",
+        "backendId",
+        "harnessOverride",
+    ];
+    patch
+        .as_object()
+        .is_some_and(|fields| KEYS.iter().any(|key| fields.contains_key(*key)))
 }
 
 /// The tombstone is the same kind and id again, so the fold finds it instead

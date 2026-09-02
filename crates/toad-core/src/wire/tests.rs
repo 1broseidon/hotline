@@ -61,6 +61,7 @@ struct Quiet {
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
     states: Mutex<HashMap<String, SessionInfo>>,
+    reattaches: Mutex<Vec<String>>,
 }
 
 impl Quiet {
@@ -69,6 +70,7 @@ impl Quiet {
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
             states: Mutex::new(HashMap::new()),
+            reattaches: Mutex::new(Vec::new()),
         }
     }
 
@@ -78,6 +80,13 @@ impl Quiet {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(info.persona_id.clone(), info.clone());
         let _ = self.infos.send(info);
+    }
+
+    fn reattached(&self) -> Vec<String> {
+        self.reattaches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -91,6 +100,28 @@ impl RoomHandle for Quiet {
     }
 
     fn stop(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn reattach(&self, persona_id: &str) -> Result<(), String> {
+        self.reattaches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(persona_id.to_string());
+        Ok(())
+    }
+
+    async fn reattach_all(&self) -> Result<(), String> {
+        let ids: Vec<String> = self
+            .states
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect();
+        for id in ids {
+            self.reattach(&id).await?;
+        }
         Ok(())
     }
 
@@ -1380,4 +1411,99 @@ async fn session_start_writes_last_model_id_from_the_sessions_info() {
     let answer = answered(&mut socket, 2).await;
     assert_eq!(answer["ok"], true, "{answer}");
     assert_eq!(room::settings(&log)["lastModelId"], "anthropic/claude");
+}
+
+/// A patch that changes what a teammate can use restarts it; a patch of
+/// only the name does not, because the driver is not built from the name.
+#[tokio::test]
+async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("reattach-persona", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "persona.update",
+            "params": { "id": id, "patch": { "reach": "machine" } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 2).await["ok"], true);
+    assert_eq!(quiet.reattached(), vec![id.clone()]);
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 3,
+            "cmd": "persona.update",
+            "params": { "id": id, "patch": { "name": "Ada Lovelace" } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 3).await["ok"], true);
+    assert_eq!(
+        quiet.reattached(),
+        vec![id],
+        "a name patch reattached a second time"
+    );
+}
+
+/// The room's server list is what every policy of "all" includes, so every
+/// live session restarts. A setting that does not name servers leaves them.
+#[tokio::test]
+async fn settings_update_of_mcp_servers_reattaches_every_live_session() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("reattach-servers", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    let ada_id = ada["id"].as_str().unwrap().to_string();
+    let bob_id = bob["id"].as_str().unwrap().to_string();
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "session.start", "params": { "personaId": ada_id } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 3).await["ok"], true);
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "session.start", "params": { "personaId": bob_id } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 4).await["ok"], true);
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 5,
+            "cmd": "settings.update",
+            "params": { "patch": { "mcpServers": [] } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 5).await["ok"], true);
+    let mut got = quiet.reattached();
+    got.sort();
+    let mut want = vec![ada_id, bob_id];
+    want.sort();
+    assert_eq!(got, want);
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 6,
+            "cmd": "settings.update",
+            "params": { "patch": { "chapterIdleHours": 2 } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 6).await["ok"], true);
+    let mut after = quiet.reattached();
+    after.sort();
+    assert_eq!(after, want, "a chapterIdleHours patch reattached again");
 }

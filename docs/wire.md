@@ -174,7 +174,8 @@ source is never written. `Report` is `{teammates, tapes, settings, keys,
 skipped: [{item, reason}], notes: [{item, reason}]}`. `skipped` is left
 behind (a setting this Toad does not have, a teammate already in the
 roster); `notes` is imported with a caveat (a backend this registry has
-no counterpart for, an MCP server this tree cannot read). A
+no counterpart for, an MCP server this tree cannot read) or a rebuildable
+piece that failed (the search index will catch up on the next start). A
 `store.sqlite` that exists but cannot be read is an error, not a report
 of zeros.
 

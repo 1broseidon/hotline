@@ -227,7 +227,9 @@ The one connection that creates the file is `store::search::Indexer`, in
 the process that owns the tapes. A question is asked over a read-only
 connection that creates nothing. Live appends are offered to the indexer
 as they land; import calls `sync`, which re-reads a tape whose size or
-mtime differs from the stamp last written. A schema change is a new
+mtime differs from the stamp last written. A failed import sync is a
+note on the report rather than a failed import, because the index is
+rebuildable and the next start will catch up. A schema change is a new
 `CREATE` and a rebuild — nothing migrates this file.
 
 Two things are indexed. Messages answer "where did we say X". Chapters —

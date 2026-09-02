@@ -445,6 +445,11 @@ impl Indexer {
         // the open below is the one that says so properly.
         let _ = fs::create_dir_all(log.root());
         let database = Connection::open(index_path(log.root()))?;
+        // The room holds one writer on this file. Import opens a second, and
+        // a teammate mid-turn would otherwise fail the whole import with
+        // "database is locked". Waiting out one checkpoint beats that; the
+        // read-only question path already waits the same five seconds.
+        database.busy_timeout(Duration::from_secs(5))?;
         database.pragma_update(None, "journal_mode", "WAL")?;
         for statement in SCHEMA {
             database.execute(statement, [])?;

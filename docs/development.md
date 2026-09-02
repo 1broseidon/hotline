@@ -205,3 +205,5 @@ registry (the previous Toad's DEFAULT table — `pi`, `cursor`, `opencode`,
 `gemini`, `claude-acp`, `codex-acp` — already matches the hand-taught
 ids here). An id this build has no harness for is kept as written, and
 the report notes it so the session can refuse that start in a sentence.
+A search index that cannot be written is the same kind of note: the
+index is rebuildable, and the next start will catch up.

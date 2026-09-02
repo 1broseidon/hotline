@@ -130,8 +130,15 @@ pub fn import(from: &Path, log: &Log, vault: &Vault) -> io::Result<Report> {
 
     if !imported.is_empty() {
         settle_tapes(log, &imported)?;
-        let mut indexer = Indexer::open(log).map_err(io::Error::other)?;
-        indexer.sync(&imported).map_err(io::Error::other)?;
+        if Indexer::open(log)
+            .and_then(|mut indexer| indexer.sync(&imported))
+            .is_err()
+        {
+            report.notes.push(Skipped {
+                item: "search index".into(),
+                reason: "search index will catch up on the next start".into(),
+            });
+        }
     }
 
     Ok(report)
@@ -1216,5 +1223,22 @@ mod tests {
         assert_eq!(records::list_records(&reader, "persona").len(), 1);
         records::require_readable(snapshot.path(), &records::store_path(&from)).unwrap();
         drop(database);
+    }
+
+    #[test]
+    fn a_failed_index_sync_is_a_note() {
+        let from = store_scratch("import-index-fail");
+        write_old_room(&from);
+        let (_to, log, vault) = dest("import-index-fail-dest");
+        fs::create_dir_all(crate::paths::index_path(log.root())).unwrap();
+
+        let report = import(&from, &log, &vault).unwrap();
+        assert_eq!(report.teammates, 3, "{report:?}");
+        assert_eq!(report.tapes, 2, "{report:?}");
+        assert!(
+            report.notes.iter().any(|note| note.item == "search index"
+                && note.reason == "search index will catch up on the next start"),
+            "{report:?}"
+        );
     }
 }

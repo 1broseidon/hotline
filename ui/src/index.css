@@ -379,6 +379,7 @@
 
 	/* A picker in the band: label, then a chevron. Looks like a pull-down. */
 	.picker {
+		min-width: 0;
 		max-width: 220px;
 		padding: 0 6px 0 8px;
 		color: var(--ink-2);
@@ -1093,6 +1094,18 @@
 		flex: 1;
 		flex-direction: column;
 		background: var(--bg);
+	}
+	/* The conversation band names the teammate, then the path, then the
+	 * pickers. Once the column is narrower than the pickers need, the path
+	 * collapses to a few characters of RTL ellipsis that read as a stray
+	 * chip. Hide it; the name button still carries the path as its title. */
+	.conversation {
+		container-type: inline-size;
+	}
+	@container (max-width: 720px) {
+		.band-path {
+			display: none;
+		}
 	}
 	.pane-scroll {
 		min-height: 0;

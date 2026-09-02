@@ -178,7 +178,7 @@ export function Conversation({
 					</span>
 				</button>
 
-				<span className="min-w-0 flex-1 truncate px-2 font-mono text-xs text-ink-4" dir="rtl" title={persona.cwd}>
+				<span className="band-path min-w-0 flex-1 truncate px-2 font-mono text-xs text-ink-4" dir="rtl" title={persona.cwd}>
 					<bdi>{persona.cwd}</bdi>
 				</span>
 

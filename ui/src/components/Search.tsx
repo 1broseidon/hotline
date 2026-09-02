@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChapterClose, ChapterSummary, GlobalSearchHit, ThreadSearchHit } from "../generated/contract";
 import { ChevronDownIcon, ChevronRightIcon, SearchIcon } from "../icons";
+import { onTablistKey } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 
 /** How long to wait after a keystroke before asking the index. */
@@ -172,7 +173,7 @@ export function Search({
 					/>
 				</label>
 				<div className="flex items-center justify-between px-1">
-					<div className="segmented" role="tablist" aria-label="Where to search">
+					<div className="segmented" role="tablist" aria-label="Where to search" onKeyDown={onTablistKey}>
 						<button type="button" role="tab" className="segment" aria-selected={!everywhere} onClick={() => scope(false)}>
 							Here
 						</button>

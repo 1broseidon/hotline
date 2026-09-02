@@ -310,3 +310,15 @@ export function MenuButton({
 		</>
 	);
 }
+
+/** Arrows walk a `role=tablist`; Tab already lands on each tab. */
+export function onTablistKey(event: KeyboardEvent<HTMLElement>): void {
+	if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+	const tabs = [...event.currentTarget.querySelectorAll<HTMLElement>("[role=tab]")];
+	const from = tabs.indexOf(event.target as HTMLElement);
+	if (from < 0) return;
+	event.preventDefault();
+	const next = tabs[(from + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+	next?.focus();
+	next?.click();
+}

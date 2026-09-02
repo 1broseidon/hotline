@@ -72,22 +72,28 @@ export function Composer({
 	useEffect(() => {
 		let cancelled = false;
 		let stop: (() => void) | undefined;
-		void getCurrentWebview()
-			.onDragDropEvent((event) => {
-				const payload = event.payload;
-				if (payload.type !== "drop") return;
-				setAttachments((known) => mergeDropped(known, payload.paths));
-			})
-			.then((unlisten) => {
-				if (cancelled) {
-					unlisten();
-					return;
-				}
-				stop = unlisten;
-			})
-			.catch(() => {
-				// A browser tab is not the desk; drops are a desktop thing.
-			});
+		// getCurrentWebview() throws in a browser tab before a promise exists,
+		// so the catch below never runs unless the call itself is guarded.
+		try {
+			void getCurrentWebview()
+				.onDragDropEvent((event) => {
+					const payload = event.payload;
+					if (payload.type !== "drop") return;
+					setAttachments((known) => mergeDropped(known, payload.paths));
+				})
+				.then((unlisten) => {
+					if (cancelled) {
+						unlisten();
+						return;
+					}
+					stop = unlisten;
+				})
+				.catch(() => {
+					// The desk's drop channel is missing; chips still come from nowhere.
+				});
+		} catch {
+			// A browser tab is not the desk; drops are a desktop thing.
+		}
 		return () => {
 			cancelled = true;
 			stop?.();

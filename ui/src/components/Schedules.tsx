@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ScheduleKind, ScheduledJob } from "../generated/contract";
 import { CloseIcon } from "../icons";
 import { durationText, firstLine, nextText } from "../room";
-import { Picker } from "../ui/Menu";
+import { onTablistKey, Picker } from "../ui/Menu";
 import { wire } from "../wire";
 
 const MINUTE = 60_000;
@@ -165,7 +165,7 @@ function AddJob({ personaId }: { personaId: string }) {
 
 	return (
 		<div className="mt-3 flex flex-col gap-3">
-			<div className="segmented self-start" role="tablist" aria-label="When">
+			<div className="segmented self-start" role="tablist" aria-label="When" onKeyDown={onTablistKey}>
 				<button type="button" role="tab" className="segment" aria-selected={kind === "schedule"} onClick={() => setKind("schedule")}>
 					Once
 				</button>

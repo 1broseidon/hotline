@@ -4,7 +4,7 @@ import { CloseIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
-import { Picker } from "../ui/Menu";
+import { onTablistKey, Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
@@ -54,7 +54,12 @@ export function Settings({
 		<div className="pane">
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Settings</h2>
-				<div className="segmented absolute left-1/2 -translate-x-1/2" role="tablist" aria-label="Settings sections">
+				<div
+					className="segmented absolute left-1/2 -translate-x-1/2"
+					role="tablist"
+					aria-label="Settings sections"
+					onKeyDown={onTablistKey}
+				>
 					{SECTIONS.map((one) => (
 						<button
 							key={one.id}

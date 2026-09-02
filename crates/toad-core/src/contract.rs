@@ -376,6 +376,44 @@ pub struct PersonaDraft {
 }
 
 // ---------------------------------------------------------------------------
+// Credentials
+// ---------------------------------------------------------------------------
+
+/// A provider credential, as the room knows one: everything except the secret.
+///
+/// The secret is never an event. It lives in the vault — a `0600` file in a
+/// `0700` directory on this machine — and the room stream carries only this,
+/// so a stream can be read, copied or shipped without a key going with it.
+/// A `credential` event is these fields under that `kind`; a deletion is the
+/// same id with `deleted: true` and nothing else.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Credential {
+    pub id: String,
+    pub provider_id: String,
+    /// The event's own `kind` names the event, so a credential's kind is
+    /// spelled differently here: two fields called `kind` would be one field.
+    pub credential_kind: CredentialKind,
+    /// What the user called it, so a list of keys is a list they recognise.
+    pub label: String,
+    /// Revoked. Set once and never unset — revocation is a fact, not a toggle.
+    pub revoked: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// What a credential's secret is. One word today, because every provider Toad
+/// talks to takes an API key; the subscription logins that do not are a later
+/// phase, and they arrive as a second word here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CredentialKind {
+    ApiKey,
+}
+
+// ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 

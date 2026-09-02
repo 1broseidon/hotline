@@ -15,3 +15,4 @@ pub mod paths;
 pub mod room;
 pub mod store;
 pub mod tools;
+pub mod vault;

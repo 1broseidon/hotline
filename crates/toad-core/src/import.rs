@@ -601,6 +601,11 @@ fn snapshot_store(from: &Path) -> io::Result<Option<StoreSnapshot>> {
         }
     }
     make_private_dir(&dir)?;
+    // The guard owns the directory from here, so a copy or a check that
+    // fails takes its half-made snapshot with it instead of leaving a copy
+    // of the store in the temporary directory.
+    let snapshot = StoreSnapshot { dir };
+    let dir = snapshot.path();
     copy_private(&store, &dir.join("store.sqlite"))?;
     if let Some(name) = store.file_name() {
         let wal = store.with_file_name(format!("{}-wal", name.to_string_lossy()));
@@ -608,12 +613,12 @@ fn snapshot_store(from: &Path) -> io::Result<Option<StoreSnapshot>> {
             copy_private(&wal, &dir.join("store.sqlite-wal"))?;
         }
     }
-    records::require_readable(&dir, &store)?;
+    records::require_readable(dir, &store)?;
     // Opening the copy for the check can create a `-shm` beside it. That
     // file is this process's index of the copy, not part of the snapshot,
     // and leaving it would look like we copied the source's.
     let _ = fs::remove_file(dir.join("store.sqlite-shm"));
-    Ok(Some(StoreSnapshot { dir }))
+    Ok(Some(snapshot))
 }
 
 fn make_private_dir(dir: &Path) -> io::Result<()> {

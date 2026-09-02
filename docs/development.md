@@ -179,7 +179,9 @@ pi draw theirs from, cut down to the providers `models::WIRING` names and
 the models a coding agent can use: ones that call tools, answer in text
 only, and are not deprecated. The core reads it at start with
 `include_str!`; a test refuses a snapshot whose providers are not exactly
-the wired ones.
+the wired ones. A model's `reasoning_options` becomes `efforts`: only the
+`effort` type is read (a `toggle` or `budget_tokens` option is ignored),
+in the order models.dev lists the values.
 
 To refresh it:
 

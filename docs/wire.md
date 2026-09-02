@@ -93,12 +93,14 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
+| `models.efforts` | `{modelId}` | `ConfigChoice[]` that model's effort levels, empty when it has none |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
 | `session.cancel` | `{personaId}` | none |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
+| `session.set_config` | `{personaId, configId, value}` | `SessionInfo` |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
@@ -131,7 +133,7 @@ or somebody else answered first. The tape still writes `dismissed` for a
 decline, which is the previous Toad's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
-modelId?, computer?}`. Create fills what the draft leaves blank: a fresh
+modelId?, effortId?, computer?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"pi"`, a workspace under the data directory,
 `mcpPolicy` `{mode: "all", serverIds: []}`, and no `reach` unless the
@@ -162,6 +164,19 @@ live session second. It works on an idle teammate: the persona is the
 truth, and the live switch is a courtesy to the turn already running. A
 Toad Agent id the desk's `models.list` does not name is refused; an ACP
 teammate accepts any non-empty id, and the harness validates when live.
+
+`session.set_config` is the same shape for a setting that is not the
+model or the mode. For a Toad Agent teammate with `configId` `"effort"`,
+it writes `effortId` (or `null` when `value` is empty) first and
+switches a live session second. A value the teammate's effective model
+does not list is refused; when no model is known yet, the value is
+accepted. An ACP teammate goes only to the live session — idle is "That
+teammate is not running." `models.efforts` is the idle picker's list for
+one catalogue id, each choice labelled (`low` → "Low", `xhigh` →
+"Extra high"). A new teammate starts on the model's default effort.
+
+`effortId` on the persona is the stored effort, optional like `modeId`.
+An ACP teammate does not store one: the harness owns its config ids.
 
 `models.catalog` lists every model the catalogue has for one wired
 provider, each with `enabled` set by that filter, whether or not the

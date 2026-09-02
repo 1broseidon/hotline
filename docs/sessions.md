@@ -131,6 +131,21 @@ starts a login: missing or unrefreshable tokens fail with a sentence
 asking for sign-in. No credential, no session: start is refused with a
 sentence pointing at Settings → Agents. This agent does not offer modes.
 
+A model that lists efforts offers an Effort picker. The value lives on
+the persona as `effortId` and is sent on every request through Rig's
+`additional_params`. A model switch keeps the effort only if the new
+model lists it; otherwise it clears. Which clients carry an effort, and
+what is sent:
+
+| client | body |
+| --- | --- |
+| Anthropic | `{"thinking": {"type": "adaptive"}, "output_config": {"effort": e}}` |
+| OpenAI, ChatGPT, OpenRouter, xAI | `{"reasoning": {"effort": e}}` |
+| Copilot (Responses, a `codex` model) | `{"reasoning": {"effort": e}}` |
+| Copilot (chat completions) | `{"reasoning_effort": e}` |
+| Gemini | `{"generationConfig": {"thinkingConfig": {"thinkingLevel": e}}}` for `minimal\|low\|medium\|high` |
+| Groq, DeepSeek, Mistral | `{"reasoning_effort": e}` |
+
 ## An ACP child
 
 An ACP teammate (`driver/acp.rs`) is another process. Toad holds no

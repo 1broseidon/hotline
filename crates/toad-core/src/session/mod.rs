@@ -7,9 +7,11 @@
 //! - The user's line is on the tape **before** the driver sees it. What was
 //!   said is a fact the moment somebody said it, and a turn that fails must
 //!   not lose the message that started it.
-//! - Every driver update becomes exactly one tape event, in the shapes the
+//! - Every driver update becomes the tape events it is, in the shapes the
 //!   previous Toad wrote — [`crate::contract::TranscriptEvent`] pins them, and
-//!   a tape written here opens in that app unchanged.
+//!   a tape written here opens in that app unchanged. An agent's message is
+//!   chat or a note ([`pacing`]), decided here so both kinds of agent and a
+//!   peer thread get the same bubbles.
 //! - Every append is offered to the search index. The index is rebuildable, so
 //!   a failure there is printed and swallowed; a failure to write the tape is
 //!   the record, and is printed too because nothing above can undo it.
@@ -35,6 +37,7 @@
 
 mod chapters;
 pub(crate) mod ledger;
+mod pacing;
 mod peers;
 mod quiet;
 pub(crate) mod schedule;
@@ -1586,7 +1589,7 @@ impl Room {
             self.fail_in_flight(session, in_flight);
             self.checkpoint(session);
         }
-        if let Some(event) = event_of(update, in_flight) {
+        for event in event_of(update, in_flight) {
             self.append(session, event);
         }
     }
@@ -1809,6 +1812,11 @@ fn sweep_idle_chapters(room: Weak<Room>) {
 /// as one implicit chapter. A chapter that reopened an earlier one is that
 /// earlier stretch plus anything said since, because Toad Agent has no
 /// checkpoint and the tape is its memory of the work.
+///
+/// The model said one thing; the tape may show it as several bubbles. Consecutive
+/// agent events collapse back into one [`Said::Agent`], and a note is rejoined
+/// as `# {title}\n\n{body}`, so the model sees one thing again. The Rig history
+/// is built from this, not from the tape, so it does not need a second fold.
 fn said(events: &[Value]) -> Vec<Said> {
     let within: Vec<&Value> = match chapter_view::open_chapter(events) {
         Some(open) => {
@@ -1826,47 +1834,87 @@ fn said(events: &[Value]) -> Vec<Said> {
         None if chapter_view::chapters_of(events).is_empty() => events.iter().collect(),
         None => Vec::new(),
     };
-    within
-        .iter()
-        .filter_map(|event| {
-            let text = event.get("text")?.as_str()?.to_string();
-            match event.get("kind")?.as_str()? {
-                "user" => Some(Said::User(text)),
-                "agent" => Some(Said::Agent(text)),
-                _ => None,
+    fold_said(within.iter().filter_map(|event| {
+        let text = event.get("text")?.as_str()?;
+        match event.get("kind")?.as_str()? {
+            "user" => Some(Said::User(text.to_string())),
+            "agent" => Some(Said::Agent(pacing::spoken(
+                event.get("title").and_then(Value::as_str),
+                text,
+            ))),
+            _ => None,
+        }
+    }))
+}
+
+/// Consecutive agent events are one thing the model said, shown as several
+/// bubbles. A note is the same fact with a title: the model sees `# title`
+/// then the body, the tape stores them apart. Fold here so a teammate's tape
+/// and a peer thread put the pieces back the same way.
+fn fold_said(lines: impl IntoIterator<Item = Said>) -> Vec<Said> {
+    let mut out = Vec::new();
+    for line in lines {
+        match (out.last_mut(), line) {
+            (Some(Said::Agent(already)), Said::Agent(next)) => {
+                already.push_str("\n\n");
+                already.push_str(&next);
             }
-        })
-        .collect()
+            (_, line) => out.push(line),
+        }
+    }
+    out
 }
 
 /// What one driver update is, written down.
 ///
-/// The one place an update becomes an event, because a teammate's tape and a
+/// The one place an update becomes events, because a teammate's tape and a
 /// peer thread must record the same turn the same way — the shapes are the
 /// previous Toad's, and there is nowhere for a second copy of them to drift
-/// to. `None` is the one update that is never written: a delta, which the
-/// message that follows it makes durable.
-fn event_of(
-    update: Update,
-    in_flight: &mut HashMap<String, PendingTool>,
-) -> Option<TranscriptEvent> {
+/// to. An empty vec is the one update that is never written: a delta, which
+/// the message that follows it makes durable. An agent's message is chat or
+/// a note, decided here so both kinds of agent and a peer thread get the
+/// same bubbles.
+fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec<TranscriptEvent> {
     match update {
-        Update::Delta { .. } => None,
-        Update::Message { kind, id, text } => Some(match kind {
-            MessageKind::Agent => TranscriptEvent::Agent {
+        Update::Delta { .. } => Vec::new(),
+        Update::Message { kind, id, text } => match kind {
+            MessageKind::Agent => match pacing::paced(&text) {
+                pacing::Paced::Chat(units) => {
+                    let ts = now_ms();
+                    units
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, text)| TranscriptEvent::Agent {
+                            id: if i == 0 {
+                                id.clone()
+                            } else {
+                                format!("{id}-{}", i + 1)
+                            },
+                            ts,
+                            text,
+                            title: None,
+                            reactions: None,
+                            ring: None,
+                            receipt: None,
+                        })
+                        .collect()
+                }
+                pacing::Paced::Note { title, body } => vec![TranscriptEvent::Agent {
+                    id,
+                    ts: now_ms(),
+                    text: body,
+                    title: Some(title),
+                    reactions: None,
+                    ring: None,
+                    receipt: None,
+                }],
+            },
+            MessageKind::Thought => vec![TranscriptEvent::Thought {
                 id,
                 ts: now_ms(),
                 text,
-                reactions: None,
-                ring: None,
-                receipt: None,
-            },
-            MessageKind::Thought => TranscriptEvent::Thought {
-                id,
-                ts: now_ms(),
-                text,
-            },
-        }),
+            }],
+        },
         Update::ToolCall {
             call_id,
             title,
@@ -1879,14 +1927,16 @@ fn event_of(
             };
             let event = pending.event(&call_id, ToolStatus::InProgress, None);
             in_flight.insert(call_id, pending);
-            Some(event)
+            vec![event]
         }
         Update::ToolResult {
             call_id,
             ok,
             output,
         } => {
-            let pending = in_flight.remove(&call_id)?;
+            let Some(pending) = in_flight.remove(&call_id) else {
+                return Vec::new();
+            };
             let status = if ok {
                 ToolStatus::Completed
             } else {
@@ -1895,13 +1945,13 @@ fn event_of(
             let output = ToolOutput::Text {
                 text: clip(&output, TOOL_OUTPUT_CHARS),
             };
-            Some(pending.event(&call_id, status, Some(output)))
+            vec![pending.event(&call_id, status, Some(output))]
         }
         Update::Permission {
             request_id,
             title,
             options,
-        } => Some(TranscriptEvent::Permission {
+        } => vec![TranscriptEvent::Permission {
             // The card is superseded by this id when it is answered, so the
             // decision lands on the line already drawn rather than adding a
             // second one below it.
@@ -1912,19 +1962,19 @@ fn event_of(
             options,
             decision: None,
             decided_option_name: None,
-        }),
-        Update::Turn { stop_reason, usage } => Some(TranscriptEvent::Turn {
+        }],
+        Update::Turn { stop_reason, usage } => vec![TranscriptEvent::Turn {
             id: new_id(),
             ts: now_ms(),
             stop_reason,
             usage,
-        }),
-        Update::Notice { level, text } => Some(TranscriptEvent::Notice {
+        }],
+        Update::Notice { level, text } => vec![TranscriptEvent::Notice {
             id: new_id(),
             ts: now_ms(),
             level,
             text,
-        }),
+        }],
     }
 }
 
@@ -2010,11 +2060,13 @@ fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
 }
 
 /// What the agent is told before it is told anything else: who it is, where it
-/// stands, how far it can reach, what day it is, and — when it is joining a
-/// conversation that already has chapters behind it — what happened in the one
-/// that closed. Everything here is something it would otherwise have to ask
-/// for or guess.
-fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> String {
+/// stands, how far it can reach, what day it is, how to talk in this room, and
+/// — when it is joining a conversation that already has chapters behind it —
+/// what happened in the one that closed. Everything here is something it would
+/// otherwise have to ask for or guess. Both kinds of agent hear this, so the
+/// house style is not a second briefing an ACP child gets and Toad Agent does
+/// not.
+pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> String {
     // No reach is an agent whose tools are its own: Toad enforces nothing over
     // them, so it promises nothing about them either.
     let reach_sentence = match reach {
@@ -2038,10 +2090,11 @@ fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> St
     // unconditional: a tool an agent was never told about is a tool it does
     // not have.
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.\n\n{}\n\n{}",
         persona.cwd,
         Local::now().format("%A %-d %B %Y"),
         crate::mcp::server::HOW_TO_USE,
+        pacing::HOUSE_STYLE,
     );
     match wake {
         Some(wake) => format!("{standing}\n\n{wake}"),

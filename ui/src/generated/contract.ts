@@ -672,7 +672,12 @@ scheduled?: ScheduledRun,
 /**
  * An emphasis on this bubble.
  */
-ring?: RingIntent, receipt?: Receipt, } | { "kind": "agent", id: string, ts: number, text: string, reactions?: Array<string>, 
+ring?: RingIntent, receipt?: Receipt, } | { "kind": "agent", id: string, ts: number, text: string, 
+/**
+ * A titled line is a note, drawn as a card the person opens, not as a
+ * bubble; absent is chat.
+ */
+title?: string, reactions?: Array<string>, 
 /**
  * An emphasis on this bubble.
  */

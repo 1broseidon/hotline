@@ -704,6 +704,10 @@ pub enum TranscriptEvent {
         id: String,
         ts: i64,
         text: String,
+        /// A titled line is a note, drawn as a card the person opens, not as a
+        /// bubble; absent is chat.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reactions: Option<Vec<String>>,
         /// An emphasis on this bubble.
@@ -1607,6 +1611,7 @@ mod tests {
             json!({ "kind": "user", "id": "u2", "ts": 2, "text": "bare" }),
             json!({
                 "kind": "agent", "id": "a1", "ts": 3, "text": "hello",
+                "title": "Harbour plan",
                 "reactions": ["👍"], "ring": "problem", "receipt": "sent",
             }),
             json!({ "kind": "thought", "id": "th1", "ts": 4, "text": "still thinking" }),

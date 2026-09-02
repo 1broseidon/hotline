@@ -5,6 +5,7 @@
 //! each of their own tapes.
 
 use super::*;
+use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
 
@@ -96,6 +97,35 @@ async fn a_delivery_writes_both_sides_of_the_thread_with_its_receipts() {
             .tape("bob")
             .iter()
             .any(|event| kind_of(event) == "agent")
+    );
+}
+
+/// A peer reply is paced in the same funnel as a tape: two paragraphs are two
+/// bubbles, and history reads them as the one thing the model said.
+#[tokio::test]
+async fn a_peer_reply_is_paced_the_same_way() {
+    let first = "Paragraph 1 is long enough to stand as its own bubble in the chat.";
+    let second = "Paragraph 2 is long enough to stand as its own bubble in the chat.";
+    let text = format!("{first}\n\n{second}");
+    let room = room("paced", Fake::new(Scripted::new(answers("a1", &text))));
+
+    let answered = room.deliver("ada", "Bob", "status?").await.unwrap();
+    assert_eq!(answered.reply, text);
+
+    let events = thread_of(&room, "ada~bob");
+    let agents: Vec<&Value> = events
+        .iter()
+        .filter(|event| kind_of(event) == "agent")
+        .collect();
+    assert_eq!(agents.len(), 2, "{}", kinds(&events).join(", "));
+    assert_eq!(agents[0]["id"], "a1");
+    assert_eq!(agents[1]["id"], "a1-2");
+    assert_eq!(agents[0]["ts"], agents[1]["ts"]);
+    assert_eq!(agents[0]["text"], first);
+    assert_eq!(agents[1]["text"], second);
+    assert_eq!(
+        said_in(&events, false),
+        [Said::User("status?".to_string()), Said::Agent(text),]
     );
 }
 
@@ -288,6 +318,7 @@ mod receipts {
             id: id.to_string(),
             ts: 2,
             text: text.to_string(),
+            title: None,
             reactions: None,
             ring: None,
             receipt: None,

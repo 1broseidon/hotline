@@ -30,7 +30,7 @@
 //! The card is still written to the thread and the marker goes to `waiting`,
 //! so a reader can see what the thread is stopped on.
 
-use super::{Room, event_of, lock, new_id, now_ms};
+use super::{Room, event_of, fold_said, lock, new_id, now_ms, pacing};
 use crate::contract::{
     NoticeLevel, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, Persona, Reach, Receipt,
     ToolStatus, TranscriptEvent,
@@ -205,21 +205,22 @@ impl Room {
         while let Some(update) = updates.recv().await {
             let asked = matches!(update, Update::Permission { .. });
             asked_once |= asked;
-            let Some(event) = event_of(update, &mut in_flight) else {
-                continue;
-            };
-            match &event {
-                TranscriptEvent::Agent { text, .. } => replies.push(text.clone()),
-                TranscriptEvent::Notice {
-                    level: NoticeLevel::Error,
-                    text,
-                    ..
-                } => failure = Some(text.clone()),
-                _ => {}
-            }
-            self.append_thread(&session, event);
-            if asked {
-                self.mark(&session, &caller, &target, PeerStatus::Waiting);
+            for event in event_of(update, &mut in_flight) {
+                match &event {
+                    TranscriptEvent::Agent { title, text, .. } => {
+                        replies.push(pacing::spoken(title.as_deref(), text));
+                    }
+                    TranscriptEvent::Notice {
+                        level: NoticeLevel::Error,
+                        text,
+                        ..
+                    } => failure = Some(text.clone()),
+                    _ => {}
+                }
+                self.append_thread(&session, event);
+                if asked {
+                    self.mark(&session, &caller, &target, PeerStatus::Waiting);
+                }
             }
         }
         // A driver that stopped without a turn leaves a tool spinning in the
@@ -507,20 +508,26 @@ fn kind_of(event: &Value) -> &str {
 
 /// What the two have already said to each other, as this session hears it:
 /// the caller's lines are the user's, and the target's own are the agent's.
+/// Consecutive agent events collapse, and a note is rejoined as
+/// `# {title}\n\n{body}`: the model said one thing; the tape shows it as
+/// several bubbles; the model sees one thing again.
 fn said_in(events: &[Value], flip: bool) -> Vec<Said> {
-    events
-        .iter()
-        .filter_map(|event| {
-            let text = event.get("text")?.as_str()?.to_string();
-            match kind_of(event) {
-                "user" if flip => Some(Said::Agent(text)),
-                "user" => Some(Said::User(text)),
-                "agent" if flip => Some(Said::User(text)),
-                "agent" => Some(Said::Agent(text)),
-                _ => None,
-            }
-        })
-        .collect()
+    fold_said(events.iter().filter_map(|event| {
+        let text = event.get("text")?.as_str()?;
+        match kind_of(event) {
+            "user" if flip => Some(Said::Agent(text.to_string())),
+            "user" => Some(Said::User(text.to_string())),
+            "agent" if flip => Some(Said::User(pacing::spoken(
+                event.get("title").and_then(Value::as_str),
+                text,
+            ))),
+            "agent" => Some(Said::Agent(pacing::spoken(
+                event.get("title").and_then(Value::as_str),
+                text,
+            ))),
+            _ => None,
+        }
+    }))
 }
 
 /// The thread's own way up, for an event the session spoke.
@@ -546,6 +553,7 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             id,
             ts,
             text,
+            title: None,
             reactions,
             ring,
             receipt,
@@ -554,13 +562,17 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             id,
             ts,
             text,
+            title,
             reactions,
             ring,
             receipt,
         } => TranscriptEvent::User {
             id,
             ts,
-            text,
+            // A note has no title field on the user side, so the heading goes
+            // back into the text: the model said one thing, and flipping the
+            // thread must not drop the title that made it a note.
+            text: pacing::spoken(title.as_deref(), &text),
             attachments: None,
             reactions,
             reply_to: None,
@@ -654,6 +666,7 @@ fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent {
             id,
             ts,
             text,
+            title,
             reactions,
             ring,
             receipt,
@@ -661,6 +674,7 @@ fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent {
             id,
             ts,
             text,
+            title,
             reactions,
             ring,
             receipt: Some(higher(receipt, rung)),

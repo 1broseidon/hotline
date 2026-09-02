@@ -772,6 +772,10 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(walled.contains("Your working directory is /tmp/harbour."));
     assert!(walled.contains("a path that leaves it is refused"));
     assert!(walled.contains(&Local::now().format("%A %-d %B %Y").to_string()));
+    assert!(
+        walled.contains("Toad shows your reply as chat"),
+        "both kinds of agent are told the house style: {walled}"
+    );
 
     let open = preamble(
         &ada,
@@ -785,7 +789,12 @@ fn the_preamble_says_who_where_how_far_and_when() {
     // is promised nothing about how far they reach.
     let child = preamble(&ada, None, None);
     assert!(child.contains("Your working directory is /tmp/harbour."));
-    assert!(!child.contains("reach"));
+    assert!(!child.contains("reach the whole machine"));
+    assert!(!child.contains("a path that leaves it is refused"));
+    assert!(
+        child.contains("Toad shows your reply as chat"),
+        "an ACP child hears the same house style in its preamble: {child}"
+    );
     assert!(
         walled.contains("`request_human`"),
         "the preamble names the tool that asks the person: {walled}"
@@ -836,6 +845,70 @@ fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
     let mut closed = older.to_vec();
     closed.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "pi", "endedAt": 9}));
     assert_eq!(said(&closed), []);
+}
+
+fn bubble(n: u32) -> String {
+    format!("Paragraph {n} is long enough to stand as its own bubble in the chat.")
+}
+
+/// Two paragraphs become two bubbles with the driver's id on the first and
+/// `{id}-2` on the second, same timestamp; five become one titled note. The
+/// model said one thing either way, so history reads one `Said::Agent`.
+#[tokio::test]
+async fn a_reply_is_paced_as_chat_or_as_a_note() {
+    let first = bubble(1);
+    let second = bubble(2);
+    let two = format!("{first}\n\n{second}");
+    let five: String = (1..=5).map(bubble).collect::<Vec<_>>().join("\n\n");
+
+    let room = room(
+        "paced-chat",
+        Fake::new(Scripted::turns(vec![
+            saying("two", &two),
+            saying("five", &five),
+        ])),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "two bubbles", None, None).await.unwrap();
+    let chat = settled(&room, "ada", 4).await;
+    assert_eq!(
+        kinds(&chat),
+        ["user", "agent", "agent", "turn"],
+        "two paragraphs are two agent events"
+    );
+    assert_eq!(chat[1]["id"], "m-two");
+    assert_eq!(chat[2]["id"], "m-two-2");
+    assert_eq!(chat[1]["ts"], chat[2]["ts"]);
+    assert_eq!(chat[1]["text"], first);
+    assert_eq!(chat[2]["text"], second);
+    assert!(chat[1].get("title").is_none());
+    assert_eq!(
+        said(&tape(&room, "ada")),
+        [Said::User("two bubbles".to_string()), Said::Agent(two),]
+    );
+
+    room.prompt("ada", "a note", None, None).await.unwrap();
+    let events = settled(&room, "ada", 7).await;
+    let note = events
+        .iter()
+        .find(|event| event["id"] == "m-five")
+        .expect("the five-paragraph reply is one titled event");
+    assert_eq!(note["kind"], "agent");
+    assert_eq!(note["title"], bubble(1));
+    assert_eq!(note["text"], five);
+    assert!(
+        events.iter().all(|event| event["id"] != "m-five-2"),
+        "a note is one event, not bubbles"
+    );
+    assert_eq!(
+        said(&tape(&room, "ada")),
+        [
+            Said::User("two bubbles".to_string()),
+            Said::Agent(format!("{first}\n\n{second}")),
+            Said::User("a note".to_string()),
+            Said::Agent(format!("# {}\n\n{five}", bubble(1))),
+        ]
+    );
 }
 
 /// The index is written as the tape is, and a search finds the turn without

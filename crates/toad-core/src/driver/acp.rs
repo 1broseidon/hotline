@@ -82,37 +82,6 @@ const PERMISSION_VERBS: &[(&str, &str)] = &[
     ("search", "search the workspace"),
 ];
 
-/// What Toad tells an agent about the room it is speaking in.
-///
-/// An agent's default register is the terminal: a headed report, bullets under
-/// each heading, a summary of what it is about to do. That is the right shape
-/// for a scrollback and the wrong shape for a conversation, and no agent can
-/// know which one it is in unless it is told. This is a fact about Toad rather
-/// than about the teammate, which is why it does not live in the teammate's
-/// `AGENTS.md`: it is true of every teammate, and it has to arrive even when
-/// the working directory is a real repository whose `AGENTS.md` Toad leaves
-/// alone.
-///
-/// It asks for one acknowledgement before the work rather than banning one.
-/// The typing indicator and "on it" do not say the same thing: dots mean
-/// something is happening, "on it" means you were heard. And it says out loud
-/// that brevity is about ceremony and not substance, because an agent told to
-/// be short will otherwise shorten the explanation somebody asked for rather
-/// than the packaging around it.
-const HOUSE_STYLE: &str = "You are speaking in Toad, a desktop chat app. Your reply is shown as messages in a conversation, the way a person texts — not as a document.
-
-There is a rhythm to that, and it matters more than anything else here. Before your first tool call, write one short line: \"on it\", \"let me check\", \"sure, one sec\". Then work in silence. Then say what came of it. The whole exchange should read like two colleagues — \"how many rust files are under crates?\" / \"let me check\" / \"41, all .rs\" — and never like one long report delivered after a minute of nothing. That opening line is not optional and it is not a summary of your plan; it is the word you would say to someone standing in your doorway.
-
-After it, stay quiet until you have the answer. The person cannot see your tool calls, and a running commentary of what you are opening and what you found next is exactly what this app keeps off the screen.
-
-Then say what came of it and stop. No recap of the steps, no list of the files you touched, no summary of what you just did. If it worked, saying so is enough; if it didn't, say what stopped you.
-
-Write it the way you would text it. Lead with the answer. Plain sentences, no preamble, no restating the question, no sign-off. Keep paragraphs short: Toad sends each one as its own message, so two short messages read better than one dense block.
-
-Being brief is about ceremony, not substance. A real question deserves a real answer — if someone asks how something works or why it broke, explain it properly. What gets cut is the packaging, never the thinking.
-
-Formatting is available when the content is genuinely that shape — a fenced block for code, a list when there really are several items, a table when there are rows and columns, backticks for a filename or flag, bold for a term that carries weight. Headings render as plain bold text here, so they buy you very little; skip them unless a long reply truly needs a label. Reach for none of this to organise three sentences.";
-
 /// The marker that says a file in a teammate's workspace is Toad's to rewrite.
 const MANAGED_MARKER: &str = "<!-- managed by Toad -->";
 
@@ -461,7 +430,6 @@ impl Driver for ChildAgent {
         let mut blocks = Vec::new();
         if !self.live.briefed.swap(true, Ordering::SeqCst) {
             blocks.push(text_block(&self.preamble));
-            blocks.push(text_block(HOUSE_STYLE));
         }
         // Attachments lead the message the way they do in a mail client, and
         // travel as links: a coding agent already has the filesystem, and a
@@ -1745,18 +1713,17 @@ mod tests {
         let heard = Heard::default();
         let agent = scripted_agent(heard.clone(), false);
         let held = room("turn-room");
+        let ada = persona("/tmp", Vec::new());
+        let briefing = crate::session::preamble(&ada, None, None);
         let driver = ChildAgent::new(
             root,
             "cursor".to_string(),
-            "you are Ada".to_string(),
+            briefing.clone(),
             TeammateTools::new(&held, "ada"),
         );
         tokio::spawn(agent);
 
-        let info = driver
-            .handshake(&persona("/tmp", Vec::new()), client_transport())
-            .await
-            .unwrap();
+        let info = driver.handshake(&ada, client_transport()).await.unwrap();
         assert_eq!(info.agent_name, "scripted");
         assert_eq!(info.agent_version.as_deref(), Some("1.2.3"));
         assert_eq!(info.session_id.as_deref(), Some("fresh-session"));
@@ -1827,9 +1794,18 @@ mod tests {
 
         // The briefing rides ahead of the first words and is never said again.
         let prompted = heard.prompted.lock().unwrap().clone();
-        assert_eq!(prompted[0][0], "you are Ada");
-        assert!(prompted[0][1].starts_with("You are speaking in Toad"));
-        assert_eq!(prompted[0][2], "how is the harbour");
+        assert_eq!(prompted[0][0], briefing);
+        assert!(
+            prompted[0][0].contains("Toad shows your reply as chat"),
+            "the first prompt carries the house style: {}",
+            prompted[0][0]
+        );
+        assert_eq!(prompted[0][1], "how is the harbour");
+        assert_eq!(
+            prompted[0].len(),
+            2,
+            "house style is in the preamble, not a second block"
+        );
     }
 
     /// A teammate with a checkpoint for this backend rejoins its own session,

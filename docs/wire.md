@@ -4,12 +4,17 @@ One WebSocket per client, carrying commands and subscriptions. Frames are
 JSON text. Types are defined in `crates/toad-core/src/contract.rs`; the
 door that reads them is `crates/toad-core/src/wire/`.
 
-The door binds `127.0.0.1` on an ephemeral port. One writer task per
-socket queues whole frames in the order they were produced, so answers,
-snapshots and events never interleave. Commands are answered on the read
-loop, in the order they arrived: the append a command makes *is* its
-answer, and a client that creates a teammate and then subscribes must see
-it.
+The door binds `127.0.0.1` on an ephemeral port. `Door::run` serves until
+the listener itself is gone. A client that hung up before the handshake,
+an interrupted call, or a brief shortage of file descriptors is waited
+out — fifty milliseconds on the shortage, so that case is not a spin —
+because returning here kills the wire for the life of the process.
+
+One writer task per socket queues whole frames in the order they were
+produced, so answers, snapshots and events never interleave. Commands are
+answered on the read loop, in the order they arrived: the append a
+command makes *is* its answer, and a client that creates a teammate and
+then subscribes must see it.
 
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 
@@ -98,13 +103,13 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `room.import` | `{from}` | an import `Report` |
 | `chapter.start_fresh` | `{personaId}` | the chapter that closed, with its note |
 | `chapter.resume` | `{personaId}` | the chapter that reopened, with the earlier note |
-| `teammate.tools` | `{personaId}` | a `TeammateToolLedger`, or none |
+| `teammate.tools` | `{personaId}` | a `TeammateToolLedger`, or JSON `null` |
 | `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?}` | the created `ScheduledJob` |
 | `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |
 | `schedule.cancel` | `{id}` | none |
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
-| `peers.mark_read` | `{key, eventIds}` | how many bubbles moved to read |
+| `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Toad Agent (`id` `"pi"`) is always
@@ -152,9 +157,11 @@ title?, note?, status?, closedBy?, messages}`.
 
 `peers.list` is every thread this teammate has with another teammate:
 `{threadKey, withPersonaId, withName, exchanges, lastAt, waiting,
-workingPersonaId?, preview}`, newest first. The events of one of them are
-a `{"thread": key}` subscription, which is a stream like any other, so
-there is no command that loads a thread. `peers.mark_read` says that
+workingPersonaId?, preview}`, newest first. `preview` is JSON `null` when
+nothing has been said, rather than omitted, so a thread that exists is
+still a row. The events of one of them are a `{"thread": key}`
+subscription, which is a stream like any other, so there is no command
+that loads a thread. `peers.mark_read` says that
 those messages have been read and answers how many actually moved: an id
 naming nothing, an event that is not a message, and a message that is
 already read all move nothing, which is what makes a repeated receipt
@@ -181,7 +188,8 @@ defaults to false. A one-shot cannot carry `every`; a loop cannot carry
 
 A command the room cannot read is `"This room cannot read that command:
 …"`. A seat that may not run one is `"That seat may not run this
-command."`
+command."` A seat that may not subscribe to a target is `"That seat may
+not subscribe to that."`
 
 ## Subscriptions
 

@@ -28,27 +28,28 @@ crates/toad-core/src/
   store/                 FTS5 index, chapter list, roster previews
   room.rs                the roster fold, settings, and schedules
   vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger
+  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
   driver/                Toad Agent on Rig, and the ACP child with its registry
   mcp/                   the client of granted servers, and Toad's own teammate tools
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
   import.rs              copies an existing Toad data directory
+  import/                the previous Toad's roster and records, read-only
   wire/                  the door: seats, commands, subscriptions
   bin/toad-import.rs     the importer as a binary
   bin/toad-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
 crates/toad-core/tests/  headless proofs driving the real core over the wire
 crates/toad-desktop/     the Tauri 2 shell: plugins, the menu, the door
-ui/                      the React window, built against the generated contract
+ui/                      the React window, built against the generated contract; ui/src/ui is the design system
 docs/                    what is
 ```
 
 The core is a library. The shell binds its door on a loopback port, injects
 the port and a token into the page, and opens a window on it. There is no
 child process for the room. Opening a `Desk` opens the room, which settles
-every tape (expired permission cards, a compact, the search index) and
-starts the idle chapter sweep and the scheduler's clock before anything is
-served.
+every tape and every thread (expired permission cards, a compact, the
+search index) and starts the idle chapter sweep and the scheduler's clock
+before anything is served.
 
 ## Running it
 
@@ -84,8 +85,10 @@ The shell is `crates/toad-desktop`. Plugins remember the window's place,
 post toasts, pick folders, open links, and write the clipboard; the
 judgement for those lives in the page (`ui/src/native.ts`, `ui/src/notify.ts`),
 not in the shell. The menu bar is this process's: its items emit
-`toad://menu` and the window handles them. Capabilities for the main
-window are `crates/toad-desktop/capabilities/default.json`.
+`toad://menu` and the window handles them. On macOS the title bar is
+overlay so the rail header can sit on the traffic-light centre line.
+Capabilities for the main window are
+`crates/toad-desktop/capabilities/default.json`.
 
 | plugin | what the page uses it for |
 | --- | --- |
@@ -102,12 +105,15 @@ Settings, About, Quit. Help opens Keyboard shortcuts, About Toad, and
 Toad on GitHub. On macOS the title bar is overlay so the rail header can
 sit on the traffic-light centre line.
 
-Settings, New Teammate, Keyboard shortcuts and About are panes: they
-replace the conversation, they are not a card over it. Settings' sections
-are tabs in the band — General, Keys, Tools, Import. A teammate is
-edited in its own pane beside the conversation. Search is a drawer over
-the conversation that is already on screen. The chrome strip drags the
-window; a double-click maximises.
+The page is `ui/`. `ui/src/ui` is the design system (Avatar, Band, Menu):
+every length is on a 4px grid, the type scale is six sizes, every hairline
+is one device pixel, and green is the one signal colour. Settings, New
+Teammate, Keyboard shortcuts and About are panes that replace the
+conversation, not a card over it; Settings' sections are tabs in the band
+— General, Keys, Tools, Import. The teammate inspector sits beside the
+conversation; search is a popover that hangs under the band over the
+conversation already on screen. Band is the chrome strip: it drags the
+window, and a double-click maximises.
 
 ## The data directory
 
@@ -145,15 +151,16 @@ knows, and speaks WebSocket JSON the way the window does:
 
 | file | what it proves |
 | --- | --- |
-| `desk.rs` | a teammate over the wire; a Toad Agent turn with a real key; an ACP child turn |
-| `mcp.rs` | Toad as an MCP client: a granted echo server, a policy of none, a server that will not start |
-| `schedule.rs` | a job created, listed, silenced and cancelled, remembered on the room stream |
+| `desk.rs` | a teammate over the wire; a peer thread listed, streamed and marked read; a Toad Agent turn with a real key; an ACP child turn |
+| `mcp.rs` | Toad as an MCP client and as the server of a teammate's own tools: a granted echo server, Toad's seven tools, a policy of none, a server that will not start, a non-string env, a vanished server, a stdio process group |
+| `schedule.rs` | a job created, listed, silenced and cancelled, remembered on the room stream; a loop carries `every` and has no `when` |
 
-`desk.rs` has three tests. The first creates a teammate, watches the
+`desk.rs` has four tests. The first creates a teammate, watches the
 roster view, lists models, adds a credential, and deletes the teammate —
-no provider key required. The second starts a Toad Agent turn with a real
-key, has it read a file, and checks the tape. It is skipped unless
-`TOAD_HARNESS_ANTHROPIC_KEY` is set. The third is the same proof for the
+no provider key required. The second lists a peer thread, subscribes to
+it, and marks a message read. The third starts a Toad Agent turn with a
+real key, has it read a file, and checks the tape. It is skipped unless
+`TOAD_HARNESS_ANTHROPIC_KEY` is set. The fourth is the same proof for the
 other kind of agent: set `TOAD_HARNESS_ACP` to a backend id this machine
 can run (`cursor`, say) and it drives a real harness as a child.
 

@@ -33,8 +33,10 @@ is open, and only then may a scheduled firing open one of its own:
 
 A prompt needs a live session; `session.start` is what brings one up. The
 command returns as soon as the turn is started. A line that arrives while a
-turn is running is queued behind it. `session.cancel` stops the turn in
-flight and drops whatever was waiting. Deltas go out on the tape
+turn is running is queued behind it. Joining that queue and claiming an idle
+driver are one decision under one lock, so a line cannot be filed behind a
+turn that has already stopped coming back for it. `session.cancel` stops the
+turn in flight and drops whatever was waiting. Deltas go out on the tape
 subscription as `ephemeral` and are never written; the durable line is the
 message that lands when it is whole.
 
@@ -64,13 +66,18 @@ ACP adapters), the ACP registry's published catalogue fetched from
 `cache/acp-registry.json` in the data directory, and a probe of what is
 actually installed. A locally installed binary always wins over a
 downloadable one. Opening the picker is where the day's fetch happens;
-starting a session reads the cache and does not wait on the network.
+starting a session reads the cache and does not wait on the network. A
+cached stamp from the future is not the day's. An adapter row is
+unavailable until both the client CLI and its launcher (`npx`, say) are on
+PATH.
 
 `session.start` makes the working directory, builds the driver that backend
 names, and opens a chapter if the tape has none open. A workspace under the
-data directory is made here; one the user typed is made too. Reach is read
-from the roster at every prompt, not from the persona the session started
-with, so an edit takes on the next turn.
+data directory is made here; one the user typed is made too. Starting a
+teammate, and the chapter gate in front of a message, share one lock per
+teammate: two callers cannot spawn two agents and open two chapter markers
+on one tape. Reach is read from the roster at every prompt, not from the
+persona the session started with, so an edit takes on the next turn.
 
 ## Toad Agent
 
@@ -93,10 +100,17 @@ On each turn it is given:
 | Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{serverId}__{tool}` |
 
-A result larger than 256 KiB is kept in full under
+A granted stdio server is spawned in its own process group on Unix, so a
+launcher like `npx` does not leave the real server behind when the session
+stops. A result larger than 256 KiB is kept in full under
 `tool-output/<personaId>/` in the data directory; the model is shown the
 head and the tail and that path. The transcript bubble keeps 4,000
 characters of output either way.
+
+`search_thread` and `list_chapters` return quoted JSON: the conversation is
+data, and the one string it must not spell is the tag that closes the fence
+(`<toad_thread_search>`). `<` is rewritten as `\u003c` so neither the JSON
+nor a scan of the text can close it early.
 
 The models a key unlocks are Anthropic, OpenAI and OpenRouter, as
 `provider/model`. No key, no session: start is refused with a sentence
@@ -129,9 +143,12 @@ same handler Toad Agent calls directly is served over streamable HTTP on a
 loopback port (`mcp/server.rs`), behind a bearer token only that child is
 given, at a path of `/mcp`. The port is the operating system's choice and
 the token is fresh per session. The server is named `toad` in `session/new`,
-with the token as an `Authorization` header. Dropping the driver stops the
-endpoint and kills the child — its whole process group on Unix, so a
-wrapper like `npx` cannot leave the real agent behind.
+with the token as an `Authorization` header. The ledger is published before
+that `session/new` is sent, because a child that lists Toad's tools during
+the handshake promotes rows that have to exist by then — a ledger written
+afterwards would overwrite what was watched with "declared". Dropping the
+driver stops the endpoint and kills the child — its whole process group on
+Unix, so a wrapper like `npx` cannot leave the real agent behind.
 
 Granted third-party servers are named in the same `session/new` (stdio
 command, or HTTP URL). Toad does not connect them for a child; the child
@@ -156,10 +173,14 @@ request is no longer waiting for an answer."`
 
 A card that is still live after a restart is a button nobody is behind. On
 startup every unanswered card is superseded with `decision: "expired"` and
-the tape compacted. When a turn or a session ends, the same expiry is
-written so the transcript does not draw a button nobody is behind. A
-person who does not answer within ten minutes is the same fact: the agent
-is told the request was cancelled.
+the tape compacted. For an ACP child the cards are settled the moment the
+agent answers the turn, before the transcript has caught up: a permission
+answered in between would be a decision written down for an agent that had
+already stopped listening. `session.cancel` settles first for the same
+reason. When the turn's updates have all been recorded, any card still
+claiming to be live is expired on the tape, and a session that stops is the
+same fact. A person who does not answer within ten minutes is the same
+fact: the agent is told the request was cancelled.
 
 ## Asking the person
 
@@ -176,6 +197,50 @@ follows word for word: "They said: …". A card left pending when the turn
 is cancelled, the session stops or the room restarts is expired by the same
 fold that expires orphaned permission cards: the tool call is inside the
 turn, so a turn that ended is an agent that has stopped listening.
+
+## Peer threads
+
+A teammate asking a colleague is not a line on either tape. Three records
+come out of `message_teammate` (`session/peers.rs`):
+
+- **The thread.** `threads/<key>.jsonl`, one file per pair, belonging to
+  neither side. The words of the exchange go here and never onto either
+  teammate's tape: what a colleague asked is not part of the conversation
+  the user is having.
+- **The peer session.** The target's agent, started again for this caller,
+  with a preamble saying who is speaking and why. It is a session of its
+  own so a teammate answering a colleague does not do it inside the user's
+  context — and one per *direction*, because A asking B and B asking A are
+  two conversations. Checkpoints are withdrawn: reopening the user's
+  session would answer the colleague inside it.
+- **The marker.** A `peer` event on each side's own tape, superseded by id
+  as the exchange goes, so a person reading either tape can see that these
+  two are talking and how far they have got. It lives as long as the peer
+  session, which is also how far apart two exchanges may be and still be
+  drawn as one line: ten minutes idle, then the session is stopped.
+
+`list_teammates` is roster metadata only — id, name, goal, and what that
+teammate's own session is doing — never anyone's conversation, and never
+the caller. The caller may be mid-turn on its own tape while the delivery
+runs: nothing here touches the caller's session, only its tape's marker.
+
+A pair is refused a second delivery while one is running (`"That thread is
+already answering."`). A teammate cannot message itself. A message is at
+most 24,000 characters and cannot be empty. The caller's words arrive
+fenced as message data, not as a second system prompt.
+
+Receipts are decided from the *kind* of event and nothing else: a message
+is `sent` when it enters the thread and `read` when the recipient's
+session proves it took it into a turn. Nothing un-reads a message. The
+agent is never told a tick exists.
+
+Nothing can answer a permission card raised inside a peer turn, because no
+seat is shown one. The card is still written to the thread and the marker
+goes to `waiting`, so a reader can see what the thread is stopped on. On
+startup those cards expire with the tapes.
+
+Deleting a teammate stops every peer session it is a side of. The wire for
+listing threads and marking them read is [wire.md](wire.md).
 
 ## Checkpoints
 
@@ -230,14 +295,16 @@ is `user`; from `new_chapter` it is `agent`.
 `chapter.resume` / `resume_chapter` reopens the chapter immediately before
 the open one. A context from further back is not offered. The current
 chapter closes as `"Back to: <previous title>"` with `closedBy` `resume`,
-and a new marker opens carrying `resumedFrom` and the previous chapter's
-note. The session is stopped and started again: Toad Agent is seeded from
-that chapter's tape slice; an ACP child from the checkpoint the marker
-still names. User lines said in the meantime arrive as a nudge — Toad's
-words, never a line of the tape. If the restore fails, the new session
-reads the note (the wake block already carries it) and a notice says the
-context could not be reopened. A second resume is refused when the chapter
-immediately before closed by resume, or when nothing precedes.
+without asking a model for a note — it is a turning point, not a stretch
+of work — and a new marker opens carrying `resumedFrom` and the previous
+chapter's note. The session is stopped and started again: Toad Agent is
+seeded from that chapter's tape slice; an ACP child from the checkpoint
+the marker still names. User lines said in the meantime arrive as a nudge
+— Toad's words, never a line of the tape. If the restore fails, the new
+session reads the note (the wake block already carries it) and a notice
+says the context could not be reopened. A second resume is refused when
+the chapter immediately before closed by resume, when nothing precedes, or
+when that previous chapter ran on a different agent.
 
 ### Idle sweep
 
@@ -247,7 +314,8 @@ every minute. A chapter that has gone quiet for longer than
 from the last message, not from when the sweep noticed. A chapter that went
 stale while Toad was closed is closed before anyone comes back to read it.
 A turn still running is still adding to the chapter: the sweep looks again
-in ten minutes rather than cutting it off.
+in ten minutes rather than cutting it off. The same clock stops peer
+sessions that have sat unused for ten minutes.
 
 ### The note
 
@@ -360,7 +428,8 @@ error the server itself answered leaves the rows verified.
 
 A child is handed descriptors and does not report what it loaded, so its
 honest state is declared: Toad's own tools as named tools, each granted
-server as one row under that server's name. The one exception is Toad's own
+server as one row under that server's name. Those rows are published
+before `session/new` names the endpoint. The one exception is Toad's own
 endpoint, which promotes its rows to verified the moment the child lists
 tools on it.
 

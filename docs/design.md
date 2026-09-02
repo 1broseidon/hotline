@@ -164,17 +164,18 @@ crates/toad-core/src/
   store/                 FTS5 over tapes and chapters; chapter list; previews
   room.rs                the roster fold, settings, and schedules
   vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger
+  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
   driver/                InProcess (Rig) and the ACP child, with its agent registry
   mcp/                   the client of granted servers, and Toad's own teammate tools
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
   import.rs              copies an existing Toad data directory
+  import/                the previous Toad's roster and records, read-only
   wire/                  the door: seats, commands, subscriptions
   bin/toad-import.rs     the importer as a binary
   bin/toad-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
 crates/toad-desktop/     the Tauri shell: plugins, the menu, the door
-ui/                      the window (React, built against the generated contract)
+ui/                      the window (React, built against the generated contract; ui/src/ui is the design system)
 crates/toad-core/tests/  headless end-to-end proofs (integration tests driving the wire)
 ```
 

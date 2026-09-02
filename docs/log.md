@@ -3,7 +3,10 @@
 Everything the room remembers is an event on a stream. A stream is an
 append-only JSONL file — one event per line — folded by `id` when it is
 read. `Log` in `crates/toad-core/src/log/` is the only door to every
-stream, and the only writer. Opening a log touches nothing: a stream's
+stream, and the only writer. Append and compact share one lock for the
+whole log, because both are read-then-write: an append measures the file
+to say where its bytes landed, and two of those at once would be told an
+offset that is already taken. Opening a log touches nothing: a stream's
 file is made when something is appended to it.
 
 Three streams, one rule for all of them:
@@ -15,8 +18,10 @@ Three streams, one rule for all of them:
 | `Thread(key)` | `threads/<key>.jsonl` | pair |
 
 A subscriber is handed every event appended after it asked. History is
-`Log::load`, not replayed on subscribe. Publish happens after the bytes
-are on disk, never before.
+`Log::load`, not replayed on subscribe. A stream nobody is still
+listening to is dropped from the map, so a client that names streams at
+will cannot grow it for as long as the socket stays open. Publish happens
+after the bytes are on disk, never before.
 
 ## Fold by id
 
@@ -80,6 +85,8 @@ a field a newer build added is not dropped on the next label write. A
 sidecar whose `version` is not 1 is ignored as a sidecar. A conversation
 exists from the moment its sidecar is opened, whether or not anybody has
 said anything yet; listing threads reads the sidecars, not the streams.
+A thread is not offered to the search index: the index is over what
+teammates say to the user.
 
 A label for a side the roster cannot resolve is written onto an existing
 sidecar. No sidecar, no invented one.
@@ -118,7 +125,9 @@ Present when they were set: `node`, `face`, `team`, `reach`
 (`"workspace"` or `"machine"`), `modelId`, `modeId`, `harnessOverride`,
 `hopNotice`, `webSearchPolicy`, `computer`, `subagents`, `lastSessionId`.
 A tombstone is `{"kind": "persona", "id": "…", "deleted": true}`. An
-event that does not read as a `Persona` is skipped rather than fatal.
+event that does not read as a `Persona` is skipped rather than fatal. A
+record whose `id` is empty is skipped the same way: an id with no
+characters in it cannot name a tape.
 
 ### `setting`
 
@@ -201,10 +210,11 @@ be is refused rather than followed. On Windows, making the directory
 private is not built, and a write is refused rather than pretending.
 
 Create writes the secret first, then the room event. Delete takes the
-secret first, then the tombstone. `list` is the room's metadata in
-creation order; `provider_keys` is one usable API key per provider — the
-first created wins — skipping revoked rows and rows whose secret is
-missing.
+secret first, then the tombstone. Create and delete share one lock,
+because each is a read of the whole map, one entry changed, and the whole
+map written back. `list` is the room's metadata in creation order;
+`provider_keys` is one usable API key per provider — the first created
+wins — skipping revoked rows and rows whose secret is missing.
 
 ## The search index
 

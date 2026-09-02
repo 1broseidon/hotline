@@ -1100,8 +1100,15 @@ pub enum Command {
     SessionStart { persona_id: String },
     #[serde(rename = "session.stop")]
     SessionStop { persona_id: String },
+    /// `replyTo` is the id of the message this one answers, and the
+    /// attachments are files handed to the teammate alongside the words.
     #[serde(rename = "session.prompt")]
-    SessionPrompt { persona_id: String, text: String },
+    SessionPrompt {
+        persona_id: String,
+        text: String,
+        reply_to: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    },
     #[serde(rename = "session.cancel")]
     SessionCancel { persona_id: String },
     #[serde(rename = "session.set_model")]

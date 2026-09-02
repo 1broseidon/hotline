@@ -71,7 +71,13 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn prompt(&self, _persona_id: &str, _text: &str) -> Result<(), String> {
+    fn prompt(
+        &self,
+        _persona_id: &str,
+        _text: &str,
+        _reply_to: Option<String>,
+        _attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
         Ok(())
     }
 

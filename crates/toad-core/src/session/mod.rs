@@ -15,14 +15,19 @@
 //!   the record, and is printed too because nothing above can undo it.
 //! - Deltas go out on [`Room::subscribe_deltas`] and are never written; the
 //!   durable line is the message that lands when it is whole.
+//! - A scheduled run marked quiet has its teammate's voice demoted to thinking
+//!   for the length of its own turn. That gate is [`quiet`], and it lives here
+//!   because it must hold for whichever driver ran the turn.
 //!
 //! Reach is read from the roster at every prompt rather than from the persona
 //! the session started with: a live session is not told when its teammate is
 //! edited, and the switch has to take on the next turn.
 
+mod quiet;
+
 use crate::contract::{
-    ConfigChoice, Persona, Reach, SessionCapabilities, SessionInfo, SessionState, StreamDelta,
-    ToolOutput, ToolStatus, TranscriptEvent,
+    Attachment, ConfigChoice, Persona, Reach, ScheduleKind, ScheduledRun, SessionCapabilities,
+    SessionInfo, SessionState, StreamDelta, ToolOutput, ToolStatus, TranscriptEvent,
 };
 use crate::driver::rig::{InProcess, Said, models};
 use crate::driver::{Driver, MessageKind, Update, clip};
@@ -30,6 +35,7 @@ use crate::log::{Log, StreamId};
 use crate::room;
 use crate::store::search::Indexer;
 use chrono::Local;
+use quiet::QuietWindow;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -43,6 +49,16 @@ const TOOL_OUTPUT_CHARS: usize = 4_000;
 /// channels carry things a slow reader can recover from — a session's state is
 /// re-askable, and a lost delta is made good by the message that follows it.
 const BROADCAST_DEPTH: usize = 256;
+
+/// How long a stamp left by a prompt may wait for the user line it belongs to.
+///
+/// A prompt and the line it puts on the tape are one motion here, so the wait
+/// is nothing at all. The expiry is checked anyway, because the funnel must
+/// not trust that the mark it finds was left for the line it is writing now:
+/// in the previous Toad a prompt could be refused between leaving the mark and
+/// writing the line, and these fifteen seconds are what kept that stamp off
+/// somebody's later, unrelated message.
+const MARK_TTL_MS: i64 = 15_000;
 
 /// Where the provider keys come from.
 ///
@@ -92,10 +108,58 @@ struct Session {
     persona_id: String,
     driver: Arc<dyn Driver>,
     info: Mutex<SessionInfo>,
-    /// Prompts that arrived while a turn was running. One turn at a time: a
-    /// redirect waits for the turn it would have interrupted.
+    /// Lines that arrived while a turn was running, as the driver will hear
+    /// them. One turn at a time: a redirect waits for the turn it would have
+    /// interrupted.
     queue: Mutex<VecDeque<String>>,
     running: Mutex<bool>,
+    /// The message the next user line answers.
+    pending_reply: Mutex<Option<Mark<String>>>,
+    /// The firing the next user line belongs to.
+    pending_scheduled: Mutex<Option<Mark<ScheduledRun>>>,
+    /// The window a quiet schedule is holding this teammate's voice with.
+    quiet: Mutex<Option<QuietWindow>>,
+}
+
+/// Something a prompt wants stamped on the user line it is about to write,
+/// and the moment the stamp stops being true.
+///
+/// The funnel is the only place a user event is made, so a prompt says what it
+/// wants stamped by leaving one of these rather than by threading a parameter
+/// through everything in between. See [`MARK_TTL_MS`] for the expiry.
+struct Mark<T> {
+    value: T,
+    until: i64,
+}
+
+/// Leaves a mark for the next user line.
+fn mark<T>(held: &Mutex<Option<Mark<T>>>, value: T) {
+    *lock(held) = Some(Mark {
+        value,
+        until: now_ms() + MARK_TTL_MS,
+    });
+}
+
+/// Takes the mark, if it is still the one its prompt meant.
+fn take_fresh<T>(held: &Mutex<Option<Mark<T>>>, now: i64) -> Option<T> {
+    lock(held)
+        .take()
+        .filter(|mark| now < mark.until)
+        .map(|mark| mark.value)
+}
+
+/// One message on its way to a teammate: what the tape records, and what the
+/// driver hears, which are not always the same string.
+///
+/// A schedule's firing is what forces them apart — the agent is told which job
+/// woke it, and the transcript keeps the bare prompt so the conversation can
+/// draw one line instead of a wall — and attachments are the second case,
+/// because the in-process agent opens a file with its read tool and so needs
+/// the paths in its words.
+struct Sending {
+    shown: String,
+    wire: String,
+    attachments: Option<Vec<Attachment>>,
 }
 
 /// Every session in the room, and the one place their words are written down.
@@ -176,6 +240,9 @@ impl Room {
             info: Mutex::new(info.clone()),
             queue: Mutex::new(VecDeque::new()),
             running: Mutex::new(false),
+            pending_reply: Mutex::new(None),
+            pending_scheduled: Mutex::new(None),
+            quiet: Mutex::new(None),
         });
         lock(&self.sessions).insert(persona.id.clone(), session);
         let _ = self.info_changes.send(info.clone());
@@ -197,15 +264,83 @@ impl Room {
     /// Hands the teammate a message and returns at once: the turn runs on its
     /// own task and everything it does arrives as tape events and deltas. A
     /// message sent during a turn is queued behind it.
-    pub fn prompt(self: &Arc<Self>, persona_id: &str, text: &str) -> Result<(), String> {
+    ///
+    /// `reply_to` is the id of the message this one answers, and the
+    /// attachments are files the teammate is handed alongside the words.
+    pub fn prompt(
+        self: &Arc<Self>,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    ) -> Result<(), String> {
         let session = self.session(persona_id)?;
+        if let Some(answered) = reply_to {
+            mark(&session.pending_reply, answered);
+        }
+        // An empty list is no list: the record should not carry a field
+        // saying nothing was attached.
+        let attachments = attachments.filter(|attachments| !attachments.is_empty());
+        self.say(
+            &session,
+            Sending {
+                shown: text.to_string(),
+                wire: with_paths(text, attachments.as_deref().unwrap_or_default()),
+                attachments,
+            },
+        );
+        Ok(())
+    }
+
+    /// A schedule firing, down the same funnel as everything else — with two
+    /// differences the tape can see.
+    ///
+    /// The agent hears the framed prompt, which says which job woke it; the
+    /// transcript keeps the bare prompt and the stamp naming that job, so the
+    /// conversation can draw one line instead of a wall. And if the job is
+    /// quiet, this is where the window over its turn opens.
+    pub fn prompt_scheduled(
+        self: &Arc<Self>,
+        persona_id: &str,
+        prompt: &str,
+        run: ScheduledRun,
+    ) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        let wire = scheduled_wire_text(&run, prompt);
+        mark(&session.pending_scheduled, run);
+        self.say(
+            &session,
+            Sending {
+                shown: prompt.to_string(),
+                wire,
+                attachments: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Toad's own words to a running teammate — a reopened chapter told what
+    /// was said while it was away, never something a person typed.
+    ///
+    /// Queued like a prompt and never written down: the driver hears it, the
+    /// record does not.
+    pub fn nudge(self: &Arc<Self>, persona_id: &str, text: &str) -> Result<(), String> {
+        let session = self.session(persona_id)?;
+        self.dispatch(session, text.to_string());
+        Ok(())
+    }
+
+    /// The user's line onto the tape, and then the driver's turn. The order is
+    /// the invariant: what was said is a fact the moment somebody said it, and
+    /// a turn that fails must not lose the message that started it.
+    fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
         self.append(
-            persona_id,
-            &TranscriptEvent::User {
+            session,
+            TranscriptEvent::User {
                 id: new_id(),
                 ts: now_ms(),
-                text: text.to_string(),
-                attachments: None,
+                text: sending.shown,
+                attachments: sending.attachments,
                 reactions: None,
                 reply_to: None,
                 scheduled: None,
@@ -213,6 +348,12 @@ impl Room {
                 receipt: None,
             },
         );
+        self.dispatch(session.clone(), sending.wire);
+    }
+
+    /// Hands the driver a line: on the turn in flight if there is one, on a
+    /// new turn if there is not.
+    fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: String) {
         let running_already = {
             let mut running = lock(&session.running);
             let was = *running;
@@ -220,13 +361,11 @@ impl Room {
             was
         };
         if running_already {
-            lock(&session.queue).push_back(text.to_string());
-            return Ok(());
+            lock(&session.queue).push_back(wire);
+            return;
         }
         let room = self.clone();
-        let first = text.to_string();
-        tokio::spawn(async move { room.run_turns(session, first).await });
-        Ok(())
+        tokio::spawn(async move { room.run_turns(session, wire).await });
     }
 
     /// Stops the turn in flight and drops whatever was waiting behind it.
@@ -284,11 +423,11 @@ impl Room {
             let mut updates = session.driver.prompt(text, reach).await;
             let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
             while let Some(update) = updates.recv().await {
-                self.record(&session.persona_id, update, &mut in_flight);
+                self.record(&session, update, &mut in_flight);
             }
             // A driver that stopped without a turn — its model errored, its
             // child died — leaves a tool spinning in the transcript forever.
-            self.fail_in_flight(&session.persona_id, &mut in_flight);
+            self.fail_in_flight(&session, &mut in_flight);
             next = lock(&session.queue).pop_front();
         }
         *lock(&session.running) = false;
@@ -298,7 +437,7 @@ impl Room {
     /// One driver update, as the tape and the wire see it.
     fn record(
         &self,
-        persona_id: &str,
+        session: &Session,
         update: Update,
         in_flight: &mut HashMap<String, PendingTool>,
     ) {
@@ -308,14 +447,19 @@ impl Room {
                 message_id,
                 text,
             } => {
-                let persona_id = persona_id.to_string();
+                // A muted turn must not run the writing indicator for a
+                // message that will never land, so the delta is demoted with
+                // the event it is building.
+                let muted = kind == MessageKind::Agent
+                    && quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms());
+                let persona_id = session.persona_id.clone();
                 let _ = self.deltas.send(match kind {
-                    MessageKind::Agent => StreamDelta::AgentDelta {
+                    MessageKind::Agent if !muted => StreamDelta::AgentDelta {
                         persona_id,
                         message_id,
                         text,
                     },
-                    MessageKind::Thought => StreamDelta::ThoughtDelta {
+                    _ => StreamDelta::ThoughtDelta {
                         persona_id,
                         message_id,
                         text,
@@ -323,8 +467,8 @@ impl Room {
                 });
             }
             Update::Message { kind, id, text } => self.append(
-                persona_id,
-                &match kind {
+                session,
+                match kind {
                     MessageKind::Agent => TranscriptEvent::Agent {
                         id,
                         ts: now_ms(),
@@ -351,8 +495,8 @@ impl Room {
                     kind,
                 };
                 self.append(
-                    persona_id,
-                    &pending.event(&call_id, ToolStatus::InProgress, None),
+                    session,
+                    pending.event(&call_id, ToolStatus::InProgress, None),
                 );
                 in_flight.insert(call_id, pending);
             }
@@ -372,16 +516,16 @@ impl Room {
                 let output = ToolOutput::Text {
                     text: clip(&output, TOOL_OUTPUT_CHARS),
                 };
-                self.append(persona_id, &pending.event(&call_id, status, Some(output)));
+                self.append(session, pending.event(&call_id, status, Some(output)));
             }
             Update::Turn { stop_reason, usage } => {
                 // A cancelled turn leaves tools running; they are marked
                 // before the turn is closed, so the transcript never shows a
                 // finished turn above a tool still in progress.
-                self.fail_in_flight(persona_id, in_flight);
+                self.fail_in_flight(session, in_flight);
                 self.append(
-                    persona_id,
-                    &TranscriptEvent::Turn {
+                    session,
+                    TranscriptEvent::Turn {
                         id: new_id(),
                         ts: now_ms(),
                         stop_reason,
@@ -390,8 +534,8 @@ impl Room {
                 );
             }
             Update::Notice { level, text } => self.append(
-                persona_id,
-                &TranscriptEvent::Notice {
+                session,
+                TranscriptEvent::Notice {
                     id: new_id(),
                     ts: now_ms(),
                     level,
@@ -401,18 +545,21 @@ impl Room {
         }
     }
 
-    fn fail_in_flight(&self, persona_id: &str, in_flight: &mut HashMap<String, PendingTool>) {
+    fn fail_in_flight(&self, session: &Session, in_flight: &mut HashMap<String, PendingTool>) {
         for (call_id, pending) in in_flight.drain() {
-            self.append(
-                persona_id,
-                &pending.event(&call_id, ToolStatus::Failed, None),
-            );
+            self.append(session, pending.event(&call_id, ToolStatus::Failed, None));
         }
     }
 
     /// Writes one event to the teammate's tape and offers it to the index.
-    fn append(&self, persona_id: &str, event: &TranscriptEvent) {
-        let event = match serde_json::to_value(event) {
+    ///
+    /// Every line the room writes down passes here, which is what lets the
+    /// stamps a prompt left and the quiet window be stated once for both kinds
+    /// of agent.
+    fn append(&self, session: &Session, event: TranscriptEvent) {
+        let persona_id = &session.persona_id;
+        let event = stamped(session, event, now_ms());
+        let event = match serde_json::to_value(&event) {
             Ok(event) => event,
             Err(error) => {
                 eprintln!("a transcript event for {persona_id} could not be written: {error}");
@@ -516,6 +663,71 @@ impl PendingTool {
             output: output.map(|output| vec![output]),
         }
     }
+}
+
+/// What the tape writes down in place of the event the room handed it.
+///
+/// Order matters: a new speaker closes any window that is open, and only then
+/// may a scheduled firing open one of its own.
+fn stamped(session: &Session, mut event: TranscriptEvent, now: i64) -> TranscriptEvent {
+    if let TranscriptEvent::User { reply_to, .. } = &mut event {
+        *reply_to = take_fresh(&session.pending_reply, now);
+    }
+    let event = through_quiet(session, event, now);
+    stamp_scheduled(session, event, now)
+}
+
+/// Runs an event past an open quiet window, which may rewrite it or close.
+fn through_quiet(session: &Session, event: TranscriptEvent, now: i64) -> TranscriptEvent {
+    let mut held = lock(&session.quiet);
+    let Some(window) = held.take() else {
+        return event;
+    };
+    let (window, event) = quiet::step(window, event, now);
+    *held = window;
+    event
+}
+
+/// Claims a pending firing for the user line it woke, opening its silence.
+fn stamp_scheduled(session: &Session, mut event: TranscriptEvent, now: i64) -> TranscriptEvent {
+    if let TranscriptEvent::User { scheduled, .. } = &mut event
+        && let Some(run) = take_fresh(&session.pending_scheduled, now)
+    {
+        // A firing that lands mid-turn is queued behind the turn already
+        // running, so the first boundary to arrive belongs to that turn and
+        // not to this one. The turn in flight is what `running` says, which is
+        // set as the line is dispatched — after this line reaches the tape.
+        let busy = *lock(&session.running);
+        *lock(&session.quiet) = quiet::open_window(&run, busy, now);
+        *scheduled = Some(run);
+    }
+    event
+}
+
+/// The framing the agent reads when a schedule wakes it.
+///
+/// Deliberately silent about `quiet`: the window in [`quiet`] does not need
+/// the agent's cooperation, and asking for it is exactly how "No change —
+/// staying silent per protocol" ended up in someone's chat.
+fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
+    let waking = match run.kind {
+        ScheduleKind::Loop => "loop",
+        ScheduleKind::Schedule => "scheduled",
+    };
+    format!("{waking} · {prompt}")
+}
+
+/// The message with the attached paths under it, because the in-process agent
+/// opens a file with its read tool rather than being handed its bytes.
+fn with_paths(text: &str, attachments: &[Attachment]) -> String {
+    if attachments.is_empty() {
+        return text.to_string();
+    }
+    let paths: Vec<&str> = attachments
+        .iter()
+        .map(|attachment| attachment.path.as_str())
+        .collect();
+    format!("{text}\n\nAttached files:\n{}", paths.join("\n"))
 }
 
 /// What the agent is told before it is told anything else: who it is, where it

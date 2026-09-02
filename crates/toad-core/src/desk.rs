@@ -6,7 +6,7 @@
 //! joined to the real things, so the shell and the headless harness open a
 //! desk the same way and get the same room.
 
-use crate::contract::{ConfigChoice, Credential, SessionInfo, StreamDelta};
+use crate::contract::{Attachment, ConfigChoice, Credential, SessionInfo, StreamDelta};
 use crate::log::Log;
 use crate::session::{ProviderKeys, Room};
 use crate::vault::Vault;
@@ -51,8 +51,14 @@ impl RoomHandle for Desk {
         self.room.stop(persona_id)
     }
 
-    fn prompt(&self, persona_id: &str, text: &str) -> Result<(), String> {
-        self.room.prompt(persona_id, text)
+    fn prompt(
+        &self,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    ) -> Result<(), String> {
+        self.room.prompt(persona_id, text, reply_to, attachments)
     }
 
     fn cancel(&self, persona_id: &str) -> Result<(), String> {

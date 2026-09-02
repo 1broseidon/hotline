@@ -66,7 +66,13 @@ mod tests;
 pub trait RoomHandle: Send + Sync + 'static {
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
-    fn prompt(&self, persona_id: &str, text: &str) -> Result<(), String>;
+    fn prompt(
+        &self,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
 

@@ -6,7 +6,7 @@
 //! it happens.
 
 use super::*;
-use crate::contract::{McpPolicy, PolicyMode};
+use crate::contract::{AttachmentKind, McpPolicy, PolicyMode};
 use crate::driver::DriverInfo;
 use async_trait::async_trait;
 use serde_json::json;
@@ -15,10 +15,15 @@ use tokio::sync::{Notify, Semaphore, mpsc};
 
 /// A driver that says what it was told to say.
 ///
-/// Every prompt replays the same script, one update at a time, waiting for
+/// Each prompt replays the next script, one update at a time, waiting for
 /// `gate` between updates when the test asked for a pause it can cancel in.
+/// The last script stands for every turn after it, so a test that does not
+/// care which turn it is in writes one.
 struct Scripted {
-    script: Vec<Update>,
+    turns: Vec<Vec<Update>>,
+    /// How many turns have been asked for, which is how the next script is
+    /// chosen.
+    asked: Arc<Mutex<usize>>,
     /// One permit lets one update out, so a turn can be caught in the middle.
     /// `None` runs the script straight through.
     gate: Option<Arc<Semaphore>>,
@@ -31,14 +36,27 @@ struct Scripted {
 
 impl Scripted {
     fn new(script: Vec<Update>) -> Self {
+        Self::turns(vec![script])
+    }
+
+    fn turns(turns: Vec<Vec<Update>>) -> Self {
         Self {
-            script,
+            turns,
+            asked: Arc::new(Mutex::new(0)),
             gate: None,
             on_cancel: Vec::new(),
             cancelled: Arc::new(Notify::new()),
             prompts: Arc::new(Mutex::new(Vec::new())),
             reaches: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// The script for the turn now being asked for.
+    fn next_script(&self) -> Vec<Update> {
+        let mut asked = lock(&self.asked);
+        let turn = *asked;
+        *asked += 1;
+        self.turns[turn.min(self.turns.len() - 1)].clone()
     }
 }
 
@@ -62,7 +80,7 @@ impl Driver for Scripted {
         lock(&self.prompts).push(text);
         lock(&self.reaches).push(reach);
         let (sender, receiver) = mpsc::channel(64);
-        let script = self.script.clone();
+        let script = self.next_script();
         let on_cancel = self.on_cancel.clone();
         let gate = self.gate.clone();
         let cancelled = self.cancelled.clone();
@@ -242,7 +260,7 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
         .await
         .unwrap();
 
-    room.prompt("ada", "what is here?").unwrap();
+    room.prompt("ada", "what is here?", None, None).unwrap();
     let events = settled(&room, "ada", 5).await;
 
     assert_eq!(
@@ -320,7 +338,8 @@ async fn a_cancelled_turn_fails_the_tool_it_caught_in_flight() {
     }];
     room.start_on(&ada, Arc::new(driver)).await.unwrap();
 
-    room.prompt("ada", "run the long thing").unwrap();
+    room.prompt("ada", "run the long thing", None, None)
+        .unwrap();
     gate.add_permits(1);
     let events = settled(&room, "ada", 2).await;
     assert_eq!(events[1]["status"], "in_progress");
@@ -348,8 +367,8 @@ async fn a_prompt_during_a_turn_waits_for_the_turn_it_would_have_interrupted() {
     let reaches = driver.reaches.clone();
     room.start_on(&ada, Arc::new(driver)).await.unwrap();
 
-    room.prompt("ada", "first").unwrap();
-    room.prompt("ada", "second").unwrap();
+    room.prompt("ada", "first", None, None).unwrap();
+    room.prompt("ada", "second", None, None).unwrap();
 
     // Both lines are on the tape at once: what was said is a fact as soon as
     // it was said, whatever the agent is busy with.
@@ -393,7 +412,7 @@ async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver
 
     room.stop("ada").unwrap();
     assert_eq!(room.info("ada").state, SessionState::Idle);
-    assert!(room.prompt("ada", "anyone there?").is_err());
+    assert!(room.prompt("ada", "anyone there?", None, None).is_err());
 }
 
 /// A teammate's directory is made when it starts, wherever it was pointed.
@@ -482,12 +501,284 @@ async fn what_is_appended_is_indexed() {
     room.start_on(&ada, Arc::new(Scripted::new(spoken_turn())))
         .await
         .unwrap();
-    room.prompt("ada", "what is here?").unwrap();
+    room.prompt("ada", "what is here?", None, None).unwrap();
     settled(&room, "ada", 5).await;
 
     let found = crate::store::search::search(room.log.root(), "ada", "here", None);
     assert_eq!(
         found["hits"][0]["excerpt"], "what is here?",
         "the user's line was never indexed: {found}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The funnel's own rules: what a line carries, and whose voice is held
+// ---------------------------------------------------------------------------
+
+/// A schedule's firing, as the scheduler will hand one over.
+fn firing(kind: ScheduleKind, quiet: bool) -> ScheduledRun {
+    ScheduledRun {
+        job_id: "job-1".to_string(),
+        kind,
+        name: "Apple order check".to_string(),
+        quiet: quiet.then_some(true),
+    }
+}
+
+/// A turn in which the agent says one thing. `tag` keeps the message id of one
+/// turn apart from the next, because a tape folds by id.
+fn said(tag: &str, text: &str) -> Vec<Update> {
+    vec![
+        Update::Delta {
+            kind: MessageKind::Agent,
+            message_id: format!("m-{tag}"),
+            text: text.to_string(),
+        },
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: format!("m-{tag}"),
+            text: text.to_string(),
+        },
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ]
+}
+
+fn attachment(name: &str, path: &str) -> Attachment {
+    Attachment {
+        kind: AttachmentKind::File,
+        name: name.to_string(),
+        path: path.to_string(),
+        mime_type: None,
+        size: None,
+    }
+}
+
+/// Waits for the driver to have been handed `count` lines, so a test never
+/// races the task the turn runs on.
+async fn heard(prompts: &Arc<Mutex<Vec<String>>>, count: usize) -> Vec<String> {
+    for _ in 0..200 {
+        let given = lock(prompts).clone();
+        if given.len() >= count {
+            return given;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the driver was never handed {count} lines");
+}
+
+/// The whole point of a quiet run: the agent said something and the chat has
+/// nothing in it, and the teammate speaks normally the moment it is over.
+#[tokio::test]
+async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
+    let (room, ada) = room("quiet-run");
+    let mut deltas = room.subscribe_deltas();
+    let driver = Scripted::turns(vec![
+        said("quiet", "No change — staying silent per protocol."),
+        said("loud", "It moved."),
+    ]);
+    let prompts = driver.prompts.clone();
+    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+
+    room.prompt_scheduled(
+        "ada",
+        "check the order page",
+        firing(ScheduleKind::Loop, true),
+    )
+    .unwrap();
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "thought", "turn"]);
+    assert_eq!(
+        events[1]["id"], "m-quiet",
+        "the words were demoted, not destroyed"
+    );
+    assert_eq!(
+        events[1]["text"],
+        "No change — staying silent per protocol."
+    );
+
+    // The tape keeps the bare prompt and the stamp naming the job; the agent
+    // heard the framing that says a schedule woke it.
+    assert_eq!(events[0]["text"], "check the order page");
+    assert_eq!(events[0]["scheduled"]["jobId"], "job-1");
+    assert_eq!(events[0]["scheduled"]["quiet"], true);
+    assert_eq!(*lock(&prompts), ["loop · check the order page"]);
+
+    room.prompt("ada", "and now?", None, None).unwrap();
+    let events = settled(&room, "ada", 6).await;
+    assert_eq!(
+        kinds(&events),
+        ["user", "thought", "turn", "user", "agent", "turn"],
+        "the run's own turn boundary closed the window"
+    );
+    assert_eq!(events[4]["text"], "It moved.");
+
+    // The live stream was muted exactly as long as the tape was: an indicator
+    // that types and then produces nothing reads as a bug, not as silence.
+    let mut streamed = Vec::new();
+    while let Ok(delta) = deltas.try_recv() {
+        streamed.push(delta);
+    }
+    assert_eq!(
+        streamed,
+        [
+            StreamDelta::ThoughtDelta {
+                persona_id: "ada".to_string(),
+                message_id: "m-quiet".to_string(),
+                text: "No change — staying silent per protocol.".to_string(),
+            },
+            StreamDelta::AgentDelta {
+                persona_id: "ada".to_string(),
+                message_id: "m-loud".to_string(),
+                text: "It moved.".to_string(),
+            },
+        ]
+    );
+}
+
+/// A person who types during a quiet run is owed an answer they can read; the
+/// schedule's silence was never about them.
+#[tokio::test]
+async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
+    let (room, ada) = room("quiet-interrupted");
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::turns(vec![
+        said("quiet", "the scheduled run's own words"),
+        said("loud", "It moved."),
+    ]);
+    driver.gate = Some(gate.clone());
+    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+
+    room.prompt_scheduled(
+        "ada",
+        "check the order page",
+        firing(ScheduleKind::Loop, true),
+    )
+    .unwrap();
+    let events = settled(&room, "ada", 1).await;
+    assert_eq!(events[0]["scheduled"]["quiet"], true);
+
+    // The window is open and the run's turn is still gated when a person types.
+    room.prompt("ada", "wait, what did you find?", None, None)
+        .unwrap();
+    settled(&room, "ada", 2).await;
+
+    // One permit per update: the delta, the message, the turn.
+    gate.add_permits(3);
+    let events = settled(&room, "ada", 4).await;
+    assert_eq!(
+        kinds(&events),
+        ["user", "user", "agent", "turn"],
+        "the human closed the window, so the run's words are a bubble"
+    );
+}
+
+/// A schedule that is not quiet is stamped and framed all the same; only the
+/// voice is left alone.
+#[tokio::test]
+async fn a_loud_schedule_is_stamped_and_framed_and_keeps_its_voice() {
+    let (room, ada) = room("scheduled-loud");
+    let driver = Scripted::new(said("s", "Standup is at ten."));
+    let prompts = driver.prompts.clone();
+    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+
+    room.prompt_scheduled(
+        "ada",
+        "post the standup",
+        firing(ScheduleKind::Schedule, false),
+    )
+    .unwrap();
+    let events = settled(&room, "ada", 3).await;
+
+    assert_eq!(kinds(&events), ["user", "agent", "turn"]);
+    assert_eq!(events[0]["text"], "post the standup");
+    assert_eq!(events[0]["scheduled"]["name"], "Apple order check");
+    assert_eq!(events[0]["scheduled"].get("quiet"), None);
+    assert_eq!(*lock(&prompts), ["scheduled · post the standup"]);
+}
+
+/// What a message answers is on the line it is written as, and a mark that has
+/// gone stale is claimed by nothing.
+#[tokio::test]
+async fn a_reply_is_stamped_on_its_own_line_and_only_while_the_mark_is_fresh() {
+    let (room, ada) = room("reply");
+    room.start_on(&ada, Arc::new(Scripted::new(Vec::new())))
+        .await
+        .unwrap();
+
+    room.prompt("ada", "this one", Some("a1".to_string()), None)
+        .unwrap();
+    let events = settled(&room, "ada", 1).await;
+    assert_eq!(events[0]["replyTo"], "a1");
+
+    let session = room.session("ada").unwrap();
+    *lock(&session.pending_reply) = Some(Mark {
+        value: "a1".to_string(),
+        until: now_ms() - 1,
+    });
+    room.prompt("ada", "and this one", None, None).unwrap();
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(
+        events[1].get("replyTo"),
+        None,
+        "an expired mark is not claimed by a later, unrelated message"
+    );
+}
+
+/// The record keeps what was attached; the agent is given the paths, because
+/// it opens a file with its read tool.
+#[tokio::test]
+async fn attachments_land_on_the_line_and_their_paths_in_what_the_agent_hears() {
+    let (room, ada) = room("attachments");
+    let driver = Scripted::new(Vec::new());
+    let prompts = driver.prompts.clone();
+    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+
+    room.prompt(
+        "ada",
+        "read these",
+        None,
+        Some(vec![
+            attachment("note.txt", "/tmp/note.txt"),
+            attachment("shot.png", "/tmp/shot.png"),
+        ]),
+    )
+    .unwrap();
+
+    let events = settled(&room, "ada", 1).await;
+    assert_eq!(events[0]["attachments"][0]["name"], "note.txt");
+    assert_eq!(events[0]["attachments"][1]["path"], "/tmp/shot.png");
+    assert_eq!(
+        heard(&prompts, 1).await,
+        ["read these\n\nAttached files:\n/tmp/note.txt\n/tmp/shot.png"]
+    );
+}
+
+/// Toad's own words to a running teammate: the driver hears them, and the
+/// conversation has no line saying anybody spoke.
+#[tokio::test]
+async fn a_nudge_reaches_the_driver_and_never_the_tape() {
+    let (room, ada) = room("nudge");
+    let driver = Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    }]);
+    let prompts = driver.prompts.clone();
+    room.start_on(&ada, Arc::new(driver)).await.unwrap();
+
+    room.nudge("ada", "while you were away the user asked you to hurry")
+        .unwrap();
+    assert_eq!(
+        heard(&prompts, 1).await,
+        ["while you were away the user asked you to hurry"]
+    );
+
+    let events = settled(&room, "ada", 1).await;
+    assert_eq!(
+        kinds(&events),
+        ["turn"],
+        "the turn it ran is on the tape; the words that started it are not"
     );
 }

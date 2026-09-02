@@ -42,9 +42,14 @@ pub(crate) async fn run(
             room.start(&persona_id).await.map(|info| json!(info))
         }
         Command::SessionStop { persona_id } => room.stop(&persona_id).map(|()| Value::Null),
-        Command::SessionPrompt { persona_id, text } => {
-            room.prompt(&persona_id, &text).map(|()| Value::Null)
-        }
+        Command::SessionPrompt {
+            persona_id,
+            text,
+            reply_to,
+            attachments,
+        } => room
+            .prompt(&persona_id, &text, reply_to, attachments)
+            .map(|()| Value::Null),
         Command::SessionCancel { persona_id } => room.cancel(&persona_id).map(|()| Value::Null),
         Command::SessionSetModel {
             persona_id,

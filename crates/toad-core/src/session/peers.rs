@@ -333,7 +333,7 @@ impl Room {
 
     /// Stops every peer session this teammate is a side of. A teammate that
     /// has been deleted has no more colleagues to answer.
-    pub fn drop_peer_sessions(&self, persona_id: &str) {
+    pub(crate) fn drop_peer_sessions(&self, persona_id: &str) {
         let mut sessions = lock(&self.peers.sessions);
         sessions.retain(|(caller_id, target_id), live| {
             if caller_id != persona_id && target_id != persona_id {

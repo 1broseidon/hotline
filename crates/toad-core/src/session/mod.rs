@@ -571,6 +571,15 @@ impl Room {
         Ok(info)
     }
 
+    /// A deleted teammate: its own session stopped, every peer session it was
+    /// a side of dropped, and its start gate let go, because nothing should
+    /// wait behind — or be kept for — an id that names nobody any more.
+    pub fn forget(&self, persona_id: &str) {
+        let _ = self.stop(persona_id);
+        self.drop_peer_sessions(persona_id);
+        lock(&self.starts).remove(persona_id);
+    }
+
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
         let Some(session) = lock(&self.sessions).remove(persona_id) else {

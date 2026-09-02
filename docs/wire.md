@@ -81,7 +81,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | --- | --- | --- |
 | `persona.create` | `{draft}` | the created `Persona` |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
-| `persona.delete` | `{id}` | none |
+| `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.revoke` | `{id}` | none |

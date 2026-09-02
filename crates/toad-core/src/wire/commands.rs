@@ -224,7 +224,7 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
 fn delete_persona(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<Value, String> {
     living(log, id)?;
     crate::session::ledger::forget(id);
-    room.drop_peer_sessions(id);
+    room.forget(id);
     append(
         log,
         &json!({ "kind": "persona", "id": id, "deleted": true }),

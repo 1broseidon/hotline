@@ -239,7 +239,7 @@ impl RoomHandle for Quiet {
         0
     }
 
-    fn drop_peer_sessions(&self, _persona_id: &str) {}
+    fn forget(&self, _persona_id: &str) {}
 }
 
 fn scratch(name: &str) -> PathBuf {

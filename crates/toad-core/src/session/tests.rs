@@ -628,6 +628,23 @@ async fn two_starts_at_once_leave_one_session_in_one_chapter() {
     );
 }
 
+/// A deleted teammate is forgotten whole: the agent is stopped and the
+/// start gate is gone, so nothing is kept for an id that names nobody.
+#[tokio::test]
+async fn forgetting_a_teammate_stops_it_and_drops_its_gate() {
+    let room = room("forget", Fake::new(Scripted::new(Vec::new())));
+    room.start("ada").await.unwrap();
+    assert!(lock(&room.starts).contains_key("ada"));
+
+    room.forget("ada");
+
+    assert!(
+        lock(&room.sessions).get("ada").is_none(),
+        "the agent kept running"
+    );
+    assert!(!lock(&room.starts).contains_key("ada"), "the gate was kept");
+}
+
 /// Two messages arriving on a closed chapter open one chapter between them,
 /// and both are spoken to the session that chapter belongs to.
 ///

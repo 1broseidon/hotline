@@ -172,8 +172,9 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Marks messages in a peer thread read, answering how many moved.
     fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
 
-    /// Stops every peer session a teammate is a side of, because it is gone.
-    fn drop_peer_sessions(&self, persona_id: &str);
+    /// A teammate is gone: its agent is stopped, every peer session it was a
+    /// side of is dropped, and nothing is kept for its id.
+    fn forget(&self, persona_id: &str);
 }
 
 /// What a socket may do, decided by the token it presented.

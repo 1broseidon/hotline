@@ -210,7 +210,7 @@ impl RoomHandle for Desk {
         self.room.mark_peer_read(key, event_ids)
     }
 
-    fn drop_peer_sessions(&self, persona_id: &str) {
-        self.room.drop_peer_sessions(persona_id);
+    fn forget(&self, persona_id: &str) {
+        self.room.forget(persona_id);
     }
 }

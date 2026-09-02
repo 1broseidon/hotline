@@ -246,6 +246,25 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
     assert_eq!(removed["removed"], persona_id);
 }
 
+/// A subscription's account list cannot be refreshed without a login. The
+/// fake room is allowed to stub this; the desk is the one that knows.
+#[tokio::test(flavor = "multi_thread")]
+async fn credential_refresh_models_needs_a_login() {
+    let (_root, port) = open("refresh-models").await;
+    let mut client = Client::connect(port).await;
+    let refused = client
+        .call(
+            "credential.refresh_models",
+            json!({ "providerId": "github-copilot" }),
+        )
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        refused["error"].as_str(),
+        Some("There is no sign-in for GitHub Copilot.")
+    );
+}
+
 /// The catalogue is listed whether or not a credential is held, and a saved
 /// filter flags it. The fake room cannot see settings, so this is the desk.
 #[tokio::test(flavor = "multi_thread")]

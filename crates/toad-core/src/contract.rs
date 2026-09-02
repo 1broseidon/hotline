@@ -641,7 +641,9 @@ pub struct ConfigChoice {
 ///
 /// `id` is the catalogue key (bare, so OpenRouter keeps its own slash).
 /// `enabled` is the room's `enabledModels` filter: every model is enabled
-/// when that provider is absent from the setting.
+/// when that provider is absent from the setting. A subscription with an
+/// account list omits models the account cannot run, so they never appear
+/// here to be flagged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -1346,6 +1348,12 @@ pub enum Command {
     CredentialLogin { provider_id: String },
     #[serde(rename = "credential.login_status")]
     CredentialLoginStatus { login_id: String },
+    /// Re-reads the models a subscription login can run and answers with
+    /// that provider's catalogue as `models.catalog` would. A provider
+    /// without a login, or whose credential is a key, is an error; a fetch
+    /// that fails is the error text.
+    #[serde(rename = "credential.refresh_models")]
+    CredentialRefreshModels { provider_id: String },
     #[serde(rename = "credential.revoke")]
     CredentialRevoke { id: String },
     #[serde(rename = "credential.delete")]
@@ -1367,9 +1375,8 @@ pub enum Command {
     #[serde(rename = "models.list")]
     ModelsList {},
     /// Every model the catalogue lists for one provider, flagged by the
-    /// room's `enabledModels` filter. An unwired provider is an error. The
-    /// list does not depend on a credential being held: a filter is about
-    /// the catalogue.
+    /// room's `enabledModels` filter. A subscription whose account list is
+    /// on disk lists only those models. An unwired provider is an error.
     #[serde(rename = "models.catalog")]
     ModelsCatalog { provider_id: String },
     /// The effort levels a catalogue model offers, as picker choices. Empty

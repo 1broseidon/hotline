@@ -45,6 +45,10 @@ pub(crate) async fn run(
         Command::CredentialLoginStatus { login_id } => {
             room.login_status(&login_id).map(|status| json!(status))
         }
+        Command::CredentialRefreshModels { provider_id } => room
+            .credential_refresh_models(&provider_id)
+            .await
+            .map(|models| json!(models)),
         Command::CredentialList {} => Ok(json!(room.credentials())),
         Command::BackendsList {} => Ok(json!(room.backends().await)),
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),

@@ -260,7 +260,11 @@ impl RoomHandle for Quiet {
                 "{provider_id} is not a provider Toad Agent can use."
             ));
         }
-        Ok(crate::models::catalog_models(provider_id, &HashMap::new()))
+        Ok(crate::models::catalog_models(
+            provider_id,
+            &HashMap::new(),
+            None,
+        ))
     }
 
     fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
@@ -301,6 +305,21 @@ impl RoomHandle for Quiet {
 
     fn mark_peer_read(&self, _key: &str, _event_ids: &[String]) -> usize {
         0
+    }
+
+    async fn credential_refresh_models(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+        if let Some(message) = crate::models::login_refusal(provider_id) {
+            return Err(message);
+        }
+        let name = crate::models::catalog()
+            .providers
+            .get(provider_id)
+            .map(|entry| entry.name.as_str())
+            .unwrap_or(provider_id);
+        Err(format!("There is no sign-in for {name}."))
     }
 
     fn forget(&self, _persona_id: &str) {}
@@ -992,6 +1011,36 @@ async fn an_unknown_login_id_is_an_error() {
     let refused = answered(&mut socket, 1).await;
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(refused["error"].as_str(), Some("There is no login nobody."));
+}
+
+#[tokio::test]
+async fn credential_refresh_models_needs_a_login_and_refuses_a_key() {
+    let (_root, _log, port) = door("refresh-models");
+    let mut socket = desk(port).await;
+
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "credential.refresh_models", "params": { "providerId": "anthropic" } }),
+    )
+    .await;
+    let key = answered(&mut socket, 1).await;
+    assert_eq!(key["ok"], false, "{key}");
+    assert_eq!(
+        key["error"].as_str(),
+        Some("Anthropic takes an API key, not a sign-in.")
+    );
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "credential.refresh_models", "params": { "providerId": "github-copilot" } }),
+    )
+    .await;
+    let unsigned = answered(&mut socket, 2).await;
+    assert_eq!(unsigned["ok"], false, "{unsigned}");
+    assert_eq!(
+        unsigned["error"].as_str(),
+        Some("There is no sign-in for GitHub Copilot.")
+    );
 }
 
 #[tokio::test]

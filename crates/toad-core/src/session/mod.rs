@@ -132,6 +132,27 @@ pub trait ProviderKeys: Send + Sync {
     fn preferred_model(&self) -> Option<String> {
         None
     }
+
+    /// The model ids a subscription login can run, when the vault has
+    /// written them beside it. `None` is the whole catalogue. Test doubles
+    /// leave it absent.
+    fn account_models(&self, provider_id: &str) -> Option<Vec<String>> {
+        let _ = provider_id;
+        None
+    }
+}
+
+pub(crate) fn account_lists(
+    keys: &dyn ProviderKeys,
+    providers: impl IntoIterator<Item = impl AsRef<str>>,
+) -> HashMap<String, Vec<String>> {
+    providers
+        .into_iter()
+        .filter_map(|id| {
+            let id = id.as_ref();
+            keys.account_models(id).map(|list| (id.to_string(), list))
+        })
+        .collect()
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a
@@ -1066,7 +1087,12 @@ impl Room {
 
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
-        crate::models::choices(&self.keys.provider_auth(), &self.keys.enabled_models())
+        let auth = self.keys.provider_auth();
+        crate::models::choices(
+            &auth,
+            &self.keys.enabled_models(),
+            &account_lists(self.keys.as_ref(), auth.keys()),
+        )
     }
 
     /// What tools this teammate was given the last time it started. `None`
@@ -1379,9 +1405,13 @@ impl Room {
             .clone()
             .filter(|id| keys.contains_key(id.split('/').next().unwrap_or_default()))
             .or_else(|| {
-                crate::models::choices(&keys, &self.keys.enabled_models())
-                    .first()
-                    .map(|model| model.id.clone())
+                crate::models::choices(
+                    &keys,
+                    &self.keys.enabled_models(),
+                    &account_lists(self.keys.as_ref(), keys.keys()),
+                )
+                .first()
+                .map(|model| model.id.clone())
             })
     }
 

@@ -197,6 +197,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Marks messages in a peer thread read, answering how many moved.
     fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
 
+    /// Re-reads the models a subscription login can run and answers with
+    /// that provider's catalogue as [`Self::models_catalog`] would. A
+    /// provider without a login, or whose credential is a key, is an error.
+    async fn credential_refresh_models(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String>;
+
     /// A teammate is gone: its agent is stopped, every peer session it was a
     /// side of is dropped, and nothing is kept for its id.
     fn forget(&self, persona_id: &str);

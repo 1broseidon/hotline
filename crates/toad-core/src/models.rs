@@ -380,6 +380,17 @@ fn model_offered(
         .is_none_or(|list| list.iter().any(|wanted| wanted == model_id))
 }
 
+/// Whether a subscription's account list lets this catalogue id through.
+/// A key provider is never narrowed this way. `None` is the whole catalogue;
+/// a present list is only those bare ids — the same "narrows what is offered,
+/// never what is in use" rule as [`model_offered`].
+fn account_offered(kind: CredentialKind, account: Option<&[String]>, model_id: &str) -> bool {
+    if kind != CredentialKind::Oauth {
+        return true;
+    }
+    account.is_none_or(|list| list.iter().any(|id| id == model_id))
+}
+
 /// The models of one catalogue provider, newest first.
 fn newest_first(entry: &ProviderEntry) -> Vec<(&String, &Model)> {
     let mut models: Vec<(&String, &Model)> = entry.models.iter().collect();
@@ -393,11 +404,13 @@ fn newest_first(entry: &ProviderEntry) -> Vec<(&String, &Model)> {
 /// so a teammate's saved choice keeps meaning the same thing. The keys map's
 /// values are unused; presence is what unlocks a group. `enabled` is the
 /// saved filter: a provider absent from it shows every model, a present one
-/// only the listed ids. The filter narrows what is offered, never a model
-/// already in use.
+/// only the listed ids. `account` is the same shape for a subscription's
+/// held list: present means only those bare ids, absent the whole catalogue.
+/// Both narrow what is offered, never a model already in use.
 pub fn choices<T>(
     keys: &HashMap<String, T>,
     enabled: &HashMap<String, Vec<String>>,
+    account: &HashMap<String, Vec<String>>,
 ) -> Vec<ConfigChoice> {
     WIRING
         .iter()
@@ -410,7 +423,14 @@ pub fn choices<T>(
             };
             newest_first(entry)
                 .into_iter()
-                .filter(|(id, _)| model_offered(enabled, wiring.id, id))
+                .filter(|(id, _)| {
+                    model_offered(enabled, wiring.id, id)
+                        && account_offered(
+                            wiring.credential_kind,
+                            account.get(wiring.id).map(Vec::as_slice),
+                            id,
+                        )
+                })
                 .map(move |(id, model)| ConfigChoice {
                     id: format!("{}/{id}", wiring.id),
                     name: model.name.clone(),
@@ -423,17 +443,24 @@ pub fn choices<T>(
 
 /// Every model of this provider in the catalogue, newest first, each flagged
 /// by the saved filter. All `enabled` when the provider is absent from it.
-/// An unwired provider, or one the snapshot has not got, is an empty list;
-/// the wire turns that into an error before it gets here.
+/// A subscription with an `account` list omits models the account cannot
+/// run, so the Models shown panel has no checkbox for them. An unwired
+/// provider, or one the snapshot has not got, is an empty list; the wire
+/// turns that into an error before it gets here.
 pub fn catalog_models(
     provider_id: &str,
     enabled: &HashMap<String, Vec<String>>,
+    account: Option<&[String]>,
 ) -> Vec<CatalogModel> {
     let Some(entry) = catalog().providers.get(provider_id) else {
         return Vec::new();
     };
+    let kind = wiring(provider_id)
+        .map(|wiring| wiring.credential_kind)
+        .unwrap_or(CredentialKind::ApiKey);
     newest_first(entry)
         .into_iter()
+        .filter(|(id, _)| account_offered(kind, account, id))
         .map(|(id, model)| CatalogModel {
             id: id.clone(),
             name: model.name.clone(),
@@ -615,9 +642,9 @@ mod tests {
     fn choices_follow_the_keys_the_desk_holds_newest_first() {
         let mut keys = HashMap::new();
         let none = HashMap::new();
-        assert!(choices(&keys, &none).is_empty());
+        assert!(choices(&keys, &none, &none).is_empty());
         keys.insert("anthropic".to_string(), "k".to_string());
-        let listed = choices(&keys, &none);
+        let listed = choices(&keys, &none, &none);
         assert!(
             listed
                 .iter()
@@ -700,24 +727,24 @@ mod tests {
         let mut keys = HashMap::new();
         keys.insert("anthropic".to_string(), "k");
         let none = HashMap::new();
-        let all = choices(&keys, &none);
+        let all = choices(&keys, &none, &none);
         assert!(all.len() > 1, "anthropic must list more than one model");
 
         let kept = all[0].id.trim_start_matches("anthropic/").to_string();
         let mut filter = HashMap::new();
         filter.insert("anthropic".to_string(), vec![kept.clone()]);
-        let listed = choices(&keys, &filter);
+        let listed = choices(&keys, &filter, &none);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, format!("anthropic/{kept}"));
 
         filter.insert("openai".to_string(), vec!["nope".to_string()]);
-        assert_eq!(choices(&keys, &filter).len(), 1);
+        assert_eq!(choices(&keys, &filter, &none).len(), 1);
     }
 
     #[test]
     fn catalog_models_are_newest_first_and_a_filter_flags_them() {
         let none = HashMap::new();
-        let all = catalog_models("anthropic", &none);
+        let all = catalog_models("anthropic", &none, None);
         assert!(!all.is_empty());
         assert!(all.iter().all(|model| model.enabled));
         let dates: Vec<&str> = all
@@ -730,11 +757,11 @@ mod tests {
 
         let mut filter = HashMap::new();
         filter.insert("anthropic".to_string(), vec![all[0].id.clone()]);
-        let flagged = catalog_models("anthropic", &filter);
+        let flagged = catalog_models("anthropic", &filter, None);
         assert_eq!(flagged.len(), all.len());
         assert!(flagged[0].enabled);
         assert!(flagged.iter().skip(1).all(|model| !model.enabled));
-        assert!(catalog_models("nope", &none).is_empty());
+        assert!(catalog_models("nope", &none, None).is_empty());
     }
 
     #[test]
@@ -825,12 +852,84 @@ mod tests {
     fn an_oauth_providers_models_are_labelled_as_a_subscription() {
         let mut keys = HashMap::new();
         keys.insert("openai-codex".to_string(), "ignored");
-        let listed = choices(&keys, &HashMap::new());
+        let listed = choices(&keys, &HashMap::new(), &HashMap::new());
         assert!(
             listed
                 .iter()
                 .all(|model| model.id.starts_with("openai-codex/"))
         );
         assert_eq!(listed[0].group.as_deref(), Some("ChatGPT — subscription"));
+    }
+
+    #[test]
+    fn choices_narrow_an_oauth_account_and_leave_key_providers_alone() {
+        let mut keys = HashMap::new();
+        keys.insert("github-copilot".to_string(), "ignored");
+        keys.insert("anthropic".to_string(), "k");
+        let none = HashMap::new();
+        let all = choices(&keys, &none, &none);
+        let copilot: Vec<&str> = all
+            .iter()
+            .filter(|choice| choice.id.starts_with("github-copilot/"))
+            .map(|choice| choice.id.as_str())
+            .collect();
+        assert!(
+            copilot.len() > 2,
+            "github-copilot must list more than two models"
+        );
+        let first = copilot[0].trim_start_matches("github-copilot/").to_string();
+        let later = copilot[2].trim_start_matches("github-copilot/").to_string();
+
+        let mut account = HashMap::new();
+        account.insert(
+            "github-copilot".to_string(),
+            vec![later.clone(), first.clone(), "copilot-search-a".to_string()],
+        );
+        account.insert("anthropic".to_string(), vec!["nope".to_string()]);
+        let listed = choices(&keys, &none, &account);
+        let copilot: Vec<String> = listed
+            .iter()
+            .filter(|choice| choice.id.starts_with("github-copilot/"))
+            .map(|choice| choice.id.clone())
+            .collect();
+        assert_eq!(
+            copilot,
+            vec![
+                format!("github-copilot/{first}"),
+                format!("github-copilot/{later}"),
+            ]
+        );
+
+        let anthropic: Vec<&str> = listed
+            .iter()
+            .filter(|choice| choice.id.starts_with("anthropic/"))
+            .map(|choice| choice.id.as_str())
+            .collect();
+        let all_anthropic: Vec<&str> = all
+            .iter()
+            .filter(|choice| choice.id.starts_with("anthropic/"))
+            .map(|choice| choice.id.as_str())
+            .collect();
+        assert_eq!(anthropic, all_anthropic);
+    }
+
+    #[test]
+    fn catalog_models_intersect_an_oauth_account_in_catalogue_order() {
+        let none = HashMap::new();
+        let all = catalog_models("github-copilot", &none, None);
+        assert!(all.len() > 2);
+        let first = all[0].id.clone();
+        let later = all[2].id.clone();
+        let account = vec![later.clone(), first.clone(), "copilot-search-a".to_string()];
+        let listed = catalog_models("github-copilot", &none, Some(&account));
+        let ids: Vec<&str> = listed.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(ids, [first.as_str(), later.as_str()]);
+        assert!(listed.iter().all(|model| model.enabled));
+
+        let anthropic = catalog_models("anthropic", &none, Some(&["nope".to_string()]));
+        assert_eq!(
+            anthropic.len(),
+            catalog_models("anthropic", &none, None).len()
+        );
     }
 }

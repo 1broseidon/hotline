@@ -7,17 +7,19 @@
 //! a desk the same way and get the same room.
 
 use crate::contract::{
-    Attachment, BackendChoice, ChapterClose, ChapterSummary, ConfigChoice, Credential, LoginPrompt,
-    LoginState, LoginStatus, SessionInfo, StreamDelta,
+    Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
+    Credential, LoginPrompt, LoginState, LoginStatus, SessionInfo, StreamDelta,
 };
 use crate::driver::{PI_BACKEND_ID, acp};
-use crate::log::Log;
+use crate::log::{Log, StreamId};
 use crate::models::Client;
-use crate::session::{ProviderKeys, Room};
+use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
+use rig::client::ModelListingClient;
 use rig::providers::{chatgpt, copilot};
+use serde_json::json;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
@@ -46,6 +48,10 @@ impl ProviderKeys for DeskCredentials {
 
     fn preferred_model(&self) -> Option<String> {
         crate::models::preferred_model(&crate::room::settings(&self.log))
+    }
+
+    fn account_models(&self, provider_id: &str) -> Option<Vec<String>> {
+        self.vault.account_models(provider_id)
     }
 }
 
@@ -293,15 +299,27 @@ impl RoomHandle for Desk {
                         return Err(error);
                     }
                 };
+                let log_for_task = self.log.clone();
+                let token_dir_for_task = token_dir.clone();
                 tokio::spawn(async move {
                     record_login(
                         vault,
-                        logins,
-                        id_for_task,
+                        logins.clone(),
+                        id_for_task.clone(),
                         provider_for_task,
                         label_for_task,
                         client.authorize().await.map_err(|error| error.to_string()),
                     );
+                    let succeeded = matches!(
+                        logins
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .get(&id_for_task),
+                        Some(LoginOutcome::Done(_))
+                    );
+                    if succeeded {
+                        store_copilot_account_models(&token_dir_for_task, &log_for_task).await;
+                    }
                 })
             }
             _ => {
@@ -391,6 +409,7 @@ impl RoomHandle for Desk {
         Ok(crate::models::catalog_models(
             provider_id,
             &crate::models::enabled_models(&crate::room::settings(&self.log)),
+            self.vault.account_models(provider_id).as_deref(),
         ))
     }
 
@@ -435,6 +454,33 @@ impl RoomHandle for Desk {
         self.room.mark_peer_read(key, event_ids)
     }
 
+    async fn credential_refresh_models(
+        &self,
+        provider_id: &str,
+    ) -> Result<Vec<CatalogModel>, String> {
+        if let Some(message) = crate::models::login_refusal(provider_id) {
+            return Err(message);
+        }
+        let token_dir = match self.vault.provider_auth().get(provider_id) {
+            Some(ProviderAuth::Login { token_dir }) => token_dir.clone(),
+            _ => {
+                let name = crate::models::catalog()
+                    .providers
+                    .get(provider_id)
+                    .map(|entry| entry.name.as_str())
+                    .unwrap_or(provider_id);
+                return Err(format!("There is no sign-in for {name}."));
+            }
+        };
+        if crate::models::wiring(provider_id).is_some_and(|wiring| wiring.client == Client::Copilot)
+        {
+            let ids = fetch_copilot_account_models(&token_dir).await?;
+            crate::vault::write_account_models(&token_dir, &ids)
+                .map_err(|error| error.to_string())?;
+        }
+        self.models_catalog(provider_id)
+    }
+
     fn forget(&self, persona_id: &str) {
         self.room.forget(persona_id);
     }
@@ -465,4 +511,46 @@ fn record_login(
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .insert(id, outcome);
+}
+
+async fn store_copilot_account_models(token_dir: &Path, log: &Log) {
+    match fetch_copilot_account_models(token_dir).await {
+        Ok(ids) => {
+            if crate::vault::write_account_models(token_dir, &ids).is_err() {
+                notice_unread_account_models(log);
+            }
+        }
+        Err(_) => notice_unread_account_models(log),
+    }
+}
+
+fn notice_unread_account_models(log: &Log) {
+    let _ = log.append(
+        &StreamId::Room,
+        &crate::room::room_event(
+            "notice",
+            json!({
+                "id": uuid::Uuid::new_v4().to_string(),
+                "ts": chrono::Utc::now().timestamp_millis(),
+                "level": "warn",
+                "text": "The GitHub Copilot model list could not be read. Refresh under Settings → Providers retries.",
+            }),
+        ),
+    );
+}
+
+/// The Copilot account's model ids, from Rig. Tests never call this: they
+/// write `models.json` beside a login themselves.
+async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, String> {
+    let client = copilot::Client::builder()
+        .oauth()
+        .token_dir(token_dir)
+        .allow_device_flow(false)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let listed = client
+        .list_models()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(listed.iter().map(|model| model.id.clone()).collect())
 }

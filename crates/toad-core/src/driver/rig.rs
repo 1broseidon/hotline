@@ -30,7 +30,7 @@ use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
 use crate::models::{self, Client};
 use crate::session::ledger::ToolLedger;
-use crate::session::{ProviderAuth, ProviderKeys};
+use crate::session::{self, ProviderAuth, ProviderKeys};
 use crate::tools::{
     self, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace,
     WriteFile,
@@ -177,7 +177,11 @@ impl InProcess {
         let effort = lock(&self.effort).clone();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
-            models: models::choices(keys, &self.keys.enabled_models()),
+            models: models::choices(
+                keys,
+                &self.keys.enabled_models(),
+                &session::account_lists(self.keys.as_ref(), keys.keys()),
+            ),
             model_label: models::label_of(&model),
             current_model_id: model.clone(),
             configs: effort_config(&model, effort.as_deref()),
@@ -190,7 +194,11 @@ impl InProcess {
 impl Driver for InProcess {
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         let keys = self.keys.provider_auth();
-        let choices = models::choices(&keys, &self.keys.enabled_models());
+        let choices = models::choices(
+            &keys,
+            &self.keys.enabled_models(),
+            &session::account_lists(self.keys.as_ref(), keys.keys()),
+        );
         let preferred = self.keys.preferred_model();
         let model = model_for(
             persona.model_id.as_deref(),

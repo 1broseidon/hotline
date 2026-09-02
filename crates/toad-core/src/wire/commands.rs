@@ -35,6 +35,7 @@ pub(crate) async fn run(
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
         Command::CredentialDelete { id } => room.credential_delete(&id).map(|()| Value::Null),
+        Command::CredentialList {} => Ok(json!(room.credentials())),
         Command::ModelsList {} => Ok(json!(room.models())),
 
         Command::SessionStart { persona_id } => {

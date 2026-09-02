@@ -94,6 +94,10 @@ impl RoomHandle for Desk {
         self.vault.delete(id).map_err(|error| error.to_string())
     }
 
+    fn credentials(&self) -> Vec<Credential> {
+        self.vault.list()
+    }
+
     fn models(&self) -> Vec<ConfigChoice> {
         self.room.models_for_desk()
     }

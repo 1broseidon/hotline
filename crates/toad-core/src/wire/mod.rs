@@ -88,6 +88,8 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
     fn credential_delete(&self, id: &str) -> Result<(), String>;
+    /// What the room knows of every credential, the secrets left in the vault.
+    fn credentials(&self) -> Vec<crate::contract::Credential>;
 
     /// Every model the desk's keys can reach, for the model picker.
     fn models(&self) -> Vec<crate::contract::ConfigChoice>;

@@ -1088,6 +1088,9 @@ pub enum Command {
     CredentialRevoke { id: String },
     #[serde(rename = "credential.delete")]
     CredentialDelete { id: String },
+    /// Every credential the room knows of, never a secret.
+    #[serde(rename = "credential.list")]
+    CredentialList {},
     /// Every model the desk's keys can reach, grouped by provider. An empty
     /// struct rather than a unit so `"params": {}` — what a client that
     /// always sends params spells it — reads the same as no params at all.

@@ -120,6 +120,10 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
+    fn credentials(&self) -> Vec<Credential> {
+        Vec::new()
+    }
+
     fn models(&self) -> Vec<ConfigChoice> {
         Vec::new()
     }

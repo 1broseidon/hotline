@@ -500,6 +500,86 @@ async fn a_prompt_during_a_turn_waits_for_the_turn_it_would_have_interrupted() {
     assert_eq!(*lock(&reaches), [Reach::Machine, Reach::Machine]);
 }
 
+/// Every line the room hands the driver is a line the driver hears.
+///
+/// The claim on the driver and the queue behind it are one fact. Held apart,
+/// there was a moment — between the driver finding nothing waiting and letting
+/// go of the turn — in which a line was filed behind a turn that was already
+/// over. The teammate then sat on it: it took the next thing said to shake it
+/// loose, and if nothing else was said, nothing ever did.
+///
+/// That is why nothing is said after the hunt below: another line would heal
+/// exactly the fault being looked for. The moment is nanoseconds wide, so this
+/// hunts rather than hopes — each line is said the instant the driver takes
+/// the one before it, and the spin after that walks the saying across the tail
+/// of the turn. The hunting lines are nudges, because a nudge is the cheapest
+/// thing the room can dispatch and a hunt needs thousands of shots; the tape's
+/// own line is counted with them.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_line_the_room_hands_the_driver_is_a_line_the_driver_heard() {
+    /// How many shots the hunt takes, and how far past the turn's end the
+    /// saying of each one is walked. A spin is tens of nanoseconds and a turn
+    /// here is tens of microseconds, so the walk covers the whole of it.
+    const SHOTS: usize = 60_000;
+    const WALK: usize = 2_000;
+    /// How long a line may wait for an idle driver before it is plainly stuck.
+    const STUCK: Duration = Duration::from_secs(2);
+    const TICK: &str = "tick";
+
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("tight-loop", agents);
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "first", None, None).await.unwrap();
+
+    let hunting = {
+        let room = room.clone();
+        let prompts = prompts.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut said = 0;
+            for shot in 0..SHOTS {
+                let taken = lock(&prompts).len();
+                room.nudge("ada", TICK).unwrap();
+                said += 1;
+                let waited = std::time::Instant::now();
+                while lock(&prompts).len() == taken {
+                    if waited.elapsed() > STUCK {
+                        return said;
+                    }
+                    std::hint::spin_loop();
+                }
+                for _ in 0..(shot % WALK) {
+                    std::hint::spin_loop();
+                }
+            }
+            said
+        })
+    };
+    let said = hunting.await.unwrap();
+
+    let heard = lock(&prompts).clone();
+    let on_the_tape: Vec<String> = tape(&room, "ada")
+        .iter()
+        .filter(|event| event["kind"] == "user")
+        .map(|event| event["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(on_the_tape, ["first"]);
+    assert_eq!(
+        heard
+            .iter()
+            .filter(|line| *line != TICK)
+            .collect::<Vec<_>>(),
+        on_the_tape.iter().collect::<Vec<_>>(),
+        "a line on the tape never reached the driver"
+    );
+    assert_eq!(
+        heard.iter().filter(|line| *line == TICK).count(),
+        said,
+        "the room handed the driver {said} lines and it heard fewer: one of \
+         them is waiting on a turn that ended without it"
+    );
+}
+
 #[tokio::test]
 async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver() {
     let room = room("info", Fake::new(Scripted::new(Vec::new())));

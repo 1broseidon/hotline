@@ -232,11 +232,10 @@ struct Session {
     backend_id: String,
     driver: Arc<dyn Driver>,
     info: Mutex<SessionInfo>,
-    /// Lines that arrived while a turn was running, as the driver will hear
-    /// them. One turn at a time: a redirect waits for the turn it would have
-    /// interrupted.
-    queue: Mutex<VecDeque<Wired>>,
-    running: Mutex<bool>,
+    /// The lines waiting for this teammate and whether a driver is already
+    /// taking them, under one lock. One turn at a time: a redirect waits for
+    /// the turn it would have interrupted.
+    turns: Mutex<Turns>,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
     /// The firing the next user line belongs to.
@@ -308,6 +307,43 @@ impl Wired {
             text: text.into(),
             attachments: Vec::new(),
         }
+    }
+}
+
+/// The lines waiting for a teammate, and whether a driver is already taking
+/// them.
+///
+/// The two are one fact and so they are one lock. Held apart, there was a
+/// moment in which the driver had looked at an empty queue and not yet let go
+/// of the turn: a line dispatched into it was filed behind a turn that was
+/// already over, and the teammate then sat on it until the next thing said
+/// shook it loose.
+#[derive(Default)]
+struct Turns {
+    waiting: VecDeque<Wired>,
+    running: bool,
+}
+
+impl Turns {
+    /// Queues the line behind the turn in flight, or claims the driver for it.
+    ///
+    /// `Some` is the caller's to run: it holds the claim from here until
+    /// [`Turns::next_line`] gives it back.
+    fn claim(&mut self, wire: Wired) -> Option<Wired> {
+        if self.running {
+            self.waiting.push_back(wire);
+            return None;
+        }
+        self.running = true;
+        Some(wire)
+    }
+
+    /// The next line for whoever holds the claim — or, when there is none, the
+    /// release of that claim, in the same breath as the look.
+    fn next_line(&mut self) -> Option<Wired> {
+        let next = self.waiting.pop_front();
+        self.running = next.is_some();
+        next
     }
 }
 
@@ -472,8 +508,7 @@ impl Room {
             backend_id: persona.backend_id.clone(),
             driver,
             info: Mutex::new(info.clone()),
-            queue: Mutex::new(VecDeque::new()),
-            running: Mutex::new(false),
+            turns: Mutex::new(Turns::default()),
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
             quiet: Mutex::new(None),
@@ -633,16 +668,12 @@ impl Room {
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
     fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
-        let running_already = {
-            let mut running = lock(&session.running);
-            let was = *running;
-            *running = true;
-            was
-        };
-        if running_already {
-            lock(&session.queue).push_back(wire);
+        // Joining the queue and claiming an idle driver are one decision under
+        // one lock, so a line can never be filed behind a turn that has
+        // already stopped coming back for it.
+        let Some(wire) = lock(&session.turns).claim(wire) else {
             return;
-        }
+        };
         let room = self.clone();
         tokio::spawn(async move { room.run_turns(session, wire).await });
     }
@@ -656,7 +687,7 @@ impl Room {
     /// pressing it writes `done` for an agent that stopped listening.
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
-        lock(&session.queue).clear();
+        lock(&session.turns).waiting.clear();
         session.driver.cancel();
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
@@ -1299,9 +1330,8 @@ impl Room {
                     }
                 }
             }
-            next = lock(&session.queue).pop_front();
+            next = lock(&session.turns).next_line();
         }
-        *lock(&session.running) = false;
         self.set_state(&session, SessionState::Ready);
     }
 
@@ -1727,7 +1757,7 @@ fn stamp_scheduled(session: &Session, mut event: TranscriptEvent, now: i64) -> T
         // running, so the first boundary to arrive belongs to that turn and
         // not to this one. The turn in flight is what `running` says, which is
         // set as the line is dispatched — after this line reaches the tape.
-        let busy = *lock(&session.running);
+        let busy = lock(&session.turns).running;
         *lock(&session.quiet) = quiet::open_window(&run, busy, now);
         *scheduled = Some(run);
     }

@@ -208,9 +208,6 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
 /// macOS sets cwd because `sandbox-exec` does not.
 #[cfg(target_os = "linux")]
 fn confined(command: &str, workspace: &Path) -> Result<Command, String> {
-    if !command_on_path("bwrap") {
-        return Err(BWRAP_MISSING.to_string());
-    }
     let mut process = Command::new("bwrap");
     process.args(bwrap_args(Some(workspace)));
     process.arg("sh").arg("-c").arg(command);
@@ -322,11 +319,6 @@ fn bwrap_can_sandbox() -> Result<(), String> {
         Ok(output) if output.status.success() => Ok(()),
         Ok(_) | Err(_) => Err(BWRAP_UNUSABLE.to_string()),
     }
-}
-
-#[cfg(target_os = "linux")]
-fn command_on_path(name: &str) -> bool {
-    path_has_command(name, std::env::var_os("PATH").as_deref())
 }
 
 #[cfg(target_os = "linux")]
@@ -443,14 +435,9 @@ mod tests {
     /// rather than a pid: `--unshare-pid` makes `$!` a namespace pid the
     /// host cannot signal.
     #[cfg(unix)]
-    #[tokio::test]
-    async fn a_deadline_takes_the_command_and_everything_it_started() {
-        #[cfg(target_os = "linux")]
-        if skip_without_sandbox() {
-            return;
-        }
+    async fn a_deadline_takes_everything(reach: Reach) {
         let root = TestDirectory::new();
-        let workspace = workspace(root.path(), Reach::Workspace);
+        let workspace = workspace(root.path(), reach);
 
         let refused = RunCommand::new(workspace)
             .call(
@@ -476,6 +463,23 @@ mod tests {
             first, second,
             "the command's own child outlived the command"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_deadline_takes_the_command_and_everything_it_started() {
+        a_deadline_takes_everything(Reach::Machine).await;
+    }
+
+    /// The same guard reaches through `bwrap`, which is why `--new-session`
+    /// is not on its command line.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_deadline_reaches_through_the_sandbox() {
+        if skip_without_sandbox() {
+            return;
+        }
+        a_deadline_takes_everything(Reach::Workspace).await;
     }
 
     /// The command's own output is not cut here: the driver keeps the full

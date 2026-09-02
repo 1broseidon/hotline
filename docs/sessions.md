@@ -109,9 +109,25 @@ allowed when the file tools refuse them. Workspace reach for `shell`:
 
 | OS | workspace reach |
 | --- | --- |
-| Linux | `bwrap` is the parent of `sh`: the root is read-only, the working directory is bound on top, `/tmp` is a private tmpfs. Missing `bwrap`, or a `bwrap` that cannot create a sandbox, omits the tool and the ledger says why. Ubuntu 24.04's AppArmor restriction on unprivileged user namespaces is the usual reason a present `bwrap` still cannot sandbox. |
+| Linux | `bwrap` is the parent of `sh`: the root is read-only, the working directory is bound on top, `/tmp` is a private tmpfs. Missing `bwrap`, or a `bwrap` that cannot create a sandbox, omits the tool and the ledger says why. Ubuntu 24.04's AppArmor restriction on unprivileged user namespaces is the usual reason a present `bwrap` still cannot sandbox; the profile below lifts it for `bwrap` alone. |
 | macOS | `sandbox-exec` with a Seatbelt profile that allows everything and denies `file-write*` except under the working directory, `/tmp`, `/private/tmp`, `/dev`, and `$TMPDIR`. Built, unproven on a Mac until George runs it. `sandbox-exec` is deprecated by Apple and still ships. |
 | Windows | no confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
+
+On Ubuntu 24.04 and later, `bwrap: setting up uid map: Permission denied`
+means the kernel's `apparmor_restrict_unprivileged_userns` is on. Ubuntu's
+own answer is a profile that names the program allowed to make a user
+namespace, the shape it ships for 1Password and the browsers. Put this at
+`/etc/apparmor.d/bwrap` and load it with `sudo apparmor_parser -r
+/etc/apparmor.d/bwrap`; the next teammate start offers the shell again.
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+```
 
 A granted stdio server is spawned in its own process group on Unix, so a
 launcher like `npx` does not leave the real server behind when the session

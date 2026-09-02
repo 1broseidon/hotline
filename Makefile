@@ -2,7 +2,7 @@
 # nothing done in it can reach real data.
 dev: export TOAD_DATA_DIR := $(CURDIR)/.toad-dev
 
-.PHONY: check ui-check dev verify
+.PHONY: check ui-check dev build verify
 
 check: ui-check
 	cargo fmt --all --check
@@ -20,6 +20,11 @@ ui-check:
 # the window itself.
 dev:
 	cd crates/toad-desktop && cargo tauri dev
+
+# A release: the window built by Vite, the shell by cargo, bundled by the
+# Tauri CLI into target/release/bundle (AppImage, deb and rpm on Linux).
+build:
+	cd crates/toad-desktop && cargo tauri build
 
 # The headless harnesses drive the real core over the wire; Phase 0 adds the first.
 verify:

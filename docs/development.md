@@ -56,6 +56,7 @@ served.
 make dev        # the Tauri shell, Vite with hot reload, on .toad-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the window's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
+make build      # a release bundle under target/release/bundle (unsigned)
 ```
 
 `make dev` exports `TOAD_DATA_DIR` to `.toad-dev` in the checkout, then

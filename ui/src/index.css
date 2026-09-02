@@ -116,7 +116,7 @@
 		user-select: none;
 		cursor: default;
 	}
-	:where(.bubble, .md, pre, code, input, textarea) {
+	:where(.bubble, .tape-card, .plan-list, .md, pre, code, input, textarea) {
 		user-select: text;
 		cursor: auto;
 	}
@@ -151,6 +151,87 @@
 	}
 	.btn-quiet:hover:not(:disabled) {
 		background: var(--paper-3);
+	}
+
+	/* A permission or a hand-to-human, as a card rather than a bubble: it is
+	 * not speech, and the title is often a command line that has to wrap
+	 * inside the card instead of stretching the column. */
+	.tape-card {
+		max-width: 85%;
+		margin: 0.25rem 0;
+		border: 1px solid var(--rule);
+		background: var(--said-them);
+		border-radius: 1rem;
+		padding: 0.5rem 0.875rem 0.65rem;
+		overflow-wrap: anywhere;
+	}
+
+	/* The answers under a permission card. The label is the backend's — a
+	 * whole sentence, sometimes with a path — so these buttons are the one
+	 * place `shrink-0` has to invert. Three things, and all three are
+	 * needed: shrink so a long line can give, min-width 0 so the shrink is
+	 * not floored at the label, and wrap so the words then break inside
+	 * the button instead of taking the conversation's scroll width. */
+	.ask-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		min-width: 0;
+		margin-top: 0.5rem;
+	}
+	.ask-actions > button {
+		flex-shrink: 1;
+		min-width: 0;
+		max-width: 100%;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+
+	/* The agent's plan: one line per entry, compact enough that a long
+	 * checklist still reads as machinery and not as another message. */
+	.plan-list {
+		max-width: 85%;
+		margin: 0.25rem 0;
+		padding: 0;
+		list-style: none;
+		font-size: 0.75rem;
+		color: var(--ink-2);
+	}
+	.plan-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		padding: 0.1rem 0;
+	}
+	.plan-mark,
+	.plan-status {
+		flex-shrink: 0;
+		color: var(--ink-3);
+	}
+	.plan-mark {
+		font-family: var(--font-mono);
+		width: 0.75rem;
+	}
+
+	/* A computer capture in the tape: a thumbnail until asked for, so a
+	 * run of frames does not become a film strip of full screens. */
+	.frame-thumb {
+		display: block;
+		width: 7rem;
+		margin: 0.25rem 0;
+		padding: 0;
+		overflow: hidden;
+		border-radius: 0.375rem;
+		border: 1px solid var(--rule);
+		background: var(--paper-3);
+		text-align: left;
+	}
+	.frame-thumb[aria-expanded="true"] {
+		width: min(24rem, 100%);
+	}
+	.frame-thumb img {
+		display: block;
+		width: 100%;
 	}
 
 	/* ---------------------------------------------------------------- speech */

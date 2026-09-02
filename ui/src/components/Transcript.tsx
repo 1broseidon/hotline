@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import type { ToolOutput, ToolStatus, TranscriptEvent } from "../generated/contract";
+import type {
+	HumanActionStatus,
+	PermissionOption,
+	PlanEntry,
+	ToolOutput,
+	ToolStatus,
+	TranscriptEvent,
+} from "../generated/contract";
 import type { Streaming } from "../tape";
 import { Markdown } from "./Markdown";
 
@@ -20,6 +27,11 @@ export type ReplyTarget = { eventId: string; text: string };
  * having. One press opens either. An agent's line, hovered or focused, offers
  * a quiet Reply; a user line that answers one quotes the original from this
  * fold, and a missing original is not drawn.
+ *
+ * Imported tapes also hold permission cards, plans, peer markers, hands-to-
+ * human and computer frames. Those are drawn here, read-only: this window
+ * cannot answer a permission yet, so an open card's options stay disabled
+ * and a decided one names the choice, with no story about why.
  */
 export function Transcript({
 	events,
@@ -232,11 +244,35 @@ function Row({
 				</p>
 			);
 
-		/* Permissions, plans, computer frames, hands-to-human and peer threads
-		 * belong to phases this window does not have yet. Nothing draws them
-		 * rather than something drawing them wrong. */
-		default:
-			return null;
+		/* An imported tape can hold a permission the other Toad already
+		 * answered, or one still open. This window cannot answer yet, so
+		 * the options never fire; a decided card names the choice and an
+		 * open one shows the buttons disabled, with no story about why. */
+		case "permission":
+			return <Permission event={event} />;
+
+		case "plan":
+			return <Plan entries={event.entries} />;
+
+		case "human_action":
+			return <HumanAction reason={event.reason} status={event.status} />;
+
+		/* One quiet line, the way a chapter is a date: the name, who started
+		 * it, how many turns, and whether it is still open. A click that
+		 * opened the thread belongs to a window that has threads. */
+		case "peer":
+			return (
+				<p className="py-3 text-center text-xs text-ink-3">
+					with {event.seat === "client" ? `${event.withName} (an outside agent)` : event.withName}
+					<span className="ml-2">
+						{event.role} · {event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`} ·{" "}
+						{event.status}
+					</span>
+				</p>
+			);
+
+		case "computer_frame":
+			return <ComputerFrame dataUrl={event.dataUrl} />;
 	}
 }
 
@@ -398,6 +434,108 @@ function Tool({
 
 function outputText(one: ToolOutput): string {
 	return one.type === "text" ? one.text : `${one.path}\n${one.newText}`;
+}
+
+/**
+ * A permission the agent asked. The choice is history when the tape already
+ * names it; otherwise the options sit disabled, because answering is a
+ * command this window does not have yet.
+ */
+function Permission({ event }: { event: Extract<TranscriptEvent, { kind: "permission" }> }) {
+	const chosen = chosenOption(event);
+	return (
+		<div className="tape-card">
+			<p>{event.title}</p>
+			{chosen !== undefined ? (
+				<p className="mt-1 text-xs text-ink-3">{chosen}</p>
+			) : (
+				<div className="ask-actions">
+					{event.options.map((option) => (
+						<button
+							key={option.optionId}
+							type="button"
+							disabled
+							className={optionKindClass(option)}
+						>
+							{option.name}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function chosenOption(event: Extract<TranscriptEvent, { kind: "permission" }>): string | undefined {
+	if (event.decidedOptionName !== undefined && event.decidedOptionName !== "") {
+		return event.decidedOptionName;
+	}
+	if (event.decision === undefined) return undefined;
+	const option = event.options.find((one) => one.optionId === event.decision);
+	return option?.name ?? event.decision;
+}
+
+function optionKindClass(option: PermissionOption): string {
+	return option.kind?.startsWith("allow") ? "btn-primary" : "btn-quiet";
+}
+
+/** The agent's working list, one status per line. */
+function Plan({ entries }: { entries: PlanEntry[] }) {
+	if (entries.length === 0) return null;
+	return (
+		<ul className="plan-list">
+			{entries.map((entry, index) => (
+				<li key={`${index}:${entry.content}`} className="plan-row">
+					<span className="plan-mark" aria-hidden="true">
+						{planMark(entry.status)}
+					</span>
+					<span className="min-w-0 flex-1">{entry.content}</span>
+					<span className="plan-status">{entry.status.replace(/_/g, " ")}</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function planMark(status: string): string {
+	if (status === "completed") return "✓";
+	if (status === "in_progress") return "…";
+	return "·";
+}
+
+/** The agent asked for hands it does not have. Status is the whole afterlife. */
+function HumanAction({ reason, status }: { reason: string; status: HumanActionStatus }) {
+	return (
+		<div className="tape-card">
+			<p className="mb-1 text-xs uppercase tracking-wide text-ink-3">{status}</p>
+			<p>{reason}</p>
+		</div>
+	);
+}
+
+/**
+ * What the computer looked like. A thumbnail until asked for, because a
+ * capture is evidence beside the words, not another message. Escape puts
+ * it back when the button still has focus.
+ */
+function ComputerFrame({ dataUrl }: { dataUrl: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<button
+			type="button"
+			className="frame-thumb"
+			aria-expanded={open}
+			title={open ? "Hide the capture" : "Show the capture"}
+			onClick={() => setOpen((was) => !was)}
+			onKeyDown={(key) => {
+				if (key.key !== "Escape" || !open) return;
+				key.preventDefault();
+				setOpen(false);
+			}}
+		>
+			<img src={dataUrl} alt="The computer's screen at capture" />
+		</button>
+	);
 }
 
 function firstLine(text: string): string {

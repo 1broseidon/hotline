@@ -10,9 +10,10 @@
 //! recorded on the ledger so it is not silent.
 //!
 //! A half-written entry in settings costs that one server, never every
-//! teammate's tools. A server whose env has a value that is not a string is
-//! refused, with the key named on the ledger, rather than started without
-//! that variable. OAuth and static-header HTTP are a later task: those
+//! teammate's tools. A server whose env is not a map of strings is refused
+//! — a non-object env, or a value that is not a string, named on the
+//! ledger — rather than started without those variables. OAuth and
+//! static-header HTTP are a later task: those
 //! servers are refused with a sentence saying why, not connected with a
 //! dead credential. A server that dies after it was attached is the same
 //! honesty later: the next call that hits a dead transport marks that
@@ -395,13 +396,13 @@ fn normalize_server(value: &Value) -> Option<Value> {
         .collect();
     let mut server =
         json!({ "id": id, "type": "stdio", "name": name, "command": command, "args": args });
-    // Keep env even when a value is not a string, so parse can name the
-    // offending key rather than starting the server without it.
-    if let Some(env) = candidate.get("env").and_then(Value::as_object) {
+    // Keep env even when it is not an object of strings, so parse can
+    // refuse the server rather than starting it without the variables.
+    if let Some(env) = candidate.get("env") {
         server
             .as_object_mut()
             .expect("just built as an object")
-            .insert("env".to_string(), Value::Object(env.clone()));
+            .insert("env".to_string(), env.clone());
     }
     Some(server)
 }
@@ -973,6 +974,28 @@ mod tests {
         assert!(
             reason.contains("API_TOKEN"),
             "the refusal did not name the key: {reason}"
+        );
+    }
+
+    #[test]
+    fn a_non_object_env_refuses_the_server() {
+        let mut settings = Map::new();
+        settings.insert(
+            "mcpServers".into(),
+            json!([{
+                "id": "needs-token",
+                "type": "stdio",
+                "name": "Needs token",
+                "command": "/bin/true",
+                "env": ["A=b"],
+            }]),
+        );
+        let listed = servers(&settings);
+        assert_eq!(listed.len(), 1);
+        let reason = unsupported(&listed[0]).expect("the server should be refused");
+        assert_eq!(
+            reason,
+            "env is not a map of strings; the server was not started."
         );
     }
 

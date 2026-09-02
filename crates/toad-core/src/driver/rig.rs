@@ -398,25 +398,29 @@ impl Turn {
             }
         };
         let outcomes = ToolOutcomes::new(self.output_dir.clone());
-        let agent = match agent_builder(&self.keys, &self.model, self.effort.as_deref()) {
-            Ok(builder) => builder
-                .preamble(&self.preamble)
-                .tool(ListDirectory::new(workspace.clone()))
-                .tool(ReadFile::new(workspace.clone()))
-                .tool(SearchFiles::new(workspace.clone()))
-                .tool(FindFiles::new(workspace.clone()))
-                .tool(WriteFile::new(workspace.clone()))
-                .tool(EditFile::new(workspace.clone()))
-                .tool(RunCommand::new(workspace))
-                .dynamic_tools(self.mcp_tools.clone())
-                .add_hook(outcomes.clone())
-                .default_max_turns(MAX_TURNS)
-                .build(),
+        let builder = match agent_builder(&self.keys, &self.model, self.effort.as_deref()) {
+            Ok(builder) => builder,
             Err(error) => {
                 remember_prompt(&mut history, &text);
                 return Err(error);
             }
         };
+        let mut builder = builder
+            .preamble(&self.preamble)
+            .tool(ListDirectory::new(workspace.clone()))
+            .tool(ReadFile::new(workspace.clone()))
+            .tool(SearchFiles::new(workspace.clone()))
+            .tool(FindFiles::new(workspace.clone()))
+            .tool(WriteFile::new(workspace.clone()))
+            .tool(EditFile::new(workspace.clone()));
+        if tools::shell_available(self.reach).is_ok() {
+            builder = builder.tool(RunCommand::new(workspace));
+        }
+        let agent = builder
+            .dynamic_tools(self.mcp_tools.clone())
+            .add_hook(outcomes.clone())
+            .default_max_turns(MAX_TURNS)
+            .build();
         let mut stream = agent
             .stream_chat(text.as_str(), history.clone())
             .max_turns(MAX_TURNS)
@@ -911,13 +915,33 @@ fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connec
         AgentKind::Pi,
         persona.backend_id.clone(),
     );
-    ledger.all(
-        crate::contract::ToolState::Verified,
-        ToolSourceKind::Builtin,
-        "pi",
-        tools::BUILTIN,
-        "Toad handed them to the agent",
-    );
+    let reach = persona.reach.unwrap_or_default();
+    match tools::shell_available(reach) {
+        Ok(()) => {
+            ledger.all(
+                crate::contract::ToolState::Verified,
+                ToolSourceKind::Builtin,
+                "pi",
+                tools::BUILTIN,
+                "Toad handed them to the agent",
+            );
+        }
+        Err(reason) => {
+            let without_shell: Vec<&str> = tools::BUILTIN
+                .iter()
+                .copied()
+                .filter(|name| *name != "shell")
+                .collect();
+            ledger.all(
+                crate::contract::ToolState::Verified,
+                ToolSourceKind::Builtin,
+                "pi",
+                &without_shell,
+                "Toad handed them to the agent",
+            );
+            ledger.absent(ToolSourceKind::Builtin, "pi", "shell", reason);
+        }
+    }
     // Toad's own tools are built here, not connected to: the agent and the
     // server are the same process, so there is nothing to observe and nothing
     // that can have gone wrong between them.
@@ -1099,7 +1123,7 @@ mod tests {
         std::fs::create_dir_all(&workspace_dir).unwrap();
         let body = "x".repeat(MODEL_TOOL_OUTPUT_BYTES + 64);
         std::fs::write(workspace_dir.join("big.txt"), &body).unwrap();
-        let workspace = Workspace::open(workspace_dir, Reach::Workspace).unwrap();
+        let workspace = Workspace::open(workspace_dir, Reach::Machine).unwrap();
         let args: <RunCommand as Tool>::Args =
             serde_json::from_value(json!({"command": "cat big.txt"})).unwrap();
         let output = RunCommand::new(workspace)

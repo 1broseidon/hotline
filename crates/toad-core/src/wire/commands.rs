@@ -90,6 +90,7 @@ pub(crate) async fn run(
             .start_fresh_chapter(&persona_id)
             .await
             .map(|chapter| json!(chapter)),
+        Command::TeammateTools { persona_id } => Ok(json!(room.teammate_tools(&persona_id))),
     }
 }
 
@@ -182,6 +183,7 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
 /// notice.
 fn delete_persona(log: &Log, id: &str) -> Result<Value, String> {
     living(log, id)?;
+    crate::session::ledger::forget(id);
     append(
         log,
         &json!({ "kind": "persona", "id": id, "deleted": true }),

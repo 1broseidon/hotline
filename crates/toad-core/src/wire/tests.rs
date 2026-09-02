@@ -185,6 +185,10 @@ impl RoomHandle for Quiet {
     fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
         Ok(crate::import::Report::default())
     }
+
+    fn teammate_tools(&self, _persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
+        None
+    }
 }
 
 fn scratch(name: &str) -> PathBuf {

@@ -29,18 +29,20 @@
 //! edited, and the switch has to take on the next turn.
 
 mod chapters;
+pub(crate) mod ledger;
 mod quiet;
 
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, ConfigChoice, NoticeLevel, Persona, Reach,
     ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState, StreamDelta,
-    ToolOutput, ToolStatus, TranscriptEvent,
+    TeammateToolLedger, ToolOutput, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
 use crate::driver::rig::{InProcess, Said, models};
 use crate::driver::{Driver, MessageKind, PI_BACKEND_ID, Update, clip};
 use crate::log::{Log, StreamId};
+use crate::mcp;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
@@ -126,6 +128,7 @@ struct DeskAgents {
     keys: Arc<dyn ProviderKeys>,
     /// The data directory, which is where the ACP catalogue's cache lives.
     root: PathBuf,
+    log: Log,
 }
 
 #[async_trait]
@@ -137,12 +140,19 @@ impl Agents for DeskAgents {
         said: Vec<Said>,
     ) -> Result<Arc<dyn Driver>, String> {
         if persona.backend_id == PI_BACKEND_ID {
-            return Ok(Arc::new(InProcess::new(
-                self.keys.clone(),
-                preamble,
-                said,
-                self.root.join("tool-output").join(&persona.id),
-            )));
+            let grant = mcp::grant(
+                &mcp::servers(&room::settings(&self.log)),
+                &persona.mcp_policy,
+            );
+            return Ok(Arc::new(
+                InProcess::new(
+                    self.keys.clone(),
+                    preamble,
+                    said,
+                    self.root.join("tool-output").join(&persona.id),
+                )
+                .with_mcp(grant.servers, grant.missing),
+            ));
         }
         // The registry answers whether this machine can start that harness at
         // all, and says what is missing when it cannot.
@@ -297,6 +307,7 @@ impl Room {
         let agents = Arc::new(DeskAgents {
             keys: keys.clone(),
             root: log.root().to_path_buf(),
+            log: log.clone(),
         });
         Self::with_agents(log, keys, agents)
     }
@@ -715,6 +726,12 @@ impl Room {
     /// The models this desk's keys unlock, as the picker lists them.
     pub fn models_for_desk(&self) -> Vec<ConfigChoice> {
         models(&self.keys.provider_keys())
+    }
+
+    /// What tools this teammate was given the last time it started. `None`
+    /// when it has never started under a Toad that keeps a ledger.
+    pub fn teammate_tools(&self, persona_id: &str) -> Option<TeammateToolLedger> {
+        ledger::teammate_tools(persona_id)
     }
 
     // -- chapters -----------------------------------------------------------

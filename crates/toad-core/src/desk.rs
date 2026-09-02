@@ -158,4 +158,8 @@ impl RoomHandle for Desk {
     fn import(&self, from: &Path) -> Result<crate::import::Report, String> {
         crate::import::import(from, &self.log, &self.vault).map_err(|error| error.to_string())
     }
+
+    fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
+        self.room.teammate_tools(persona_id)
+    }
 }

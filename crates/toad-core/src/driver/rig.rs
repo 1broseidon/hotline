@@ -20,10 +20,15 @@
 //!   in flight, which kills that command's process group.
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
-use crate::contract::{Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage};
+use crate::contract::{
+    AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
+};
+use crate::mcp::{self, McpServer};
 use crate::session::ProviderKeys;
+use crate::session::ledger::ToolLedger;
 use crate::tools::{
-    EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace, WriteFile,
+    self, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace,
+    WriteFile,
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -33,6 +38,7 @@ use rig::message::{Message, ReasoningContent, ToolResultContent};
 use rig::prelude::*;
 use rig::providers::{anthropic, openai, openrouter};
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
+use rig::tool::DynamicTool;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -174,6 +180,12 @@ pub struct InProcess {
     /// each. Created on first use so a teammate that never overflows never
     /// gets a folder.
     output_dir: PathBuf,
+    /// Servers this teammate's policy granted. Connected at `start`, live
+    /// until this driver is dropped.
+    mcp_servers: Vec<McpServer>,
+    /// Policy ids that named a server the room no longer has.
+    mcp_missing: Vec<String>,
+    mcp: Mutex<Option<mcp::Connections>>,
 }
 
 impl InProcess {
@@ -198,7 +210,18 @@ impl InProcess {
             history: Arc::new(AsyncMutex::new(history)),
             cancel: Arc::new(Notify::new()),
             output_dir,
+            mcp_servers: Vec::new(),
+            mcp_missing: Vec::new(),
+            mcp: Mutex::new(None),
         }
+    }
+
+    /// The MCP servers this teammate may use, selected before the driver
+    /// is built so `start` can connect without asking the room again.
+    pub fn with_mcp(mut self, servers: Vec<McpServer>, missing: Vec<String>) -> Self {
+        self.mcp_servers = servers;
+        self.mcp_missing = missing;
+        self
     }
 
     fn info(&self, keys: &HashMap<String, String>) -> DriverInfo {
@@ -229,6 +252,9 @@ impl Driver for InProcess {
         };
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
         *lock(&self.model) = model;
+        let connected = mcp::connect(&self.mcp_servers).await;
+        publish_ledger(persona, &self.mcp_missing, &connected);
+        *lock(&self.mcp) = Some(connected);
         Ok(self.info(&keys))
     }
 
@@ -240,6 +266,16 @@ impl Driver for InProcess {
     ) -> mpsc::Receiver<Update> {
         let text = with_paths(&text, &attachments);
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        let mcp_tools = lock(&self.mcp)
+            .as_ref()
+            .map(|connected| {
+                connected
+                    .tools
+                    .iter()
+                    .map(mcp::McpTool::as_dynamic)
+                    .collect()
+            })
+            .unwrap_or_default();
         let turn = Turn {
             keys: self.keys.provider_keys(),
             model: lock(&self.model).clone(),
@@ -249,6 +285,7 @@ impl Driver for InProcess {
             history: self.history.clone(),
             cancel: self.cancel.clone(),
             output_dir: self.output_dir.clone(),
+            mcp_tools,
         };
         tokio::spawn(async move {
             if let Err(error) = turn.run(&sender, text).await {
@@ -295,6 +332,7 @@ struct Turn {
     history: Arc<AsyncMutex<Vec<Message>>>,
     cancel: Arc<Notify>,
     output_dir: PathBuf,
+    mcp_tools: Vec<DynamicTool>,
 }
 
 impl Turn {
@@ -311,6 +349,7 @@ impl Turn {
             .tool(WriteFile::new(workspace.clone()))
             .tool(EditFile::new(workspace.clone()))
             .tool(RunCommand::new(workspace))
+            .dynamic_tools(self.mcp_tools.clone())
             .add_hook(outcomes.clone())
             .default_max_turns(MAX_TURNS)
             .build();
@@ -643,6 +682,47 @@ fn with_paths(text: &str, attachments: &[Attachment]) -> String {
         .map(|attachment| attachment.path.as_str())
         .collect();
     format!("{text}\n\nAttached files:\n{}", paths.join("\n"))
+}
+
+/// The ledger reads what this session was actually built with, not what
+/// the configuration promised. Built-ins are verified because Toad handed
+/// them to the agent; MCP tools are verified when the server listed them,
+/// and absent — with the error as the reason — when it did not.
+fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connections) {
+    let mut ledger = ToolLedger::new(
+        persona.id.clone(),
+        AgentKind::Pi,
+        persona.backend_id.clone(),
+    );
+    ledger.all(
+        crate::contract::ToolState::Verified,
+        ToolSourceKind::Builtin,
+        "pi",
+        tools::BUILTIN,
+        "Toad handed them to the agent",
+    );
+    for tool in &connected.tools {
+        ledger.verified(
+            ToolSourceKind::Mcp,
+            &tool.origin,
+            &tool.name,
+            format!("attached from the {} MCP server", tool.origin),
+        );
+    }
+    for failed in &connected.failed {
+        ledger.absent(ToolSourceKind::Mcp, &failed.id, &failed.id, &failed.reason);
+    }
+    for id in missing {
+        ledger.absent(
+            ToolSourceKind::Mcp,
+            id,
+            id,
+            format!(
+                "this teammate's MCP policy names the server {id}, which no longer exists in app settings — every tool it supplied is gone"
+            ),
+        );
+    }
+    ledger.publish();
 }
 
 /// A tool call as a line in the transcript: the name and the one argument

@@ -260,6 +260,80 @@ pub struct McpPolicy {
     pub server_ids: Vec<String>,
 }
 
+/// Which kind of agent produced a tool ledger.
+///
+/// `pi` is Toad Agent's stored backend id, not a second name: that agent
+/// builds its own tool array, so a verified row is a fact. An ACP backend is
+/// handed descriptors and does not report what it loaded, so its honest
+/// state is declared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum AgentKind {
+    Pi,
+    Acp,
+}
+
+/// Where one of a teammate's tools came from.
+///
+/// Coarse on purpose: this names the mechanism that supplies the tool,
+/// because that is what decides how an absence is fixed. `origin` beside it
+/// names the particular supplier — an MCP server's id, `pi`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ToolSourceKind {
+    Builtin,
+    Mcp,
+}
+
+/// How sure Toad is about one tool.
+///
+/// `verified` — Toad watched the agent take it: it built the tool array
+/// itself. `declared` — Toad handed it over and cannot see what happened
+/// next. `absent` — it is not there, and `reason` says why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ToolState {
+    Verified,
+    Declared,
+    Absent,
+}
+
+/// One line of a teammate's tool ledger.
+///
+/// `reason` is required in every state, and that is the whole design. Tools
+/// vanishing silently is the worst failure this project has shipped, and
+/// every one of those bugs was an absence with an optional explanation
+/// nobody filled in. A field that cannot be omitted cannot be forgotten.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
+pub struct ToolLedgerRow {
+    pub name: String,
+    pub source: ToolSourceKind,
+    /// The particular supplier, named: a server id, or `pi`.
+    pub origin: String,
+    pub state: ToolState,
+    /// Why this tool is in this state. Never empty.
+    pub reason: String,
+    /// When Toad last observed it.
+    pub at: i64,
+}
+
+/// Everything Toad knows about one teammate's tools, and how it knows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct TeammateToolLedger {
+    pub persona_id: String,
+    pub agent_kind: AgentKind,
+    pub backend_id: String,
+    /// When the session that produced this ledger started.
+    pub at: i64,
+    pub rows: Vec<ToolLedgerRow>,
+}
+
 /// Which of the desk's web search a teammate gets — the same
 /// inherit/override question `McpPolicy` answers for servers. Absent on the
 /// teammate means `all`: inherit whatever the app's Tools pane has on. `some`
@@ -1172,6 +1246,11 @@ pub enum Command {
     /// the time this returns.
     #[serde(rename = "chapter.start_fresh")]
     ChapterStartFresh { persona_id: String },
+    /// What tools this teammate was given, where they came from, and — for
+    /// anything absent — why. Null when it has never started under a Toad
+    /// that keeps a ledger.
+    #[serde(rename = "teammate.tools")]
+    TeammateTools { persona_id: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

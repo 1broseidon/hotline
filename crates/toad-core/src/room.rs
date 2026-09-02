@@ -29,6 +29,7 @@ fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
     settings.insert("defaultBackendId".into(), Value::from("pi"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
+    settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings
 }
 
@@ -69,6 +70,15 @@ pub fn settings(log: &Log) -> Map<String, Value> {
         let value = event.get("value").cloned().unwrap_or(Value::Null);
         settings.insert(key.to_string(), value);
     }
+    // The raw list is what was stored; a half-written entry costs that
+    // entry on the way out, so a teammate never sees a server that cannot
+    // be started.
+    let normalised = crate::mcp::normalize_servers(
+        settings
+            .get("mcpServers")
+            .unwrap_or(&Value::Array(Vec::new())),
+    );
+    settings.insert("mcpServers".into(), Value::Array(normalised));
     settings
 }
 
@@ -271,5 +281,24 @@ mod tests {
         append(&log, &tombstone("setting", "theme"));
         assert_eq!(settings(&log)["chapterIdleHours"], 8);
         assert!(!settings(&log).contains_key("theme"));
+    }
+
+    #[test]
+    fn a_malformed_mcp_server_entry_is_skipped_on_read() {
+        let log = scratch("mcp-bad-entry");
+        append(
+            &log,
+            &setting(
+                "mcpServers",
+                json!([
+                    { "id": "no-name", "type": "stdio", "command": "echo" },
+                    { "id": "good", "type": "stdio", "name": "Good", "command": "run" },
+                ]),
+            ),
+        );
+        let folded = settings(&log);
+        let servers = folded["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0]["id"], "good");
     }
 }

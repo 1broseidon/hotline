@@ -11,6 +11,7 @@ import type {
 	SessionInfo,
 	StreamDelta,
 	Target,
+	TeammateToolLedger,
 	ThreadSearchHit,
 	TranscriptEvent,
 } from "./generated/contract";
@@ -75,6 +76,7 @@ type Results = {
 	"chapter.list": ChapterSummary[];
 	"chapter.start_fresh": ChapterSummary;
 	"room.import": Report;
+	"teammate.tools": TeammateToolLedger | null;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

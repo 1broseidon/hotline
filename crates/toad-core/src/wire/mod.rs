@@ -126,6 +126,9 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Copies an existing Toad data directory into this room. The source is
     /// never written.
     fn import(&self, from: &std::path::Path) -> Result<crate::import::Report, String>;
+
+    /// What tools this teammate was given the last time it started.
+    fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger>;
 }
 
 /// What a socket may do, decided by the token it presented.

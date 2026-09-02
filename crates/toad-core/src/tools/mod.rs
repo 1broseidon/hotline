@@ -12,6 +12,10 @@ pub use workspace::{
     EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile,
 };
 
+/// Names of the workspace tools Toad Agent always has, in the order they
+/// are registered on the driver.
+pub const BUILTIN: &[&str] = &["ls", "read", "grep", "glob", "write", "edit", "shell"];
+
 #[derive(Debug)]
 pub struct ToolError {
     kind: ToolErrorKind,

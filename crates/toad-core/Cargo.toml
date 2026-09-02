@@ -33,6 +33,16 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # inherited from rig's copy, because a dependency that quietly loses TLS when
 # another crate stops asking for it is a fetch that fails and says nothing.
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+# 0.17 is the last 0.x; stdio children, streamable HTTP, and the duplex
+# transport the tests serve a tool over.
+rmcp = { version = "0.17", features = [
+    "client",
+    "server",
+    "transport-child-process",
+    "transport-io",
+    "transport-streamable-http-client-reqwest",
+    "reqwest",
+] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

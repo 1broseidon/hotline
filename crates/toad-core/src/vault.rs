@@ -228,6 +228,21 @@ impl Vault {
         auth
     }
 
+    /// The model ids this provider's held login can run, when they have been
+    /// written beside it. Absent, unreadable, or a revoked login is `None`,
+    /// which the picker treats as the whole catalogue — a missing list is
+    /// not an empty one. Read from the login directory `ProviderAuth` already
+    /// carries rather than a second field on the credential.
+    pub fn account_models(&self, provider_id: &str) -> Option<Vec<String>> {
+        match self.provider_auth().get(provider_id)? {
+            ProviderAuth::Login { token_dir } => {
+                let text = fs::read_to_string(token_dir.join("models.json")).ok()?;
+                serde_json::from_str(&text).ok()
+            }
+            ProviderAuth::ApiKey(_) => None,
+        }
+    }
+
     fn directory(&self) -> PathBuf {
         self.root.join("vault")
     }
@@ -447,6 +462,19 @@ fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     file.write_all(contents)?;
     file.sync_all()?;
     Ok(())
+}
+
+/// The account's model ids as a JSON array of bare catalogue ids, 0600
+/// beside the login. Replaces a list already there so Refresh can rewrite
+/// without leaving the previous bytes behind a `create_new` refusal.
+pub(crate) fn write_account_models(token_dir: &Path, ids: &[String]) -> io::Result<()> {
+    let path = token_dir.join("models.json");
+    let mut body = serde_json::to_vec(ids).map_err(io::Error::other)?;
+    body.push(b'\n');
+    if path.exists() {
+        fs::remove_file(&path)?;
+    }
+    write_private(&path, &body)
 }
 
 #[cfg(test)]
@@ -814,5 +842,63 @@ mod tests {
         let listed = vault.list();
         assert_eq!(listed.len(), 1);
         assert!(listed[0].revoked);
+    }
+
+    fn copilot_login(vault: &Vault) -> (String, PathBuf) {
+        let (id, dir) = vault.begin_login("github-copilot").unwrap();
+        vault
+            .finish_login(&id, "github-copilot", "GitHub Copilot")
+            .unwrap();
+        (id, dir)
+    }
+
+    #[test]
+    fn account_models_reads_the_list_beside_a_login() {
+        let vault = vault("account-models-present");
+        let (_id, dir) = copilot_login(&vault);
+        write_account_models(&dir, &["gpt-5.5".into(), "gpt-4.1".into()]).unwrap();
+        write_account_models(&dir, &["gpt-5.5".into()]).unwrap();
+        assert_eq!(
+            vault.account_models("github-copilot"),
+            Some(vec!["gpt-5.5".to_string()])
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(dir.join("models.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+
+    #[test]
+    fn account_models_is_none_when_the_file_is_absent() {
+        let vault = vault("account-models-absent");
+        assert_eq!(vault.account_models("github-copilot"), None);
+        copilot_login(&vault);
+        assert_eq!(vault.account_models("github-copilot"), None);
+    }
+
+    #[test]
+    fn account_models_is_none_when_the_file_is_unparsable() {
+        let vault = vault("account-models-junk");
+        let (_id, dir) = copilot_login(&vault);
+        fs::write(dir.join("models.json"), "not a list").unwrap();
+        assert_eq!(vault.account_models("github-copilot"), None);
+        fs::write(dir.join("models.json"), "[1, \"gpt-5.5\"]").unwrap();
+        assert_eq!(vault.account_models("github-copilot"), None);
+    }
+
+    #[test]
+    fn account_models_is_none_for_a_revoked_login() {
+        let vault = vault("account-models-revoked");
+        let (id, dir) = copilot_login(&vault);
+        write_account_models(&dir, &["gpt-5.5".into()]).unwrap();
+        vault.revoke(&id).unwrap();
+        assert_eq!(vault.account_models("github-copilot"), None);
+        assert!(dir.join("models.json").is_file(), "revoke leaves the files");
     }
 }

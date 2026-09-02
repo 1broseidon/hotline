@@ -45,6 +45,11 @@ struct WorkspaceInner {
     root: PathBuf,
     dir: Dir,
     reach: Reach,
+    /// Where a long tool result is written. Under workspace reach, a
+    /// read-only tool may open a path here after the working directory;
+    /// writes may not. The first overflow creates it, so it may be
+    /// missing when the turn starts.
+    overflow: PathBuf,
 }
 
 #[derive(Clone)]
@@ -53,7 +58,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn open(cwd: PathBuf, reach: Reach) -> Result<Self, ToolError> {
+    pub fn open(cwd: PathBuf, reach: Reach, overflow: PathBuf) -> Result<Self, ToolError> {
         let cwd = cwd.canonicalize().map_err(|error| {
             ToolError::new(format!(
                 "The Toad workspace {} is unavailable: {error}",
@@ -80,6 +85,7 @@ impl Workspace {
                 root,
                 dir,
                 reach,
+                overflow,
             }),
         })
     }
@@ -95,12 +101,17 @@ impl Workspace {
 
     /// Where a path may point, as the tools describe it to the model. The
     /// description is the policy the model reads, so it has to tell the truth
-    /// about the wall — or the absence of one.
-    fn paths_reach(&self) -> &'static str {
+    /// about the wall — or the absence of one. The overflow directory is
+    /// named here so every tool that quotes this sentence says the same
+    /// thing, including that a long tool result lives there.
+    fn paths_reach(&self) -> String {
         match self.inner.reach {
-            Reach::Workspace => "Paths are relative to the working directory and may not leave it.",
+            Reach::Workspace => format!(
+                "Paths are relative to the working directory and may not leave it, and the files under {} that a long tool result was written to.",
+                self.inner.overflow.display()
+            ),
             Reach::Machine => {
-                "Paths may be absolute or relative to the working directory; anywhere on this machine is allowed."
+                "Paths may be absolute or relative to the working directory; anywhere on this machine is allowed.".to_string()
             }
         }
     }
@@ -149,11 +160,77 @@ impl Workspace {
         normalize_relative_path(canonical.to_string_lossy().as_ref(), allow_root)
     }
 
-    fn read_file(&self, args: ReadFileArgs) -> Result<String, ToolError> {
-        let relative = self.canonical_subpath(&args.path, false)?;
-        let file = self
+    /// A path a read-only tool may open: the working directory first, then
+    /// the overflow directory. Writes never call this, so they cannot land
+    /// there. Machine reach never looks at overflow; it has no wall.
+    fn resolve_readable(
+        &self,
+        requested: &str,
+        allow_root: bool,
+    ) -> Result<(Dir, PathBuf, PathBuf), ToolError> {
+        match self.canonical_subpath(requested, allow_root) {
+            Ok(relative) => {
+                let dir = Dir::open_ambient_dir(&self.inner.root, ambient_authority()).map_err(
+                    |error| {
+                        ToolError::new(format!(
+                            "The Toad workspace {} could not be opened: {error}",
+                            self.inner.root.display()
+                        ))
+                    },
+                )?;
+                Ok((dir, relative, self.inner.root.clone()))
+            }
+            Err(error) => {
+                if self.inner.reach != Reach::Workspace {
+                    return Err(error);
+                }
+                self.resolve_overflow(requested, allow_root)
+                    .map_err(|_| error)
+            }
+        }
+    }
+
+    fn resolve_overflow(
+        &self,
+        requested: &str,
+        allow_root: bool,
+    ) -> Result<(Dir, PathBuf, PathBuf), ToolError> {
+        let root = self
             .inner
-            .dir
+            .overflow
+            .canonicalize()
+            .map_err(|error| ToolError::new(format!("Cannot access {requested}: {error}")))?;
+        let dir = Dir::open_ambient_dir(&root, ambient_authority())
+            .map_err(|error| ToolError::new(format!("Cannot access {requested}: {error}")))?;
+        let relative = if Path::new(requested).is_absolute() {
+            let asked = Path::new(requested)
+                .canonicalize()
+                .map_err(|error| ToolError::new(format!("Cannot access {requested}: {error}")))?;
+            let stripped = asked
+                .strip_prefix(&root)
+                .map_err(|_| ToolError::new("Use a path relative to the active workspace."))?;
+            if stripped.as_os_str().is_empty() {
+                if allow_root {
+                    PathBuf::from(".")
+                } else {
+                    return Err(ToolError::new("Name a file inside the workspace."));
+                }
+            } else {
+                stripped.to_path_buf()
+            }
+        } else {
+            normalize_relative_path(requested, allow_root)?
+        };
+        let canonical = dir
+            .canonicalize(&relative)
+            .map_err(|error| ToolError::new(format!("Cannot access {requested}: {error}")))?;
+        let relative = normalize_relative_path(canonical.to_string_lossy().as_ref(), allow_root)?;
+        Ok((dir, relative, root))
+    }
+
+    fn read_file(&self, args: ReadFileArgs) -> Result<String, ToolError> {
+        let (dir, relative, _) = self.resolve_readable(&args.path, false)?;
+        let file = dir
             .open(&relative)
             .map_err(|error| ToolError::new(format!("Cannot open {}: {error}", args.path)))?;
         let metadata = file.metadata()?;
@@ -218,8 +295,8 @@ impl Workspace {
 
     fn list_directory(&self, args: ListDirectoryArgs) -> Result<String, ToolError> {
         let requested = args.path.as_deref().unwrap_or(".");
-        let relative = self.canonical_subpath(requested, true)?;
-        let directory = self.inner.dir.open_dir(&relative).map_err(|error| {
+        let (dir, relative, _) = self.resolve_readable(requested, true)?;
+        let directory = dir.open_dir(&relative).map_err(|error| {
             ToolError::new(format!("Cannot open directory {requested}: {error}"))
         })?;
 
@@ -256,7 +333,7 @@ impl Workspace {
             MAX_SEARCH_RESULTS,
             "max_results",
         )?;
-        let start = self.walk_start(args.path.as_deref().unwrap_or("."))?;
+        let (dir, start, root) = self.walk_start(args.path.as_deref().unwrap_or("."))?;
         let glob = build_glob_set(args.glob.as_deref())?;
         let mut matcher_builder = RegexMatcherBuilder::new();
         matcher_builder
@@ -280,7 +357,7 @@ impl Workspace {
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
-            let relative = match entry.path().strip_prefix(&self.inner.root) {
+            let relative = match entry.path().strip_prefix(&root) {
                 Ok(path) => path,
                 Err(_) => continue,
             };
@@ -288,7 +365,7 @@ impl Workspace {
                 continue;
             }
 
-            let file = match self.inner.dir.open(relative) {
+            let file = match dir.open(relative) {
                 Ok(file) => file,
                 Err(_) => continue,
             };
@@ -335,7 +412,7 @@ impl Workspace {
             MAX_FIND_RESULTS,
             "max_results",
         )?;
-        let start = self.walk_start(args.path.as_deref().unwrap_or("."))?;
+        let (_dir, start, root) = self.walk_start(args.path.as_deref().unwrap_or("."))?;
         let matcher = Glob::new(&args.pattern)
             .map_err(|error| ToolError::new(format!("Invalid glob pattern: {error}")))?
             .compile_matcher();
@@ -347,7 +424,7 @@ impl Workspace {
                 Ok(entry) => entry,
                 Err(_) => continue,
             };
-            let relative = match entry.path().strip_prefix(&self.inner.root) {
+            let relative = match entry.path().strip_prefix(&root) {
                 Ok(path) if !path.as_os_str().is_empty() => path,
                 _ => continue,
             };
@@ -559,9 +636,9 @@ impl Workspace {
         result
     }
 
-    fn walk_start(&self, requested: &str) -> Result<PathBuf, ToolError> {
-        let relative = self.canonical_subpath(requested, true)?;
-        Ok(self.inner.root.join(relative))
+    fn walk_start(&self, requested: &str) -> Result<(Dir, PathBuf, PathBuf), ToolError> {
+        let (dir, relative, root) = self.resolve_readable(requested, true)?;
+        Ok((dir, root.join(relative), root))
     }
 }
 
@@ -1214,6 +1291,16 @@ mod tests {
         }
     }
 
+    fn opened(cwd: impl AsRef<Path>, reach: Reach) -> Workspace {
+        let cwd = cwd.as_ref();
+        Workspace::open(
+            cwd.to_path_buf(),
+            reach,
+            cwd.with_extension("overflow-unused"),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn file_reads_are_line_numbered_and_say_what_remains() {
         let directory = TestDirectory::new();
@@ -1222,7 +1309,7 @@ mod tests {
             "one\ntwo\nthree\nfour\n",
         )
         .unwrap();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
         let result = workspace
             .read_file(ReadFileArgs {
                 path: "notes.txt".to_string(),
@@ -1242,7 +1329,7 @@ mod tests {
             content.push_str(&format!("line-{index}\n"));
         }
         fs::write(directory.path().join("long.txt"), content).unwrap();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
         let result = workspace
             .read_file(ReadFileArgs {
                 path: "long.txt".to_string(),
@@ -1269,7 +1356,7 @@ mod tests {
     fn a_binary_file_is_refused_with_a_sentence() {
         let directory = TestDirectory::new();
         fs::write(directory.path().join("blob.bin"), [b'a', 0, b'b']).unwrap();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
         let error = workspace
             .read_file(ReadFileArgs {
                 path: "blob.bin".to_string(),
@@ -1295,7 +1382,7 @@ mod tests {
             "fn alpha() {}\n// needle\n",
         )
         .unwrap();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
 
         let read = workspace
             .read_file(ReadFileArgs {
@@ -1334,7 +1421,7 @@ mod tests {
     fn workspace_prepares_and_commits_atomic_mutations() {
         let directory = TestDirectory::new();
         fs::write(directory.path().join("notes.txt"), "before\n").unwrap();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
 
         let edit = workspace
             .prepare_edit(EditFileArgs {
@@ -1371,7 +1458,7 @@ mod tests {
     #[test]
     fn write_of_a_large_file_succeeds() {
         let directory = TestDirectory::new();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
         let content = "hello world\n".repeat(30_000);
         let bytes = content.len();
         let lines = content.lines().count();
@@ -1397,7 +1484,7 @@ mod tests {
     #[test]
     fn descriptions_mention_no_stale_limits() {
         let directory = TestDirectory::new();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
         let descriptions = [
             ListDirectory::new(workspace.clone()).description(),
             ReadFile::new(workspace.clone()).description(),
@@ -1421,7 +1508,7 @@ mod tests {
     fn exact_edit_rejects_ambiguous_matches() {
         let directory = TestDirectory::new();
         fs::write(directory.path().join("notes.txt"), "same\nsame\n").unwrap();
-        let workspace = Workspace::open(directory.path().to_path_buf(), Reach::Workspace).unwrap();
+        let workspace = opened(directory.path(), Reach::Workspace);
 
         let result = workspace.prepare_edit(EditFileArgs {
             path: "notes.txt".to_string(),
@@ -1440,7 +1527,7 @@ mod tests {
         fs::create_dir_all(&inside).unwrap();
         fs::write(directory.path().join("outside.txt"), "outside\n").unwrap();
 
-        let confined = Workspace::open(inside.clone(), Reach::Workspace).unwrap();
+        let confined = opened(inside.clone(), Reach::Workspace);
         assert!(
             confined
                 .read_file(ReadFileArgs {
@@ -1451,7 +1538,7 @@ mod tests {
                 .is_err()
         );
 
-        let open = Workspace::open(inside, Reach::Machine).unwrap();
+        let open = opened(inside, Reach::Machine);
         let by_parent = open
             .read_file(ReadFileArgs {
                 path: "../outside.txt".into(),
@@ -1473,5 +1560,147 @@ mod tests {
             })
             .unwrap();
         assert!(by_absolute.contains("outside"));
+    }
+
+    #[test]
+    fn workspace_reach_can_read_the_teammates_overflow_directory() {
+        let directory = TestDirectory::new();
+        let overflow = TestDirectory::new();
+        fs::write(overflow.path().join("call-1.txt"), "spilled\nneedle\n").unwrap();
+        let workspace = Workspace::open(
+            directory.path().to_path_buf(),
+            Reach::Workspace,
+            overflow.path().to_path_buf(),
+        )
+        .unwrap();
+
+        let spilled = overflow
+            .path()
+            .join("call-1.txt")
+            .to_string_lossy()
+            .into_owned();
+        let read = workspace
+            .read_file(ReadFileArgs {
+                path: spilled,
+                start_line: None,
+                max_lines: None,
+            })
+            .unwrap();
+        assert!(read.contains("spilled"), "{read}");
+
+        let searched = workspace
+            .search_files(SearchFilesArgs {
+                pattern: "needle".to_string(),
+                path: Some(overflow.path().to_string_lossy().into_owned()),
+                glob: None,
+                case_insensitive: None,
+                literal: Some(true),
+                max_results: None,
+                include_hidden: None,
+            })
+            .unwrap();
+        assert!(searched.contains("needle"), "{searched}");
+
+        let write = workspace.prepare_write(WriteFileArgs {
+            path: overflow
+                .path()
+                .join("nope.txt")
+                .to_string_lossy()
+                .into_owned(),
+            content: "x\n".to_string(),
+            overwrite: None,
+        });
+        let outside = workspace.prepare_write(WriteFileArgs {
+            path: directory
+                .path()
+                .parent()
+                .unwrap()
+                .join("elsewhere.txt")
+                .to_string_lossy()
+                .into_owned(),
+            content: "x\n".to_string(),
+            overwrite: None,
+        });
+        assert_eq!(
+            write.unwrap_err().to_string(),
+            outside.unwrap_err().to_string()
+        );
+
+        let elsewhere = TestDirectory::new();
+        fs::write(elsewhere.path().join("secret.txt"), "nope\n").unwrap();
+        assert!(
+            workspace
+                .read_file(ReadFileArgs {
+                    path: elsewhere
+                        .path()
+                        .join("secret.txt")
+                        .to_string_lossy()
+                        .into_owned(),
+                    start_line: None,
+                    max_lines: None,
+                })
+                .is_err()
+        );
+
+        let description = ReadFile::new(workspace).description();
+        assert!(
+            description.contains(&overflow.path().display().to_string())
+                && description.contains("long tool result"),
+            "{description}"
+        );
+    }
+
+    #[test]
+    fn a_missing_overflow_directory_is_a_refusal_not_a_panic() {
+        let directory = TestDirectory::new();
+        let missing = directory.path().with_extension("does-not-exist-overflow");
+        assert!(!missing.exists());
+        let workspace = Workspace::open(
+            directory.path().to_path_buf(),
+            Reach::Workspace,
+            missing.clone(),
+        )
+        .unwrap();
+        let error = workspace
+            .read_file(ReadFileArgs {
+                path: missing.join("call-1.txt").to_string_lossy().into_owned(),
+                start_line: None,
+                max_lines: None,
+            })
+            .unwrap_err();
+        assert!(!error.to_string().is_empty(), "{error}");
+    }
+
+    #[test]
+    fn machine_reach_ignores_the_overflow_root() {
+        let directory = TestDirectory::new();
+        let inside = directory.path().join("inside");
+        let overflow = directory.path().join("overflow");
+        fs::create_dir_all(&inside).unwrap();
+        fs::create_dir_all(&overflow).unwrap();
+        fs::write(directory.path().join("outside.txt"), "outside\n").unwrap();
+        fs::write(overflow.join("call.txt"), "spilled\n").unwrap();
+
+        let workspace = Workspace::open(inside, Reach::Machine, overflow.clone()).unwrap();
+        let by_parent = workspace
+            .read_file(ReadFileArgs {
+                path: "../outside.txt".into(),
+                start_line: None,
+                max_lines: None,
+            })
+            .unwrap();
+        assert!(by_parent.contains("outside"));
+
+        let spilled = workspace
+            .read_file(ReadFileArgs {
+                path: overflow.join("call.txt").to_string_lossy().into_owned(),
+                start_line: None,
+                max_lines: None,
+            })
+            .unwrap();
+        assert!(spilled.contains("spilled"));
+
+        let description = ReadFile::new(workspace).description();
+        assert!(!description.contains("long tool result"), "{description}");
     }
 }

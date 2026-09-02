@@ -399,7 +399,12 @@ mod tests {
     }
 
     fn workspace(root: &Path, reach: Reach) -> Workspace {
-        Workspace::open(root.to_path_buf(), reach).unwrap()
+        Workspace::open(
+            root.to_path_buf(),
+            reach,
+            root.with_extension("overflow-unused"),
+        )
+        .unwrap()
     }
 
     async fn run(workspace: Workspace, command: &str) -> Result<String, ToolError> {

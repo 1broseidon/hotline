@@ -390,7 +390,8 @@ impl Turn {
         // line: cancel already did, and a retry without the question reaches
         // the model as a stranger.
         let mut history = self.history.lock().await;
-        let workspace = match Workspace::open(self.cwd.clone(), self.reach) {
+        let workspace = match Workspace::open(self.cwd.clone(), self.reach, self.output_dir.clone())
+        {
             Ok(workspace) => workspace,
             Err(error) => {
                 remember_prompt(&mut history, &text);
@@ -1123,7 +1124,7 @@ mod tests {
         std::fs::create_dir_all(&workspace_dir).unwrap();
         let body = "x".repeat(MODEL_TOOL_OUTPUT_BYTES + 64);
         std::fs::write(workspace_dir.join("big.txt"), &body).unwrap();
-        let workspace = Workspace::open(workspace_dir, Reach::Machine).unwrap();
+        let workspace = Workspace::open(workspace_dir, Reach::Machine, output_dir.clone()).unwrap();
         let args: <RunCommand as Tool>::Args =
             serde_json::from_value(json!({"command": "cat big.txt"})).unwrap();
         let output = RunCommand::new(workspace)

@@ -529,13 +529,10 @@ impl Driver for ChildAgent {
     }
 
     async fn set_mode(&self, mode_id: &str) -> Result<DriverInfo, String> {
-        let (connection, session_id, config_id) = {
+        let connection = lock(&self.live.connection).clone();
+        let (session_id, config_id) = {
             let session = lock(&self.live.session);
-            (
-                lock(&self.live.connection).clone(),
-                session.id.clone(),
-                session.mode_config.clone(),
-            )
+            (session.id.clone(), session.mode_config.clone())
         };
         if let Some(config_id) = config_id {
             return self.set_config(&config_id, mode_id).await;
@@ -858,10 +855,11 @@ impl ChildAgent {
     /// Sets one config option and takes the agent's whole answer back, since
     /// a change to one picker can move another.
     async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
-        let (connection, session_id) = (
-            lock(&self.live.connection).clone(),
-            lock(&self.live.session).id.clone(),
-        );
+        // One statement each: a tuple would keep the first guard alive while
+        // the second is taken, and `set_mode` reaches for the same two. Two
+        // callers holding one of these each is a wedge nothing recovers from.
+        let connection = lock(&self.live.connection).clone();
+        let session_id = lock(&self.live.session).id.clone();
         let (Some(connection), Some(session_id)) = (connection, session_id) else {
             return Err("That agent is not connected.".to_string());
         };
@@ -1440,6 +1438,7 @@ mod tests {
         ToolCallUpdateFields, ToolKind,
     };
     use rmcp::ServiceExt;
+    use std::sync::atomic::AtomicUsize;
 
     /// A desk with no provider key: nothing in these tests reaches a model.
     struct NoKeys;
@@ -2055,5 +2054,50 @@ mod tests {
         ada.goal = "Something else entirely.".to_string();
         materialize_agents_md(&ada).unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), by_hand);
+    }
+
+    /// `session.set_model` and `session.set_mode` are two commands, and the
+    /// wire answers each socket's on its own task. Both read the connection
+    /// and the session; taking those two locks in opposite orders wedges both
+    /// threads for good — no timeout, no error, and every later call on this
+    /// driver queued behind them.
+    #[tokio::test]
+    async fn setting_a_config_and_a_mode_at_once_does_not_wedge_the_driver() {
+        let held = room("lock-order-room");
+        let driver = Arc::new(ChildAgent::new(
+            scratch("lock-order"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        ));
+        let finished = Arc::new(AtomicUsize::new(0));
+        const ROUNDS: usize = 50_000;
+
+        for worker in 0..2 {
+            let driver = driver.clone();
+            let finished = finished.clone();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("a runtime for this worker");
+                runtime.block_on(async {
+                    for _ in 0..ROUNDS {
+                        let _ = match worker {
+                            0 => driver.set_config("config", "value").await,
+                            _ => driver.set_mode("mode").await,
+                        };
+                    }
+                });
+                finished.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        for _ in 0..600 {
+            if finished.load(Ordering::SeqCst) == 2 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the driver stopped answering: two callers are holding each other's lock");
     }
 }

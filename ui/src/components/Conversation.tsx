@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, ScheduledJob, SessionConfig, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
@@ -69,6 +69,7 @@ export function Conversation({
 	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
 	const [modelSaid, setModelSaid] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
+	const [idleEfforts, setIdleEfforts] = useState<ConfigChoice[]>([]);
 	const { defaultModelId, lastModelId } = useRoomSettings();
 
 	const send = useCallback(
@@ -131,6 +132,33 @@ export function Conversation({
 		(toad ? toadModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
 	const showModel = modelChoices.length > 0 || (toad && currentModel !== "");
 	const currentMode = session.currentModeId ?? persona.modeId ?? "";
+	// An idle Toad Agent session carries no configs. The band derives the
+	// effort picker the same way it derives currentModel: the catalogue
+	// for the model a turn would run on.
+	useEffect(() => {
+		if (!toad || currentModel === "") {
+			setIdleEfforts([]);
+			return;
+		}
+		let cancelled = false;
+		void wire.command("models.efforts", { modelId: currentModel }).then(
+			(choices) => {
+				if (!cancelled) setIdleEfforts(choices);
+			},
+			() => {
+				if (!cancelled) setIdleEfforts([]);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [toad, currentModel]);
+	const configs: SessionConfig[] =
+		session.configs.length > 0
+			? session.configs
+			: toad && idleEfforts.length > 0
+				? [{ id: "effort", name: "Effort", currentId: persona.effortId ?? "", options: idleEfforts }]
+				: [];
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const next = jobs.reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
@@ -220,6 +248,21 @@ export function Conversation({
 						onChange={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
 					/>
 				)}
+				{configs.map((config) => (
+					<Picker
+						key={config.id}
+						value={config.currentId ?? ""}
+						choices={config.options}
+						placeholder={config.name}
+						label={config.name}
+						onChange={(value) => {
+							setModelSaid(null);
+							void wire
+								.command("session.set_config", { personaId, configId: config.id, value })
+								.catch((error: Error) => setModelSaid(error.message));
+						}}
+					/>
+				))}
 
 				<button
 					type="button"

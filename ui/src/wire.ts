@@ -74,12 +74,14 @@ type Results = {
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
 	"models.catalog": CatalogModel[];
+	"models.efforts": ConfigChoice[];
 	"session.start": SessionInfo;
 	"session.stop": null;
 	"session.prompt": null;
 	"session.cancel": null;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;
+	"session.set_config": SessionInfo;
 	"session.answer_permission": null;
 	"human.answer": null;
 	"search.thread": ThreadSearchResult;

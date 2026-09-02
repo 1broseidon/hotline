@@ -99,6 +99,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |
 | `schedule.cancel` | `{id}` | none |
 | `schedule.set_quiet` | `{id, quiet}` | none |
+| `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
+| `peers.mark_read` | `{key, eventIds}` | how many bubbles moved to read |
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Toad Agent (`id` `"pi"`) is always

@@ -1102,3 +1102,41 @@ async fn a_chapter_no_model_would_summarise_closes_titled_from_the_first_message
         "{notice}"
     );
 }
+
+/// The last process's open cards are expired and the tape folded before the
+/// room serves anything from it, and the index knows the tape afterwards.
+#[tokio::test(flavor = "multi_thread")]
+async fn opening_the_room_expires_orphaned_cards_and_indexes_the_tape() {
+    let log = scratch("settle");
+    let ada = persona("ada");
+    enrol(&log, &ada);
+    let tape = StreamId::Tape("ada".into());
+    log.append(
+        &tape,
+        &json!({"kind": "user", "id": "u1", "ts": 1, "text": "harbour"}),
+    )
+    .unwrap();
+    log.append(
+        &tape,
+        &json!({"kind": "permission", "id": "p1", "ts": 2, "requestId": "req", "title": "read a file", "options": []}),
+    )
+    .unwrap();
+    log.append(
+        &tape,
+        &json!({"kind": "user", "id": "u1", "ts": 1, "text": "harbour again"}),
+    )
+    .unwrap();
+
+    let _room = Room::new(log.clone(), Arc::new(DeskKeys));
+
+    let events = log.load(&tape);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[1]["decision"], "expired");
+    // Compacted: the superseded line is gone from the file itself.
+    let lines =
+        std::fs::read_to_string(crate::paths::transcript_segment_path(log.root(), "ada", 1))
+            .unwrap();
+    assert_eq!(lines.lines().count(), 2);
+    let found = crate::store::search::search(log.root(), "ada", "harbour", None);
+    assert_eq!(found["hits"].as_array().unwrap().len(), 1);
+}

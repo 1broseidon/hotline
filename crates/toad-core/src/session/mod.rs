@@ -258,8 +258,40 @@ impl Room {
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
         });
+        room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
         room
+    }
+
+    /// The startup fold and the index, brought in line with the files before
+    /// anything is served from them.
+    ///
+    /// A permission card left open by the last process is a button nobody is
+    /// behind, so it is expired and the tape compacted; then the index is
+    /// synced, because the fold just rewrote files and a tape written by the
+    /// importer or the previous Toad has never been indexed here at all.
+    fn settle_tapes(&self) {
+        let now = now_ms();
+        let teammates: Vec<String> = room::roster(&self.log)
+            .into_iter()
+            .map(|persona| persona.id)
+            .collect();
+        for persona_id in &teammates {
+            let stream = StreamId::Tape(persona_id.clone());
+            for expired in crate::log::expire_orphaned_permissions(&self.log.load(&stream), now) {
+                if let Err(error) = self.log.append(&stream, &expired) {
+                    eprintln!("could not expire a card on {persona_id}'s tape: {error}");
+                }
+            }
+            if let Err(error) = self.log.compact(&stream) {
+                eprintln!("could not compact {persona_id}'s tape: {error}");
+            }
+        }
+        if let Some(indexer) = lock(&self.indexer).as_mut()
+            && let Err(error) = indexer.sync(&teammates)
+        {
+            eprintln!("the search index could not be synced: {error}");
+        }
     }
 
     /// Brings a teammate up, on the driver its backend names.

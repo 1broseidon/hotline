@@ -3,7 +3,7 @@
 //!
 //! These are defined once, here, and the TypeScript is generated from them:
 //! `cargo test -p toad-core` runs the tests `#[ts(export)]` writes and leaves
-//! `src/shared/generated/contract.ts` behind, which `src/shared/types.ts`
+//! `ui/src/generated/contract.ts` behind, which the window
 //! re-exports rather than spelling the same shapes a second time. The
 //! workspace's `.cargo/config.toml` is what points ts-rs at that directory
 //! and tells it a 64-bit integer is a JavaScript `number`; run `cargo test`

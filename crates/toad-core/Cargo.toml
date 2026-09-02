@@ -20,3 +20,8 @@ futures-util = "0.3.34"
 tokio-tungstenite = "0.30"
 uuid = { version = "1.26.0", features = ["v4"] }
 ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
+
+# Killing a command's whole process group, which is the only way Stop reaches
+# what the command itself started.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

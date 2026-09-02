@@ -133,6 +133,27 @@ impl RoomHandle for Quiet {
         Ok(idle(persona_id))
     }
 
+    async fn set_config(
+        &self,
+        persona_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<SessionInfo, String> {
+        let mut info = self.info(persona_id);
+        info.configs = vec![crate::contract::SessionConfig {
+            id: config_id.to_string(),
+            name: config_id.to_string(),
+            current_id: Some(value.to_string()),
+            options: Vec::new(),
+        }];
+        self.set_info(info.clone());
+        Ok(info)
+    }
+
+    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
+        crate::models::effort_choices(model_id)
+    }
+
     fn answer_permission(
         &self,
         _persona_id: &str,
@@ -643,6 +664,7 @@ async fn a_draft_that_names_things_keeps_them() {
         cwd: Some("/tmp/harbour".to_string()),
         reach: Some(crate::contract::Reach::Machine),
         model_id: Some("gpt-5".to_string()),
+        effort_id: None,
         computer: None,
     };
     ask(
@@ -1078,6 +1100,7 @@ async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
         cwd: None,
         reach: None,
         model_id: None,
+        effort_id: None,
         computer: None,
     };
     ask(
@@ -1107,6 +1130,142 @@ async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
         room::settings(&log).get("lastModelId").is_none(),
         "an ACP choice is not the room's last Toad Agent model"
     );
+}
+
+fn a_model_with_efforts() -> (String, Vec<String>) {
+    crate::models::catalog()
+        .providers
+        .iter()
+        .find_map(|(provider, entry)| {
+            entry.models.iter().find_map(|(id, model)| {
+                (!model.efforts.is_empty())
+                    .then(|| (format!("{provider}/{id}"), model.efforts.clone()))
+            })
+        })
+        .expect("the snapshot has a model with an effort list")
+}
+
+/// Setting effort on an idle Toad Agent teammate writes it on the persona
+/// and answers idle info, without needing a live session to hold it.
+#[tokio::test]
+async fn session_set_config_on_an_idle_toad_agent_writes_effort_id() {
+    let (_root, log, port) = door("set-config-idle");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+    assert!(ada.get("effortId").is_none(), "{ada}");
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.set_config",
+            "params": { "personaId": id, "configId": "effort", "value": "high" },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["state"], "idle");
+    assert_eq!(room::roster(&log)[0].effort_id.as_deref(), Some("high"));
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 3,
+            "cmd": "session.set_config",
+            "params": { "personaId": id, "configId": "effort", "value": "" },
+        }),
+    )
+    .await;
+    let cleared = answered(&mut socket, 3).await;
+    assert_eq!(cleared["ok"], true, "{cleared}");
+    assert!(
+        room::roster(&log)[0].effort_id.is_none(),
+        "{:?}",
+        room::roster(&log)[0]
+    );
+}
+
+#[tokio::test]
+async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
+    let (model, listed) = a_model_with_efforts();
+    let (_root, _log, port) = door("set-config-unknown");
+    let mut socket = desk(port).await;
+    let draft = PersonaDraft {
+        name: "Ada".to_string(),
+        goal: None,
+        team: None,
+        backend_id: None,
+        cwd: None,
+        reach: None,
+        model_id: Some(model.clone()),
+        effort_id: None,
+        computer: None,
+    };
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "persona.create", "params": { "draft": draft } }),
+    )
+    .await;
+    let created = answered(&mut socket, 1).await["result"].clone();
+    let id = created["id"].as_str().unwrap();
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.set_config",
+            "params": { "personaId": id, "configId": "effort", "value": "nope" },
+        }),
+    )
+    .await;
+    let refused = answered(&mut socket, 2).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let error = refused["error"].as_str().unwrap();
+    assert!(error.contains("nope is not an effort"), "{error}");
+    assert!(
+        listed.iter().all(|id| id != "nope"),
+        "the fixture must pick a model that does not list nope"
+    );
+}
+
+#[tokio::test]
+async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
+    let (_root, _log, port) = door("set-config-acp");
+    let mut socket = desk(port).await;
+    let draft = PersonaDraft {
+        name: "Bob".to_string(),
+        goal: None,
+        team: None,
+        backend_id: Some("cursor".to_string()),
+        cwd: None,
+        reach: None,
+        model_id: None,
+        effort_id: None,
+        computer: None,
+    };
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "persona.create", "params": { "draft": draft } }),
+    )
+    .await;
+    let created = answered(&mut socket, 1).await["result"].clone();
+    let id = created["id"].as_str().unwrap();
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.set_config",
+            "params": { "personaId": id, "configId": "effort", "value": "high" },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["configs"][0]["id"], "effort");
+    assert_eq!(answer["result"]["configs"][0]["currentId"], "high");
 }
 
 #[tokio::test]

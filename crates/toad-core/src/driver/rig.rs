@@ -23,7 +23,8 @@
 
 use super::{Driver, DriverInfo, MessageKind, Update, clip};
 use crate::contract::{
-    AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage, ToolSourceKind,
+    AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, SessionConfig, TokenUsage,
+    ToolSourceKind,
 };
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer};
@@ -80,7 +81,9 @@ pub async fn complete(
     system: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let agent = agent_builder(keys, model_id)?.preamble(system).build();
+    let agent = agent_builder(keys, model_id, None)?
+        .preamble(system)
+        .build();
     agent
         .prompt(prompt)
         .await
@@ -108,6 +111,8 @@ pub struct InProcess {
     /// where commands run.
     cwd: Mutex<PathBuf>,
     model: Mutex<String>,
+    /// The effort the next request will send, when the current model lists it.
+    effort: Mutex<Option<String>>,
     history: Arc<AsyncMutex<Vec<Message>>>,
     /// The stop for the turn in flight. A fresh one per prompt, so a stop
     /// nobody was running is not still standing over the next turn.
@@ -148,6 +153,7 @@ impl InProcess {
             preamble,
             cwd: Mutex::new(PathBuf::new()),
             model: Mutex::new(String::new()),
+            effort: Mutex::new(None),
             history: Arc::new(AsyncMutex::new(history)),
             stop: Mutex::new(Arc::new(Stop::default())),
             output_dir,
@@ -168,11 +174,13 @@ impl InProcess {
 
     fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
         let model = lock(&self.model).clone();
+        let effort = lock(&self.effort).clone();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
             models: models::choices(keys, &self.keys.enabled_models()),
             model_label: models::label_of(&model),
-            current_model_id: model,
+            current_model_id: model.clone(),
+            configs: effort_config(&model, effort.as_deref()),
             ..DriverInfo::default()
         }
     }
@@ -194,7 +202,11 @@ impl Driver for InProcess {
                 .to_string()
         })?;
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
-        *lock(&self.model) = model;
+        *lock(&self.model) = model.clone();
+        *lock(&self.effort) = persona
+            .effort_id
+            .clone()
+            .filter(|id| models::efforts(&model).iter().any(|offered| offered == id));
         let connected = mcp::connect(&persona.id, &self.mcp_servers).await;
         publish_ledger(persona, &self.mcp_missing, &connected);
         *lock(&self.mcp) = Some(connected);
@@ -226,6 +238,7 @@ impl Driver for InProcess {
         let turn = Turn {
             keys: self.keys.provider_auth(),
             model: lock(&self.model).clone(),
+            effort: lock(&self.effort).clone(),
             preamble: self.preamble.clone(),
             cwd: lock(&self.cwd).clone(),
             reach,
@@ -258,6 +271,33 @@ impl Driver for InProcess {
             return Err(format!("No key for {provider} is available on this desk."));
         }
         *lock(&self.model) = model_id.to_string();
+        // A model switch keeps the effort only when the new model lists it.
+        {
+            let mut effort = lock(&self.effort);
+            if let Some(current) = effort.as_ref()
+                && !models::efforts(model_id).iter().any(|id| id == current)
+            {
+                *effort = None;
+            }
+        }
+        Ok(self.info(&keys))
+    }
+
+    async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        if config_id != "effort" {
+            return Err("This agent does not offer that setting.".to_string());
+        }
+        let keys = self.keys.provider_auth();
+        let model = lock(&self.model).clone();
+        if value.is_empty() {
+            *lock(&self.effort) = None;
+            return Ok(self.info(&keys));
+        }
+        if !models::efforts(&model).iter().any(|id| id == value) {
+            let label = models::label_of(&model).unwrap_or(model);
+            return Err(format!("{value} is not an effort {label} offers."));
+        }
+        *lock(&self.effort) = Some(value.to_string());
         Ok(self.info(&keys))
     }
 }
@@ -326,6 +366,7 @@ impl Stop {
 struct Turn {
     keys: HashMap<String, ProviderAuth>,
     model: String,
+    effort: Option<String>,
     preamble: String,
     cwd: PathBuf,
     reach: Reach,
@@ -349,7 +390,7 @@ impl Turn {
             }
         };
         let outcomes = ToolOutcomes::new(self.output_dir.clone());
-        let agent = match agent_builder(&self.keys, &self.model) {
+        let agent = match agent_builder(&self.keys, &self.model, self.effort.as_deref()) {
             Ok(builder) => builder
                 .preamble(&self.preamble)
                 .tool(ListDirectory::new(workspace.clone()))
@@ -668,10 +709,56 @@ async fn flush(sender: &mpsc::Sender<Update>, open: &mut Option<OpenMessage>) {
     .await;
 }
 
+/// The JSON merged into every request for this effort, when this client
+/// carries `additional_params` that far. Copilot's chat-completions route
+/// is applied in [`agent_builder`]: this function returns the Responses
+/// body Copilot shares with OpenAI and ChatGPT.
+fn effort_params(client: Client, effort: &str) -> Option<serde_json::Value> {
+    match client {
+        Client::Anthropic => Some(serde_json::json!({
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": effort}
+        })),
+        Client::OpenAi | Client::ChatGpt | Client::Copilot | Client::OpenRouter | Client::XAi => {
+            Some(serde_json::json!({"reasoning": {"effort": effort}}))
+        }
+        Client::Gemini => match effort {
+            // Rig's AdditionalParameters is camelCase; ThinkingLevel is
+            // snake_case, so the catalogue id is the value. Uppercasing it
+            // would fail the deserialize that puts additional_params on the
+            // request.
+            "minimal" | "low" | "medium" | "high" => Some(serde_json::json!({
+                "generationConfig": {
+                    "thinkingConfig": {"thinkingLevel": effort}
+                }
+            })),
+            _ => None,
+        },
+        Client::Groq | Client::DeepSeek | Client::Mistral => {
+            Some(serde_json::json!({"reasoning_effort": effort}))
+        }
+    }
+}
+
+/// One Effort picker when the model lists any, otherwise none.
+fn effort_config(model_id: &str, current: Option<&str>) -> Vec<SessionConfig> {
+    let options = models::effort_choices(model_id);
+    if options.is_empty() {
+        return Vec::new();
+    }
+    vec![SessionConfig {
+        id: "effort".to_string(),
+        name: "Effort".to_string(),
+        current_id: current.map(str::to_string),
+        options,
+    }]
+}
+
 /// The builder for one model on the provider whose credential the desk holds.
 fn agent_builder(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
+    effort: Option<&str>,
 ) -> Result<rig::agent::AgentBuilder, String> {
     let (provider, model) = model_id
         .split_once('/')
@@ -730,8 +817,24 @@ fn agent_builder(
     // Anthropic refuses a request that names no ceiling, and Rig only knows
     // one for the models it shipped with. The catalogue knows every model's,
     // so every request carries it rather than only the ones Rig remembers.
-    Ok(match models::output_limit(model_id) {
+    let builder = match models::output_limit(model_id) {
         Some(ceiling) => builder.max_tokens(ceiling),
+        None => builder,
+    };
+    let Some(effort) = effort else {
+        return Ok(builder);
+    };
+    // Copilot's chat-completions route takes `reasoning_effort`; its
+    // Responses route (a model whose id contains "codex") takes the same
+    // body as OpenAI. Rig's `route_for_model` is that contains check.
+    let params =
+        if wiring.client == Client::Copilot && !model.to_ascii_lowercase().contains("codex") {
+            Some(serde_json::json!({"reasoning_effort": effort}))
+        } else {
+            effort_params(wiring.client, effort)
+        };
+    Ok(match params {
+        Some(params) => builder.additional_params(params),
         None => builder,
     })
 }
@@ -1049,6 +1152,7 @@ mod tests {
         let turn = Turn {
             keys: HashMap::new(),
             model: "nope/none".to_string(),
+            effort: None,
             preamble: "you are Ada".to_string(),
             cwd: root.clone(),
             reach: Reach::Workspace,
@@ -1209,5 +1313,45 @@ mod tests {
             .await;
         assert!(!third.is_success(), "{third:?}");
         assert!(rx.try_recv().is_err(), "the notice lands once");
+    }
+
+    #[test]
+    fn effort_params_per_client() {
+        assert_eq!(
+            effort_params(Client::Anthropic, "high"),
+            Some(json!({
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "high"}
+            }))
+        );
+        let reasoning = json!({"reasoning": {"effort": "high"}});
+        assert_eq!(
+            effort_params(Client::OpenAi, "high"),
+            Some(reasoning.clone())
+        );
+        assert_eq!(
+            effort_params(Client::ChatGpt, "high"),
+            Some(reasoning.clone())
+        );
+        assert_eq!(
+            effort_params(Client::Copilot, "high"),
+            Some(reasoning.clone())
+        );
+        assert_eq!(
+            effort_params(Client::OpenRouter, "high"),
+            Some(reasoning.clone())
+        );
+        assert_eq!(effort_params(Client::XAi, "high"), Some(reasoning));
+        assert_eq!(
+            effort_params(Client::Gemini, "high"),
+            Some(json!({
+                "generationConfig": {"thinkingConfig": {"thinkingLevel": "high"}}
+            }))
+        );
+        assert_eq!(effort_params(Client::Gemini, "xhigh"), None);
+        let chat = json!({"reasoning_effort": "high"});
+        assert_eq!(effort_params(Client::Groq, "high"), Some(chat.clone()));
+        assert_eq!(effort_params(Client::DeepSeek, "high"), Some(chat.clone()));
+        assert_eq!(effort_params(Client::Mistral, "high"), Some(chat));
     }
 }

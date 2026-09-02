@@ -532,6 +532,10 @@ impl Driver for ChildAgent {
         self.set_config(&config_id, model_id).await
     }
 
+    async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        ChildAgent::set_config(self, config_id, value).await
+    }
+
     async fn set_mode(&self, mode_id: &str) -> Result<DriverInfo, String> {
         let connection = lock(&self.live.connection).clone();
         let (session_id, config_id) = {
@@ -830,6 +834,7 @@ impl ChildAgent {
         session.info.modes = disposition.modes;
         session.info.current_mode_id = disposition.current_mode_id;
         session.info.mode_label = disposition.mode_label;
+        session.info.configs = disposition.configs;
     }
 
     /// Puts the teammate's own model and mode back on.
@@ -902,6 +907,7 @@ impl ChildAgent {
             session.info.mode_label = disposition.mode_label;
             session.info.current_mode_id = disposition.current_mode_id;
         }
+        session.info.configs = disposition.configs;
     }
 }
 
@@ -1300,6 +1306,7 @@ struct Disposition {
     current_mode_id: Option<String>,
     mode_config: Option<String>,
     mode_label: Option<String>,
+    configs: Vec<crate::contract::SessionConfig>,
 }
 
 impl Disposition {
@@ -1340,7 +1347,14 @@ impl Disposition {
                     disposition.mode_config = Some(option.id.0.to_string());
                     disposition.mode_label = Some(option.name.clone());
                 }
-                _ => {}
+                _ => {
+                    disposition.configs.push(crate::contract::SessionConfig {
+                        id: option.id.0.to_string(),
+                        name: option.name.clone(),
+                        current_id: Some(select.current_value.0.to_string()),
+                        options: picker,
+                    });
+                }
             }
         }
         disposition
@@ -1477,6 +1491,7 @@ mod tests {
             reach: None,
             model_id: None,
             mode_id: None,
+            effort_id: None,
             harness_override: None,
             hop_notice: None,
             mcp_policy: McpPolicy {

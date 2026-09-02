@@ -17,7 +17,7 @@ pub mod rig;
 
 use crate::contract::{
     Attachment, ConfigChoice, NoticeLevel, PermissionOption, Persona, Reach, SessionCapabilities,
-    TokenUsage,
+    SessionConfig, TokenUsage,
 };
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -52,6 +52,10 @@ pub struct DriverInfo {
     /// The picker's own name, which agents spell differently ("Mode",
     /// "Thinking"), when the driver offers modes at all.
     pub mode_label: Option<String>,
+    /// Select options that are not the model or mode picker. Toad Agent
+    /// reports effort here; an ACP child reports whatever else the harness
+    /// offered. The session copies this onto `SessionInfo.configs`.
+    pub configs: Vec<SessionConfig>,
     pub capabilities: SessionCapabilities,
 }
 
@@ -142,6 +146,12 @@ pub trait Driver: Send + Sync {
     /// the default is the refusal a caller would otherwise have to guess at.
     async fn set_mode(&self, _mode_id: &str) -> Result<DriverInfo, String> {
         Err("This agent does not offer modes.".to_string())
+    }
+
+    /// Sets a config the agent offers beyond the model and the mode. The
+    /// default is the refusal a caller would otherwise have to guess at.
+    async fn set_config(&self, _config_id: &str, _value: &str) -> Result<DriverInfo, String> {
+        Err("This agent does not offer that setting.".to_string())
     }
 
     /// Answers a permission the agent is waiting on, and says whether there

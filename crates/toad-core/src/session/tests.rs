@@ -253,6 +253,7 @@ pub(super) fn persona(id: &str) -> Persona {
         reach: Some(Reach::Machine),
         model_id: None,
         mode_id: None,
+        effort_id: None,
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {

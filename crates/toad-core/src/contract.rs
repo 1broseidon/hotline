@@ -163,6 +163,11 @@ pub struct Persona {
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode_id: Option<String>,
+    /// The effort a Toad Agent teammate runs at, when its model offers one.
+    /// Absent means the model's default. An ACP teammate does not store this:
+    /// the harness owns its config ids.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort_id: Option<String>,
     /// A configured fallback harness for a desk that cannot run this
     /// teammate's current one — the matching ladder's middle rung, between
     /// "exactly what it runs now" and the room's default. Absent means no
@@ -446,6 +451,8 @@ pub struct PersonaDraft {
     pub reach: Option<Reach>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
 }
@@ -1365,6 +1372,10 @@ pub enum Command {
     /// the catalogue.
     #[serde(rename = "models.catalog")]
     ModelsCatalog { provider_id: String },
+    /// The effort levels a catalogue model offers, as picker choices. Empty
+    /// when the id is unknown or the model has no `effort` option.
+    #[serde(rename = "models.efforts")]
+    ModelsEfforts { model_id: String },
     #[serde(rename = "session.start")]
     SessionStart { persona_id: String },
     #[serde(rename = "session.stop")]
@@ -1389,6 +1400,15 @@ pub enum Command {
     /// pickers a session reports are what says whether it does.
     #[serde(rename = "session.set_mode")]
     SessionSetMode { persona_id: String, mode_id: String },
+    /// Sets a config the session offers beyond the model and the mode —
+    /// Toad Agent's effort, or an ACP harness's own option. For Toad Agent
+    /// the persona is written first, the same as `session.set_model`.
+    #[serde(rename = "session.set_config")]
+    SessionSetConfig {
+        persona_id: String,
+        config_id: String,
+        value: String,
+    },
     /// Answers a permission card the agent is waiting behind. Refused when
     /// nothing is waiting any more — the turn ended, the session stopped, or
     /// somebody else answered first — so a stale card cannot silently let an

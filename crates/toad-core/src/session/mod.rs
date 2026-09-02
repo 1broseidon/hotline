@@ -559,6 +559,7 @@ impl Room {
         info.modes = reported.modes;
         info.current_mode_id = reported.current_mode_id;
         info.mode_label = reported.mode_label;
+        info.configs = reported.configs;
         info.capabilities = reported.capabilities;
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
@@ -778,6 +779,30 @@ impl Room {
             info.models = reported.models;
             info.current_model_id = Some(reported.current_model_id);
             info.model_label = reported.model_label;
+            info.configs = reported.configs;
+            info.clone()
+        };
+        let _ = self.info_changes.send(info.clone());
+        Ok(info)
+    }
+
+    pub async fn set_config(
+        &self,
+        persona_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<SessionInfo, String> {
+        let session = self.session(persona_id)?;
+        let reported = session.driver.set_config(config_id, value).await?;
+        let info = {
+            let mut info = lock(&session.info);
+            info.models = reported.models;
+            info.current_model_id = Some(reported.current_model_id);
+            info.model_label = reported.model_label;
+            info.modes = reported.modes;
+            info.current_mode_id = reported.current_mode_id;
+            info.mode_label = reported.mode_label;
+            info.configs = reported.configs;
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());

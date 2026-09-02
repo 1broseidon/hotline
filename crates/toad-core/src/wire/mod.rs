@@ -81,6 +81,15 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
     async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String>;
+    async fn set_config(
+        &self,
+        persona_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<SessionInfo, String>;
+
+    /// The effort levels a catalogue model offers, as picker choices.
+    fn models_efforts(&self, model_id: &str) -> Vec<crate::contract::ConfigChoice>;
 
     /// Answers a permission the agent is waiting behind, refusing when there
     /// is nothing left to answer.

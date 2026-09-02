@@ -52,6 +52,7 @@ pub(crate) async fn run(
         Command::ModelsCatalog { provider_id } => room
             .models_catalog(&provider_id)
             .map(|models| json!(models)),
+        Command::ModelsEfforts { model_id } => Ok(json!(room.models_efforts(&model_id))),
 
         Command::SessionStart { persona_id } => {
             let info = room.start(&persona_id).await?;
@@ -87,6 +88,13 @@ pub(crate) async fn run(
             mode_id,
         } => room
             .set_mode(&persona_id, &mode_id)
+            .await
+            .map(|info| json!(info)),
+        Command::SessionSetConfig {
+            persona_id,
+            config_id,
+            value,
+        } => set_config(log, room, &persona_id, &config_id, &value)
             .await
             .map(|info| json!(info)),
         Command::SessionAnswerPermission {
@@ -207,6 +215,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         reach: draft.reach.filter(|reach| *reach == Reach::Machine),
         model_id,
         mode_id: None,
+        effort_id: given(draft.effort_id),
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
@@ -313,6 +322,54 @@ async fn set_model(
 
     if room.info(persona_id).state != SessionState::Idle {
         return room.set_model(persona_id, model_id).await;
+    }
+    Ok(room.info(persona_id))
+}
+
+/// Write a Toad Agent teammate's effort first, then switch a live session
+/// if there is one. An ACP teammate has no stored effort: the harness owns
+/// its config ids, and a live session is required.
+async fn set_config(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    config_id: &str,
+    value: &str,
+) -> Result<SessionInfo, String> {
+    let persona = living(log, persona_id)?;
+    if persona.backend_id != PI_BACKEND_ID {
+        return room.set_config(persona_id, config_id, value).await;
+    }
+    if config_id != "effort" {
+        if room.info(persona_id).state != SessionState::Idle {
+            return room.set_config(persona_id, config_id, value).await;
+        }
+        return Err("This agent does not offer that setting.".to_string());
+    }
+
+    let model_id = room
+        .info(persona_id)
+        .current_model_id
+        .or(persona.model_id.clone());
+    if let Some(model_id) = model_id
+        && !value.is_empty()
+    {
+        let listed = crate::models::efforts(&model_id);
+        if !listed.iter().any(|id| id == value) {
+            let label = crate::models::label_of(&model_id).unwrap_or(model_id);
+            return Err(format!("{value} is not an effort {label} offers."));
+        }
+    }
+
+    let effort = if value.is_empty() {
+        Value::Null
+    } else {
+        json!(value)
+    };
+    update_persona(log, persona_id, &json!({ "effortId": effort }))?;
+
+    if room.info(persona_id).state != SessionState::Idle {
+        return room.set_config(persona_id, config_id, value).await;
     }
     Ok(room.info(persona_id))
 }

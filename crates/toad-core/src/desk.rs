@@ -141,6 +141,19 @@ impl RoomHandle for Desk {
         self.room.set_mode(persona_id, mode_id).await
     }
 
+    async fn set_config(
+        &self,
+        persona_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<SessionInfo, String> {
+        self.room.set_config(persona_id, config_id, value).await
+    }
+
+    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
+        crate::models::effort_choices(model_id)
+    }
+
     fn answer_permission(
         &self,
         persona_id: &str,

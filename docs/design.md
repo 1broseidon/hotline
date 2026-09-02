@@ -71,7 +71,10 @@ there is one writer per stream, one fold, one subscription and one shipping
 mechanism.
 
 Tapes keep today's event shape and file layout (`transcripts/<id>/<epoch>.jsonl`),
-so importing an existing Toad data directory copies them unchanged.
+so importing an existing Toad data directory copies them unchanged. The
+importer reads a data directory the shipping Toad is still using and never
+writes into it: George runs the old app daily until Phase 1 replaces it, and
+this tree becomes the `toad` repository when it does.
 
 ### 2. A wire of commands and subscriptions
 

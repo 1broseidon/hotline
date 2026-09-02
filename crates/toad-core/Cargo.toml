@@ -34,7 +34,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # another crate stops asking for it is a fetch that fails and says nothing.
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 # Both halves of MCP on one version: Toad is a client of the servers a
-# teammate is granted and the server of its own three tools. Pinned exactly,
+# teammate is granted and the server of its own teammate tools. Pinned exactly,
 # because the model types are `non_exhaustive` and a minor release is free to
 # grow a field the compiler then demands.
 rmcp = { version = "=3.2.0", features = [

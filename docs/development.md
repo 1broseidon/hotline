@@ -30,7 +30,7 @@ crates/toad-core/src/
   vault.rs               secrets beside the room stream
   session/               Session, the funnel, quiet, chapters, the scheduler, the ledger
   driver/                Toad Agent on Rig, and the ACP child with its registry
-  mcp/                   the client of granted servers, and Toad's own three tools
+  mcp/                   the client of granted servers, and Toad's own teammate tools
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
   import.rs              copies an existing Toad data directory

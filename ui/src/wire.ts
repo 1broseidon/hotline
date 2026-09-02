@@ -78,6 +78,7 @@ type Results = {
 	"search.all": GlobalSearchResult;
 	"chapter.list": ChapterSummary[];
 	"chapter.start_fresh": ChapterSummary;
+	"chapter.resume": ChapterSummary;
 	"room.import": Report;
 	"teammate.tools": TeammateToolLedger | null;
 	"schedule.create": ScheduledJob;

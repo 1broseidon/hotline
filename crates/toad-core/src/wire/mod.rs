@@ -104,6 +104,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         persona_id: &str,
     ) -> Result<crate::contract::ChapterSummary, String>;
 
+    /// Reopens the previous chapter's context in place of the current one.
+    async fn resume_chapter(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ChapterSummary, String>;
+
     /// What this teammate's session is doing, idle when it has none.
     fn info(&self, persona_id: &str) -> SessionInfo;
 

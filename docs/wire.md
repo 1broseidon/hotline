@@ -95,6 +95,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
 | `room.import` | `{from}` | an import `Report` |
 | `chapter.start_fresh` | `{personaId}` | the chapter that closed, with its note |
+| `chapter.resume` | `{personaId}` | the chapter that reopened, with the earlier note |
 | `teammate.tools` | `{personaId}` | a `TeammateToolLedger`, or none |
 | `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?}` | the created `ScheduledJob` |
 | `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |

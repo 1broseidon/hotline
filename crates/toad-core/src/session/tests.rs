@@ -11,6 +11,7 @@ use crate::contract::{
     ScheduledJob, SessionCheckpoint,
 };
 use crate::driver::DriverInfo;
+use crate::mcp::server::TeammateTools;
 use async_trait::async_trait;
 use serde_json::json;
 use std::time::Duration;
@@ -1488,6 +1489,11 @@ async fn a_fresh_sessions_id_is_remembered_after_the_turn_that_proves_it() {
         checkpoints(&room, "ada"),
         ["opencode/elsewhere", "cursor/s-1"]
     );
+    assert_eq!(
+        markers(&room, "ada")[0]["sessionId"],
+        "s-1",
+        "the marker carries the id a resume will point back at"
+    );
 
     // Closing the chapter withdraws this backend's checkpoint and leaves the
     // other harness's conversation alone.
@@ -1495,6 +1501,144 @@ async fn a_fresh_sessions_id_is_remembered_after_the_turn_that_proves_it() {
         .await
         .unwrap();
     assert_eq!(checkpoints(&room, "ada"), ["opencode/elsewhere"]);
+}
+
+/// Resume reopens only the chapter immediately before: the interim closes as
+/// a turning point, the new marker carries the earlier note, Toad Agent is
+/// seeded from that chapter's words, and the user lines said in the meantime
+/// arrive as a nudge — never a line of the tape.
+#[tokio::test]
+async fn resume_reopens_the_previous_chapter_and_nudges_with_what_was_said_since() {
+    let agents = Fake::new(Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    }]));
+    let prompts = agents.driver.prompts.clone();
+    let log = scratch("chapter-resume");
+    enrol(&log, &persona("ada"));
+    let t = now_ms();
+    write_tape(
+        &log,
+        "ada",
+        &[
+            json!({
+                "kind": "chapter", "id": "c1", "ts": t - 10_000, "backendId": "pi",
+                "sessionId": "s-old", "endedAt": t - 5_000, "title": "Crane jam",
+                "note": "Goal: Get the crane moving", "status": "in-progress",
+                "closedBy": "idle",
+            }),
+            spoken("user", "u1", t - 9_000, "did the crane jam?"),
+            spoken("agent", "a1", t - 8_000, "It jammed."),
+            json!({"kind": "chapter", "id": "c2", "ts": t - 1_000, "backendId": "pi"}),
+            spoken("user", "u2", t - 500, "and now?"),
+        ],
+    );
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    room.start("ada").await.unwrap();
+
+    let answered = TeammateTools::new(&room, "ada")
+        .call("resume_chapter", &json!({}))
+        .await
+        .expect("resume_chapter is a teammate tool");
+    let resumed: Value = serde_json::from_str(&answered).unwrap();
+    assert_eq!(resumed["resumed"], json!(true));
+    assert_eq!(resumed["title"], "Crane jam");
+
+    let markers = markers(&room, "ada");
+    assert_eq!(markers.len(), 3);
+    assert_eq!(markers[1]["title"], "Back to: Crane jam");
+    assert_eq!(markers[1]["closedBy"], "resume");
+    assert_eq!(markers[1]["status"], "done");
+    assert_eq!(markers[2]["resumedFrom"], "c1");
+    assert_eq!(markers[2]["note"], "Goal: Get the crane moving");
+    assert_eq!(markers[2]["sessionId"], "s-old");
+    assert_eq!(
+        markers[2].get("endedAt"),
+        None,
+        "the reopened marker is the open chapter"
+    );
+
+    let seeds = lock(&agents.seeds).clone();
+    assert_eq!(seeds.len(), 2, "start, then the resume's restart");
+    assert_eq!(
+        seeds[1],
+        vec![
+            Said::User("did the crane jam?".to_string()),
+            Said::Agent("It jammed.".to_string()),
+        ]
+    );
+
+    let nudged = heard(&prompts, 1).await;
+    assert!(
+        nudged[0].contains("and now?"),
+        "the nudge carries the interim user line: {}",
+        nudged[0]
+    );
+    assert!(nudged[0].contains("<toad_user_messages>"), "{}", nudged[0]);
+    let users: Vec<Value> = tape(&room, "ada")
+        .into_iter()
+        .filter(|event| event["kind"] == "user")
+        .collect();
+    assert_eq!(
+        users.len(),
+        2,
+        "the nudge is Toad's words, never a line of the tape"
+    );
+
+    let refused = room.resume_chapter("ada").await.unwrap_err();
+    assert!(
+        refused.contains("no previous chapter"),
+        "a second resume is refused when the chapter immediately before closed by resume: {refused}"
+    );
+}
+
+/// An ACP resume points the persona's checkpoint back at the previous
+/// chapter's session, which is what the child's resume/load path will try.
+#[tokio::test]
+async fn resume_points_the_checkpoint_back_at_the_previous_chapters_session() {
+    // No Turn: a turn would remember the scripted child's new session id
+    // and overwrite the checkpoint this test is about.
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    *lock(&agents.driver.session_id) = Some("s-new".to_string());
+    let log = scratch("chapter-resume-checkpoint");
+    let mut ada = persona("ada");
+    ada.backend_id = "cursor".to_string();
+    ada.session_checkpoints = vec![SessionCheckpoint {
+        backend_id: "cursor".to_string(),
+        session_id: "s-new".to_string(),
+    }];
+    enrol(&log, &ada);
+    let t = now_ms();
+    write_tape(
+        &log,
+        "ada",
+        &[
+            json!({
+                "kind": "chapter", "id": "c1", "ts": t - 10_000, "backendId": "cursor",
+                "sessionId": "s-old", "endedAt": t - 5_000, "title": "Crane jam",
+                "note": "Goal: Get the crane moving", "closedBy": "idle",
+            }),
+            spoken("user", "u1", t - 9_000, "did the crane jam?"),
+            json!({"kind": "chapter", "id": "c2", "ts": t - 1_000, "backendId": "cursor"}),
+            spoken("user", "u2", t - 500, "and now?"),
+        ],
+    );
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+    room.start("ada").await.unwrap();
+    room.resume_chapter("ada").await.unwrap();
+
+    assert_eq!(checkpoints(&room, "ada"), ["cursor/s-old"]);
+    let notices: Vec<Value> = tape(&room, "ada")
+        .into_iter()
+        .filter(|event| event["kind"] == "notice")
+        .collect();
+    assert!(
+        notices.iter().any(|notice| notice["text"]
+            .as_str()
+            .unwrap()
+            .contains("could not be reopened")),
+        "a scripted child does not restore, so the tape says so: {notices:?}"
+    );
 }
 
 /// The teammate's checkpoints as `backend/session`, oldest first.

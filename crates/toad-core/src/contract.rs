@@ -1341,6 +1341,10 @@ pub enum Command {
     /// the time this returns.
     #[serde(rename = "chapter.start_fresh")]
     ChapterStartFresh { persona_id: String },
+    /// Reopens the previous chapter's full context in place of the current
+    /// one. Only the chapter immediately before is offered.
+    #[serde(rename = "chapter.resume")]
+    ChapterResume { persona_id: String },
     /// What tools this teammate was given, where they came from, and — for
     /// anything absent — why. Null when it has never started under a Toad
     /// that keeps a ledger.

@@ -89,7 +89,7 @@ On each turn it is given:
 | kind | what | how |
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit`, `shell` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine |
-| Toad's own tools | `search_thread`, `list_chapters`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{serverId}__{tool}` |
 
 A result larger than 256 KiB is kept in full under
@@ -222,6 +222,18 @@ became. The session keeps running until there is something to say to it —
 an agent that asks for a fresh chapter is mid-turn when it asks, and its
 own turn is the one that has to finish answering. From the window the close
 is `user`; from `new_chapter` it is `agent`.
+
+`chapter.resume` / `resume_chapter` reopens the chapter immediately before
+the open one. A context from further back is not offered. The current
+chapter closes as `"Back to: <previous title>"` with `closedBy` `resume`,
+and a new marker opens carrying `resumedFrom` and the previous chapter's
+note. The session is stopped and started again: Toad Agent is seeded from
+that chapter's tape slice; an ACP child from the checkpoint the marker
+still names. User lines said in the meantime arrive as a nudge — Toad's
+words, never a line of the tape. If the restore fails, the new session
+reads the note (the wake block already carries it) and a notice says the
+context could not be reopened. A second resume is refused when the chapter
+immediately before closed by resume, or when nothing precedes.
 
 ### Idle sweep
 

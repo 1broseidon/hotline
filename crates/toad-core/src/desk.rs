@@ -75,6 +75,10 @@ impl RoomHandle for Desk {
             .await
     }
 
+    async fn resume_chapter(&self, persona_id: &str) -> Result<ChapterSummary, String> {
+        self.room.resume_chapter(persona_id).await
+    }
+
     fn cancel(&self, persona_id: &str) -> Result<(), String> {
         self.room.cancel(persona_id)
     }

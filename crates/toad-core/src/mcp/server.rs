@@ -1,6 +1,6 @@
 //! Toad's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Six tools — three over its own conversation, one that asks the person,
+//! Seven tools — four over its own conversation, one that asks the person,
 //! two over the room's other teammates — and one instance of them per
 //! teammate session. They are the room's, not the agent's: the tape they
 //! read is Toad's record of a conversation that has been going on far
@@ -49,15 +49,17 @@ const PATH: &str = "/mcp";
 
 const SEARCH_THREAD: &str = "search_thread";
 const LIST_CHAPTERS: &str = "list_chapters";
+const RESUME_CHAPTER: &str = "resume_chapter";
 const NEW_CHAPTER: &str = "new_chapter";
 const REQUEST_HUMAN: &str = "request_human";
 const LIST_TEAMMATES: &str = "list_teammates";
 const MESSAGE_TEAMMATE: &str = "message_teammate";
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 6] = [
+pub const TOOL_NAMES: [&str; 7] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
+    RESUME_CHAPTER,
     NEW_CHAPTER,
     REQUEST_HUMAN,
     LIST_TEAMMATES,
@@ -77,7 +79,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA — and waits for them to do it. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA — and waits for them to do it. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -110,6 +112,11 @@ fn descriptors() -> Vec<Tool> {
         Tool::new(
             LIST_CHAPTERS,
             "List the chapters of your own conversation with the user, newest first: what each one was about, when it ran, and the handoff note it closed with. Use it to get your bearings in a conversation that has been going on far longer than your context has.",
+            schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
+        ),
+        Tool::new(
+            RESUME_CHAPTER,
+            "Reopen the previous chapter's full context in place of your current one, for carrying on work that was left mid-flight. Use it when the user is clearly continuing what the handoff note describes as in progress — the old context remembers the files and the exact state, which the note cannot. Not for a new subject or a quick question. The swap happens right after this call returns: your current turn ends and the reopened context answers the user's latest message itself, so say nothing after calling this.",
             schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
         ),
         Tool::new(
@@ -202,6 +209,15 @@ impl TeammateTools {
             LIST_CHAPTERS => {
                 let chapters = store::chapters::list(room.log(), &self.persona_id);
                 Ok(quoted(&json!({ "chapters": chapters })))
+            }
+            RESUME_CHAPTER => {
+                let opened = room.resume_chapter(&self.persona_id).await?;
+                Ok(json!({
+                    "resumed": true,
+                    "title": opened.title,
+                    "note": "Your current turn ends here; the reopened context answers the user next.",
+                })
+                .to_string())
             }
             NEW_CHAPTER => {
                 let closed = room
@@ -579,6 +595,18 @@ mod tests {
             .expect("the chapter marker is on the tape");
         assert_eq!(marker["closedBy"], "agent");
         assert!(marker["endedAt"].is_i64());
+    }
+
+    /// Only the chapter immediately before is offered. A tape with nothing
+    /// behind the open chapter has no context worth going back to.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resume_chapter_is_refused_when_nothing_precedes() {
+        let room = room_with_a_conversation("resume-none");
+        let refused = tools(&room).call(RESUME_CHAPTER, &json!({})).await;
+        assert!(
+            refused.unwrap_err().contains("no previous chapter"),
+            "a first chapter has nothing to reopen"
+        );
     }
 
     /// An unknown name is the agent's mistake to read, not a crash.

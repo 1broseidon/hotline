@@ -59,7 +59,7 @@ use crate::store::search::Indexer;
 use async_trait::async_trait;
 use chrono::Local;
 use quiet::QuietWindow;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -931,6 +931,132 @@ impl Room {
             .ok_or_else(|| "That teammate has no open chapter to close.".to_string())
     }
 
+    /// Reopens the previous chapter's full context in place of the current one.
+    ///
+    /// Only the chapter immediately before the open one is offered: a context
+    /// from three weeks ago brings back sludge. The current chapter closes as
+    /// "Back to: …" without asking a model for a note — it is a turning point,
+    /// not a stretch of work — and a new marker opens carrying that earlier
+    /// chapter's note under `resumedFrom`. The session is stopped and started
+    /// again: Toad Agent is seeded from the previous chapter's tape slice,
+    /// an ACP child from the checkpoint the marker still names. The user
+    /// lines said in the meantime arrive as a [`Room::nudge`], Toad's words,
+    /// never a line of the tape. If the restore itself fails, the new session
+    /// still starts, reads the note the wake block already carries, and a
+    /// notice says the context could not be reopened.
+    pub async fn resume_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+    ) -> Result<ChapterSummary, String> {
+        let persona = self.persona(persona_id)?;
+        let events = self.tape(persona_id);
+        let previous = chapter_view::previous_chapter(&events)
+            .cloned()
+            .ok_or_else(|| "There is no previous chapter to reopen.".to_string())?;
+        if previous.get("closedBy").and_then(Value::as_str) == Some("resume") {
+            return Err("There is no previous chapter to reopen.".to_string());
+        }
+        if previous.get("backendId").and_then(Value::as_str) != Some(persona.backend_id.as_str()) {
+            return Err(
+                "The previous chapter ran on a different agent; its context cannot be reopened here."
+                    .to_string(),
+            );
+        }
+        let open = chapter_view::open_chapter(&events).cloned();
+        let interim: Vec<String> = open
+            .as_ref()
+            .map(|open| {
+                chapter_view::slice_of(&events, open)
+                    .iter()
+                    .filter(|event| event.get("kind").and_then(Value::as_str) == Some("user"))
+                    .filter_map(|event| {
+                        let text = event.get("text")?.as_str()?.trim();
+                        (!text.is_empty()).then(|| text.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let title = previous
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .unwrap_or("the previous chapter");
+
+        self.stop(persona_id)?;
+        if let Some(open) = open {
+            self.close_marker(
+                persona_id,
+                &open,
+                now_ms(),
+                chapters::Closing::Titled {
+                    title: format!("Back to: {title}"),
+                    note: None,
+                },
+                ChapterClose::Resume,
+            );
+        }
+        // Point the persona's checkpoint back at the previous chapter's
+        // session, which is what an ACP child will try to resume. Toad Agent
+        // has no checkpoint; its restore is the tape slice `said` will seed.
+        if let Some(session_id) = previous.get("sessionId").and_then(Value::as_str) {
+            if let Err(error) =
+                room::checkpoint_session(&self.log, persona_id, &persona.backend_id, session_id)
+            {
+                eprintln!(
+                    "{}'s checkpoint was not pointed back at the previous chapter: {error}",
+                    persona.name
+                );
+            }
+        } else if persona.backend_id != PI_BACKEND_ID
+            && let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id)
+        {
+            eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+        }
+
+        let id = new_id();
+        let opened = chapters::reopened(&persona.backend_id, id.clone(), now_ms(), &previous)
+            .ok_or_else(|| "There is no previous chapter to reopen.".to_string())?;
+        self.write(persona_id, &opened);
+
+        match self.start(persona_id).await {
+            Ok(info) => {
+                if persona.backend_id != PI_BACKEND_ID && !info.context_restored {
+                    self.write(
+                        persona_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Warn,
+                            text: "The previous chapter's context could not be reopened."
+                                .to_string(),
+                        },
+                    );
+                }
+            }
+            Err(error) => {
+                self.write(
+                    persona_id,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Warn,
+                        text: "The previous chapter's context could not be reopened.".to_string(),
+                    },
+                );
+                return Err(error);
+            }
+        }
+        if let Err(error) = self.nudge(persona_id, &chapters::resume_nudge(&interim)) {
+            eprintln!(
+                "{} was not told what was said in the meantime: {error}",
+                persona.name
+            );
+        }
+        self.chapter_summary(persona_id, &json!({ "id": id }))
+            .ok_or_else(|| "The reopened chapter could not be read back.".to_string())
+    }
+
     /// Opens a chapter, unless one is already open.
     fn begin_chapter(&self, persona_id: &str, backend_id: &str) {
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
@@ -1227,6 +1353,28 @@ impl Room {
                 session.persona_id
             );
         }
+        // The marker keeps the id, which is what makes reopening this
+        // chapter possible later. The persona record is what the next
+        // start will find; the marker is what a resume points that record
+        // back at.
+        self.stamp_chapter_session(&session.persona_id, &session_id);
+    }
+
+    /// Writes the agent's session id onto the open chapter marker, so a
+    /// later resume can point the checkpoint back at this stretch.
+    fn stamp_chapter_session(&self, persona_id: &str, session_id: &str) {
+        let events = self.tape(persona_id);
+        let Some(open) = chapter_view::open_chapter(&events) else {
+            return;
+        };
+        if open.get("sessionId").and_then(Value::as_str) == Some(session_id) {
+            return;
+        }
+        let mut stamped = open.clone();
+        if let Some(object) = stamped.as_object_mut() {
+            object.insert("sessionId".into(), Value::from(session_id));
+            self.write_value(persona_id, &stamped);
+        }
     }
 
     fn fail_in_flight(&self, session: &Session, in_flight: &mut HashMap<String, PendingTool>) {
@@ -1378,12 +1526,25 @@ fn sweep_idle_chapters(room: Weak<Room>) {
 /// A chapter is one working context, so a session hears its own chapter and
 /// not the ones before it: the wake block is what carries those. A tape with
 /// no marker at all was written before this room divided anything, and reads
-/// as one implicit chapter.
+/// as one implicit chapter. A chapter that reopened an earlier one is that
+/// earlier stretch plus anything said since, because Toad Agent has no
+/// checkpoint and the tape is its memory of the work.
 fn said(events: &[Value]) -> Vec<Said> {
-    let within = match chapter_view::open_chapter(events) {
-        Some(open) => chapter_view::slice_of(events, open),
-        None if chapter_view::chapters_of(events).is_empty() => events,
-        None => &[],
+    let within: Vec<&Value> = match chapter_view::open_chapter(events) {
+        Some(open) => {
+            let mut lines = Vec::new();
+            if let Some(from) = open.get("resumedFrom").and_then(Value::as_str)
+                && let Some(origin) = events
+                    .iter()
+                    .find(|event| event.get("id").and_then(Value::as_str) == Some(from))
+            {
+                lines.extend(chapter_view::slice_of(events, origin));
+            }
+            lines.extend(chapter_view::slice_of(events, open));
+            lines
+        }
+        None if chapter_view::chapters_of(events).is_empty() => events.iter().collect(),
+        None => Vec::new(),
     };
     within
         .iter()

@@ -97,6 +97,10 @@ pub(crate) async fn run(
             .start_fresh_chapter(&persona_id)
             .await
             .map(|chapter| json!(chapter)),
+        Command::ChapterResume { persona_id } => room
+            .resume_chapter(&persona_id)
+            .await
+            .map(|chapter| json!(chapter)),
         Command::TeammateTools { persona_id } => Ok(json!(room.teammate_tools(&persona_id))),
 
         Command::ScheduleCreate {

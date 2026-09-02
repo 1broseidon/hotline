@@ -111,6 +111,13 @@ impl RoomHandle for Quiet {
         Err("Nothing runs in this room, so nothing has a chapter.".to_string())
     }
 
+    async fn resume_chapter(
+        &self,
+        _persona_id: &str,
+    ) -> Result<crate::contract::ChapterSummary, String> {
+        Err("Nothing runs in this room, so nothing has a chapter.".to_string())
+    }
+
     async fn set_model(&self, persona_id: &str, _model_id: &str) -> Result<SessionInfo, String> {
         Ok(idle(persona_id))
     }

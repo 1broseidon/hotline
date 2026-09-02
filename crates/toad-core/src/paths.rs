@@ -122,6 +122,13 @@ pub fn index_path(root: &Path) -> PathBuf {
     root.join("index.sqlite")
 }
 
+/// The ACP registry's published catalogue, as last fetched. A cache and
+/// nothing more: deleting it costs one fetch, and an empty one still leaves
+/// the agents Toad was taught by hand.
+pub fn acp_registry_path(root: &Path) -> PathBuf {
+    root.join("cache").join("acp-registry.json")
+}
+
 pub fn workspaces_dir(root: &Path) -> PathBuf {
     root.join("workspaces")
 }

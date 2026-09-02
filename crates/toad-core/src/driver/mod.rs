@@ -12,6 +12,7 @@
 //! text, a turn is a run of session updates, and a turn ends with a stop
 //! reason.
 
+pub mod acp;
 pub mod rig;
 
 use crate::contract::{ConfigChoice, NoticeLevel, Persona, Reach, TokenUsage};

@@ -154,8 +154,9 @@ session, so the new tools take effect without waiting for the next start.
 and puts that key's default back. The result is the room's settings after
 the patch. A patch that names `mcpServers` reattaches every live session.
 `computerRuntime` is the user's pick of `"docker"`, `"podman"` or
-`"container"`; absent means the first available runtime. Updating it does
-not reattach anything.
+`"container"`; absent means the first available runtime. `computerImage`
+is the room's default image, under a teammate's own. Neither reattaches
+anything: both are read when a computer wakes.
 
 `computer.runtimes` is detection for the window: every CLI Toad knows,
 whether it is on PATH, why not, and whether it is rootless. `computer.status`

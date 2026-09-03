@@ -259,8 +259,9 @@ told. Other backends: Toad does not guess.
 A teammate can have a computer: a containerized Linux desktop it drives
 through MCP tools. The container is the machine; the agent is the operator.
 `persona.computer.enabled` is the switch. The image is
-`persona.computer.image` or the pin `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>`
-in `crates/toad-core/src/computer/mod.rs`. The computer is **not** part of
+`persona.computer.image`, else the room setting `computerImage`, else the
+pin `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>` in
+`crates/toad-core/src/computer/mod.rs`. The computer is **not** part of
 `mcpPolicy`: a teammate that asked for a machine gets it even on a policy
 of none.
 

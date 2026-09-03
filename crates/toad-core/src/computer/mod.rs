@@ -80,6 +80,16 @@ pub fn preferred_runtime(settings: &serde_json::Map<String, Value>) -> Option<Ru
         .and_then(Runtime::from_setting)
 }
 
+/// The room's default image, `computerImage`; blank means the pin.
+pub fn preferred_image(settings: &serde_json::Map<String, Value>) -> Option<String> {
+    settings
+        .get("computerImage")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|image| !image.is_empty())
+        .map(str::to_string)
+}
+
 /// Every teammate computer this process has woken, keyed by persona id.
 ///
 /// The token is generated once per container and kept here. A container that
@@ -139,11 +149,12 @@ impl Computer {
         persona: &Persona,
         workspace_cwd: &str,
         prefer: Option<Runtime>,
+        room_image: Option<&str>,
         mut notice: impl FnMut(&str),
     ) -> Result<Ready, String> {
         let (runtime, cmd) = pick_runtime(prefer, &self.bins).await?;
         let name = container_name(&persona.id);
-        let image = image_of(persona);
+        let image = image_of(persona, room_image);
         let cwd = abs_cwd(workspace_cwd);
         let known_token = self
             .lock()
@@ -367,13 +378,15 @@ fn viewer_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-fn image_of(persona: &Persona) -> String {
+/// The teammate's own image, else the room's, else the pin.
+fn image_of(persona: &Persona, room_image: Option<&str>) -> String {
     persona
         .computer
         .as_ref()
         .and_then(|computer| computer.image.as_deref())
         .map(str::trim)
         .filter(|image| !image.is_empty())
+        .or(room_image)
         .map(str::to_string)
         .unwrap_or_else(default_image)
 }
@@ -828,7 +841,7 @@ esac
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         let ready = computers
-            .ensure_running(&ada, cwd.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
             .await
             .expect("ensure");
         assert_eq!(ready.url, format!("http://127.0.0.1:{port}/mcp"));
@@ -886,13 +899,13 @@ esac
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
-            .ensure_running(&ada, cwd.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
             .await
             .expect("first");
         computers.stop("ada", None).await.expect("stop");
         fs::write(&log, "").unwrap();
         computers
-            .ensure_running(&ada, cwd.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
             .await
             .expect("second");
         let recorded = log_text(&log);
@@ -926,7 +939,7 @@ esac
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
-            .ensure_running(&ada, cwd.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
             .await
             .expect("ensure");
         let recorded = log_text(&log);
@@ -960,7 +973,7 @@ esac
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
-            .ensure_running(&ada, cwd.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
             .await
             .expect("ensure");
         fs::write(&log, "").unwrap();
@@ -1001,7 +1014,7 @@ esac
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
-            .ensure_running(&ada, cwd.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, cwd.to_str().unwrap(), None, None, |_| {})
             .await
             .expect("ensure");
         fs::write(&log, "").unwrap();
@@ -1029,13 +1042,29 @@ esac
         );
     }
 
+    #[test]
+    fn the_image_is_the_teammates_else_the_rooms_else_the_pin() {
+        let mut ada = persona("ada", "/tmp");
+        ada.computer = Some(PersonaComputer {
+            enabled: true,
+            image: None,
+        });
+        assert_eq!(image_of(&ada, None), default_image());
+        assert_eq!(image_of(&ada, Some("room/image:1")), "room/image:1");
+        ada.computer = Some(PersonaComputer {
+            enabled: true,
+            image: Some("  own/image:2  ".into()),
+        });
+        assert_eq!(image_of(&ada, Some("room/image:1")), "own/image:2");
+    }
+
     #[tokio::test]
     async fn no_runtime_is_the_install_sentence() {
         let root = scratch("none");
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", root.to_str().unwrap());
         let error = computers
-            .ensure_running(&ada, root.to_str().unwrap(), None, |_| {})
+            .ensure_running(&ada, root.to_str().unwrap(), None, None, |_| {})
             .await
             .expect_err("no runtime");
         assert_eq!(

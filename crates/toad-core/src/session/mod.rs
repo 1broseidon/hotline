@@ -641,21 +641,29 @@ impl Room {
         {
             return Ok(Vec::new());
         }
-        let prefer = crate::computer::preferred_runtime(&room::settings(&self.log));
+        let settings = room::settings(&self.log);
+        let prefer = crate::computer::preferred_runtime(&settings);
+        let room_image = crate::computer::preferred_image(&settings);
         let computers = self.computers.clone();
         let persona_id = persona.id.clone();
         let ready = computers
-            .ensure_running(persona, &persona.cwd, prefer, |text| {
-                self.write(
-                    &persona_id,
-                    &TranscriptEvent::Notice {
-                        id: new_id(),
-                        ts: now_ms(),
-                        level: NoticeLevel::Info,
-                        text: text.to_string(),
-                    },
-                );
-            })
+            .ensure_running(
+                persona,
+                &persona.cwd,
+                prefer,
+                room_image.as_deref(),
+                |text| {
+                    self.write(
+                        &persona_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Info,
+                            text: text.to_string(),
+                        },
+                    );
+                },
+            )
             .await?;
         Ok(vec![crate::computer::mcp_server(&ready)])
     }

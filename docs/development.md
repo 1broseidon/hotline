@@ -33,6 +33,7 @@ crates/toad-core/src/
   driver/                Toad Agent on Rig, and the ACP child with its registry
   models.rs              the providers Toad Agent reaches, and the model catalogue they serve
   mcp/                   the client of granted servers, and Toad's own teammate tools
+  computer/              runtime detection and one container per teammate
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
   import.rs              copies an existing Toad data directory
@@ -174,6 +175,28 @@ writes, pre-created owner-only).
 
 Tests use temporary directories of their own. Never point a test, a
 harness, or `TOAD_DATA_DIR` at a real Toad data directory.
+
+## The computer
+
+A teammate with `computer.enabled` gets a container Toad starts on session
+start. The runtimes Toad looks for, in detection order then ranked
+rootless-available first:
+
+| id | CLI | where |
+| --- | --- | --- |
+| `docker` | `docker` | Linux and macOS |
+| `podman` | `podman` | Linux and macOS |
+| `container` | Apple `container` | macOS only |
+
+Detection is `version` (available or a reason) then `info` (rootless).
+Binaries are resolved on `PATH` plus `/usr/local/bin`, `/opt/homebrew/bin`
+and `~/.local/bin`, because a packaged Mac app's GUI PATH is the bare
+system one. The user's pick is the room setting `computerRuntime`; absent
+means the first available. The image is `persona.computer.image` or the
+pin `COMPUTER_VERSION` in `crates/toad-core/src/computer/mod.rs`, currently
+`0.3.0`, at `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>`. Never
+`latest`. Tests use a fake runtime script in a temp dir; they do not talk
+to a real daemon.
 
 ## The generated contract
 

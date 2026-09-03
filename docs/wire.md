@@ -35,7 +35,8 @@ answered exactly once with success, or with an error:
 
 A command whose result is JSON `null` — delete, stop, prompt, cancel,
 revoke, `session.answer_permission`, `human.answer`, `schedule.cancel`,
-`schedule.set_quiet`, and a successful unsubscribe — is answered
+`schedule.set_quiet`, `computer.stop`, `computer.remove`, and a successful
+unsubscribe — is answered
 `{"id": n, "ok": true}` with no `result` field. `teammate.tools` is not
 on that list: when there is no ledger it is answered
 `{"id": n, "ok": true, "result": null}`, because that null is a value,
@@ -117,6 +118,10 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
+| `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first |
+| `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
+| `computer.stop` | `{personaId}` | none |
+| `computer.remove` | `{personaId}` | none |
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Toad Agent (`id` `"pi"`) is always
@@ -148,6 +153,16 @@ session, so the new tools take effect without waiting for the next start.
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
 the patch. A patch that names `mcpServers` reattaches every live session.
+`computerRuntime` is the user's pick of `"docker"`, `"podman"` or
+`"container"`; absent means the first available runtime. Updating it does
+not reattach anything.
+
+`computer.runtimes` is detection for the window: every CLI Toad knows,
+whether it is on PATH, why not, and whether it is rootless. `computer.status`
+is a peek at one teammate's container (`running`, `stopped`, `absent`).
+`url` is the MCP endpoint and `viewer` is `http://127.0.0.1:<host port for
+5800>` when it is running, so the window can open the desktop later.
+`computer.stop` and `computer.remove` do not wake anything.
 
 `enabledModels` is an object from provider id to an array of model ids
 (bare catalogue keys, so OpenRouter keeps its own slash). A provider

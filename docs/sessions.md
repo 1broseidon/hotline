@@ -254,6 +254,38 @@ the requests. For Cursor, if `~/.cursor/cli-config.json` has
 start so a person who thinks they are behind a gate that is not there is
 told. Other backends: Toad does not guess.
 
+## The computer
+
+A teammate can have a computer: a containerized Linux desktop it drives
+through MCP tools. The container is the machine; the agent is the operator.
+`persona.computer.enabled` is the switch. The image is
+`persona.computer.image` or the pin `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>`
+in `crates/toad-core/src/computer/mod.rs`. The computer is **not** part of
+`mcpPolicy`: a teammate that asked for a machine gets it even on a policy
+of none.
+
+Wake is on start. `start_now`, when the computer is enabled, calls
+`ensure_running` before the grant and appends
+`McpServer { id: "computer", name: "Computer", transport: Http { url, auth: Bearer } }`
+to the granted list. A failure to ensure is a start failure with the
+runtime's sentence — `"No container runtime was found; install Docker or
+Podman."` and the like — not a silent absence. Pulling an image that is
+not present writes one notice on the tape: `"Pulling the computer image …"`.
+
+Both kinds of agent get the same grant. Toad Agent connects the HTTP
+endpoint in-process with the bearer token. An ACP child is named the
+server in `session/new` with `Authorization: Bearer <token>`. The ledger
+row for its tools follows the normal MCP path, origin `computer`.
+
+The token is generated once per container and kept in process state, never
+settings. A container left behind by a previous run of Toad has a token
+this process no longer knows, so it is removed and recreated.
+
+Idle uses the room's existing sweep, not a second clock. When a session
+stops, last activity is stamped; thirty minutes later (`COMPUTER_IDLE_STOP`)
+the container is `stop`ped (the rw layer survives). Seven days
+(`COMPUTER_HIBERNATE`) and the sweep `rm`s it.
+
 ## Permissions
 
 Only a child asks. A request becomes a `permission` event on the tape, id

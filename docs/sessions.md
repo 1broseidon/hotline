@@ -131,19 +131,19 @@ allowed when the file tools refuse them. Workspace reach for `shell`:
 
 On Ubuntu 24.04 and later, `bwrap: setting up uid map: Permission denied`
 means the kernel's `apparmor_restrict_unprivileged_userns` is on. Ubuntu's
-own answer is a profile that names the program allowed to make a user
-namespace, the shape it ships for 1Password and the browsers. Put this at
-`/etc/apparmor.d/bwrap` and load it with `sudo apparmor_parser -r
-/etc/apparmor.d/bwrap`; the next teammate start offers the shell again.
+own answer ships in the `apparmor-profiles` package as an extra profile
+that lets `bwrap` alone make a user namespace and strips capabilities
+from everything it starts; copy it into place and load it, and the next
+teammate start offers the shell again:
 
 ```
-abi <abi/4.0>,
-include <tunables/global>
-
-profile bwrap /usr/bin/bwrap flags=(unconfined) {
-  userns,
-}
+sudo cp /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/
+sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
 ```
+
+Inside a sandbox the labels then read `bwrap (enforce)` for bwrap and
+`bwrap//&unpriv_bwrap (enforce)` for the shell it runs, which is the
+proof the profile took.
 
 A granted stdio server is spawned in its own process group on Unix, so a
 launcher like `npx` does not leave the real server behind when the session

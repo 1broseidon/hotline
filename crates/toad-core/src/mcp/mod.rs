@@ -18,7 +18,8 @@
 //! ledger — rather than started without those variables. OAuth and
 //! static-header HTTP are a later task: those
 //! servers are refused with a sentence saying why, not connected with a
-//! dead credential. A server that dies after it was attached is the same
+//! dead credential. Bearer HTTP is process state the computer module
+//! constructs, never a setting. A server that dies after it was attached is the same
 //! honesty later: the next call that hits a dead transport marks that
 //! origin's rows absent and says so once on the tape.
 //!
@@ -35,7 +36,9 @@ use crate::contract::{McpPolicy, PolicyMode};
 use rmcp::ServiceExt;
 use rmcp::model::{ClientInfo, Implementation};
 use rmcp::service::RunningService;
-use rmcp::transport::streamable_http_client::StreamableHttpClientTransport;
+use rmcp::transport::streamable_http_client::{
+    StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -75,13 +78,23 @@ pub enum McpTransport {
     },
 }
 
-/// HTTP authentication as settings store it. Only [`HttpAuth::None`] is
-/// connected in this build.
+/// How an HTTP server authenticates.
+///
+/// [`HttpAuth::None`], [`HttpAuth::Static`] and [`HttpAuth::Oauth`] are what
+/// settings parse to. Static and OAuth are a later task: those servers are
+/// refused with a sentence, not connected with a dead credential.
+///
+/// [`HttpAuth::Bearer`] is process state, never settings. The computer module
+/// is the only constructor: a settings entry whose `auth.mode` is `"bearer"`,
+/// or that lists header names, still becomes [`HttpAuth::Static`] or
+/// [`HttpAuth::None`]. Serialising this into the room stream would write the
+/// container's token next to the roster.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HttpAuth {
     None,
     Static { header_names: Vec<String> },
     Oauth,
+    Bearer { token: String },
 }
 
 /// A server the grant named that could not be attached, and why.
@@ -277,6 +290,8 @@ pub fn unsupported(server: &McpServer) -> Option<String> {
         } => {
             Some("OAuth HTTP servers are a later task; this server was not connected.".to_string())
         }
+        // Bearer is constructed by the computer module, not by settings, and
+        // is the one HTTP credential this build can actually present.
         _ => None,
     }
 }
@@ -296,11 +311,12 @@ async fn connect_one(
     if let Some(refusal) = unsupported(server) {
         return Err(refusal);
     }
-    // The auth this build cannot honour was refused above, so what is left of
-    // an HTTP server here is a URL.
+    // Static and OAuth were refused above. What is left of an HTTP server is
+    // a URL, and optionally a bearer the computer module minted in this
+    // process.
     match &server.transport {
-        McpTransport::Http { url, .. } => {
-            let transport = StreamableHttpClientTransport::from_uri(url.clone());
+        McpTransport::Http { url, auth } => {
+            let transport = http_transport(url, auth);
             let (client, listed) = handshake(toad_client().serve(transport)).await?;
             Ok((client, listed, None))
         }
@@ -354,6 +370,22 @@ fn toad_client() -> ClientInfo {
         Default::default(),
         Implementation::new("Toad", env!("CARGO_PKG_VERSION")),
     )
+}
+
+/// The streamable-HTTP client for one URL. [`HttpAuth::Bearer`] becomes
+/// rmcp's `auth_header`, which sends `Authorization: Bearer <token>` — the
+/// token without the prefix, which is what rmcp 3.2.0's
+/// `StreamableHttpClientTransportConfig::auth_header` takes.
+pub(crate) fn http_config(url: &str, auth: &HttpAuth) -> StreamableHttpClientTransportConfig {
+    let mut config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
+    if let HttpAuth::Bearer { token } = auth {
+        config = config.auth_header(token.clone());
+    }
+    config
+}
+
+fn http_transport(url: &str, auth: &HttpAuth) -> StreamableHttpClientTransport<reqwest::Client> {
+    StreamableHttpClientTransport::with_client(reqwest::Client::default(), http_config(url, auth))
 }
 
 fn normalize_server(value: &Value) -> Option<Value> {
@@ -1013,6 +1045,70 @@ mod tests {
 
         client.cancel().await.ok();
         let _ = server.await;
+    }
+
+    #[test]
+    fn bearer_sets_the_authorization_header_on_the_transport() {
+        let config = super::http_config(
+            "http://127.0.0.1:9/mcp",
+            &HttpAuth::Bearer {
+                token: "secret-token".into(),
+            },
+        );
+        assert_eq!(config.auth_header.as_deref(), Some("secret-token"));
+        let none = super::http_config("http://127.0.0.1:9/mcp", &HttpAuth::None);
+        assert_eq!(none.auth_header, None);
+    }
+
+    #[test]
+    fn bearer_never_appears_when_settings_are_parsed() {
+        let mut settings = Map::new();
+        settings.insert(
+            "mcpServers".into(),
+            json!([
+                {
+                    "id": "plain",
+                    "type": "http",
+                    "name": "Plain",
+                    "url": "https://example.test/mcp",
+                },
+                {
+                    "id": "claimed",
+                    "type": "http",
+                    "name": "Claimed",
+                    "url": "https://example.test/mcp",
+                    "auth": { "mode": "bearer", "token": "secret" },
+                },
+                {
+                    "id": "legacy",
+                    "type": "http",
+                    "name": "Legacy",
+                    "url": "https://example.test/mcp",
+                    "headers": { "Authorization": "Bearer secret" },
+                },
+            ]),
+        );
+        let listed = servers(&settings);
+        assert_eq!(listed.len(), 3);
+        for server in &listed {
+            match &server.transport {
+                McpTransport::Http {
+                    auth: HttpAuth::Bearer { .. },
+                    ..
+                } => panic!("{} parsed as Bearer from settings", server.id),
+                McpTransport::Http {
+                    auth: HttpAuth::None,
+                    ..
+                } if server.id == "plain" || server.id == "claimed" => {}
+                McpTransport::Http {
+                    auth: HttpAuth::Static { header_names },
+                    ..
+                } if server.id == "legacy" => {
+                    assert_eq!(header_names, &["Authorization"]);
+                }
+                other => panic!("{} parsed as {other:?}", server.id),
+            }
+        }
     }
 
     #[tokio::test]

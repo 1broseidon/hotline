@@ -31,7 +31,7 @@ use crate::contract::{
     SessionCapabilities, TokenUsage, ToolSourceKind, ToolState,
 };
 use crate::mcp::server::{Served, TeammateTools};
-use crate::mcp::{self, McpServer, McpTransport};
+use crate::mcp::{self, HttpAuth, McpServer, McpTransport};
 use crate::session::ledger::ToolLedger;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
@@ -725,8 +725,15 @@ impl ChildAgent {
                             ),
                     )
                 }
-                McpTransport::Http { url, .. } => {
-                    acp::McpServer::Http(acp::McpServerHttp::new(&server.name, url))
+                McpTransport::Http { url, auth } => {
+                    let http = acp::McpServerHttp::new(&server.name, url);
+                    acp::McpServer::Http(match auth {
+                        HttpAuth::Bearer { token } => http.headers(vec![acp::HttpHeader::new(
+                            "Authorization",
+                            format!("Bearer {token}"),
+                        )]),
+                        _ => http,
+                    })
                 }
             });
         }
@@ -1932,6 +1939,17 @@ mod tests {
                     },
                     refuse: None,
                 },
+                McpServer {
+                    id: "computer".to_string(),
+                    name: "Computer".to_string(),
+                    transport: McpTransport::Http {
+                        url: "http://127.0.0.1:8787/mcp".to_string(),
+                        auth: crate::mcp::HttpAuth::Bearer {
+                            token: "comp-token".to_string(),
+                        },
+                    },
+                    refuse: None,
+                },
             ],
             vec!["deleted".to_string()],
         );
@@ -1952,7 +1970,7 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["toad", "Echo", "Remote"],
+            ["toad", "Echo", "Remote", "Computer"],
             "the OAuth server this build cannot honour is not offered"
         );
 
@@ -1975,6 +1993,14 @@ mod tests {
         assert_eq!(echo.args, ["--mcp"]);
         assert_eq!(echo.env[0].name, "TOKEN");
 
+        let acp::McpServer::Http(computer) = &declared[3] else {
+            panic!("the computer is reached over HTTP");
+        };
+        assert_eq!(computer.url, "http://127.0.0.1:8787/mcp");
+        assert_eq!(computer.headers.len(), 1);
+        assert_eq!(computer.headers[0].name, "Authorization");
+        assert_eq!(computer.headers[0].value, "Bearer comp-token");
+
         let rows = crate::session::ledger::teammate_tools("declared")
             .expect("the child's ledger was published at start")
             .rows;
@@ -1991,6 +2017,7 @@ mod tests {
             assert_eq!(row.state, ToolState::Declared);
         }
         assert_eq!(row("Echo").state, ToolState::Declared);
+        assert_eq!(row("Computer").state, ToolState::Declared);
         assert_eq!(row("Locked").state, ToolState::Absent);
         assert!(row("Locked").reason.contains("OAuth"));
         assert_eq!(row("deleted").state, ToolState::Absent);

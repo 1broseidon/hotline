@@ -131,13 +131,16 @@ allowed when the file tools refuse them. Workspace reach for `shell`:
 
 On Ubuntu 24.04 and later, `bwrap: setting up uid map: Permission denied`
 means the kernel's `apparmor_restrict_unprivileged_userns` is on. Ubuntu's
-own answer ships in the `apparmor-profiles` package as an extra profile
-that lets `bwrap` alone make a user namespace and strips capabilities
-from everything it starts; copy it into place and load it, and the next
-teammate start offers the shell again:
+own answer is a profile that lets `bwrap` alone make a user namespace and
+strips capabilities from everything it starts. On Ubuntu 25.04 and later
+it ships loaded with the `apparmor` package and installing `bubblewrap` is
+the whole setup. On 24.04 it is an extra profile that has to be copied
+into place and loaded; the next teammate start then offers the shell
+again:
 
 ```
-sudo cp /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/
+sudo apt install bubblewrap apparmor-profiles apparmor-utils
+sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict
 sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
 ```
 

@@ -25,7 +25,7 @@
 
 pub mod registry;
 
-use super::{Driver, DriverInfo, MessageKind, Update, clip};
+use super::{Driver, DriverInfo, MessageKind, ToolImage, Update, clip, with_image_placeholders};
 use crate::contract::{
     AgentKind, Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach,
     SessionCapabilities, TokenUsage, ToolSourceKind, ToolState,
@@ -987,11 +987,12 @@ async fn translate(live: &Live, update: SessionUpdate) {
             .await;
             let finished = finished(call.status, &call.content);
             lock(&live.tools).insert(call.tool_call_id.0.to_string(), line);
-            if let Some((ok, output)) = finished {
+            if let Some((ok, output, images)) = finished {
                 live.emit(Update::ToolResult {
                     call_id: call.tool_call_id.0.to_string(),
                     ok,
                     output,
+                    images,
                 })
                 .await;
             }
@@ -1032,11 +1033,12 @@ async fn translate(live: &Live, update: SessionUpdate) {
             };
             let content = fields.content.unwrap_or_default();
             match fields.status.and_then(|status| finished(status, &content)) {
-                Some((ok, output)) => {
+                Some((ok, output, images)) => {
                     live.emit(Update::ToolResult {
                         call_id,
                         ok,
                         output,
+                        images,
                     })
                     .await;
                 }
@@ -1195,32 +1197,39 @@ fn describe_request(live: &Live, call: &acp::ToolCallUpdate) -> String {
 fn finished(
     status: acp::ToolCallStatus,
     content: &[acp::ToolCallContent],
-) -> Option<(bool, String)> {
+) -> Option<(bool, String, Vec<ToolImage>)> {
     let ok = match status {
         acp::ToolCallStatus::Completed => true,
         acp::ToolCallStatus::Failed => false,
         _ => return None,
     };
-    Some((ok, output_of(content)))
+    let (output, images) = result_of(content);
+    Some((ok, output, images))
 }
 
-/// A tool's output as the transcript keeps it: the text it produced, and for
-/// an edit the file and what it now says.
-fn output_of(content: &[acp::ToolCallContent]) -> String {
-    content
-        .iter()
-        .filter_map(|item| match item {
+/// A tool's output as the transcript keeps it: the text it produced, a
+/// placeholder for each image, and for an edit the file and what it now says.
+fn result_of(content: &[acp::ToolCallContent]) -> (String, Vec<ToolImage>) {
+    let mut texts = Vec::new();
+    let mut images = Vec::new();
+    for item in content {
+        match item {
             acp::ToolCallContent::Content(inner) => match &inner.content {
-                ContentBlock::Text(text) => Some(text.text.clone()),
-                _ => None,
+                ContentBlock::Text(text) => texts.push(text.text.clone()),
+                ContentBlock::Image(image) => images.push(ToolImage {
+                    data: image.data.clone(),
+                    mime_type: image.mime_type.clone(),
+                }),
+                _ => {}
             },
             acp::ToolCallContent::Diff(diff) => {
-                Some(format!("{}\n{}", diff.path.display(), diff.new_text))
+                texts.push(format!("{}\n{}", diff.path.display(), diff.new_text));
             }
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+            _ => {}
+        }
+    }
+    let output = with_image_placeholders(&texts.join("\n"), &images);
+    (output, images)
 }
 
 fn first_location(locations: &[acp::ToolCallLocation]) -> Option<String> {
@@ -2303,6 +2312,29 @@ mod tests {
                 .unwrap_or_else(|| panic!("{tool} is on the ledger: {rows:?}"));
             assert_eq!(row.state, ToolState::Verified, "{row:?}");
         }
+    }
+
+    #[test]
+    fn an_image_content_block_becomes_a_placeholder_and_is_carried() {
+        let content = vec![
+            acp::ToolCallContent::Content(acp::Content::new(ContentBlock::Text(TextContent::new(
+                "the tree",
+            )))),
+            acp::ToolCallContent::Content(acp::Content::new(ContentBlock::Image(
+                acp::ImageContent::new("AAAA", "image/png"),
+            ))),
+        ];
+        let (ok, output, images) = finished(ToolCallStatus::Completed, &content).unwrap();
+        assert!(ok);
+        assert!(output.contains("the tree"), "{output}");
+        assert!(output.contains("[image image/png, 3 B]"), "{output}");
+        assert_eq!(
+            images,
+            [ToolImage {
+                data: "AAAA".into(),
+                mime_type: "image/png".into(),
+            }]
+        );
     }
 
     /// Toad rewrites only the file it wrote. A hand-written AGENTS.md — even

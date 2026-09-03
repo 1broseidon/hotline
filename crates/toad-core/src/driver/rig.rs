@@ -21,7 +21,7 @@
 //!   and not a bare wake, because a turn between two of its own awaits is
 //!   waiting nowhere, and a wake nobody is waiting for never happened.
 
-use super::{Driver, DriverInfo, MessageKind, Update, clip};
+use super::{Driver, DriverInfo, MessageKind, ToolImage, Update, clip, with_image_placeholders};
 use crate::contract::{
     AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, SessionConfig, TokenUsage,
     ToolSourceKind,
@@ -39,7 +39,9 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::agent::hook::{AgentHook, HookContext, ToolResultAction, ToolResultEvent};
-use rig::message::{Message, ReasoningContent, ToolResultContent};
+use rig::message::{
+    DocumentSourceKind, ImageMediaType, Message, MimeType, ReasoningContent, ToolResultContent,
+};
 use rig::prelude::*;
 use rig::providers::{
     anthropic, chatgpt, copilot, deepseek, gemini, groq, mistral, openai, openrouter, xai,
@@ -488,16 +490,7 @@ impl Turn {
                     tool_result,
                     internal_call_id,
                 }) => {
-                    let output = tool_result
-                        .content
-                        .iter()
-                        .map(|item| match item {
-                            ToolResultContent::Text(text) => text.text.clone(),
-                            ToolResultContent::Json { .. } => "[structured result]".to_string(),
-                            _ => "[non-text result]".to_string(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    let (output, images) = result_of(&tool_result.content);
                     let ok = outcomes.take(&internal_call_id);
                     send(
                         sender,
@@ -505,6 +498,7 @@ impl Turn {
                             call_id: internal_call_id,
                             ok,
                             output,
+                            images,
                         },
                     )
                     .await;
@@ -597,6 +591,17 @@ impl AgentHook for ToolOutcomes {
             event.internal_call_id.to_string(),
             event.raw_result.is_success(),
         );
+        // A screenshot is meant for the model. Rewriting mixed content to
+        // elided text would drop the picture, and `rewrite` can only produce
+        // text, so an image keeps the blocks as they are.
+        if event
+            .presentation
+            .as_content()
+            .iter()
+            .any(|block| matches!(block, ToolResultContent::Image(_)))
+        {
+            return ToolResultAction::Keep;
+        }
         let text = event.presentation.render();
         if text.len() <= MODEL_TOOL_OUTPUT_BYTES {
             return ToolResultAction::Keep;
@@ -887,7 +892,7 @@ fn mcp_dynamic(tool: mcp::McpTool, notices: mpsc::Sender<Update>) -> DynamicTool
             let notices = notices.clone();
             Box::pin(async move {
                 match tool.call(arguments).await {
-                    Ok(text) => Ok(ToolOutput::text(text)),
+                    Ok(content) => rig_output(content),
                     Err(mcp::CallError::Transport { message, notice }) => {
                         if let Some(text) = notice {
                             let _ = notices
@@ -906,11 +911,61 @@ fn mcp_dynamic(tool: mcp::McpTool, notices: mpsc::Sender<Update>) -> DynamicTool
     )
 }
 
+/// The model-visible form of an MCP result: text as before, and every image
+/// as an image block so a screenshot is not flattened away.
+fn rig_output(content: mcp::CallContent) -> Result<ToolOutput, ToolExecutionError> {
+    if content.images.is_empty() {
+        return Ok(ToolOutput::text(content.text));
+    }
+    let mut blocks = Vec::new();
+    if !content.text.is_empty() {
+        blocks.push(ToolResultContent::text(content.text));
+    }
+    for image in content.images {
+        blocks.push(ToolResultContent::image_base64(
+            image.data,
+            ImageMediaType::from_mime_type(&image.mime_type),
+            None,
+        ));
+    }
+    ToolOutput::content(blocks)
+}
+
+/// The transcript's view of a Rig tool result: text joined, images carried
+/// alongside so the session can write a frame.
+fn result_of(content: &[ToolResultContent]) -> (String, Vec<ToolImage>) {
+    let mut texts = Vec::new();
+    let mut images = Vec::new();
+    for item in content {
+        match item {
+            ToolResultContent::Text(text) => texts.push(text.text.clone()),
+            ToolResultContent::Json { .. } => texts.push("[structured result]".to_string()),
+            ToolResultContent::Image(image) => {
+                let mime = image
+                    .media_type
+                    .as_ref()
+                    .map(|media| media.to_mime_type())
+                    .unwrap_or("image")
+                    .to_string();
+                match &image.data {
+                    DocumentSourceKind::Base64(data) => images.push(ToolImage {
+                        data: data.clone(),
+                        mime_type: mime,
+                    }),
+                    _ => texts.push(format!("[image {mime}]")),
+                }
+            }
+        }
+    }
+    let output = with_image_placeholders(&texts.join("\n"), &images);
+    (output, images)
+}
+
 /// The ledger reads what this session was actually built with, not what
 /// the configuration promised. Built-ins are verified because Toad handed
 /// them to the agent; MCP tools are verified when the server listed them,
 /// and absent — with the error as the reason — when it did not.
-fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connections) {
+pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connections) {
     let mut ledger = ToolLedger::new(
         persona.id.clone(),
         AgentKind::Pi,
@@ -1351,6 +1406,36 @@ mod tests {
             .await;
         assert!(!third.is_success(), "{third:?}");
         assert!(rx.try_recv().is_err(), "the notice lands once");
+    }
+
+    /// A CallToolResult with text and an image becomes text plus an image
+    /// in the Rig output, so the model sees the picture.
+    #[test]
+    fn an_mcp_image_block_reaches_the_rig_output() {
+        use crate::mcp::{CallContent, CallImage};
+        use rig::message::{DocumentSourceKind, ImageMediaType, ToolResultContent};
+
+        let output = rig_output(CallContent {
+            text: "the tree".into(),
+            images: vec![CallImage {
+                data: "AAAA".into(),
+                mime_type: "image/png".into(),
+            }],
+        })
+        .expect("mixed content is a valid tool output");
+        let content = output.as_content();
+        assert!(
+            matches!(
+                content,
+                [
+                    ToolResultContent::Text(text),
+                    ToolResultContent::Image(image)
+                ] if text.text == "the tree"
+                    && image.media_type == Some(ImageMediaType::PNG)
+                    && matches!(&image.data, DocumentSourceKind::Base64(data) if data == "AAAA")
+            ),
+            "{content:?}"
+        );
     }
 
     #[test]

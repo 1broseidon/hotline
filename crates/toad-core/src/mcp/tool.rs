@@ -3,10 +3,11 @@
 //! The name is `{slug}__{remote}` so two servers that both expose `search`
 //! do not collide, and the slug is the server's human name — a uuid is not
 //! a namespace an agent can read. Description and input schema pass through
-//! as the server listed them. A call is forwarded, and the result's text
-//! content is what the model sees. A transport failure or an `isError`
-//! result is `Err`; only the transport case marks the origin absent,
-//! because that is the server going away, not the tool answering.
+//! as the server listed them. A call is forwarded, and the result's content
+//! is what the model sees: text blocks joined, plus every image block. A
+//! transport failure or an `isError` result is `Err`; only the transport
+//! case marks the origin absent, because that is the server going away, not
+//! the tool answering.
 
 use crate::contract::ToolSourceKind;
 use crate::session::ledger;
@@ -120,6 +121,22 @@ impl std::fmt::Display for CallError {
 
 impl std::error::Error for CallError {}
 
+/// One image a tool returned: the server's base64 payload and the mime type
+/// it named. The caller decides whether the model sees it and whether the
+/// tape stores a frame; this is just what the server sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallImage {
+    pub data: String,
+    pub mime_type: String,
+}
+
+/// A successful tool result, still as content blocks rather than a string.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallContent {
+    pub text: String,
+    pub images: Vec<CallImage>,
+}
+
 /// Shared across every tool of one session, so two tools from the same
 /// dead server write one notice, not one each.
 pub(crate) struct Watch {
@@ -193,8 +210,8 @@ impl McpTool {
         &self.server_name
     }
 
-    /// Forward the call and return the result's text. Errors as `Err`.
-    pub async fn call(&self, arguments: Value) -> Result<String, CallError> {
+    /// Forward the call and return the result's content. Errors as `Err`.
+    pub async fn call(&self, arguments: Value) -> Result<CallContent, CallError> {
         let arguments = match arguments {
             Value::Null => None,
             Value::Object(object) => Some(object),
@@ -220,15 +237,15 @@ impl McpTool {
                 return Err(CallError::Tool(message));
             }
         };
-        let text = result_text(&result);
         if result.is_error == Some(true) {
+            let text = result_text(&result);
             Err(CallError::Tool(if text.is_empty() {
                 format!("MCP tool '{}' reported an error", self.name)
             } else {
                 text
             }))
         } else {
-            Ok(text)
+            Ok(result_content(&result))
         }
     }
 }
@@ -241,6 +258,23 @@ fn is_transport(error: &ServiceError) -> bool {
         error,
         ServiceError::TransportClosed | ServiceError::TransportSend(_)
     )
+}
+
+fn result_content(result: &CallToolResult) -> CallContent {
+    let images = result
+        .content
+        .iter()
+        .filter_map(|block| {
+            block.as_image().map(|image| CallImage {
+                data: image.data.clone(),
+                mime_type: image.mime_type.clone(),
+            })
+        })
+        .collect();
+    CallContent {
+        text: result_text(result),
+        images,
+    }
 }
 
 fn result_text(result: &CallToolResult) -> String {
@@ -257,4 +291,36 @@ fn result_text(result: &CallToolResult) -> String {
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::ContentBlock;
+
+    #[test]
+    fn a_text_block_and_an_image_block_are_both_kept() {
+        let result = CallToolResult::success(vec![
+            ContentBlock::text("the tree"),
+            ContentBlock::image("AAAA", "image/png"),
+        ]);
+        let content = result_content(&result);
+        assert_eq!(content.text, "the tree");
+        assert_eq!(
+            content.images,
+            [CallImage {
+                data: "AAAA".into(),
+                mime_type: "image/png".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn an_error_result_still_flattens_to_text() {
+        let result = CallToolResult::error(vec![
+            ContentBlock::text("nope"),
+            ContentBlock::image("AAAA", "image/png"),
+        ]);
+        assert_eq!(result_text(&result), "nope");
+    }
 }

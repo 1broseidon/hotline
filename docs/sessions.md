@@ -289,6 +289,15 @@ automatic) and `computerImage`; the teammate's pane writes
 `computer.remove`. A `computer_frame` on the tape is drawn as a thumbnail
 card.
 
+Toad Agent writes that frame immediately after a `computer__*` tool's
+completed event, with `dataUrl` a `data:<mime>;base64,…` of the image the
+tool returned — the same picture the model was given as Rig image content —
+and the tool card itself keeps a one-line placeholder so it still has text.
+An ACP child can carry the image as a `ContentBlock::Image` on
+`session/update`; Toad writes a frame when that call's title or kind uses
+the `computer__` prefix, and does not guess if the child titled the call
+something else.
+
 Idle uses the room's existing sweep, not a second clock. When a session
 stops, last activity is stamped; thirty minutes later (`COMPUTER_IDLE_STOP`)
 the container is `stop`ped (the rw layer survives). Seven days

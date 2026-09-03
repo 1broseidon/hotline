@@ -94,6 +94,10 @@ pub enum Update {
         call_id: String,
         ok: bool,
         output: String,
+        /// Images that rode with this result. The session writes a
+        /// `computer_frame` for each when the tool is the computer's; any
+        /// other origin keeps the placeholder in `output` and nothing else.
+        images: Vec<ToolImage>,
     },
     /// The agent is asking to be allowed to do something, and will not go on
     /// until it is answered. Only a child driver asks: Toad Agent's one policy
@@ -113,6 +117,29 @@ pub enum Update {
         level: NoticeLevel,
         text: String,
     },
+}
+
+/// One image a tool returned, as base64 and the mime type the server named.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolImage {
+    pub data: String,
+    pub mime_type: String,
+}
+
+impl ToolImage {
+    pub fn data_url(&self) -> String {
+        format!("data:{};base64,{}", self.mime_type, self.data)
+    }
+
+    pub fn placeholder(&self) -> String {
+        let bytes = self.data.len().saturating_mul(3) / 4;
+        let size = if bytes < 1024 {
+            format!("{bytes} B")
+        } else {
+            format!("{} KB", bytes / 1024)
+        };
+        format!("[image {}, {size}]", self.mime_type)
+    }
 }
 
 /// One agent, driven.
@@ -172,4 +199,18 @@ pub(crate) fn clip(text: &str, max: usize) -> String {
     }
     let kept: String = text.chars().take(max).collect();
     format!("{kept}…")
+}
+
+/// The transcript line for a tool result: the text the tool produced, and
+/// a one-line stand-in for each image so the card still says something.
+pub(crate) fn with_image_placeholders(text: &str, images: &[ToolImage]) -> String {
+    if images.is_empty() {
+        return text.to_string();
+    }
+    let mut parts = Vec::new();
+    if !text.is_empty() {
+        parts.push(text.to_string());
+    }
+    parts.extend(images.iter().map(ToolImage::placeholder));
+    parts.join("\n")
 }

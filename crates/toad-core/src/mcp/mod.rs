@@ -30,7 +30,7 @@ pub mod server;
 mod tool;
 
 use tool::Watch;
-pub use tool::{CallError, McpTool};
+pub use tool::{CallContent, CallError, CallImage, McpTool};
 
 use crate::contract::{McpPolicy, PolicyMode};
 use rmcp::ServiceExt;
@@ -118,6 +118,18 @@ pub struct Connections {
     /// The process groups the stdio servers were spawned into, killed when
     /// this value goes. See [`ProcessGroup`].
     _groups: Vec<ProcessGroup>,
+}
+
+#[cfg(test)]
+impl Connections {
+    pub(crate) fn for_test(tools: Vec<McpTool>, failed: Vec<FailedServer>) -> Self {
+        Self {
+            tools,
+            failed,
+            _live: Vec::new(),
+            _groups: Vec::new(),
+        }
+    }
 }
 
 /// A stdio server's process group, killed when this is dropped.
@@ -688,6 +700,13 @@ mod tests {
                     None,
                 )));
             }
+            if text == "picture" {
+                return std::future::ready(Ok(CallToolResult::success(vec![
+                    ContentBlock::text("the tree"),
+                    ContentBlock::image("AAAA", "image/png"),
+                ])
+                .into()));
+            }
             std::future::ready(Ok(CallToolResult::success(vec![ContentBlock::text(
                 text.to_uppercase(),
             )])
@@ -953,7 +972,8 @@ mod tests {
             .call(json!({ "text": "harbour" }))
             .await
             .expect("the call reached the server");
-        assert_eq!(shouted, "HARBOUR");
+        assert_eq!(shouted.text, "HARBOUR");
+        assert!(shouted.images.is_empty());
 
         client.cancel().await.ok();
         let _ = server.await;
@@ -969,7 +989,7 @@ mod tests {
             .call(json!({ "text": "harbour" }))
             .await
             .expect("the first call reached the server");
-        assert_eq!(shouted, "HARBOUR");
+        assert_eq!(shouted.text, "HARBOUR");
         assert_eq!(
             echo_row(persona_id, "echo__shout").state,
             ToolState::Verified
@@ -1232,5 +1252,156 @@ mod tests {
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 1);
         assert!(!connected.failed[0].reason.trim().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_picture_result_keeps_the_image_beside_the_text() {
+        let (server, client, tool) = echo_on_duplex("mcp-picture").await;
+        let content = tool
+            .call(json!({ "text": "picture" }))
+            .await
+            .expect("the call reached the server");
+        assert_eq!(content.text, "the tree");
+        assert_eq!(
+            content.images,
+            [CallImage {
+                data: "AAAA".into(),
+                mime_type: "image/png".into(),
+            }]
+        );
+        client.cancel().await.ok();
+        let _ = server.await;
+    }
+
+    /// The eight desktop tools, as the computer image lists them.
+    const COMPUTER_TOOLS: [&str; 8] = [
+        "capture", "input", "browser", "shell", "files", "windows", "wait", "state",
+    ];
+
+    struct Desktop;
+
+    impl ServerHandler for Desktop {
+        fn get_info(&self) -> ServerInfo {
+            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        }
+
+        fn list_tools(
+            &self,
+            _request: Option<PaginatedRequestParams>,
+            _context: RequestContext<rmcp::RoleServer>,
+        ) -> impl Future<Output = Result<ListToolsResult, rmcp::ErrorData>> + Send + '_ {
+            let schema = shout_schema();
+            std::future::ready(Ok(ListToolsResult::with_all_items(
+                COMPUTER_TOOLS
+                    .iter()
+                    .map(|name| Tool::new(*name, *name, schema.clone()))
+                    .collect(),
+            )))
+        }
+
+        fn call_tool(
+            &self,
+            _request: CallToolRequestParams,
+            _context: RequestContext<rmcp::RoleServer>,
+        ) -> impl Future<Output = Result<CallToolResponse, rmcp::ErrorData>> + Send + '_ {
+            std::future::ready(Ok(CallToolResult::success(vec![
+                ContentBlock::image("AAAA", "image/png"),
+                ContentBlock::text("the tree"),
+            ])
+            .into()))
+        }
+    }
+
+    fn test_persona(id: &str) -> crate::contract::Persona {
+        crate::contract::Persona {
+            node: None,
+            id: id.to_string(),
+            name: "Ada".to_string(),
+            goal: String::new(),
+            face: None,
+            team: None,
+            backend_id: "pi".to_string(),
+            cwd: "/".to_string(),
+            reach: Some(crate::contract::Reach::Machine),
+            model_id: None,
+            mode_id: None,
+            effort_id: None,
+            harness_override: None,
+            hop_notice: None,
+            mcp_policy: crate::contract::McpPolicy {
+                mode: crate::contract::PolicyMode::All,
+                server_ids: Vec::new(),
+            },
+            web_search_policy: None,
+            computer: None,
+            subagents: None,
+            session_checkpoints: Vec::new(),
+            last_session_id: None,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_computer_server_writes_its_eight_tools_on_the_ledger_under_origin_computer() {
+        use crate::contract::{ToolSourceKind, ToolState};
+        use crate::driver::rig::publish_ledger;
+
+        let persona_id = "mcp-computer-ledger";
+        let (client_to_server, server_from_client) = tokio::io::duplex(8192);
+        let server = tokio::spawn(async move {
+            let _ = Desktop
+                .serve(server_from_client)
+                .await
+                .expect("desktop server starts")
+                .waiting()
+                .await;
+        });
+        let client = toad_client()
+            .serve(client_to_server)
+            .await
+            .expect("client handshake");
+        let listed = client.list_all_tools().await.expect("tools listed");
+        let watch = Watch::new(persona_id);
+        let tools: Vec<McpTool> = listed
+            .into_iter()
+            .map(|definition| {
+                McpTool::new(
+                    "computer",
+                    crate::computer::SERVER_ID,
+                    "Computer",
+                    definition,
+                    client.peer().clone(),
+                    watch.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(tools.len(), 8, "{}", tools.len());
+
+        publish_ledger(
+            &test_persona(persona_id),
+            &[],
+            &Connections::for_test(tools, Vec::new()),
+        );
+        let rows = crate::session::ledger::teammate_tools(persona_id)
+            .expect("published")
+            .rows;
+        let computer: Vec<_> = rows
+            .iter()
+            .filter(|row| row.origin == crate::computer::SERVER_ID)
+            .collect();
+        assert_eq!(computer.len(), 8, "{rows:?}");
+        for name in COMPUTER_TOOLS {
+            let row = computer
+                .iter()
+                .find(|row| row.name == format!("computer__{name}"))
+                .unwrap_or_else(|| panic!("computer__{name} is on the ledger: {rows:?}"));
+            assert_eq!(row.source, ToolSourceKind::Mcp);
+            assert_eq!(row.state, ToolState::Verified);
+            assert!(!row.reason.is_empty());
+        }
+
+        client.cancel().await.ok();
+        let _ = server.await;
     }
 }

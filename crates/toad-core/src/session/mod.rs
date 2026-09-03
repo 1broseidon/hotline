@@ -2030,6 +2030,7 @@ fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec
             call_id,
             ok,
             output,
+            images,
         } => {
             let Some(pending) = in_flight.remove(&call_id) else {
                 return Vec::new();
@@ -2042,7 +2043,17 @@ fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec
             let output = ToolOutput::Text {
                 text: clip(&output, TOOL_OUTPUT_CHARS),
             };
-            vec![pending.event(&call_id, status, Some(output))]
+            let mut events = vec![pending.event(&call_id, status, Some(output))];
+            if crate::computer::is_computer_tool(&pending.kind, &pending.title) {
+                for image in images {
+                    events.push(TranscriptEvent::ComputerFrame {
+                        id: new_id(),
+                        ts: now_ms(),
+                        data_url: image.data_url(),
+                    });
+                }
+            }
+            events
         }
         Update::Permission {
             request_id,

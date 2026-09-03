@@ -195,7 +195,7 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
         .call(json!({ "text": "harbour" }))
         .await
         .expect("the call reached the server");
-    assert_eq!(shouted, "HARBOUR");
+    assert_eq!(shouted.text, "HARBOUR");
 }
 
 /// Toad's own tools are the teammate's whether or not anything else is:
@@ -449,7 +449,7 @@ async fn a_stdio_child_dropped_after_the_first_call_says_so_once() {
         .call(json!({ "text": "harbour" }))
         .await
         .expect("the first call reached the server");
-    assert_eq!(shouted, "HARBOUR");
+    assert_eq!(shouted.text, "HARBOUR");
 
     drop(connected);
 

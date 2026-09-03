@@ -353,6 +353,7 @@ fn spoken_turn() -> Vec<Update> {
             call_id: "c1".to_string(),
             ok: true,
             output: "AGENTS.md".to_string(),
+            images: Vec::new(),
         },
         Update::Delta {
             kind: MessageKind::Agent,
@@ -433,6 +434,89 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
                 text: "one file".to_string(),
             },
         ]
+    );
+}
+
+#[tokio::test]
+async fn a_computer_tool_image_lands_a_frame_on_the_tape() {
+    let png = "AAAA";
+    let image = crate::driver::ToolImage {
+        data: png.into(),
+        mime_type: "image/png".into(),
+    };
+    let room = room(
+        "computer-frame",
+        Fake::new(Scripted::new(vec![
+            Update::ToolCall {
+                call_id: "c1".to_string(),
+                title: "computer__capture".to_string(),
+                kind: "computer__capture".to_string(),
+            },
+            Update::ToolResult {
+                call_id: "c1".to_string(),
+                ok: true,
+                output: format!("the tree\n{}", image.placeholder()),
+                images: vec![image],
+            },
+            Update::Turn {
+                stop_reason: "end_turn".to_string(),
+                usage: None,
+            },
+        ])),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "look", None, None).await.unwrap();
+    let events = settled(&room, "ada", 4).await;
+    assert_eq!(
+        kinds(&events),
+        ["user", "tool", "computer_frame", "turn"],
+        "the frame lands immediately after the completed tool"
+    );
+    assert_eq!(events[1]["status"], "completed");
+    let data_url = events[2]["dataUrl"]
+        .as_str()
+        .expect("a frame carries a data URL");
+    assert!(data_url.starts_with("data:image/png;base64,"), "{data_url}");
+    assert!(data_url.ends_with(png), "{data_url}");
+}
+
+#[tokio::test]
+async fn another_servers_image_is_a_placeholder_not_a_frame() {
+    let image = crate::driver::ToolImage {
+        data: "AAAA".into(),
+        mime_type: "image/png".into(),
+    };
+    let room = room(
+        "other-frame",
+        Fake::new(Scripted::new(vec![
+            Update::ToolCall {
+                call_id: "c1".to_string(),
+                title: "echo__shout".to_string(),
+                kind: "echo__shout".to_string(),
+            },
+            Update::ToolResult {
+                call_id: "c1".to_string(),
+                ok: true,
+                output: image.placeholder(),
+                images: vec![image],
+            },
+            Update::Turn {
+                stop_reason: "end_turn".to_string(),
+                usage: None,
+            },
+        ])),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "look", None, None).await.unwrap();
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "tool", "turn"]);
+    assert!(
+        events[1]["output"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("[image image/png"),
+        "{:?}",
+        events[1]["output"]
     );
 }
 

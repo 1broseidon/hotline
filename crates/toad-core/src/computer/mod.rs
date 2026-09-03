@@ -24,6 +24,9 @@ use tokio::process::Command;
 /// from the desktop version, and never `latest`.
 pub const COMPUTER_VERSION: &str = "0.3.0";
 
+/// The MCP server id a session is granted, and the origin the ledger names.
+pub const SERVER_ID: &str = "computer";
+
 /// Idle minutes after a session stops → `stop`. Frees CPU and RAM; the rw
 /// layer survives.
 pub const COMPUTER_IDLE_STOP_MS: i64 = 30 * 60 * 1000;
@@ -61,7 +64,7 @@ pub fn container_name(persona_id: &str) -> String {
 /// `mcpPolicy`: the computer is a per-teammate capability Toad manages.
 pub fn mcp_server(ready: &Ready) -> McpServer {
     McpServer {
-        id: "computer".into(),
+        id: SERVER_ID.into(),
         name: "Computer".into(),
         transport: McpTransport::Http {
             url: ready.url.clone(),
@@ -71,6 +74,13 @@ pub fn mcp_server(ready: &Ready) -> McpServer {
         },
         refuse: None,
     }
+}
+
+/// Toad names the computer's tools `{slug}__{remote}` from the server's
+/// human name "Computer", so the prefix an agent sees is `computer__`.
+/// An ACP child may put that name in the call's title instead of its kind.
+pub fn is_computer_tool(kind: &str, title: &str) -> bool {
+    kind.contains("computer__") || title.contains("computer__")
 }
 
 pub fn preferred_runtime(settings: &serde_json::Map<String, Value>) -> Option<Runtime> {
@@ -1052,6 +1062,14 @@ esac
                 .any(|line| line == "rm -f toad-computer-ada"),
             "{after_hibernate}"
         );
+    }
+
+    #[test]
+    fn a_computer_tool_is_named_computer_underscore_underscore() {
+        assert!(is_computer_tool("computer__capture", "see the screen"));
+        assert!(is_computer_tool("other", "computer__capture"));
+        assert!(!is_computer_tool("echo__shout", "echo__shout"));
+        assert!(!is_computer_tool("capture", "capture"));
     }
 
     #[test]

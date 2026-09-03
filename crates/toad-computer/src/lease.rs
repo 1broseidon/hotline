@@ -56,9 +56,16 @@ impl MachineAccess {
     }
 
     pub async fn run(&self, holder: &str) -> Result<RunPermit, String> {
-        let queue = Arc::clone(&self.queue)
-            .try_acquire_owned()
-            .map_err(|_| "run queue full".to_owned())?;
+        let queue = match Arc::clone(&self.queue).try_acquire_owned() {
+            Ok(queue) => queue,
+            Err(_) => {
+                let active = self.queue_holder.lock().await;
+                return Err(active.as_ref().map_or_else(
+                    || "run queue full".to_owned(),
+                    |active| format!("run queue full — {active} holds the machine"),
+                ));
+            }
+        };
         self.check_lease(holder).await?;
         *self.queue_holder.lock().await = Some(holder.to_owned());
         let action = Arc::clone(&self.action).lock_owned().await;

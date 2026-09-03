@@ -21,15 +21,12 @@ pub async fn call(app: &App, arguments: Value, holder: &str) -> ToolResult {
     }
     let _guard = app.access.mutate(holder).await?;
     match input.action.as_str() {
-        "focus" => run(app, &["-i", "-a", required_id(&input)?]).await,
-        "close" => run(app, &["-i", "-c", required_id(&input)?]).await,
+        "focus" => run(app, &["windowactivate", "--sync", required_id(&input)?]).await,
+        "close" => run(app, &["windowclose", required_id(&input)?]).await,
         "maximize" => {
-            let verb = if input.unmaximize {
-                "remove,maximized_vert,maximized_horz"
-            } else {
-                "add,maximized_vert,maximized_horz"
-            };
-            run(app, &["-i", "-r", required_id(&input)?, "-b", verb]).await
+            let id = required_id(&input)?;
+            x11::maximize(&app.config.display, id, !input.unmaximize)?;
+            Ok(text("ok"))
         }
         "tile" => tile(app).await,
         action => Err(action_error(
@@ -48,7 +45,7 @@ fn required_id(input: &Input) -> Result<&str, String> {
 
 async fn run(app: &App, arguments: &[&str]) -> ToolResult {
     let arguments: Vec<String> = arguments.iter().map(ToString::to_string).collect();
-    command(&app.config.display, "wmctrl", &arguments).await?;
+    command(&app.config.display, "xdotool", &arguments).await?;
     Ok(text("ok"))
 }
 
@@ -83,25 +80,19 @@ async fn tile(app: &App) -> ToolResult {
             right_index += 1;
             geometry
         };
+        x11::maximize(&app.config.display, &window.id, false)?;
         run(
             app,
-            &[
-                "-i",
-                "-r",
-                &window.id,
-                "-b",
-                "remove,maximized_vert,maximized_horz",
-            ],
+            &["windowmove", &window.id, &x.to_string(), &y.to_string()],
         )
         .await?;
         run(
             app,
             &[
-                "-i",
-                "-r",
+                "windowsize",
                 &window.id,
-                "-e",
-                &format!("0,{x},{y},{width},{height}"),
+                &width.to_string(),
+                &height.to_string(),
             ],
         )
         .await?;

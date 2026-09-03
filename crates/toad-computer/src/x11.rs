@@ -2,7 +2,10 @@ use std::io::Cursor;
 
 use serde::Serialize;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, ImageFormat, MapState, Window as XWindow};
+use x11rb::protocol::xproto::{
+    AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt, EventMask, ImageFormat,
+    MapState, Window as XWindow,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Window {
@@ -194,6 +197,34 @@ pub fn windows(display: &str) -> Result<Vec<Window>, String> {
         });
     }
     Ok(result)
+}
+
+pub fn maximize(display: &str, window: &str, enabled: bool) -> Result<(), String> {
+    let window = u32::from_str_radix(window.trim_start_matches("0x"), 16)
+        .map_err(|_| "window_id must be an X11 window id".to_owned())?;
+    let (connection, screen_number) =
+        x11rb::connect(Some(display)).map_err(|error| format!("x11 connect: {error}"))?;
+    let root = connection.setup().roots[screen_number].root;
+    let state = atom(&connection, b"_NET_WM_STATE")?;
+    let vertical = atom(&connection, b"_NET_WM_STATE_MAXIMIZED_VERT")?;
+    let horizontal = atom(&connection, b"_NET_WM_STATE_MAXIMIZED_HORZ")?;
+    let event = ClientMessageEvent::new(
+        32,
+        window,
+        state,
+        ClientMessageData::from([u32::from(enabled), vertical, horizontal, 1, 0]),
+    );
+    connection
+        .send_event(
+            false,
+            root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            event,
+        )
+        .map_err(|error| error.to_string())?
+        .check()
+        .map_err(|error| error.to_string())?;
+    connection.flush().map_err(|error| error.to_string())
 }
 
 fn atom<C: Connection>(connection: &C, name: &[u8]) -> Result<u32, String> {

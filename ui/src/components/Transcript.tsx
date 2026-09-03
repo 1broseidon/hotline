@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type {
 	HumanActionStatus,
 	HumanAnswer,
@@ -17,13 +17,6 @@ import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
-
-/**
- * Lets a note that unfolds itself step out from under the pin: the
- * scroller follows the conversation's end while you are there, and a note
- * growing by twenty lines would otherwise carry you past its own title.
- */
-const Unpin = createContext<() => void>(() => {});
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -164,13 +157,7 @@ export function Transcript({
 		return null;
 	};
 
-	const unpin = () => {
-		pinned.current = false;
-		setFollowing(false);
-	};
-
 	return (
-		<Unpin.Provider value={unpin}>
 		<div className="relative flex min-h-0 flex-1 flex-col">
 		<Scroll scrollerRef={scroller}>
 			{/* `justify-end` rests a short conversation on the composer rather
@@ -242,7 +229,6 @@ export function Transcript({
 			</button>
 		)}
 		</div>
-		</Unpin.Provider>
 	);
 }
 
@@ -365,7 +351,6 @@ function Row({
 					name={speakers.mine === "agent" ? speakers.me : speakers.them}
 					mine={speakers.mine === "agent"}
 					text={event.text}
-					title={event.title}
 				/>
 			) : (
 				<AgentSay event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
@@ -475,7 +460,7 @@ function AgentSay({
 	run: Run;
 	onReply?(target: ReplyTarget): void;
 }) {
-	const reply = () => onReply?.({ eventId: event.id, text: event.title ?? firstLine(event.text) });
+	const reply = () => onReply?.({ eventId: event.id, text: firstLine(event.text) });
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			<div
@@ -490,7 +475,7 @@ function AgentSay({
 					reply();
 				}}
 			>
-				{event.title !== undefined ? <Note title={event.title} text={event.text} /> : <Markdown text={event.text} />}
+				<Markdown text={event.text} />
 				{onReply !== undefined && (
 					<button
 						type="button"
@@ -516,12 +501,12 @@ function AgentSay({
  * under the words, named from the event, with the path on hover.
  */
 /** A named line in a peer thread: this teammate on the right, the other on the left. */
-function NamedSay({ name, mine, text, title }: { name: string; mine: boolean; text: string; title?: string | undefined }) {
+function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: string }) {
 	if (mine) {
 		return (
 			<div className="mt-3 flex flex-col items-end">
 				<p className="said-name">{name}</p>
-				<div className="speech said-me">{title !== undefined ? <Note title={title} text={text} /> : text}</div>
+				<div className="speech said-me">{text}</div>
 			</div>
 		);
 	}
@@ -529,51 +514,8 @@ function NamedSay({ name, mine, text, title }: { name: string; mine: boolean; te
 		<div className="said-group relative mt-3">
 			<p className="said-name">{name}</p>
 			<div className="speech said-them">
-				{title !== undefined ? <Note title={title} text={text} /> : <Markdown text={text} />}
+				<Markdown text={text} />
 			</div>
-		</div>
-	);
-}
-
-/**
- * A reply too long to be a text is a note: its title is the line you read,
- * the body is folded to a few lines under a fade, and Open unfolds the
- * whole of it in place. It sits in the same bubble on the same side, so
- * the conversation keeps its shape and the length is the one thing that
- * differs. A `# Title` the core lifted out of the first line is not drawn
- * twice, and the fold skips a sub-heading the body opens with, so its
- * three lines are three lines of prose rather than a heading and a half.
- *
- * Opening keeps the title where you can read from it: the note steps out
- * from under the scroller's pin and scrolls itself to the top. Closing
- * moves nothing.
- */
-function Note({ title, text }: { title: string; text: string }) {
-	const [open, setOpen] = useState(false);
-	const root = useRef<HTMLDivElement>(null);
-	const unpin = useContext(Unpin);
-	const body = text.replace(/^#\s+[^\n]*\n+/, "");
-	const folded = body.replace(/^\s*#{1,6}\s+[^\n]*\n+/, "");
-	useEffect(() => {
-		if (open) root.current?.scrollIntoView({ block: "start" });
-	}, [open]);
-	return (
-		<div ref={root} className="note">
-			<p className="note-title">{title}</p>
-			<div className={open ? "note-body" : "note-body note-folded"}>
-				<Markdown text={open ? body : folded} />
-			</div>
-			<button
-				type="button"
-				className="note-toggle"
-				aria-expanded={open}
-				onClick={() => {
-					if (!open) unpin();
-					setOpen((was) => !was);
-				}}
-			>
-				{open ? "Close" : "Open"}
-			</button>
 		</div>
 	);
 }
@@ -640,7 +582,6 @@ function ScheduledLine({ name, prompt }: { name: string; prompt: string }) {
 /** First line of a say, or nothing — a missing or empty original is not a quote. */
 function quotedLine(event: TranscriptEvent): string | undefined {
 	if (event.kind !== "user" && event.kind !== "agent") return undefined;
-	if (event.kind === "agent" && event.title !== undefined) return event.title;
 	const line = firstLine(event.text);
 	return line.length > 0 ? line : undefined;
 }

@@ -318,7 +318,6 @@ mod receipts {
             id: id.to_string(),
             ts: 2,
             text: text.to_string(),
-            title: None,
             reactions: None,
             ring: None,
             receipt: None,

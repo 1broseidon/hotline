@@ -10,8 +10,8 @@
 //! - Every driver update becomes the tape events it is, in the shapes the
 //!   previous Toad wrote — [`crate::contract::TranscriptEvent`] pins them, and
 //!   a tape written here opens in that app unchanged. An agent's message is
-//!   chat or a note ([`pacing`]), decided here so both kinds of agent and a
-//!   peer thread get the same bubbles.
+//!   split into bubbles ([`pacing`]) here so both kinds of agent and a
+//!   peer thread get the same ones.
 //! - Every append is offered to the search index. The index is rebuildable, so
 //!   a failure there is printed and swallowed; a failure to write the tape is
 //!   the record, and is printed too because nothing above can undo it.
@@ -1911,9 +1911,9 @@ fn sweep_idle_chapters(room: Weak<Room>) {
 /// checkpoint and the tape is its memory of the work.
 ///
 /// The model said one thing; the tape may show it as several bubbles. Consecutive
-/// agent events collapse back into one [`Said::Agent`], and a note is rejoined
-/// as `# {title}\n\n{body}`, so the model sees one thing again. The Rig history
-/// is built from this, not from the tape, so it does not need a second fold.
+/// agent events collapse back into one [`Said::Agent`], so the model sees one
+/// thing again. The Rig history is built from this, not from the tape, so it
+/// does not need a second fold.
 fn said(events: &[Value]) -> Vec<Said> {
     let within: Vec<&Value> = match chapter_view::open_chapter(events) {
         Some(open) => {
@@ -1935,19 +1935,15 @@ fn said(events: &[Value]) -> Vec<Said> {
         let text = event.get("text")?.as_str()?;
         match event.get("kind")?.as_str()? {
             "user" => Some(Said::User(text.to_string())),
-            "agent" => Some(Said::Agent(pacing::spoken(
-                event.get("title").and_then(Value::as_str),
-                text,
-            ))),
+            "agent" => Some(Said::Agent(text.to_string())),
             _ => None,
         }
     }))
 }
 
 /// Consecutive agent events are one thing the model said, shown as several
-/// bubbles. A note is the same fact with a title: the model sees `# title`
-/// then the body, the tape stores them apart. Fold here so a teammate's tape
-/// and a peer thread put the pieces back the same way.
+/// bubbles. Fold here so a teammate's tape and a peer thread put the pieces
+/// back the same way.
 fn fold_said(lines: impl IntoIterator<Item = Said>) -> Vec<Said> {
     let mut out = Vec::new();
     for line in lines {
@@ -1968,44 +1964,32 @@ fn fold_said(lines: impl IntoIterator<Item = Said>) -> Vec<Said> {
 /// peer thread must record the same turn the same way — the shapes are the
 /// previous Toad's, and there is nowhere for a second copy of them to drift
 /// to. An empty vec is the one update that is never written: a delta, which
-/// the message that follows it makes durable. An agent's message is chat or
-/// a note, decided here so both kinds of agent and a peer thread get the
-/// same bubbles.
+/// the message that follows it makes durable. An agent's message is split
+/// into bubbles here so both kinds of agent and a peer thread get the same
+/// ones.
 fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec<TranscriptEvent> {
     match update {
         Update::Delta { .. } => Vec::new(),
         Update::Message { kind, id, text } => match kind {
-            MessageKind::Agent => match pacing::paced(&text) {
-                pacing::Paced::Chat(units) => {
-                    let ts = now_ms();
-                    units
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, text)| TranscriptEvent::Agent {
-                            id: if i == 0 {
-                                id.clone()
-                            } else {
-                                format!("{id}-{}", i + 1)
-                            },
-                            ts,
-                            text,
-                            title: None,
-                            reactions: None,
-                            ring: None,
-                            receipt: None,
-                        })
-                        .collect()
-                }
-                pacing::Paced::Note { title, body } => vec![TranscriptEvent::Agent {
-                    id,
-                    ts: now_ms(),
-                    text: body,
-                    title: Some(title),
-                    reactions: None,
-                    ring: None,
-                    receipt: None,
-                }],
-            },
+            MessageKind::Agent => {
+                let ts = now_ms();
+                pacing::paced(&text)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, text)| TranscriptEvent::Agent {
+                        id: if i == 0 {
+                            id.clone()
+                        } else {
+                            format!("{id}-{}", i + 1)
+                        },
+                        ts,
+                        text,
+                        reactions: None,
+                        ring: None,
+                        receipt: None,
+                    })
+                    .collect()
+            }
             MessageKind::Thought => vec![TranscriptEvent::Thought {
                 id,
                 ts: now_ms(),

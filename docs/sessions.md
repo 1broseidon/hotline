@@ -42,21 +42,18 @@ message that lands when it is whole.
 
 ### Pacing
 
-A reply is chat or it is a note, decided by one function on the text
-(`session/pacing.rs::paced`), never by the model's mood. Chat is one to four
-bubbles. A reply is a note when any of these holds: the first non-empty line
-is a markdown heading (`#` to `######`, then a space); after merging there
-are more than four units; the text is longer than 1,200 characters
-(`CHAT_CHARS`); any line outside a fence starts with `|` (a table). A stub
-shorter than 60 characters joins its neighbour, and a unit that ends with
-`:` joins the next, so "Here's the fix:" and a fence stay one bubble.
+A reply is chat: one string split into bubbles by a function of the text
+(`session/pacing.rs::paced`), never by the model's mood. Blank-line units
+outside fences become bubbles; a list stays one unit; a stub shorter than
+60 characters joins its neighbour, and a unit that ends with `:` joins the
+next, so "Here's the fix:" and a fence stay one bubble. The length of a
+reply is the prompt's job, not a fold's.
 
-A note is one `agent` event with a `title`; chat is one `agent` event per
-bubble, ids `{id}` then `{id}-2`…, same timestamp. The model said one thing:
-history rejoins consecutive agent events with a blank line, and a note as
-`# {title}\n\n{body}`. Both agent kinds and peer threads pass the same
-funnel, so they get the same pacing. The house style in the preamble tells
-the agent this rule, in words it can act on.
+Each bubble is one `agent` event, ids `{id}` then `{id}-2`…, same timestamp.
+The model said one thing: history rejoins consecutive agent events with a
+blank line. Both agent kinds and peer threads pass the same funnel, so they
+get the same pacing. The house style in the preamble tells the agent this
+rule, in words it can act on.
 
 A scheduled firing is the same funnel with two differences the tape can see:
 the agent hears a framed prompt (`loop · …` or `scheduled · …`) naming the
@@ -107,7 +104,7 @@ session says which with every prompt.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, today's date, how to use Toad's
-own tools, and the house style — chat or a note, [Pacing](#pacing). When it
+own tools, and the house style ([Pacing](#pacing)). When it
 is joining a conversation that already has chapters behind it, the
 [wake block](#the-wake-block) follows. It is seeded with what
 was said in the chapter it is joining — user and agent lines only; tool

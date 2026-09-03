@@ -937,14 +937,15 @@ fn bubble(n: u32) -> String {
 }
 
 /// Two paragraphs become two bubbles with the driver's id on the first and
-/// `{id}-2` on the second, same timestamp; five become one titled note. The
-/// model said one thing either way, so history reads one `Said::Agent`.
+/// `{id}-2` on the second, same timestamp; five become five. The model said
+/// one thing either way, so history reads one `Said::Agent`.
 #[tokio::test]
-async fn a_reply_is_paced_as_chat_or_as_a_note() {
+async fn a_reply_is_paced_as_chat() {
     let first = bubble(1);
     let second = bubble(2);
     let two = format!("{first}\n\n{second}");
-    let five: String = (1..=5).map(bubble).collect::<Vec<_>>().join("\n\n");
+    let five_units: Vec<String> = (1..=5).map(bubble).collect();
+    let five = five_units.join("\n\n");
 
     let room = room(
         "paced-chat",
@@ -966,32 +967,35 @@ async fn a_reply_is_paced_as_chat_or_as_a_note() {
     assert_eq!(chat[1]["ts"], chat[2]["ts"]);
     assert_eq!(chat[1]["text"], first);
     assert_eq!(chat[2]["text"], second);
-    assert!(chat[1].get("title").is_none());
     assert_eq!(
         said(&tape(&room, "ada")),
         [Said::User("two bubbles".to_string()), Said::Agent(two),]
     );
 
-    room.prompt("ada", "a note", None, None).await.unwrap();
-    let events = settled(&room, "ada", 7).await;
-    let note = events
+    room.prompt("ada", "five bubbles", None, None)
+        .await
+        .unwrap();
+    let events = settled(&room, "ada", 11).await;
+    let agents: Vec<_> = events
         .iter()
-        .find(|event| event["id"] == "m-five")
-        .expect("the five-paragraph reply is one titled event");
-    assert_eq!(note["kind"], "agent");
-    assert_eq!(note["title"], bubble(1));
-    assert_eq!(note["text"], five);
-    assert!(
-        events.iter().all(|event| event["id"] != "m-five-2"),
-        "a note is one event, not bubbles"
-    );
+        .filter(|event| {
+            event["kind"] == "agent" && event["id"].as_str().unwrap().starts_with("m-five")
+        })
+        .collect();
+    assert_eq!(agents.len(), 5, "{}", kinds(&events).join(", "));
+    assert_eq!(agents[0]["id"], "m-five");
+    assert_eq!(agents[1]["id"], "m-five-2");
+    assert_eq!(agents[0]["ts"], agents[4]["ts"]);
+    for (i, unit) in five_units.iter().enumerate() {
+        assert_eq!(agents[i]["text"], *unit);
+    }
     assert_eq!(
         said(&tape(&room, "ada")),
         [
             Said::User("two bubbles".to_string()),
             Said::Agent(format!("{first}\n\n{second}")),
-            Said::User("a note".to_string()),
-            Said::Agent(format!("# {}\n\n{five}", bubble(1))),
+            Said::User("five bubbles".to_string()),
+            Said::Agent(five),
         ]
     );
 }

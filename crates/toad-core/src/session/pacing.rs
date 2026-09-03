@@ -1,31 +1,17 @@
-//! How an agent's reply is shown: chat, or a note.
+//! How an agent's reply is shown as chat: one string becomes a few bubbles.
 //!
-//! A model produces one string. The window cannot: a dissertation in a lozenge
-//! is unreadable, and a one-line text that should have been a report has no
-//! room. So the string is classified here, by a pure function of the text,
-//! never by the model's mood. Chat is one to four bubbles. Anything that does
-//! not fit is a note: one event with a title, which the window draws as a
-//! card the person opens.
+//! A model produces one string. The window draws messages. Blank-line units
+//! outside fences become bubbles, lists stay whole, a colon-intro and a stub
+//! join their neighbour. The length of the reply is the prompt's job, not a
+//! fold's.
 //!
-//! The rule lives in the funnel ([`super::event_of`]) so both kinds of agent
-//! and a peer thread get it for free. History puts the pieces back together
-//! ([`spoken`]) because the model said one thing.
-
-/// A chat reply is a handful of bubbles, not a wall: iMessage is usually one
-/// or two, and a longer train of thought still fits in four.
-pub const MAX_CHAT_UNITS: usize = 4;
-
-/// Past this, the reply is a document. Twelve hundred characters of prose in
-/// bubbles cannot be scanned as chat, so it is a note the person opens instead.
-pub const CHAT_CHARS: usize = 1_200;
+//! The split lives in the funnel ([`super::event_of`]) so both kinds of agent
+//! and a peer thread get it for free. History rejoins consecutive agent events
+//! with a blank line, because the model said one thing.
 
 /// A stub shorter than this is a lead-in ("Here's the fix:") or a leftover
 /// ("ok."), not a bubble of its own.
 pub const SHORT_UNIT_CHARS: usize = 60;
-
-/// A note's title is a card label, not a paragraph: eighty characters is a
-/// long headline and still fits on one line.
-pub const TITLE_CHARS: usize = 80;
 
 /// What Toad tells an agent about the room it is speaking in.
 ///
@@ -54,55 +40,19 @@ Then say what came of it and stop. No recap of the steps, no list of the files y
 
 Write it the way you would text it. Lead with the answer. Plain sentences, no preamble, no restating the question, no sign-off.
 
-Toad shows your reply as chat: each paragraph is its own message, four at most. A reply that needs more than that — more than four paragraphs, more than about 1,200 characters, a table, or anything you open with a `# Title` line — is shown whole as a note the person opens, not as chat. Chat is for talking; a note is for a report, a plan, or an explanation that needs the room. Choose on purpose: an answer that fits in two messages should not arrive as a note, and a note should not be squeezed into bubbles.
+Toad shows your reply as chat: each paragraph is its own message. Write a few short ones, the way you would text a colleague. A report, a plan, or an explanation still has to be speech — lead with the answer, and do not open with a heading.
 
 Being brief is about ceremony, not substance. A real question deserves a real answer — if someone asks how something works or why it broke, explain it properly. What gets cut is the packaging, never the thinking.
 
 Formatting is available when the content is genuinely that shape — a fenced block for code, a list when there really are several items, a table when there are rows and columns, backticks for a filename or flag, bold for a term that carries weight. Reach for none of this to organise three sentences.";
 
-/// How a reply will be shown.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Paced {
-    Chat(Vec<String>),
-    Note { title: String, body: String },
-}
-
-/// Classify a reply as chat (one to four bubbles) or a note.
+/// Split a reply into chat bubbles.
 ///
-/// Note when any of these holds: the first non-empty line is a markdown
-/// heading; after merging there are more than [`MAX_CHAT_UNITS`] units; the
-/// original text is longer than [`CHAT_CHARS`]; any line outside a fence
-/// starts with `|`.
-pub fn paced(text: &str) -> Paced {
-    let heading = heading_title(text);
-    let units = merge(units(text));
-    if heading.is_some()
-        || units.len() > MAX_CHAT_UNITS
-        || text.chars().count() > CHAT_CHARS
-        || has_table(text)
-    {
-        let title = match heading {
-            Some(title) => title.to_string(),
-            None => clip_title(first_line(text)),
-        };
-        let body = match heading {
-            Some(_) => strip_heading_line(text),
-            None => text.trim().to_string(),
-        };
-        return Paced::Note { title, body };
-    }
-    Paced::Chat(units)
-}
-
-/// What the model said, given how the tape stored it.
-///
-/// The model said one thing; the tape shows a note as a title and a body.
-/// History puts the heading back so the model sees the same words it produced.
-pub(crate) fn spoken(title: Option<&str>, body: &str) -> String {
-    match title {
-        Some(title) if !title.is_empty() => format!("# {title}\n\n{body}"),
-        _ => body.to_string(),
-    }
+/// Blank-line units outside fences, lists whole. A unit that ends with `:`
+/// joins the next, and a stub shorter than [`SHORT_UNIT_CHARS`] joins its
+/// neighbour, so "Here's the fix:" and a fence stay one bubble.
+pub fn paced(text: &str) -> Vec<String> {
+    merge(units(text))
 }
 
 fn units(text: &str) -> Vec<String> {
@@ -238,87 +188,6 @@ fn is_ordered_item(line: &str) -> bool {
     digits > 0 && line[digits..].starts_with(". ")
 }
 
-fn has_table(text: &str) -> bool {
-    let mut fence = None;
-    for line in text.lines() {
-        if let Some((marker, count)) = fence {
-            if is_close_fence(line, marker, count) {
-                fence = None;
-            }
-            continue;
-        }
-        if let Some(open) = open_fence(line) {
-            fence = Some(open);
-            continue;
-        }
-        if line.trim_start().starts_with('|') {
-            return true;
-        }
-    }
-    false
-}
-
-fn heading_title(text: &str) -> Option<&str> {
-    first_raw_line(text).and_then(heading_of)
-}
-
-fn heading_of(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-    let hashes = trimmed.chars().take_while(|&c| c == '#').count();
-    if !(1..=6).contains(&hashes) {
-        return None;
-    }
-    trimmed.get(hashes..)?.strip_prefix(' ').map(str::trim)
-}
-
-fn first_raw_line(text: &str) -> Option<&str> {
-    text.lines().find(|line| !line.trim().is_empty())
-}
-
-fn first_line(text: &str) -> &str {
-    first_raw_line(text).map(str::trim).unwrap_or("")
-}
-
-fn strip_heading_line(text: &str) -> String {
-    let mut seen = false;
-    let mut rest = String::new();
-    for line in text.lines() {
-        if !seen {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if heading_of(line).is_some() {
-                seen = true;
-                continue;
-            }
-        }
-        if !rest.is_empty() {
-            rest.push('\n');
-        }
-        rest.push_str(line);
-    }
-    rest.trim().to_string()
-}
-
-fn clip_title(line: &str) -> String {
-    if line.chars().count() <= TITLE_CHARS {
-        return line.to_string();
-    }
-    let mut end = 0;
-    let mut at_word = 0;
-    for (i, ch) in line.char_indices() {
-        if line[..i].chars().count() >= TITLE_CHARS {
-            break;
-        }
-        end = i + ch.len_utf8();
-        if ch.is_whitespace() {
-            at_word = i;
-        }
-    }
-    let cut = if at_word > 0 { at_word } else { end };
-    format!("{}…", line[..cut].trim_end())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,8 +196,8 @@ mod tests {
         format!("Paragraph {n} is long enough to stand as its own bubble in the chat.")
     }
 
-    fn chat(units: &[&str]) -> Paced {
-        Paced::Chat(units.iter().map(|unit| unit.to_string()).collect())
+    fn chat(units: &[&str]) -> Vec<String> {
+        units.iter().map(|unit| unit.to_string()).collect()
     }
 
     #[test]
@@ -351,14 +220,10 @@ mod tests {
     #[test]
     fn intro_colon_then_fence_stays_together() {
         let text = "Here's the fix:\n\n```\nfn x() {}\n```";
-        match paced(text) {
-            Paced::Chat(units) => {
-                assert_eq!(units.len(), 1, "{units:?}");
-                assert!(units[0].starts_with("Here's the fix:"));
-                assert!(units[0].contains("fn x() {}"));
-            }
-            other => panic!("expected chat, got {other:?}"),
-        }
+        let units = paced(text);
+        assert_eq!(units.len(), 1, "{units:?}");
+        assert!(units[0].starts_with("Here's the fix:"));
+        assert!(units[0].contains("fn x() {}"));
     }
 
     #[test]
@@ -368,49 +233,25 @@ mod tests {
     }
 
     #[test]
-    fn five_paragraphs_are_a_note() {
+    fn five_paragraphs_are_five_bubbles() {
         let paras: Vec<String> = (1..=5).map(bubble).collect();
         let text = paras.join("\n\n");
-        match paced(&text) {
-            Paced::Note { title, body } => {
-                assert_eq!(title, paras[0]);
-                assert_eq!(body, text);
-            }
-            other => panic!("expected a note, got {other:?}"),
-        }
+        assert_eq!(paced(&text), paras);
     }
 
     #[test]
-    fn a_heading_first_is_a_note_with_that_title() {
-        let text = "# Harbour plan\n\nDo the thing.\n\nThen the other thing.";
-        match paced(text) {
-            Paced::Note { title, body } => {
-                assert_eq!(title, "Harbour plan");
-                assert_eq!(body, "Do the thing.\n\nThen the other thing.");
-            }
-            other => panic!("expected a note, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn thirteen_hundred_characters_of_prose_is_a_note() {
-        let text = "a".repeat(1_300);
-        match paced(&text) {
-            Paced::Note { title, body } => {
-                assert_eq!(title, "a".repeat(TITLE_CHARS) + "…");
-                assert_eq!(body, text);
-            }
-            other => panic!("expected a note, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_table_is_a_note() {
-        let text = "| a | b |\n| --- | --- |\n| 1 | 2 |";
-        match paced(text) {
-            Paced::Note { body, .. } => assert_eq!(body, text),
-            other => panic!("expected a note, got {other:?}"),
-        }
+    fn a_heading_first_reply_keeps_the_heading_in_the_text() {
+        let a = bubble(1);
+        let b = bubble(2);
+        let text = format!("# Harbour plan\n\n{a}\n\n{b}");
+        let units = paced(&text);
+        assert_eq!(units.len(), 2, "{units:?}");
+        assert!(
+            units[0].starts_with("# Harbour plan"),
+            "the heading stays in the first bubble: {units:?}"
+        );
+        assert!(units[0].contains(&a), "{units:?}");
+        assert_eq!(units[1], b);
     }
 
     #[test]
@@ -427,13 +268,9 @@ mod tests {
         }
         fence.push_str("```");
         let text = format!("Here it is.\n\n{fence}");
-        match paced(&text) {
-            Paced::Chat(units) => {
-                assert_eq!(units.len(), 1, "{units:?}");
-                assert!(units[0].starts_with("Here it is."));
-                assert!(units[0].contains("line 30"));
-            }
-            other => panic!("expected chat, got {other:?}"),
-        }
+        let units = paced(&text);
+        assert_eq!(units.len(), 1, "{units:?}");
+        assert!(units[0].starts_with("Here it is."));
+        assert!(units[0].contains("line 30"));
     }
 }

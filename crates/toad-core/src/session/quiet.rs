@@ -151,7 +151,6 @@ mod tests {
             id: "a1".to_string(),
             ts: NOW,
             text: text.to_string(),
-            title: None,
             reactions: None,
             ring: None,
             receipt: None,

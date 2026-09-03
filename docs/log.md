@@ -69,11 +69,8 @@ name whose key still has a teammate in this room.
 landed, newline included. Offsets add up: the next write starts where
 the last one ended.
 
-An `agent` event is what the teammate said. `text` is the body. `title`,
-when present, is a note: drawn as a card the person opens, not as a bubble.
-Absent is chat. The kind is still `agent` either way, so search, chapters
-and threads keep treating it as what the agent said. How a reply becomes
-chat or a note is [sessions.md](sessions.md#pacing).
+An `agent` event is what the teammate said. `text` is the body. How a
+reply is split into bubbles is [sessions.md](sessions.md#pacing).
 
 ## Threads
 

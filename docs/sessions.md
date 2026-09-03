@@ -281,6 +281,13 @@ The token is generated once per container and kept in process state, never
 settings. A container left behind by a previous run of Toad has a token
 this process no longer knows, so it is removed and recreated.
 
+In the window, Settings › Computer writes `computerRuntime` (blank is
+automatic) and `computerImage`; the teammate's pane writes
+`persona.computer` and shows `computer.status` — Open desktop opens
+`viewer` outside the window, Stop and Remove call `computer.stop` and
+`computer.remove`. A `computer_frame` on the tape is drawn as a thumbnail
+card.
+
 Idle uses the room's existing sweep, not a second clock. When a session
 stops, last activity is stamped; thirty minutes later (`COMPUTER_IDLE_STOP`)
 the container is `stop`ped (the rw layer survives). Seven days

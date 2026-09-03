@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type {
 	BackendChoice,
 	CatalogModel,
+	ComputerRuntime,
 	ConfigChoice,
 	Credential,
 	LoginPrompt,
 	Provider,
 	Report,
+	RuntimeReport,
 } from "../generated/contract";
 import { openLink } from "../native";
 import { chordKeys } from "../chords";
@@ -23,12 +25,13 @@ import { PathField } from "./PathField";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "providers" | "tools" | "import";
+export type SettingsSection = "general" | "providers" | "tools" | "computer" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string; detail: string }[] = [
 	{ id: "general", title: "General", detail: "Chapters, the default harness, and the default model" },
 	{ id: "providers", title: "Providers", detail: "What Toad Agent can run a model on" },
 	{ id: "tools", title: "Tools", detail: "MCP servers teammates may use" },
+	{ id: "computer", title: "Computer", detail: "The desktop a teammate can be given" },
 	{ id: "import", title: "Import", detail: "A previous Toad's room" },
 ];
 
@@ -117,6 +120,14 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
 							onBackend={(id) => patch({ defaultBackendId: id })}
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
+						/>
+					)}
+					{section === "computer" && (
+						<ComputerSection
+							runtime={settings.computerRuntime}
+							image={settings.computerImage}
+							onRuntime={(id) => patch({ computerRuntime: id })}
+							onImage={(image) => patch({ computerImage: image })}
 						/>
 					)}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
@@ -240,6 +251,135 @@ function GeneralSection({
 					</div>
 				</div>
 				<p className="group-hint">Clearing it falls back to the last model a Toad Agent teammate ran on.</p>
+			</section>
+		</>
+	);
+}
+
+const RUNTIME_NAMES: Record<ComputerRuntime, string> = {
+	docker: "Docker",
+	podman: "Podman",
+	container: "Apple container",
+};
+
+/**
+ * Computer: which container runtime wakes a teammate's desktop, and which
+ * image it wakes. Every runtime this machine could have is a row, the
+ * missing ones greyed with the sentence that names what is missing, so
+ * "no computer" is never a mystery. Automatic is the room's default and
+ * leaves the pick to the desk, rootless first.
+ */
+function ComputerSection({
+	runtime,
+	image,
+	onRuntime,
+	onImage,
+}: {
+	runtime: string | null;
+	image: string | null;
+	onRuntime(id: string | null): void;
+	onImage(image: string | null): void;
+}) {
+	const [reports, setReports] = useState<RuntimeReport[] | undefined>(undefined);
+	const [draft, setDraft] = useState(image ?? "");
+
+	useEffect(() => {
+		setDraft(image ?? "");
+	}, [image]);
+
+	useEffect(() => {
+		void wire
+			.command("computer.runtimes", {})
+			.then(setReports)
+			.catch(() => setReports([]));
+	}, []);
+
+	const commitImage = () => {
+		const trimmed = draft.trim();
+		setDraft(trimmed);
+		const next = trimmed === "" ? null : trimmed;
+		if (next !== image) onImage(next);
+	};
+
+	const chosen = runtime ?? "";
+	const rows: { id: string; name: string; detail: string; off: boolean }[] = [
+		{ id: "", name: "Automatic", detail: "The first runtime that answers, rootless before a root daemon.", off: false },
+		...(reports ?? []).map((one) => ({
+			id: one.runtime,
+			name: RUNTIME_NAMES[one.runtime],
+			detail: one.available ? (one.rootless ? "Ready, rootless." : "Ready.") : (one.reason ?? "Not available."),
+			off: !one.available,
+		})),
+	];
+
+	return (
+		<>
+			<section>
+				<h3 className="group-title" id="setting-computer-runtime">
+					Runs on
+				</h3>
+				{reports === undefined ? (
+					<div className="grouped">
+						<p className="group-row text-sm text-ink-3">Looking for a container runtime…</p>
+					</div>
+				) : (
+					<div role="radiogroup" aria-labelledby="setting-computer-runtime" className="grouped">
+						{rows.map((row) => (
+							<label key={row.id} className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
+								<input
+									type="radio"
+									className="radio"
+									name="setting-computer-runtime"
+									checked={chosen === row.id}
+									aria-disabled={row.off ? true : undefined}
+									onChange={() => {
+										if (row.off) return;
+										onRuntime(row.id === "" ? null : row.id);
+									}}
+								/>
+								<span className="group-row-text">
+									<span className="group-row-title">{row.name}</span>
+									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+										{row.detail}
+									</span>
+								</span>
+							</label>
+						))}
+					</div>
+				)}
+				<p className="group-hint">
+					A computer is a Linux desktop in a container, one per teammate that asks for one. Nothing wakes until a
+					teammate with one starts.
+				</p>
+			</section>
+			<section>
+				<h3 className="group-title">Image</h3>
+				<div className="grouped">
+					<div className="group-row">
+						<label className="group-row-text" htmlFor="setting-computer-image">
+							<span className="group-row-title">Desktop image</span>
+							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+								Blank is the image pinned to this version of Toad.
+							</span>
+						</label>
+						<input
+							id="setting-computer-image"
+							className="field w-56 min-w-0 font-mono text-sm"
+							placeholder="Pinned default"
+							autoComplete="off"
+							spellCheck={false}
+							value={draft}
+							onChange={(event) => setDraft(event.target.value)}
+							onBlur={commitImage}
+							onKeyDown={(event) => {
+								if (event.key !== "Enter") return;
+								event.preventDefault();
+								commitImage();
+							}}
+						/>
+					</div>
+				</div>
+				<p className="group-hint">A teammate&rsquo;s own image, set in its pane, wins over this one.</p>
 			</section>
 		</>
 	);

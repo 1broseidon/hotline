@@ -77,6 +77,15 @@ row is the thing's name over one detail line (a key or a login, a command
 or a URL) and opens the thing's own page, with its fields and the way out
 (Remove, Sign out) at the foot. Nothing is edited on the row.
 
+The computer is two places. Settings › Computer is the room's word: the
+runtimes this machine could have as radio rows, the missing ones greyed
+with the sentence that names what is missing, and the image the desk
+wakes by default. The teammate's pane is that teammate's word: the switch,
+its own image, and one status row that reads the container every few
+seconds while the pane is open — Open desktop and Stop while it runs,
+Remove once it has stopped. A capture on the tape is a thumbnail card that
+grows when pressed; it is evidence beside the words, not a message.
+
 Settings, New teammate, Keyboard shortcuts and About are panes in the
 conversation's place. Settings also takes the rail: its sections stand
 where the team stood, one row each, and the band carries the way back

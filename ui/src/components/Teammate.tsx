@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import type {
+	ComputerStatus,
 	McpPolicy,
 	PeerThreadSummary,
 	Persona,
+	PersonaComputer,
 	PolicyMode,
 	ScheduledJob,
 	TeammateToolLedger,
@@ -11,7 +13,7 @@ import type {
 import { chordKeys } from "../chords";
 import { CheckIcon, CloseIcon, RevealIcon, WarningIcon } from "../icons";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
-import { revealPath } from "../native";
+import { openLink, revealPath } from "../native";
 import { firstLine } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -198,6 +200,13 @@ export function Teammate({
 						</div>
 					</section>
 
+					<ComputerSection
+						personaId={persona.id}
+						computer={persona.computer}
+						disabled={busy}
+						onChange={(computer) => save({ computer })}
+					/>
+
 					<McpGrant
 						policy={persona.mcpPolicy}
 						servers={servers}
@@ -251,6 +260,181 @@ export function Teammate({
 				</div>
 			</Scroll>
 		</aside>
+	);
+}
+
+/** How often the pane asks after the container while it is open. */
+const COMPUTER_STATUS_EVERY_MS = 5000;
+
+const STATE_WORDS: Record<ComputerStatus["state"], { title: string; detail: string }> = {
+	running: { title: "Running", detail: "The desktop is up. Stopping it keeps the container for the next start." },
+	stopped: { title: "Stopped", detail: "The container is kept and wakes on the next start. Removing it starts over." },
+	absent: { title: "No container yet", detail: "One is built the first time this teammate starts." },
+};
+
+/**
+ * The teammate's computer: the switch, the image it wakes with, and what
+ * the container is doing now. The status is a peek every few seconds while
+ * the pane is open — asking never wakes anything, so the line can be
+ * honest about a desktop that stopped on its own. Stop and Remove act on
+ * the container, not the teammate; the switch is what the next start reads.
+ */
+function ComputerSection({
+	personaId,
+	computer,
+	disabled,
+	onChange,
+}: {
+	personaId: string;
+	computer: PersonaComputer | undefined;
+	disabled: boolean;
+	onChange(computer: PersonaComputer): void;
+}) {
+	const enabled = computer?.enabled ?? false;
+	const image = computer?.image ?? "";
+	const [draft, setDraft] = useState(image);
+	const [status, setStatus] = useState<ComputerStatus | null>(null);
+	const [acting, setActing] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+
+	useEffect(() => {
+		setDraft(image);
+	}, [image]);
+
+	useEffect(() => {
+		let gone = false;
+		const ask = () => {
+			void wire
+				.command("computer.status", { personaId })
+				.then((seen) => {
+					if (!gone) setStatus(seen);
+				})
+				.catch(() => {
+					if (!gone) setStatus(null);
+				});
+		};
+		ask();
+		const timer = setInterval(ask, COMPUTER_STATUS_EVERY_MS);
+		return () => {
+			gone = true;
+			clearInterval(timer);
+		};
+	}, [personaId]);
+
+	const commitImage = () => {
+		const trimmed = draft.trim();
+		setDraft(trimmed);
+		if (trimmed === image) return;
+		onChange(trimmed === "" ? { enabled } : { enabled, image: trimmed });
+	};
+
+	const act = async (cmd: "computer.stop" | "computer.remove") => {
+		if (acting) return;
+		setActing(true);
+		setRefusal(null);
+		try {
+			await wire.command(cmd, { personaId });
+			setStatus(await wire.command("computer.status", { personaId }));
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		} finally {
+			setActing(false);
+		}
+	};
+
+	const state = status?.state ?? "absent";
+	const words = STATE_WORDS[state];
+	const viewer = status?.state === "running" ? status.viewer : undefined;
+
+	return (
+		<section>
+			<h3 className="label">Computer</h3>
+			<div className="grouped">
+				<label className="group-row group-row-choice">
+					<span className="group-row-text">
+						<span className="group-row-title">A desktop of its own</span>
+						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+							{enabled
+								? "A Linux desktop in a container, with tools to drive it. It wakes when the teammate starts."
+								: "Off: the teammate works on this machine alone, with no desktop to drive."}
+						</span>
+					</span>
+					<input
+						type="checkbox"
+						className="switch"
+						checked={enabled}
+						disabled={disabled}
+						onChange={(event) =>
+							onChange(image === "" ? { enabled: event.target.checked } : { enabled: event.target.checked, image })
+						}
+					/>
+				</label>
+				{enabled && (
+					<div className="group-row">
+						<label className="group-row-text" htmlFor="edit-computer-image">
+							<span className="group-row-title">Image</span>
+							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+								Blank takes the room&rsquo;s, under Settings → Computer.
+							</span>
+						</label>
+						<input
+							id="edit-computer-image"
+							className="field w-40 min-w-0 font-mono text-sm"
+							placeholder="Room default"
+							autoComplete="off"
+							spellCheck={false}
+							disabled={disabled}
+							value={draft}
+							onChange={(event) => setDraft(event.target.value)}
+							onBlur={commitImage}
+							onKeyDown={(event) => {
+								if (event.key !== "Enter") return;
+								event.preventDefault();
+								commitImage();
+							}}
+						/>
+					</div>
+				)}
+			</div>
+			<p className="hint">A change reaches the teammate on its next start.</p>
+			{(enabled || state !== "absent") && (
+				<div className="grouped mt-2">
+					<div className="group-row">
+						<span className="group-row-text">
+							<span className="group-row-title">{words.title}</span>
+							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+								{words.detail}
+							</span>
+						</span>
+						{viewer !== undefined && (
+							<button type="button" className="control btn" onClick={() => void openLink(viewer)}>
+								Open desktop
+							</button>
+						)}
+						{state === "running" && (
+							<button type="button" className="control btn-quiet" disabled={acting} onClick={() => void act("computer.stop")}>
+								Stop
+							</button>
+						)}
+						{state === "stopped" && (
+							<button
+								type="button"
+								className="control btn-quiet"
+								disabled={acting}
+								onClick={() => void act("computer.remove")}
+							>
+								Remove
+							</button>
+						)}
+					</div>
+				</div>
+			)}
+			{refusal !== null && (
+				<p role="status" className="selectable mt-2 text-sm text-danger">
+					{refusal}
+				</p>
+			)}
+		</section>
 	);
 }
 

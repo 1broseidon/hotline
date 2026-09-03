@@ -47,6 +47,8 @@ export function useRoomSettings(): {
 	lastModelId: string | null;
 	mcpServers: McpServer[];
 	enabledModels: Record<string, string[]>;
+	computerRuntime: string | null;
+	computerImage: string | null;
 } {
 	const [events, setEvents] = useState<Map<string, RoomItem>>(new Map());
 
@@ -77,6 +79,8 @@ export function useRoomSettings(): {
 		lastModelId: optionalStringSetting(events.get("lastModelId")),
 		mcpServers: listSetting(events.get("mcpServers")),
 		enabledModels,
+		computerRuntime: optionalStringSetting(events.get("computerRuntime")),
+		computerImage: optionalStringSetting(events.get("computerImage")),
 	};
 }
 

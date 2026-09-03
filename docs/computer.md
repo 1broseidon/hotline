@@ -47,18 +47,22 @@ slot; an absent header means `anonymous`.
 ```sh
 TOKEN=$(openssl rand -hex 24)
 docker run -d --name toad-computer-test \
+  --cap-drop=ALL \
+  --cap-add=CHOWN --cap-add=SETUID --cap-add=SETGID \
+  --cap-add=DAC_OVERRIDE --cap-add=KILL --cap-add=NET_BIND_SERVICE \
   --security-opt no-new-privileges \
-  --memory 2g --pids-limit 512 --shm-size 1g \
+  --pids-limit 512 --memory 2g --shm-size 1g \
   -p 127.0.0.1:8787:8787 -p 127.0.0.1:5800:5800 \
-  -e TOAD_COMPUTER_TOKEN=$TOKEN \
+  -e TOAD_COMPUTER_TOKEN="$TOKEN" \
+  -v "$PWD:/workspace" \
   toad-computer:dev
 ```
 
-The jlesage supervisor changes its services to the base image's non-root user
-during startup. `--cap-drop=ALL` prevents that transition and stops the
-container before `/startapp.sh`, so this base must retain Docker's default
-capabilities; `no-new-privileges`, the memory/PID limits, and loopback-bound
-published ports remain in force.
+The jlesage init needs only `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE`, `KILL`,
+and `NET_BIND_SERVICE` for ownership changes, UID/GID transitions, cross-user
+process cleanup, and its capability-bearing nginx binary. Toad drops every
+other capability and keeps `no-new-privileges`, memory/PID limits, and
+loopback-bound published ports in force.
 
 ## Contract proof
 

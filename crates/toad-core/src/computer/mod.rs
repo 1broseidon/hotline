@@ -452,6 +452,12 @@ fn create_args(
         "--name".to_string(),
         name.to_string(),
         "--cap-drop=ALL".to_string(),
+        "--cap-add=CHOWN".to_string(),
+        "--cap-add=SETUID".to_string(),
+        "--cap-add=SETGID".to_string(),
+        "--cap-add=DAC_OVERRIDE".to_string(),
+        "--cap-add=KILL".to_string(),
+        "--cap-add=NET_BIND_SERVICE".to_string(),
     ];
     // Apple container does not implement these Docker/Podman hardening flags.
     if runtime != Runtime::AppleContainer {
@@ -853,6 +859,12 @@ esac
             create,
             &[
                 "--cap-drop=ALL",
+                "--cap-add=CHOWN",
+                "--cap-add=SETUID",
+                "--cap-add=SETGID",
+                "--cap-add=DAC_OVERRIDE",
+                "--cap-add=KILL",
+                "--cap-add=NET_BIND_SERVICE",
                 "--security-opt",
                 "no-new-privileges",
                 "--pids-limit",

@@ -772,6 +772,7 @@ esac
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
+            background_work: false,
             web_search_policy: None,
             computer: Some(PersonaComputer {
                 enabled: true,

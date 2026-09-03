@@ -114,6 +114,17 @@ fn insert_if_truthy(persona: &mut Map<String, Value>, key: &str, class: &Map<Str
     }
 }
 
+/// Carries a portable boolean grant only when it is actually true.
+///
+/// Unlike the older fields handled by [`insert_if_truthy`], a malformed value
+/// here must not make the whole teammate fail deserialization: an upgrade must
+/// close an unrecognised grant safely.
+fn insert_if_true(persona: &mut Map<String, Value>, key: &str, class: &Map<String, Value>) {
+    if class.get(key).and_then(Value::as_bool) == Some(true) {
+        persona.insert(key.to_string(), Value::Bool(true));
+    }
+}
+
 /// `slice(0, max)` as JavaScript counts it: in UTF-16 code units, cut on a
 /// character boundary, so a cut that would split a character drops it whole.
 fn truncate_utf16(value: &str, max: usize) -> String {
@@ -188,14 +199,14 @@ fn normalize_checkpoints(value: Option<&Value>) -> Value {
     Value::Array(checkpoints)
 }
 
-/// A stored policy, or the default when the field is missing or malformed.
+/// Preserve a stored grant; a missing or malformed mode grants nothing.
 fn normalize_policy(value: Option<&Value>) -> Value {
     let candidate = object(value);
     let mode = candidate
         .and_then(|policy| policy.get("mode"))
         .and_then(Value::as_str)
         .filter(|mode| matches!(*mode, "all" | "none" | "some"))
-        .unwrap_or("all");
+        .unwrap_or("none");
     let server_ids: Vec<&str> = candidate
         .and_then(|policy| policy.get("serverIds"))
         .and_then(Value::as_array)
@@ -387,6 +398,9 @@ fn persona_of(record: &ResourceRecord, root: &Path) -> Value {
         "mcpPolicy".to_string(),
         normalize_policy(portable.get("mcpPolicy")),
     );
+    // Background work is a standing portable grant. Older stores never had
+    // this field, so omitting it keeps the new default closed on import.
+    insert_if_true(&mut persona, "backgroundWork", portable);
     insert_if_truthy(&mut persona, "webSearchPolicy", portable);
     if let Some(computer) = normalize_computer(portable.get("computer")) {
         persona.insert("computer".to_string(), computer);
@@ -414,7 +428,22 @@ fn persona_of(record: &ResourceRecord, root: &Path) -> Value {
 mod tests {
     use super::super::records::fixture::{Put, create, scratch};
     use super::*;
+    use crate::contract::Persona;
     use serde_json::json;
+
+    #[test]
+    fn imported_mcp_access_requires_a_saved_grant() {
+        for value in [None, Some(json!(null)), Some(json!({ "mode": "invalid" }))] {
+            assert_eq!(
+                normalize_policy(value.as_ref()),
+                json!({ "mode": "none", "serverIds": [] })
+            );
+        }
+        for mode in ["none", "some", "all"] {
+            let saved = json!({ "mode": mode, "serverIds": ["echo"] });
+            assert_eq!(normalize_policy(Some(&saved)), saved);
+        }
+    }
 
     #[test]
     fn the_three_classes_assemble_into_one_teammate() {
@@ -424,6 +453,7 @@ mod tests {
             updated_at: 4_000,
             portable: Some(json!({
                 "mcpPolicy": { "mode": "some", "serverIds": ["one", 7] },
+                "backgroundWork": true,
                 "computer": { "enabled": true, "image": "  toad/computer  " },
                 "reach": "machine",
                 "webSearchPolicy": { "brave": false },
@@ -472,6 +502,7 @@ mod tests {
                 "harnessOverride": { "backendId": "claude" },
                 "reach": "machine",
                 "mcpPolicy": { "mode": "some", "serverIds": ["one"] },
+                "backgroundWork": true,
                 "webSearchPolicy": { "brave": false },
                 "computer": { "enabled": true, "image": "toad/computer" },
                 "sessionCheckpoints": [{ "backendId": "pi", "sessionId": "s-pi" }],
@@ -488,6 +519,7 @@ mod tests {
         Put {
             updated_at: 7_777,
             machine: Some(json!({ "cwd": "" })),
+            portable: Some(json!({ "backgroundWork": "yes" })),
             ..Put::new("bare", "this-desk", json!({ "backendId": "" }))
         }
         .write(&database);
@@ -502,7 +534,7 @@ mod tests {
                 // The one backend a teammate runs when its row names none.
                 "backendId": "pi",
                 "cwd": default_workspace(&root, "bare").to_string_lossy(),
-                "mcpPolicy": { "mode": "all", "serverIds": [] },
+                "mcpPolicy": { "mode": "none", "serverIds": [] },
                 "sessionCheckpoints": [],
                 // A row with no creation stamp was created when it was last
                 // written, which is the only date anybody can still prove.
@@ -510,6 +542,8 @@ mod tests {
                 "updatedAt": 7_777,
             })
         );
+        let imported: Persona = serde_json::from_value(personas[0].clone()).unwrap();
+        assert!(!imported.background_work);
     }
 
     #[test]

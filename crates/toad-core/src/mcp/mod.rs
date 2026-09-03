@@ -33,6 +33,7 @@ use tool::Watch;
 pub use tool::{CallContent, CallError, CallImage, McpTool};
 
 use crate::contract::{McpPolicy, PolicyMode};
+use crate::driver::CapabilityLease;
 use rmcp::ServiceExt;
 use rmcp::model::{ClientInfo, Implementation};
 use rmcp::service::RunningService;
@@ -226,6 +227,18 @@ pub fn grant(available: &[McpServer], policy: &McpPolicy) -> Grant {
 /// ledger names when a transport dies after this, so a silent mid-session
 /// absence is still a named one.
 pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
+    connect_with_capability(persona_id, servers, None).await
+}
+
+/// Connects granted servers while binding every listed tool to the session's
+/// capability generation. The optional lease keeps this function usable by
+/// standalone MCP tests and by callers that deliberately have no room
+/// session, while live drivers always pass one.
+pub(crate) async fn connect_with_capability(
+    persona_id: &str,
+    servers: &[McpServer],
+    capability: Option<CapabilityLease>,
+) -> Connections {
     let mut tools = Vec::new();
     let mut failed = Vec::new();
     let mut live = Vec::new();
@@ -236,18 +249,34 @@ pub async fn connect(persona_id: &str, servers: &[McpServer]) -> Connections {
     // names the policy's order promised.
     let prefixes = tool::prefixes(servers);
     for (server, prefix) in servers.iter().zip(&prefixes) {
+        if capability
+            .as_ref()
+            .is_some_and(|capability| !capability.is_current())
+        {
+            break;
+        }
         match connect_one(server).await {
             Ok((client, listed, group)) => {
+                if capability
+                    .as_ref()
+                    .is_some_and(|capability| !capability.is_current())
+                {
+                    drop(client);
+                    break;
+                }
                 let peer = client.peer().clone();
                 for definition in listed {
-                    tools.push(McpTool::new(
-                        prefix,
-                        &server.id,
-                        &server.name,
-                        definition,
-                        peer.clone(),
-                        watch.clone(),
-                    ));
+                    tools.push(
+                        McpTool::new(
+                            prefix,
+                            &server.id,
+                            &server.name,
+                            definition,
+                            peer.clone(),
+                            watch.clone(),
+                        )
+                        .with_capability_opt(capability.clone()),
+                    );
                 }
                 live.push(client);
                 groups.extend(group);
@@ -640,6 +669,7 @@ fn unique_keep_first(items: impl IntoIterator<Item = String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driver::CapabilityEpoch;
     use rmcp::handler::server::ServerHandler;
     use rmcp::model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult,
@@ -1067,6 +1097,26 @@ mod tests {
         let _ = server.await;
     }
 
+    #[tokio::test]
+    async fn a_revoked_mcp_tool_refuses_before_calling_its_server() {
+        let (server, client, tool) = echo_on_duplex("mcp-revoked").await;
+        let epoch = CapabilityEpoch::default();
+        let guarded = tool.with_capability_opt(Some(epoch.lease()));
+        epoch.invalidate();
+
+        let error = guarded
+            .call(json!({ "text": "canary" }))
+            .await
+            .expect_err("a handle from a revoked session cannot call MCP");
+        assert!(
+            matches!(&error, CallError::Tool(message) if message.contains("capabilities have been revoked")),
+            "{error:?}"
+        );
+
+        client.cancel().await.ok();
+        let _ = server.await;
+    }
+
     #[test]
     fn bearer_sets_the_authorization_header_on_the_transport() {
         let config = super::http_config(
@@ -1332,6 +1382,7 @@ mod tests {
                 mode: crate::contract::PolicyMode::All,
                 server_ids: Vec::new(),
             },
+            background_work: false,
             web_search_policy: None,
             computer: None,
             subagents: None,

@@ -30,7 +30,7 @@ export type SettingsSection = "general" | "providers" | "tools" | "computer" | "
 const SECTIONS: { id: SettingsSection; title: string; detail: string }[] = [
 	{ id: "general", title: "General", detail: "Chapters, the default harness, and the default model" },
 	{ id: "providers", title: "Providers", detail: "What Toad Agent can run a model on" },
-	{ id: "tools", title: "Tools", detail: "MCP servers teammates may use" },
+	{ id: "tools", title: "Tools", detail: "MCP gateway for your teammates" },
 	{ id: "computer", title: "Computer", detail: "The desktop a teammate can be given" },
 	{ id: "import", title: "Import", detail: "A previous Toad's room" },
 ];
@@ -1024,6 +1024,8 @@ function ToolsSection({
 						/>
 					)}
 					<section>
+						<h3 className="label">MCP gateway</h3>
+						<p className="hint">New teammates have no server access. Grant selected servers or all servers on each teammate.</p>
 						<div className="grouped">
 							{!adding && (
 								<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
@@ -1033,7 +1035,7 @@ function ToolsSection({
 							)}
 							{servers.length === 0 ? (
 								<p className="group-row text-sm text-ink-3">
-									No servers yet. A teammate runs with its agent&rsquo;s own tools until you add one.
+									No servers yet. Add a server here, then grant access on a teammate.
 								</p>
 							) : (
 								servers.map((server) => (
@@ -1054,7 +1056,7 @@ function ToolsSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">Which teammates may use a server is set on each teammate.</p>
+						<p className="group-hint">Teammates with All servers also receive servers added later.</p>
 					</section>
 					{refusal !== null && (
 						<p role="status" className="selectable text-sm text-danger">

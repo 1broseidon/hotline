@@ -103,12 +103,24 @@ impl Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
+        self.room.policy_update_lock()
+    }
+
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
         self.room.start(persona_id).await
     }
 
     fn stop(&self, persona_id: &str) -> Result<(), String> {
         self.room.stop(persona_id)
+    }
+
+    fn invalidate(&self, persona_id: &str) -> Result<(), String> {
+        self.room.invalidate(persona_id)
+    }
+
+    fn invalidate_all(&self) -> Result<(), String> {
+        self.room.invalidate_all()
     }
 
     async fn reattach(&self, persona_id: &str) -> Result<(), String> {
@@ -578,4 +590,251 @@ async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, S
         .await
         .map_err(|error| error.to_string())?;
     Ok(listed.iter().map(|model| model.id.clone()).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Desk;
+    use crate::contract::{Attachment, McpPolicy, Persona, PolicyMode, Reach};
+    use crate::driver::rig::Said;
+    use crate::driver::{Driver, DriverInfo, Update};
+    use crate::log::{Log, StreamId};
+    use crate::mcp::server::TeammateTools;
+    use crate::session::{Agents, ProviderAuth, ProviderKeys, Room};
+    use crate::vault::Vault;
+    use crate::wire::Door;
+    use async_trait::async_trait;
+    use futures_util::{SinkExt, StreamExt};
+    use serde_json::{Value, json};
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+    use tokio::net::TcpStream;
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+
+    const TOKEN: &str = "desk-revocation-test-token";
+
+    /// A deterministic agent seam for the real Desk and Door. The room still
+    /// builds and owns the session tools; this test agent only keeps a clone
+    /// so the wire can prove that a policy update revokes an old handle.
+    #[derive(Default)]
+    struct RetainingAgents {
+        tools: Arc<Mutex<Vec<TeammateTools>>>,
+    }
+
+    struct TestDriver;
+
+    #[async_trait]
+    impl Driver for TestDriver {
+        async fn start(&self, _persona: &Persona) -> Result<DriverInfo, String> {
+            Ok(DriverInfo {
+                agent_name: "Test agent".to_string(),
+                ..DriverInfo::default()
+            })
+        }
+
+        async fn prompt(
+            &self,
+            _text: String,
+            _attachments: Vec<Attachment>,
+            _reach: Reach,
+        ) -> mpsc::Receiver<Update> {
+            let (_sender, receiver) = mpsc::channel(1);
+            receiver
+        }
+
+        fn cancel(&self) {}
+
+        async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
+            Ok(DriverInfo {
+                agent_name: "Test agent".to_string(),
+                current_model_id: model_id.to_string(),
+                ..DriverInfo::default()
+            })
+        }
+    }
+
+    #[async_trait]
+    impl Agents for RetainingAgents {
+        fn agent(
+            &self,
+            _persona: &Persona,
+            _preamble: String,
+            _said: Vec<Said>,
+            tools: TeammateTools,
+            _extra_mcp: Vec<crate::mcp::McpServer>,
+        ) -> Result<Arc<dyn Driver>, String> {
+            self.tools.lock().unwrap().push(tools);
+            Ok(Arc::new(TestDriver))
+        }
+
+        async fn complete(
+            &self,
+            _model_id: &str,
+            _system: &str,
+            _prompt: &str,
+        ) -> Result<String, String> {
+            Err("the desk revocation test does not summarize chapters".to_string())
+        }
+    }
+
+    struct TestKeys;
+
+    impl ProviderKeys for TestKeys {
+        fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
+            HashMap::new()
+        }
+    }
+
+    fn scratch() -> PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "toad-desk-revocation-{}-{suffix}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn persona(root: &Path, id: &str, name: &str) -> Persona {
+        Persona {
+            node: None,
+            id: id.to_string(),
+            name: name.to_string(),
+            goal: "Keep the revocation test deterministic.".to_string(),
+            face: None,
+            team: None,
+            backend_id: "pi".to_string(),
+            cwd: root.join(id).to_string_lossy().into_owned(),
+            reach: Some(Reach::Workspace),
+            model_id: None,
+            mode_id: None,
+            effort_id: None,
+            harness_override: None,
+            hop_notice: None,
+            mcp_policy: McpPolicy {
+                mode: PolicyMode::All,
+                server_ids: Vec::new(),
+            },
+            background_work: false,
+            web_search_policy: None,
+            computer: None,
+            subagents: None,
+            session_checkpoints: Vec::new(),
+            last_session_id: None,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn append_persona(log: &Log, persona: &Persona) {
+        let event = crate::room::room_event("persona", json!(persona));
+        log.append(&StreamId::Room, &event).unwrap();
+    }
+
+    /// The smallest wire client needed for a command response. The Desk's
+    /// session broadcasts are intentionally ignored: command responses carry
+    /// the synchronization point this test needs.
+    struct Client {
+        socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+        next_id: i64,
+    }
+
+    impl Client {
+        async fn connect(port: u16) -> Self {
+            let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
+                .await
+                .unwrap();
+            Self { socket, next_id: 1 }
+        }
+
+        async fn read(&mut self) -> Value {
+            loop {
+                match self.socket.next().await.expect("the Door closed") {
+                    Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
+                    Ok(_) => {}
+                    Err(error) => panic!("the WebSocket failed: {error}"),
+                }
+            }
+        }
+
+        async fn call(&mut self, command: &str, params: Value) -> Value {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.socket
+                .send(Message::text(
+                    json!({ "id": id, "cmd": command, "params": params }).to_string(),
+                ))
+                .await
+                .unwrap();
+            loop {
+                let frame = tokio::time::timeout(std::time::Duration::from_secs(5), self.read())
+                    .await
+                    .expect("the Door did not answer within five seconds");
+                if frame.get("id").and_then(Value::as_i64) == Some(id) {
+                    return frame;
+                }
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn persona_policy_update_over_live_desk_wire_revokes_old_tools() {
+        let root = scratch();
+        let log = Log::open(root.clone());
+        append_persona(&log, &persona(&root, "ada", "Ada"));
+        append_persona(&log, &persona(&root, "bob", "Bob"));
+
+        let agents = Arc::new(RetainingAgents::default());
+        let room = Room::with_agents(log.clone(), Arc::new(TestKeys), agents.clone());
+        let vault = Arc::new(Vault::open(&root, log.clone()).unwrap());
+        let desk = Desk {
+            log: log.clone(),
+            room,
+            vault,
+            logins: Arc::new(Mutex::new(HashMap::new())),
+        };
+        let door = Door::bind(log, TOKEN.to_string(), Arc::new(desk)).unwrap();
+        let port = door.port();
+        tokio::spawn(door.run());
+        let mut client = Client::connect(port).await;
+
+        let started = client
+            .call("session.start", json!({ "personaId": "ada" }))
+            .await;
+        assert_eq!(started["ok"], true, "{started}");
+
+        let old_tools = agents.tools.lock().unwrap().first().cloned().unwrap();
+        let before = old_tools.call("list_teammates", &json!({})).await.unwrap();
+        assert!(before.contains("bob"), "{before}");
+
+        let updated = client
+            .call(
+                "persona.update",
+                json!({
+                    "id": "ada",
+                    "patch": { "mcpPolicy": { "mode": "none", "serverIds": [] } },
+                }),
+            )
+            .await;
+        assert_eq!(updated["ok"], true, "{updated}");
+
+        let refused = old_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .expect_err("a policy update must revoke the retained handle");
+        assert!(refused.to_lowercase().contains("revoked"), "{refused}");
+
+        let fresh_tools = agents.tools.lock().unwrap().last().cloned().unwrap();
+        let after = fresh_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .unwrap();
+        assert!(after.contains("bob"), "{after}");
+    }
 }

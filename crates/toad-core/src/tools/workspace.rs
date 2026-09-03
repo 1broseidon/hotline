@@ -1,5 +1,6 @@
 use super::ToolError;
 use crate::contract::Reach;
+use crate::driver::CapabilityLease;
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
@@ -40,6 +41,11 @@ struct WorkspaceInner {
     /// The teammate's working directory: where relative paths start and
     /// where commands run.
     cwd: PathBuf,
+    /// The path the caller supplied before `cwd` was canonicalized. ACP
+    /// clients may echo that spelling in an absolute callback path (for
+    /// example, when the selected directory is a symlink), so accepting it
+    /// here still resolves the final path through the canonical capability.
+    callback_cwd: PathBuf,
     /// The directory every path is resolved inside. The working directory
     /// itself for `Reach::Workspace`; the filesystem root for `Reach::Machine`.
     root: PathBuf,
@@ -50,6 +56,7 @@ struct WorkspaceInner {
     /// writes may not. The first overflow creates it, so it may be
     /// missing when the turn starts.
     overflow: PathBuf,
+    capability: Option<CapabilityLease>,
 }
 
 #[derive(Clone)]
@@ -59,6 +66,22 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn open(cwd: PathBuf, reach: Reach, overflow: PathBuf) -> Result<Self, ToolError> {
+        Self::open_with_capability(cwd, reach, overflow, None)
+    }
+
+    pub(crate) fn open_with_capability(
+        cwd: PathBuf,
+        reach: Reach,
+        overflow: PathBuf,
+        capability: Option<CapabilityLease>,
+    ) -> Result<Self, ToolError> {
+        let callback_cwd = if cwd.is_absolute() {
+            cwd.clone()
+        } else {
+            std::env::current_dir()
+                .map(|directory| directory.join(&cwd))
+                .unwrap_or_else(|_| cwd.clone())
+        };
         let cwd = cwd.canonicalize().map_err(|error| {
             ToolError::new(format!(
                 "The Toad workspace {} is unavailable: {error}",
@@ -82,11 +105,22 @@ impl Workspace {
         Ok(Self {
             inner: Arc::new(WorkspaceInner {
                 cwd,
+                callback_cwd,
                 root,
                 dir,
                 reach,
                 overflow,
+                capability,
             }),
+        })
+    }
+
+    /// Checks the authority immediately before a built-in operation starts.
+    /// Cloned tools retain the same lease, so changing reach or revoking a
+    /// session closes every already-built workspace too.
+    pub(crate) fn check_capability(&self) -> Result<(), ToolError> {
+        self.inner.capability.as_ref().map_or(Ok(()), |capability| {
+            capability.check().map_err(ToolError::permission_denied)
         })
     }
 
@@ -97,6 +131,150 @@ impl Workspace {
     /// The teammate's one policy, so the shell can confine a command or not.
     pub fn reach(&self) -> Reach {
         self.inner.reach
+    }
+
+    /// Reads a text file named by a protocol callback. ACP gives the client
+    /// an absolute path, while the built-in tools deliberately take relative
+    /// paths, so this adapter accepts an absolute path only when it names a
+    /// file inside this workspace. Resolution still goes through the same
+    /// canonical cap-std directory as every other read.
+    pub(crate) fn read_text_path(
+        &self,
+        path: &Path,
+        line: Option<u32>,
+        limit: Option<u32>,
+    ) -> Result<String, ToolError> {
+        self.check_capability()?;
+        let requested = self.callback_path(path)?;
+        // Protocol callbacks have no overflow namespace: they are the
+        // harness's view of the workspace itself, never a way to reach a
+        // result spill directory owned by Toad.
+        let relative = self.canonical_subpath(&requested, false)?;
+        let dir = self.inner.dir.try_clone().map_err(|error| {
+            ToolError::new(format!(
+                "The Toad workspace {} could not be opened: {error}",
+                self.inner.root.display()
+            ))
+        })?;
+        let file = dir.open(&relative)?;
+        let mut bytes = Vec::new();
+        file.take(MAX_WRITE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_WRITE_BYTES {
+            return Err(ToolError::new(format!(
+                "{} exceeds the {MAX_WRITE_BYTES}-byte read limit.",
+                path.display()
+            )));
+        }
+        let text = String::from_utf8(bytes)
+            .map_err(|_| ToolError::new(format!("{} is not a UTF-8 text file.", path.display())))?;
+        if line.is_none() && limit.is_none() {
+            return Ok(text);
+        }
+        let from = line.unwrap_or(1).saturating_sub(1) as usize;
+        let lines: Vec<&str> = text.split('\n').skip(from).collect();
+        let kept = match limit {
+            Some(limit) => &lines[..lines.len().min(limit as usize)],
+            None => &lines[..],
+        };
+        Ok(kept.join("\n"))
+    }
+
+    /// Reads an optional managed file without following its final symlink.
+    /// The distinction between absent and inaccessible matters to callers
+    /// that preserve handwritten files, such as the ACP identity materializer.
+    pub(crate) fn read_text_if_exists_path(
+        &self,
+        path: &Path,
+    ) -> Result<Option<String>, ToolError> {
+        self.check_capability()?;
+        let requested = self.callback_path(path)?;
+        let relative = self.requested_relative(&requested, false)?;
+        let Some(bytes) = self.read_optional(&relative)? else {
+            return Ok(None);
+        };
+        let text = String::from_utf8(bytes)
+            .map_err(|_| ToolError::new(format!("{} is not a UTF-8 text file.", path.display())))?;
+        Ok(Some(text))
+    }
+
+    /// Atomically writes a protocol callback file through the same mutation
+    /// checks as the built-in write tool. Parent directories are made one at
+    /// a time after rejecting symlinks, so an ACP request cannot create a
+    /// directory through a link that points outside the workspace.
+    pub(crate) fn write_text_path(&self, path: &Path, content: &str) -> Result<(), ToolError> {
+        self.check_capability()?;
+        if content.len() > MAX_WRITE_BYTES {
+            return Err(ToolError::new(format!(
+                "Writes are limited to {MAX_WRITE_BYTES} bytes."
+            )));
+        }
+        let requested = self.callback_path(path)?;
+        let relative = self.requested_relative(&requested, false)?;
+        if let Some(parent) = relative.parent() {
+            self.ensure_parent(parent)?;
+        }
+        let mutation = self.prepare_write(WriteFileArgs {
+            path: requested,
+            content: content.to_string(),
+            overwrite: Some(true),
+        })?;
+        self.commit_mutation(mutation).map(|_| ())
+    }
+
+    /// Converts the path vocabulary of an external protocol to this
+    /// Workspace's relative vocabulary. A Workspace never accepts a path
+    /// that is merely lexically outside and hopes canonicalization will bring
+    /// it back; callers have to name a path under the captured root.
+    fn callback_path(&self, path: &Path) -> Result<String, ToolError> {
+        let relative = if self.inner.reach == Reach::Workspace && path.is_absolute() {
+            path.strip_prefix(&self.inner.cwd)
+                .or_else(|_| path.strip_prefix(&self.inner.callback_cwd))
+                .map_err(|_| {
+                    ToolError::permission_denied(
+                        "The ACP file callback may only access the teammate's workspace.",
+                    )
+                })?
+        } else {
+            path
+        };
+        let relative = relative
+            .to_str()
+            .ok_or_else(|| ToolError::new("ACP file callback paths must be valid UTF-8."))?;
+        if relative.is_empty() {
+            return Err(ToolError::new("Name a file inside the workspace."));
+        }
+        Ok(relative.to_string())
+    }
+
+    fn ensure_parent(&self, parent: &Path) -> Result<(), ToolError> {
+        let mut current = PathBuf::new();
+        for component in parent.components() {
+            let Component::Normal(part) = component else {
+                continue;
+            };
+            validate_platform_component(part.to_string_lossy().as_ref())?;
+            current.push(part);
+            match self.inner.dir.symlink_metadata(&current) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(ToolError::new(
+                        "Creating files through symbolic links is not allowed.",
+                    ));
+                }
+                Ok(metadata) if !metadata.is_dir() => {
+                    return Err(ToolError::new(format!(
+                        "{} is not a directory.",
+                        display_relative(&current)
+                    )));
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    self.inner.dir.create_dir(&current)?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 
     /// Where a path may point, as the tools describe it to the model. The
@@ -227,6 +405,7 @@ impl Workspace {
     }
 
     fn read_file(&self, args: ReadFileArgs) -> Result<String, ToolError> {
+        self.check_capability()?;
         let (dir, relative, _) = self.resolve_readable(&args.path, false)?;
         let file = dir
             .open(&relative)
@@ -292,6 +471,7 @@ impl Workspace {
     }
 
     fn list_directory(&self, args: ListDirectoryArgs) -> Result<String, ToolError> {
+        self.check_capability()?;
         let requested = args.path.as_deref().unwrap_or(".");
         let (dir, relative, _) = self.resolve_readable(requested, true)?;
         let directory = dir.open_dir(&relative).map_err(|error| {
@@ -324,6 +504,7 @@ impl Workspace {
     }
 
     fn search_files(&self, args: SearchFilesArgs) -> Result<String, ToolError> {
+        self.check_capability()?;
         validate_pattern(&args.pattern)?;
         let limit = bounded_limit(
             args.max_results,
@@ -403,6 +584,7 @@ impl Workspace {
     }
 
     fn find_files(&self, args: FindFilesArgs) -> Result<String, ToolError> {
+        self.check_capability()?;
         validate_pattern(&args.pattern)?;
         let limit = bounded_limit(
             args.max_results,
@@ -452,6 +634,7 @@ impl Workspace {
     }
 
     fn prepare_write(&self, args: WriteFileArgs) -> Result<PreparedMutation, ToolError> {
+        self.check_capability()?;
         if args.content.len() > MAX_WRITE_BYTES {
             return Err(ToolError::new(format!(
                 "Writes are limited to {MAX_WRITE_BYTES} bytes."
@@ -474,6 +657,7 @@ impl Workspace {
     }
 
     fn prepare_edit(&self, args: EditFileArgs) -> Result<PreparedMutation, ToolError> {
+        self.check_capability()?;
         if args.old_text.is_empty() {
             return Err(ToolError::new("old_text may not be empty."));
         }
@@ -517,6 +701,7 @@ impl Workspace {
     }
 
     fn commit_mutation(&self, mutation: PreparedMutation) -> Result<String, ToolError> {
+        self.check_capability()?;
         let current = self.read_optional(&mutation.relative)?;
         if current != mutation.before {
             return Err(ToolError::new(format!(
@@ -583,6 +768,7 @@ impl Workspace {
     }
 
     fn atomic_write(&self, relative: &Path, content: &[u8]) -> Result<(), ToolError> {
+        self.check_capability()?;
         let parent = relative
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -1256,6 +1442,7 @@ mod tests {
         ReadFile, ReadFileArgs, SearchFiles, SearchFilesArgs, Workspace, WriteFile, WriteFileArgs,
         normalize_relative_path,
     };
+    use crate::driver::CapabilityEpoch;
     use crate::tools::RunCommand;
     use rig::tool::Tool;
     use std::{
@@ -1500,6 +1687,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_revoked_workspace_handle_refuses_reads_and_writes() {
+        let directory = TestDirectory::new();
+        fs::write(directory.path().join("canary.txt"), "still here\n").unwrap();
+        let epoch = CapabilityEpoch::default();
+        let workspace = Workspace::open_with_capability(
+            directory.path().to_path_buf(),
+            Reach::Workspace,
+            directory.path().join("overflow"),
+            Some(epoch.lease()),
+        )
+        .unwrap();
+        epoch.invalidate();
+
+        let read = workspace.read_file(ReadFileArgs {
+            path: "canary.txt".to_string(),
+            start_line: None,
+            max_lines: None,
+        });
+        assert!(
+            read.unwrap_err()
+                .to_string()
+                .contains("capabilities have been revoked")
+        );
+        let write = workspace.prepare_write(WriteFileArgs {
+            path: "new.txt".to_string(),
+            content: "should not land\n".to_string(),
+            overwrite: None,
+        });
+        assert!(
+            write
+                .unwrap_err()
+                .to_string()
+                .contains("capabilities have been revoked")
+        );
+        assert!(!directory.path().join("new.txt").exists());
     }
 
     #[test]

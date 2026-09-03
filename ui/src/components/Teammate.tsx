@@ -7,6 +7,7 @@ import type {
 	PersonaComputer,
 	PolicyMode,
 	ScheduledJob,
+	SessionInfo,
 	SessionState,
 	TeammateToolLedger,
 	ToolLedgerRow,
@@ -38,7 +39,7 @@ import type { OpenThread } from "./Thread";
  */
 export function Teammate({
 	persona,
-	sessionState,
+	session,
 	jobs,
 	focusSchedules,
 	onClose,
@@ -46,7 +47,7 @@ export function Teammate({
 	onOpenThread,
 }: {
 	persona: Persona;
-	sessionState: SessionState;
+	session: SessionInfo;
 	jobs: ScheduledJob[];
 	focusSchedules: boolean;
 	onClose(): void;
@@ -60,12 +61,37 @@ export function Teammate({
 	const [confirm, setConfirm] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const [harnessName, setHarnessName] = useState<string | null>(session.agentName ?? null);
+	const toad = persona.backendId === "pi";
 
 	useEffect(() => {
 		setName(persona.name);
 		setGoal(persona.goal);
 		setCwd(persona.cwd);
 	}, [persona.name, persona.goal, persona.cwd]);
+
+	useEffect(() => {
+		if (toad) {
+			setHarnessName(null);
+			return;
+		}
+		if (session.agentName !== undefined && session.agentName !== "") {
+			setHarnessName(session.agentName);
+			return;
+		}
+		let cancelled = false;
+		void wire.command("backends.list", {}).then(
+			(list) => {
+				if (!cancelled) setHarnessName(list.find((one) => one.id === persona.backendId)?.name ?? null);
+			},
+			() => {
+				if (!cancelled) setHarnessName(null);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [persona.backendId, session.agentName, toad]);
 
 	const save = (patch: Partial<Persona>) => {
 		if (busy) return;
@@ -113,6 +139,9 @@ export function Teammate({
 	};
 
 	const machine = persona.reach === "machine";
+	const modeLabel = session.modeLabel ?? "Runtime mode";
+	const modeValue = session.currentModeId ?? "";
+	const harness = harnessName ?? "the ACP harness";
 
 	return (
 		<aside className="inspector" aria-label={`${persona.name}'s settings`}>
@@ -183,25 +212,69 @@ export function Teammate({
 
 					<section>
 						<h3 className="label">Reach</h3>
-						<div className="grouped">
-							<label className="group-row group-row-choice">
-								<span className="group-row-text">
-									<span className="group-row-title">Whole machine</span>
-									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-										{machine
-											? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
-											: "Off: tools stop at the working directory. Nothing outside it is read, changed or run."}
+						{toad ? (
+							<div className="grouped">
+								<label className="group-row group-row-choice">
+									<span className="group-row-text">
+										<span className="group-row-title">Whole machine</span>
+										<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+											{machine
+												? "Tools can touch the rest of the machine. The working directory is where they start, not a wall."
+												: "Off: file tools stay in the working directory. On Linux, the shell can use installed tools while other host files are hidden. Granted integrations have their own permissions."}
+										</span>
 									</span>
-								</span>
-								<input
-									type="checkbox"
-									className="switch"
-									checked={machine}
-									disabled={busy}
-									onChange={(event) => save({ reach: event.target.checked ? "machine" : "workspace" })}
-								/>
-							</label>
-						</div>
+									<input
+										type="checkbox"
+										className="switch"
+										checked={machine}
+										disabled={busy}
+										onChange={(event) => save({ reach: event.target.checked ? "machine" : "workspace" })}
+									/>
+								</label>
+							</div>
+						) : (
+							<>
+								<div className="grouped">
+									<div className="group-row">
+										<span className="group-row-text">
+											<span className="group-row-title">Externally managed by {harness}</span>
+											<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+												This harness manages its own tool permissions. File access it delegates to Toad stays in this workspace.
+											</span>
+										</span>
+									</div>
+								</div>
+								<div className="grouped mt-2">
+									{session.modes.length > 0 ? (
+										<Picker
+											field
+											value={modeValue}
+											choices={session.modes}
+											placeholder={modeLabel}
+											label={modeLabel}
+											disabled={busy}
+											onChange={(modeId) => {
+												setRefusal(null);
+												void wire
+													.command("session.set_mode", { personaId: persona.id, modeId })
+													.catch((error: Error) => setRefusal(error.message));
+											}}
+										/>
+									) : (
+										<div className="group-row">
+											<span className="group-row-text">
+												<span className="group-row-title">{modeLabel}</span>
+												<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+													{session.state === "idle" || session.state === "stopped"
+														? "Unavailable: this harness has not advertised a runtime mode."
+														: "This harness has not advertised a runtime mode."}
+												</span>
+											</span>
+										</div>
+									)}
+								</div>
+							</>
+						)}
 					</section>
 
 					<ComputerSection
@@ -212,6 +285,12 @@ export function Teammate({
 						onChange={(computer) => save({ computer })}
 					/>
 
+					<BackgroundWork
+						enabled={persona.backgroundWork === true}
+						disabled={busy}
+						onChange={(backgroundWork) => save({ backgroundWork })}
+					/>
+
 					<McpGrant
 						policy={persona.mcpPolicy}
 						servers={servers}
@@ -219,9 +298,14 @@ export function Teammate({
 						onChange={(mcpPolicy) => save({ mcpPolicy })}
 					/>
 
-					<ToolLedger personaId={persona.id} sessionState={sessionState} servers={servers} />
+					<ToolLedger personaId={persona.id} sessionState={session.state} servers={servers} />
 
-					<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
+					<Schedules
+						personaId={persona.id}
+						jobs={jobs}
+						backgroundWork={persona.backgroundWork === true}
+						focus={focusSchedules}
+					/>
 
 					<Threads personaId={persona.id} onOpen={onOpenThread} />
 
@@ -268,6 +352,42 @@ export function Teammate({
 	);
 }
 
+function BackgroundWork({
+	enabled,
+	disabled,
+	onChange,
+}: {
+	enabled: boolean;
+	disabled: boolean;
+	onChange(enabled: boolean): void;
+}) {
+	return (
+		<section>
+			<h3 className="label">Background work</h3>
+			<div className="grouped">
+				<label className="group-row group-row-choice">
+					<span className="group-row-text">
+						<span className="group-row-title">Persistent schedules</span>
+						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+							{enabled
+								? "This teammate's own schedules can wake it after the current session stops. Stopping a current session does not revoke this standing authority."
+								: "Off: this teammate cannot create new schedules, and its existing schedules pause until Background work is granted again. Jobs you add here still run."}
+						</span>
+					</span>
+					<input
+						type="checkbox"
+						className="switch"
+						checked={enabled}
+						disabled={disabled}
+						onChange={(event) => onChange(event.target.checked)}
+					/>
+				</label>
+			</div>
+			<p className="hint">Revoking this grant pauses teammate-created schedules and cancels queued background work immediately.</p>
+		</section>
+	);
+}
+
 const STATE_WORDS: Record<ComputerStatus["state"], { title: string; detail: string }> = {
 	running: { title: "Running", detail: "The desktop is up. Stopping it keeps the container for the next start." },
 	stopped: { title: "Stopped", detail: "The container is kept and wakes on the next start. Removing it starts over." },
@@ -279,7 +399,7 @@ const STATE_WORDS: Record<ComputerStatus["state"], { title: string; detail: stri
  * the container is doing now. The status is a peek every few seconds while
  * the pane is open — asking never wakes anything, so the line can be
  * honest about a desktop that stopped on its own. Stop and Remove act on
- * the container, not the teammate; the switch is what the next start reads.
+ * the container. Changing its grant rebuilds a running teammate's tools.
  */
 function ComputerSection({
 	personaId,
@@ -400,7 +520,7 @@ function ComputerSection({
 					</div>
 				)}
 			</div>
-			<p className="hint">A change reaches the teammate on its next start.</p>
+			<p className="hint">Changing this setting cancels current work and refreshes a running teammate’s tools.</p>
 			{(enabled || state !== "absent") && (
 				<div className="grouped mt-2">
 					<div className="group-row flex-col items-stretch gap-2">
@@ -452,9 +572,9 @@ function ComputerSection({
 }
 
 const GRANT_MODES: { id: PolicyMode; name: string; detail: string }[] = [
-	{ id: "all", name: "Every server", detail: "Whatever the room has, now and later" },
-	{ id: "none", name: "None", detail: "Only the agent's own tools" },
-	{ id: "some", name: "Some", detail: "Only the servers ticked below" },
+	{ id: "none", name: "No servers", detail: "Default for new teammates" },
+	{ id: "some", name: "Selected servers", detail: "Only the servers ticked below" },
+	{ id: "all", name: "All servers", detail: "Every gateway server, including ones added later" },
 ];
 
 /**
@@ -482,6 +602,7 @@ function McpGrant({
 	return (
 		<section>
 			<h3 className="label">MCP servers</h3>
+			<p className="hint">Grant access from the MCP gateway. Each server keeps its own permissions, including access outside the working directory.</p>
 			<Picker
 				field
 				value={policy.mode}
@@ -515,7 +636,7 @@ function McpGrant({
 						))}
 					</div>
 				))}
-			<p className="hint">A change reaches the teammate on its next start.</p>
+			<p className="hint">Changes apply immediately to future work. A tool call already in progress may finish.</p>
 		</section>
 	);
 }
@@ -563,7 +684,8 @@ function ToolLedger({
 
 	return (
 		<section>
-			<h3 className="label">Tools</h3>
+			<h3 className="label">Tools at last start</h3>
+			<p className="hint">This records what attached then. Current grants determine what the teammate can use now.</p>
 			{ledger === null ? (
 				<p className="hint mt-0">Tools attach when the session starts. Nothing has started yet.</p>
 			) : (

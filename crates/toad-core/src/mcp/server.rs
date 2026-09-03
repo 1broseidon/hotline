@@ -24,6 +24,7 @@
 //! implementation and one caller is a layer that buys nothing.
 
 use crate::contract::{ChapterClose, ScheduleKind, ScheduledJob, ToolSourceKind};
+use crate::driver::CapabilityLease;
 use crate::session::{Room, ledger, now_ms, parse_duration, parse_when};
 use crate::store;
 use rmcp::ErrorData;
@@ -88,7 +89,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in. `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows the jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room, and `message_teammate` asks one of them something and waits for their answer. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -173,7 +174,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             SCHEDULE,
-            "Wake yourself once at a future time and do the given prompt. `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The pane labels the job from the prompt. The user can see, quiet and cancel this from your schedules.",
+            "Wake yourself once at a future time and do the given prompt. This requires the operator's Background work grant; `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The pane labels the job from the prompt. The user can see, quiet and cancel this from your schedules.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -190,7 +191,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             LOOP,
-            "Wake yourself on a repeating interval and do the given prompt each time. `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The pane labels the job from the prompt. The user can see, quiet and cancel this from your schedules.",
+            "Wake yourself on a repeating interval and do the given prompt each time. This requires the operator's Background work grant; `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The pane labels the job from the prompt. The user can see, quiet and cancel this from your schedules.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -207,12 +208,10 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             LIST_SCHEDULES,
-            "List scheduled and looping jobs. Omit target to see your own. Pass a personaId to see another teammate's.",
+            "List your own scheduled and looping jobs. Other teammates' prompts are private; this tool never lists them.",
             schema(json!({
                 "type": "object",
-                "properties": {
-                    "target": { "type": "string", "description": "personaId; omit for yourself" },
-                },
+                "properties": {},
                 "additionalProperties": false,
             })),
         ),
@@ -236,6 +235,7 @@ fn descriptors() -> Vec<Tool> {
 pub struct TeammateTools {
     room: Weak<Room>,
     persona_id: String,
+    capability: Option<CapabilityLease>,
 }
 
 impl TeammateTools {
@@ -243,12 +243,28 @@ impl TeammateTools {
         Self {
             room: Arc::downgrade(room),
             persona_id: persona_id.into(),
+            capability: None,
         }
+    }
+
+    /// Binds these handles to one session generation. A clone kept by an old
+    /// driver still points at the room, but every call is refused after that
+    /// generation is revoked.
+    pub(crate) fn with_capability(mut self, capability: CapabilityLease) -> Self {
+        self.capability = Some(capability);
+        self
+    }
+
+    pub(crate) fn capability(&self) -> Option<CapabilityLease> {
+        self.capability.clone()
     }
 
     /// Runs one of them. The name and arguments are the MCP call's, so
     /// the in-process agent and the child reach exactly the same code.
     pub async fn call(&self, name: &str, arguments: &Value) -> Result<String, String> {
+        if let Some(capability) = &self.capability {
+            capability.check()?;
+        }
         let room = self
             .room
             .upgrade()
@@ -351,7 +367,7 @@ impl TeammateTools {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let when = parse_when(when, now_ms()).ok_or_else(|| not_a_when(when))?;
-                Ok(created(room.schedule_create(
+                Ok(created(room.schedule_create_agent(
                     &self.persona_id,
                     ScheduleKind::Schedule,
                     Some(when),
@@ -376,7 +392,7 @@ impl TeammateTools {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let every = parse_duration(every).ok_or_else(|| not_a_when(every))?;
-                Ok(created(room.schedule_create(
+                Ok(created(room.schedule_create_agent(
                     &self.persona_id,
                     ScheduleKind::Loop,
                     None,
@@ -386,16 +402,16 @@ impl TeammateTools {
                 )?))
             }
             LIST_SCHEDULES => {
-                let target = arguments
-                    .get("target")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|target| !target.is_empty())
-                    .unwrap_or(&self.persona_id);
+                // Keep this check even though the schema omits `target`:
+                // direct MCP callers can still send arbitrary JSON, and a
+                // field hidden from the model is not an authorization rule.
+                if arguments.get("target").is_some() {
+                    return Err("list_schedules only shows your own jobs.".to_string());
+                }
                 let jobs: Vec<Value> = room
                     .schedule_list()
                     .into_iter()
-                    .filter(|job| job.persona_id == target)
+                    .filter(|job| job.persona_id == self.persona_id.as_str())
                     .map(listed_job)
                     .collect();
                 Ok(json!({ "jobs": jobs }).to_string())
@@ -690,6 +706,7 @@ mod tests {
                 mode: PolicyMode::None,
                 server_ids: Vec::new(),
             },
+            background_work: true,
             web_search_policy: None,
             computer: None,
             subagents: None,
@@ -890,6 +907,7 @@ mod tests {
         assert_eq!(jobs[0].kind, ScheduleKind::Schedule);
         assert_eq!(jobs[0].prompt, "check the crane");
         assert_eq!(jobs[0].next_at, next_at);
+        assert!(!jobs[0].operator_created);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -917,6 +935,7 @@ mod tests {
         assert_eq!(jobs[0].every, Some(expect));
         assert_eq!(jobs[0].kind, ScheduleKind::Loop);
         assert_eq!(jobs[0].prompt, "sweep the inbox");
+        assert!(!jobs[0].operator_created);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -963,11 +982,44 @@ mod tests {
         assert!(jobs[0].get("when").is_some());
         assert!(jobs[0].get("every").is_none());
 
-        let theirs = through_rig(&tools(&room), LIST_SCHEDULES, json!({ "target": "bob" })).await;
-        let theirs: Value = serde_json::from_str(&theirs).unwrap();
-        assert_eq!(theirs["jobs"][0]["prompt"], "bob's sweep");
-        assert_eq!(theirs["jobs"][0]["kind"], "loop");
-        assert_eq!(theirs["jobs"][0]["every"], 5 * 60_000);
+        let refused = tools(&room)
+            .call(LIST_SCHEDULES, &json!({ "target": "bob" }))
+            .await
+            .unwrap_err();
+        assert_eq!(refused, "list_schedules only shows your own jobs.");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn scheduling_requires_background_work_but_operator_jobs_do_not() {
+        let mut persona = ada();
+        persona.background_work = false;
+        let log = Log::open(scratch("schedule-grant"));
+        write_persona(&log, persona);
+        let room = Room::new(log, Arc::new(NoKeys));
+
+        for (name, arguments) in [
+            (SCHEDULE, json!({ "when": "20m", "prompt": "check" })),
+            (LOOP, json!({ "every": "5m", "prompt": "sweep" })),
+        ] {
+            let refused = tools(&room).call(name, &arguments).await.unwrap_err();
+            assert_eq!(
+                refused,
+                "Background work is not granted for this teammate; ask the operator to enable it."
+            );
+        }
+
+        let operator_job = room
+            .schedule_create(
+                "ada",
+                ScheduleKind::Schedule,
+                Some(now_ms() + 20 * 60_000),
+                None,
+                "operator check",
+                false,
+            )
+            .unwrap();
+        assert!(operator_job.operator_created);
+        assert_eq!(room.schedule_list(), vec![operator_job]);
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -122,6 +122,38 @@ async fn keyed(client: &mut Client) {
     assert_eq!(made["ok"], true, "{made}");
 }
 
+async fn set_policy(client: &mut Client, persona_id: &str, mode: &str, server_ids: &[&str]) {
+    let patched = client
+        .call(
+            "persona.update",
+            json!({
+                "id": persona_id,
+                "patch": { "mcpPolicy": { "mode": mode, "serverIds": server_ids } },
+            }),
+        )
+        .await;
+    assert_eq!(patched["ok"], true, "{patched}");
+}
+
+async fn mcp_tools(client: &mut Client, persona_id: &str) -> Vec<String> {
+    let tools = client
+        .call("teammate.tools", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(tools["ok"], true, "{tools}");
+    let mut names: Vec<String> = tools["result"]["rows"]
+        .as_array()
+        .expect("a started session has a ledger")
+        .iter()
+        .filter(|row| row["source"] == "mcp")
+        .map(|row| {
+            assert_eq!(row["state"], "verified", "{row}");
+            row["name"].as_str().unwrap().to_string()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches_it() {
     let (_root, port) = open("granted").await;
@@ -145,6 +177,8 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
         .await;
     assert_eq!(created["ok"], true, "{created}");
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+
+    set_policy(&mut client, &persona_id, "some", &["echo"]).await;
 
     let started = client
         .call("session.start", json!({ "personaId": persona_id }))
@@ -235,7 +269,7 @@ async fn toad_agent_gets_toads_own_tools() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_policy_of_none_yields_no_mcp_rows() {
+async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
     let (_root, port) = open("none").await;
     let mut client = Client::connect(port).await;
     keyed(&mut client).await;
@@ -253,30 +287,95 @@ async fn a_policy_of_none_yields_no_mcp_rows() {
         )
         .await;
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
-    let patched = client
-        .call(
-            "persona.update",
-            json!({
-                "id": persona_id,
-                "patch": { "mcpPolicy": { "mode": "none", "serverIds": [] } },
-            }),
-        )
-        .await;
-    assert_eq!(patched["ok"], true, "{patched}");
+    assert_eq!(
+        created["result"]["mcpPolicy"],
+        json!({ "mode": "none", "serverIds": [] })
+    );
 
     let started = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;
     assert_eq!(started["ok"], true, "{started}");
 
-    let tools = client
-        .call("teammate.tools", json!({ "personaId": persona_id }))
+    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+
+    let patched = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "reach": "machine" } }),
+        )
         .await;
-    let rows = tools["result"]["rows"].as_array().unwrap();
-    assert!(
-        rows.iter().all(|row| row["source"] == "builtin"),
-        "{rows:?}"
+    assert_eq!(patched["ok"], true, "{patched}");
+    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn gateway_access_is_explicit_and_changes_rebuild_the_live_tools() {
+    let (_root, port) = open("gateway").await;
+    let mut client = Client::connect(port).await;
+    keyed(&mut client).await;
+    let created = client
+        .call("persona.create", json!({ "draft": { "name": "Ada" } }))
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+
+    let mut servers = vec![echo_server()];
+    let updated = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "mcpServers": servers } }),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+
+    set_policy(&mut client, &persona_id, "some", &["echo"]).await;
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, ["echo__shout"]);
+
+    let mut other = echo_server();
+    other["id"] = json!("other");
+    other["name"] = json!("Other");
+    servers.push(other);
+    let updated = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "mcpServers": servers } }),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, ["echo__shout"]);
+
+    set_policy(&mut client, &persona_id, "all", &["echo"]).await;
+    assert_eq!(
+        mcp_tools(&mut client, &persona_id).await,
+        ["echo__shout", "other__shout"]
     );
+    let mut later = echo_server();
+    later["id"] = json!("later");
+    later["name"] = json!("Later");
+    servers.push(later);
+    let updated = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "mcpServers": servers } }),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert_eq!(
+        mcp_tools(&mut client, &persona_id).await,
+        ["echo__shout", "later__shout", "other__shout"]
+    );
+
+    // Retained selections are dormant while access is off.
+    set_policy(&mut client, &persona_id, "none", &["echo"]).await;
+    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+    set_policy(&mut client, &persona_id, "some", &["echo"]).await;
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, ["echo__shout"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -312,6 +411,7 @@ async fn a_server_that_fails_to_start_is_absent_with_the_error_as_its_reason() {
         )
         .await;
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    set_policy(&mut client, &persona_id, "some", &["gone"]).await;
     let started = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;
@@ -396,6 +496,7 @@ async fn a_non_string_env_value_is_absent_naming_the_key() {
         )
         .await;
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    set_policy(&mut client, &persona_id, "some", &["needs-token"]).await;
     let started = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;

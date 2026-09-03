@@ -21,7 +21,10 @@
 //!   and not a bare wake, because a turn between two of its own awaits is
 //!   waiting nowhere, and a wake nobody is waiting for never happened.
 
-use super::{Driver, DriverInfo, MessageKind, ToolImage, Update, clip, with_image_placeholders};
+use super::{
+    CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
+    with_image_placeholders,
+};
 use crate::contract::{
     AgentKind, Attachment, ConfigChoice, NoticeLevel, Persona, Reach, SessionConfig, TokenUsage,
     ToolSourceKind,
@@ -133,6 +136,8 @@ pub struct InProcess {
     /// are the functions themselves, not a server reached over a transport:
     /// Toad Agent and Toad's MCP server are two halves of one program.
     teammate: TeammateTools,
+    /// Shared with every tool handle this session created.
+    capability: Option<CapabilityLease>,
 }
 
 impl InProcess {
@@ -163,6 +168,7 @@ impl InProcess {
             mcp_missing: Vec::new(),
             mcp: Mutex::new(None),
             teammate,
+            capability: None,
         }
     }
 
@@ -171,6 +177,11 @@ impl InProcess {
     pub fn with_mcp(mut self, servers: Vec<McpServer>, missing: Vec<String>) -> Self {
         self.mcp_servers = servers;
         self.mcp_missing = missing;
+        self
+    }
+
+    pub(crate) fn with_capability(mut self, capability: CapabilityLease) -> Self {
+        self.capability = Some(capability);
         self
     }
 
@@ -195,6 +206,9 @@ impl InProcess {
 #[async_trait]
 impl Driver for InProcess {
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
+        if let Some(capability) = &self.capability {
+            capability.check()?;
+        }
         let keys = self.keys.provider_auth();
         let choices = models::choices(
             &keys,
@@ -217,7 +231,12 @@ impl Driver for InProcess {
             .effort_id
             .clone()
             .filter(|id| models::efforts(&model).iter().any(|offered| offered == id));
-        let connected = mcp::connect(&persona.id, &self.mcp_servers).await;
+        let connected =
+            mcp::connect_with_capability(&persona.id, &self.mcp_servers, self.capability.clone())
+                .await;
+        if let Some(capability) = &self.capability {
+            capability.check()?;
+        }
         publish_ledger(persona, &self.mcp_missing, &connected);
         *lock(&self.mcp) = Some(connected);
         Ok(self.info(&keys))
@@ -231,6 +250,19 @@ impl Driver for InProcess {
     ) -> mpsc::Receiver<Update> {
         let text = with_paths(&text, &attachments);
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        if let Some(capability) = &self.capability
+            && let Err(error) = capability.check()
+        {
+            let _ = sender.try_send(Update::Notice {
+                level: NoticeLevel::Error,
+                text: error,
+            });
+            let _ = sender.try_send(Update::Turn {
+                stop_reason: "revoked".to_string(),
+                usage: None,
+            });
+            return receiver;
+        }
         // The stop this turn answers to, installed before the turn is spawned
         // so a Stop pressed the instant the prompt returns still finds it.
         let stop = Arc::new(Stop::default());
@@ -256,6 +288,7 @@ impl Driver for InProcess {
             stop,
             output_dir: self.output_dir.clone(),
             mcp_tools,
+            capability: self.capability.clone(),
         };
         tokio::spawn(async move {
             if let Err(error) = turn.run(&sender, text).await {
@@ -272,6 +305,17 @@ impl Driver for InProcess {
 
     fn cancel(&self) {
         lock(&self.stop).raise();
+    }
+
+    fn invalidate(&self) {
+        if let Some(capability) = &self.capability {
+            capability.revoke();
+        }
+        self.cancel();
+        // Dropping the live connections closes transports and kills granted
+        // stdio server groups immediately. Cloned McpTool handles still carry
+        // the lease and refuse calls after the room advances it.
+        lock(&self.mcp).take();
     }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
@@ -384,16 +428,27 @@ struct Turn {
     stop: Arc<Stop>,
     output_dir: PathBuf,
     mcp_tools: Vec<DynamicTool>,
+    capability: Option<CapabilityLease>,
 }
 
 impl Turn {
     async fn run(&self, sender: &mpsc::Sender<Update>, text: String) -> Result<(), String> {
+        if let Some(capability) = &self.capability {
+            capability.check()?;
+        }
         // Taken first so a failure after we have the prompt still keeps the
         // line: cancel already did, and a retry without the question reaches
         // the model as a stranger.
         let mut history = self.history.lock().await;
-        let workspace = match Workspace::open(self.cwd.clone(), self.reach, self.output_dir.clone())
-        {
+        if let Some(capability) = &self.capability {
+            capability.check()?;
+        }
+        let workspace = match Workspace::open_with_capability(
+            self.cwd.clone(),
+            self.reach,
+            self.output_dir.clone(),
+            self.capability.clone(),
+        ) {
             Ok(workspace) => workspace,
             Err(error) => {
                 remember_prompt(&mut history, &text);
@@ -793,6 +848,7 @@ fn effort_config(model_id: &str, current: Option<&str>) -> Vec<SessionConfig> {
     vec![SessionConfig {
         id: "effort".to_string(),
         name: "Effort".to_string(),
+        category: Some(crate::contract::SessionConfigCategory::Effort),
         current_id: current.map(str::to_string),
         options,
     }]
@@ -1287,6 +1343,7 @@ mod tests {
             stop: Arc::new(Stop::default()),
             output_dir: root.join("out"),
             mcp_tools: Vec::new(),
+            capability: None,
         };
         let (sender, _receiver) = mpsc::channel(8);
         let result = turn.run(&sender, "did the crane jam?".to_string()).await;

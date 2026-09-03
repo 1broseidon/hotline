@@ -30,10 +30,9 @@
 //!   message reaches it. That is [`chapters`], and it lives here for the same
 //!   reason: a chapter is a fact about the room, not about the agent.
 //!
-//! Reach is read from the roster at every prompt rather than from the persona
-//! the session started with, so a turn already running sees a new wall. A
-//! change that rebuilds the driver — reach, tools, the workspace, the
-//! harness — is a reattach, not a wait for the next start.
+//! Drivers and tools capture revocable session authority. Changes to reach,
+//! tools, the workspace, or the harness invalidate old handles and queued
+//! work before a live session is rebuilt.
 
 mod chapters;
 pub(crate) mod ledger;
@@ -55,7 +54,9 @@ use crate::contract::{
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
 use crate::driver::rig::{InProcess, Said};
-use crate::driver::{Driver, MessageKind, PI_BACKEND_ID, Update, clip};
+use crate::driver::{
+    CapabilityEpoch, CapabilityLease, Driver, DriverInfo, MessageKind, PI_BACKEND_ID, Update, clip,
+};
 use crate::log::{Log, StreamId, thread};
 use crate::mcp;
 use crate::mcp::server::TeammateTools;
@@ -68,10 +69,9 @@ use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
-use tokio::sync::{Notify, broadcast, oneshot};
+use tokio::sync::{Mutex as TokioMutex, Notify, broadcast, oneshot, watch};
 
 /// How much of a tool's output the transcript keeps. The model was given all
 /// of it; this is the size of the bubble.
@@ -203,30 +203,37 @@ impl Agents for DeskAgents {
         // The computer is not part of mcpPolicy: a teammate that asked for a
         // machine gets it even on a policy of none.
         grant.servers.extend(extra_mcp);
+        let capability = tools.capability();
         if persona.backend_id == PI_BACKEND_ID {
-            return Ok(Arc::new(
-                InProcess::new(
-                    self.keys.clone(),
-                    preamble,
-                    said,
-                    self.root.join("tool-output").join(&persona.id),
-                    tools,
-                )
-                .with_mcp(grant.servers, grant.missing),
-            ));
+            let driver = InProcess::new(
+                self.keys.clone(),
+                preamble,
+                said,
+                self.root.join("tool-output").join(&persona.id),
+                tools,
+            )
+            .with_mcp(grant.servers, grant.missing);
+            let driver = match capability {
+                Some(capability) => driver.with_capability(capability),
+                None => driver,
+            };
+            return Ok(Arc::new(driver));
         }
         // The registry answers whether this machine can start that harness at
         // all, and says what is missing when it cannot.
         acp::registry::launch(&self.root, &persona.backend_id)?;
-        Ok(Arc::new(
-            ChildAgent::new(
-                self.root.clone(),
-                persona.backend_id.clone(),
-                preamble,
-                tools,
-            )
-            .with_mcp(grant.servers, grant.missing),
-        ))
+        let driver = ChildAgent::new(
+            self.root.clone(),
+            persona.backend_id.clone(),
+            preamble,
+            tools,
+        )
+        .with_mcp(grant.servers, grant.missing);
+        let driver = match capability {
+            Some(capability) => driver.with_capability(capability),
+            None => driver,
+        };
+        Ok(Arc::new(driver))
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
@@ -270,6 +277,8 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
 /// One teammate's live conversation.
 struct Session {
     persona_id: String,
+    /// The generation every driver and tool handle for this session shares.
+    capability: CapabilityLease,
     /// Which agent is answering, because a checkpoint is kept per backend and
     /// the tape's chapter markers name the one that wrote them.
     backend_id: String,
@@ -294,11 +303,6 @@ struct Session {
     /// restored from a checkpoint has nothing to write: the id is already on
     /// the record.
     pending_checkpoint: Mutex<Option<String>>,
-    /// A change to what this teammate can use arrived while a turn was
-    /// running. The swap waits until the session is between turns, because a
-    /// message already on its way is worth more than new tools landing one
-    /// turn sooner.
-    restart_pending: AtomicBool,
 }
 
 /// Something a prompt wants stamped on the user line it is about to write,
@@ -347,6 +351,9 @@ struct Sending {
 struct Wired {
     text: String,
     attachments: Vec<Attachment>,
+    /// Authorization travels with the queued turn: a one-shot job may have
+    /// left the room stream by the time the driver is free to take it.
+    scheduled: Option<ScheduledRun>,
 }
 
 impl Wired {
@@ -354,6 +361,7 @@ impl Wired {
         Self {
             text: text.into(),
             attachments: Vec::new(),
+            scheduled: None,
         }
     }
 }
@@ -404,6 +412,11 @@ pub struct Room {
     /// which costs search and never a record.
     indexer: Mutex<Option<Indexer>>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
+    /// Authorities are retained across stop so an old lease can never become
+    /// valid merely because a new session starts for the same teammate.
+    capabilities: Mutex<HashMap<String, CapabilityEpoch>>,
+    /// Serializes candidate publication with invalidation.
+    lifecycle: Mutex<()>,
     /// One start at a time, per teammate.
     ///
     /// The wire, a schedule firing and the chapter gate all bring a teammate
@@ -419,6 +432,10 @@ pub struct Room {
     /// Wakes the scheduler when a job is written, so a create does not wait
     /// for the nearest existing nextAt.
     schedule_changed: Arc<Notify>,
+    /// Serializes schedule folds with tombstones and replacement events. A
+    /// fire never holds this across its session start or prompt: it takes the
+    /// lock only when it is ready to re-fold and append the next durable word.
+    schedule_mutations: Mutex<()>,
     /// The sessions teammates answer each other out of.
     peers: peers::Peers,
     /// A `request_human` wait, by the card's action id. The tool parks on
@@ -427,6 +444,9 @@ pub struct Room {
     human_waits: Mutex<HashMap<String, HumanWait>>,
     /// One container per teammate, tokens in process state.
     computers: Computer,
+    /// Serializes policy changes across sockets, including the interval from
+    /// capability invalidation through the durable append and reattach.
+    policy_updates: Arc<TokioMutex<()>>,
 }
 
 impl Room {
@@ -459,18 +479,29 @@ impl Room {
             agents,
             indexer: Mutex::new(indexer),
             sessions: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashMap::new()),
+            lifecycle: Mutex::new(()),
             starts: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
+            schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
             computers: Computer::new(),
+            policy_updates: Arc::new(TokioMutex::new(())),
         });
         room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
         room
+    }
+
+    /// The room-wide gate used by the wire around policy updates. A caller
+    /// holds it across invalidate, the log append, and reattach so another
+    /// socket cannot reactivate a generation between those steps.
+    pub(crate) fn policy_update_lock(&self) -> Arc<TokioMutex<()>> {
+        self.policy_updates.clone()
     }
 
     /// The startup fold and the index, brought in line with the files before
@@ -521,12 +552,15 @@ impl Room {
     /// starts the same teammate — gets the session that exists, not a second
     /// agent on the same tape that only one of them could ever stop.
     pub async fn start(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
+        let capability = self.capability_lease(persona_id);
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
+        capability.check()?;
         if lock(&self.sessions).contains_key(persona_id) {
+            self.session(persona_id)?;
             return Ok(self.info(persona_id));
         }
-        self.start_now(persona_id).await
+        self.start_now(persona_id, capability).await
     }
 
     /// This teammate's start gate, made the first time anyone starts it.
@@ -537,9 +571,32 @@ impl Room {
             .clone()
     }
 
+    fn capability_epoch(&self, persona_id: &str) -> CapabilityEpoch {
+        lock(&self.capabilities)
+            .entry(persona_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    fn capability_lease(&self, persona_id: &str) -> CapabilityLease {
+        self.capability_epoch(persona_id).lease()
+    }
+
+    fn current_session(&self, candidate: &Arc<Session>) -> bool {
+        lock(&self.sessions)
+            .get(&candidate.persona_id)
+            .is_some_and(|current| Arc::ptr_eq(current, candidate))
+    }
+
     /// The start itself. The caller is holding this teammate's gate.
-    async fn start_now(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
+    async fn start_now(
+        self: &Arc<Self>,
+        persona_id: &str,
+        capability: CapabilityLease,
+    ) -> Result<SessionInfo, String> {
+        capability.check()?;
         let persona = self.persona(persona_id)?;
+        capability.check()?;
         let in_process = persona.backend_id == PI_BACKEND_ID;
         // The directory exists from the moment the teammate can be spoken to.
         // A workspace under the data directory is made here; one the user
@@ -553,15 +610,17 @@ impl Room {
         if !in_process {
             // An ACP session takes no system prompt, so who the teammate is
             // has to be on disk before the child is started.
-            acp::materialize_agents_md(&persona).map_err(|error| {
-                format!("{}'s AGENTS.md could not be written: {error}", persona.name)
-            })?;
+            acp::materialize_agents_md_with_capability(&persona, Some(capability.clone()))
+                .map_err(|error| {
+                    format!("{}'s AGENTS.md could not be written: {error}", persona.name)
+                })?;
         }
         // Wake the computer before the grant so a teammate that asked for a
         // machine either has one or the start fails with the runtime's
         // sentence — never a silent absence. The grant itself is appended
         // regardless of mcpPolicy.
         let extra_mcp = self.grant_computer(&persona).await?;
+        capability.check()?;
         // The agent's context is one chapter: it hears what was said in the
         // chapter it is joining, and the wake block tells it about the one
         // that closed before it — which is the whole of what a fresh context
@@ -576,10 +635,25 @@ impl Room {
             &persona,
             preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
             said(&events),
-            TeammateTools::new(self, &persona.id),
+            TeammateTools::new(self, &persona.id).with_capability(capability.clone()),
             extra_mcp,
         )?;
-        let reported = driver.start(&persona).await?;
+        // Subscribe before startup: ACP may publish a picker change between
+        // its handshake snapshot and the moment this session enters the room.
+        // The receiver keeps that update until the guarded watcher is attached
+        // after publication below.
+        let info_updates = driver.subscribe_info();
+        let reported = match driver.start(&persona).await {
+            Ok(reported) => reported,
+            Err(error) => {
+                driver.invalidate();
+                return Err(error);
+            }
+        };
+        if let Err(error) = capability.check() {
+            driver.invalidate();
+            return Err(error);
+        }
         let mut info = idle_info(&persona.id);
         info.state = SessionState::Ready;
         info.agent_name = Some(reported.agent_name);
@@ -596,6 +670,7 @@ impl Room {
         info.capabilities = reported.capabilities;
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
+            capability: capability.clone(),
             backend_id: persona.backend_id.clone(),
             driver,
             info: Mutex::new(info.clone()),
@@ -606,9 +681,19 @@ impl Room {
             pending_checkpoint: Mutex::new(
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
-            restart_pending: AtomicBool::new(false),
         });
-        lock(&self.sessions).insert(persona.id.clone(), session);
+        {
+            let _lifecycle = lock(&self.lifecycle);
+            if let Err(error) = capability.check() {
+                session.driver.invalidate();
+                return Err(error);
+            }
+            lock(&self.sessions).insert(persona.id.clone(), session.clone());
+            let _ = self.info_changes.send(info.clone());
+        }
+        if let Some(info_updates) = info_updates {
+            self.watch_driver_info(&session, info_updates);
+        }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
         self.begin_chapter(&persona.id, &persona.backend_id);
@@ -626,7 +711,6 @@ impl Room {
                 },
             );
         }
-        let _ = self.info_changes.send(info.clone());
         Ok(info)
     }
 
@@ -668,12 +752,76 @@ impl Room {
         Ok(vec![crate::computer::mcp_server(&ready)])
     }
 
+    /// Revokes a teammate's current generation before its replacement policy
+    /// is written. Keeping the session record until reattach lets a live
+    /// caller restart it, while the inactive epoch blocks starts that race
+    /// inside the wire's invalidate-to-append window.
+    pub fn invalidate(&self, persona_id: &str) -> Result<(), String> {
+        self.persona(persona_id)?;
+        {
+            let _lifecycle = lock(&self.lifecycle);
+            self.capability_epoch(persona_id).invalidate();
+            let session = lock(&self.sessions).get(persona_id).cloned();
+            if let Some(session) = &session {
+                self.revoke_session(session);
+            }
+        }
+        self.drop_peer_sessions(persona_id);
+        self.settle_permissions(persona_id);
+        self.release_human_waits(persona_id);
+        self.computers.mark_idle(persona_id, now_ms());
+        Ok(())
+    }
+
+    /// The caller holds the lifecycle lock and has closed the epoch. Keep
+    /// the record for reattachment, but never present revoked execution as
+    /// ready if persisting its replacement policy fails.
+    fn revoke_session(&self, session: &Arc<Session>) {
+        lock(&session.turns).waiting.clear();
+        session.driver.invalidate();
+        let info = {
+            let mut info = lock(&session.info);
+            info.state = SessionState::Stopped;
+            info.clone()
+        };
+        let _ = self.info_changes.send(info);
+    }
+
+    /// Revokes every live and cached session when room-wide infrastructure
+    /// changes. All authorities remain quarantined until `reattach_all`
+    /// activates the generations against the new settings.
+    pub fn invalidate_all(&self) -> Result<(), String> {
+        let roster_ids: Vec<String> = room::roster(&self.log)
+            .into_iter()
+            .map(|persona| persona.id)
+            .collect();
+        let sessions = {
+            let _lifecycle = lock(&self.lifecycle);
+            for persona_id in &roster_ids {
+                self.capability_epoch(persona_id).invalidate();
+            }
+            let sessions: Vec<Arc<Session>> = lock(&self.sessions).values().cloned().collect();
+            for session in &sessions {
+                self.revoke_session(session);
+            }
+            sessions
+        };
+        self.peers.invalidate_all();
+        for session in sessions {
+            self.settle_permissions(&session.persona_id);
+            self.release_human_waits(&session.persona_id);
+            self.computers.mark_idle(&session.persona_id, now_ms());
+        }
+        Ok(())
+    }
+
     /// A deleted teammate: its own session stopped, every peer session it was
     /// a side of dropped, and its start gate let go, because nothing should
     /// wait behind — or be kept for — an id that names nobody any more.
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
         self.drop_peer_sessions(persona_id);
+        lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
         let computers = self.computers.clone();
         let id = persona_id.to_string();
@@ -684,17 +832,42 @@ impl Room {
 
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
-        let Some(session) = lock(&self.sessions).remove(persona_id) else {
-            return Ok(());
+        self.stop_with_capability(persona_id);
+        Ok(())
+    }
+
+    /// A chapter restart captures its replacement authority in the same
+    /// critical section as stopping the old session, so a later stop also
+    /// cancels a replacement that has not reached its first await yet.
+    fn stop_with_capability(&self, persona_id: &str) -> CapabilityLease {
+        let (session, capability) = {
+            let _lifecycle = lock(&self.lifecycle);
+            // A stop invalidates this session's handles. Preserve an already
+            // quarantined epoch so a concurrent policy update is not reopened
+            // by the routine stop path.
+            let epoch = self.capability_epoch(persona_id);
+            epoch.stop();
+            (lock(&self.sessions).remove(persona_id), epoch.lease())
         };
-        session.driver.cancel();
+        self.drop_peer_sessions(persona_id);
+        let Some(session) = session else {
+            self.settle_permissions(persona_id);
+            self.release_human_waits(persona_id);
+            self.computers.mark_idle(persona_id, now_ms());
+            return capability;
+        };
+        lock(&session.turns).waiting.clear();
+        session.driver.invalidate();
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;
-        let _ = self.info_changes.send(info);
-        Ok(())
+        let _lifecycle = lock(&self.lifecycle);
+        if !lock(&self.sessions).contains_key(persona_id) {
+            let _ = self.info_changes.send(info);
+        }
+        capability
     }
 
     /// Rebuilds a live session from the teammate's current record, so a change
@@ -702,29 +875,29 @@ impl Room {
     ///
     /// Behind the start gate: two reattaches, or a reattach racing a chapter
     /// swap, would otherwise stop the session the other had just brought up.
-    /// No live session is nothing to do — the next start builds from the new
-    /// state anyway. A turn in flight sets a flag and returns; the swap
-    /// happens when that turn (and any line queued behind it) has finished.
+    /// An old turn cannot delay the change: its handles are revoked before
+    /// replacement, and its remaining updates cannot change the new session.
     pub async fn reattach(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
-        let Some(session) = lock(&self.sessions).get(persona_id).cloned() else {
+        // The wire invalidates before appending. Repeating it also gives
+        // direct callers the same stale-driver boundary.
+        self.invalidate(persona_id)?;
+        let capability = {
+            let _lifecycle = lock(&self.lifecycle);
+            let was_running = lock(&self.sessions).remove(persona_id).is_some();
+            let epoch = self.capability_epoch(persona_id);
+            epoch.activate();
+            self.schedule_changed.notify_one();
+            was_running.then(|| epoch.lease())
+        };
+        let Some(capability) = capability else {
             return Ok(());
         };
-        let busy = lock(&session.turns).running
-            || matches!(
-                lock(&session.info).state,
-                SessionState::Thinking | SessionState::Starting
-            );
-        if busy {
-            session.restart_pending.store(true, Ordering::SeqCst);
-            return Ok(());
-        }
-        self.stop(persona_id)?;
         // A restart that fails to start (a key gone, a harness missing) leaves
-        // the teammate stopped — stop already ran — and the band has to say
+        // the teammate stopped, and the band has to say
         // why, because nobody pressed Start to be handed the error.
-        if let Err(error) = self.start_now(persona_id).await {
+        if let Err(error) = self.start_now(persona_id, capability).await {
             let mut info = idle_info(persona_id);
             info.state = SessionState::Stopped;
             info.error = Some(error.clone());
@@ -737,11 +910,18 @@ impl Room {
     /// Every live session, because a policy of "all" includes every server
     /// and a narrower one is cheap to restart anyway.
     pub async fn reattach_all(self: &Arc<Self>) -> Result<(), String> {
-        let ids: Vec<String> = lock(&self.sessions).keys().cloned().collect();
+        let mut ids: HashSet<String> = room::roster(&self.log)
+            .into_iter()
+            .map(|persona| persona.id)
+            .collect();
+        ids.extend(lock(&self.sessions).keys().cloned());
+        let mut first_error = None;
         for id in ids {
-            self.reattach(&id).await?;
+            if let Err(error) = self.reattach(&id).await {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     /// The session this message goes to, which is not always the one that was
@@ -769,8 +949,8 @@ impl Room {
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
             return Ok(session);
         }
-        self.stop(persona_id)?;
-        self.start_now(persona_id).await?;
+        let capability = self.stop_with_capability(persona_id);
+        self.start_now(persona_id, capability).await?;
         self.session(persona_id)
     }
 
@@ -801,6 +981,7 @@ impl Room {
                 wire: Wired {
                     text: text.to_string(),
                     attachments: attachments.clone().unwrap_or_default(),
+                    scheduled: None,
                 },
                 attachments,
             },
@@ -822,7 +1003,11 @@ impl Room {
         run: ScheduledRun,
     ) -> Result<(), String> {
         let session = self.in_this_chapter(persona_id).await?;
-        let wire = Wired::words(scheduled_wire_text(&run, prompt));
+        if !schedule::scheduled_run_allowed(&self.log, persona_id, &run) {
+            return Err("Background work is not granted for this teammate.".to_string());
+        }
+        let mut wire = Wired::words(scheduled_wire_text(&run, prompt));
+        wire.scheduled = Some(run.clone());
         mark(&session.pending_scheduled, run);
         self.say(
             &session,
@@ -896,19 +1081,69 @@ impl Room {
         Ok(())
     }
 
-    pub async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
-        let session = self.session(persona_id)?;
-        let reported = session.driver.set_model(model_id).await?;
+    /// Keeps ACP's live picker metadata in the roster without putting a
+    /// protocol notification on the tape. Weak references let the watcher
+    /// disappear with a stopped session instead of retaining a room/session
+    /// cycle while the driver is being torn down.
+    fn watch_driver_info(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mut updates: watch::Receiver<DriverInfo>,
+    ) {
+        let room = Arc::downgrade(self);
+        let session = Arc::downgrade(session);
+        tokio::spawn(async move {
+            while updates.changed().await.is_ok() {
+                let Some(room) = room.upgrade() else {
+                    break;
+                };
+                let Some(session) = session.upgrade() else {
+                    break;
+                };
+                let reported = updates.borrow_and_update().clone();
+                if room.apply_driver_info(&session, &reported).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
+    /// Applies only mutable picker metadata from a driver response. The
+    /// lifecycle and lease checks happen while the session is still captured,
+    /// so a setter response or ACP notification from a replaced driver cannot
+    /// overwrite the current session's state, identity, or checkpoint.
+    fn apply_driver_info(
+        &self,
+        session: &Arc<Session>,
+        reported: &DriverInfo,
+    ) -> Result<SessionInfo, String> {
+        let _lifecycle = lock(&self.lifecycle);
+        session.capability.check()?;
+        if !lock(&self.sessions)
+            .get(&session.persona_id)
+            .is_some_and(|current| Arc::ptr_eq(current, session))
+        {
+            return Err("That session is no longer current.".to_string());
+        }
         let info = {
             let mut info = lock(&session.info);
-            info.models = reported.models;
-            info.current_model_id = Some(reported.current_model_id);
-            info.model_label = reported.model_label;
-            info.configs = reported.configs;
+            info.models = reported.models.clone();
+            info.current_model_id = Some(reported.current_model_id.clone());
+            info.model_label = reported.model_label.clone();
+            info.modes = reported.modes.clone();
+            info.current_mode_id = reported.current_mode_id.clone();
+            info.mode_label = reported.mode_label.clone();
+            info.configs = reported.configs.clone();
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());
         Ok(info)
+    }
+
+    pub async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
+        let session = self.session(persona_id)?;
+        let reported = session.driver.set_model(model_id).await?;
+        self.apply_driver_info(&session, &reported)
     }
 
     pub async fn set_config(
@@ -919,33 +1154,13 @@ impl Room {
     ) -> Result<SessionInfo, String> {
         let session = self.session(persona_id)?;
         let reported = session.driver.set_config(config_id, value).await?;
-        let info = {
-            let mut info = lock(&session.info);
-            info.models = reported.models;
-            info.current_model_id = Some(reported.current_model_id);
-            info.model_label = reported.model_label;
-            info.modes = reported.modes;
-            info.current_mode_id = reported.current_mode_id;
-            info.mode_label = reported.mode_label;
-            info.configs = reported.configs;
-            info.clone()
-        };
-        let _ = self.info_changes.send(info.clone());
-        Ok(info)
+        self.apply_driver_info(&session, &reported)
     }
 
     pub async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String> {
         let session = self.session(persona_id)?;
         let reported = session.driver.set_mode(mode_id).await?;
-        let info = {
-            let mut info = lock(&session.info);
-            info.modes = reported.modes;
-            info.current_mode_id = reported.current_mode_id;
-            info.mode_label = reported.mode_label;
-            info.clone()
-        };
-        let _ = self.info_changes.send(info.clone());
-        Ok(info)
+        self.apply_driver_info(&session, &reported)
     }
 
     /// Answers a permission the agent is waiting on.
@@ -1331,19 +1546,24 @@ impl Room {
         // Point the persona's checkpoint back at the previous chapter's
         // session, which is what an ACP child will try to resume. Toad Agent
         // has no checkpoint; its restore is the tape slice `said` will seed.
-        if let Some(session_id) = previous.get("sessionId").and_then(Value::as_str) {
-            if let Err(error) =
-                room::checkpoint_session(&self.log, persona_id, &persona.backend_id, session_id)
-            {
-                eprintln!(
-                    "{}'s checkpoint was not pointed back at the previous chapter: {error}",
-                    persona.name
-                );
-            }
-        } else if persona.backend_id != PI_BACKEND_ID
-            && let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id)
         {
-            eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+            let policy_updates = self.policy_update_lock();
+            let _held = policy_updates.lock().await;
+            if let Some(session_id) = previous.get("sessionId").and_then(Value::as_str) {
+                if let Err(error) =
+                    room::checkpoint_session(&self.log, persona_id, &persona.backend_id, session_id)
+                {
+                    eprintln!(
+                        "{}'s checkpoint was not pointed back at the previous chapter: {error}",
+                        persona.name
+                    );
+                }
+            } else if persona.backend_id != PI_BACKEND_ID
+                && let Err(error) =
+                    room::clear_checkpoint(&self.log, persona_id, &persona.backend_id)
+            {
+                eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+            }
         }
 
         let id = new_id();
@@ -1429,8 +1649,12 @@ impl Room {
         // Closing a chapter lets go of the agent's own memory of it: the next
         // message starts a context that has never seen it and reads the note
         // instead. The session is not touched; the promise to reopen it is.
-        if let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id) {
-            eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+        {
+            let policy_updates = self.policy_update_lock();
+            let _held = policy_updates.lock().await;
+            if let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id) {
+                eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+            }
         }
         let spoken_in = slice
             .iter()
@@ -1594,8 +1818,26 @@ impl Room {
     async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: Wired) {
         let mut next = Some(first);
         while let Some(wired) = next.take() {
+            if !session.capability.is_current() || !self.current_session(&session) {
+                let mut turns = lock(&session.turns);
+                turns.waiting.clear();
+                turns.running = false;
+                break;
+            }
             self.set_state(&session, SessionState::Thinking);
             let reach = self.reach_of(&session.persona_id);
+            if !session.capability.is_current() || !self.current_session(&session) {
+                let mut turns = lock(&session.turns);
+                turns.waiting.clear();
+                turns.running = false;
+                break;
+            }
+            if wired.scheduled.as_ref().is_some_and(|run| {
+                !schedule::scheduled_run_allowed(&self.log, &session.persona_id, run)
+            }) {
+                next = lock(&session.turns).next_line();
+                continue;
+            }
             let mut updates = session
                 .driver
                 .prompt(wired.text, wired.attachments, reach)
@@ -1626,23 +1868,11 @@ impl Room {
             }
             next = lock(&session.turns).next_line();
         }
+        if !self.current_session(&session) || !session.capability.is_current() {
+            lock(&session.turns).running = false;
+            return;
+        }
         self.set_state(&session, SessionState::Ready);
-        // A queued line ran first: we only get here once Turns is empty. A
-        // tool change that arrived mid-turn waits until then, because a
-        // message the person already sent is worth more than new tools
-        // landing one turn sooner.
-        if lock(&session.turns).running {
-            return;
-        }
-        if !session.restart_pending.swap(false, Ordering::SeqCst) {
-            return;
-        }
-        if let Err(error) = self.reattach(&session.persona_id).await {
-            eprintln!(
-                "{} could not be restarted after a tool change: {error}",
-                session.persona_id
-            );
-        }
     }
 
     /// One driver update, as the tape and the wire see it.
@@ -1697,6 +1927,10 @@ impl Room {
     /// and a checkpoint that fails to load is a teammate that starts cold
     /// believing it did not have to.
     fn checkpoint(&self, session: &Session) {
+        let _lifecycle = lock(&self.lifecycle);
+        if !session.capability.is_current() {
+            return;
+        }
         let Some(session_id) = lock(&session.pending_checkpoint).take() else {
             return;
         };
@@ -1791,7 +2025,16 @@ impl Room {
         }
     }
 
-    fn set_state(&self, session: &Session, state: SessionState) {
+    fn set_state(&self, session: &Arc<Session>, state: SessionState) {
+        let _lifecycle = lock(&self.lifecycle);
+        if !session.capability.is_current()
+            || !lock(&self.sessions)
+                .get(&session.persona_id)
+                .is_some_and(|current| Arc::ptr_eq(current, session))
+            || (state == SessionState::Ready && lock(&session.turns).running)
+        {
+            return;
+        }
         let info = {
             let mut info = lock(&session.info);
             info.state = state;
@@ -1819,10 +2062,12 @@ impl Room {
     }
 
     fn session(&self, persona_id: &str) -> Result<Arc<Session>, String> {
-        lock(&self.sessions)
+        let session = lock(&self.sessions)
             .get(persona_id)
             .cloned()
-            .ok_or_else(|| "That teammate is not running.".to_string())
+            .ok_or_else(|| "That teammate is not running.".to_string())?;
+        session.capability.check()?;
+        Ok(session)
     }
 }
 
@@ -2159,14 +2404,20 @@ fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
 /// house style is not a second briefing an ACP child gets and Toad Agent does
 /// not.
 pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> String {
-    // No reach is an agent whose tools are its own: Toad enforces nothing over
-    // them, so it promises nothing about them either.
+    // An ACP harness manages its own tools; only file operations it delegates
+    // to Toad share Toad's workspace boundary.
     let reach_sentence = match reach {
         Some(Reach::Workspace) => {
-            " Your tools reach inside that directory and nowhere else: a path that leaves it is refused."
+            if cfg!(target_os = "linux") {
+                " Your built-in file tools stay in that directory: a path that leaves it is refused, except for your saved tool output. The shell also has read-only installed tools and a private home at .toad-home inside the workspace; other host files are hidden. Granted integrations have their own permissions."
+            } else {
+                " Your built-in file tools stay in that directory: a path that leaves it is refused, except for your saved tool output. Shell restrictions depend on the operating system; consult its tool description. Granted integrations have their own permissions."
+            }
         }
         Some(Reach::Machine) => " Your tools reach the whole machine, not only that directory.",
-        None => "",
+        None => {
+            " Your harness manages the permissions of its own tools. File operations delegated to Toad through ACP stay inside your working directory."
+        }
     };
     // A computer is granted at start, outside the policy, so the agent is told
     // here rather than by a tool listing: what the desktop is, that the person

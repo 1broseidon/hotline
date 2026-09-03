@@ -62,6 +62,8 @@ struct Quiet {
     deltas: broadcast::Sender<StreamDelta>,
     states: Mutex<HashMap<String, SessionInfo>>,
     reattaches: Mutex<Vec<String>>,
+    invalidations: Mutex<Vec<String>>,
+    policy_updates: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Quiet {
@@ -71,6 +73,8 @@ impl Quiet {
             deltas: broadcast::channel(16).0,
             states: Mutex::new(HashMap::new()),
             reattaches: Mutex::new(Vec::new()),
+            invalidations: Mutex::new(Vec::new()),
+            policy_updates: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -92,6 +96,10 @@ impl Quiet {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
+        self.policy_updates.clone()
+    }
+
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
         let mut info = idle(persona_id);
         info.current_model_id = Some("anthropic/claude".to_string());
@@ -101,6 +109,18 @@ impl RoomHandle for Quiet {
 
     fn stop(&self, _persona_id: &str) -> Result<(), String> {
         Ok(())
+    }
+
+    fn invalidate(&self, persona_id: &str) -> Result<(), String> {
+        self.invalidations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(persona_id.to_string());
+        Ok(())
+    }
+
+    fn invalidate_all(&self) -> Result<(), String> {
+        self.invalidate("*")
     }
 
     async fn reattach(&self, persona_id: &str) -> Result<(), String> {
@@ -174,6 +194,7 @@ impl RoomHandle for Quiet {
         info.configs = vec![crate::contract::SessionConfig {
             id: config_id.to_string(),
             name: config_id.to_string(),
+            category: None,
             current_id: Some(value.to_string()),
             options: Vec::new(),
         }];
@@ -722,7 +743,7 @@ async fn a_new_teammate_takes_the_rooms_defaults() {
     );
     assert_eq!(
         created["mcpPolicy"],
-        json!({ "mode": "all", "serverIds": [] })
+        json!({ "mode": "none", "serverIds": [] })
     );
     assert_eq!(created["sessionCheckpoints"], json!([]));
     assert_eq!(created["createdAt"], created["updatedAt"]);
@@ -1516,6 +1537,7 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
     .await;
     assert_eq!(answered(&mut socket, 2).await["ok"], true);
     assert_eq!(quiet.reattached(), vec![id.clone()]);
+    assert_eq!(*quiet.invalidations.lock().unwrap(), vec![id.clone()]);
 
     ask(
         &mut socket,
@@ -1529,8 +1551,25 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
     assert_eq!(answered(&mut socket, 3).await["ok"], true);
     assert_eq!(
         quiet.reattached(),
-        vec![id],
+        vec![id.clone()],
         "a name patch reattached a second time"
+    );
+    assert_eq!(*quiet.invalidations.lock().unwrap(), vec![id.clone()]);
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 4,
+            "cmd": "persona.update",
+            "params": { "id": id, "patch": { "reach": "invalid" } },
+        }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 4).await["ok"], false);
+    assert_eq!(
+        *quiet.invalidations.lock().unwrap(),
+        vec![id],
+        "an invalid patch must not revoke a working session"
     );
 }
 
@@ -1574,6 +1613,7 @@ async fn settings_update_of_mcp_servers_reattaches_every_live_session() {
     let mut want = vec![ada_id, bob_id];
     want.sort();
     assert_eq!(got, want);
+    assert_eq!(*quiet.invalidations.lock().unwrap(), vec!["*"]);
 
     ask(
         &mut socket,
@@ -1588,6 +1628,7 @@ async fn settings_update_of_mcp_servers_reattaches_every_live_session() {
     let mut after = quiet.reattached();
     after.sort();
     assert_eq!(after, want, "a chapterIdleHours patch reattached again");
+    assert_eq!(*quiet.invalidations.lock().unwrap(), vec!["*"]);
 }
 
 #[tokio::test]

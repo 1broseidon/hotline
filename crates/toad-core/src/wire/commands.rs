@@ -26,15 +26,26 @@ pub(crate) async fn run(
     match command {
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => {
-            let updated = update_persona(log, &id, &patch)?;
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            let updated = update_persona(log, room, &id, &patch)?;
             if persona_patch_reattaches(&patch) {
                 room.reattach(&id).await?;
             }
             Ok(updated)
         }
-        Command::PersonaDelete { id } => delete_persona(log, room, &id),
+        Command::PersonaDelete { id } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            delete_persona(log, room, &id)
+        }
         Command::SettingsUpdate { patch } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
             let servers = patch.contains_key("mcpServers");
+            if servers {
+                room.invalidate_all()?;
+            }
             let updated = update_settings(log, patch)?;
             if servers {
                 room.reattach_all().await?;
@@ -74,7 +85,7 @@ pub(crate) async fn run(
         Command::SessionStart { persona_id } => {
             let info = room.start(&persona_id).await?;
             if let Ok(persona) = living(log, &persona_id) {
-                remember_model(log, room, &persona)?;
+                remember_model(log, room, &persona).await?;
             }
             Ok(json!(info))
         }
@@ -88,7 +99,7 @@ pub(crate) async fn run(
             room.prompt(&persona_id, &text, reply_to, attachments)
                 .await?;
             if let Ok(persona) = living(log, &persona_id) {
-                remember_model(log, room, &persona)?;
+                remember_model(log, room, &persona).await?;
             }
             Ok(Value::Null)
         }
@@ -254,9 +265,10 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         harness_override: None,
         hop_notice: None,
         mcp_policy: McpPolicy {
-            mode: PolicyMode::All,
+            mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
+        background_work: false,
         web_search_policy: None,
         computer: draft.computer,
         subagents: None,
@@ -272,7 +284,12 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
 /// The patch over the record, and the whole record written again: a stream
 /// folds by id, so a line carrying only what changed would leave the fold
 /// holding only what changed.
-fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
+fn update_persona(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    id: &str,
+    patch: &Value,
+) -> Result<Value, String> {
     let previous = living(log, id)?;
     let mut record = json!(previous);
     let fields = record
@@ -289,6 +306,9 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
 
     let updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
+    if persona_patch_reattaches(patch) {
+        room.invalidate(id)?;
+    }
     room::append_persona(log, &updated)?;
     Ok(json!(updated))
 }
@@ -298,7 +318,7 @@ fn update_persona(log: &Log, id: &str, patch: &Value) -> Result<Value, String> {
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
 /// switch live.
 fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 7] = [
+    const KEYS: [&str; 8] = [
         "cwd",
         "reach",
         "goal",
@@ -306,6 +326,7 @@ fn persona_patch_reattaches(patch: &Value) -> bool {
         "computer",
         "backendId",
         "harnessOverride",
+        "backgroundWork",
     ];
     patch
         .as_object()
@@ -317,12 +338,13 @@ fn persona_patch_reattaches(patch: &Value) -> bool {
 /// notice.
 fn delete_persona(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<Value, String> {
     living(log, id)?;
-    crate::session::ledger::forget(id);
-    room.forget(id);
+    room.invalidate(id)?;
     append(
         log,
         &json!({ "kind": "persona", "id": id, "deleted": true }),
     )?;
+    crate::session::ledger::forget(id);
+    room.forget(id);
     Ok(Value::Null)
 }
 
@@ -367,7 +389,11 @@ async fn set_model(
         return Err("A model needs an id.".to_string());
     }
 
-    update_persona(log, persona_id, &json!({ "modelId": model_id }))?;
+    {
+        let gate = room.policy_update_lock();
+        let _held = gate.lock().await;
+        update_persona(log, room, persona_id, &json!({ "modelId": model_id }))?;
+    }
     // The persisted choice counts as a use, so lastModelId is the id
     // just written rather than whatever a live session happens to report.
     if persona.backend_id == PI_BACKEND_ID {
@@ -395,7 +421,7 @@ async fn set_config(
         // A harness may offer its model as a config; what it reports after
         // the change is remembered the same way a start's report is.
         let info = room.set_config(persona_id, config_id, value).await?;
-        remember_model(log, room, &persona)?;
+        remember_model(log, room, &persona).await?;
         return Ok(info);
     }
     if config_id != "effort" {
@@ -424,7 +450,11 @@ async fn set_config(
     } else {
         json!(value)
     };
-    update_persona(log, persona_id, &json!({ "effortId": effort }))?;
+    {
+        let gate = room.policy_update_lock();
+        let _held = gate.lock().await;
+        update_persona(log, room, persona_id, &json!({ "effortId": effort }))?;
+    }
 
     if room.info(persona_id).state != SessionState::Idle {
         return room.set_config(persona_id, config_id, value).await;
@@ -441,7 +471,13 @@ async fn set_config(
 /// teammate itself, so the band can name the model before the child is
 /// started again. A harness picks its own default and only says so once
 /// running; without this the teammate at rest has no model at all.
-fn remember_model(log: &Log, room: &Arc<dyn RoomHandle>, persona: &Persona) -> Result<(), String> {
+async fn remember_model(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona: &Persona,
+) -> Result<(), String> {
+    let gate = room.policy_update_lock();
+    let _held = gate.lock().await;
     let Some(model_id) = room.info(&persona.id).current_model_id else {
         return Ok(());
     };
@@ -454,7 +490,7 @@ fn remember_model(log: &Log, room: &Arc<dyn RoomHandle>, persona: &Persona) -> R
     if persona.model_id.as_deref() == Some(model_id.as_str()) {
         return Ok(());
     }
-    update_persona(log, &persona.id, &json!({ "modelId": model_id })).map(|_| ())
+    update_persona(log, room, &persona.id, &json!({ "modelId": model_id })).map(|_| ())
 }
 
 fn write_last_model(log: &Log, model_id: &str) -> Result<(), String> {

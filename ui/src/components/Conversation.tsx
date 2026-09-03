@@ -177,24 +177,25 @@ export function Conversation({
 		session.configs.length > 0
 			? session.configs
 			: toad && idleEfforts.length > 0
-				? [{ id: "effort", name: "Effort", currentId: persona.effortId ?? "", options: idleEfforts }]
+				? [{ id: "effort", name: "Effort", category: "effort", currentId: persona.effortId ?? "", options: idleEfforts }]
 				: [];
+	const visibleConfigs = toad ? configs : configs.filter((config) => config.category === "effort");
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const screen = useComputerViewer(personaId, running && (persona.computer?.enabled ?? false));
 	const openScreen = screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen);
-	const next = jobs.reduce<ScheduledJob | null>(
+	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
 	);
+	const scheduleDetail = next === null ? "Paused" : `Next ${nextText(next.nextAt)}`;
 
-	/* A narrow band keeps the name, the model and the three keys. Mode,
-	 * effort and whatever else the session offers move into the More menu
-	 * as checked groups, and so does the schedule line: the same choices,
-	 * one press further away, rather than a band that clips them. */
+	/* A narrow band keeps the name, the model and the three keys. Toad Agent's
+	 * mode and effort move into the More menu as checked groups, and so does the
+	 * schedule line: ACP runtime modes live in the Reach card instead. */
 	const narrow = useNarrow();
 	const folded: MenuEntry[] = [];
 	if (narrow) {
-		if (session.modes.length > 0) {
+		if (toad && session.modes.length > 0) {
 			folded.push({ kind: "heading", text: session.modeLabel ?? "Mode" });
 			for (const mode of session.modes) {
 				folded.push({
@@ -206,7 +207,7 @@ export function Conversation({
 				});
 			}
 		}
-		for (const config of configs) {
+		for (const config of visibleConfigs) {
 			folded.push({ kind: "heading", text: config.name });
 			for (const option of config.options) {
 				folded.push({
@@ -223,13 +224,13 @@ export function Conversation({
 				});
 			}
 		}
-		if (next !== null) {
+		if (jobs.length > 0) {
 			if (folded.length > 0) folded.push({ kind: "rule" });
 			folded.push({
 				kind: "item",
 				id: "schedules",
 				text: jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`,
-				detail: `Next ${nextText(next.nextAt)}`,
+				detail: scheduleDetail,
 				onSelect: onOpenSchedules,
 			});
 		}
@@ -283,17 +284,17 @@ export function Conversation({
 
 				<span className="min-w-0 flex-1" />
 
-				{next !== null && !narrow && (
+				{jobs.length > 0 && !narrow && (
 					<button
 						type="button"
 						className="control btn-quiet gap-1.5 px-2 text-sm"
 						title="Schedules"
-						aria-label={`${jobs.length} scheduled, next ${nextText(next.nextAt)}`}
+						aria-label={`${jobs.length} scheduled, ${scheduleDetail}`}
 						onClick={onOpenSchedules}
 					>
 						<ClockIcon className="text-ink-3" />
 						{jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`}
-						<span className="text-ink-3">{nextText(next.nextAt)}</span>
+						<span className="text-ink-3">{scheduleDetail}</span>
 					</button>
 				)}
 
@@ -320,7 +321,7 @@ export function Conversation({
 						</span>
 					)
 				)}
-				{session.modes.length > 0 && !narrow && (
+				{toad && session.modes.length > 0 && !narrow && (
 					<Picker
 						value={currentMode}
 						choices={session.modes}
@@ -329,7 +330,7 @@ export function Conversation({
 						onChange={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
 					/>
 				)}
-				{!narrow && configs.map((config) => (
+				{!narrow && visibleConfigs.map((config) => (
 					<Picker
 						key={config.id}
 						value={config.currentId ?? ""}

@@ -133,6 +133,7 @@ mod tests {
             job_id: "job-1".to_string(),
             kind: ScheduleKind::Loop,
             name: "Apple order check".to_string(),
+            operator_created: false,
             quiet: Some(true),
         }
     }
@@ -142,6 +143,7 @@ mod tests {
             job_id: "job-2".to_string(),
             kind: ScheduleKind::Loop,
             name: "Standup".to_string(),
+            operator_created: false,
             quiet: None,
         }
     }

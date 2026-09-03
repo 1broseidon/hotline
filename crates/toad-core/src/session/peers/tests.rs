@@ -7,7 +7,9 @@
 use super::*;
 use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
+use crate::mcp::server::TeammateTools;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use serde_json::json;
 
 /// A room with Ada and Bob enrolled, neither of them running.
 fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
@@ -289,6 +291,91 @@ async fn a_peer_session_that_has_gone_quiet_is_stopped_and_a_deleted_teammate_ta
     assert_eq!(lock(&room.peers.sessions).len(), 1);
     room.drop_peer_sessions("bob");
     assert!(lock(&room.peers.sessions).is_empty());
+}
+
+/// A peer-only session has two authorities: the caller is allowed to ask, and
+/// the target is allowed to answer. Dropping either side removes the cached
+/// driver and revokes the handles cloned into it, while a fresh lease remains
+/// usable after that side is reattached.
+#[tokio::test]
+async fn invalidating_either_side_revokes_cached_peer_tools_without_a_main_session() {
+    let room = room(
+        "invalidate-peer",
+        Fake::new(Scripted::turns(vec![
+            answers("a1", "first"),
+            answers("a2", "second"),
+        ])),
+    );
+
+    room.deliver("ada", "bob", "first question").await.unwrap();
+    let first = {
+        lock(&room.peers.sessions)
+            .get(&(String::from("ada"), String::from("bob")))
+            .cloned()
+            .expect("the first peer session is cached")
+    };
+    let first_target_tools =
+        TeammateTools::new(&room, "bob").with_capability(first.target_capability.clone());
+    assert!(
+        first_target_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .is_ok()
+    );
+
+    // There is no main session to stop: revoking the caller still has to
+    // invalidate the target driver and every tool handle it owns.
+    room.invalidate("ada").unwrap();
+    assert!(lock(&room.peers.sessions).is_empty());
+    let refused = first_target_tools
+        .call("list_teammates", &json!({}))
+        .await
+        .unwrap_err();
+    assert!(
+        refused.contains("capabilities have been revoked"),
+        "{refused}"
+    );
+
+    room.reattach("ada").await.unwrap();
+    let fresh_target_tools =
+        TeammateTools::new(&room, "bob").with_capability(room.capability_lease("bob"));
+    assert!(
+        fresh_target_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .is_ok()
+    );
+
+    room.deliver("ada", "bob", "second question").await.unwrap();
+    let second = {
+        lock(&room.peers.sessions)
+            .get(&(String::from("ada"), String::from("bob")))
+            .cloned()
+            .expect("the replacement peer session is cached")
+    };
+    let second_target_tools =
+        TeammateTools::new(&room, "bob").with_capability(second.target_capability.clone());
+
+    room.invalidate("bob").unwrap();
+    assert!(lock(&room.peers.sessions).is_empty());
+    let refused = second_target_tools
+        .call("list_teammates", &json!({}))
+        .await
+        .unwrap_err();
+    assert!(
+        refused.contains("capabilities have been revoked"),
+        "{refused}"
+    );
+
+    room.reattach("bob").await.unwrap();
+    let fresh_target_tools =
+        TeammateTools::new(&room, "bob").with_capability(room.capability_lease("bob"));
+    assert!(
+        fresh_target_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .is_ok()
+    );
 }
 
 /// The receipt machine, which is what the two ticks in a thread mean.

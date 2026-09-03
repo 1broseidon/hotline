@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::sync::{Notify, Semaphore, mpsc};
+use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
 /// A driver that says what it was told to say.
 ///
@@ -46,6 +46,7 @@ pub(super) struct Scripted {
     /// How many times the room asked this driver to stop, which is how a
     /// reattach proves the old one was cancelled rather than left running.
     cancels: Arc<Mutex<usize>>,
+    info_changes: Option<watch::Sender<DriverInfo>>,
 }
 
 impl Scripted {
@@ -66,7 +67,14 @@ impl Scripted {
             session_id: Arc::new(Mutex::new(None)),
             waiting: Arc::new(Mutex::new(Vec::new())),
             cancels: Arc::new(Mutex::new(0)),
+            info_changes: None,
         }
+    }
+
+    pub(super) fn with_info_changes(mut self) -> (Self, watch::Sender<DriverInfo>) {
+        let (sender, _receiver) = watch::channel(DriverInfo::default());
+        self.info_changes = Some(sender.clone());
+        (self, sender)
     }
 
     /// The script for the turn now being asked for.
@@ -145,6 +153,12 @@ impl Driver for Scripted {
         info.current_model_id = model_id.to_string();
         info.model_label = None;
         Ok(info)
+    }
+
+    fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
+        self.info_changes
+            .as_ref()
+            .map(|changes| changes.subscribe())
     }
 
     /// A card is answerable exactly once, the way a live request is.
@@ -266,6 +280,9 @@ pub(super) fn persona(id: &str) -> Persona {
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
+        // Existing scheduler fixtures represent a teammate that has been
+        // granted persistent work; revocation tests turn this off explicitly.
+        background_work: true,
         web_search_policy: None,
         computer: None,
         subagents: None,
@@ -828,6 +845,80 @@ async fn a_teammate_with_no_session_is_idle_and_a_started_one_reports_its_driver
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn driver_metadata_notifications_refresh_roster_without_tape_events() {
+    let (driver, changes) = Scripted::new(Vec::new()).with_info_changes();
+    let room = room("driver-info", Fake::new(driver));
+    let mut infos = room.subscribe_info();
+    room.start("ada").await.unwrap();
+    assert_eq!(infos.recv().await.unwrap().state, SessionState::Ready);
+
+    let updated = DriverInfo {
+        models: vec![ConfigChoice {
+            id: "anthropic/sonnet".to_string(),
+            name: "Sonnet".to_string(),
+            description: None,
+            group: None,
+        }],
+        current_model_id: "anthropic/sonnet".to_string(),
+        model_label: Some("Model".to_string()),
+        modes: vec![ConfigChoice {
+            id: "build".to_string(),
+            name: "Build".to_string(),
+            description: None,
+            group: None,
+        }],
+        current_mode_id: Some("build".to_string()),
+        mode_label: Some("Runtime mode".to_string()),
+        configs: vec![crate::contract::SessionConfig {
+            id: "reasoning".to_string(),
+            name: "Reasoning".to_string(),
+            category: Some(crate::contract::SessionConfigCategory::Effort),
+            current_id: Some("high".to_string()),
+            options: vec![ConfigChoice {
+                id: "high".to_string(),
+                name: "High".to_string(),
+                description: None,
+                group: None,
+            }],
+        }],
+        ..DriverInfo::default()
+    };
+    changes.send_replace(updated.clone());
+
+    let changed = tokio::time::timeout(Duration::from_secs(2), infos.recv())
+        .await
+        .expect("the driver metadata update arrived")
+        .expect("the info stream stayed open");
+    assert_eq!(changed.state, SessionState::Ready);
+    assert_eq!(changed.models, updated.models);
+    assert_eq!(
+        changed.current_model_id,
+        Some("anthropic/sonnet".to_string())
+    );
+    assert_eq!(changed.modes, updated.modes);
+    assert_eq!(changed.current_mode_id, Some("build".to_string()));
+    assert_eq!(changed.configs, updated.configs);
+    assert_eq!(room.info("ada"), changed);
+    assert!(
+        tape(&room, "ada")
+            .into_iter()
+            .all(|event| event["kind"] == "chapter")
+    );
+
+    // Once the session is stopped, a late notification from its driver cannot
+    // update the idle roster or resurrect a picker.
+    room.stop("ada").unwrap();
+    assert_eq!(room.info("ada").state, SessionState::Idle);
+    changes.send_replace(DriverInfo {
+        current_model_id: "stale-model".to_string(),
+        ..updated
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert_eq!(room.info("ada").state, SessionState::Idle);
+    assert_eq!(room.info("ada").current_model_id, None);
+}
+
 /// A teammate's directory is made when it starts, wherever it was pointed.
 #[tokio::test(flavor = "multi_thread")]
 async fn starting_a_teammate_makes_its_working_directory() {
@@ -870,12 +961,15 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(open.contains("reach the whole machine"));
     assert!(open.ends_with("the wake block"));
 
-    // A child brings its own tools and Toad enforces nothing over them, so it
-    // is promised nothing about how far they reach.
+    // The harness owns its tools' permissions; Toad owns its file callbacks.
     let child = preamble(&ada, None, None);
     assert!(child.contains("Your working directory is /tmp/harbour."));
     assert!(!child.contains("reach the whole machine"));
     assert!(!child.contains("a path that leaves it is refused"));
+    assert!(child.contains("Your harness manages the permissions of its own tools."));
+    assert!(child.contains(
+        "File operations delegated to Toad through ACP stay inside your working directory."
+    ));
     assert!(
         child.contains("Toad shows your reply as chat"),
         "an ACP child hears the same house style in its preamble: {child}"
@@ -1040,6 +1134,7 @@ fn firing(kind: ScheduleKind, quiet: bool) -> ScheduledRun {
         job_id: "job-1".to_string(),
         kind,
         name: "Apple order check".to_string(),
+        operator_created: false,
         quiet: quiet.then_some(true),
     }
 }
@@ -1268,14 +1363,26 @@ fn due_job(
         every: (kind == ScheduleKind::Loop).then_some(15_000),
         prompt: prompt.to_string(),
         quiet: quiet.then_some(true),
+        operator_created: false,
         next_at: now - overdue_by,
         created_at: now - overdue_by - 60_000,
     }
 }
 
 fn room_due(name: &str, agents: Arc<Fake>, job: ScheduledJob) -> Arc<Room> {
+    room_due_with_grant(name, agents, job, true)
+}
+
+fn room_due_with_grant(
+    name: &str,
+    agents: Arc<Fake>,
+    job: ScheduledJob,
+    background_work: bool,
+) -> Arc<Room> {
     let log = scratch(name);
-    enrol(&log, &persona("ada"));
+    let mut teammate = persona("ada");
+    teammate.background_work = background_work;
+    enrol(&log, &teammate);
     crate::room::append_schedule(&log, &job).unwrap();
     Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
@@ -1381,6 +1488,115 @@ async fn a_missed_job_fires_once_at_startup() {
     assert_eq!(
         later, 1,
         "the clock did not catch up the intervals it slept through"
+    );
+}
+
+/// An agent-created due job stays on the room stream while its standing grant
+/// is off. Regranting it wakes the clock and fires the same job once.
+#[tokio::test]
+async fn a_due_agent_job_waits_for_a_grant_then_fires_once() {
+    let agents = Fake::new(Scripted::new(saying("s", "the word")));
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job(
+        "job-paused",
+        ScheduleKind::Schedule,
+        "say the word",
+        false,
+        1,
+    );
+    let room = room_due_with_grant("schedule-paused", agents, job, false);
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(lock(&prompts).is_empty(), "a paused job was dispatched");
+    assert_eq!(crate::room::schedules(&room.log).len(), 1);
+
+    let mut teammate = persona("ada");
+    teammate.background_work = true;
+    enrol(&room.log, &teammate);
+    room.reattach("ada").await.unwrap();
+
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(events[0]["text"], "say the word");
+    assert_eq!(events[0]["scheduled"]["operatorCreated"], false);
+    assert_eq!(*lock(&prompts), ["scheduled · say the word"]);
+    assert!(crate::room::schedules(&room.log).is_empty());
+}
+
+/// A job the operator entered from the desk remains runnable when the
+/// teammate's autonomous background grant is off.
+#[tokio::test]
+async fn a_due_operator_job_runs_without_a_background_grant() {
+    let agents = Fake::new(Scripted::new(saying("s", "the word")));
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job(
+        "job-operator",
+        ScheduleKind::Schedule,
+        "say the word",
+        false,
+        1,
+    );
+    job.operator_created = true;
+    let room = room_due_with_grant("schedule-operator", agents, job, false);
+
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(events[0]["text"], "say the word");
+    assert_eq!(events[0]["scheduled"]["operatorCreated"], true);
+    assert_eq!(*lock(&prompts), ["scheduled · say the word"]);
+    assert!(crate::room::schedules(&room.log).is_empty());
+}
+
+/// A scheduled line can be queued behind a turn while its one-shot job is
+/// already gone from the room stream. The final dispatch check still reads
+/// the live grant and drops an agent-created line that lost permission.
+#[tokio::test]
+async fn a_queued_scheduled_line_is_dropped_when_background_work_is_revoked() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::turns(vec![
+        vec![Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        }],
+        vec![Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        }],
+    ]);
+    driver.gate = Some(gate.clone());
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let room = room("scheduled-queue-revoked", agents);
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "first", None, None).await.unwrap();
+    until_state(&room, "ada", SessionState::Thinking).await;
+    room.prompt_scheduled(
+        "ada",
+        "old scheduled work",
+        firing(ScheduleKind::Schedule, false),
+    )
+    .await
+    .unwrap();
+    let queued = settled(&room, "ada", 2).await;
+    assert_eq!(queued[1]["scheduled"]["operatorCreated"], false);
+
+    // This mirrors the live record changing before the old turn gives the
+    // queue its next dispatch opportunity. Policy update callers also revoke
+    // the session, which clears the queue earlier; this check closes the
+    // remaining race where a queued one-shot survives its room tombstone.
+    let mut teammate = persona("ada");
+    teammate.background_work = false;
+    enrol(&room.log, &teammate);
+    gate.add_permits(1);
+    until_state(&room, "ada", SessionState::Ready).await;
+
+    assert_eq!(*lock(&prompts), ["first"]);
+    assert_eq!(
+        tape(&room, "ada")
+            .into_iter()
+            .filter(|event| event["kind"] == "user")
+            .count(),
+        2,
+        "the queued line remains a durable user fact even though no turn ran"
     );
 }
 
@@ -1533,8 +1749,7 @@ async fn reattach_on_an_idle_teammate_does_nothing() {
     assert_eq!(room.info("ada").state, SessionState::Idle);
 }
 
-/// Between turns the swap is stop then start, the same two calls a closed
-/// chapter makes: the old driver is cancelled, a new one is built, and the
+/// Between turns the old driver is cancelled, a new one is built, and the
 /// open chapter is the one the new session joins.
 #[tokio::test]
 async fn reattach_on_a_ready_session_swaps_the_driver_and_keeps_the_chapter() {
@@ -1553,17 +1768,79 @@ async fn reattach_on_a_ready_session_swaps_the_driver_and_keeps_the_chapter() {
     *lock(&session_id) = Some("s-2".to_string());
     room.reattach("ada").await.unwrap();
 
-    assert_eq!(*lock(&cancels), 1, "the old driver saw cancel");
+    assert!(*lock(&cancels) > 0, "the old driver saw cancel");
     assert_eq!(lock(&agents.preambles).len(), 2, "a new driver was built");
     assert_eq!(room.info("ada").session_id.as_deref(), Some("s-2"));
     assert_eq!(markers(&room, "ada"), opened, "the chapter stayed open");
 }
 
-/// A tool change mid-turn waits until the turn (and any line already queued
-/// behind it) has finished. The person already sent that line; it runs on
-/// the session that heard it, and the swap follows.
+/// A failed policy write leaves its generation closed. Its retained record
+/// must neither claim to be ready nor silently accept work under old grants.
 #[tokio::test]
-async fn reattach_during_a_turn_defers_until_the_queue_drains() {
+async fn an_unfinished_policy_update_refuses_work_until_reattached() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = room("unfinished-policy", agents.clone());
+    room.start("ada").await.unwrap();
+    room.invalidate("ada").unwrap();
+
+    assert_eq!(room.info("ada").state, SessionState::Stopped);
+    assert!(room.start("ada").await.is_err());
+    assert!(
+        room.prompt("ada", "must not run", None, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(lock(&agents.preambles).len(), 1);
+
+    room.reattach("ada").await.unwrap();
+    assert_eq!(room.info("ada").state, SessionState::Ready);
+    assert_eq!(lock(&agents.preambles).len(), 2);
+}
+
+/// Stop also covers a replacement between detaching its predecessor and
+/// entering the driver's startup future. A later explicit start still works.
+#[tokio::test]
+async fn stop_revokes_a_replacement_before_its_startup_begins() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = room("stop-replacement", agents.clone());
+    room.start("ada").await.unwrap();
+    let replacement = room.stop_with_capability("ada");
+    room.stop("ada").unwrap();
+
+    assert!(room.start_now("ada", replacement).await.is_err());
+    assert_eq!(lock(&agents.preambles).len(), 1);
+    room.start("ada").await.unwrap();
+    assert_eq!(lock(&agents.preambles).len(), 2);
+}
+
+/// A routine stop during the wire's invalidate-to-append window keeps the
+/// epoch quarantined. A start cannot revive a session with the old policy;
+/// reattach is the operation that activates the replacement generation.
+#[tokio::test]
+async fn stop_during_policy_quarantine_cannot_revive_the_old_generation() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = room("stop-quarantine", agents.clone());
+    room.start("ada").await.unwrap();
+    let old = lock(&room.sessions).get("ada").cloned().unwrap();
+
+    room.invalidate("ada").unwrap();
+    room.stop("ada").unwrap();
+    assert!(!old.capability.is_current(), "the old lease was revived");
+    assert!(
+        room.start("ada").await.is_err(),
+        "start reopened an epoch still waiting for the policy append"
+    );
+
+    room.reattach("ada").await.unwrap();
+    room.start("ada").await.unwrap();
+    assert_eq!(lock(&agents.preambles).len(), 2);
+}
+
+/// A policy change revokes the turn in flight and drops lines queued behind
+/// it. The replacement session is built immediately, so a line already
+/// handed to the old session cannot run with its former tools.
+#[tokio::test]
+async fn reattach_during_a_turn_cancels_the_old_queue_before_rebuilding() {
     let gate = Arc::new(Semaphore::new(0));
     let mut driver = Scripted::turns(vec![
         vec![Update::Turn {
@@ -1584,27 +1861,20 @@ async fn reattach_during_a_turn_defers_until_the_queue_drains() {
     room.prompt("ada", "first", None, None).await.unwrap();
     until_state(&room, "ada", SessionState::Thinking).await;
 
+    room.prompt("ada", "second", None, None).await.unwrap();
+
     room.reattach("ada").await.unwrap();
     assert_eq!(
         lock(&agents.preambles).len(),
-        1,
-        "a turn in flight was restarted"
+        2,
+        "the replacement was built without waiting for the old turn"
     );
-
-    room.prompt("ada", "second", None, None).await.unwrap();
-    gate.add_permits(1);
-    assert_eq!(heard(&prompts, 2).await, ["first", "second"]);
+    tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(
-        lock(&agents.preambles).len(),
-        1,
-        "the queued line ran after a swap"
+        *lock(&prompts),
+        ["first"],
+        "the queued line never reached the replacement driver"
     );
-
-    gate.add_permits(1);
-    until_preambles(&agents, 2).await;
-    until_state(&room, "ada", SessionState::Ready).await;
-    assert_eq!(lock(&agents.preambles).len(), 2);
-    assert_eq!(room.info("ada").state, SessionState::Ready);
 }
 
 async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
@@ -1615,16 +1885,6 @@ async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("the session never reached {want:?}");
-}
-
-async fn until_preambles(agents: &Fake, count: usize) {
-    for _ in 0..200 {
-        if lock(&agents.preambles).len() >= count {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("a new driver was never built");
 }
 
 /// The gate: a chapter that closed took the agent's context with it, so the

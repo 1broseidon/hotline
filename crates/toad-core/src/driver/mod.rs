@@ -20,7 +20,9 @@ use crate::contract::{
     SessionConfig, TokenUsage,
 };
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use tokio::sync::{mpsc, watch};
 
 /// The backend id of Toad Agent, which runs in this process.
 ///
@@ -29,6 +31,111 @@ use tokio::sync::mpsc;
 /// names an ACP child, which is what makes this the one place the two kinds
 /// of agent are told apart.
 pub const PI_BACKEND_ID: &str = "pi";
+
+/// The authority shared by every handle a session hands to a driver.
+///
+/// A policy update first advances the generation and closes the epoch. The
+/// room opens it again only after the new record is durable, so a session that
+/// races the update can never capture the old policy in a usable lease. A
+/// stop advances the generation while leaving the epoch open: a later,
+/// explicit start may use the current policy, while handles from the stopped
+/// session remain permanently dead.
+#[derive(Clone)]
+pub(crate) struct CapabilityEpoch {
+    state: Arc<Mutex<CapabilityState>>,
+}
+
+struct CapabilityState {
+    generation: u64,
+    active: bool,
+}
+
+impl Default for CapabilityEpoch {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(CapabilityState {
+                generation: 0,
+                active: true,
+            })),
+        }
+    }
+}
+
+/// An immutable snapshot of one session's authority. The snapshot is cheap to
+/// clone into tool closures, but validity always consults the shared epoch.
+#[derive(Clone)]
+pub(crate) struct CapabilityLease {
+    epoch: CapabilityEpoch,
+    generation: u64,
+    active_at_capture: bool,
+    revoked: Arc<AtomicBool>,
+}
+
+impl CapabilityEpoch {
+    pub(crate) fn lease(&self) -> CapabilityLease {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        CapabilityLease {
+            epoch: self.clone(),
+            generation: state.generation,
+            active_at_capture: state.active,
+            revoked: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Quarantines all existing and newly captured leases until the room has
+    /// appended the replacement policy and calls [`Self::activate`].
+    pub(crate) fn invalidate(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation = state.generation.wrapping_add(1);
+        state.active = false;
+    }
+
+    /// Invalidates old handles while keeping the authority available to a
+    /// later explicit start under the still-current policy.
+    pub(crate) fn stop(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let active = state.active;
+        state.generation = state.generation.wrapping_add(1);
+        state.active = active;
+    }
+
+    pub(crate) fn activate(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.active = true;
+    }
+}
+
+impl CapabilityLease {
+    /// Whether this lease still names the room's active generation.
+    pub(crate) fn is_current(&self) -> bool {
+        if self.revoked.load(Ordering::SeqCst) {
+            return false;
+        }
+        let state = self
+            .epoch
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        self.active_at_capture && state.active && state.generation == self.generation
+    }
+
+    /// Refuses a call made through a stale driver, tool closure, or workspace.
+    pub(crate) fn check(&self) -> Result<(), String> {
+        if self.is_current() {
+            Ok(())
+        } else {
+            Err("This teammate's capabilities have been revoked.".to_string())
+        }
+    }
+
+    /// Permanently invalidates this lease and every handle cloned from it.
+    /// Peer sessions use this in addition to their caller and target room
+    /// epochs, because revoking the caller must also kill a target driver that
+    /// is otherwise still within the target's current policy epoch.
+    pub(crate) fn revoke(&self) {
+        self.revoked.store(true, Ordering::SeqCst);
+    }
+}
 
 /// What a driver says about itself once it is up: who is answering, what it
 /// can be switched between, and — for a child that reopened a conversation of
@@ -150,6 +257,16 @@ pub trait Driver: Send + Sync {
     /// built with.
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String>;
 
+    /// Subscribes to metadata that can change while the driver is alive.
+    ///
+    /// Most drivers learn their picker state only during `start` and return
+    /// it there. An ACP harness may advertise a new mode or config option at
+    /// any point in the session, so it can opt into this watch without making
+    /// every driver own a background task.
+    fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
+        None
+    }
+
     /// Runs one turn. The turn is over when the receiver ends, and the last
     /// update before that is a [`Update::Turn`].
     ///
@@ -166,6 +283,13 @@ pub trait Driver: Send + Sync {
 
     /// Stops the turn in flight. A driver with no turn running does nothing.
     fn cancel(&self);
+
+    /// Permanently invalidates handles owned by this session, in addition to
+    /// stopping its current turn. Room policy changes use this boundary so a
+    /// queued or cached call cannot wake up with the old rights later.
+    fn invalidate(&self) {
+        self.cancel();
+    }
 
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String>;
 
@@ -213,4 +337,73 @@ pub(crate) fn with_image_placeholders(text: &str, images: &[ToolImage]) -> Strin
     }
     parts.extend(images.iter().map(ToolImage::placeholder));
     parts.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CapabilityEpoch, CapabilityLease};
+
+    #[test]
+    fn a_lease_captured_during_quarantine_never_revives() {
+        let epoch = CapabilityEpoch::default();
+        let before = epoch.lease();
+
+        epoch.invalidate();
+        let during = epoch.lease();
+        assert!(!before.is_current());
+        assert!(!during.is_current());
+
+        epoch.activate();
+        assert!(!before.is_current());
+        assert!(!during.is_current());
+        assert!(epoch.lease().is_current());
+    }
+
+    #[test]
+    fn stopping_invalidates_old_leases_but_allows_a_fresh_start() {
+        let epoch = CapabilityEpoch::default();
+        let old = epoch.lease();
+
+        epoch.stop();
+
+        assert!(!old.is_current());
+        assert!(epoch.lease().is_current());
+    }
+
+    #[test]
+    fn stopping_during_quarantine_does_not_reopen_it() {
+        let epoch = CapabilityEpoch::default();
+        epoch.invalidate();
+
+        epoch.stop();
+
+        assert!(!epoch.lease().is_current());
+        epoch.activate();
+        assert!(epoch.lease().is_current());
+    }
+
+    #[test]
+    fn revoking_one_lease_does_not_revoke_a_new_capture() {
+        let epoch = CapabilityEpoch::default();
+        let peer = epoch.lease();
+        let current = epoch.lease();
+
+        peer.revoke();
+
+        assert!(!peer.is_current());
+        assert!(current.is_current());
+        assert!(epoch.lease().is_current());
+    }
+
+    #[test]
+    fn capability_check_explains_a_stale_handle() {
+        let epoch = CapabilityEpoch::default();
+        let lease: CapabilityLease = epoch.lease();
+        epoch.invalidate();
+
+        assert_eq!(
+            lease.check().unwrap_err(),
+            "This teammate's capabilities have been revoked."
+        );
+    }
 }

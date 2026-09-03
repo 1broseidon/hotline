@@ -104,6 +104,10 @@ fn job_from_legacy(value: &Value) -> Option<ScheduledJob> {
             .get("quiet")
             .and_then(Value::as_bool)
             .filter(|quiet| *quiet),
+        // Legacy schedules have no trusted creator provenance. Requiring the
+        // new background-work grant is the safe upgrade path; an operator can
+        // still create a fresh operator job from the desk when it is needed.
+        operator_created: false,
         next_at,
         created_at,
     })
@@ -147,6 +151,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
+            background_work: false,
             web_search_policy: None,
             computer: None,
             subagents: None,
@@ -220,10 +225,12 @@ mod tests {
         assert_eq!(jobs[0].kind, ScheduleKind::Schedule);
         assert_eq!(jobs[0].when, Some(1_700_000_001_000));
         assert_eq!(jobs[0].quiet, Some(true));
+        assert!(!jobs[0].operator_created);
         assert_eq!(jobs[1].id, "job-loop");
         assert_eq!(jobs[1].kind, ScheduleKind::Loop);
         assert_eq!(jobs[1].every, Some(15_000));
         assert_eq!(jobs[1].when, None);
+        assert!(!jobs[1].operator_created);
 
         let events = log.load(&StreamId::Room);
         let schedule_events: Vec<&Value> = events
@@ -232,6 +239,7 @@ mod tests {
             .collect();
         assert_eq!(schedule_events.len(), 2);
         assert_eq!(schedule_events[0]["id"], "job-once");
+        assert_eq!(schedule_events[0]["operatorCreated"], false);
         assert!(schedule_events[0].get("every").is_none());
         assert_eq!(schedule_events[1]["every"], 15_000);
 

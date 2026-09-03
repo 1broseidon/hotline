@@ -146,6 +146,9 @@ export function NewTeammate({
 								labelledBy="new-backend"
 								onSelect={setPicked}
 							/>
+							{!onToad && (
+								<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Toad's shell sandbox does not confine it.</p>
+							)}
 						</div>
 					)}
 

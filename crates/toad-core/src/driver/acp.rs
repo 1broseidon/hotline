@@ -25,7 +25,10 @@
 
 pub mod registry;
 
-use super::{Driver, DriverInfo, MessageKind, ToolImage, Update, clip, with_image_placeholders};
+use super::{
+    CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
+    with_image_placeholders,
+};
 use crate::contract::{
     AgentKind, Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach,
     SessionCapabilities, TokenUsage, ToolSourceKind, ToolState,
@@ -33,6 +36,7 @@ use crate::contract::{
 use crate::mcp::server::{Served, TeammateTools};
 use crate::mcp::{self, HttpAuth, McpServer, McpTransport};
 use crate::session::ledger::ToolLedger;
+use crate::tools::Workspace;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     self as acp, CancelNotification, ClientCapabilities, ContentBlock, FileSystemCapabilities,
@@ -50,7 +54,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 /// How many updates may be in flight before the connection waits for the room
@@ -97,10 +101,34 @@ const MANAGED_MARKER: &str = "<!-- managed by Toad -->";
 /// only an opening marker counts: a hand-written file that merely mentions it
 /// — this repository's own does, to explain it — is not Toad's to replace.
 pub fn materialize_agents_md(persona: &Persona) -> std::io::Result<()> {
+    materialize_agents_md_with_capability(persona, None)
+}
+
+/// Materializes the ACP identity file with the same lease as the session that
+/// is about to hand the child its callbacks. The public helper above remains
+/// useful for setup tools and tests that own no session; every live-session
+/// caller must use this form so a revoke cannot land a write after startup
+/// has been quarantined.
+pub(crate) fn materialize_agents_md_with_capability(
+    persona: &Persona,
+    capability: Option<CapabilityLease>,
+) -> std::io::Result<()> {
     let directory = Path::new(&persona.cwd);
-    std::fs::create_dir_all(directory)?;
-    let file = directory.join("AGENTS.md");
-    if let Ok(current) = std::fs::read_to_string(&file)
+    // The session start path creates the cwd first. Once it exists, all
+    // identity-file reads and writes go through the same confined directory
+    // handle as agent file callbacks; in particular, a dangling AGENTS.md
+    // symlink cannot cause a write outside the teammate's workspace.
+    let workspace = Workspace::open_with_capability(
+        directory.to_path_buf(),
+        Reach::Workspace,
+        directory.join(".toad-tool-output"),
+        capability,
+    )
+    .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let file = Path::new("AGENTS.md");
+    if let Some(current) = workspace
+        .read_text_if_exists_path(file)
+        .map_err(|error| std::io::Error::other(error.to_string()))?
         && !current.starts_with(MANAGED_MARKER)
     {
         return Ok(());
@@ -111,10 +139,12 @@ pub fn materialize_agents_md(persona: &Persona) -> std::io::Result<()> {
     } else {
         goal
     };
-    std::fs::write(
-        file,
-        format!("{MANAGED_MARKER}\n# {}\n\n{body}\n", persona.name),
-    )
+    workspace
+        .write_text_path(
+            file,
+            &format!("{MANAGED_MARKER}\n# {}\n\n{body}\n", persona.name),
+        )
+        .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
 /// Whether this backend will actually stop and ask before it acts, when Toad
@@ -177,6 +207,8 @@ pub struct ChildAgent {
     /// endpoint they are served on. The endpoint lives exactly as long as the
     /// driver: dropping one drops the other, and the child is gone anyway.
     teammate: TeammateTools,
+    /// Shared with the session's Toad tools and all callback handles.
+    capability: Option<CapabilityLease>,
     served: Mutex<Option<Served>>,
     live: Arc<Live>,
 }
@@ -196,6 +228,7 @@ impl ChildAgent {
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
             teammate,
+            capability: None,
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
         }
@@ -208,6 +241,27 @@ impl ChildAgent {
         self.mcp_missing = missing;
         self
     }
+
+    pub(crate) fn with_capability(mut self, capability: CapabilityLease) -> Self {
+        self.capability = Some(capability);
+        self
+    }
+
+    fn check_capability(&self) -> Result<(), String> {
+        self.capability
+            .as_ref()
+            .map_or(Ok(()), CapabilityLease::check)
+    }
+
+    fn kill_child(&self) {
+        let child = lock(&self.child).take();
+        #[cfg(unix)]
+        if let Some(id) = child.as_ref().and_then(tokio::process::Child::id) {
+            // Safety: the group is the one this driver made for its child.
+            unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
+        }
+        drop(child);
+    }
 }
 
 /// Everything one connection owns, shared with the handlers running on it.
@@ -215,6 +269,10 @@ impl ChildAgent {
 struct Live {
     connection: Mutex<Option<ConnectionTo<Agent>>>,
     session: Mutex<Session>,
+    /// The latest picker metadata the harness advertised. A watch keeps
+    /// notifications separate from the transcript update stream; the room
+    /// decides whether the snapshot still belongs to its current session.
+    info_changes: Mutex<Option<watch::Sender<DriverInfo>>>,
     /// Where the running turn's updates go. `None` between turns.
     updates: Mutex<Option<mpsc::Sender<Update>>>,
     /// The message being streamed, buffered so the tape gets whole messages.
@@ -245,6 +303,10 @@ struct Session {
     /// `modes` field. Switching then goes through `session/set_config_option`.
     model_config: Option<String>,
     mode_config: Option<String>,
+    /// Whether the current mode came from ACP's dedicated `modes` field.
+    /// Generic config updates must not let a ThoughtLevel or hidden Mode
+    /// selector replace that identity.
+    dedicated_modes: bool,
 }
 
 struct OpenMessage {
@@ -263,6 +325,23 @@ struct ToolLine {
 }
 
 impl Live {
+    fn subscribe_info(&self) -> watch::Receiver<DriverInfo> {
+        let mut changes = lock(&self.info_changes);
+        changes
+            .get_or_insert_with(|| watch::channel(DriverInfo::default()).0)
+            .subscribe()
+    }
+
+    fn publish_info(&self) -> DriverInfo {
+        let session = lock(&self.session);
+        if let Some(changes) = lock(&self.info_changes).as_ref() {
+            // Keep the session snapshot guard through publication so a
+            // setter and an ACP notification cannot publish out of order.
+            changes.send_replace(session.info.clone());
+        }
+        session.info.clone()
+    }
+
     /// Hands one update to the running turn. An update with no turn behind it
     /// is dropped, which is what a `session/update` arriving between turns is.
     async fn emit(&self, update: Update) {
@@ -357,24 +436,14 @@ impl Live {
 /// it, leaving it reparented to pid 1 and not exiting on stdin EOF.
 impl Drop for ChildAgent {
     fn drop(&mut self) {
-        let Some(child) = lock(&self.child).as_mut().map(|child| child.id()) else {
-            return;
-        };
-        #[cfg(unix)]
-        if let Some(id) = child {
-            // Safety: `killpg` reads no memory, and the group is the one this
-            // driver made for its own child.
-            unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
-        }
-        #[cfg(not(unix))]
-        let _ = child;
-        // `kill_on_drop` takes the immediate child when the handle goes.
+        self.kill_child();
     }
 }
 
 #[async_trait]
 impl Driver for ChildAgent {
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
+        self.check_capability()?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
         let mut command = tokio::process::Command::new(&launch.command);
         command
@@ -400,11 +469,19 @@ impl Driver for ChildAgent {
         pump_stderr(self.live.clone(), stderr);
         *lock(&self.child) = Some(child);
 
-        self.handshake(
-            persona,
-            ByteStreams::new(stdin.compat_write(), stdout.compat()),
-        )
-        .await
+        let result = self
+            .handshake(
+                persona,
+                ByteStreams::new(stdin.compat_write(), stdout.compat()),
+            )
+            .await;
+        if result.is_ok()
+            && let Err(error) = self.check_capability()
+        {
+            self.invalidate();
+            return Err(error);
+        }
+        result
     }
 
     async fn prompt(
@@ -414,6 +491,10 @@ impl Driver for ChildAgent {
         _reach: Reach,
     ) -> mpsc::Receiver<Update> {
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        if let Err(error) = self.check_capability() {
+            fail(&sender, error).await;
+            return receiver;
+        }
         let Some(connection) = lock(&self.live.connection).clone() else {
             fail(&sender, "That agent is not connected.".to_string()).await;
             return receiver;
@@ -422,6 +503,10 @@ impl Driver for ChildAgent {
             fail(&sender, "That agent has no open session.".to_string()).await;
             return receiver;
         };
+        if let Err(error) = self.check_capability() {
+            fail(&sender, error).await;
+            return receiver;
+        }
 
         // The briefing rides along with the first thing said on this
         // connection, which is the earliest ACP will carry it. It is not
@@ -444,7 +529,15 @@ impl Driver for ChildAgent {
 
         *lock(&self.live.updates) = Some(sender.clone());
         let live = self.live.clone();
+        let capability = self.capability.clone();
         tokio::spawn(async move {
+            if let Some(capability) = &capability
+                && let Err(error) = capability.check()
+            {
+                fail(&sender, error).await;
+                *lock(&live.updates) = None;
+                return;
+            }
             let answered = connection
                 .send_request(PromptRequest::new(session_id, blocks))
                 .block_task()
@@ -492,7 +585,23 @@ impl Driver for ChildAgent {
         let _ = connection.send_notification(CancelNotification::new(session_id));
     }
 
+    fn invalidate(&self) {
+        if let Some(capability) = &self.capability {
+            capability.revoke();
+        }
+        self.cancel();
+        self.live.settle_permissions();
+        lock(&self.live.updates).take();
+        // Closing the watch wakes the room's metadata task even when the
+        // session object is retained briefly by an in-flight turn.
+        lock(&self.live.info_changes).take();
+        lock(&self.live.connection).take();
+        lock(&self.served).take();
+        self.kill_child();
+    }
+
     async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
         let config_id = lock(&self.live.session)
             .model_config
             .clone()
@@ -501,10 +610,12 @@ impl Driver for ChildAgent {
     }
 
     async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
         ChildAgent::set_config(self, config_id, value).await
     }
 
     async fn set_mode(&self, mode_id: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
         let connection = lock(&self.live.connection).clone();
         let (session_id, config_id) = {
             let session = lock(&self.live.session);
@@ -522,16 +633,23 @@ impl Driver for ChildAgent {
             .block_task()
             .await
             .map_err(|error| format!("The mode could not be changed: {error}"))?;
-        let mut session = lock(&self.live.session);
-        session.info.current_mode_id = Some(mode_id.to_string());
-        Ok(session.info.clone())
+        self.check_capability()?;
+        lock(&self.live.session).info.current_mode_id = Some(mode_id.to_string());
+        Ok(self.live.publish_info())
     }
 
     fn answer_permission(&self, request_id: &str, option_id: &str) -> bool {
+        if self.check_capability().is_err() {
+            return false;
+        }
         let Some(waiting) = lock(&self.live.pending).remove(request_id) else {
             return false;
         };
         waiting.send(Some(option_id.to_string())).is_ok()
+    }
+
+    fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
+        Some(self.live.subscribe_info())
     }
 }
 
@@ -550,12 +668,20 @@ impl ChildAgent {
             impl futures_util::AsyncRead + Send + 'static,
         >,
     ) -> Result<DriverInfo, String> {
-        let connection = connect(self.live.clone(), transport).await?;
+        self.check_capability()?;
+        // ACP owns its child process and whatever permissions that process
+        // advertises. Toad still answers the protocol's file callbacks, and
+        // that callback plane is always confined to the teammate workspace;
+        // an old stored machine reach and an ACP mode string cannot widen it.
+        let callback_workspace = Self::callback_workspace(persona, self.teammate.capability())?;
+        let connection = connect(self.live.clone(), callback_workspace, transport).await?;
+        self.check_capability()?;
         *lock(&self.live.connection) = Some(connection.clone());
 
         // Toad's own tools go up before the session does, because the session
         // is where the child is told where to find them.
         let serving = self.open_toad_endpoint().await;
+        self.check_capability()?;
 
         let initialized = connection
             .send_request(
@@ -571,6 +697,7 @@ impl ChildAgent {
             .block_task()
             .await
             .map_err(|error| format!("The agent refused to start: {error}"))?;
+        self.check_capability()?;
 
         let capabilities = capabilities_of(&initialized.agent_capabilities);
         {
@@ -597,8 +724,29 @@ impl ChildAgent {
         self.publish_ledger(persona, serving);
         self.open_session(&connection, persona, capabilities)
             .await?;
+        self.check_capability()?;
         self.adopt_disposition(persona).await;
-        Ok(lock(&self.live.session).info.clone())
+        self.check_capability()?;
+        // Supersede notifications received during session restore with the
+        // final handshake state before the room attaches its watcher.
+        Ok(self.live.publish_info())
+    }
+
+    /// Builds the client side of ACP's file callback boundary. The harness is
+    /// externally trusted, but Toad's own callbacks stay in the workspace for
+    /// every ACP persona, including records that still carry the old machine
+    /// reach value. Runtime ACP mode names never affect this choice.
+    fn callback_workspace(
+        persona: &Persona,
+        capability: Option<CapabilityLease>,
+    ) -> Result<Workspace, String> {
+        Workspace::open_with_capability(
+            PathBuf::from(&persona.cwd),
+            Reach::Workspace,
+            PathBuf::from(&persona.cwd).join(".toad-tool-output"),
+            capability,
+        )
+        .map_err(|error| format!("The ACP callback workspace could not be opened: {error}"))
     }
 
     /// Reopens the agent's own memory of this conversation when it can, and
@@ -801,6 +949,7 @@ impl ChildAgent {
         session.id = Some(id.clone());
         session.model_config = disposition.model_config;
         session.mode_config = disposition.mode_config;
+        session.dedicated_modes = disposition.dedicated_modes;
         session.info.session_id = Some(id.0.to_string());
         session.info.context_restored = restored;
         session.info.models = disposition.models;
@@ -844,6 +993,7 @@ impl ChildAgent {
     /// Sets one config option and takes the agent's whole answer back, since
     /// a change to one picker can move another.
     async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
         // One statement each: a tuple would keep the first guard alive while
         // the second is taken, and `set_mode` reaches for the same two. Two
         // callers holding one of these each is a wedge nothing recovers from.
@@ -861,28 +1011,14 @@ impl ChildAgent {
             .block_task()
             .await
             .map_err(|error| format!("The agent refused that setting: {error}"))?;
+        self.check_capability()?;
         self.apply_configs(&answered.config_options);
-        Ok(lock(&self.live.session).info.clone())
+        Ok(self.live.publish_info())
     }
 
     fn apply_configs(&self, configs: &[acp::SessionConfigOption]) {
-        let disposition = Disposition::of(None, Some(configs));
         let mut session = lock(&self.live.session);
-        if disposition.model_config.is_some() {
-            session.model_config = disposition.model_config;
-            session.info.models = disposition.models;
-            session.info.model_label = disposition.model_label;
-            if let Some(current) = disposition.current_model_id {
-                session.info.current_model_id = current;
-            }
-        }
-        if disposition.mode_config.is_some() {
-            session.mode_config = disposition.mode_config;
-            session.info.modes = disposition.modes;
-            session.info.mode_label = disposition.mode_label;
-            session.info.current_mode_id = disposition.current_mode_id;
-        }
-        session.info.configs = disposition.configs;
+        apply_configs_to_session(&mut session, configs);
     }
 }
 
@@ -895,6 +1031,7 @@ impl ChildAgent {
 /// child exiting.
 async fn connect(
     live: Arc<Live>,
+    callback_workspace: Workspace,
     transport: ByteStreams<
         impl futures_util::AsyncWrite + Send + 'static,
         impl futures_util::AsyncRead + Send + 'static,
@@ -903,6 +1040,8 @@ async fn connect(
     let (ready, started) = oneshot::channel();
     let updates = live.clone();
     let asked = live.clone();
+    let read_workspace = callback_workspace.clone();
+    let write_workspace = callback_workspace;
     tokio::spawn(async move {
         let running = Client
             .builder()
@@ -929,13 +1068,16 @@ async fn connect(
             )
             .on_receive_request(
                 async move |request: ReadTextFileRequest, responder, _cx| {
-                    responder.respond(ReadTextFileResponse::new(read_text_file(&request)?))
+                    responder.respond(ReadTextFileResponse::new(read_text_file(
+                        &read_workspace,
+                        &request,
+                    )?))
                 },
                 agent_client_protocol::on_receive_request!(),
             )
             .on_receive_request(
                 async move |request: WriteTextFileRequest, responder, _cx| {
-                    write_text_file(&request)?;
+                    write_text_file(&write_workspace, &request)?;
                     responder.respond(WriteTextFileResponse::new())
                 },
                 agent_client_protocol::on_receive_request!(),
@@ -1075,6 +1217,13 @@ async fn translate(live: &Live, update: SessionUpdate) {
         }
         SessionUpdate::CurrentModeUpdate(mode) => {
             lock(&live.session).info.current_mode_id = Some(mode.current_mode_id.0.to_string());
+            live.publish_info();
+        }
+        SessionUpdate::ConfigOptionUpdate(update) => {
+            let mut session = lock(&live.session);
+            apply_configs_to_session(&mut session, &update.config_options);
+            drop(session);
+            live.publish_info();
         }
         _ => {}
     }
@@ -1274,7 +1423,9 @@ fn capabilities_of(capabilities: &acp::AgentCapabilities) -> SessionCapabilities
     }
 }
 
-/// The two pickers Toad draws, out of whichever shape the agent sent them in.
+/// The model, runtime mode, and effort pickers Toad draws, out of whichever
+/// shape the agent sent them in. Other ACP config selectors stay private to
+/// the harness until Toad has a contract for them.
 ///
 /// ACP has a dedicated `modes` field and a generic `configOptions` list, and
 /// agents differ over which they use — Cursor sends modes, Claude Code's
@@ -1291,6 +1442,7 @@ struct Disposition {
     mode_config: Option<String>,
     mode_label: Option<String>,
     configs: Vec<crate::contract::SessionConfig>,
+    dedicated_modes: bool,
 }
 
 impl Disposition {
@@ -1298,7 +1450,10 @@ impl Disposition {
         modes: Option<&acp::SessionModeState>,
         configs: Option<&[acp::SessionConfigOption]>,
     ) -> Self {
-        let mut disposition = Self::default();
+        let mut disposition = Self {
+            dedicated_modes: modes.is_some(),
+            ..Self::default()
+        };
         if let Some(state) = modes {
             disposition.modes = state
                 .available_modes
@@ -1324,25 +1479,66 @@ impl Disposition {
                     disposition.model_config = Some(option.id.0.to_string());
                     disposition.model_label = Some(option.name.clone());
                 }
-                Some(acp::SessionConfigOptionCategory::Mode)
-                | Some(acp::SessionConfigOptionCategory::ThoughtLevel) => {
+                Some(acp::SessionConfigOptionCategory::Mode) if !disposition.dedicated_modes => {
                     disposition.modes = picker;
                     disposition.current_mode_id = Some(select.current_value.0.to_string());
                     disposition.mode_config = Some(option.id.0.to_string());
                     disposition.mode_label = Some(option.name.clone());
                 }
-                _ => {
+                Some(acp::SessionConfigOptionCategory::ThoughtLevel) => {
                     disposition.configs.push(crate::contract::SessionConfig {
                         id: option.id.0.to_string(),
                         name: option.name.clone(),
+                        category: Some(crate::contract::SessionConfigCategory::Effort),
                         current_id: Some(select.current_value.0.to_string()),
                         options: picker,
                     });
                 }
+                // Toad has no stable UI contract for model sub-options or
+                // arbitrary ACP settings. They remain harness-owned.
+                Some(acp::SessionConfigOptionCategory::Mode)
+                | Some(acp::SessionConfigOptionCategory::ModelConfig)
+                | None
+                | Some(acp::SessionConfigOptionCategory::Other(_))
+                | Some(_) => {}
             }
         }
         disposition
     }
+}
+
+/// Merges an ACP config notification into the live driver state. Config
+/// notifications carry the full set, so a ThoughtLevel change can be
+/// reflected without disturbing a dedicated runtime mode or model picker.
+fn apply_configs_to_session(session: &mut Session, configs: &[acp::SessionConfigOption]) {
+    let disposition = Disposition::of(None, Some(configs));
+    if disposition.model_config.is_some() {
+        session.model_config = disposition.model_config;
+        session.info.models = disposition.models;
+        session.info.model_label = disposition.model_label;
+        if let Some(current) = disposition.current_model_id {
+            session.info.current_model_id = current;
+        }
+    } else {
+        // ACP config notifications are the full set. A removed model option
+        // must not leave an old picker and id usable in the room.
+        session.model_config = None;
+        session.info.models.clear();
+        session.info.current_model_id.clear();
+        session.info.model_label = None;
+    }
+    if disposition.mode_config.is_some() && !session.dedicated_modes {
+        session.mode_config = disposition.mode_config;
+        session.info.modes = disposition.modes;
+        session.info.mode_label = disposition.mode_label;
+        session.info.current_mode_id = disposition.current_mode_id;
+    } else if !session.dedicated_modes {
+        session.mode_config = None;
+        session.info.modes.clear();
+        session.info.current_mode_id = None;
+        session.info.mode_label = None;
+    }
+    session.info.configs = disposition.configs;
 }
 
 fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigChoice> {
@@ -1384,27 +1580,21 @@ fn pump_stderr(live: Arc<Live>, stderr: tokio::process::ChildStderr) {
     });
 }
 
-fn read_text_file(request: &ReadTextFileRequest) -> Result<String, agent_client_protocol::Error> {
-    let text = std::fs::read_to_string(&request.path)
-        .map_err(agent_client_protocol::Error::into_internal_error)?;
-    if request.line.is_none() && request.limit.is_none() {
-        return Ok(text);
-    }
-    let from = request.line.unwrap_or(1).saturating_sub(1) as usize;
-    let lines: Vec<&str> = text.split('\n').skip(from).collect();
-    let kept = match request.limit {
-        Some(limit) => &lines[..lines.len().min(limit as usize)],
-        None => &lines[..],
-    };
-    Ok(kept.join("\n"))
+fn read_text_file(
+    workspace: &Workspace,
+    request: &ReadTextFileRequest,
+) -> Result<String, agent_client_protocol::Error> {
+    workspace
+        .read_text_path(&request.path, request.line, request.limit)
+        .map_err(agent_client_protocol::Error::into_internal_error)
 }
 
-fn write_text_file(request: &WriteTextFileRequest) -> Result<(), agent_client_protocol::Error> {
-    if let Some(directory) = request.path.parent() {
-        std::fs::create_dir_all(directory)
-            .map_err(agent_client_protocol::Error::into_internal_error)?;
-    }
-    std::fs::write(&request.path, &request.content)
+fn write_text_file(
+    workspace: &Workspace,
+    request: &WriteTextFileRequest,
+) -> Result<(), agent_client_protocol::Error> {
+    workspace
+        .write_text_path(&request.path, &request.content)
         .map_err(agent_client_protocol::Error::into_internal_error)
 }
 
@@ -1482,6 +1672,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
+            background_work: false,
             web_search_policy: None,
             computer: None,
             subagents: None,
@@ -1739,7 +1930,9 @@ mod tests {
         );
         tokio::spawn(agent);
 
+        let mut info_updates = driver.subscribe_info().unwrap();
         let info = driver.handshake(&ada, client_transport()).await.unwrap();
+        assert_eq!(*info_updates.borrow_and_update(), info);
         assert_eq!(info.agent_name, "scripted");
         assert_eq!(info.agent_version.as_deref(), Some("1.2.3"));
         assert_eq!(info.session_id.as_deref(), Some("fresh-session"));
@@ -2367,6 +2560,283 @@ mod tests {
         ada.goal = "Something else entirely.".to_string();
         materialize_agents_md(&ada).unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), by_hand);
+    }
+
+    fn select_config(
+        id: &str,
+        name: &str,
+        category: acp::SessionConfigOptionCategory,
+        current: &str,
+        options: &[(&str, &str)],
+    ) -> acp::SessionConfigOption {
+        acp::SessionConfigOption::select(
+            id.to_string(),
+            name.to_string(),
+            current.to_string(),
+            options
+                .iter()
+                .map(|(value, label)| {
+                    acp::SessionConfigSelectOption::new((*value).to_string(), (*label).to_string())
+                })
+                .collect::<Vec<_>>(),
+        )
+        .category(Some(category))
+    }
+
+    #[test]
+    fn disposition_separates_runtime_mode_from_effort_and_hides_other_configs() {
+        let configs = vec![
+            select_config(
+                "model-choice",
+                "Model",
+                acp::SessionConfigOptionCategory::Model,
+                "model-2",
+                &[("model-1", "Model One"), ("model-2", "Model Two")],
+            ),
+            select_config(
+                "permission-mode",
+                "Permission mode",
+                acp::SessionConfigOptionCategory::Mode,
+                "agent",
+                &[("ask", "Ask"), ("agent", "Agent")],
+            ),
+            select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "high",
+                &[("low", "Low"), ("high", "High")],
+            ),
+            select_config(
+                "style",
+                "Style",
+                acp::SessionConfigOptionCategory::Other("style".to_string()),
+                "concise",
+                &[("concise", "Concise")],
+            ),
+        ];
+        let generic = Disposition::of(None, Some(&configs));
+        assert_eq!(generic.current_model_id.as_deref(), Some("model-2"));
+        assert_eq!(generic.model_config.as_deref(), Some("model-choice"));
+        assert_eq!(generic.current_mode_id.as_deref(), Some("agent"));
+        assert_eq!(generic.mode_config.as_deref(), Some("permission-mode"));
+        assert_eq!(generic.configs.len(), 1);
+        assert_eq!(generic.configs[0].id, "reasoning");
+        assert_eq!(
+            generic.configs[0].category,
+            Some(crate::contract::SessionConfigCategory::Effort)
+        );
+
+        let dedicated_modes = SessionModeState::new(
+            acp::SessionModeId::new("ask"),
+            vec![
+                SessionMode::new(acp::SessionModeId::new("ask"), "Ask"),
+                SessionMode::new(acp::SessionModeId::new("agent"), "Agent"),
+            ],
+        );
+        let dedicated = Disposition::of(Some(&dedicated_modes), Some(&configs));
+        assert_eq!(dedicated.current_mode_id.as_deref(), Some("ask"));
+        assert!(dedicated.mode_config.is_none());
+        assert_eq!(dedicated.configs.len(), 1);
+        assert_eq!(dedicated.configs[0].id, "reasoning");
+    }
+
+    #[tokio::test]
+    async fn config_notifications_update_model_and_effort_without_replacing_mode() {
+        let live = Live::default();
+        let dedicated_modes = SessionModeState::new(
+            acp::SessionModeId::new("ask"),
+            vec![
+                SessionMode::new(acp::SessionModeId::new("ask"), "Ask"),
+                SessionMode::new(acp::SessionModeId::new("agent"), "Agent"),
+            ],
+        );
+        {
+            let mut session = lock(&live.session);
+            let disposition = Disposition::of(Some(&dedicated_modes), None);
+            session.dedicated_modes = true;
+            session.info.modes = disposition.modes;
+            session.info.current_mode_id = disposition.current_mode_id;
+        }
+        let update = SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![
+            select_config(
+                "model-choice",
+                "Model",
+                acp::SessionConfigOptionCategory::Model,
+                "model-2",
+                &[("model-1", "Model One"), ("model-2", "Model Two")],
+            ),
+            select_config(
+                "permission-mode",
+                "Permission mode",
+                acp::SessionConfigOptionCategory::Mode,
+                "agent",
+                &[("ask", "Ask"), ("agent", "Agent")],
+            ),
+            select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "high",
+                &[("low", "Low"), ("high", "High")],
+            ),
+        ]));
+        translate(&live, update).await;
+
+        {
+            let session = lock(&live.session);
+            assert_eq!(session.info.current_model_id, "model-2");
+            assert_eq!(session.info.current_mode_id.as_deref(), Some("ask"));
+            assert_eq!(
+                session
+                    .info
+                    .modes
+                    .iter()
+                    .map(|mode| mode.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["ask", "agent"]
+            );
+            assert_eq!(session.info.configs.len(), 1);
+            assert_eq!(session.info.configs[0].current_id.as_deref(), Some("high"));
+        }
+
+        // A later full-set notification can remove model and config-based
+        // mode controls. Those old ids must disappear rather than remaining
+        // callable through a stale picker.
+        let removal =
+            SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "low",
+                &[("low", "Low"), ("high", "High")],
+            )]));
+        translate(&live, removal).await;
+        let session = lock(&live.session);
+        assert!(session.model_config.is_none());
+        assert!(session.info.models.is_empty());
+        assert_eq!(session.info.current_model_id, "");
+        assert_eq!(session.info.current_mode_id.as_deref(), Some("ask"));
+        assert_eq!(session.info.configs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn config_notifications_remove_config_mode_without_stale_picker() {
+        let live = Live::default();
+        let initial =
+            SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+                "runtime-mode",
+                "Runtime mode",
+                acp::SessionConfigOptionCategory::Mode,
+                "build",
+                [("plan", "Plan"), ("build", "Build")].as_slice(),
+            )]));
+        translate(&live, initial).await;
+
+        {
+            let session = lock(&live.session);
+            assert_eq!(session.mode_config.as_deref(), Some("runtime-mode"));
+            assert_eq!(session.info.current_mode_id.as_deref(), Some("build"));
+            assert_eq!(session.info.modes.len(), 2);
+        }
+
+        // The ACP notification is a full replacement. Removing the mode
+        // option must make the old wire command and UI picker unavailable.
+        let removal =
+            SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "high",
+                [("low", "Low"), ("high", "High")].as_slice(),
+            )]));
+        translate(&live, removal).await;
+
+        let session = lock(&live.session);
+        assert!(session.mode_config.is_none());
+        assert!(session.info.modes.is_empty());
+        assert!(session.info.current_mode_id.is_none());
+        assert!(session.info.mode_label.is_none());
+        assert_eq!(session.info.configs.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn acp_callbacks_stay_in_workspace_for_legacy_machine_personas() {
+        use std::os::unix::fs::symlink;
+
+        let root = scratch("callbacks-root");
+        let outside = scratch("callbacks-outside");
+        let inside_file = root.join("inside.txt");
+        let outside_file = outside.join("secret.txt");
+        std::fs::write(&inside_file, "inside\nsecond\n").unwrap();
+        std::fs::write(&outside_file, "secret\n").unwrap();
+        symlink(&outside_file, root.join("escape.txt")).unwrap();
+
+        let mut ada = persona(&root.to_string_lossy(), Vec::new());
+        ada.reach = Some(Reach::Machine);
+        let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+        let allowed = ReadTextFileRequest::new(SessionId::new("s"), inside_file.clone()).limit(1);
+        assert_eq!(read_text_file(&workspace, &allowed).unwrap(), "inside");
+
+        let outside_request = ReadTextFileRequest::new(SessionId::new("s"), outside_file.clone());
+        assert!(read_text_file(&workspace, &outside_request).is_err());
+        let symlink_request =
+            ReadTextFileRequest::new(SessionId::new("s"), root.join("escape.txt"));
+        assert!(read_text_file(&workspace, &symlink_request).is_err());
+
+        let nested = root.join("new").join("file.txt");
+        let write = WriteTextFileRequest::new(SessionId::new("s"), nested.clone(), "written\n");
+        write_text_file(&workspace, &write).unwrap();
+        assert_eq!(std::fs::read_to_string(&nested).unwrap(), "written\n");
+
+        let outside_write =
+            WriteTextFileRequest::new(SessionId::new("s"), outside_file.clone(), "nope\n");
+        assert!(write_text_file(&workspace, &outside_write).is_err());
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "secret\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn callback_workspace_accepts_the_selected_symlinked_root_alias() {
+        use std::os::unix::fs::symlink;
+
+        let parent = scratch("callbacks-alias");
+        let actual = parent.join("actual");
+        let alias = parent.join("alias");
+        std::fs::create_dir(&actual).unwrap();
+        symlink(&actual, &alias).unwrap();
+        let file = actual.join("inside.txt");
+        std::fs::write(&file, "through alias\n").unwrap();
+
+        let ada = persona(&alias.to_string_lossy(), Vec::new());
+        let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+        let request = ReadTextFileRequest::new(SessionId::new("s"), alias.join("inside.txt"));
+        assert_eq!(
+            read_text_file(&workspace, &request).unwrap(),
+            "through alias\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agents_md_refuses_external_and_dangling_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = scratch("agents-symlink");
+        let outside = scratch("agents-symlink-outside");
+        let outside_file = outside.join("AGENTS.md");
+        std::fs::write(&outside_file, "keep me\n").unwrap();
+        symlink(&outside_file, root.join("AGENTS.md")).unwrap();
+        let ada = persona(&root.to_string_lossy(), Vec::new());
+        assert!(materialize_agents_md(&ada).is_err());
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep me\n");
+
+        std::fs::remove_file(root.join("AGENTS.md")).unwrap();
+        let missing = outside.join("created-by-dangling-link.md");
+        symlink(&missing, root.join("AGENTS.md")).unwrap();
+        assert!(materialize_agents_md(&ada).is_err());
+        assert!(!missing.exists());
     }
 
     /// `session.set_model` and `session.set_mode` are two commands, and the

@@ -179,6 +179,10 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
             .get("quiet")
             .and_then(Value::as_bool)
             .filter(|quiet| *quiet),
+        operator_created: event
+            .get("operatorCreated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         next_at: event.get("nextAt")?.as_i64()?,
         created_at: event.get("createdAt")?.as_i64()?,
     })
@@ -281,6 +285,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
+            background_work: false,
             web_search_policy: None,
             computer: None,
             subagents: None,
@@ -416,6 +421,7 @@ mod tests {
             every: (kind == ScheduleKind::Loop).then_some(15_000),
             prompt: prompt.to_string(),
             quiet: quiet.then_some(true),
+            operator_created: false,
             next_at: 1_700_000_100_000,
             created_at: 1_700_000_000_000,
         }
@@ -440,6 +446,23 @@ mod tests {
         assert_eq!(log.load(&StreamId::Room)[0]["kind"], "schedule");
         assert_eq!(log.load(&StreamId::Room)[0].get("every"), None);
         assert_eq!(log.load(&StreamId::Room)[0]["when"], once.when.unwrap());
+    }
+
+    #[test]
+    fn operator_schedule_provenance_survives_the_room_fold() {
+        let log = scratch("schedule-operator");
+        let mut operator = job(
+            "job-operator",
+            "ada",
+            ScheduleKind::Schedule,
+            "operator check",
+            false,
+        );
+        operator.operator_created = true;
+        append_schedule(&log, &operator).unwrap();
+
+        assert_eq!(schedules(&log), vec![operator]);
+        assert_eq!(log.load(&StreamId::Room)[0]["operatorCreated"], true);
     }
 
     #[test]

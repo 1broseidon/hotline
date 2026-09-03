@@ -31,10 +31,12 @@ const UNITS: { id: Unit; ms: number; name: string }[] = [
 export function Schedules({
 	personaId,
 	jobs,
+	backgroundWork,
 	focus,
 }: {
 	personaId: string;
 	jobs: ScheduledJob[];
+	backgroundWork: boolean;
 	focus: boolean;
 }) {
 	const heading = useRef<HTMLHeadingElement>(null);
@@ -51,11 +53,12 @@ export function Schedules({
 			<h3 ref={heading} id="schedules" tabIndex={-1} className="label outline-none">
 				Schedules
 			</h3>
+			<p className="hint">Jobs you add here still run when Background work is off. Teammate-created jobs show Paused until you grant it again.</p>
 			<div className="grouped">
 				{jobs.length === 0 ? (
 					<p className="group-row text-sm text-ink-3">Nothing scheduled.</p>
 				) : (
-					jobs.map((job) => <JobRow key={job.id} job={job} now={now} />)
+					jobs.map((job) => <JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} />)
 				)}
 			</div>
 			<AddJob personaId={personaId} />
@@ -63,7 +66,7 @@ export function Schedules({
 	);
 }
 
-function JobRow({ job, now }: { job: ScheduledJob; now: number }) {
+function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; backgroundWork: boolean }) {
 	const [busy, setBusy] = useState(false);
 	const [said, setSaid] = useState<string | null>(null);
 
@@ -93,6 +96,8 @@ function JobRow({ job, now }: { job: ScheduledJob; now: number }) {
 	};
 
 	const kind = job.kind === "loop" && job.every !== undefined ? `Every ${durationText(job.every)}` : "Once";
+	const source = job.operatorCreated ? "Added by you" : "Background work";
+	const status = !job.operatorCreated && !backgroundWork ? "Paused" : nextText(job.nextAt, now);
 
 	return (
 		<div className="group-row items-start gap-2 py-2">
@@ -101,7 +106,7 @@ function JobRow({ job, now }: { job: ScheduledJob; now: number }) {
 					{firstLine(job.prompt)}
 				</span>
 				<span className="group-row-detail">
-					{kind} · {nextText(job.nextAt, now)}
+					{kind} · {source} · {status}
 				</span>
 				<label className="mt-1.5 flex items-center gap-2 text-sm text-ink-2">
 					<input

@@ -619,3 +619,89 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
         .await;
     assert_eq!(stopped["ok"], true, "{stopped}");
 }
+
+/// The reach selected over the real wire governs the real tools. No model is
+/// needed to choose an attack command, and a provider cannot skip the probe.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
+    use rig::tool::{Tool, ToolContext};
+    use toad_core::contract::Persona;
+    use toad_core::tools::{ReadFile, RunCommand, Workspace};
+
+    let probe = std::process::Command::new("bwrap")
+        .args(["--ro-bind", "/", "/", "--unshare-pid", "/bin/true"])
+        .output();
+    if !probe.is_ok_and(|output| output.status.success()) {
+        eprintln!("skipped: this machine cannot run bubblewrap");
+        return;
+    }
+    let (root, port) = open("workspace-reach").await;
+    let workspace = root.join("project");
+    let other = root.join("other-project");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let secret = other.join(".env");
+    std::fs::write(&secret, "OTHER_PROJECT_TOKEN=outside-canary").unwrap();
+    std::os::unix::fs::symlink("../other-project/.env", workspace.join("escape")).unwrap();
+    let mut client = Client::connect(port).await;
+    let created = client
+        .call(
+            "persona.create",
+            json!({"draft": {
+                "name": "Confined", "goal": "Prove workspace reach.", "cwd": workspace,
+            }}),
+        )
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let mut persona: Persona = serde_json::from_value(created["result"].clone()).unwrap();
+
+    for (reach, allowed) in [
+        ("workspace", false),
+        ("machine", true),
+        ("workspace", false),
+    ] {
+        let updated = client
+            .call(
+                "persona.update",
+                json!({
+                    "id": persona.id, "patch": {"reach": reach},
+                }),
+            )
+            .await;
+        assert_eq!(updated["ok"], true, "{updated}");
+        persona = serde_json::from_value(updated["result"].clone()).unwrap();
+        let tools = Workspace::open(
+            PathBuf::from(&persona.cwd),
+            persona.reach.unwrap_or_default(),
+            root.join("tool-output").join(&persona.id),
+        )
+        .unwrap();
+        for path in ["../other-project/.env", "escape"] {
+            let read = ReadFile::new(tools.clone())
+                .call(
+                    &mut ToolContext::new(),
+                    serde_json::from_value(json!({"path": path})).unwrap(),
+                )
+                .await;
+            assert_eq!(read.is_ok(), allowed, "{reach}: {path}: {read:?}");
+            let output = RunCommand::new(tools.clone())
+                .call(
+                    &mut ToolContext::new(),
+                    serde_json::from_value(json!({"command": format!("cat {path}")})).unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                output.contains("outside-canary"),
+                allowed,
+                "{reach}: {output}"
+            );
+            assert_eq!(
+                output.contains("[exit status"),
+                !allowed,
+                "{reach}: {output}"
+            );
+        }
+    }
+}

@@ -10,6 +10,7 @@
 //! the tool answering.
 
 use crate::contract::ToolSourceKind;
+use crate::driver::CapabilityLease;
 use crate::session::ledger;
 use rmcp::RoleClient;
 use rmcp::ServiceError;
@@ -180,6 +181,7 @@ pub struct McpTool {
     remote_name: String,
     peer: Peer<RoleClient>,
     watch: Arc<Watch>,
+    capability: Option<CapabilityLease>,
 }
 
 impl McpTool {
@@ -201,7 +203,13 @@ impl McpTool {
             remote_name,
             peer,
             watch,
+            capability: None,
         }
+    }
+
+    pub(crate) fn with_capability_opt(mut self, capability: Option<CapabilityLease>) -> Self {
+        self.capability = capability;
+        self
     }
 
     /// The server's human name, for a sentence about where the tool came
@@ -212,6 +220,11 @@ impl McpTool {
 
     /// Forward the call and return the result's content. Errors as `Err`.
     pub async fn call(&self, arguments: Value) -> Result<CallContent, CallError> {
+        if let Some(capability) = &self.capability
+            && let Err(error) = capability.check()
+        {
+            return Err(CallError::Tool(error));
+        }
         let arguments = match arguments {
             Value::Null => None,
             Value::Object(object) => Some(object),

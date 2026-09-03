@@ -69,8 +69,14 @@ mod tests;
 /// socket's commands are still answered one at a time, in order.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
+    /// Serializes policy persistence and reattachment across client sockets.
+    fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>>;
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
+    /// Revokes existing execution before a new policy is written to the log.
+    fn invalidate(&self, persona_id: &str) -> Result<(), String>;
+    /// A gateway change revokes every session, including cached peer sessions.
+    fn invalidate_all(&self) -> Result<(), String>;
     /// Rebuilds a live session from the teammate's current record.
     async fn reattach(&self, persona_id: &str) -> Result<(), String>;
     /// Every live session: a change to the room's servers reaches all of them.

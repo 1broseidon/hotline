@@ -31,6 +31,7 @@ type RoomItem = {
 	every?: number;
 	prompt?: string;
 	quiet?: boolean;
+	operatorCreated?: boolean;
 	nextAt?: number;
 	createdAt?: number;
 };
@@ -166,6 +167,7 @@ function jobFromEvent(item: RoomItem): ScheduledJob | null {
 		...(every !== undefined ? { every } : {}),
 		prompt: item.prompt,
 		...(item.quiet === true ? { quiet: true } : {}),
+		operatorCreated: item.operatorCreated === true,
 		nextAt: item.nextAt,
 		createdAt: item.createdAt,
 	};

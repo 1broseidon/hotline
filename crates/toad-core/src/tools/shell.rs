@@ -9,11 +9,13 @@
 //! build and orphaning its compiler. An agent that wants its own deadline
 //! passes `timeout_seconds`.
 //!
-//! Under workspace reach the shell may read the machine but may only write the
-//! working directory and a private `/tmp`. A shell that cannot see `/usr`, the
-//! toolchains under the home directory, or the package caches cannot build
-//! anything; the file tools refuse those reads, and that asymmetry is the
-//! point, not a hole. Machine reach is the command as typed, with no wall.
+//! Linux workspace reach exposes only the workspace and selected read-only
+//! toolchain installations. The shell has a private home inside the workspace
+//! and a private `/tmp`; host credentials and other projects are not mounted.
+//! Machine reach is the command as typed, with no wall.
+
+#[cfg(target_os = "linux")]
+mod linux;
 
 use super::{ToolError, Workspace};
 use crate::contract::Reach;
@@ -64,8 +66,12 @@ impl Tool for RunCommand {
     fn description(&self) -> String {
         match self.workspace.reach() {
             Reach::Workspace => {
-                "Run a shell command in the working directory and return its output. Writes stay in the working directory and a private /tmp; the rest of the machine is readable. There is no time limit: a build, a test run or a long install can take as long as it takes."
-                    .to_string()
+                let boundary = if cfg!(target_os = "linux") {
+                    "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .toad-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available."
+                } else {
+                    "Writes stay in the working directory and temporary directories; the rest of the machine is readable."
+                };
+                format!("Run a shell command in the working directory and return its output. {boundary} There is no time limit unless timeout_seconds is provided.")
             }
             Reach::Machine => {
                 "Run a shell command in the working directory and return its output. There is no time limit: a build, a test run or a long install can take as long as it takes."
@@ -101,6 +107,7 @@ impl Tool for RunCommand {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
+        self.workspace.check_capability()?;
         let command = args.command.trim().to_string();
         if command.is_empty() {
             return Err(ToolError::new("A command is required."));
@@ -120,6 +127,7 @@ impl Tool for RunCommand {
         #[cfg(unix)]
         process.process_group(0);
 
+        self.workspace.check_capability()?;
         let child = process
             .spawn()
             .map_err(|error| ToolError::other(format!("The command could not start: {error}")))?;
@@ -168,7 +176,7 @@ fn workspace_shell_on_path(path: Option<&std::ffi::OsStr>) -> Result<(), String>
         if !path_has_command("bwrap", path) {
             return Err(BWRAP_MISSING.to_string());
         }
-        bwrap_can_sandbox()
+        linux::available()
     }
     #[cfg(target_os = "macos")]
     {
@@ -208,10 +216,7 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
 /// macOS sets cwd because `sandbox-exec` does not.
 #[cfg(target_os = "linux")]
 fn confined(command: &str, workspace: &Path) -> Result<Command, String> {
-    let mut process = Command::new("bwrap");
-    process.args(bwrap_args(Some(workspace)));
-    process.arg("sh").arg("-c").arg(command);
-    Ok(process)
+    linux::command(command, workspace)
 }
 
 #[cfg(target_os = "macos")]
@@ -268,60 +273,6 @@ fn seatbelt_path(path: &Path) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn bwrap_args(workspace: Option<&Path>) -> Vec<std::ffi::OsString> {
-    // `--new-session` is omitted on purpose: it calls setsid(), which either
-    // fails once this tool has put bwrap in its own process group or moves
-    // the tree out of the group Stop's killpg targets. `--die-with-parent`
-    // and the pid namespace tear the tree down when bwrap dies.
-    //
-    // `--tmpfs /tmp` is before the workspace bind so a working directory
-    // under `/tmp` is not hidden by the private scratch.
-    let mut args: Vec<std::ffi::OsString> = [
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--proc",
-        "/proc",
-        "--tmpfs",
-        "/tmp",
-    ]
-    .into_iter()
-    .map(std::ffi::OsString::from)
-    .collect();
-    if let Some(workspace) = workspace {
-        args.extend([
-            std::ffi::OsString::from("--bind"),
-            workspace.as_os_str().to_owned(),
-            workspace.as_os_str().to_owned(),
-            std::ffi::OsString::from("--chdir"),
-            workspace.as_os_str().to_owned(),
-        ]);
-    }
-    args.extend([
-        std::ffi::OsString::from("--unshare-pid"),
-        std::ffi::OsString::from("--die-with-parent"),
-    ]);
-    args
-}
-
-#[cfg(target_os = "linux")]
-fn bwrap_can_sandbox() -> Result<(), String> {
-    let output = std::process::Command::new("bwrap")
-        .args(bwrap_args(None))
-        .arg("true")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output();
-    match output {
-        Ok(output) if output.status.success() => Ok(()),
-        Ok(_) | Err(_) => Err(BWRAP_UNUSABLE.to_string()),
-    }
-}
-
-#[cfg(target_os = "linux")]
 fn path_has_command(name: &str, path: Option<&std::ffi::OsStr>) -> bool {
     let Some(paths) = path else {
         return false;
@@ -370,10 +321,10 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    struct TestDirectory(PathBuf);
+    pub(super) struct TestDirectory(PathBuf);
 
     impl TestDirectory {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             Self::in_parent(&std::env::temp_dir())
         }
 
@@ -387,7 +338,7 @@ mod tests {
             Self(root)
         }
 
-        fn path(&self) -> &Path {
+        pub(super) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -424,14 +375,16 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    fn skip_without_sandbox() -> bool {
-        match shell_available(Reach::Workspace) {
-            Ok(()) => false,
-            Err(reason) => {
-                eprintln!("skipping: {reason}");
-                true
-            }
+    pub(super) fn skip_without_sandbox() -> bool {
+        let probe = std::process::Command::new("bwrap")
+            .args(["--ro-bind", "/", "/", "--unshare-pid", "/bin/true"])
+            .output();
+        if !probe.is_ok_and(|output| output.status.success()) {
+            eprintln!("skipping: this machine cannot run bubblewrap");
+            return true;
         }
+        shell_available(Reach::Workspace).expect("the sandbox policy must work when bwrap works");
+        false
     }
 
     /// A command's own children die with it. Without the group, `sleep` here
@@ -440,9 +393,10 @@ mod tests {
     /// rather than a pid: `--unshare-pid` makes `$!` a namespace pid the
     /// host cannot signal.
     #[cfg(unix)]
-    async fn a_deadline_takes_everything(reach: Reach) {
+    #[tokio::test]
+    async fn a_deadline_takes_the_command_and_everything_it_started() {
         let root = TestDirectory::new();
-        let workspace = workspace(root.path(), reach);
+        let workspace = workspace(root.path(), Reach::Machine);
 
         let refused = RunCommand::new(workspace)
             .call(
@@ -450,18 +404,22 @@ mod tests {
                 RunCommandArgs {
                     command: "while true; do echo x >> heartbeat; sleep 0.05; done & sleep 120"
                         .to_string(),
-                    timeout_seconds: Some(1),
+                    timeout_seconds: Some(3),
                 },
             )
             .await
             .expect_err("the deadline should have ended the command");
         assert!(
-            refused.to_string().contains("within 1 seconds"),
+            refused.to_string().contains("within 3 seconds"),
             "{refused}"
         );
 
         let heartbeat = root.path().join("heartbeat");
         let first = fs::read_to_string(&heartbeat).unwrap_or_default().len();
+        assert!(
+            first > 0,
+            "the command must have started before cancellation"
+        );
         std::thread::sleep(Duration::from_millis(200));
         let second = fs::read_to_string(&heartbeat).unwrap_or_default().len();
         assert_eq!(
@@ -470,21 +428,47 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_deadline_takes_the_command_and_everything_it_started() {
-        a_deadline_takes_everything(Reach::Machine).await;
-    }
-
-    /// The same guard reaches through `bwrap`, which is why `--new-session`
-    /// is not on its command line.
+    /// Killing bwrap tears down its PID namespace, including a new-session child.
+    /// Wait for the child to start so a slow sandbox setup cannot turn this
+    /// into a test that merely cancels the launcher before it ran anything.
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn a_deadline_reaches_through_the_sandbox() {
+    async fn cancellation_reaches_a_started_sandbox_and_its_children() {
         if skip_without_sandbox() {
             return;
         }
-        a_deadline_takes_everything(Reach::Workspace).await;
+        let root = TestDirectory::new();
+        let workspace = workspace(root.path(), Reach::Workspace);
+        let task = tokio::spawn(async move {
+            RunCommand::new(workspace)
+                .call(
+                    &mut ToolContext::new(),
+                    RunCommandArgs {
+                        command: "while true; do echo x >> heartbeat; sleep 0.05; done & sleep 120"
+                            .to_string(),
+                        timeout_seconds: None,
+                    },
+                )
+                .await
+        });
+        let heartbeat = root.path().join("heartbeat");
+        let started = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                if fs::metadata(&heartbeat).is_ok_and(|metadata| metadata.len() > 0) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        // Always cancel before asserting, including when startup failed.
+        task.abort();
+        let _ = task.await;
+        assert!(started.is_ok(), "the sandbox did not start its child");
+        let first = fs::read_to_string(&heartbeat).unwrap().len();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let second = fs::read_to_string(&heartbeat).unwrap().len();
+        assert_eq!(first, second, "a sandbox child survived cancellation");
     }
 
     /// The command's own output is not cut here: the driver keeps the full
@@ -554,8 +538,7 @@ mod tests {
             return;
         }
         let root = TestDirectory::new();
-        // /var/tmp is not the private /tmp overlay, so a write there is the
-        // read-only root, not a missing directory on the scratch tmpfs.
+        // The outside directory is not mounted into the sandbox.
         let outside = TestDirectory::in_parent(Path::new("/var/tmp"));
         let leak = outside.path().join("leak.txt");
         let workspace = workspace(root.path(), Reach::Workspace);
@@ -570,7 +553,52 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn workspace_reach_may_read_the_machine() {
+    async fn synthetic_parent_directories_are_read_only() {
+        if skip_without_sandbox() {
+            return;
+        }
+        // Outside /tmp: that mount is intentionally writable private scratch.
+        let parent = TestDirectory::in_parent(Path::new("/var/tmp"));
+        let root = parent.path().join("workspace");
+        fs::create_dir(&root).unwrap();
+        fs::write(parent.path().join("host-only-canary"), "outside").unwrap();
+        let listing = run(workspace(&root, Reach::Workspace), "ls -a ..")
+            .await
+            .unwrap();
+        assert!(finished_ok(&listing), "{listing}");
+        assert!(
+            !listing.contains("host-only-canary"),
+            "the listing exposed the host parent: {listing}"
+        );
+        let output = run(
+            workspace(&root, Reach::Workspace),
+            "echo probe > ../reach-test-parent.txt",
+        )
+        .await
+        .unwrap();
+        assert!(
+            !parent.path().join("reach-test-parent.txt").exists(),
+            "a write escaped to the host"
+        );
+        assert!(
+            !finished_ok(&output),
+            "synthetic parent was writable: {output}"
+        );
+        let output = run(
+            workspace(&root, Reach::Workspace),
+            "echo probe > /reach-test-root.txt",
+        )
+        .await
+        .unwrap();
+        assert!(
+            !finished_ok(&output),
+            "synthetic root was writable: {output}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn workspace_reach_refuses_reads_outside_even_from_child_processes() {
         if skip_without_sandbox() {
             return;
         }
@@ -578,14 +606,25 @@ mod tests {
         let outside = TestDirectory::in_parent(Path::new("/var/tmp"));
         let file = outside.path().join("visible.txt");
         fs::write(&file, "secret").unwrap();
-        let workspace = workspace(root.path(), Reach::Workspace);
-        let output = run(workspace, &format!("cat {}", file.display()))
-            .await
-            .unwrap();
-        assert!(
-            finished_ok(&output) && output.contains("secret"),
-            "{output}"
-        );
+        std::os::unix::fs::symlink(&file, root.path().join("escape")).unwrap();
+        for command in [
+            format!("cat {}", file.display()),
+            "cat escape".to_string(),
+            format!("sh -c 'cat {}'", file.display()),
+            format!("cat /proc/1/root{}", file.display()),
+        ] {
+            let output = run(workspace(root.path(), Reach::Workspace), &command)
+                .await
+                .unwrap();
+            assert!(
+                !finished_ok(&output),
+                "outside read succeeded: {command}: {output}"
+            );
+            assert!(
+                !output.contains("secret"),
+                "outside contents leaked: {output}"
+            );
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -612,6 +651,111 @@ mod tests {
             "sandbox /tmp write landed on the host at {}",
             host.display()
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn workspace_shell_has_a_private_persistent_home_and_no_host_environment() {
+        if skip_without_sandbox() {
+            return;
+        }
+        let root = TestDirectory::new();
+        let mut command = confined(
+            "test -z \"$TOAD_TEST_SECRET\" && echo saved > \"$HOME/marker\"",
+            root.path(),
+        )
+        .unwrap();
+        // Even variables accidentally added by a caller must not reach the shell.
+        command.env("TOAD_TEST_SECRET", "must-not-leak");
+        let output = command.output().await.unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = run(
+            workspace(root.path(), Reach::Workspace),
+            "cat \"$HOME/marker\"",
+        )
+        .await
+        .unwrap();
+        assert_eq!(output.trim(), "saved");
+        let other = TestDirectory::new();
+        let output = run(
+            workspace(other.path(), Reach::Workspace),
+            "test ! -e \"$HOME/marker\"",
+        )
+        .await
+        .unwrap();
+        assert!(finished_ok(&output), "{output}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_private_home_symlink_cannot_create_files_outside() {
+        if skip_without_sandbox() {
+            return;
+        }
+        let root = TestDirectory::new();
+        let outside = TestDirectory::new();
+        let target = outside.path().join("must-not-be-created");
+        std::os::unix::fs::symlink(&target, root.path().join(".toad-home")).unwrap();
+        let output = run(
+            workspace(root.path(), Reach::Workspace),
+            "echo should-not-run",
+        )
+        .await
+        .unwrap();
+        assert!(!finished_ok(&output), "{output}");
+        assert!(!target.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn workspace_shell_runs_installed_toolchains() {
+        if skip_without_sandbox() {
+            return;
+        }
+        let root = TestDirectory::new();
+        fs::write(
+            root.path().join("main.go"),
+            "package main\nfunc main() { println(\"go-ok\") }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("main.rs"),
+            "fn main() { println!(\"rust-ok\"); }\n",
+        )
+        .unwrap();
+        for (tool, command, expected) in [
+            (
+                "python3",
+                "python3 -c 'import ssl, sqlite3; print(\"python-ok\")'",
+                "python-ok",
+            ),
+            ("npm", "npm --version && echo npm-ok", "npm-ok"),
+            ("node", "node -e 'console.log(\"node-ok\")'", "node-ok"),
+            ("go", "go run main.go", "go-ok"),
+            ("rustc", "rustc main.rs -o app && ./app", "rust-ok"),
+        ] {
+            if !path_has_command(tool, std::env::var_os("PATH").as_deref()) {
+                continue;
+            }
+            let output = RunCommand::new(workspace(root.path(), Reach::Workspace))
+                .call(
+                    &mut ToolContext::new(),
+                    RunCommandArgs {
+                        command: command.to_string(),
+                        timeout_seconds: Some(120),
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(
+                finished_ok(&output) && output.contains(expected),
+                "{tool}: {output}"
+            );
+        }
     }
 
     #[tokio::test]

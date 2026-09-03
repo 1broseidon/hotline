@@ -36,7 +36,7 @@ use crate::contract::{
     ToolStatus, TranscriptEvent,
 };
 use crate::driver::rig::Said;
-use crate::driver::{Driver, PI_BACKEND_ID, Update, acp};
+use crate::driver::{CapabilityLease, Driver, PI_BACKEND_ID, Update, acp};
 use crate::log::{StreamId, thread};
 use crate::mcp::server::TeammateTools;
 use crate::paths::{thread_key, thread_participants};
@@ -70,6 +70,8 @@ pub struct DeliverResult {
 /// One live peer session: the target's agent, answering one caller.
 struct PeerSession {
     driver: Arc<dyn Driver>,
+    caller_capability: CapabilityLease,
+    target_capability: CapabilityLease,
     thread_key: String,
     /// Whether this caller's words are stored as the thread's `agent` side.
     /// The thread's `user` side is its key's first participant, so half of all
@@ -81,6 +83,12 @@ struct PeerSession {
     window: Mutex<Option<TranscriptEvent>>,
     /// The line both tapes are drawing this run of exchanges as.
     marker: Mutex<Marker>,
+}
+
+impl PeerSession {
+    fn valid(&self) -> bool {
+        self.caller_capability.is_current() && self.target_capability.is_current()
+    }
 }
 
 /// The marker each side's tape carries for a run of exchanges: one id, written
@@ -123,6 +131,39 @@ impl Peers {
             .iter()
             .find(|(held, _)| held == key)
             .map(|(_, target_id)| target_id.clone())
+    }
+
+    fn invalidate(&self, persona_id: &str) {
+        let removed: Vec<Arc<PeerSession>> = {
+            let mut sessions = lock(&self.sessions);
+            let mut removed = Vec::new();
+            sessions.retain(|(caller_id, target_id), live| {
+                if caller_id == persona_id || target_id == persona_id {
+                    removed.push(live.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            removed
+        };
+        for session in removed {
+            session.caller_capability.revoke();
+            session.target_capability.revoke();
+            session.driver.invalidate();
+        }
+    }
+
+    pub(super) fn invalidate_all(&self) {
+        let removed: Vec<Arc<PeerSession>> = {
+            let mut sessions = lock(&self.sessions);
+            sessions.drain().map(|(_, live)| live).collect()
+        };
+        for session in removed {
+            session.caller_capability.revoke();
+            session.target_capability.revoke();
+            session.driver.invalidate();
+        }
     }
 }
 
@@ -174,6 +215,9 @@ impl Room {
         }
 
         let session = self.peer_session(&caller, &target, &key).await?;
+        if !session.valid() {
+            return Err("That peer session's capabilities have been revoked.".to_string());
+        }
         self.mark(&session, &caller, &target, PeerStatus::Open);
         self.append_thread(
             &session,
@@ -190,6 +234,10 @@ impl Room {
             },
         );
 
+        if !session.valid() {
+            self.mark(&session, &caller, &target, PeerStatus::Failed);
+            return Err("That peer session's capabilities have been revoked.".to_string());
+        }
         let mut updates = session
             .driver
             .prompt(
@@ -246,6 +294,10 @@ impl Room {
         }
         *lock(&session.last_used) = now_ms();
 
+        if !session.valid() {
+            self.mark(&session, &caller, &target, PeerStatus::Failed);
+            return Err("That peer session's capabilities have been revoked.".to_string());
+        }
         if let Some(error) = failure {
             self.mark(&session, &caller, &target, PeerStatus::Failed);
             return Err(format!("{} could not answer: {error}", target.name));
@@ -335,30 +387,28 @@ impl Room {
     /// Stops every peer session this teammate is a side of. A teammate that
     /// has been deleted has no more colleagues to answer.
     pub(crate) fn drop_peer_sessions(&self, persona_id: &str) {
-        let mut sessions = lock(&self.peers.sessions);
-        sessions.retain(|(caller_id, target_id), live| {
-            if caller_id != persona_id && target_id != persona_id {
-                return true;
-            }
-            live.driver.cancel();
-            false
-        });
+        self.peers.invalidate(persona_id);
     }
 
     /// Stops the peer sessions nobody has spoken to for [`IDLE_MS`]. A pair
     /// mid-delivery is left alone: its turn is what it was kept open for.
     pub(super) fn sweep_peers(&self, now: i64) {
-        let mut sessions = lock(&self.peers.sessions);
-        sessions.retain(|_, live| {
+        let mut removed = Vec::new();
+        lock(&self.peers.sessions).retain(|_, live| {
             if self.peers.answering_in(&live.thread_key).is_some() {
                 return true;
             }
             if now - *lock(&live.last_used) < IDLE_MS {
                 return true;
             }
-            live.driver.cancel();
+            removed.push(live.clone());
             false
         });
+        for live in removed {
+            live.caller_capability.revoke();
+            live.target_capability.revoke();
+            live.driver.invalidate();
+        }
     }
 
     /// The peer session for this direction, started if it is not up.
@@ -368,10 +418,35 @@ impl Room {
         target: &Persona,
         key: &str,
     ) -> Result<Arc<PeerSession>, String> {
-        let pair = (caller.id.clone(), target.id.clone());
-        if let Some(live) = lock(&self.peers.sessions).get(&pair) {
-            return Ok(live.clone());
+        let caller_id = caller.id.clone();
+        let target_id = target.id.clone();
+        let pair = (caller_id.clone(), target_id.clone());
+        let caller_capability = self.capability_lease(&caller_id);
+        let target_capability = self.capability_lease(&target_id);
+        caller_capability.check()?;
+        target_capability.check()?;
+        let cached = { lock(&self.peers.sessions).get(&pair).cloned() };
+        if let Some(live) = cached {
+            if live.valid() {
+                return Ok(live);
+            }
+            let stale = { lock(&self.peers.sessions).remove(&pair) };
+            if let Some(stale) = stale {
+                stale.caller_capability.revoke();
+                stale.target_capability.revoke();
+                stale.driver.invalidate();
+            }
+            return Err("That peer session's capabilities have been revoked.".to_string());
         }
+        caller_capability.check()?;
+        target_capability.check()?;
+        // The roster snapshots used to find this pair may have gone stale
+        // while a policy update was being applied. Re-read them only after
+        // taking the generation leases, then use the matching records below.
+        let caller = self.persona(&caller_id)?;
+        let target = self.persona(&target_id)?;
+        caller_capability.check()?;
+        target_capability.check()?;
         std::fs::create_dir_all(&target.cwd).map_err(|error| {
             format!(
                 "{}'s working directory {} could not be made: {error}",
@@ -386,28 +461,45 @@ impl Room {
         view.last_session_id = None;
         let in_process = view.backend_id == PI_BACKEND_ID;
         if !in_process {
-            acp::materialize_agents_md(&view).map_err(|error| {
-                format!("{}'s AGENTS.md could not be written: {error}", view.name)
-            })?;
+            caller_capability.check()?;
+            acp::materialize_agents_md_with_capability(&view, Some(target_capability.clone()))
+                .map_err(|error| {
+                    format!("{}'s AGENTS.md could not be written: {error}", view.name)
+                })?;
         }
         let flip = thread_participants(key).is_some_and(|(user_side, _)| user_side != caller.id);
         let extra_mcp = self.grant_computer(&view).await?;
+        caller_capability.check()?;
+        target_capability.check()?;
         let driver = self.agents.agent(
             &view,
             peer_preamble(
-                caller,
+                &caller,
                 &view,
                 in_process.then(|| view.reach.unwrap_or_default()),
             ),
             said_in(&self.log.load(&StreamId::Thread(key.to_string())), flip),
-            TeammateTools::new(self, &view.id),
+            TeammateTools::new(self, &view.id).with_capability(target_capability.clone()),
             extra_mcp,
         )?;
-        driver.start(&view).await?;
+        if let Err(error) = driver.start(&view).await {
+            driver.invalidate();
+            return Err(error);
+        }
+        if let Err(error) = caller_capability.check() {
+            driver.invalidate();
+            return Err(error);
+        }
+        if let Err(error) = target_capability.check() {
+            driver.invalidate();
+            return Err(error);
+        }
 
         let now = now_ms();
         let live = Arc::new(PeerSession {
             driver,
+            caller_capability,
+            target_capability,
             thread_key: key.to_string(),
             flip,
             last_used: Mutex::new(now),
@@ -418,6 +510,23 @@ impl Room {
                 exchanges: 0,
             }),
         });
+        let _lifecycle = lock(&self.lifecycle);
+        if !live.valid() {
+            live.driver.invalidate();
+            return Err("That peer session's capabilities have been revoked.".to_string());
+        }
+        if let Some(existing) = lock(&self.peers.sessions).get(&pair).cloned() {
+            if existing.valid() {
+                live.caller_capability.revoke();
+                live.target_capability.revoke();
+                live.driver.invalidate();
+                return Ok(existing);
+            }
+            lock(&self.peers.sessions).remove(&pair);
+            existing.caller_capability.revoke();
+            existing.target_capability.revoke();
+            existing.driver.invalidate();
+        }
         lock(&self.peers.sessions).insert(pair, live.clone());
         Ok(live)
     }

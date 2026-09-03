@@ -115,19 +115,81 @@ On each turn it is given:
 | kind | what | how |
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory |
-| shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. Workspace reach may read the machine but may only write the working directory and a private `/tmp`. Network stays on: agents install things. The wall is kept per OS, or the tool is not offered. |
+| shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
 | Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
-| granted MCP tools | every server the teammate's `mcpPolicy` selects | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
+| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
 
-A shell that cannot see `/usr`, the toolchains under the home directory, or
-the package caches cannot build anything, which is why those reads are
-allowed when the file tools refuse them. Workspace reach for `shell`:
+Settings → Tools is the MCP gateway: configuring a server makes it available
+to grant, not automatically available to every teammate. New teammates start
+with **No servers**. **Selected servers** grants only named servers; **All
+servers** grants every configured server, including ones added later. Existing
+saved choices remain intact. Imported teammates without a valid saved policy
+get no gateway servers. Changing reach never changes an MCP grant.
+
+A grant authorizes the server's own capabilities, including any access it has
+outside the teammate's workspace. Toad does not put granted servers inside the
+shell sandbox. Toad's own tools and a separately enabled computer remain
+available independently of the gateway policy. Both drivers receive the
+selected gateway list; an ACP harness may also load its own configured tools.
+Grant changes revoke existing handles, cancel current execution, and clear
+queued turns before rebuilding a live session. Cached peer sessions are
+invalidated whether the changed teammate was their caller or recipient.
+Already dispatched external side effects cannot be undone; a remote tool
+call may finish after its connection is closed.
+
+The Linux shell uses the host's installed tools without mounting the host's
+whole filesystem. The runtime is an explicit exception to workspace reach:
+executables, their libraries, and public configuration are readable. Other
+projects, host home contents, Toad's vault, and host control sockets are not
+mounted. The synthetic root and parent directories are read-only. Listing those
+directories shows the sandbox's mount layout, not the host's directory contents.
+The workspace and private `/tmp` remain writable separate mounts, so a workspace
+under `/tmp` can still write to its synthetic parent within that private scratch.
+Workspace contents themselves remain available, including any secrets the user
+puts in that workspace.
 
 | OS | workspace reach |
 | --- | --- |
-| Linux | `bwrap` is the parent of `sh`: the root is read-only, the working directory is bound on top, `/tmp` is a private tmpfs. Missing `bwrap`, or a `bwrap` that cannot create a sandbox, omits the tool and the ledger says why. Ubuntu 24.04's AppArmor restriction on unprivileged user namespaces is the usual reason a present `bwrap` still cannot sandbox; the profile below lifts it for `bwrap` alone. |
-| macOS | `sandbox-exec` with a Seatbelt profile that allows everything and denies `file-write*` except under the working directory, `/tmp`, `/private/tmp`, `/dev`, and `$TMPDIR`. Built, unproven on a Mac until George runs it. `sandbox-exec` is deprecated by Apple and still ships. |
-| Windows | no confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
+| Linux | System `bwrap` starts from an empty filesystem. System binary, library, header, and shared-runtime directories are mounted read-only, including their `/usr/local` counterparts and Go/Swift installations. Other system trees such as `/usr/local/src` stay hidden. Selected toolchain installations and public configuration are added, then the writable workspace. `/tmp`, `/dev`, and `/proc` are private; PID and IPC namespaces isolate host processes. A missing or unusable sandbox omits the tool and the ledger says why. |
+| macOS | The existing `sandbox-exec` profile confines writes but still permits host reads. It does **not** provide Linux's read isolation. Built, unproven on a Mac until George runs it. |
+| Windows | No confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
+
+On Linux, `.toad-home/` inside the workspace is the shell's persistent `HOME`,
+with private XDG and Cargo directories. It is created inside the sandbox so a
+project-controlled symlink cannot make Toad write outside. Workspaces do not
+share these caches; teammates deliberately using the same workspace do.
+The shell inherits no host environment, credential variables, or shell startup
+configuration. A command needing a credential must receive it deliberately.
+
+Supported runtime layouts include Linuxbrew's `Cellar`, `opt`, binary, library,
+and share directories; Cargo binaries and Rustup toolchains/settings; nvm's
+Node versions; pyenv's versions, shims and runtime; mise installs/shims; uv's
+Python installations; and Bun binaries. Home toolchain roots redirected by
+symlink are not automatically mounted. Rustup uses the installed toolchains
+read-only while Cargo writes into the private home. The system configuration
+mounts are the loader cache, alternatives, public CA certificates, DNS/hosts,
+NSS configuration, and timezone file, not all of `/etc`.
+
+For other absolute `PATH` entries, standalone executable ELF files and scripts
+with a shebang are mounted individually. This exposes executable code, not the
+parent directory: a neighboring `.env` stays hidden. A tool with additional
+resources in an unsupported location may fail; Toad never exposes its entire
+parent directory to make it work. Install that tool and its dependencies inside
+the workspace when its layout is unsupported. Runtime installations are trusted
+code locations and should not contain project secrets.
+
+Network access still uses the host network, including localhost. This is
+filesystem isolation, not network isolation: local services can expose files or
+privileged actions of their own. Granted MCP servers, computer access, and ACP
+agents retain their own permissions; this shell boundary does not sandbox them.
+
+The shell tests exercise outside reads through direct paths, symlinks, child
+processes and `/proc`, clean environment, persistent private home, standalone
+PATH tools, installed Python/Node/Go/Rust, and cancellation. The desk harness
+switches reach over the wire and checks the real shell and read tool against
+another project's `.env`. Sandbox tests require Linux with working bubblewrap;
+the prerequisite probe is independent of the policy so a broken policy fails
+instead of silently skipping its tests.
 
 On Ubuntu 24.04 and later, `bwrap: setting up uid map: Permission denied`
 means the kernel's `apparmor_restrict_unprivileged_userns` is on. Ubuntu's
@@ -212,10 +274,28 @@ what is sent:
 
 ## An ACP child
 
-An ACP teammate (`driver/acp.rs`) is another process. Toad holds no
-credentials for it — these agents sign themselves in — and cannot enforce
-reach over tools it does not own, so the preamble promises nothing about
-them.
+An ACP teammate (`driver/acp.rs`) is another process. Selecting it trusts
+that harness's tools, configuration, and permission policy. Toad holds no
+credentials for it — these agents sign themselves in — and does not apply
+its shell sandbox to the harness's own tools.
+
+For ACP teammates, Settings → Reach shows the harness's advertised runtime
+mode and labels it **Externally managed**. The chat header shows only model
+and reasoning effort when the harness advertises them. Other ACP settings
+are hidden. Toad sends the actual mode and configuration ids supplied by
+the harness; it does not invent a shared set of permission levels. Without
+an advertised runtime selector, Reach reports that it is unavailable.
+Harness notifications refresh these controls even between turns, including
+removing choices the harness withdraws. These updates change the live
+session view without adding messages to the conversation.
+
+ACP file callbacks are different: Toad performs those reads and writes.
+They use the workspace directory handle, reject outside paths and symlink
+escapes, and carry the session's revocable authority. They stay confined
+even if an older ACP teammate has `reach: "machine"` saved, because there
+is no longer a Toad reach toggle for that harness. An ACP runtime mode
+does not widen these callbacks. The preamble distinguishes the two
+boundaries.
 
 ACP has no system-prompt parameter, so the two things Toad must say arrive
 elsewhere:
@@ -224,7 +304,8 @@ elsewhere:
   before the child is started. Only a file that *opens* with
   `<!-- managed by Toad -->` is replaced; a hand-written `AGENTS.md` in a
   real repository is left alone, including one that merely mentions the
-  marker.
+  marker. Materialization uses the same workspace boundary; an `AGENTS.md`
+  symlink cannot redirect a Toad write outside it.
 - **What kind of room this is** — the preamble (identity, standing, the
   house style, the wake block) — rides as a content block ahead of the first
   prompt on this connection. It is not written to the tape: Toad explaining
@@ -467,15 +548,29 @@ when that previous chapter ran on a different agent.
 
 ### Reattaching
 
-A change to what a teammate can use restarts a live session behind the
-same start gate. The swap is the stop and start a closed chapter already
-does, for a different reason: the driver is built from the persona and
-the room's servers, so leaving it running would keep the old set until
-somebody stopped the teammate by hand. Between turns it happens now;
-during a turn it waits until the turn ends, and a queued line runs
-before the swap, because a message the person already sent is worth more
-than a tool change landing one turn sooner. An idle teammate is left
-alone: the next start builds from the new state.
+A change to reach, workspace, tools, background work, goal, or harness
+revokes existing execution before the new record is written. Policy updates
+from separate clients are serialized through persistence and reattachment.
+New starts cannot acquire usable authority during that interval. A driver
+still starting must validate its captured authority before publication.
+If persistence fails, affected sessions remain stopped and their old
+handles stay revoked. Retrying the settings change restores execution;
+Toad does not silently restore a grant the operator tried to remove.
+
+The room cancels the old driver, clears its queued turns, and rebuilds a
+live session behind the same start gate. It also drops cached peer sessions
+involving the teammate in either direction. Cloned tool handles retain a
+revocable lease, so removing a session from the cache alone is never the
+permission check. An idle teammate stays idle and uses the new policy on
+its next start. A gateway change applies this boundary to the whole room,
+including peers whose main session is stopped.
+
+Stop ends current main and peer execution and invalidates their handles.
+It also invalidates a replacement that is still starting.
+It leaves standing grants intact: a later operator prompt, an authorized
+peer request, or an authorized schedule may start fresh work. An old turn
+cannot publish a checkpoint or replace the new session's state after it
+has been revoked.
 
 The chapter stays open. The ledger the new start publishes is the record
 of what attached; nothing is written on the tape for the restart. The
@@ -545,6 +640,23 @@ prompts. After a one-shot fires it is tombstoned; a loop is rewritten with
 `nextAt` a fresh interval from now. A job whose teammate has been deleted
 is tombstoned rather than fired. A fire that fails is retried in a minute.
 
+**Background work** is the standing grant for a teammate to create its own
+schedules and loops. It defaults off, including on older teammate records.
+The tool handlers enforce it when creating a job, and the scheduler checks
+it again before a wake and immediately before a queued turn reaches the
+driver. Each queued firing carries its own trusted provenance, because a
+one-shot job may already have been tombstoned. Turning the grant off pauses agent-created jobs still on
+the room stream; it does not delete them. Enabling it again permits a missed
+tick to run once, under the usual scheduler rule.
+
+A job created through the authenticated desk's `schedule.create` command is
+an explicit operator instruction. Toad records `operatorCreated: true` on
+that job, so it may run with Background work off. Agent tools cannot choose
+that provenance. Older jobs without it require Background work. Stopping a
+session ends its current execution; it does not revoke standing background
+work or cancel operator-created jobs. Cancel a job to remove its future
+wakes.
+
 The wire takes milliseconds. Bounds, so a teammate cannot schedule itself
 into a crowd or a busy-loop:
 
@@ -566,7 +678,7 @@ MCP server:
 | --- | --- | --- |
 | `schedule` | `when`, `prompt`, `quiet?` | wake once; `when` is `20m` or an ISO timestamp |
 | `loop` | `every`, `prompt`, `quiet?` | wake on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
-| `list_schedules` | `target?` | the caller's jobs, or another teammate's if `target` is their personaId |
+| `list_schedules` | none | only the caller's jobs; a supplied `target` is refused |
 | `cancel_schedule` | `id` | drop one of the caller's jobs; another teammate's is refused |
 
 The pane labels a job from its prompt; the tools take no name. A string

@@ -182,6 +182,11 @@ pub struct Persona {
     pub hop_notice: Option<String>,
     /// Which of the app's MCP servers this teammate is given.
     pub mcp_policy: McpPolicy,
+    /// Whether this teammate may create and receive its own persistent
+    /// schedules. Operator-created jobs carry their own provenance and do not
+    /// depend on this grant. Absent means off, including for older records.
+    #[serde(default)]
+    pub background_work: bool,
     /// Absent means inherit the desk's web search entirely.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_policy: Option<WebSearchPolicy>,
@@ -251,12 +256,12 @@ pub enum PolicyMode {
     Some,
 }
 
-/// Which of the global MCP servers a teammate gets.
+/// Which servers from the global MCP gateway a teammate gets.
 ///
-/// A capability is a property of the teammate, not of the app: the one that
-/// files tickets should not also be able to deploy just because both servers
-/// are configured. `all` is the default because the common case is a roster
-/// that shares its tools, and `some` exists for when it should not.
+/// New teammates get `none`: configuring a server does not grant its powers
+/// to the roster. The operator grants selected servers with `some`, or every
+/// current and future server with `all`. These grants are independent of reach;
+/// a granted server retains its own permissions outside the shell sandbox.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -644,12 +649,25 @@ pub enum SessionState {
 }
 
 /// One picker the agent offers beyond the model and the mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SessionConfigCategory {
+    /// A model's reasoning or thought level.
+    Effort,
+}
+
+/// One picker the agent offers beyond the model and the mode.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct SessionConfig {
     pub id: String,
     pub name: String,
+    /// The small set of generic selectors Toad may place in the conversation
+    /// header. Unknown ACP selectors stay out of the UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<SessionConfigCategory>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_id: Option<String>,
     pub options: Vec<ConfigChoice>,
@@ -946,6 +964,11 @@ pub struct ScheduledRun {
     pub job_id: String,
     pub kind: ScheduleKind,
     pub name: String,
+    /// The immutable provenance captured when the scheduler queued this run.
+    /// A one-shot may be tombstoned before its queued turn reaches the driver,
+    /// so dispatch cannot recover this fact from the room stream.
+    #[serde(default)]
+    pub operator_created: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quiet: Option<bool>,
 }
@@ -984,6 +1007,11 @@ pub struct ScheduledJob {
     /// speaks. Stored only when true, so "not quiet" has one representation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quiet: Option<bool>,
+    /// True only when the authenticated desk created this job. Jobs created by
+    /// a teammate, and jobs written by older versions without provenance,
+    /// require that teammate's current background-work grant at every wake.
+    #[serde(default)]
+    pub operator_created: bool,
     pub next_at: i64,
     pub created_at: i64,
 }
@@ -1656,7 +1684,7 @@ mod tests {
                 "kind": "user", "id": "u1", "ts": 1, "text": "hi",
                 "attachments": [{ "kind": "image", "name": "shot.png", "path": "/tmp/shot.png", "mimeType": "image/png", "size": 12 }],
                 "reactions": ["🐸"], "replyTo": "a0",
-                "scheduled": { "jobId": "j1", "kind": "loop", "name": "daily", "quiet": true },
+                "scheduled": { "jobId": "j1", "kind": "loop", "name": "daily", "operatorCreated": false, "quiet": true },
                 "ring": "attention", "receipt": "read",
             }),
             json!({ "kind": "user", "id": "u2", "ts": 2, "text": "bare" }),

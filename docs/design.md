@@ -33,12 +33,24 @@ These come over as ideas and, where the code was already Rust, as code.
   conversation; *Fresh* means it is reading saved history. Never pretend.
 - **Reach, not approval cards, for the built-in agent.** A teammate's one
   policy is binary: its working directory is a wall, or the whole machine is
-  open. An agent is there to go and do things.
+  open. An agent is there to go and do things. On Linux the built-in shell
+  exposes selected host toolchains read-only, without exposing other host data;
+  its persistent home lives inside the workspace. Network access and granted
+  integrations remain separate capabilities (see [sessions](sessions.md)).
 - **The tool ledger.** Every tool a teammate was given, where it came from,
   and for anything absent, why. A tool that vanishes silently is the worst
   failure the old app shipped.
 - **Quiet scheduled runs by construction**, not by asking the model to be
   quiet: a window over the run demotes its words to thoughts by event kind.
+- **Persistent work is a grant.** Background work defaults off for teammates.
+  It authorizes their own schedules and loops; jobs the person creates in the
+  desk carry explicit operator provenance. Revocation pauses agent-created
+  jobs without deleting them. Own conversation memory stays available, while
+  the built-in schedule listing cannot reveal another teammate's prompts.
+- **External harnesses own their permissions.** Choosing ACP is explicit
+  trust in that harness. Its runtime mode lives in the Reach card, while
+  model and effort stay in the chat header. Toad-mediated file callbacks
+  remain confined to the workspace; a harness mode does not widen them.
 - **The house discipline.** Headless harnesses drive the real thing end to
   end; commits are one line stating an invariant; delete, don't disable;
   fewer moving parts beats fewer lines; write for the next reader.
@@ -130,6 +142,14 @@ on `rmcp`. Toad Agent gets its workspace tools natively plus every MCP
 server the teammate's policy grants, connected by Toad as the client. A
 child driver is handed the same list, Toad's server included, in the form
 ACP takes. One tool surface, one policy, one ledger.
+
+The global MCP configuration is the operator's gateway. New teammates get
+no gateway servers; the operator grants selected servers or all servers on
+each teammate. All includes servers added later. A saved choice is preserved,
+including on import; a missing or invalid imported policy grants nothing.
+Reach governs local workspace tools, while an MCP grant authorizes that
+server's own capabilities and permissions. The shell sandbox does not confine
+granted servers. These are standing choices, without per-call approval cards.
 
 ### 5. No fleet in the first version
 

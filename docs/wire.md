@@ -142,17 +142,22 @@ decline, which is the previous Toad's word for that afterlife.
 modelId?, effortId?, computer?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"pi"`, a workspace under the data directory,
-`mcpPolicy` `{mode: "all", serverIds: []}`, and no `reach` unless the
-draft asked for `"machine"`. The whole teammate is written as one room
+`mcpPolicy` `{mode: "none", serverIds: []}`, and no `reach` unless the
+draft asked for `"machine"`. Background work defaults off. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
-`computer`, `backendId` or `harnessOverride` then reattaches the live
-session, so the new tools take effect without waiting for the next start.
+`computer`, `backgroundWork`, `backendId` or `harnessOverride` invalidates
+current main and peer execution before writing the record, clears queued
+turns, and then reattaches a live main session. The old driver cannot keep
+using the previous grant while the new one is being installed.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
-the patch. A patch that names `mcpServers` reattaches every live session.
+the patch. A patch that names `mcpServers` invalidates all main and peer
+sessions before persistence and reattaches live main sessions afterward.
+Policy updates are serialized across client sockets. One failed restart
+does not prevent the remaining teammates from applying the change.
 `computerRuntime` is the user's pick of `"docker"`, `"podman"` or
 `"container"`; absent means the first available runtime. `computerImage`
 is the room's default image, under a teammate's own. Neither reattaches
@@ -277,6 +282,13 @@ fire, milliseconds since epoch; `every` is a loop's interval. `quiet`
 defaults to false. A one-shot cannot carry `every`; a loop cannot carry
 `when`. The job is an event on the room stream; the clock that fires it is
 [sessions.md](sessions.md).
+
+The desk's `schedule.create` is an operator instruction and writes
+`operatorCreated: true`; callers do not supply that field. These jobs may
+run with the teammate's `backgroundWork` off. Agent-created jobs and older
+jobs without provenance require that grant. `schedule.list` retains the
+operator's room-wide view; the agent tool `list_schedules` can only return
+its own jobs.
 
 A command the room cannot read is `"This room cannot read that command:
 …"`. A seat that may not run one is `"That seat may not run this

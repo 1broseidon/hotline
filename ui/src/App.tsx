@@ -380,7 +380,7 @@ export function App() {
 								<Teammate
 									key={`inspector-${selected.persona.id}`}
 									persona={selected.persona}
-									sessionState={selected.session.state}
+									session={selected.session}
 									jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 									focusSchedules={focusSchedules}
 									onClose={() => setInspector(false)}

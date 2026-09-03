@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use toad_core::desk::Desk;
+use toad_core::log::{Log, StreamId};
 use toad_core::wire::Door;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -80,6 +81,7 @@ async fn a_job_is_created_listed_silenced_and_cancelled_over_the_wire() {
         )
         .await;
     assert_eq!(created["ok"], true, "{created}");
+    assert_eq!(created["result"]["backgroundWork"], false);
     let persona_id = created["result"]["id"].as_str().unwrap();
 
     let when = chrono::Utc::now().timestamp_millis() + 3_600_000;
@@ -102,11 +104,13 @@ async fn a_job_is_created_listed_silenced_and_cancelled_over_the_wire() {
     assert_eq!(job["result"]["quiet"], true);
     assert_eq!(job["result"]["when"], when);
     assert_eq!(job["result"]["nextAt"], when);
+    assert_eq!(job["result"]["operatorCreated"], true);
 
     let listed = client.call("schedule.list", json!({})).await;
     assert_eq!(listed["ok"], true, "{listed}");
     assert_eq!(listed["result"].as_array().unwrap().len(), 1);
     assert_eq!(listed["result"][0]["id"], id);
+    assert_eq!(listed["result"][0]["operatorCreated"], true);
 
     let loud = client
         .call("schedule.set_quiet", json!({ "id": id, "quiet": false }))
@@ -148,6 +152,40 @@ async fn a_loop_over_the_wire_carries_every_and_has_no_when() {
     assert_eq!(job["ok"], true, "{job}");
     assert_eq!(job["result"]["kind"], "loop");
     assert_eq!(job["result"]["every"], 15_000);
+    assert_eq!(job["result"]["operatorCreated"], true);
     assert!(job["result"].get("when").is_none(), "{job}");
     assert!(job["result"].get("quiet").is_none(), "{job}");
+}
+
+#[tokio::test]
+async fn an_old_job_on_the_wire_requires_the_background_grant() {
+    let root = scratch("legacy-provenance");
+    let log = Log::open(&root);
+    let next_at = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    // This is the shape written by the previous build: there is no trusted
+    // creator bit, so loading it must choose the grant-required path.
+    log.append(
+        &StreamId::Room,
+        &json!({
+            "kind": "schedule",
+            "id": "legacy-job",
+            "personaId": "legacy-teammate",
+            "when": next_at,
+            "prompt": "check the old crane",
+            "nextAt": next_at,
+            "createdAt": next_at - 1,
+        }),
+    )
+    .unwrap();
+    let desk = Desk::open(&root).unwrap();
+    let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
+    let port = door.port();
+    tokio::spawn(door.run());
+
+    let mut client = Client::connect(port).await;
+    let listed = client.call("schedule.list", json!({})).await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    assert_eq!(listed["result"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["result"][0]["id"], "legacy-job");
+    assert_eq!(listed["result"][0]["operatorCreated"], false);
 }

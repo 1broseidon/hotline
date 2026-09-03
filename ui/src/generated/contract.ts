@@ -217,12 +217,12 @@ export type LoginState = "pending" | "done" | "failed";
 export type LoginStatus = { state: LoginState, credential?: Credential, error?: string, };
 
 /**
- * Which of the global MCP servers a teammate gets.
+ * Which servers from the global MCP gateway a teammate gets.
  *
- * A capability is a property of the teammate, not of the app: the one that
- * files tickets should not also be able to deploy just because both servers
- * are configured. `all` is the default because the common case is a roster
- * that shares its tools, and `some` exists for when it should not.
+ * New teammates get `none`: configuring a server does not grant its powers
+ * to the roster. The operator grants selected servers with `some`, or every
+ * current and future server with `all`. These grants are independent of reach;
+ * a granted server retains its own permissions outside the shell sandbox.
  */
 export type McpPolicy = { mode: PolicyMode, serverIds: Array<string>, };
 
@@ -341,6 +341,12 @@ hopNotice?: string,
  * Which of the app's MCP servers this teammate is given.
  */
 mcpPolicy: McpPolicy, 
+/**
+ * Whether this teammate may create and receive its own persistent
+ * schedules. Operator-created jobs carry their own provenance and do not
+ * depend on this grant. Absent means off, including for older records.
+ */
+backgroundWork: boolean, 
 /**
  * Absent means inherit the desk's web search entirely.
  */
@@ -520,7 +526,13 @@ every?: number, prompt: string,
  * The user asked this job for nothing in the chat. Absent means it
  * speaks. Stored only when true, so "not quiet" has one representation.
  */
-quiet?: boolean, nextAt: number, createdAt: number, };
+quiet?: boolean, 
+/**
+ * True only when the authenticated desk created this job. Jobs created by
+ * a teammate, and jobs written by older versions without provenance,
+ * require that teammate's current background-work grant at every wake.
+ */
+operatorCreated: boolean, nextAt: number, createdAt: number, };
 
 /**
  * What a firing stamps on the user event it writes.
@@ -529,7 +541,13 @@ quiet?: boolean, nextAt: number, createdAt: number, };
  * means reading what it actually said. This is what lets the transcript show
  * one line instead — and what tells the quiet gate which job is speaking.
  */
-export type ScheduledRun = { jobId: string, kind: ScheduleKind, name: string, quiet?: boolean, };
+export type ScheduledRun = { jobId: string, kind: ScheduleKind, name: string, 
+/**
+ * The immutable provenance captured when the scheduler queued this run.
+ * A one-shot may be tombstoned before its queued turn reaches the driver,
+ * so dispatch cannot recover this fact from the room stream.
+ */
+operatorCreated: boolean, quiet?: boolean, };
 
 /**
  * What the agent behind a session can be asked to do.
@@ -544,7 +562,17 @@ export type SessionCheckpoint = { backendId: string, sessionId: string, };
 /**
  * One picker the agent offers beyond the model and the mode.
  */
-export type SessionConfig = { id: string, name: string, currentId?: string, options: Array<ConfigChoice>, };
+export type SessionConfig = { id: string, name: string, 
+/**
+ * The small set of generic selectors Toad may place in the conversation
+ * header. Unknown ACP selectors stay out of the UI.
+ */
+category?: SessionConfigCategory, currentId?: string, options: Array<ConfigChoice>, };
+
+/**
+ * One picker the agent offers beyond the model and the mode.
+ */
+export type SessionConfigCategory = "effort";
 
 /**
  * Capabilities and options a live session reported, used to drive the UI.

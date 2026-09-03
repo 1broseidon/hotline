@@ -2168,6 +2168,20 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
         Some(Reach::Machine) => " Your tools reach the whole machine, not only that directory.",
         None => "",
     };
+    // A computer is granted at start, outside the policy, so the agent is told
+    // here rather than by a tool listing: what the desktop is, that the person
+    // can watch it and take it over, and what to do when a page wants
+    // something only the person has. What they type on the desktop goes
+    // straight to the desktop and never through the agent.
+    let computer_sentence = if persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled)
+    {
+        "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. The person can see its screen and take it over at any time. When a page wants credentials, a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+    } else {
+        ""
+    };
     let goal = persona.goal.trim();
     let identity = if goal.is_empty() {
         format!("You are {}.", persona.name)
@@ -2182,7 +2196,7 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     // unconditional: a tool an agent was never told about is a tool it does
     // not have.
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}\n\nToday is {}.\n\n{}\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{}",
         persona.cwd,
         Local::now().format("%A %-d %B %Y"),
         crate::mcp::server::HOW_TO_USE,

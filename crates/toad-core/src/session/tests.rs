@@ -7,8 +7,8 @@
 
 use super::*;
 use crate::contract::{
-    AttachmentKind, ChapterStatus, HumanAnswer, McpPolicy, PermissionOption, PolicyMode,
-    ScheduledJob, SessionCheckpoint,
+    AttachmentKind, ChapterStatus, HumanAnswer, McpPolicy, PermissionOption, PersonaComputer,
+    PolicyMode, ScheduledJob, SessionCheckpoint,
 };
 use crate::driver::DriverInfo;
 use crate::mcp::server::TeammateTools;
@@ -880,6 +880,18 @@ fn the_preamble_says_who_where_how_far_and_when() {
         child.contains("Toad shows your reply as chat"),
         "an ACP child hears the same house style in its preamble: {child}"
     );
+
+    // A computer is granted outside the policy, so the preamble is where a
+    // teammate learns it has one, and that the person can take it over.
+    assert!(!child.contains("You have a computer"));
+    ada.computer = Some(PersonaComputer {
+        enabled: true,
+        image: None,
+    });
+    let desk = preamble(&ada, Some(Reach::Workspace), None);
+    assert!(desk.contains("You have a computer"));
+    assert!(desk.contains("take it over"));
+    assert!(desk.contains("`request_human`"));
     assert!(
         walled.contains("`request_human`"),
         "the preamble names the tool that asks the person: {walled}"

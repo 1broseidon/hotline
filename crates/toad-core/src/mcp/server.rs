@@ -135,7 +135,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             REQUEST_HUMAN,
-            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation. This call waits until they do it, they decline, or ten minutes pass, and returns whatever note they typed with their answer. Set the stage first and say in `reason` exactly what to do.",
+            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation. This call waits until they do it, they decline, or ten minutes pass, and returns whatever note they typed with their answer. Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it while you wait, so get the page that needs them on screen before you ask.",
             schema(json!({
                 "type": "object",
                 "properties": {

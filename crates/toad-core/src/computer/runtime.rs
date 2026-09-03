@@ -217,6 +217,30 @@ mod tests {
         root
     }
 
+    /// `detect_with`, retried while a report says "Text file busy". A test in
+    /// another thread forking at the instant this one's script was still
+    /// open for writing hands its child that descriptor until it execs, and
+    /// Linux refuses to run a file anyone holds open for writing. The window
+    /// is microseconds wide and the retry is the honest fix for a test suite
+    /// that writes executables while other tests spawn.
+    async fn detect_settled(search: &BinSearch) -> Vec<RuntimeReport> {
+        let mut reports = detect_with(search).await;
+        for _ in 0..5 {
+            let busy = reports.iter().any(|report| {
+                report
+                    .reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("Text file busy"))
+            });
+            if !busy {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            reports = detect_with(search).await;
+        }
+        reports
+    }
+
     fn write_script(dir: &Path, name: &str, body: &str) {
         let path = dir.join(name);
         fs::write(&path, body).unwrap();
@@ -244,7 +268,7 @@ exit 1
 "#,
         );
 
-        let reports = detect_with(&BinSearch::only(path.into_os_string())).await;
+        let reports = detect_settled(&BinSearch::only(path.into_os_string())).await;
         let docker = reports
             .iter()
             .find(|report| report.runtime == ComputerRuntime::Docker)
@@ -289,7 +313,7 @@ exit 1
 "#,
         );
 
-        let reports = detect_with(&BinSearch::only(path.into_os_string())).await;
+        let reports = detect_settled(&BinSearch::only(path.into_os_string())).await;
         let available: Vec<_> = reports
             .iter()
             .filter(|report| report.available)
@@ -307,7 +331,7 @@ exit 1
     #[tokio::test]
     async fn a_missing_binary_is_unavailable_with_the_path_reason() {
         let path = scratch("missing");
-        let reports = detect_with(&BinSearch::only(path.into_os_string())).await;
+        let reports = detect_settled(&BinSearch::only(path.into_os_string())).await;
         let docker = reports
             .iter()
             .find(|report| report.runtime == ComputerRuntime::Docker)

@@ -13,7 +13,7 @@ D-Bus, xdotool window controls, and Noto/DejaVu fonts to
 `jlesage/baseimage-gui:alpine-3.22-v4`. The base supplies the display, window
 manager, browser viewer on port 5800, VNC on port 5900, process supervision,
 and its non-root application user. The Docker-reported uncompressed image size
-is **1.05 GB**.
+is **710 MB**.
 
 Alpine 3.22 does not publish a `wmctrl` package. Focus and close therefore use
 xdotool, while maximize and restore use the agent's existing EWMH connection.

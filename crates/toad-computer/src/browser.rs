@@ -62,10 +62,12 @@ impl BrowserManager {
             .viewport(None)
             .user_data_dir(profile)
             .env("DISPLAY", self.config.display.clone())
-            .arg("--no-first-run")
-            .arg("--no-default-browser-check")
+            .arg("disable-gpu")
+            .arg("disable-software-rasterizer")
+            .arg("no-first-run")
+            .arg("no-default-browser-check")
             // Chromium does not expose its tree to AT-SPI until accessibility is forced.
-            .arg("--force-renderer-accessibility")
+            .arg("force-renderer-accessibility")
             .build()
             .map_err(|error| format!("browser: {error}"))?;
         let (browser, mut handler) = Browser::launch(browser_config)

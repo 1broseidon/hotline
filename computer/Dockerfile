@@ -17,13 +17,15 @@ RUN apk add --no-cache \
     ttf-dejavu \
     xclip \
     xdotool \
+    && rm -rf \
+        /usr/lib/gallium-pipe \
+        /usr/lib/libLLVM* \
+        /usr/lib/libgallium* \
     && mkdir -p /home/agent \
     && chown 1000:1000 /home/agent
 
-COPY --from=build /src/target/release/toad-computer /usr/bin/toad-computer
-COPY computer/startapp.sh /startapp.sh
-
-RUN chmod 0755 /startapp.sh /usr/bin/toad-computer
+COPY --chmod=0755 --from=build /src/target/release/toad-computer /usr/bin/toad-computer
+COPY --chmod=0755 computer/startapp.sh /startapp.sh
 
 ENV ACCESSIBILITY_ENABLED=1 \
     APP_NAME="Toad Computer" \

@@ -46,4 +46,4 @@ and its existing EWMH connection for maximize and restore.
 - Files stay below `/home/agent`, and visible input is serialized.
 - Chromium is visible in the desktop and is driven directly over CDP.
 
-The Docker-reported uncompressed image size is **1.05 GB**.
+The Docker-reported uncompressed image size is **710 MB**.

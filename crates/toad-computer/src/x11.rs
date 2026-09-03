@@ -241,11 +241,18 @@ fn property_windows<C: Connection>(
     window: XWindow,
     property: u32,
 ) -> Result<Vec<XWindow>, String> {
-    connection
+    let reply = connection
         .get_property(false, window, property, AtomEnum::WINDOW, 0, u32::MAX)
         .map_err(|error| error.to_string())?
         .reply()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    // A property the window manager has not set yet — `_NET_ACTIVE_WINDOW`
+    // on a desktop nothing has focused — comes back with format 0, which is
+    // an empty list, not a wrong type.
+    if reply.format == 0 {
+        return Ok(Vec::new());
+    }
+    reply
         .value32()
         .map(Iterator::collect)
         .ok_or_else(|| "x11: window property has the wrong type".to_owned())

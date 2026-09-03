@@ -25,7 +25,7 @@ docker run -d --name toad-computer-test \
   --pids-limit 512 --memory 2g --shm-size 1g \
   -p 127.0.0.1:8787:8787 -p 127.0.0.1:5800:5800 \
   -e TOAD_COMPUTER_TOKEN="$TOKEN" \
-  -v "$PWD:/workspace" \
+  -v "$PWD:/home/agent/workspace" \
   toad-computer:dev
 ```
 

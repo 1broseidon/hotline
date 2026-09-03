@@ -57,24 +57,33 @@ async fn exec(app: &App, input: Input) -> ToolResult {
         )
         .env("DISPLAY", &app.config.display)
         .kill_on_drop(true)
+        .process_group(0)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let child = command
         .spawn()
         .map_err(|error| format!("{}: {error}", input.command))?;
-    let output =
-        match tokio::time::timeout(Duration::from_secs(timeout), child.wait_with_output()).await {
-            Ok(result) => result.map_err(|error| error.to_string())?,
-            Err(_) => {
-                return json_text(ExecResult {
-                    stdout: String::new(),
-                    stderr: format!("exec timed out after {timeout}s"),
-                    exit_code: 255,
-                    duration_ms: started.elapsed().as_millis(),
-                    truncated: false,
-                });
+    let process_group = child.id();
+    let mut wait = Box::pin(child.wait_with_output());
+    let output = match tokio::time::timeout(Duration::from_secs(timeout), &mut wait).await {
+        Ok(result) => result.map_err(|error| error.to_string())?,
+        Err(_) => {
+            if let Some(process_group) = process_group {
+                // Shells may leave descendants behind, so a timeout kills their whole group.
+                unsafe {
+                    libc::kill(-(process_group as i32), libc::SIGKILL);
+                }
             }
-        };
+            let _ = wait.await;
+            return json_text(ExecResult {
+                stdout: String::new(),
+                stderr: format!("exec timed out after {timeout}s"),
+                exit_code: 255,
+                duration_ms: started.elapsed().as_millis(),
+                truncated: false,
+            });
+        }
+    };
     let (stdout, stdout_truncated) = truncate(output.stdout, max_output);
     let (stderr, stderr_truncated) = truncate(output.stderr, max_output);
     json_text(ExecResult {
@@ -113,5 +122,57 @@ fn truncate(bytes: Vec<u8>, max: usize) -> (String, bool) {
         (String::from_utf8_lossy(&bytes).into_owned(), false)
     } else {
         (String::from_utf8_lossy(&bytes[..max]).into_owned(), true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Config;
+
+    #[tokio::test]
+    async fn timeout_kills_descendants_in_the_childs_process_group() {
+        let home = tempfile::tempdir().unwrap();
+        let pid_file = home.path().join("grandchild.pid");
+        let app = App::new(Config {
+            addr: String::new(),
+            token: None,
+            home: home.path().to_owned(),
+            display: ":0".to_owned(),
+        });
+        exec(
+            &app,
+            Input {
+                action: "exec".to_owned(),
+                command: "/bin/sh".to_owned(),
+                args: vec![
+                    "-c".to_owned(),
+                    "sleep 100 & echo $! > \"$1\"; wait".to_owned(),
+                    "sh".to_owned(),
+                    pid_file.to_string_lossy().into_owned(),
+                ],
+                cwd: None,
+                timeout: Some(1),
+                max_output: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let pid: i32 = std::fs::read_to_string(pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let mut gone = false;
+        for _ in 0..50 {
+            let result = unsafe { libc::kill(pid, 0) };
+            if result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(gone, "grandchild {pid} survived its command timeout");
     }
 }

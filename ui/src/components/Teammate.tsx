@@ -7,6 +7,7 @@ import type {
 	PersonaComputer,
 	PolicyMode,
 	ScheduledJob,
+	SessionState,
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
@@ -36,6 +37,7 @@ import type { OpenThread } from "./Thread";
  */
 export function Teammate({
 	persona,
+	sessionState,
 	jobs,
 	focusSchedules,
 	onClose,
@@ -43,6 +45,7 @@ export function Teammate({
 	onOpenThread,
 }: {
 	persona: Persona;
+	sessionState: SessionState;
 	jobs: ScheduledJob[];
 	focusSchedules: boolean;
 	onClose(): void;
@@ -214,7 +217,7 @@ export function Teammate({
 						onChange={(mcpPolicy) => save({ mcpPolicy })}
 					/>
 
-					<ToolLedger personaId={persona.id} servers={servers} />
+					<ToolLedger personaId={persona.id} sessionState={sessionState} servers={servers} />
 
 					<Schedules personaId={persona.id} jobs={jobs} focus={focusSchedules} />
 
@@ -370,7 +373,7 @@ function ComputerSection({
 					/>
 				</label>
 				{enabled && (
-					<div className="group-row">
+					<div className="group-row flex-col items-stretch gap-1.5">
 						<label className="group-row-text" htmlFor="edit-computer-image">
 							<span className="group-row-title">Image</span>
 							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
@@ -379,7 +382,7 @@ function ComputerSection({
 						</label>
 						<input
 							id="edit-computer-image"
-							className="field w-40 min-w-0 font-mono text-sm"
+							className="field w-full font-mono text-sm"
 							placeholder="Room default"
 							autoComplete="off"
 							spellCheck={false}
@@ -399,32 +402,41 @@ function ComputerSection({
 			<p className="hint">A change reaches the teammate on its next start.</p>
 			{(enabled || state !== "absent") && (
 				<div className="grouped mt-2">
-					<div className="group-row">
+					<div className="group-row flex-col items-stretch gap-2">
 						<span className="group-row-text">
 							<span className="group-row-title">{words.title}</span>
 							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
 								{words.detail}
 							</span>
 						</span>
-						{viewer !== undefined && (
-							<button type="button" className="control btn" onClick={() => void openLink(viewer)}>
-								Open desktop
-							</button>
-						)}
-						{state === "running" && (
-							<button type="button" className="control btn-quiet" disabled={acting} onClick={() => void act("computer.stop")}>
-								Stop
-							</button>
-						)}
-						{state === "stopped" && (
-							<button
-								type="button"
-								className="control btn-quiet"
-								disabled={acting}
-								onClick={() => void act("computer.remove")}
-							>
-								Remove
-							</button>
+						{state !== "absent" && (
+							<div className="flex items-center gap-2">
+								{viewer !== undefined && (
+									<button type="button" className="control btn" onClick={() => void openLink(viewer)}>
+										Open desktop
+									</button>
+								)}
+								{state === "running" && (
+									<button
+										type="button"
+										className="control btn-quiet"
+										disabled={acting}
+										onClick={() => void act("computer.stop")}
+									>
+										Stop
+									</button>
+								)}
+								{state === "stopped" && (
+									<button
+										type="button"
+										className="control btn-quiet"
+										disabled={acting}
+										onClick={() => void act("computer.remove")}
+									>
+										Remove
+									</button>
+								)}
+							</div>
 						)}
 					</div>
 				</div>
@@ -509,15 +521,30 @@ function McpGrant({
 
 /**
  * What this teammate actually has. The grant above is the intent; this is
- * the outcome of the last start, read once when the pane opens because a
- * ledger is a fact of that start, not a live feed.
+ * the outcome of the last start. A ledger is a fact of a start, not a live
+ * feed, so it is read when the pane opens and again when the session
+ * changes state, which is the only time a new one can exist.
  */
-function ToolLedger({ personaId, servers }: { personaId: string; servers: McpServer[] }) {
+function ToolLedger({
+	personaId,
+	sessionState,
+	servers,
+}: {
+	personaId: string;
+	sessionState: SessionState;
+	servers: McpServer[];
+}) {
 	const [ledger, setLedger] = useState<TeammateToolLedger | null | undefined>(undefined);
 
 	useEffect(() => {
-		let cancelled = false;
 		setLedger(undefined);
+	}, [personaId]);
+
+	// Asked again on every change of session state, because the ledger is
+	// written by a start, and the pane may already be open when one happens.
+	// The answer replaces what is shown; it never blanks it first.
+	useEffect(() => {
+		let cancelled = false;
 		void wire
 			.command("teammate.tools", { personaId })
 			.then((next) => {
@@ -529,7 +556,7 @@ function ToolLedger({ personaId, servers }: { personaId: string; servers: McpSer
 		return () => {
 			cancelled = true;
 		};
-	}, [personaId]);
+	}, [personaId, sessionState]);
 
 	if (ledger === undefined) return null;
 

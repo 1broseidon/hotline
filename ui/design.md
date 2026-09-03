@@ -179,6 +179,14 @@ transition and animation, and holds the mark still.
   messages is one quiet caption in the instrument
   voice — a count, closed until pressed; a transcript that hides it
   would lie, one that shouts it is a log.
+- Needs you: the one card that is a request of the person, live until
+  answered. It says what is wanted and offers the answers — Done and
+  Decline — and nothing else by default; a note is a quiet affordance
+  that opens a field, not a field waiting to be ignored. While the
+  teammate's desktop is running the card leads with Open the screen and
+  says the screen is the person's until Done, so the way to do the thing
+  is the first thing on the card. The desktop opens in a window of its
+  own, one per teammate; the band carries Screen while it runs.
 - Machinery between messages is folded into instrument rows on a 2px rule.
 
 ## What every screen MUST share

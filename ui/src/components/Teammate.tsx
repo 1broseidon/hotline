@@ -14,7 +14,8 @@ import type {
 import { chordKeys } from "../chords";
 import { CheckIcon, CloseIcon, RevealIcon, WarningIcon } from "../icons";
 import { mcpServerDetail, useMcpServers, type McpServer } from "../mcp";
-import { openLink, revealPath } from "../native";
+import { COMPUTER_STATUS_EVERY_MS, openComputer } from "../computer";
+import { revealPath } from "../native";
 import { firstLine } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -205,6 +206,7 @@ export function Teammate({
 
 					<ComputerSection
 						personaId={persona.id}
+						name={persona.name}
 						computer={persona.computer}
 						disabled={busy}
 						onChange={(computer) => save({ computer })}
@@ -266,9 +268,6 @@ export function Teammate({
 	);
 }
 
-/** How often the pane asks after the container while it is open. */
-const COMPUTER_STATUS_EVERY_MS = 5000;
-
 const STATE_WORDS: Record<ComputerStatus["state"], { title: string; detail: string }> = {
 	running: { title: "Running", detail: "The desktop is up. Stopping it keeps the container for the next start." },
 	stopped: { title: "Stopped", detail: "The container is kept and wakes on the next start. Removing it starts over." },
@@ -284,11 +283,13 @@ const STATE_WORDS: Record<ComputerStatus["state"], { title: string; detail: stri
  */
 function ComputerSection({
 	personaId,
+	name,
 	computer,
 	disabled,
 	onChange,
 }: {
 	personaId: string;
+	name: string;
 	computer: PersonaComputer | undefined;
 	disabled: boolean;
 	onChange(computer: PersonaComputer): void;
@@ -412,7 +413,7 @@ function ComputerSection({
 						{state !== "absent" && (
 							<div className="flex items-center gap-2">
 								{viewer !== undefined && (
-									<button type="button" className="control btn" onClick={() => void openLink(viewer)}>
+									<button type="button" className="control btn" onClick={() => void openComputer(personaId, name, viewer)}>
 										Open desktop
 									</button>
 								)}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, SessionConfig, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
+import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText, useRoomSettings } from "../room";
@@ -179,6 +180,8 @@ export function Conversation({
 				? [{ id: "effort", name: "Effort", currentId: persona.effortId ?? "", options: idleEfforts }]
 				: [];
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
+	const screen = useComputerViewer(personaId, running && (persona.computer?.enabled ?? false));
+	const openScreen = screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen);
 	const next = jobs.reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
@@ -342,6 +345,11 @@ export function Conversation({
 					/>
 				))}
 
+				{openScreen !== undefined && (
+					<button type="button" className="control btn-quiet" title="Open the teammate's desktop" onClick={openScreen}>
+						Screen
+					</button>
+				)}
 				<button
 					type="button"
 					className="control btn-icon"
@@ -386,6 +394,7 @@ export function Conversation({
 					live={session.state === "thinking"}
 					focus={focus}
 					onReply={setReplying}
+					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={(event) =>
 						onOpenThread({
 							key: event.threadKey,

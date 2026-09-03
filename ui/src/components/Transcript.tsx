@@ -67,6 +67,7 @@ export function Transcript({
 	speakers,
 	onReply,
 	onOpenThread,
+	onOpenScreen,
 }: {
 	personaId: string;
 	name: string;
@@ -80,6 +81,8 @@ export function Transcript({
 	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
 	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
+	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
+	onOpenScreen?(): void;
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	/* Following the conversation is the default and stays true until you
@@ -188,6 +191,7 @@ export function Transcript({
 									speakers={speakers}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
 									onJump={(eventId) => setJumped({ eventId, at: Date.now() })}
 								/>
 							)}
@@ -324,6 +328,7 @@ function Row({
 	speakers,
 	onReply,
 	onOpenThread,
+	onOpenScreen,
 	onJump,
 }: {
 	personaId: string;
@@ -333,6 +338,7 @@ function Row({
 	speakers: Speakers | undefined;
 	onReply?(target: ReplyTarget): void;
 	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
+	onOpenScreen?(): void;
 	onJump(eventId: string): void;
 }) {
 	switch (event.kind) {
@@ -394,7 +400,7 @@ function Row({
 			return <Plan entries={event.entries} />;
 
 		case "human_action":
-			return <HumanAction personaId={personaId} event={event} />;
+			return <HumanAction personaId={personaId} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
 
 		/* One quiet line, the way a chapter is a date. Pressing it opens
 		 * the thread in the inspector's place. */
@@ -777,11 +783,14 @@ const AFTERLIFE: Record<HumanActionStatus, string> = {
 function HumanAction({
 	personaId,
 	event,
+	onOpenScreen,
 }: {
 	personaId: string;
 	event: Extract<TranscriptEvent, { kind: "human_action" }>;
+	onOpenScreen?(): void;
 }) {
 	const [answering, setAnswering] = useState(false);
+	const [noting, setNoting] = useState(false);
 	const [note, setNote] = useState("");
 
 	const answer = (status: HumanAnswer) => {
@@ -808,28 +817,50 @@ function HumanAction({
 		<div className="card card-live mt-3">
 			<p className="eyebrow mb-1">Needs you</p>
 			<p className="selectable">{event.reason}</p>
-			<form
-				className="mt-2.5 flex items-center gap-1.5"
-				onSubmit={(submit) => {
-					submit.preventDefault();
-					answer("done");
-				}}
-			>
+			{onOpenScreen !== undefined && (
+				<p className="mt-1.5 text-sm text-ink-3">
+					The screen is yours until you press Done. What you type there goes to the desktop, not to the teammate.
+				</p>
+			)}
+			{noting && (
 				<input
-					className="field min-w-0 flex-1"
+					className="field mt-2.5 w-full"
 					aria-label="A note for the teammate"
-					placeholder="A note for the teammate, if there is one"
+					placeholder="A note for the teammate"
 					autoComplete="off"
+					autoFocus
 					value={note}
 					onChange={(change) => setNote(change.target.value)}
+					onKeyDown={(key) => {
+						if (key.key !== "Enter") return;
+						key.preventDefault();
+						answer("done");
+					}}
 				/>
-				<button type="submit" disabled={answering} className="control btn-primary">
+			)}
+			<div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+				{onOpenScreen !== undefined && (
+					<button type="button" className="control btn-primary" onClick={onOpenScreen}>
+						Open the screen
+					</button>
+				)}
+				<button
+					type="button"
+					disabled={answering}
+					className={onOpenScreen !== undefined ? "control btn" : "control btn-primary"}
+					onClick={() => answer("done")}
+				>
 					Done
 				</button>
 				<button type="button" disabled={answering} className="control btn" onClick={() => answer("declined")}>
 					Decline
 				</button>
-			</form>
+				{!noting && (
+					<button type="button" className="control btn-quiet ml-auto" onClick={() => setNoting(true)}>
+						Add a note
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }

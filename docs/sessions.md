@@ -348,7 +348,11 @@ the desktop's viewer in a Toad window of its own (`computer-<personaId>`,
 the noVNC page the container serves on `viewer`); the agent is inside the
 waiting tool call the whole time, so the person and the agent never drive
 the desktop at once, and what the person types goes to the desktop, never
-through the agent or the tape. Done hands the desktop back.
+through the agent or the tape. Done hands the desktop back. The card
+shows Open the screen only while `computer.status` says running, which the
+conversation asks every five seconds while the teammate has a computer and
+a session; the band shows Screen on the same condition. Outside the desk
+(a browser tab) the viewer opens as a link instead.
 
 ## Peer threads
 

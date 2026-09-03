@@ -354,6 +354,42 @@ impl RoomHandle for Quiet {
     }
 
     fn forget(&self, _persona_id: &str) {}
+
+    async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
+        vec![
+            crate::contract::RuntimeReport {
+                runtime: crate::contract::ComputerRuntime::Podman,
+                available: true,
+                reason: None,
+                rootless: true,
+            },
+            crate::contract::RuntimeReport {
+                runtime: crate::contract::ComputerRuntime::Docker,
+                available: true,
+                reason: None,
+                rootless: false,
+            },
+        ]
+    }
+
+    async fn computer_status(
+        &self,
+        _persona_id: &str,
+    ) -> Result<crate::contract::ComputerStatus, String> {
+        Ok(crate::contract::ComputerStatus {
+            state: crate::contract::ComputerState::Running,
+            url: Some("http://127.0.0.1:18787/mcp".into()),
+            viewer: Some("http://127.0.0.1:15800".into()),
+        })
+    }
+
+    async fn computer_stop(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn computer_remove(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -1552,4 +1588,91 @@ async fn settings_update_of_mcp_servers_reattaches_every_live_session() {
     let mut after = quiet.reattached();
     after.sort();
     assert_eq!(after, want, "a chapterIdleHours patch reattached again");
+}
+
+#[tokio::test]
+async fn computer_commands_and_the_runtime_setting() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("computer-wire", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "computer.runtimes", "params": {} }),
+    )
+    .await;
+    let runtimes = answered(&mut socket, 2).await;
+    assert_eq!(runtimes["ok"], true, "{runtimes}");
+    assert_eq!(runtimes["result"][0]["runtime"], "podman");
+    assert_eq!(runtimes["result"][0]["available"], true);
+    assert_eq!(runtimes["result"][0]["rootless"], true);
+    assert_eq!(runtimes["result"][1]["runtime"], "docker");
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "computer.status", "params": { "personaId": id } }),
+    )
+    .await;
+    let status = answered(&mut socket, 3).await;
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["result"]["state"], "running");
+    assert_eq!(status["result"]["url"], "http://127.0.0.1:18787/mcp");
+    assert_eq!(status["result"]["viewer"], "http://127.0.0.1:15800");
+
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "computer.stop", "params": { "personaId": id } }),
+    )
+    .await;
+    let stopped = answered(&mut socket, 4).await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    assert!(stopped.get("result").is_none(), "{stopped}");
+
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "computer.remove", "params": { "personaId": id } }),
+    )
+    .await;
+    let removed = answered(&mut socket, 5).await;
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert!(removed.get("result").is_none(), "{removed}");
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 6,
+            "cmd": "settings.update",
+            "params": { "patch": { "computerRuntime": "podman" } },
+        }),
+    )
+    .await;
+    let settings = answered(&mut socket, 6).await;
+    assert_eq!(settings["ok"], true, "{settings}");
+    assert_eq!(settings["result"]["computerRuntime"], "podman");
+    assert!(
+        quiet.reattached().is_empty(),
+        "picking a runtime does not reattach: {:?}",
+        quiet.reattached()
+    );
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 7,
+            "cmd": "computer.status",
+            "params": { "personaId": "nobody" },
+        }),
+    )
+    .await;
+    let missing = answered(&mut socket, 7).await;
+    assert_eq!(missing["ok"], false, "{missing}");
+    assert!(
+        missing["error"]
+            .as_str()
+            .unwrap()
+            .contains("There is no teammate nobody"),
+        "{missing}"
+    );
 }

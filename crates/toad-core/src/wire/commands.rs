@@ -177,6 +177,24 @@ pub(crate) async fn run(
         Command::PeersMarkRead { key, event_ids } => {
             Ok(json!(room.mark_peer_read(&key, &event_ids)))
         }
+
+        Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),
+        Command::ComputerStatus { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_status(&persona_id)
+                .await
+                .map(|status| json!(status))
+        }
+        Command::ComputerStop { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_stop(&persona_id).await.map(|()| Value::Null)
+        }
+        Command::ComputerRemove { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_remove(&persona_id)
+                .await
+                .map(|()| Value::Null)
+        }
     }
 }
 

@@ -488,6 +488,25 @@ impl RoomHandle for Desk {
     fn forget(&self, persona_id: &str) {
         self.room.forget(persona_id);
     }
+
+    async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
+        self.room.computer_runtimes().await
+    }
+
+    async fn computer_status(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ComputerStatus, String> {
+        self.room.computer_status(persona_id).await
+    }
+
+    async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_stop(persona_id).await
+    }
+
+    async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_remove(persona_id).await
+    }
 }
 
 fn record_login(

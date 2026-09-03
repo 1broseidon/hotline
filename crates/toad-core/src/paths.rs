@@ -5,6 +5,7 @@
 //! the files stay where they are.
 
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// The data directory: `TOAD_DATA_DIR`, or the platform's application
@@ -127,6 +128,64 @@ pub fn index_path(root: &Path) -> PathBuf {
 /// the agents Toad was taught by hand.
 pub fn acp_registry_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-registry.json")
+}
+
+/// The absolute path of a command, looking on `PATH` and the directories a
+/// packaged Mac app's GUI environment does not include.
+///
+/// Finder and a `.desktop` file spawn with `/usr/bin:/bin:/usr/sbin:/sbin`.
+/// Homebrew, `/usr/local`, and `~/.local/bin` are where `docker` and `podman`
+/// actually live, and a computer that cannot start because Toad was opened
+/// from the dock is the bug the previous edition shipped.
+pub fn resolve_command(name: &str) -> Option<PathBuf> {
+    resolve_command_in(name, env::var_os("PATH").as_deref(), true)
+}
+
+/// Resolve `name` against an explicit `PATH` value. `extras` is the
+/// packaged-Mac directories; tests that hand in a fake PATH turn them off
+/// so a real runtime on this machine cannot leak into the probe.
+pub fn resolve_command_in(name: &str, path: Option<&OsStr>, extras: bool) -> Option<PathBuf> {
+    if name.contains(['/', '\\']) {
+        let path = PathBuf::from(name);
+        return path.is_file().then_some(path);
+    }
+    let mut dirs: Vec<PathBuf> = path
+        .map(|path| env::split_paths(path).collect())
+        .unwrap_or_default();
+    if extras {
+        for extra in extra_bin_dirs() {
+            if !dirs.contains(&extra) {
+                dirs.push(extra);
+            }
+        }
+    }
+    let extensions: Vec<String> = if cfg!(windows) {
+        env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+            .split(';')
+            .map(str::to_string)
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    dirs.into_iter()
+        .flat_map(|directory| {
+            extensions
+                .iter()
+                .map(move |extension| directory.join(format!("{name}{extension}")))
+        })
+        .find(|candidate| candidate.is_file())
+}
+
+fn extra_bin_dirs() -> Vec<PathBuf> {
+    let mut dirs = vec![
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/opt/homebrew/bin"),
+    ];
+    if let Some(home) = env::var_os("HOME") {
+        dirs.push(PathBuf::from(home).join(".local").join("bin"));
+    }
+    dirs
 }
 
 pub fn workspaces_dir(root: &Path) -> PathBuf {

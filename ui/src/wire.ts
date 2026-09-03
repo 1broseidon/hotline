@@ -3,6 +3,7 @@ import type {
 	CatalogModel,
 	ChapterSummary,
 	Command,
+	ComputerStatus,
 	ConfigChoice,
 	Credential,
 	GlobalSearchHit,
@@ -13,6 +14,7 @@ import type {
 	Provider,
 	Report,
 	RosterEntry,
+	RuntimeReport,
 	ScheduledJob,
 	SessionInfo,
 	StreamDelta,
@@ -99,6 +101,10 @@ type Results = {
 	"peers.list": PeerThreadSummary[];
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
+	"computer.runtimes": RuntimeReport[];
+	"computer.status": ComputerStatus;
+	"computer.stop": null;
+	"computer.remove": null;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

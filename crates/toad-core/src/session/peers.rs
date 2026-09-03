@@ -391,6 +391,7 @@ impl Room {
             })?;
         }
         let flip = thread_participants(key).is_some_and(|(user_side, _)| user_side != caller.id);
+        let extra_mcp = self.grant_computer(&view).await?;
         let driver = self.agents.agent(
             &view,
             peer_preamble(
@@ -400,6 +401,7 @@ impl Room {
             ),
             said_in(&self.log.load(&StreamId::Thread(key.to_string())), flip),
             TeammateTools::new(self, &view.id),
+            extra_mcp,
         )?;
         driver.start(&view).await?;
 

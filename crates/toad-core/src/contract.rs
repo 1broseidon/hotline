@@ -374,6 +374,50 @@ pub struct PersonaComputer {
     pub image: Option<String>,
 }
 
+/// The container CLI Toad will shell out to. `"container"` is Apple's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ComputerRuntime {
+    Docker,
+    Podman,
+    Container,
+}
+
+/// What probing one runtime found, for the window's settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct RuntimeReport {
+    pub runtime: ComputerRuntime,
+    pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub rootless: bool,
+}
+
+/// Whether a teammate's computer container is up, stopped, or gone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ComputerState {
+    Running,
+    Stopped,
+    Absent,
+}
+
+/// A peek at one teammate's computer. `url` and `viewer` are only present
+/// while it is running — a drawer that asks must not be what spins it up.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ComputerStatus {
+    pub state: ComputerState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The web desktop, `http://127.0.0.1:<host port for 5800>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewer: Option<String>,
+}
+
 /// Operator-configured extras plus an optional pin on the built-in task
 /// runner.
 ///
@@ -1498,6 +1542,16 @@ pub enum Command {
     /// or an id naming nothing, moves nothing.
     #[serde(rename = "peers.mark_read")]
     PeersMarkRead { key: String, event_ids: Vec<String> },
+    /// Every runtime this machine knows how to drive, rootless-available first.
+    #[serde(rename = "computer.runtimes")]
+    ComputerRuntimes {},
+    /// A peek: never wakes the container.
+    #[serde(rename = "computer.status")]
+    ComputerStatus { persona_id: String },
+    #[serde(rename = "computer.stop")]
+    ComputerStop { persona_id: String },
+    #[serde(rename = "computer.remove")]
+    ComputerRemove { persona_id: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

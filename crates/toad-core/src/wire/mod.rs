@@ -212,6 +212,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// A teammate is gone: its agent is stopped, every peer session it was a
     /// side of is dropped, and nothing is kept for its id.
     fn forget(&self, persona_id: &str);
+
+    async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport>;
+    async fn computer_status(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ComputerStatus, String>;
+    async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
+    async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
 }
 
 /// What a socket may do, decided by the token it presented.

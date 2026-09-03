@@ -45,10 +45,12 @@ pub(crate) mod schedule;
 pub use peers::{DeliverResult, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
 
+use crate::computer::Computer;
 use crate::contract::{
-    Attachment, ChapterClose, ChapterSummary, ConfigChoice, HumanActionStatus, HumanAnswer,
-    NoticeLevel, Persona, Reach, ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo,
-    SessionState, StreamDelta, TeammateToolLedger, ToolOutput, ToolStatus, TranscriptEvent,
+    Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, HumanActionStatus,
+    HumanAnswer, NoticeLevel, Persona, Reach, RuntimeReport, ScheduleKind, ScheduledRun,
+    SessionCapabilities, SessionInfo, SessionState, StreamDelta, TeammateToolLedger, ToolOutput,
+    ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -64,7 +66,7 @@ use async_trait::async_trait;
 use chrono::Local;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -168,6 +170,7 @@ pub trait Agents: Send + Sync {
         preamble: String,
         said: Vec<Said>,
         tools: TeammateTools,
+        extra_mcp: Vec<mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String>;
 
     /// One answer, with no tools and no conversation.
@@ -191,11 +194,15 @@ impl Agents for DeskAgents {
         preamble: String,
         said: Vec<Said>,
         tools: TeammateTools,
+        extra_mcp: Vec<mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String> {
-        let grant = mcp::grant(
+        let mut grant = mcp::grant(
             &mcp::servers(&room::settings(&self.log)),
             &persona.mcp_policy,
         );
+        // The computer is not part of mcpPolicy: a teammate that asked for a
+        // machine gets it even on a policy of none.
+        grant.servers.extend(extra_mcp);
         if persona.backend_id == PI_BACKEND_ID {
             return Ok(Arc::new(
                 InProcess::new(
@@ -418,6 +425,8 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
+    /// One container per teammate, tokens in process state.
+    computers: Computer,
 }
 
 impl Room {
@@ -456,6 +465,7 @@ impl Room {
             schedule_changed: Arc::new(Notify::new()),
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
+            computers: Computer::new(),
         });
         room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
@@ -547,6 +557,11 @@ impl Room {
                 format!("{}'s AGENTS.md could not be written: {error}", persona.name)
             })?;
         }
+        // Wake the computer before the grant so a teammate that asked for a
+        // machine either has one or the start fails with the runtime's
+        // sentence — never a silent absence. The grant itself is appended
+        // regardless of mcpPolicy.
+        let extra_mcp = self.grant_computer(&persona).await?;
         // The agent's context is one chapter: it hears what was said in the
         // chapter it is joining, and the wake block tells it about the one
         // that closed before it — which is the whole of what a fresh context
@@ -562,6 +577,7 @@ impl Room {
             preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
             said(&events),
             TeammateTools::new(self, &persona.id),
+            extra_mcp,
         )?;
         let reported = driver.start(&persona).await?;
         let mut info = idle_info(&persona.id);
@@ -614,6 +630,36 @@ impl Room {
         Ok(info)
     }
 
+    /// Starts the teammate's computer when it asked for one, and answers
+    /// the MCP server the session should be granted. A failure here is a
+    /// start failure: the teammate asked for a machine.
+    async fn grant_computer(&self, persona: &Persona) -> Result<Vec<mcp::McpServer>, String> {
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return Ok(Vec::new());
+        }
+        let prefer = crate::computer::preferred_runtime(&room::settings(&self.log));
+        let computers = self.computers.clone();
+        let persona_id = persona.id.clone();
+        let ready = computers
+            .ensure_running(persona, &persona.cwd, prefer, |text| {
+                self.write(
+                    &persona_id,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Info,
+                        text: text.to_string(),
+                    },
+                );
+            })
+            .await?;
+        Ok(vec![crate::computer::mcp_server(&ready)])
+    }
+
     /// A deleted teammate: its own session stopped, every peer session it was
     /// a side of dropped, and its start gate let go, because nothing should
     /// wait behind — or be kept for — an id that names nobody any more.
@@ -621,6 +667,11 @@ impl Room {
         let _ = self.stop(persona_id);
         self.drop_peer_sessions(persona_id);
         lock(&self.starts).remove(persona_id);
+        let computers = self.computers.clone();
+        let id = persona_id.to_string();
+        tokio::spawn(async move {
+            let _ = computers.remove(&id, None).await;
+        });
     }
 
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
@@ -631,6 +682,7 @@ impl Room {
         session.driver.cancel();
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
+        self.computers.mark_idle(persona_id, now_ms());
         let mut info = idle_info(persona_id);
         info.state = SessionState::Stopped;
         let _ = self.info_changes.send(info);
@@ -1142,6 +1194,42 @@ impl Room {
     /// when it has never started under a Toad that keeps a ledger.
     pub fn teammate_tools(&self, persona_id: &str) -> Option<TeammateToolLedger> {
         ledger::teammate_tools(persona_id)
+    }
+
+    pub async fn computer_runtimes(&self) -> Vec<RuntimeReport> {
+        self.computers.runtimes().await
+    }
+
+    pub async fn computer_status(&self, persona_id: &str) -> Result<ComputerStatus, String> {
+        self.computers
+            .status(
+                persona_id,
+                crate::computer::preferred_runtime(&room::settings(&self.log)),
+            )
+            .await
+    }
+
+    pub async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
+        self.computers
+            .stop(
+                persona_id,
+                crate::computer::preferred_runtime(&room::settings(&self.log)),
+            )
+            .await
+    }
+
+    pub async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
+        self.computers
+            .remove(
+                persona_id,
+                crate::computer::preferred_runtime(&room::settings(&self.log)),
+            )
+            .await
+    }
+
+    async fn sweep_computers(&self) {
+        let live: HashSet<String> = lock(&self.sessions).keys().cloned().collect();
+        self.computers.sweep(now_ms(), &live).await;
     }
 
     /// The room's streams, for the teammate tools that read a tape.
@@ -1795,6 +1883,7 @@ fn sweep_idle_chapters(room: Weak<Room>) {
                     // nothing to arm when a message lands and nothing to
                     // cancel when a teammate is deleted.
                     room.sweep_peers(now_ms());
+                    room.sweep_computers().await;
                 }
                 None => return,
             }

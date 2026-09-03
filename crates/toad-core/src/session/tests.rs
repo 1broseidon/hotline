@@ -196,6 +196,7 @@ impl Agents for Fake {
         preamble: String,
         said: Vec<Said>,
         _tools: TeammateTools,
+        _extra_mcp: Vec<crate::mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String> {
         lock(&self.preambles).push(preamble);
         lock(&self.seeds).push(said);

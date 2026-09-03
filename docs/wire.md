@@ -162,7 +162,9 @@ anything: both are read when a computer wakes.
 whether it is on PATH, why not, and whether it is rootless. `computer.status`
 is a peek at one teammate's container (`running`, `stopped`, `absent`).
 `url` is the MCP endpoint and `viewer` is `http://127.0.0.1:<host port for
-5800>` when it is running, so the window can open the desktop later.
+8787>/#<token>` when it is running and this process woke it, so the window
+can open the desktop later. The token rides in the fragment, which the page
+reads and the server never sees in a request line.
 `computer.stop` and `computer.remove` do not wake anything.
 
 `enabledModels` is an object from provider id to an array of model ids

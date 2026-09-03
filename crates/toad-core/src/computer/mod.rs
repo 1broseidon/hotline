@@ -2,9 +2,10 @@
 //!
 //! The image is a contract, not a binary: anything that serves streamable
 //! HTTP MCP at `http://127.0.0.1:<port>/mcp` with bearer `TOAD_COMPUTER_TOKEN`,
-//! `/health` open, and a web viewer on 5800 is a valid computer. This module
-//! is the Toad-side lifecycle — wake, idle stop, hibernate — and the grant
-//! a session is handed. Another builder writes the agent and the image.
+//! `/health` open, and the viewer page at `/` on the same port is a valid
+//! computer. This module is the Toad-side lifecycle — wake, idle stop,
+//! hibernate — and the grant a session is handed. The agent and the image
+//! are toad.computer, a repository of their own.
 
 pub mod runtime;
 
@@ -35,7 +36,6 @@ pub const COMPUTER_IDLE_STOP_MS: i64 = 30 * 60 * 1000;
 pub const COMPUTER_HIBERNATE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 const MCP_PORT: u16 = 8787;
-const VIEWER_PORT: u16 = 5800;
 const WORKSPACE_MOUNT: &str = "/home/agent/workspace";
 const PULL_NOTICE: &str = "Pulling the computer image …";
 
@@ -122,7 +122,6 @@ struct Live {
     cmd: PathBuf,
     token: String,
     mcp_port: u16,
-    viewer_port: u16,
     last_activity_ms: i64,
 }
 
@@ -201,9 +200,6 @@ impl Computer {
         let mcp_port = inspection.mcp_port.ok_or_else(|| {
             format!("Could not read the computer's published port for {MCP_PORT}/tcp")
         })?;
-        let viewer_port = inspection.viewer_port.ok_or_else(|| {
-            format!("Could not read the computer's published port for {VIEWER_PORT}/tcp")
-        })?;
         self.lock().containers.insert(
             persona.id.clone(),
             Live {
@@ -211,7 +207,6 @@ impl Computer {
                 cmd: cmd.clone(),
                 token: token.clone(),
                 mcp_port,
-                viewer_port,
                 last_activity_ms: now_ms(),
             },
         );
@@ -283,10 +278,7 @@ impl Computer {
                     });
                 }
             };
-            return Ok(status_of(
-                inspection,
-                Some((live.mcp_port, live.viewer_port)),
-            ));
+            return Ok(status_of(inspection, Some((live.mcp_port, &live.token))));
         }
         let Ok((runtime, cmd)) = pick_runtime(prefer, &self.bins).await else {
             return Ok(ComputerStatus {
@@ -353,10 +345,11 @@ struct Inspection {
     exists: bool,
     running: bool,
     mcp_port: Option<u16>,
-    viewer_port: Option<u16>,
 }
 
-fn status_of(inspection: Inspection, known_ports: Option<(u16, u16)>) -> ComputerStatus {
+/// The viewer needs the bearer, which only this process knows, so a
+/// container this process did not wake reports a URL and no viewer.
+fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStatus {
     if !inspection.exists {
         return ComputerStatus {
             state: ComputerState::Absent,
@@ -371,12 +364,14 @@ fn status_of(inspection: Inspection, known_ports: Option<(u16, u16)>) -> Compute
             viewer: None,
         };
     }
-    let mcp = inspection.mcp_port.or(known_ports.map(|ports| ports.0));
-    let viewer = inspection.viewer_port.or(known_ports.map(|ports| ports.1));
+    let mcp = inspection.mcp_port.or(known.map(|known| known.0));
     ComputerStatus {
         state: ComputerState::Running,
         url: mcp.map(mcp_url),
-        viewer: viewer.map(viewer_url),
+        viewer: match (mcp, known) {
+            (Some(port), Some((_, token))) => Some(viewer_url(port, token)),
+            _ => None,
+        },
     }
 }
 
@@ -384,8 +379,10 @@ fn mcp_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/mcp")
 }
 
-fn viewer_url(port: u16) -> String {
-    format!("http://127.0.0.1:{port}")
+/// The bearer rides in the fragment: the page reads it, the server never
+/// sees it in a request line or a log.
+fn viewer_url(port: u16, token: &str) -> String {
+    format!("http://127.0.0.1:{port}/#{token}")
 }
 
 /// The teammate's own image, else the room's, else the pin.
@@ -461,13 +458,8 @@ fn create_args(
         "create".to_string(),
         "--name".to_string(),
         name.to_string(),
+        // Nothing in the image runs as root, so nothing is added back.
         "--cap-drop=ALL".to_string(),
-        "--cap-add=CHOWN".to_string(),
-        "--cap-add=SETUID".to_string(),
-        "--cap-add=SETGID".to_string(),
-        "--cap-add=DAC_OVERRIDE".to_string(),
-        "--cap-add=KILL".to_string(),
-        "--cap-add=NET_BIND_SERVICE".to_string(),
     ];
     // Apple container does not implement these Docker/Podman hardening flags.
     if runtime != Runtime::AppleContainer {
@@ -484,20 +476,14 @@ fn create_args(
         "--shm-size".into(),
         "1g".into(),
     ]);
-    let mcp_bind;
-    let viewer_bind;
-    if runtime == Runtime::AppleContainer {
-        mcp_bind = format!("127.0.0.1:{}:{MCP_PORT}", free_loopback_port()?);
-        viewer_bind = format!("127.0.0.1:{}:{VIEWER_PORT}", free_loopback_port()?);
+    let mcp_bind = if runtime == Runtime::AppleContainer {
+        format!("127.0.0.1:{}:{MCP_PORT}", free_loopback_port()?)
     } else {
-        mcp_bind = format!("127.0.0.1:0:{MCP_PORT}");
-        viewer_bind = format!("127.0.0.1:0:{VIEWER_PORT}");
-    }
+        format!("127.0.0.1:0:{MCP_PORT}")
+    };
     args.extend([
         "-p".into(),
         mcp_bind,
-        "-p".into(),
-        viewer_bind,
         "-e".into(),
         format!("TOAD_COMPUTER_TOKEN={token}"),
         "-v".into(),
@@ -536,7 +522,6 @@ async fn inspect(cmd: &Path, runtime: Runtime, name: &str) -> Result<Inspection,
             exists: false,
             running: false,
             mcp_port: None,
-            viewer_port: None,
         }),
         Err(error) => Err(error),
     }
@@ -566,7 +551,6 @@ fn parse_docker(object: &Value) -> Result<Inspection, String> {
         exists: true,
         running,
         mcp_port: docker_host_port(object, MCP_PORT),
-        viewer_port: docker_host_port(object, VIEWER_PORT),
     })
 }
 
@@ -601,7 +585,6 @@ fn parse_apple(object: &Value) -> Result<Inspection, String> {
         .and_then(Value::as_str)
         == Some("running");
     let mut mcp_port = None;
-    let mut viewer_port = None;
     if let Some(ports) = object
         .get("configuration")
         .and_then(|config| config.get("publishedPorts"))
@@ -617,12 +600,10 @@ fn parse_apple(object: &Value) -> Result<Inspection, String> {
             if proto != "tcp" {
                 continue;
             }
-            match (container, host) {
-                (Some(port), Some(host)) if port == u64::from(MCP_PORT) => mcp_port = Some(host),
-                (Some(port), Some(host)) if port == u64::from(VIEWER_PORT) => {
-                    viewer_port = Some(host)
-                }
-                _ => {}
+            if let (Some(port), Some(host)) = (container, host)
+                && port == u64::from(MCP_PORT)
+            {
+                mcp_port = Some(host);
             }
         }
     }
@@ -630,7 +611,6 @@ fn parse_apple(object: &Value) -> Result<Inspection, String> {
         exists: true,
         running,
         mcp_port,
-        viewer_port,
     })
 }
 
@@ -759,8 +739,7 @@ case "$cmd" in
     running=false
     [ "$state" = running ] && running=true
     mcp=${TOAD_FAKE_MCP_PORT:-18787}
-    viewer=${TOAD_FAKE_VIEWER_PORT:-15800}
-    printf '[{"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}],"5800/tcp":[{"HostPort":"%s"}]}}}]\n' "$running" "$mcp" "$viewer"
+    printf '[{"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$running" "$mcp"
     exit 0
     ;;
   create) echo stopped > "$STATE"; exit 0 ;;
@@ -852,7 +831,6 @@ esac
             std::env::set_var("TOAD_FAKE_LOG", &log);
             std::env::set_var("TOAD_FAKE_STATE", &state);
             std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-            std::env::set_var("TOAD_FAKE_VIEWER_PORT", "15800");
         }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
@@ -869,12 +847,6 @@ esac
             create,
             &[
                 "--cap-drop=ALL",
-                "--cap-add=CHOWN",
-                "--cap-add=SETUID",
-                "--cap-add=SETGID",
-                "--cap-add=DAC_OVERRIDE",
-                "--cap-add=KILL",
-                "--cap-add=NET_BIND_SERVICE",
                 "--security-opt",
                 "no-new-privileges",
                 "--pids-limit",
@@ -885,8 +857,6 @@ esac
                 "1g",
                 "-p",
                 "127.0.0.1:0:8787",
-                "-p",
-                "127.0.0.1:0:5800",
                 "-e",
                 "TOAD_COMPUTER_TOKEN=",
                 "-v",
@@ -916,7 +886,6 @@ esac
             std::env::set_var("TOAD_FAKE_LOG", &log);
             std::env::set_var("TOAD_FAKE_STATE", &state);
             std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-            std::env::set_var("TOAD_FAKE_VIEWER_PORT", "15800");
         }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
@@ -956,7 +925,6 @@ esac
             std::env::set_var("TOAD_FAKE_LOG", &log);
             std::env::set_var("TOAD_FAKE_STATE", &state);
             std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-            std::env::set_var("TOAD_FAKE_VIEWER_PORT", "15800");
         }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
@@ -990,7 +958,6 @@ esac
             std::env::set_var("TOAD_FAKE_LOG", &log);
             std::env::set_var("TOAD_FAKE_STATE", &state);
             std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-            std::env::set_var("TOAD_FAKE_VIEWER_PORT", "15800");
         }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
@@ -1031,7 +998,6 @@ esac
             std::env::set_var("TOAD_FAKE_LOG", &log);
             std::env::set_var("TOAD_FAKE_STATE", &state);
             std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-            std::env::set_var("TOAD_FAKE_VIEWER_PORT", "15800");
         }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());

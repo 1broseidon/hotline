@@ -91,7 +91,8 @@ export type ComputerState = "running" | "stopped" | "absent";
  */
 export type ComputerStatus = { state: ComputerState, url?: string, 
 /**
- * The web desktop, `http://127.0.0.1:<host port for 5800>`.
+ * The web desktop, `http://127.0.0.1:<host port for 8787>/#<token>`:
+ * the viewer page the computer serves, with its bearer in the fragment.
  */
 viewer?: string, };
 

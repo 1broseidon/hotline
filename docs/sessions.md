@@ -348,7 +348,7 @@ A teammate with a computer is told in its preamble that the person can see
 that desktop and take it over, and to get the page that needs them on
 screen before asking. The window's card for a pending `human_action` opens
 the desktop's viewer in a Toad window of its own (`computer-<personaId>`,
-the noVNC page the container serves on `viewer`); the agent is inside the
+the page the computer serves at `viewer`); the agent is inside the
 waiting tool call the whole time, so the person and the agent never drive
 the desktop at once, and what the person types goes to the desktop, never
 through the agent or the tape. Done hands the desktop back. The card

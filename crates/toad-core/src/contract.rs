@@ -413,7 +413,8 @@ pub struct ComputerStatus {
     pub state: ComputerState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// The web desktop, `http://127.0.0.1:<host port for 5800>`.
+    /// The web desktop, `http://127.0.0.1:<host port for 8787>/#<token>`:
+    /// the viewer page the computer serves, with its bearer in the fragment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viewer: Option<String>,
 }

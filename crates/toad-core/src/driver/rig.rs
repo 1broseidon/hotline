@@ -400,7 +400,8 @@ impl Turn {
                 return Err(error.to_string());
             }
         };
-        let outcomes = ToolOutcomes::new(self.output_dir.clone());
+        let provider = self.model.split('/').next().unwrap_or("");
+        let outcomes = ToolOutcomes::new(self.output_dir.clone(), images_to_model(provider));
         let builder = match agent_builder(&self.keys, &self.model, self.effort.as_deref()) {
             Ok(builder) => builder,
             Err(error) => {
@@ -490,7 +491,10 @@ impl Turn {
                     tool_result,
                     internal_call_id,
                 }) => {
-                    let (output, images) = result_of(&tool_result.content);
+                    let (output, mut images) = result_of(&tool_result.content);
+                    if images.is_empty() {
+                        images = outcomes.take_images(&internal_call_id);
+                    }
                     let ok = outcomes.take(&internal_call_id);
                     send(
                         sender,
@@ -560,15 +564,35 @@ fn remember_prompt(history: &mut Vec<Message>, text: &str) {
 #[derive(Clone)]
 struct ToolOutcomes {
     outcomes: Arc<Mutex<HashMap<String, bool>>>,
+    /// The images each call returned, kept here from the raw result so the
+    /// tape gets its frame even when the model is handed text instead.
+    images: Arc<Mutex<HashMap<String, Vec<ToolImage>>>>,
     output_dir: PathBuf,
+    images_to_model: bool,
+}
+
+/// Whether a provider takes an image block inside a tool result. Anthropic
+/// and OpenAI do; OpenRouter refuses the message outright ("does not support
+/// images in tool results") and the turn dies, so everyone else is handed a
+/// placeholder line and the picture goes to the tape only.
+fn images_to_model(provider: &str) -> bool {
+    matches!(provider, "anthropic" | "openai" | "openai-codex")
 }
 
 impl ToolOutcomes {
-    fn new(output_dir: PathBuf) -> Self {
+    fn new(output_dir: PathBuf, images_to_model: bool) -> Self {
         Self {
             outcomes: Arc::new(Mutex::new(HashMap::new())),
+            images: Arc::new(Mutex::new(HashMap::new())),
             output_dir,
+            images_to_model,
         }
+    }
+
+    fn take_images(&self, internal_call_id: &str) -> Vec<ToolImage> {
+        lock(&self.images)
+            .remove(internal_call_id)
+            .unwrap_or_default()
     }
 
     /// Whether that call succeeded. A call the hook never saw reads as
@@ -591,16 +615,18 @@ impl AgentHook for ToolOutcomes {
             event.internal_call_id.to_string(),
             event.raw_result.is_success(),
         );
-        // A screenshot is meant for the model. Rewriting mixed content to
-        // elided text would drop the picture, and `rewrite` can only produce
-        // text, so an image keeps the blocks as they are.
-        if event
-            .presentation
-            .as_content()
-            .iter()
-            .any(|block| matches!(block, ToolResultContent::Image(_)))
-        {
-            return ToolResultAction::Keep;
+        let (text_with_placeholders, images) = result_of(event.presentation.as_content());
+        if !images.is_empty() {
+            lock(&self.images).insert(event.internal_call_id.to_string(), images);
+            // A screenshot is meant for the model, and a rewrite can only
+            // produce text: a provider that takes the picture keeps the
+            // blocks as they are, one that would refuse the message gets the
+            // placeholder line instead.
+            return if self.images_to_model {
+                ToolResultAction::Keep
+            } else {
+                ToolResultAction::rewrite(text_with_placeholders)
+            };
         }
         let text = event.presentation.render();
         if text.len() <= MODEL_TOOL_OUTPUT_BYTES {
@@ -1128,8 +1154,16 @@ mod tests {
     /// A tool nobody reported on succeeded; one the hook saw fail did not, and
     /// the answer is taken only once because a tape event is written once.
     #[test]
+    fn only_providers_that_take_a_picture_in_a_tool_result_get_one() {
+        assert!(images_to_model("anthropic"));
+        assert!(images_to_model("openai-codex"));
+        assert!(!images_to_model("openrouter"));
+        assert!(!images_to_model("ollama"));
+    }
+
+    #[test]
     fn a_tool_outcome_is_read_back_by_the_call_id_the_stream_names() {
-        let outcomes = ToolOutcomes::new(PathBuf::new());
+        let outcomes = ToolOutcomes::new(PathBuf::new(), true);
         assert!(outcomes.take("call-1"));
         lock(&outcomes.outcomes).insert("call-1".to_string(), false);
         assert!(!outcomes.take("call-1"));

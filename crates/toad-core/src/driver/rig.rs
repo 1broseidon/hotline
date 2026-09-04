@@ -38,6 +38,7 @@ use crate::tools::{
     self, EditFile, FindFiles, ListDirectory, ReadFile, RunCommand, SearchFiles, Workspace,
     WriteFile,
 };
+use crate::vault::Vault;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use rig::agent::MultiTurnStreamItem;
@@ -138,6 +139,9 @@ pub struct InProcess {
     teammate: TeammateTools,
     /// Shared with every tool handle this session created.
     capability: Option<CapabilityLease>,
+    /// Protected MCP OAuth registrations and tokens. None is retained for
+    /// standalone test drivers, which keep OAuth servers refused.
+    mcp_vault: Option<Arc<Vault>>,
 }
 
 impl InProcess {
@@ -169,6 +173,7 @@ impl InProcess {
             mcp: Mutex::new(None),
             teammate,
             capability: None,
+            mcp_vault: None,
         }
     }
 
@@ -182,6 +187,11 @@ impl InProcess {
 
     pub(crate) fn with_capability(mut self, capability: CapabilityLease) -> Self {
         self.capability = Some(capability);
+        self
+    }
+
+    pub(crate) fn with_mcp_vault(mut self, vault: Arc<Vault>) -> Self {
+        self.mcp_vault = Some(vault);
         self
     }
 
@@ -231,9 +241,13 @@ impl Driver for InProcess {
             .effort_id
             .clone()
             .filter(|id| models::efforts(&model).iter().any(|offered| offered == id));
-        let connected =
-            mcp::connect_with_capability(&persona.id, &self.mcp_servers, self.capability.clone())
-                .await;
+        let connected = mcp::connect_with_capability_and_vault(
+            &persona.id,
+            &self.mcp_servers,
+            self.capability.clone(),
+            self.mcp_vault.clone(),
+        )
+        .await;
         if let Some(capability) = &self.capability {
             capability.check()?;
         }

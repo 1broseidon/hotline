@@ -14,6 +14,7 @@ import { openLink } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
+import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -956,9 +957,15 @@ function ProviderPage({
 	);
 }
 
-type ServerDraft = { name: string; kind: "stdio" | "http"; command: string; url: string };
+type ServerDraft = {
+	name: string;
+	kind: "stdio" | "http";
+	command: string;
+	url: string;
+	authMode: "none" | "oauth" | "keep";
+};
 
-const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: "" };
+const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: "", authMode: "none" };
 
 /**
  * Tools: the MCP servers the room has, drawn the way Providers is. An add
@@ -1094,6 +1101,7 @@ function ServerPage({
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					<ServerForm title="Server" submit="Save" server={server} writing={writing} onSubmit={onSave} />
+					{server.type === "http" && server.auth.mode === "oauth" && <McpOAuthControls server={server} />}
 					<section>
 						<div className="grouped">
 							<div className="group-row">
@@ -1118,6 +1126,92 @@ function ServerPage({
 	);
 }
 
+function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http" }> }) {
+	const [status, setStatus] = useState<McpOAuthStatus | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+
+	const refresh = async () => {
+		try {
+			setStatus(await wire.command("mcp.auth_status", { serverId: server.id }));
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		}
+	};
+
+	useEffect(() => {
+		void refresh();
+		const timer = window.setInterval(() => void refresh(), 2_000);
+		return () => window.clearInterval(timer);
+	}, [server.id]);
+
+	const signIn = async () => {
+		setBusy(true);
+		setRefusal(null);
+		try {
+			const next = await wire.command("mcp.auth_start", { serverId: server.id });
+			setStatus(next);
+			if (next.authorizationUrl) await openLink(next.authorizationUrl);
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const signOut = async () => {
+		setBusy(true);
+		setRefusal(null);
+		try {
+			await wire.command("mcp.auth_sign_out", { serverId: server.id });
+			await refresh();
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const state = status?.status ?? "signed_out";
+	const detail =
+		state === "signed_in"
+			? "Signed in on this machine. Teammate access still follows each teammate's MCP policy."
+			: state === "pending"
+				? "Waiting for consent in your browser…"
+				: state === "failed"
+					? (status?.error ?? "Sign-in failed; try again.")
+					: "This server has no saved sign-in.";
+
+	return (
+		<section>
+			<h3 className="group-title">OAuth sign-in</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<span className="group-row-text">
+						<span className="group-row-title">
+							{state === "signed_in" ? "Signed in" : state === "pending" ? "Signing in…" : state === "failed" ? "Sign-in needs attention" : "Signed out"}
+						</span>
+						<span className="group-row-detail">{detail}</span>
+					</span>
+					<div className="flex shrink-0 gap-2">
+						<button type="button" className="control btn-primary" disabled={busy || state === "pending"} onClick={() => void signIn()}>
+							{state === "signed_in" ? "Reconnect" : "Sign in"}
+						</button>
+						<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void signOut()}>
+							Sign out
+						</button>
+					</div>
+				</div>
+			</div>
+			{refusal !== null && (
+				<p role="status" className="selectable text-sm text-danger">
+					{refusal}
+				</p>
+			)}
+		</section>
+	);
+}
+
 /** The server's fields: one form for adding and for the page. */
 function ServerForm({
 	title,
@@ -1138,8 +1232,19 @@ function ServerForm({
 		server === undefined
 			? EMPTY_DRAFT
 			: server.type === "stdio"
-				? { name: server.name, kind: "stdio", command: [server.command, ...server.args].join(" "), url: "" }
-				: { name: server.name, kind: "http", command: "", url: server.url },
+				? { name: server.name, kind: "stdio", command: [server.command, ...server.args].join(" "), url: "", authMode: "none" }
+				: {
+					name: server.name,
+					kind: "http",
+					command: "",
+					url: server.url,
+					authMode:
+						server.auth.mode === "oauth"
+							? "oauth"
+							: server.auth.mode === "none"
+								? "none"
+								: "keep",
+				},
 	);
 	const nameField = useRef<HTMLInputElement>(null);
 	useEffect(() => {
@@ -1156,7 +1261,11 @@ function ServerForm({
 				event.preventDefault();
 				if (!ready || writing) return;
 				const name = draft.name.trim();
-				onSubmit(draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, server));
+				onSubmit(
+					draft.kind === "stdio"
+						? stdioFromDraft(name, draft.command, server)
+						: httpFromDraft(name, draft.url, draft.authMode, server),
+				);
 			}}
 		>
 			<h3 className="group-title">{title}</h3>
@@ -1218,6 +1327,30 @@ function ServerForm({
 						/>
 					</div>
 				)}
+				{draft.kind === "http" && (
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2">Auth</label>
+						<div className="flex-1">
+							<Picker
+								field
+								value={draft.authMode}
+								choices={[
+									{ id: "none", name: "None", detail: "Connect without an OAuth sign-in" },
+									{ id: "oauth", name: "OAuth 2.1", detail: "Sign in with the server's authorization page" },
+									{ id: "keep", name: "Existing auth", detail: "Keep this server's existing authentication settings" },
+								]}
+								placeholder="Authentication"
+								label="HTTP authentication"
+								onChange={(authMode) =>
+									setDraft({
+										...draft,
+										authMode: authMode === "oauth" || authMode === "keep" ? authMode : "none",
+									})
+								}
+							/>
+						</div>
+					</div>
+				)}
 				<div className="group-row justify-end">
 					{onCancel !== undefined && (
 						<button type="button" className="control btn-quiet" disabled={writing} onClick={onCancel}>
@@ -1229,7 +1362,7 @@ function ServerForm({
 					</button>
 				</div>
 			</div>
-			<p className="group-hint">Sign-in and headers for HTTP servers come later.</p>
+			<p className="group-hint">OAuth sign-in stores tokens on this machine and does not grant server access to a teammate.</p>
 		</form>
 	);
 }
@@ -1245,8 +1378,15 @@ function stdioFromDraft(name: string, commandLine: string, previous?: McpServer)
 }
 
 /** A new HTTP server is none; an edit keeps whatever auth was already stored. */
-function httpFromDraft(name: string, url: string, previous?: McpServer): McpServer {
-	const auth: McpHttpAuth = previous?.type === "http" ? previous.auth : { mode: "none" };
+function httpFromDraft(name: string, url: string, authMode: "none" | "oauth" | "keep", previous?: McpServer): McpServer {
+	const auth: McpHttpAuth =
+		authMode === "oauth"
+			? previous?.type === "http" && previous.auth.mode === "oauth"
+				? previous.auth
+				: { mode: "oauth" }
+			: authMode === "keep" && previous?.type === "http"
+				? previous.auth
+				: { mode: "none" };
 	return { id: previous?.id ?? crypto.randomUUID(), type: "http", name, url: url.trim(), auth };
 }
 

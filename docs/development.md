@@ -169,9 +169,12 @@ Without the override, the directory is the platform's application-support
 path: `~/Library/Application Support/Toad` on macOS, `%APPDATA%\Toad` on
 Windows, and `${XDG_DATA_HOME:-~/.local/share}/toad` on Linux.
 
-The vault is `<data dir>/vault/`: `secrets.json` for pasted API keys, and
+The vault is `<data dir>/vault/`: `secrets.json` for pasted API keys,
 `vault/logins/<id>/` for a subscription login's tokens (the files Rig
-writes, pre-created owner-only).
+writes, pre-created owner-only), and `vault/mcp/<server>.json` for an HTTP
+MCP server's protected OAuth registration and tokens. MCP records are bound
+to the configured server URL and authorization issuer; they never enter
+settings, streams, tapes or agent descriptors.
 
 Tests use temporary directories of their own. Never point a test, a
 harness, or `TOAD_DATA_DIR` at a real Toad data directory.
@@ -259,6 +262,13 @@ knows, and speaks WebSocket JSON the way the window does:
 | `desk.rs` | a teammate over the wire; a peer thread listed, streamed and marked read; a Toad Agent turn with a real key; an ACP child turn |
 | `mcp.rs` | Toad as an MCP client and as the server of a teammate's own tools: a granted echo server, Toad's seven tools, a policy of none, a server that will not start, a non-string env, a vanished server, a stdio process group |
 | `schedule.rs` | a job created, listed, silenced and cancelled, remembered on the room stream; a loop carries `every` and has no `when` |
+
+The `mcp/oauth.rs` unit harness runs a loopback protected-resource and
+authorization server through metadata discovery, DCR, PKCE callback, token
+refresh and authenticated MCP calls. It also covers restart reuse, denied and
+wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
+sign-out and the protected vault boundary. No real provider account is used by
+the test suite.
 
 `desk.rs` has four tests. The first creates a teammate, watches the
 roster view, lists models, adds a credential, and deletes the teammate —

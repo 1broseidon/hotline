@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use toad_core::desk::Desk;
+use toad_core::log::{Log, StreamId};
 use toad_core::mcp::{self, McpServer, McpTransport};
 use toad_core::wire::Door;
 use tokio::net::TcpStream;
@@ -152,6 +153,44 @@ async fn mcp_tools(client: &mut Client, persona_id: &str) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn oauth_client_secrets_are_removed_before_mcp_settings_are_written() {
+    let (root, port) = open("oauth-settings-boundary").await;
+    let mut client = Client::connect(port).await;
+    let updated = client
+        .call(
+            "settings.update",
+            json!({
+                "patch": {
+                    "mcpServers": [{
+                        "id": "oauth",
+                        "type": "http",
+                        "name": "OAuth",
+                        "url": "https://mcp.example.test/mcp",
+                        "auth": {
+                            "mode": "oauth",
+                            "scopes": ["mcp"],
+                            "resource": "https://mcp.example.test/mcp",
+                            "client": {
+                                "clientId": "public-client",
+                                "clientSecret": "must-not-persist"
+                            }
+                        }
+                    }]
+                }
+            }),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    let settings = updated["result"].to_string();
+    assert!(!settings.contains("must-not-persist"), "{settings}");
+    let room = Log::open(&root).load(&StreamId::Room);
+    let room = serde_json::to_string(&room).unwrap();
+    assert!(!room.contains("must-not-persist"), "{room}");
+
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[tokio::test(flavor = "multi_thread")]

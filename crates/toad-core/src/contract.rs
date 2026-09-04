@@ -1438,6 +1438,22 @@ pub enum Command {
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},
+    /// Starts OAuth discovery and a native callback for one HTTP MCP server.
+    /// The answer carries only the authorization URL, login id and callback
+    /// address; client secrets and tokens stay in the protected vault.
+    #[serde(rename = "mcp.auth_start")]
+    McpAuthStart { server_id: String },
+    #[serde(rename = "mcp.auth_callback")]
+    McpAuthCallback {
+        login_id: String,
+        callback_url: String,
+    },
+    #[serde(rename = "mcp.auth_status")]
+    McpAuthStatus { server_id: String },
+    #[serde(rename = "mcp.auth_reconnect")]
+    McpAuthReconnect { server_id: String },
+    #[serde(rename = "mcp.auth_sign_out")]
+    McpAuthSignOut { server_id: String },
     /// Every provider Toad Agent can hold a key for, whether or not this
     /// desk holds one.
     #[serde(rename = "providers.list")]

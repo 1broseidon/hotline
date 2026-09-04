@@ -126,6 +126,29 @@ servers** grants every configured server, including ones added later. Existing
 saved choices remain intact. Imported teammates without a valid saved policy
 get no gateway servers. Changing reach never changes an MCP grant.
 
+For an HTTP server marked OAuth 2.1, Settings → Tools discovers protected
+resource and authorization server metadata, requires advertised authorization
+code and PKCE S256 support, and opens a native loopback callback. The rmcp
+client performs DCR only when the server advertises a registration endpoint;
+saved registrations and configured preregistered client ids take precedence.
+Servers that publish only CIMD metadata, omit required discovery or PKCE
+metadata, or rely on legacy guessed endpoints are reported as unsupported.
+Token endpoint client authentication follows the methods advertised by the
+authorization server through rmcp; Toad does not invent another method or
+persist a client secret in settings.
+Tokens, refresh tokens and DCR client secrets live in the private vault under
+the server URL and issuer binding. They are never settings, stream, tape,
+prompt, ACP descriptor or log data. Refreshes and rotated refresh tokens are
+serialized across sessions, and sign-out clears the registration and tokens.
+
+Toad Agent uses rmcp's auth-aware Streamable HTTP client, so expiry and refresh
+remain inside the gateway. ACP receives a per-session loopback URL and a
+separate proxy bearer token. The handler verifies that token and the capability
+lease, then obtains a current vault token for each request; the child never
+receives OAuth material. Signing in authorizes the
+gateway connection and does not change any teammate's none, selected or all
+policy.
+
 A grant authorizes the server's own capabilities, including any access it has
 outside the teammate's workspace. Toad does not put granted servers inside the
 shell sandbox. Toad's own tools and a separately enabled computer remain
@@ -326,8 +349,10 @@ Unix, so a wrapper like `npx` cannot leave the real agent behind.
 
 Granted third-party servers are named in the same `session/new` (stdio
 command, or HTTP URL). Toad does not connect them for a child; the child
-connects them itself. OAuth and static-header HTTP are refused with a
-sentence saying why, not connected with a dead credential.
+connects them itself. An authenticated HTTP server is represented by the
+per-session loopback OAuth proxy described above. Static headers and OAuth
+servers that are not signed in are absent with a sentence saying why, and are
+never labelled connected.
 
 Toad draws permission cards, but it does not decide whether the agent sends
 the requests. For Cursor, if `~/.cursor/cli-config.json` has

@@ -74,6 +74,24 @@ pub(crate) async fn run(
             .await
             .map(|models| json!(models)),
         Command::CredentialList {} => Ok(json!(room.credentials())),
+        Command::McpAuthStart { server_id } | Command::McpAuthReconnect { server_id } => {
+            room.mcp_auth_start(&server_id).await
+        }
+        Command::McpAuthCallback {
+            login_id,
+            callback_url,
+        } => room.mcp_auth_callback(&login_id, &callback_url).await,
+        Command::McpAuthStatus { server_id } => room.mcp_auth_status(&server_id).await,
+        Command::McpAuthSignOut { server_id } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            room.invalidate_all()?;
+            // Failed credential deletion must leave the old capabilities
+            // revoked; reattaching would restore access the operator removed.
+            room.mcp_auth_sign_out(&server_id).await?;
+            room.reattach_all().await?;
+            Ok(Value::Null)
+        }
         Command::BackendsList {} => Ok(json!(room.backends().await)),
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),
@@ -353,6 +371,14 @@ fn delete_persona(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<Val
 /// not an override.
 fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Value, String> {
     for (key, value) in patch {
+        // MCP entries are a settings boundary. Canonicalise them before the
+        // room event is written so a caller cannot persist an OAuth client
+        // secret alongside public server configuration.
+        let value = if key == "mcpServers" && !value.is_null() {
+            Value::Array(crate::mcp::normalize_servers(&value))
+        } else {
+            value
+        };
         let event = if value.is_null() {
             json!({ "kind": "setting", "id": key, "deleted": true })
         } else {

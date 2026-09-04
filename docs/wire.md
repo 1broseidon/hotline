@@ -92,6 +92,11 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.delete` | `{id}` | none |
 | `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
+| `mcp.auth_start` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
+| `mcp.auth_callback` | `{loginId, callbackUrl}` | secret free OAuth status |
+| `mcp.auth_status` | `{serverId}` | secret free OAuth status |
+| `mcp.auth_reconnect` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
+| `mcp.auth_sign_out` | `{serverId}` | none; invalidates live sessions and clears the protected registration |
 | `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
@@ -227,6 +232,17 @@ provider is refused with `"<Name> takes an API key, not a sign-in."`.
 `credential.login_status` is how far that login has got (`pending`,
 `done`, `failed`); an unknown id is an error, and a finished login stays
 queryable until the process exits. The login id is the credential id.
+
+`mcp.auth_start` and `mcp.auth_reconnect` discover an HTTP MCP server's
+protected-resource and authorization-server metadata, register a native
+client only when the advertised DCR endpoint exists, and return an
+authorization URL. The browser returns to the native loopback listener;
+`mcp.auth_callback` is available for an embedding that delivers that URL
+itself. `mcp.auth_status` reports `signed_out`, `pending`, `signed_in` or
+`failed`; its result never includes an access token, refresh token or client
+secret. `mcp.auth_sign_out` revokes the live gateway capability before it
+deletes the registration and tokens from the protected vault. Signing in
+does not change a teammate's MCP policy.
 
 `session.prompt`'s `replyTo` is the id of the message this one answers.
 `attachments` are `{kind: "image"|"file", name, path, mimeType?, size?}`.

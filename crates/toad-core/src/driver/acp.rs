@@ -13,10 +13,12 @@
 //!   thing the agent is ever told, because that is the earliest ACP will
 //!   carry it.
 //!
-//! Toad holds no credentials here and cannot: these agents sign themselves in.
-//! What it does hold is the conversation — the tape is Toad's — and the
-//! agent's own memory of it, which is an opaque session id kept per backend on
-//! the teammate's record and reopened with `session/load` or `session/resume`.
+//! Toad never puts provider credentials in this driver or the child process.
+//! OAuth material for a granted HTTP MCP server stays in the vault and is
+//! presented through the capability checked loopback proxy below. What this
+//! driver does hold is the conversation — the tape is Toad's — and the agent's
+//! own memory of it, which is an opaque session id kept per backend on the
+//! teammate's record and reopened with `session/load` or `session/resume`.
 //!
 //! One thing this driver does that the in-process one never does: it asks.
 //! Permission requests arrive as [`Update::Permission`], become a card on the
@@ -37,6 +39,7 @@ use crate::mcp::server::{Served, TeammateTools};
 use crate::mcp::{self, HttpAuth, McpServer, McpTransport};
 use crate::session::ledger::ToolLedger;
 use crate::tools::Workspace;
+use crate::vault::Vault;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     self as acp, CancelNotification, ClientCapabilities, ContentBlock, FileSystemCapabilities,
@@ -48,6 +51,16 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
 use async_trait::async_trait;
+use axum::Router;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{
+    HeaderName, HeaderValue, Request, StatusCode,
+    header::{AUTHORIZATION, CONTENT_LENGTH, HOST, SET_COOKIE},
+};
+use axum::response::Response;
+use axum::routing::any;
+use futures_util::StreamExt;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -56,6 +69,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+use tokio_util::sync::CancellationToken;
 
 /// How many updates may be in flight before the connection waits for the room
 /// to catch up. Deltas arrive faster than anything else, and a turn that
@@ -209,6 +223,12 @@ pub struct ChildAgent {
     teammate: TeammateTools,
     /// Shared with the session's Toad tools and all callback handles.
     capability: Option<CapabilityLease>,
+    /// Protected OAuth registrations and refresh coordinator. The child is
+    /// given a local forwarding endpoint for these servers, never a token.
+    mcp_vault: Option<Arc<Vault>>,
+    /// Loopback endpoints that fetch a fresh token for each child request.
+    oauth_proxies: Mutex<HashMap<String, OAuthProxy>>,
+    oauth_refused: Mutex<HashMap<String, String>>,
     served: Mutex<Option<Served>>,
     live: Arc<Live>,
 }
@@ -229,6 +249,9 @@ impl ChildAgent {
             mcp_missing: Vec::new(),
             teammate,
             capability: None,
+            mcp_vault: None,
+            oauth_proxies: Mutex::new(HashMap::new()),
+            oauth_refused: Mutex::new(HashMap::new()),
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
         }
@@ -244,6 +267,11 @@ impl ChildAgent {
 
     pub(crate) fn with_capability(mut self, capability: CapabilityLease) -> Self {
         self.capability = Some(capability);
+        self
+    }
+
+    pub(crate) fn with_mcp_vault(mut self, vault: Arc<Vault>) -> Self {
+        self.mcp_vault = Some(vault);
         self
     }
 
@@ -428,6 +456,265 @@ impl Live {
     }
 }
 
+struct OAuthProxy {
+    url: String,
+    token: String,
+    shutdown: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for OAuthProxy {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+        self.task.abort();
+    }
+}
+
+struct OAuthProxyState {
+    token: String,
+    upstream: reqwest::Url,
+    upstream_path: String,
+    client: reqwest::Client,
+    manager: tokio::sync::Mutex<rmcp::transport::auth::AuthorizationManager>,
+    token_lock: Arc<tokio::sync::Mutex<()>>,
+    capability: Option<CapabilityLease>,
+}
+
+fn is_oauth_server(server: &McpServer) -> bool {
+    matches!(
+        &server.transport,
+        McpTransport::Http {
+            auth: HttpAuth::Oauth | HttpAuth::OauthConfigured { .. },
+            ..
+        }
+    )
+}
+
+async fn start_oauth_proxy(
+    server: &McpServer,
+    vault: Arc<Vault>,
+    capability: Option<CapabilityLease>,
+) -> Result<OAuthProxy, String> {
+    let McpTransport::Http { url, .. } = &server.transport else {
+        return Err("MCP OAuth proxy requires an HTTP server".to_string());
+    };
+    let upstream = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+    let token_lock = vault.mcp_token_lock(&server.id);
+    let manager = mcp::manager_for_server(server, vault, None).await?;
+    {
+        let _token_guard = token_lock.lock().await;
+        manager
+            .get_access_token()
+            .await
+            .map_err(|_| "MCP OAuth sign-in is required in Settings → Tools.".to_string())?;
+    }
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|error| format!("could not open MCP OAuth proxy: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("could not read MCP OAuth proxy address: {error}"))?
+        .port();
+    let proxy_url = format!(
+        "http://127.0.0.1:{port}{}{}",
+        upstream.path(),
+        upstream
+            .query()
+            .map(|query| format!("?{query}"))
+            .unwrap_or_default()
+    );
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| format!("could not build MCP OAuth proxy client: {error}"))?;
+    // Loopback is shared with every network-enabled teammate. This separate
+    // session capability authorizes the child without exposing OAuth secrets.
+    let token = uuid::Uuid::new_v4().to_string();
+    let state = Arc::new(OAuthProxyState {
+        token: token.clone(),
+        upstream_path: upstream.path().to_string(),
+        upstream,
+        client,
+        manager: tokio::sync::Mutex::new(manager),
+        token_lock,
+        capability,
+    });
+    let shutdown = CancellationToken::new();
+    let child_shutdown = shutdown.clone();
+    let router = Router::new()
+        .fallback(any(oauth_proxy_request))
+        .with_state(state);
+    let task = tokio::spawn(async move {
+        let shutdown_signal = async move {
+            child_shutdown.cancelled().await;
+        };
+        let _ = axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown_signal)
+            .await;
+    });
+    Ok(OAuthProxy {
+        url: proxy_url,
+        token,
+        shutdown,
+        task,
+    })
+}
+
+async fn oauth_proxy_request(
+    State(state): State<Arc<OAuthProxyState>>,
+    request: Request<Body>,
+) -> Response {
+    let presented = request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or("");
+    if !crate::wire::same_secret(presented, &state.token) {
+        return proxy_error(
+            StatusCode::UNAUTHORIZED,
+            "MCP proxy authentication required",
+        );
+    }
+    if let Some(capability) = &state.capability
+        && !capability.is_current()
+    {
+        return proxy_error(StatusCode::FORBIDDEN, "MCP access was revoked");
+    }
+    if request.uri().path() != state.upstream_path {
+        return proxy_error(StatusCode::NOT_FOUND, "MCP endpoint not found");
+    }
+    let method = request_method(&request);
+    let headers = request_headers(&request);
+    let query = request.uri().query().map(str::to_string);
+    let body = match axum::body::to_bytes(request.into_body(), 16 * 1024 * 1024).await {
+        Ok(body) => body,
+        Err(_) => return proxy_error(StatusCode::BAD_REQUEST, "MCP request body was too large"),
+    };
+    let token = {
+        let _token_guard = state.token_lock.lock().await;
+        let manager = state.manager.lock().await;
+        match manager.get_access_token().await {
+            Ok(token) => token,
+            Err(_) => return proxy_error(StatusCode::UNAUTHORIZED, "MCP OAuth sign-in required"),
+        }
+    };
+    if let Some(capability) = &state.capability
+        && !capability.is_current()
+    {
+        return proxy_error(StatusCode::FORBIDDEN, "MCP access was revoked");
+    }
+    let mut response = match send_proxy_request(
+        &state,
+        method.clone(),
+        headers.clone(),
+        body.clone(),
+        query.as_deref(),
+        &token,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => return proxy_error(StatusCode::BAD_GATEWAY, "MCP OAuth proxy request failed"),
+    };
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let refreshed = {
+            let _token_guard = state.token_lock.lock().await;
+            if state
+                .capability
+                .as_ref()
+                .is_some_and(|capability| !capability.is_current())
+            {
+                Err(rmcp::transport::auth::AuthError::AuthorizationRequired)
+            } else {
+                let manager = state.manager.lock().await;
+                match manager.get_access_token().await {
+                    Ok(current) if current != token => Ok(current),
+                    Ok(_) => {
+                        if manager.refresh_token().await.is_ok() {
+                            manager.get_access_token().await
+                        } else {
+                            Err(rmcp::transport::auth::AuthError::AuthorizationRequired)
+                        }
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        };
+        if let Ok(token) = refreshed
+            && state
+                .capability
+                .as_ref()
+                .is_none_or(CapabilityLease::is_current)
+            && let Ok(retried) =
+                send_proxy_request(&state, method, headers, body, query.as_deref(), &token).await
+        {
+            response = retried;
+        }
+    }
+    proxy_response(response)
+}
+
+fn request_method(request: &Request<Body>) -> reqwest::Method {
+    reqwest::Method::from_bytes(request.method().as_str().as_bytes())
+        .unwrap_or(reqwest::Method::GET)
+}
+
+fn request_headers(request: &Request<Body>) -> Vec<(HeaderName, HeaderValue)> {
+    request
+        .headers()
+        .iter()
+        .filter(|(name, _)| *name != AUTHORIZATION && *name != HOST && *name != CONTENT_LENGTH)
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
+}
+
+async fn send_proxy_request(
+    state: &OAuthProxyState,
+    method: reqwest::Method,
+    headers: Vec<(HeaderName, HeaderValue)>,
+    body: axum::body::Bytes,
+    query: Option<&str>,
+    token: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut upstream = state.upstream.clone();
+    upstream.set_query(query);
+    let mut request = state
+        .client
+        .request(method, upstream)
+        .bearer_auth(token)
+        .body(body);
+    for (name, value) in headers {
+        request = request.header(name.as_str(), value.as_bytes());
+    }
+    request.send().await
+}
+
+fn proxy_response(response: reqwest::Response) -> Response {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let stream = response
+        .bytes_stream()
+        .map(|chunk| chunk.map_err(std::io::Error::other));
+    let mut builder = Response::builder().status(status);
+    for (name, value) in &headers {
+        if *name != SET_COOKIE {
+            builder = builder.header(name, value);
+        }
+    }
+    builder
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| proxy_error(StatusCode::BAD_GATEWAY, "MCP proxy response failed"))
+}
+
+fn proxy_error(status: StatusCode, message: &str) -> Response {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(Body::from(message.to_string()))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
 /// The child goes when the driver does, and takes whatever it started with it.
 ///
 /// The process is its own group leader (see [`Driver::start`]), so this
@@ -597,6 +884,8 @@ impl Driver for ChildAgent {
         lock(&self.live.info_changes).take();
         lock(&self.live.connection).take();
         lock(&self.served).take();
+        lock(&self.oauth_proxies).clear();
+        lock(&self.oauth_refused).clear();
         self.kill_child();
     }
 
@@ -681,6 +970,8 @@ impl ChildAgent {
         // Toad's own tools go up before the session does, because the session
         // is where the child is told where to find them.
         let serving = self.open_toad_endpoint().await;
+        self.check_capability()?;
+        self.prepare_oauth_proxies().await;
         self.check_capability()?;
 
         let initialized = connection
@@ -836,6 +1127,30 @@ impl ChildAgent {
         }
     }
 
+    /// ACP children own their MCP transports, so an OAuth descriptor cannot
+    /// carry a one-time bearer token. A per-session loopback proxy asks the
+    /// rmcp manager for a current token on every request and checks the live
+    /// capability before forwarding it.
+    async fn prepare_oauth_proxies(&self) {
+        let Some(vault) = self.mcp_vault.clone() else {
+            return;
+        };
+        for server in &self.mcp_servers {
+            if !is_oauth_server(server) {
+                continue;
+            }
+            let result = start_oauth_proxy(server, vault.clone(), self.capability.clone()).await;
+            match result {
+                Ok(proxy) => {
+                    lock(&self.oauth_proxies).insert(server.id.clone(), proxy);
+                }
+                Err(error) => {
+                    lock(&self.oauth_refused).insert(server.id.clone(), error);
+                }
+            }
+        }
+    }
+
     /// The MCP servers this session is opened with: Toad's own first, then
     /// every third-party server the teammate's policy granted and this build
     /// can describe.
@@ -853,7 +1168,10 @@ impl ChildAgent {
             ));
         }
         for server in &self.mcp_servers {
-            if mcp::unsupported(server).is_some() {
+            if is_oauth_server(server) && !lock(&self.oauth_proxies).contains_key(&server.id) {
+                continue;
+            }
+            if mcp::unsupported(server).is_some() && !is_oauth_server(server) {
                 continue;
             }
             declared.push(match &server.transport {
@@ -874,8 +1192,18 @@ impl ChildAgent {
                     )
                 }
                 McpTransport::Http { url, auth } => {
-                    let http = acp::McpServerHttp::new(&server.name, url);
+                    let proxies = lock(&self.oauth_proxies);
+                    let proxy = proxies.get(&server.id);
+                    let proxy_url = proxy.map(|proxy| proxy.url.as_str()).unwrap_or(url);
+                    let http = acp::McpServerHttp::new(&server.name, proxy_url);
                     acp::McpServer::Http(match auth {
+                        HttpAuth::Oauth | HttpAuth::OauthConfigured { .. } => {
+                            let proxy = proxy.expect("only connected OAuth proxies are declared");
+                            http.headers(vec![acp::HttpHeader::new(
+                                "Authorization",
+                                format!("Bearer {}", proxy.token),
+                            )])
+                        }
                         HttpAuth::Bearer { token } => http.headers(vec![acp::HttpHeader::new(
                             "Authorization",
                             format!("Bearer {token}"),
@@ -918,6 +1246,26 @@ impl ChildAgent {
             ),
         };
         for server in &self.mcp_servers {
+            if is_oauth_server(server) {
+                if let Some(reason) = lock(&self.oauth_refused).get(&server.id).cloned() {
+                    ledger.absent(ToolSourceKind::Mcp, &server.id, &server.name, reason);
+                } else if lock(&self.oauth_proxies).contains_key(&server.id) {
+                    ledger.declared(
+                        ToolSourceKind::Mcp,
+                        &server.id,
+                        &server.name,
+                        "authenticated through Toad's per-session loopback OAuth proxy",
+                    );
+                } else {
+                    ledger.absent(
+                        ToolSourceKind::Mcp,
+                        &server.id,
+                        &server.name,
+                        "MCP OAuth sign-in is required in Settings → Tools",
+                    );
+                }
+                continue;
+            }
             match mcp::unsupported(server) {
                 Some(reason) => {
                     ledger.absent(ToolSourceKind::Mcp, &server.id, &server.name, reason)
@@ -1636,6 +1984,82 @@ mod tests {
     };
     use rmcp::ServiceExt;
     use std::sync::atomic::AtomicUsize;
+
+    #[tokio::test]
+    async fn oauth_proxy_requires_its_own_bearer_and_a_live_grant() {
+        use rmcp::transport::auth::{
+            AuthorizationManager, CredentialStore, InMemoryCredentialStore, StoredCredentials,
+        };
+
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        let upstream = Router::new().fallback(any(move |request: Request<Body>| {
+            let seen = seen.clone();
+            async move {
+                assert_eq!(
+                    request.headers()[AUTHORIZATION],
+                    "Bearer upstream-oauth-token"
+                );
+                seen.fetch_add(1, Ordering::SeqCst);
+                "tool result"
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let serving = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let credentials: StoredCredentials = serde_json::from_value(serde_json::json!({
+            "client_id": "test-client",
+            "token_response": { "access_token": "upstream-oauth-token", "token_type": "Bearer" }
+        }))
+        .unwrap();
+        let store = InMemoryCredentialStore::new();
+        store.save(credentials).await.unwrap();
+        let mut manager = AuthorizationManager::new(&url).await.unwrap();
+        manager.set_credential_store(store);
+        let epoch = crate::driver::CapabilityEpoch::default();
+        let state = Arc::new(OAuthProxyState {
+            token: "session-capability".to_string(),
+            upstream: url.parse().unwrap(),
+            upstream_path: "/mcp".to_string(),
+            client: reqwest::Client::new(),
+            manager: tokio::sync::Mutex::new(manager),
+            token_lock: Arc::new(tokio::sync::Mutex::new(())),
+            capability: Some(epoch.lease()),
+        });
+        let request = |token: Option<&str>| {
+            let mut builder = Request::builder().method("POST").uri("/mcp");
+            if let Some(token) = token {
+                builder = builder.header(AUTHORIZATION, format!("Bearer {token}"));
+            }
+            builder.body(Body::empty()).unwrap()
+        };
+        for token in [
+            None,
+            Some("another-session-capability"),
+            Some("upstream-oauth-token"),
+        ] {
+            let response = oauth_proxy_request(State(state.clone()), request(token)).await;
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        let response =
+            oauth_proxy_request(State(state.clone()), request(Some("session-capability"))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap(),
+            "tool result"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        epoch.invalidate();
+        let response = oauth_proxy_request(State(state), request(Some("session-capability"))).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        serving.abort();
+    }
 
     /// A desk with no provider key: nothing in these tests reaches a model.
     struct NoKeys;

@@ -12,6 +12,7 @@ use crate::contract::{
 };
 use crate::driver::{PI_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
+use crate::mcp::{McpOAuthService, McpServer};
 use crate::models::Client;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
@@ -69,6 +70,7 @@ pub struct Desk {
     room: Arc<Room>,
     vault: Arc<Vault>,
     logins: Arc<Mutex<HashMap<String, LoginOutcome>>>,
+    mcp_oauth: Arc<McpOAuthService>,
 }
 
 impl Desk {
@@ -80,13 +82,35 @@ impl Desk {
             vault: vault.clone(),
             log: log.clone(),
         });
-        let room = Room::new(log.clone(), keys);
+        let room = Room::new_with_mcp(log.clone(), keys, vault.clone());
+        let mcp_oauth = Arc::new(McpOAuthService::new(vault.clone()));
+        let room_for_oauth = Arc::downgrade(&room);
+        mcp_oauth.set_on_complete(Arc::new(move || {
+            let Some(room) = room_for_oauth.upgrade() else {
+                return;
+            };
+            tokio::spawn(async move {
+                let gate = room.policy_update_lock();
+                let _held = gate.lock().await;
+                if room.invalidate_all().is_ok() {
+                    let _ = room.reattach_all().await;
+                }
+            });
+        }));
         Ok(Desk {
             log,
             room,
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
+            mcp_oauth,
         })
+    }
+
+    fn mcp_server(&self, server_id: &str) -> Result<McpServer, String> {
+        crate::mcp::servers(&crate::room::settings(&self.log))
+            .into_iter()
+            .find(|server| server.id == server_id)
+            .ok_or_else(|| format!("There is no MCP server named {server_id}."))
     }
 
     fn logins(&self) -> std::sync::MutexGuard<'_, HashMap<String, LoginOutcome>> {
@@ -404,6 +428,29 @@ impl RoomHandle for Desk {
 
     fn credentials(&self) -> Vec<Credential> {
         self.vault.list()
+    }
+
+    async fn mcp_auth_start(&self, server_id: &str) -> Result<serde_json::Value, String> {
+        let server = self.mcp_server(server_id)?;
+        self.mcp_oauth.start(&server).await
+    }
+
+    async fn mcp_auth_callback(
+        &self,
+        login_id: &str,
+        callback_url: &str,
+    ) -> Result<serde_json::Value, String> {
+        self.mcp_oauth.complete(login_id, callback_url).await
+    }
+
+    async fn mcp_auth_status(&self, server_id: &str) -> Result<serde_json::Value, String> {
+        let server = self.mcp_server(server_id)?;
+        self.mcp_oauth.status(&server).await
+    }
+
+    async fn mcp_auth_sign_out(&self, server_id: &str) -> Result<(), String> {
+        self.mcp_server(server_id)?;
+        self.mcp_oauth.sign_out(server_id).await
     }
 
     fn models(&self) -> Vec<ConfigChoice> {
@@ -796,6 +843,7 @@ mod tests {
         let desk = Desk {
             log: log.clone(),
             room,
+            mcp_oauth: Arc::new(crate::mcp::McpOAuthService::new(vault.clone())),
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -836,5 +884,39 @@ mod tests {
             .await
             .unwrap();
         assert!(after.contains("bob"), "{after}");
+
+        let configured = client
+            .call(
+                "settings.update",
+                json!({ "patch": { "mcpServers": [{
+                "id": "oauth", "name": "OAuth", "type": "http",
+                "url": "https://example.test/mcp", "auth": { "mode": "oauth" }
+            }] } }),
+            )
+            .await;
+        assert_eq!(configured["ok"], true, "{configured}");
+        let active_tools = agents.tools.lock().unwrap().last().cloned().unwrap();
+        let built = agents.tools.lock().unwrap().len();
+        // A damaged vault makes sign-out fail. The request still revokes
+        // authority and must not silently rebuild a usable session afterward.
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::write(root.join("vault/mcp"), "not a directory").unwrap();
+        let signed_out = client
+            .call("mcp.auth_sign_out", json!({ "serverId": "oauth" }))
+            .await;
+        assert_eq!(signed_out["ok"], false, "{signed_out}");
+        assert!(
+            active_tools
+                .call("list_teammates", &json!({}))
+                .await
+                .is_err()
+        );
+        assert_eq!(agents.tools.lock().unwrap().len(), built);
+        std::fs::remove_file(root.join("vault/mcp")).unwrap();
+        let retried = client
+            .call("mcp.auth_sign_out", json!({ "serverId": "oauth" }))
+            .await;
+        assert_eq!(retried["ok"], true, "{retried}");
+        assert!(agents.tools.lock().unwrap().len() > built);
     }
 }

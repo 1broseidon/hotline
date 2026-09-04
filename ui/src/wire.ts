@@ -45,6 +45,16 @@ export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean }
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
 export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
 
+/** OAuth gateway status; access and refresh tokens never cross this type. */
+export type McpOAuthStatus = {
+	serverId: string;
+	status: "signed_out" | "pending" | "signed_in" | "failed";
+	loginId?: string;
+	authorizationUrl?: string;
+	redirectUri?: string;
+	error?: string;
+};
+
 // ---------------------------------------------------------------------------
 // The command surface
 // ---------------------------------------------------------------------------
@@ -73,6 +83,11 @@ type Results = {
 	"credential.revoke": null;
 	"credential.delete": null;
 	"credential.list": Credential[];
+	"mcp.auth_start": McpOAuthStatus;
+	"mcp.auth_callback": McpOAuthStatus;
+	"mcp.auth_status": McpOAuthStatus;
+	"mcp.auth_reconnect": McpOAuthStatus;
+	"mcp.auth_sign_out": null;
 	"backends.list": BackendChoice[];
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];

@@ -226,6 +226,32 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::ComputerStatus, String>;
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
+
+    /// Starts OAuth discovery and a native browser callback for one HTTP MCP
+    /// server. The result contains only a login id, URL and status.
+    async fn mcp_auth_start(&self, _server_id: &str) -> Result<Value, String> {
+        Err("MCP OAuth sign-in is unavailable on this room.".to_string())
+    }
+
+    /// Delivers an OAuth callback to a pending native login. The callback URL
+    /// is validated against the listener that created it.
+    async fn mcp_auth_callback(
+        &self,
+        _login_id: &str,
+        _callback_url: &str,
+    ) -> Result<Value, String> {
+        Err("MCP OAuth sign-in is unavailable on this room.".to_string())
+    }
+
+    /// Answers a secret-free OAuth status snapshot.
+    async fn mcp_auth_status(&self, _server_id: &str) -> Result<Value, String> {
+        Err("MCP OAuth sign-in is unavailable on this room.".to_string())
+    }
+
+    /// Clears protected MCP OAuth registrations and tokens.
+    async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {
+        Err("MCP OAuth sign-out is unavailable on this room.".to_string())
+    }
 }
 
 /// What a socket may do, decided by the token it presented.

@@ -21,12 +21,37 @@ use crate::contract::{Credential, CredentialKind};
 use crate::log::{Log, StreamId};
 use crate::models::Client;
 use crate::session::ProviderAuth;
+use async_trait::async_trait;
+use rmcp::transport::auth::{CredentialRefreshGuard, CredentialStore, StoredCredentials};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::{Mutex, PoisonError};
+use tokio::sync::Mutex as AsyncMutex;
+
+/// The client identity Toad received from an MCP authorization server. The
+/// secret is kept beside the token in the vault record; this type never crosses
+/// the room or wire boundary.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct McpOAuthRegistration {
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub redirect_uri: String,
+    pub issuer: Option<String>,
+    pub resource: String,
+    pub scopes: Vec<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct McpOAuthRecord {
+    server_url: String,
+    registration: Option<McpOAuthRegistration>,
+    credentials: Option<StoredCredentials>,
+}
 
 /// The vault over one data root.
 ///
@@ -43,6 +68,15 @@ pub struct Vault {
     /// makes the temporary file safe to name after the process: inside this
     /// process only one write is ever using it.
     writer: Mutex<()>,
+    /// Refreshes for one MCP server serialize across all sessions in this
+    /// process. The guard is held while rmcp reads, refreshes and saves the
+    /// rotated token, so two long-lived agents cannot spend the same refresh
+    /// token concurrently.
+    mcp_refresh_guards: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    /// Serializes each manager's expiry check with the refresh it may trigger.
+    /// This is separate from `mcp_refresh_guards`: rmcp acquires the latter
+    /// from inside `get_access_token`, so reusing it here would deadlock.
+    mcp_token_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
 impl Vault {
@@ -58,6 +92,8 @@ impl Vault {
             root: root.into(),
             log,
             writer: Mutex::new(()),
+            mcp_refresh_guards: Mutex::new(HashMap::new()),
+            mcp_token_locks: Mutex::new(HashMap::new()),
         };
         vault.check_layout()?;
         Ok(vault)
@@ -248,6 +284,100 @@ impl Vault {
             .collect()
     }
 
+    /// Returns the rmcp credential store bound to one configured server URL.
+    /// The store is intentionally scoped by both id and URL: changing the URL
+    /// in settings cannot cause a token minted for the old origin to be sent
+    /// to the new one.
+    pub(crate) fn mcp_credential_store(
+        self: &Arc<Self>,
+        server_id: &str,
+        server_url: &str,
+    ) -> McpCredentialStore {
+        let refresh_guard = self.mcp_refresh_lock(server_id);
+        McpCredentialStore {
+            vault: self.clone(),
+            server_id: server_id.to_string(),
+            server_url: server_url.to_string(),
+            refresh_guard,
+        }
+    }
+
+    /// Serializes the complete token read/refresh/save operation for one
+    /// configured server. rmcp's refresh guard protects an individual
+    /// `refresh_token` call; this outer lock also prevents two independent
+    /// managers from both deciding that the same expired token needs refresh.
+    pub(crate) fn mcp_token_lock(&self, server_id: &str) -> Arc<AsyncMutex<()>> {
+        let guard_key = mcp_path_component(server_id);
+        {
+            let mut guards = self
+                .mcp_token_locks
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            guards
+                .entry(guard_key)
+                .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+                .clone()
+        }
+    }
+
+    fn mcp_refresh_lock(&self, server_id: &str) -> Arc<AsyncMutex<()>> {
+        let guard_key = mcp_path_component(server_id);
+        let mut guards = self
+            .mcp_refresh_guards
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        guards
+            .entry(guard_key)
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    }
+
+    /// Reads the saved client registration for a server. Registration metadata
+    /// is protected by the same boundary as its tokens and is never returned
+    /// through the normal settings or wire snapshots.
+    pub(crate) fn mcp_oauth_registration(
+        &self,
+        server_id: &str,
+        server_url: &str,
+    ) -> io::Result<Option<McpOAuthRegistration>> {
+        Ok(self
+            .read_mcp_record(server_id, server_url)?
+            .and_then(|record| record.registration))
+    }
+
+    /// Saves registration metadata before the browser flow starts, so a
+    /// denied consent can be retried without registering a second client.
+    pub(crate) fn save_mcp_oauth_registration(
+        &self,
+        server_id: &str,
+        server_url: &str,
+        registration: McpOAuthRegistration,
+    ) -> io::Result<()> {
+        self.update_mcp_record(server_id, server_url, |record| {
+            record.registration = Some(registration);
+        })
+    }
+
+    /// Deletes all OAuth state for a server, including a saved client secret
+    /// and refresh token. Sign-out uses this after invalidating live leases.
+    pub(crate) fn clear_mcp_oauth(&self, server_id: &str) -> io::Result<()> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        self.check_layout()?;
+        let path = self.mcp_path(server_id);
+        match fs::symlink_metadata(&path) {
+            Ok(entry) if !entry.is_file() => Err(io::Error::other(format!(
+                "{} is not a regular file",
+                path.display()
+            ))),
+            Ok(_) => {
+                fs::remove_file(&path)?;
+                sync_directory(&self.mcp_dir())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     fn directory(&self) -> PathBuf {
         self.root.join("vault")
     }
@@ -258,6 +388,15 @@ impl Vault {
 
     fn logins_dir(&self) -> PathBuf {
         self.directory().join("logins")
+    }
+
+    fn mcp_dir(&self) -> PathBuf {
+        self.directory().join("mcp")
+    }
+
+    fn mcp_path(&self, server_id: &str) -> PathBuf {
+        self.mcp_dir()
+            .join(format!("{}.json", mcp_path_component(server_id)))
     }
 
     fn login_dir(&self, id: &str) -> PathBuf {
@@ -307,6 +446,15 @@ impl Vault {
                 logins.display()
             )));
         }
+        let mcp = self.mcp_dir();
+        if let Ok(entry) = mcp.symlink_metadata()
+            && !entry.is_dir()
+        {
+            return Err(io::Error::other(format!(
+                "{} must be a real directory owned by this user",
+                mcp.display()
+            )));
+        }
         Ok(())
     }
 
@@ -347,11 +495,153 @@ impl Vault {
             format!("{text}\n").as_bytes(),
         )
     }
+
+    fn read_mcp_record(
+        &self,
+        server_id: &str,
+        server_url: &str,
+    ) -> io::Result<Option<McpOAuthRecord>> {
+        self.check_layout()?;
+        let path = self.mcp_path(server_id);
+        let text = match fs::symlink_metadata(&path) {
+            Ok(entry) if !entry.is_file() => {
+                return Err(io::Error::other(format!(
+                    "{} is not a regular file",
+                    path.display()
+                )));
+            }
+            Ok(_) => fs::read_to_string(&path)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let record: McpOAuthRecord = serde_json::from_str(&text).map_err(|error| {
+            io::Error::other(format!(
+                "{} is not a readable MCP OAuth record ({error})",
+                path.display()
+            ))
+        })?;
+        if record.server_url != server_url {
+            return Err(io::Error::other(
+                "saved MCP OAuth credentials belong to a different server URL; sign in again",
+            ));
+        }
+        Ok(Some(record))
+    }
+
+    fn update_mcp_record(
+        &self,
+        server_id: &str,
+        server_url: &str,
+        update: impl FnOnce(&mut McpOAuthRecord),
+    ) -> io::Result<()> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut record = self
+            .read_mcp_record(server_id, server_url)?
+            .unwrap_or_else(|| McpOAuthRecord {
+                server_url: server_url.to_string(),
+                registration: None,
+                credentials: None,
+            });
+        update(&mut record);
+        self.write_mcp_record(server_id, &record)
+    }
+
+    fn write_mcp_record(&self, server_id: &str, record: &McpOAuthRecord) -> io::Result<()> {
+        self.check_layout()?;
+        let directory = self.mcp_dir();
+        make_private_directory(&directory)?;
+        let temporary = directory.join(format!(
+            "{}.{}.tmp",
+            mcp_path_component(server_id),
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&temporary);
+        let text = serde_json::to_string_pretty(record).map_err(io::Error::other)?;
+        persist_renamed(
+            &temporary,
+            &self.mcp_path(server_id),
+            &directory,
+            format!("{text}\n").as_bytes(),
+        )
+    }
 }
 
-/// The room event a credential is. `kind` leads, the way every event on the
-/// stream does, and the rest is the credential exactly as the contract spells
-/// it.
+/// rmcp's OAuth store adapter. It carries only a vault handle and server
+/// binding; the token itself is loaded for the duration of one SDK operation
+/// and is never represented in a Toad event, setting or descriptor.
+#[derive(Clone)]
+pub(crate) struct McpCredentialStore {
+    vault: Arc<Vault>,
+    server_id: String,
+    server_url: String,
+    refresh_guard: Arc<AsyncMutex<()>>,
+}
+
+#[async_trait]
+impl CredentialStore for McpCredentialStore {
+    async fn load(&self) -> Result<Option<StoredCredentials>, rmcp::transport::auth::AuthError> {
+        self.vault
+            .read_mcp_record(&self.server_id, &self.server_url)
+            .map(|record| record.and_then(|record| record.credentials))
+            .map_err(|error| {
+                rmcp::transport::auth::AuthError::CredentialStoreError(error.to_string())
+            })
+    }
+
+    async fn save(
+        &self,
+        credentials: StoredCredentials,
+    ) -> Result<(), rmcp::transport::auth::AuthError> {
+        self.vault
+            .update_mcp_record(&self.server_id, &self.server_url, |record| {
+                record.credentials = Some(credentials);
+            })
+            .map_err(|error| {
+                rmcp::transport::auth::AuthError::CredentialStoreError(error.to_string())
+            })
+    }
+
+    async fn clear(&self) -> Result<(), rmcp::transport::auth::AuthError> {
+        self.vault
+            .clear_mcp_oauth(&self.server_id)
+            .map_err(|error| {
+                rmcp::transport::auth::AuthError::CredentialStoreError(error.to_string())
+            })
+    }
+
+    async fn acquire_refresh_guard(
+        &self,
+    ) -> Result<Option<CredentialRefreshGuard>, rmcp::transport::auth::AuthError> {
+        Ok(Some(CredentialRefreshGuard::new(
+            self.refresh_guard.clone().lock_owned().await,
+        )))
+    }
+}
+
+/// Keep user supplied ids inside one vault directory while retaining enough
+/// of the id to make a manually inspected vault understandable. The stable
+/// FNV suffix prevents traversal and collisions across process restarts.
+fn mcp_path_component(id: &str) -> String {
+    let mut readable = String::with_capacity(id.len().min(48));
+    for character in id.chars().take(48) {
+        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+            readable.push(character);
+        } else {
+            readable.push('_');
+        }
+    }
+    if readable.is_empty() {
+        readable.push_str("server");
+    }
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in id.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{readable}-{hash:016x}")
+}
+
+/// The room event contains the credential metadata, never its secret.
 fn event(credential: &Credential) -> Value {
     crate::room::room_event(
         "credential",
@@ -558,6 +848,42 @@ mod tests {
         let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(vault.directory()), 0o700);
         assert_eq!(mode(vault.secrets_path()), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mcp_oauth_records_are_private_and_bound_to_the_server_url() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let vault = vault("mcp-oauth");
+        vault
+            .save_mcp_oauth_registration(
+                "server-id",
+                "https://mcp.example.test/mcp",
+                McpOAuthRegistration {
+                    client_id: "client-id".to_string(),
+                    client_secret: Some("client-secret".to_string()),
+                    redirect_uri: "http://127.0.0.1:4321/callback".to_string(),
+                    issuer: Some("https://auth.example.test".to_string()),
+                    resource: "https://mcp.example.test/mcp".to_string(),
+                    scopes: vec!["mcp".to_string()],
+                },
+            )
+            .unwrap();
+        let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(vault.mcp_dir()), 0o700);
+        assert_eq!(mode(vault.mcp_path("server-id")), 0o600);
+        assert!(
+            vault
+                .mcp_oauth_registration("server-id", "https://mcp.example.test/mcp")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            vault
+                .mcp_oauth_registration("server-id", "https://mcp.example.test/other")
+                .is_err()
+        );
     }
 
     #[cfg(unix)]

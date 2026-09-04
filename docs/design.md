@@ -151,6 +151,16 @@ Reach governs local workspace tools, while an MCP grant authorizes that
 server's own capabilities and permissions. The shell sandbox does not confine
 granted servers. These are standing choices, without per-call approval cards.
 
+HTTP MCP servers may opt into OAuth 2.1 in the gateway. Toad follows
+protected-resource and authorization-server metadata, requires authorization
+code plus PKCE S256, and uses the advertised DCR endpoint when no saved or
+configured client exists. Credentials and registration secrets stay in the
+private vault, bound to the server URL and issuer. Toad Agent uses rmcp's
+refreshing client; ACP receives a capability checked loopback proxy so its
+child process never sees OAuth tokens. Operator sign-in does not alter a
+teammate's MCP grant, and sign-out invalidates live sessions before clearing
+the vault record.
+
 ### 5. No fleet in the first version
 
 The mesh, admission, membership, replication and hop are a quarter of Toad

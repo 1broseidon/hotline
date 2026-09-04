@@ -63,6 +63,7 @@ use crate::mcp::server::TeammateTools;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
+use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::Local;
 use quiet::QuietWindow;
@@ -184,6 +185,7 @@ struct DeskAgents {
     /// The data directory, which is where the ACP catalogue's cache lives.
     root: PathBuf,
     log: Log,
+    mcp_vault: Option<Arc<Vault>>,
 }
 
 #[async_trait]
@@ -213,6 +215,10 @@ impl Agents for DeskAgents {
                 tools,
             )
             .with_mcp(grant.servers, grant.missing);
+            let driver = match &self.mcp_vault {
+                Some(vault) => driver.with_mcp_vault(vault.clone()),
+                None => driver,
+            };
             let driver = match capability {
                 Some(capability) => driver.with_capability(capability),
                 None => driver,
@@ -229,6 +235,10 @@ impl Agents for DeskAgents {
             tools,
         )
         .with_mcp(grant.servers, grant.missing);
+        let driver = match &self.mcp_vault {
+            Some(vault) => driver.with_mcp_vault(vault.clone()),
+            None => driver,
+        };
         let driver = match capability {
             Some(capability) => driver.with_capability(capability),
             None => driver,
@@ -455,6 +465,23 @@ impl Room {
             keys: keys.clone(),
             root: log.root().to_path_buf(),
             log: log.clone(),
+            mcp_vault: None,
+        });
+        Self::with_agents(log, keys, agents)
+    }
+
+    /// The production room passes its protected vault to both drivers. Tests
+    /// use new or with_agents and therefore keep their in-memory seams.
+    pub(crate) fn new_with_mcp(
+        log: Log,
+        keys: Arc<dyn ProviderKeys>,
+        vault: Arc<Vault>,
+    ) -> Arc<Self> {
+        let agents = Arc::new(DeskAgents {
+            keys: keys.clone(),
+            root: log.root().to_path_buf(),
+            log: log.clone(),
+            mcp_vault: Some(vault),
         });
         Self::with_agents(log, keys, agents)
     }

@@ -15,20 +15,22 @@
 //! A half-written entry in settings costs that one server, never every
 //! teammate's tools. A server whose env is not a map of strings is refused
 //! — a non-object env, or a value that is not a string, named on the
-//! ledger — rather than started without those variables. OAuth and
-//! static-header HTTP are a later task: those
-//! servers are refused with a sentence saying why, not connected with a
-//! dead credential. Bearer HTTP is process state the computer module
-//! constructs, never a setting. A server that dies after it was attached is the same
-//! honesty later: the next call that hits a dead transport marks that
-//! origin's rows absent and says so once on the tape.
+//! ledger — rather than started without those variables. OAuth HTTP is
+//! connected only after an operator sign-in through the protected vault;
+//! static-header HTTP is refused with a sentence saying why, not connected
+//! with a dead credential. Bearer HTTP is process state the computer module
+//! constructs, never a setting. A server that dies after it was attached is
+//! the same honesty later: the next call that hits a dead transport marks
+//! that origin's rows absent and says so once on the tape.
 //!
 //! Toad's own teammate tools are the other half of MCP, and they live
 //! in [`server`].
 
+mod oauth;
 pub mod server;
 mod tool;
 
+pub(crate) use oauth::{McpOAuthService, connect_oauth, manager_for_server};
 use tool::Watch;
 pub use tool::{CallContent, CallError, CallImage, McpTool};
 
@@ -81,9 +83,10 @@ pub enum McpTransport {
 
 /// How an HTTP server authenticates.
 ///
-/// [`HttpAuth::None`], [`HttpAuth::Static`] and [`HttpAuth::Oauth`] are what
-/// settings parse to. Static and OAuth are a later task: those servers are
-/// refused with a sentence, not connected with a dead credential.
+/// [`HttpAuth::None`], [`HttpAuth::Static`], [`HttpAuth::Oauth`] and
+/// [`HttpAuth::OauthConfigured`] are what settings parse to. Static-header
+/// servers are refused; OAuth servers use the operator's protected vault and
+/// are refused until that operator signs in.
 ///
 /// [`HttpAuth::Bearer`] is process state, never settings. The computer module
 /// is the only constructor: a settings entry whose `auth.mode` is `"bearer"`,
@@ -93,9 +96,21 @@ pub enum McpTransport {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HttpAuth {
     None,
-    Static { header_names: Vec<String> },
+    Static {
+        header_names: Vec<String>,
+    },
     Oauth,
-    Bearer { token: String },
+    /// OAuth settings that include a public client id and/or requested
+    /// scopes. The client secret is always in the vault, never here.
+    OauthConfigured {
+        scopes: Vec<String>,
+        resource: Option<String>,
+        client_id: Option<String>,
+        token_endpoint_auth_method: Option<String>,
+    },
+    Bearer {
+        token: String,
+    },
 }
 
 /// A server the grant named that could not be attached, and why.
@@ -239,6 +254,17 @@ pub(crate) async fn connect_with_capability(
     servers: &[McpServer],
     capability: Option<CapabilityLease>,
 ) -> Connections {
+    connect_with_capability_and_vault(persona_id, servers, capability, None).await
+}
+
+/// Connect granted servers with access to the protected MCP OAuth store.
+/// Standalone callers without a vault retain the old refusal behavior.
+pub(crate) async fn connect_with_capability_and_vault(
+    persona_id: &str,
+    servers: &[McpServer],
+    capability: Option<CapabilityLease>,
+    vault: Option<std::sync::Arc<crate::vault::Vault>>,
+) -> Connections {
     let mut tools = Vec::new();
     let mut failed = Vec::new();
     let mut live = Vec::new();
@@ -255,7 +281,7 @@ pub(crate) async fn connect_with_capability(
         {
             break;
         }
-        match connect_one(server).await {
+        match connect_one(server, vault.clone()).await {
             Ok((client, listed, group)) => {
                 if capability
                     .as_ref()
@@ -328,9 +354,11 @@ pub fn unsupported(server: &McpServer) -> Option<String> {
         McpTransport::Http {
             auth: HttpAuth::Oauth,
             ..
-        } => {
-            Some("OAuth HTTP servers are a later task; this server was not connected.".to_string())
         }
+        | McpTransport::Http {
+            auth: HttpAuth::OauthConfigured { .. },
+            ..
+        } => Some("OAuth HTTP servers require an operator sign-in in Settings; this server was not connected.".to_string()),
         // Bearer is constructed by the computer module, not by settings, and
         // is the one HTTP credential this build can actually present.
         _ => None,
@@ -341,6 +369,7 @@ pub fn unsupported(server: &McpServer) -> Option<String> {
 /// spawned into, which is what the caller has to hold on to.
 async fn connect_one(
     server: &McpServer,
+    vault: Option<std::sync::Arc<crate::vault::Vault>>,
 ) -> Result<
     (
         RunningService<rmcp::RoleClient, ClientInfo>,
@@ -349,6 +378,22 @@ async fn connect_one(
     ),
     String,
 > {
+    if matches!(
+        &server.transport,
+        McpTransport::Http {
+            auth: HttpAuth::Oauth | HttpAuth::OauthConfigured { .. },
+            ..
+        }
+    ) {
+        let Some(vault) = vault else {
+            return Err(
+                "OAuth HTTP servers require an operator sign-in in Settings; this session has no credential vault."
+                    .to_string(),
+            );
+        };
+        let (client, listed) = connect_oauth(server, vault).await?;
+        return Ok((client, listed, None));
+    }
     if let Some(refusal) = unsupported(server) {
         return Err(refusal);
     }
@@ -589,7 +634,47 @@ fn parse_server(value: &Value) -> Option<McpServer> {
                         .collect();
                     HttpAuth::Static { header_names }
                 }
-                Some("oauth") => HttpAuth::Oauth,
+                Some("oauth") => {
+                    let auth = object
+                        .get("auth")
+                        .and_then(Value::as_object)
+                        .expect("oauth auth was an object");
+                    let scopes: Vec<String> = auth
+                        .get("scopes")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect();
+                    let resource = auth
+                        .get("resource")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    let client = auth.get("client").and_then(Value::as_object);
+                    let client_id = client
+                        .and_then(|client| client.get("clientId"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    let token_endpoint_auth_method = client
+                        .and_then(|client| client.get("tokenEndpointAuthMethod"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    if scopes.is_empty()
+                        && resource.is_none()
+                        && client_id.is_none()
+                        && token_endpoint_auth_method.is_none()
+                    {
+                        HttpAuth::Oauth
+                    } else {
+                        HttpAuth::OauthConfigured {
+                            scopes,
+                            resource,
+                            client_id,
+                            token_endpoint_auth_method,
+                        }
+                    }
+                }
                 _ => HttpAuth::None,
             };
             McpTransport::Http { url, auth }

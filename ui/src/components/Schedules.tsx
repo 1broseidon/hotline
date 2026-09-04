@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduleKind, ScheduledJob } from "../generated/contract";
-import { CloseIcon } from "../icons";
+import { CloseIcon, PlusIcon } from "../icons";
 import { durationText, firstLine, nextText } from "../room";
 import { onTablistKey, Picker } from "../ui/Menu";
 import { wire } from "../wire";
@@ -26,7 +26,9 @@ const UNITS: { id: Unit; ms: number; name: string }[] = [
  *
  * A job is once (`when`, ms since epoch) or a loop (`every`, ms). Quiet
  * means the run's words go to the tape as thoughts, by event kind, not by
- * asking the model to stay quiet.
+ * asking the model to stay quiet. The form to add one is closed until the
+ * add row is pressed, because a teammate with nothing scheduled should
+ * show a list with an add row, not a form.
  */
 export function Schedules({
 	personaId,
@@ -41,6 +43,8 @@ export function Schedules({
 }) {
 	const heading = useRef<HTMLHeadingElement>(null);
 	const now = useNow();
+	const [adding, setAdding] = useState(false);
+	const paused = !backgroundWork && jobs.some((job) => !job.operatorCreated);
 
 	useEffect(() => {
 		if (!focus) return;
@@ -48,20 +52,28 @@ export function Schedules({
 		heading.current?.focus();
 	}, [focus]);
 
+	useEffect(() => {
+		setAdding(false);
+	}, [personaId]);
+
 	return (
 		<section>
 			<h3 ref={heading} id="schedules" tabIndex={-1} className="label outline-none">
 				Schedules
 			</h3>
-			<p className="hint">Jobs you add here still run when Background work is off. Teammate-created jobs show Paused until you grant it again.</p>
 			<div className="grouped">
-				{jobs.length === 0 ? (
-					<p className="group-row text-sm text-ink-3">Nothing scheduled.</p>
-				) : (
-					jobs.map((job) => <JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} />)
+				{jobs.map((job) => (
+					<JobRow key={job.id} job={job} now={now} backgroundWork={backgroundWork} />
+				))}
+				{!adding && (
+					<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
+						<PlusIcon />
+						Add a schedule
+					</button>
 				)}
 			</div>
-			<AddJob personaId={personaId} />
+			{paused && <p className="group-hint">Paused jobs wake when Background work is on again.</p>}
+			{adding && <AddJob personaId={personaId} onDone={() => setAdding(false)} />}
 		</section>
 	);
 }
@@ -134,7 +146,7 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 	);
 }
 
-function AddJob({ personaId }: { personaId: string }) {
+function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 	const [kind, setKind] = useState<ScheduleKind>("schedule");
 	const [when, setWhen] = useState(defaultWhenInput);
 	const [count, setCount] = useState("1");
@@ -156,11 +168,7 @@ function AddJob({ personaId }: { personaId: string }) {
 		setSaid(null);
 		try {
 			await wire.command("schedule.create", params);
-			setPrompt("");
-			setQuiet(false);
-			setWhen(defaultWhenInput());
-			setCount("1");
-			setUnit("hours");
+			onDone();
 		} catch (error) {
 			setSaid(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -227,6 +235,7 @@ function AddJob({ personaId }: { personaId: string }) {
 					id="job-prompt"
 					className="field"
 					rows={2}
+					autoFocus
 					placeholder="What to ask when it fires."
 					value={prompt}
 					onChange={(event) => setPrompt(event.target.value)}
@@ -240,7 +249,10 @@ function AddJob({ personaId }: { personaId: string }) {
 				</span>
 			</label>
 			{said !== null && <p className="text-sm text-danger">{said}</p>}
-			<div className="flex justify-end">
+			<div className="flex justify-end gap-2">
+				<button type="button" className="control btn-quiet" disabled={busy} onClick={onDone}>
+					Cancel
+				</button>
 				<button type="button" className="control btn" disabled={busy || prompt.trim() === ""} onClick={() => void add()}>
 					{busy ? "Scheduling…" : "Add schedule"}
 				</button>

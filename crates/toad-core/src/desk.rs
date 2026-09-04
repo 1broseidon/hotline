@@ -204,7 +204,7 @@ impl RoomHandle for Desk {
         crate::models::effort_choices(model_id)
     }
 
-    fn answer_permission(
+    async fn answer_permission(
         &self,
         persona_id: &str,
         request_id: &str,
@@ -212,6 +212,7 @@ impl RoomHandle for Desk {
     ) -> Result<(), String> {
         self.room
             .answer_permission(persona_id, request_id, option_id)
+            .await
     }
 
     fn answer_human(
@@ -780,6 +781,7 @@ mod tests {
                 server_ids: Vec::new(),
             },
             background_work: false,
+            allowed_senders: Vec::new(),
             web_search_policy: None,
             computer: None,
             subagents: None,

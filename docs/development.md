@@ -201,6 +201,15 @@ pin `COMPUTER_VERSION` in `crates/toad-core/src/computer/mod.rs`, currently
 `latest`. Tests use a fake runtime script in a temp dir; they do not talk
 to a real daemon.
 
+The create line is `--cap-drop=ALL`, `--security-opt no-new-privileges`,
+`--pids-limit` and `--memory` from `persona.computer` (512 and 2g when
+absent), `--shm-size 1g`, the loopback port for 8787, the token in the
+environment, then the mounts: the named volumes `toad-nix:/nix` and
+`toad-src-<persona id>:/home/agent/src` (Docker and Podman only), the
+teammate's `persona.computer.mounts` as `host:path[:ro]`, and the room's
+cwd at `/home/agent/workspace`. `mount_args` refuses a host folder that
+does not exist and a container path that overlaps one of those three.
+
 ## The generated contract
 
 Types are defined once in `crates/toad-core/src/contract.rs` (serde +

@@ -1572,6 +1572,7 @@ mod tests {
                 server_ids: Vec::new(),
             },
             background_work: false,
+            allowed_senders: Vec::new(),
             web_search_policy: None,
             computer: None,
             subagents: None,

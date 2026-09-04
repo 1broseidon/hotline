@@ -186,6 +186,10 @@ pub(super) struct Fake {
 }
 
 impl Fake {
+    pub(super) fn cancel_count(&self) -> usize {
+        *lock(&self.driver.cancels)
+    }
+
     /// A room whose summariser is asked and refused, which is the shape of
     /// every desk with no model set up.
     pub(super) fn new(driver: Scripted) -> Arc<Fake> {
@@ -283,6 +287,7 @@ pub(super) fn persona(id: &str) -> Persona {
         // Existing scheduler fixtures represent a teammate that has been
         // granted persistent work; revocation tests turn this off explicitly.
         background_work: true,
+        allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: None,
         subagents: None,
@@ -981,6 +986,9 @@ fn the_preamble_says_who_where_how_far_and_when() {
     ada.computer = Some(PersonaComputer {
         enabled: true,
         image: None,
+        memory: None,
+        pids: None,
+        mounts: None,
     });
     let desk = preamble(&ada, Some(Reach::Workspace), None);
     assert!(desk.contains("You have a computer"));
@@ -2164,7 +2172,7 @@ async fn a_permission_is_one_card_that_the_answer_supersedes() {
     assert_eq!(events[1]["options"][0]["name"], "Allow once");
     assert!(events[1].get("decision").is_none(), "the card is live");
 
-    room.answer_permission("ada", "r1", "once").unwrap();
+    room.answer_permission("ada", "r1", "once").await.unwrap();
     let events = settled(&room, "ada", 2).await;
     assert_eq!(kinds(&events), ["user", "permission"], "one card, not two");
     assert_eq!(events[1]["decision"], "once");
@@ -2172,7 +2180,7 @@ async fn a_permission_is_one_card_that_the_answer_supersedes() {
 
     // Nothing is behind that button now, so a second answer is refused rather
     // than quietly letting an agent through.
-    assert!(room.answer_permission("ada", "r1", "never").is_err());
+    assert!(room.answer_permission("ada", "r1", "never").await.is_err());
 }
 
 /// A card the turn ended without an answer to is settled, because the agent

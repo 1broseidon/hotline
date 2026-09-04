@@ -172,7 +172,7 @@ export function App() {
 					setThread(null);
 				}
 			} catch {
-				// The inspector's own type-to-confirm is still there if this fails.
+				// The inspector's own Remove reports a refusal if this fails.
 			}
 		},
 		[selectedId],
@@ -382,6 +382,7 @@ export function App() {
 									persona={selected.persona}
 									session={selected.session}
 									jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
+									roster={roster}
 									focusSchedules={focusSchedules}
 									onClose={() => setInspector(false)}
 									onDeleted={() => {

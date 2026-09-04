@@ -32,8 +32,8 @@
 
 use super::{Room, event_of, fold_said, lock, new_id, now_ms};
 use crate::contract::{
-    NoticeLevel, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, Persona, Reach, Receipt,
-    ToolStatus, TranscriptEvent,
+    NoticeLevel, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, PermissionOption, Persona,
+    Reach, Receipt, ToolStatus, TranscriptEvent,
 };
 use crate::driver::rig::Said;
 use crate::driver::{CapabilityLease, Driver, PI_BACKEND_ID, Update, acp};
@@ -43,13 +43,19 @@ use crate::paths::{thread_key, thread_participants};
 use crate::room;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
+use tokio::sync::oneshot;
 
 /// How long a peer session may sit unused before it is stopped.
 ///
 /// The marker on each tape lives as long as the session, so this is also how
 /// far apart two exchanges may be and still be drawn as one line.
 const IDLE_MS: i64 = 10 * 60_000;
+
+pub(super) const COLLAB_REQUEST_PREFIX: &str = "collab:";
+pub(super) const ALLOW_SESSION: &str = "allow_session";
+pub(super) const ALLOW_ALWAYS: &str = "allow_always";
+pub(super) const DENY: &str = "deny";
 
 /// The most one teammate may say to another in a single message. The previous
 /// Toad's number, and the schema the tool advertises.
@@ -65,6 +71,123 @@ pub struct DeliverResult {
     /// empty string is a turn that produced no words, which is a fact the
     /// caller is entitled to see rather than an error.
     pub reply: String,
+}
+
+/// The operator's answer to a first-contact collaboration card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CollaborationDecision {
+    Session,
+    Permanent,
+    Deny,
+}
+
+fn collaboration_options(caller_name: &str) -> Vec<PermissionOption> {
+    vec![
+        PermissionOption {
+            option_id: ALLOW_SESSION.to_string(),
+            name: "Allow this session".to_string(),
+            kind: Some("allow_session".to_string()),
+        },
+        PermissionOption {
+            option_id: ALLOW_ALWAYS.to_string(),
+            name: format!("Always allow {caller_name}"),
+            kind: Some("allow_always".to_string()),
+        },
+        PermissionOption {
+            option_id: DENY.to_string(),
+            name: "Deny".to_string(),
+            kind: None,
+        },
+    ]
+}
+
+pub(super) fn collaboration_decision(
+    option_id: &str,
+    caller_name: &str,
+) -> Option<(CollaborationDecision, String)> {
+    match option_id {
+        ALLOW_SESSION => Some((
+            CollaborationDecision::Session,
+            "Allow this session".to_string(),
+        )),
+        ALLOW_ALWAYS => Some((
+            CollaborationDecision::Permanent,
+            format!("Always allow {caller_name}"),
+        )),
+        DENY => Some((CollaborationDecision::Deny, "Deny".to_string())),
+        _ => None,
+    }
+}
+
+/// The collaboration authorization generation for each side of a pair. A
+/// chapter close advances the participant's generation while its session
+/// remains alive, so an approval that was taken just before the close cannot
+/// install a temporary grant after the close finishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct CollaborationScope {
+    caller_generation: u64,
+    target_generation: u64,
+}
+
+/// A temporary grant is attached to the two capability leases that were live
+/// when the operator allowed this exchange. Ending either session invalidates
+/// its lease, so a grant cannot survive a restart or a stale peer cache.
+struct SessionGrant {
+    caller: CapabilityLease,
+    target: CapabilityLease,
+    scope: CollaborationScope,
+}
+
+/// One operator decision waiting for the caller's delivery to continue.
+pub(crate) struct CollaborationWait {
+    pub(crate) request_id: String,
+    pub(crate) caller_id: String,
+    pub(crate) caller_name: String,
+    pub(crate) target_id: String,
+    pub(crate) target_name: String,
+    pub(crate) caller_capability: CapabilityLease,
+    pub(crate) target_capability: CapabilityLease,
+    pub(crate) scope: CollaborationScope,
+    pub(crate) sender: oneshot::Sender<CollaborationDecision>,
+}
+
+struct CollaborationRequest {
+    request_id: String,
+    caller_id: String,
+    caller_name: String,
+    target_id: String,
+    target_name: String,
+    caller_capability: CapabilityLease,
+    target_capability: CapabilityLease,
+    scope: CollaborationScope,
+}
+
+/// Removes a collaboration wait if the delivery future is cancelled while
+/// it is waiting for the operator. Without this guard, its sender would stay
+/// in [`Peers::waiting`] and a later card answer could grant authority to a
+/// caller that no longer exists.
+struct CollaborationWaitGuard {
+    room: Weak<Room>,
+    request_id: String,
+    caller_id: String,
+}
+
+impl Drop for CollaborationWaitGuard {
+    fn drop(&mut self) {
+        let Some(room) = self.room.upgrade() else {
+            return;
+        };
+        let Some(wait) = room.take_collaboration_wait(&self.request_id, &self.caller_id) else {
+            return;
+        };
+        room.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+        let _ = wait.sender.send(CollaborationDecision::Deny);
+    }
+}
+
+struct CollaborationAuthorization {
+    temporary: bool,
+    scope: Option<CollaborationScope>,
 }
 
 /// One live peer session: the target's agent, answering one caller.
@@ -104,6 +227,16 @@ struct Marker {
 pub(super) struct Peers {
     /// Keyed by caller and target, in that order.
     sessions: Mutex<HashMap<(String, String), Arc<PeerSession>>>,
+    /// Temporary approvals are separate from the peer session itself: a
+    /// cached session may only be reused while the operator's session grant
+    /// still names both live capability leases.
+    session_grants: Mutex<HashMap<(String, String), SessionGrant>>,
+    /// First-contact approvals waiting for the operator. There is at most one
+    /// because the pair is held by [`Self::begin`] for the whole delivery.
+    waiting: Mutex<HashMap<String, CollaborationWait>>,
+    /// Per-persona collaboration generations. A chapter close advances one
+    /// entry without stopping the persona's main session.
+    collaboration_generations: Mutex<HashMap<String, u64>>,
     /// The pairs with a delivery in flight, each with the teammate answering
     /// it. A pair is refused a second delivery while one is running: a driver
     /// takes one turn at a time, and two teammates that could each start the
@@ -133,7 +266,165 @@ impl Peers {
             .map(|(_, target_id)| target_id.clone())
     }
 
+    fn scope(&self, caller_id: &str, target_id: &str) -> CollaborationScope {
+        let generations = lock(&self.collaboration_generations);
+        CollaborationScope {
+            caller_generation: generations.get(caller_id).copied().unwrap_or_default(),
+            target_generation: generations.get(target_id).copied().unwrap_or_default(),
+        }
+    }
+
+    pub(super) fn scope_current(
+        &self,
+        caller_id: &str,
+        target_id: &str,
+        scope: CollaborationScope,
+    ) -> bool {
+        let generations = lock(&self.collaboration_generations);
+        generations.get(caller_id).copied().unwrap_or_default() == scope.caller_generation
+            && generations.get(target_id).copied().unwrap_or_default() == scope.target_generation
+    }
+
+    /// Starts a fresh authorization generation for one participant. The
+    /// session itself stays alive, but every temporary grant involving this
+    /// persona must be established again in its new chapter.
+    pub(super) fn advance_generation(&self, persona_id: &str) {
+        {
+            let mut generations = lock(&self.collaboration_generations);
+            let generation = generations.entry(persona_id.to_string()).or_default();
+            *generation = generation.wrapping_add(1);
+        }
+        self.expire_grants(persona_id);
+    }
+
+    /// Returns the scope of a temporary grant that still covers this
+    /// direction. A grant whose session ended is removed as it is observed,
+    /// so it cannot authorize a newly started peer session.
+    fn session_granted(&self, caller_id: &str, target_id: &str) -> Option<CollaborationScope> {
+        let pair = (caller_id.to_string(), target_id.to_string());
+        let mut grants = lock(&self.session_grants);
+        let grant = grants.get(&pair)?;
+        if grant.caller.is_current()
+            && grant.target.is_current()
+            && self.scope_current(caller_id, target_id, grant.scope)
+        {
+            return Some(grant.scope);
+        }
+        grants.remove(&pair);
+        None
+    }
+
+    pub(super) fn expire_grants(&self, persona_id: &str) {
+        lock(&self.session_grants)
+            .retain(|(caller_id, target_id), _| caller_id != persona_id && target_id != persona_id);
+    }
+
+    fn prune_grants(&self) {
+        lock(&self.session_grants).retain(|(caller_id, target_id), grant| {
+            grant.caller.is_current()
+                && grant.target.is_current()
+                && self.scope_current(caller_id, target_id, grant.scope)
+        });
+    }
+
+    /// Records the temporary grant against the exact peer session that was
+    /// started after the operator answered the card.
+    fn grant_session(
+        &self,
+        caller_id: &str,
+        target_id: &str,
+        session: &PeerSession,
+        scope: CollaborationScope,
+    ) -> bool {
+        if !session.valid() || !self.scope_current(caller_id, target_id, scope) {
+            return false;
+        }
+        lock(&self.session_grants).insert(
+            (caller_id.to_string(), target_id.to_string()),
+            SessionGrant {
+                caller: session.caller_capability.clone(),
+                target: session.target_capability.clone(),
+                scope,
+            },
+        );
+        true
+    }
+
+    fn wait(
+        &self,
+        request: CollaborationRequest,
+    ) -> Result<oneshot::Receiver<CollaborationDecision>, String> {
+        let mut waiting = lock(&self.waiting);
+        if waiting
+            .values()
+            .any(|held| held.caller_id == request.caller_id && held.target_id == request.target_id)
+        {
+            return Err("That collaboration request is already waiting for an answer.".to_string());
+        }
+        let (sender, receiver) = oneshot::channel();
+        waiting.insert(
+            request.request_id.clone(),
+            CollaborationWait {
+                sender,
+                request_id: request.request_id,
+                caller_id: request.caller_id,
+                caller_name: request.caller_name,
+                target_id: request.target_id,
+                target_name: request.target_name,
+                caller_capability: request.caller_capability,
+                target_capability: request.target_capability,
+                scope: request.scope,
+            },
+        );
+        Ok(receiver)
+    }
+
+    fn take_wait(&self, request_id: &str, caller_id: &str) -> Option<CollaborationWait> {
+        let mut waiting = lock(&self.waiting);
+        if waiting
+            .get(request_id)
+            .is_some_and(|wait| wait.caller_id == caller_id)
+        {
+            waiting.remove(request_id)
+        } else {
+            None
+        }
+    }
+
+    fn settle_waits(&self, persona_id: &str) -> Vec<CollaborationWait> {
+        let mut waiting = lock(&self.waiting);
+        let ids: Vec<String> = waiting
+            .iter()
+            .filter(|(_, wait)| wait.caller_id == persona_id || wait.target_id == persona_id)
+            .map(|(request_id, _)| request_id.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|request_id| waiting.remove(&request_id))
+            .collect()
+    }
+
+    fn settle_invalid_waits(&self) -> Vec<CollaborationWait> {
+        let mut waiting = lock(&self.waiting);
+        let ids: Vec<String> = waiting
+            .iter()
+            .filter(|(_, wait)| {
+                !wait.caller_capability.is_current()
+                    || !wait.target_capability.is_current()
+                    || !self.scope_current(&wait.caller_id, &wait.target_id, wait.scope)
+            })
+            .map(|(request_id, _)| request_id.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|request_id| waiting.remove(&request_id))
+            .collect()
+    }
+
+    fn settle_all_waits(&self) -> Vec<CollaborationWait> {
+        lock(&self.waiting).drain().map(|(_, wait)| wait).collect()
+    }
+
     fn invalidate(&self, persona_id: &str) {
+        self.expire_grants(persona_id);
         let removed: Vec<Arc<PeerSession>> = {
             let mut sessions = lock(&self.sessions);
             let mut removed = Vec::new();
@@ -152,9 +443,32 @@ impl Peers {
             session.target_capability.revoke();
             session.driver.invalidate();
         }
+        self.prune_invalid_sessions();
+    }
+
+    /// A delegated conversation may have started further work under another
+    /// teammate's identity. Its tool leases already depend on the original
+    /// authority; tear down those drivers too when their dependency expires.
+    fn prune_invalid_sessions(&self) {
+        let mut removed = Vec::new();
+        lock(&self.sessions).retain(|_, session| {
+            if session.valid() {
+                true
+            } else {
+                removed.push(session.clone());
+                false
+            }
+        });
+        for session in removed {
+            session.caller_capability.revoke();
+            session.target_capability.revoke();
+            session.driver.invalidate();
+        }
+        self.prune_grants();
     }
 
     pub(super) fn invalidate_all(&self) {
+        lock(&self.session_grants).clear();
         let removed: Vec<Arc<PeerSession>> = {
             let mut sessions = lock(&self.sessions);
             sessions.drain().map(|(_, live)| live).collect()
@@ -193,6 +507,19 @@ impl Room {
         to: &str,
         message: &str,
     ) -> Result<DeliverResult, String> {
+        self.deliver_with_capability(from, to, message, None).await
+    }
+
+    /// The same delivery with the caller's live session lease when the
+    /// request came from a teammate tool. Direct callers use a fresh lease;
+    /// the normal tool path binds the temporary grant to the caller session.
+    pub(crate) async fn deliver_with_capability(
+        self: &Arc<Self>,
+        from: &str,
+        to: &str,
+        message: &str,
+        caller_capability: Option<CapabilityLease>,
+    ) -> Result<DeliverResult, String> {
         let caller = self.persona(from)?;
         let target = self.teammate_named(to)?;
         if caller.id == target.id {
@@ -209,14 +536,45 @@ impl Room {
         }
         let key = thread_key(&caller.id, &target.id)
             .ok_or_else(|| "Those two teammates cannot share a thread.".to_string())?;
+        let caller_capability =
+            caller_capability.unwrap_or_else(|| self.capability_lease(&caller.id));
+        let target_capability = self.capability_lease(&target.id);
+        caller_capability.check()?;
+        target_capability.check()?;
         let _answering = self.peers.begin(&key, &target.id)?;
+        let authorization = self
+            .authorize_collaboration(&caller, &target, &caller_capability, &target_capability)
+            .await?;
         if let Err(error) = thread::ensure(self.log.root(), &key) {
             return Err(format!("That thread could not be opened: {error}"));
         }
 
-        let session = self.peer_session(&caller, &target, &key).await?;
+        let session = self
+            .peer_session(
+                &caller,
+                &target,
+                &key,
+                caller_capability.clone(),
+                target_capability.clone(),
+                authorization.scope,
+            )
+            .await?;
         if !session.valid() {
             return Err("That peer session's capabilities have been revoked.".to_string());
+        }
+        if authorization.temporary {
+            let scope = authorization
+                .scope
+                .expect("a temporary collaboration approval has a scope");
+            if !self
+                .peers
+                .grant_session(&caller.id, &target.id, &session, scope)
+            {
+                return Err(
+                    "That collaboration approval expired before the peer session could start."
+                        .to_string(),
+                );
+            }
         }
         self.mark(&session, &caller, &target, PeerStatus::Open);
         self.append_thread(
@@ -310,6 +668,196 @@ impl Room {
         })
     }
 
+    /// Checks the directional collaboration policy before a thread or target
+    /// session is created. A Whole machine Toad Agent caller has implicit
+    /// authority; every workspace caller needs either the recipient's stable
+    /// sender grant or an approval tied to the two live capability leases.
+    async fn authorize_collaboration(
+        self: &Arc<Self>,
+        caller: &Persona,
+        target: &Persona,
+        caller_capability: &CapabilityLease,
+        target_capability: &CapabilityLease,
+    ) -> Result<CollaborationAuthorization, String> {
+        caller_capability.check()?;
+        target_capability.check()?;
+        // Discovery ran before these leases were captured. Re-read both
+        // policies so an old Whole machine snapshot cannot authorize a
+        // request under a newer workspace-only generation.
+        let caller = self.persona(&caller.id)?;
+        let target = self.persona(&target.id)?;
+        caller_capability.check()?;
+        target_capability.check()?;
+        let scope = self.peers.scope(&caller.id, &target.id);
+        let implicit = caller.backend_id == PI_BACKEND_ID
+            && caller.reach.unwrap_or_default() == Reach::Machine;
+        if implicit
+            || target
+                .allowed_senders
+                .iter()
+                .any(|sender| sender == &caller.id)
+        {
+            return Ok(CollaborationAuthorization {
+                temporary: false,
+                scope: None,
+            });
+        }
+        if let Some(scope) = self.peers.session_granted(&caller.id, &target.id) {
+            return Ok(CollaborationAuthorization {
+                temporary: true,
+                scope: Some(scope),
+            });
+        }
+
+        let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
+        let title = format!(
+            "Allow {} to ask {} to work?\n\n{} can use its workspace and enabled tools to fulfill {}'s requests and return results.",
+            caller.name, target.name, target.name, caller.name
+        );
+        let options = collaboration_options(&caller.name);
+        let receiver = self.peers.wait(CollaborationRequest {
+            request_id: request_id.clone(),
+            caller_id: caller.id.clone(),
+            caller_name: caller.name.clone(),
+            target_id: target.id.clone(),
+            target_name: target.name.clone(),
+            caller_capability: caller_capability.clone(),
+            target_capability: target_capability.clone(),
+            scope,
+        })?;
+        let _wait_guard = CollaborationWaitGuard {
+            room: Arc::downgrade(self),
+            request_id: request_id.clone(),
+            caller_id: caller.id.clone(),
+        };
+        self.write(
+            &caller.id,
+            &TranscriptEvent::Permission {
+                id: format!("perm:{request_id}"),
+                ts: now_ms(),
+                request_id: request_id.clone(),
+                title,
+                options,
+                decision: None,
+                decided_option_name: None,
+            },
+        );
+        let decision = match tokio::time::timeout(super::HUMAN_DEADLINE, receiver).await {
+            Ok(Ok(decision)) => decision,
+            Ok(Err(_)) => return Err("The collaboration request was cancelled.".to_string()),
+            Err(_) => {
+                return Err("The collaboration request expired before it was answered.".to_string());
+            }
+        };
+        caller_capability.check()?;
+        target_capability.check()?;
+        if !self.peers.scope_current(&caller.id, &target.id, scope) {
+            return Err("That collaboration approval expired before work started.".to_string());
+        }
+        match decision {
+            CollaborationDecision::Session => Ok(CollaborationAuthorization {
+                temporary: true,
+                scope: Some(scope),
+            }),
+            CollaborationDecision::Permanent => {
+                if !self
+                    .persona(&target.id)?
+                    .allowed_senders
+                    .iter()
+                    .any(|sender| sender == &caller.id)
+                {
+                    return Err(
+                        "That collaboration grant was revoked before work started.".to_string()
+                    );
+                }
+                Ok(CollaborationAuthorization {
+                    temporary: false,
+                    scope: None,
+                })
+            }
+            CollaborationDecision::Deny => Err(format!(
+                "The operator denied {}'s request to ask {} to work.",
+                caller.name, target.name
+            )),
+        }
+    }
+
+    /// Persists a directional standing grant on the recipient. The caller
+    /// holds the policy update lock when this runs, so a removal cannot be
+    /// reordered behind an approval that was already taken from the map.
+    pub(super) fn allow_sender(&self, target_id: &str, sender_id: &str) -> Result<(), String> {
+        let mut target = self.persona(target_id)?;
+        if target
+            .allowed_senders
+            .iter()
+            .any(|sender| sender == sender_id)
+        {
+            return Ok(());
+        }
+        target.allowed_senders.push(sender_id.to_string());
+        target.updated_at = now_ms();
+        room::append_persona(&self.log, &target)
+    }
+
+    /// A card written by this room, superseding the pending card with one
+    /// operator decision. The event stays on the caller's tape so the owner
+    /// of the request can see what authority was delegated.
+    pub(super) fn write_collaboration_decision(
+        &self,
+        wait: &CollaborationWait,
+        decision: &str,
+        option_name: &str,
+    ) {
+        self.write(
+            &wait.caller_id,
+            &TranscriptEvent::Permission {
+                id: format!("perm:{}", wait.request_id),
+                ts: now_ms(),
+                request_id: wait.request_id.clone(),
+                title: format!(
+                    "Allow {} to ask {} to work?\n\n{} can use its workspace and enabled tools to fulfill {}'s requests and return results.",
+                    wait.caller_name,
+                    wait.target_name,
+                    wait.target_name,
+                    wait.caller_name,
+                ),
+                options: collaboration_options(&wait.caller_name),
+                decision: Some(decision.to_string()),
+                decided_option_name: Some(option_name.to_string()),
+            },
+        );
+    }
+
+    pub(super) fn take_collaboration_wait(
+        &self,
+        request_id: &str,
+        caller_id: &str,
+    ) -> Option<CollaborationWait> {
+        self.peers.take_wait(request_id, caller_id)
+    }
+
+    pub(super) fn settle_collaboration(&self, persona_id: &str) {
+        for wait in self.peers.settle_waits(persona_id) {
+            self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+            let _ = wait.sender.send(CollaborationDecision::Deny);
+        }
+        self.settle_invalid_collaboration();
+    }
+
+    pub(super) fn settle_invalid_collaboration(&self) {
+        for wait in self.peers.settle_invalid_waits() {
+            self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+            let _ = wait.sender.send(CollaborationDecision::Deny);
+        }
+    }
+
+    pub(super) fn settle_all_collaboration(&self) {
+        for wait in self.peers.settle_all_waits() {
+            self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+            let _ = wait.sender.send(CollaborationDecision::Deny);
+        }
+    }
+
     /// Every thread this teammate is in, newest first.
     pub fn peer_threads(&self, persona_id: &str) -> Vec<PeerThreadSummary> {
         let names: HashMap<String, String> = room::roster(&self.log)
@@ -388,6 +936,7 @@ impl Room {
     /// has been deleted has no more colleagues to answer.
     pub(crate) fn drop_peer_sessions(&self, persona_id: &str) {
         self.peers.invalidate(persona_id);
+        self.settle_invalid_collaboration();
     }
 
     /// Stops the peer sessions nobody has spoken to for [`IDLE_MS`]. A pair
@@ -409,6 +958,8 @@ impl Room {
             live.target_capability.revoke();
             live.driver.invalidate();
         }
+        self.peers.prune_invalid_sessions();
+        self.settle_invalid_collaboration();
     }
 
     /// The peer session for this direction, started if it is not up.
@@ -417,14 +968,20 @@ impl Room {
         caller: &Persona,
         target: &Persona,
         key: &str,
+        caller_capability: CapabilityLease,
+        target_capability: CapabilityLease,
+        scope: Option<CollaborationScope>,
     ) -> Result<Arc<PeerSession>, String> {
         let caller_id = caller.id.clone();
         let target_id = target.id.clone();
         let pair = (caller_id.clone(), target_id.clone());
-        let caller_capability = self.capability_lease(&caller_id);
-        let target_capability = self.capability_lease(&target_id);
         caller_capability.check()?;
         target_capability.check()?;
+        if let Some(scope) = scope
+            && !self.peers.scope_current(&caller_id, &target_id, scope)
+        {
+            return Err("That collaboration approval expired before work started.".to_string());
+        }
         let cached = { lock(&self.peers.sessions).get(&pair).cloned() };
         if let Some(live) = cached {
             if live.valid() {
@@ -447,6 +1004,11 @@ impl Room {
         let target = self.persona(&target_id)?;
         caller_capability.check()?;
         target_capability.check()?;
+        if let Some(scope) = scope
+            && !self.peers.scope_current(&caller_id, &target_id, scope)
+        {
+            return Err("That collaboration approval expired before work started.".to_string());
+        }
         std::fs::create_dir_all(&target.cwd).map_err(|error| {
             format!(
                 "{}'s working directory {} could not be made: {error}",
@@ -460,6 +1022,9 @@ impl Room {
         view.session_checkpoints = Vec::new();
         view.last_session_id = None;
         let in_process = view.backend_id == PI_BACKEND_ID;
+        let peer_caller_capability = caller_capability.scoped();
+        let target_capability = target_capability.with_dependency(&peer_caller_capability);
+        peer_caller_capability.check()?;
         if !in_process {
             caller_capability.check()?;
             acp::materialize_agents_md_with_capability(&view, Some(target_capability.clone()))
@@ -471,6 +1036,12 @@ impl Room {
         let extra_mcp = self.grant_computer(&view).await?;
         caller_capability.check()?;
         target_capability.check()?;
+        peer_caller_capability.check()?;
+        if let Some(scope) = scope
+            && !self.peers.scope_current(&caller_id, &target_id, scope)
+        {
+            return Err("That collaboration approval expired before work started.".to_string());
+        }
         let driver = self.agents.agent(
             &view,
             peer_preamble(
@@ -490,15 +1061,25 @@ impl Room {
             driver.invalidate();
             return Err(error);
         }
+        if let Err(error) = peer_caller_capability.check() {
+            driver.invalidate();
+            return Err(error);
+        }
         if let Err(error) = target_capability.check() {
             driver.invalidate();
             return Err(error);
+        }
+        if let Some(scope) = scope
+            && !self.peers.scope_current(&caller_id, &target_id, scope)
+        {
+            driver.invalidate();
+            return Err("That collaboration approval expired before work started.".to_string());
         }
 
         let now = now_ms();
         let live = Arc::new(PeerSession {
             driver,
-            caller_capability,
+            caller_capability: peer_caller_capability,
             target_capability,
             thread_key: key.to_string(),
             flip,
@@ -514,6 +1095,12 @@ impl Room {
         if !live.valid() {
             live.driver.invalidate();
             return Err("That peer session's capabilities have been revoked.".to_string());
+        }
+        if let Some(scope) = scope
+            && !self.peers.scope_current(&caller_id, &target_id, scope)
+        {
+            live.driver.invalidate();
+            return Err("That collaboration approval expired before work started.".to_string());
         }
         if let Some(existing) = lock(&self.peers.sessions).get(&pair).cloned() {
             if existing.valid() {

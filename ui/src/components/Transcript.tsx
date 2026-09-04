@@ -693,7 +693,7 @@ function Permission({
 	return (
 		<div className={`card mt-3 ${chosen === undefined ? "card-live" : ""}`}>
 			<p className="eyebrow mb-1">{chosen === undefined ? "Asking permission" : "Asked permission"}</p>
-			<p className="selectable">{event.title}</p>
+			<p className="selectable" style={{ whiteSpace: "pre-wrap" }}>{event.title}</p>
 			{chosen !== undefined ? (
 				<p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink-3">
 					{event.decision !== "expired" && <CheckIcon className="text-ink-4" />}

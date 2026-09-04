@@ -187,6 +187,10 @@ pub struct Persona {
     /// depend on this grant. Absent means off, including for older records.
     #[serde(default)]
     pub background_work: bool,
+    /// Stable ids of teammates this teammate accepts work requests from.
+    /// Missing on older records means no permanent collaboration grants.
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
     /// Absent means inherit the desk's web search entirely.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_policy: Option<WebSearchPolicy>,
@@ -377,6 +381,33 @@ pub struct PersonaComputer {
     /// Image override. Defaults to the app's version-pinned image.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    /// Memory limit for the container as the runtime spells it — `"2g"`,
+    /// `"8g"`, `"512m"`. Absent is 2g. A teammate that compiles asks for more.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<String>,
+    /// Process limit for the container; threads count. Absent is 512, zero
+    /// is unlimited. A parallel build needs more than the default allows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pids: Option<u32>,
+    /// Host folders bound into the desktop besides the workspace, so a
+    /// teammate can read a checkout it has to test without cloning it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<Vec<ComputerMount>>,
+}
+
+/// One host folder bound into a teammate's computer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ComputerMount {
+    /// Absolute host path; `~` expands to the home directory.
+    pub host: String,
+    /// Absolute path inside the container. `/home/agent/workspace`,
+    /// `/home/agent/src` and `/nix` are Toad's and cannot be taken.
+    pub path: String,
+    /// Bound read-only. The default: a teammate tests a checkout, it does
+    /// not edit it in place.
+    #[serde(default)]
+    pub readonly: bool,
 }
 
 /// The container CLI Toad will shell out to. `"container"` is Apple's.
@@ -1454,6 +1485,15 @@ pub enum Command {
     McpAuthReconnect { server_id: String },
     #[serde(rename = "mcp.auth_sign_out")]
     McpAuthSignOut { server_id: String },
+    /// Saves the token an HTTP MCP server in bearer or header mode sends,
+    /// in the protected vault, bound to the server's URL. The settings entry
+    /// never carries it; `mcp.auth_sign_out` forgets it.
+    #[serde(rename = "mcp.secret_set")]
+    McpSecretSet {
+        server_id: String,
+        url: String,
+        secret: String,
+    },
     /// Every provider Toad Agent can hold a key for, whether or not this
     /// desk holds one.
     #[serde(rename = "providers.list")]
@@ -1484,15 +1524,6 @@ pub enum Command {
         text: String,
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
-    },
-    /// Saves the token an HTTP MCP server in bearer or header mode sends,
-    /// in the protected vault, bound to the server's URL. The settings entry
-    /// never carries it; `mcp.auth_sign_out` forgets it.
-    #[serde(rename = "mcp.secret_set")]
-    McpSecretSet {
-        server_id: String,
-        url: String,
-        secret: String,
     },
     #[serde(rename = "session.cancel")]
     SessionCancel { persona_id: String },

@@ -7,10 +7,14 @@
 
 use super::*;
 use crate::contract::{
-    ConfigChoice, Credential, CredentialKind, LoginPrompt, LoginStatus, PersonaDraft,
-    SessionCapabilities, SessionState,
+    ChapterClose, ConfigChoice, Credential, CredentialKind, LoginPrompt, LoginStatus, Persona,
+    PersonaDraft, SessionCapabilities, SessionState,
 };
+use crate::driver::Driver;
+use crate::mcp::server::TeammateTools;
+use crate::session::{Agents, ProviderAuth, ProviderKeys, Room};
 use crate::{paths, room};
+use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -91,6 +95,278 @@ impl Quiet {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+}
+
+/// A real session room behind the WebSocket door, with all desk-only
+/// facilities stubbed. This keeps the wire regression independent of a model
+/// key while the collaboration card and answer still pass through Room.
+struct CoreHandle {
+    room: Arc<Room>,
+}
+
+struct NoAgents;
+
+#[async_trait]
+impl Agents for NoAgents {
+    fn agent(
+        &self,
+        _persona: &Persona,
+        _preamble: String,
+        _said: Vec<crate::driver::rig::Said>,
+        _tools: TeammateTools,
+        _extra_mcp: Vec<crate::mcp::McpServer>,
+    ) -> Result<Arc<dyn Driver>, String> {
+        Err("the denial test must not start a recipient session".to_string())
+    }
+
+    async fn complete(
+        &self,
+        _model_id: &str,
+        _system: &str,
+        _prompt: &str,
+    ) -> Result<String, String> {
+        Err("the denial test must not call a model".to_string())
+    }
+}
+
+struct NoKeys;
+
+impl ProviderKeys for NoKeys {
+    fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
+        HashMap::new()
+    }
+}
+
+#[async_trait]
+impl RoomHandle for CoreHandle {
+    fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
+        self.room.policy_update_lock()
+    }
+
+    async fn start(&self, persona_id: &str) -> Result<SessionInfo, String> {
+        self.room.start(persona_id).await
+    }
+
+    fn stop(&self, persona_id: &str) -> Result<(), String> {
+        self.room.stop(persona_id)
+    }
+
+    fn invalidate(&self, persona_id: &str) -> Result<(), String> {
+        self.room.invalidate(persona_id)
+    }
+
+    fn invalidate_all(&self) -> Result<(), String> {
+        self.room.invalidate_all()
+    }
+
+    async fn reattach(&self, persona_id: &str) -> Result<(), String> {
+        self.room.reattach(persona_id).await
+    }
+
+    async fn reattach_all(&self) -> Result<(), String> {
+        self.room.reattach_all().await
+    }
+
+    async fn prompt(
+        &self,
+        persona_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
+        self.room
+            .prompt(persona_id, text, reply_to, attachments)
+            .await
+    }
+
+    fn cancel(&self, persona_id: &str) -> Result<(), String> {
+        self.room.cancel(persona_id)
+    }
+
+    async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String> {
+        self.room.set_model(persona_id, model_id).await
+    }
+
+    async fn set_mode(&self, persona_id: &str, mode_id: &str) -> Result<SessionInfo, String> {
+        self.room.set_mode(persona_id, mode_id).await
+    }
+
+    async fn set_config(
+        &self,
+        persona_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<SessionInfo, String> {
+        self.room.set_config(persona_id, config_id, value).await
+    }
+
+    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
+        crate::models::effort_choices(model_id)
+    }
+
+    async fn answer_permission(
+        &self,
+        persona_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        self.room
+            .answer_permission(persona_id, request_id, option_id)
+            .await
+    }
+
+    fn answer_human(
+        &self,
+        persona_id: &str,
+        action_id: &str,
+        status: crate::contract::HumanAnswer,
+        note: Option<String>,
+    ) -> Result<(), String> {
+        self.room.answer_human(persona_id, action_id, status, note)
+    }
+
+    async fn start_fresh_chapter(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ChapterSummary, String> {
+        self.room
+            .start_fresh_chapter(persona_id, ChapterClose::User)
+            .await
+    }
+
+    async fn resume_chapter(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ChapterSummary, String> {
+        self.room.resume_chapter(persona_id).await
+    }
+
+    fn info(&self, persona_id: &str) -> SessionInfo {
+        self.room.info(persona_id)
+    }
+
+    fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo> {
+        self.room.subscribe_info()
+    }
+
+    fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
+        self.room.subscribe_deltas()
+    }
+
+    fn credential_create(
+        &self,
+        _provider_id: &str,
+        _label: &str,
+        _secret: &str,
+    ) -> Result<Credential, String> {
+        Err("credentials are unavailable in this wire test".to_string())
+    }
+
+    fn credential_revoke(&self, _id: &str) -> Result<(), String> {
+        Err("credentials are unavailable in this wire test".to_string())
+    }
+
+    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+        Err("credentials are unavailable in this wire test".to_string())
+    }
+
+    async fn credential_login(&self, _provider_id: &str) -> Result<LoginPrompt, String> {
+        Err("credentials are unavailable in this wire test".to_string())
+    }
+
+    fn login_status(&self, _login_id: &str) -> Result<LoginStatus, String> {
+        Err("credentials are unavailable in this wire test".to_string())
+    }
+
+    fn credentials(&self) -> Vec<Credential> {
+        Vec::new()
+    }
+
+    async fn backends(&self) -> Vec<crate::contract::BackendChoice> {
+        Vec::new()
+    }
+
+    fn models(&self) -> Vec<ConfigChoice> {
+        self.room.models_for_desk()
+    }
+
+    fn models_catalog(
+        &self,
+        _provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+        Err("catalogues are unavailable in this wire test".to_string())
+    }
+
+    fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
+        Err("import is unavailable in this wire test".to_string())
+    }
+
+    fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
+        self.room.teammate_tools(persona_id)
+    }
+
+    fn schedule_create(
+        &self,
+        persona_id: &str,
+        kind: crate::contract::ScheduleKind,
+        when: Option<i64>,
+        every: Option<i64>,
+        prompt: &str,
+        quiet: bool,
+    ) -> Result<crate::contract::ScheduledJob, String> {
+        self.room
+            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+    }
+
+    fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
+        self.room.schedule_list()
+    }
+
+    fn schedule_cancel(&self, id: &str) -> Result<(), String> {
+        self.room.schedule_cancel(id)
+    }
+
+    fn schedule_set_quiet(&self, id: &str, quiet: bool) -> Result<(), String> {
+        self.room.schedule_set_quiet(id, quiet)
+    }
+
+    fn peer_threads(&self, persona_id: &str) -> Vec<crate::contract::PeerThreadSummary> {
+        self.room.peer_threads(persona_id)
+    }
+
+    fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize {
+        self.room.mark_peer_read(key, event_ids)
+    }
+
+    async fn credential_refresh_models(
+        &self,
+        _provider_id: &str,
+    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+        Err("credentials are unavailable in this wire test".to_string())
+    }
+
+    fn forget(&self, persona_id: &str) {
+        self.room.forget(persona_id);
+    }
+
+    async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
+        self.room.computer_runtimes().await
+    }
+
+    async fn computer_status(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::ComputerStatus, String> {
+        self.room.computer_status(persona_id).await
+    }
+
+    async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_stop(persona_id).await
+    }
+
+    async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_remove(persona_id).await
     }
 }
 
@@ -206,7 +482,7 @@ impl RoomHandle for Quiet {
         crate::models::effort_choices(model_id)
     }
 
-    fn answer_permission(
+    async fn answer_permission(
         &self,
         _persona_id: &str,
         _request_id: &str,
@@ -434,6 +710,42 @@ fn door_with(name: &str, room: Arc<Quiet>) -> (PathBuf, Log, u16) {
     (root, log, port)
 }
 
+/// A real session room behind the door, with a workspace pair and no model
+/// implementation. The denial path must finish before the recipient driver is
+/// ever requested, so a driver is unnecessary for this wire proof.
+fn core_door(name: &str) -> (PathBuf, Log, u16, Arc<Room>) {
+    let root = scratch(name);
+    let log = Log::open(&root);
+    let persona = |id: &str, name: &str| {
+        json!({
+            "kind": "persona",
+            "id": id,
+            "name": name,
+            "goal": format!("Role of {name}"),
+            "backendId": "pi",
+            "cwd": root.to_string_lossy(),
+            "mcpPolicy": { "mode": "none", "serverIds": [] },
+            "backgroundWork": false,
+            "sessionCheckpoints": [],
+            "lastSessionId": null,
+            "createdAt": 1,
+            "updatedAt": 1,
+        })
+    };
+    log.append(&StreamId::Room, &persona("ada", "Ada")).unwrap();
+    log.append(&StreamId::Room, &persona("bob", "Bob")).unwrap();
+    let room = Room::with_agents(log.clone(), Arc::new(NoKeys), Arc::new(NoAgents));
+    let door = Door::bind(
+        log.clone(),
+        "desk-token".to_string(),
+        Arc::new(CoreHandle { room: room.clone() }),
+    )
+    .unwrap();
+    let port = door.port();
+    tokio::spawn(door.run());
+    (root, log, port, room)
+}
+
 async fn desk(port: u16) -> Socket {
     connect_async(format!("ws://127.0.0.1:{port}/ws?token=desk-token"))
         .await
@@ -508,6 +820,49 @@ async fn a_command_is_answered_by_its_id_and_a_command_nobody_has_is_refused() {
             .unwrap()
             .contains("cannot read that command"),
         "{refused}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
+    let (_root, log, port, room) = core_door("collaboration-wire");
+    let mut socket = desk(port).await;
+    ask(&mut socket, json!({ "id": 1, "sub": { "tape": "ada" } })).await;
+    assert_eq!(heard(&mut socket).await, json!({ "id": 1, "ok": true }));
+    let snapshot = heard(&mut socket).await;
+    assert_eq!(snapshot["snapshot"], json!([]));
+
+    let delivery = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "read Bob's private file").await })
+    };
+    let card = heard_where(&mut socket, |frame| {
+        frame["sub"] == 1 && frame["event"]["kind"] == "permission"
+    })
+    .await;
+    let request_id = card["event"]["requestId"].as_str().unwrap();
+    assert!(request_id.starts_with("collab:"), "{card}");
+    assert_eq!(
+        card["event"]["title"],
+        "Allow Ada to ask Bob to work?\n\nBob can use its workspace and enabled tools to fulfill Ada's requests and return results."
+    );
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "session.answer_permission",
+            "params": { "personaId": "ada", "requestId": request_id, "optionId": "deny" }
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    let denied = delivery.await.unwrap().unwrap_err();
+    assert!(denied.contains("denied"), "{denied}");
+    assert!(
+        log.load(&StreamId::Thread("ada~bob".to_string()))
+            .is_empty()
     );
 }
 

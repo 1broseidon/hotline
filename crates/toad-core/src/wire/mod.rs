@@ -103,7 +103,7 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// Answers a permission the agent is waiting behind, refusing when there
     /// is nothing left to answer.
-    fn answer_permission(
+    async fn answer_permission(
         &self,
         persona_id: &str,
         request_id: &str,

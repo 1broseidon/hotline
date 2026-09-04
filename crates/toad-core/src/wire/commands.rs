@@ -156,6 +156,7 @@ pub(crate) async fn run(
             option_id,
         } => room
             .answer_permission(&persona_id, &request_id, &option_id)
+            .await
             .map(|()| Value::Null),
         Command::HumanAnswer {
             persona_id,
@@ -294,6 +295,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
             server_ids: Vec::new(),
         },
         background_work: false,
+        allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: draft.computer,
         subagents: None,
@@ -343,7 +345,7 @@ fn update_persona(
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
 /// switch live.
 fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 8] = [
+    const KEYS: [&str; 9] = [
         "cwd",
         "reach",
         "goal",
@@ -352,6 +354,7 @@ fn persona_patch_reattaches(patch: &Value) -> bool {
         "backendId",
         "harnessOverride",
         "backgroundWork",
+        "allowedSenders",
     ];
     patch
         .as_object()

@@ -544,6 +544,7 @@ mod tests {
         );
         let imported: Persona = serde_json::from_value(personas[0].clone()).unwrap();
         assert!(!imported.background_work);
+        assert!(imported.allowed_senders.is_empty());
     }
 
     #[test]

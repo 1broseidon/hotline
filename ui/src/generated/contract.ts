@@ -76,6 +76,25 @@ export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, 
 export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } };
 
 /**
+ * One host folder bound into a teammate's computer.
+ */
+export type ComputerMount = { 
+/**
+ * Absolute host path; `~` expands to the home directory.
+ */
+host: string, 
+/**
+ * Absolute path inside the container. `/home/agent/workspace`,
+ * `/home/agent/src` and `/nix` are Toad's and cannot be taken.
+ */
+path: string, 
+/**
+ * Bound read-only. The default: a teammate tests a checkout, it does
+ * not edit it in place.
+ */
+readonly: boolean, };
+
+/**
  * The container CLI Toad will shell out to. `"container"` is Apple's.
  */
 export type ComputerRuntime = "docker" | "podman" | "container";
@@ -348,6 +367,11 @@ mcpPolicy: McpPolicy,
  */
 backgroundWork: boolean, 
 /**
+ * Stable ids of teammates this teammate accepts work requests from.
+ * Missing on older records means no permanent collaboration grants.
+ */
+allowedSenders: Array<string>, 
+/**
  * Absent means inherit the desk's web search entirely.
  */
 webSearchPolicy?: WebSearchPolicy, 
@@ -388,7 +412,22 @@ export type PersonaComputer = { enabled: boolean,
 /**
  * Image override. Defaults to the app's version-pinned image.
  */
-image?: string, };
+image?: string, 
+/**
+ * Memory limit for the container as the runtime spells it — `"2g"`,
+ * `"8g"`, `"512m"`. Absent is 2g. A teammate that compiles asks for more.
+ */
+memory?: string, 
+/**
+ * Process limit for the container; threads count. Absent is 512, zero
+ * is unlimited. A parallel build needs more than the default allows.
+ */
+pids?: number, 
+/**
+ * Host folders bound into the desktop besides the workspace, so a
+ * teammate can read a checkout it has to test without cloning it.
+ */
+mounts?: Array<ComputerMount>, };
 
 /**
  * What the new-teammate form fills in. Everything but the name has a default

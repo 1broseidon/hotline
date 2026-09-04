@@ -109,7 +109,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
 | `session.set_config` | `{personaId, configId, value}` | `SessionInfo` |
-| `session.answer_permission` | `{personaId, requestId, optionId}` | none |
+| `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
@@ -138,6 +138,17 @@ sentence naming what is missing when it cannot.
 request any more — the turn ended, the session stopped, or somebody else
 answered first — so a stale card cannot silently let an agent through.
 
+The same command answers a room-owned `collab:<id>` card before any driver is
+asked. Its options are `allow_session`, `allow_always`, and `deny`; the card
+names both teammates and says that the recipient can use its workspace and
+enabled tools to fulfill the caller's requests and return results. A session
+choice is held against both live capability leases. An always choice appends
+the caller's stable id to the recipient's `allowedSenders` list. A workspace
+caller gets a card on first contact in each direction; an explicit Whole
+machine Toad Agent caller does not. ACP mode and Computer access do not imply
+Whole machine authority. `list_teammates` returns only each other teammate's
+`personaId` and `name`.
+
 `human.answer` is the same fact for a `request_human` card: `done` or
 `declined`, with an optional `note` the agent receives word for word,
 refused when the deadline passed, the session stopped, the room restarted,
@@ -149,11 +160,12 @@ modelId?, effortId?, computer?}`. Create fills what the draft leaves blank: a fr
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"pi"`, a workspace under the data directory,
 `mcpPolicy` `{mode: "none", serverIds: []}`, and no `reach` unless the
-draft asked for `"machine"`. Background work defaults off. The whole teammate is written as one room
+draft asked for `"machine"`. Background work defaults off, and
+`allowedSenders` defaults to an empty list. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
-`computer`, `backgroundWork`, `backendId` or `harnessOverride` invalidates
+`computer`, `backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
@@ -167,7 +179,8 @@ does not prevent the remaining teammates from applying the change.
 `computerRuntime` is the user's pick of `"docker"`, `"podman"` or
 `"container"`; absent means the first available runtime. `computerImage`
 is the room's default image, under a teammate's own. Neither reattaches
-anything: both are read when a computer wakes.
+anything: both are read when a computer wakes, as are the teammate's own
+`persona.computer.memory`, `pids` and `mounts` through `persona.update`.
 
 `computer.runtimes` is detection for the window: every CLI Toad knows,
 whether it is on PATH, why not, and whether it is rootless. `computer.status`
@@ -245,6 +258,15 @@ secret. `mcp.auth_sign_out` revokes the live gateway capability before it
 deletes the registration and tokens from the protected vault. Signing in
 does not change a teammate's MCP policy.
 
+`mcp.secret_set` is the other credential: the token a server in `bearer` or
+`header` auth mode sends on every request. The window saves it before it
+writes the server into settings, so the reattach that write causes finds
+the token in the vault; the settings entry carries only the mode and, for
+`header`, the header name. A server can be saved before it exists in
+settings, which is how a new one is added in one go. `mcp.auth_status`
+answers `signed_in` when the vault holds the token and `signed_out` when
+it does not, and `mcp.auth_sign_out` forgets it.
+
 `session.prompt`'s `replyTo` is the id of the message this one answers.
 `attachments` are `{kind: "image"|"file", name, path, mimeType?, size?}`.
 The command returns as soon as the turn is started; what the turn
@@ -258,15 +280,6 @@ matched than the limit. A missing index or an empty query is
 `{hits: [], truncated: false}`.
 
 `chapter.list` is the tape's chapter markers: `{id, startedAt, endedAt?,
-`mcp.secret_set` is the other credential: the token a server in `bearer` or
-`header` auth mode sends on every request. The window saves it before it
-writes the server into settings, so the reattach that write causes finds
-the token in the vault; the settings entry carries only the mode and, for
-`header`, the header name. A server can be saved before it exists in
-settings, which is how a new one is added in one go. `mcp.auth_status`
-answers `signed_in` when the vault holds the token and `signed_out` when
-it does not, and `mcp.auth_sign_out` forgets it.
-
 title?, note?, status?, closedBy?, messages}`.
 
 `peers.list` is every thread this teammate has with another teammate:

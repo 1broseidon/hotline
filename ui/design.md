@@ -188,6 +188,22 @@ transition and animation, and holds the mark still.
   is the first thing on the card. The desktop opens in a window of its
   own, one per teammate; the band carries Screen while it runs.
 - Machinery between messages is folded into instrument rows on a 2px rule.
+- The inspector is 320px, so it shows state and folds detail. The name is
+  the band's heading and edits in place; the goal is the one field; the
+  working directory is a row of its own, the folder's name and three
+  quiet keys (the full path, choose, reveal), never a path field. Every
+  grant is one row of one Access list, ordered authority, equipment,
+  outcome: reach, background work and collaboration, each with an info
+  key for its risk; the computer and MCP servers; then what attached at
+  the last start. A row is a title, a value after a dot if there is one,
+  and a switch, a chevron or quiet keys at the right edge and nothing
+  else. A row's second line is a
+  value or nothing — what a grant means is the docs' job, not a sentence
+  under every row. A chevron opens in place, set in from its row; what
+  attached at the last start is the list's last row, with the failures
+  always out. Schedules and threads take the same shape. Nothing sits
+  beside a text field, and the destructive key is the footer, asking
+  through the system dialog.
 
 ## What every screen MUST share
 

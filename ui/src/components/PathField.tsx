@@ -2,8 +2,9 @@ import { FolderIcon } from "../icons";
 import { pickDirectory } from "../native";
 
 /**
- * A path you can type or pick. The picker is the system's folder chooser;
- * the field stays so a path you already know how to write is still just words.
+ * A path you can type or pick. The picker is the system's folder chooser,
+ * a key inside the field's end; the field stays so a path you already know
+ * how to write is still just words.
  */
 export function PathField({
 	id,
@@ -25,10 +26,10 @@ export function PathField({
 		onCommit?.(dir);
 	};
 	return (
-		<div className="flex items-center gap-2">
+		<div className="relative">
 			<input
 				id={id}
-				className="field min-w-0 flex-1 font-mono text-sm"
+				className="field pr-9 font-mono text-sm"
 				spellCheck={false}
 				placeholder={placeholder}
 				value={value}
@@ -37,13 +38,12 @@ export function PathField({
 			/>
 			<button
 				type="button"
-				className="control btn h-7"
+				className="control btn-icon btn-quiet absolute top-1/2 right-0.5 -translate-y-1/2"
 				title="Choose a folder"
 				aria-label="Choose a folder"
 				onClick={() => void choose()}
 			>
 				<FolderIcon />
-				Choose
 			</button>
 		</div>
 	);

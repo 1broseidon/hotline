@@ -397,12 +397,47 @@ The token is generated once per container and kept in process state, never
 settings. A container left behind by a previous run of Toad has a token
 this process no longer knows, so it is removed and recreated.
 
+The container's limits are the teammate's: `persona.computer.memory` is the
+runtime's own spelling of a size (`"8g"`, `"512m"`; absent is `2g`) and
+`persona.computer.pids` is the process limit, threads included (absent is
+512, zero is unlimited). A teammate that compiles asks for more of both,
+because a parallel build spawns more threads than the default allows and a
+linker wants more memory than a browser does. A size that is not digits
+and one unit letter is a start failure, not a guess.
+
+Three mounts are Toad's. The room's cwd is bound at `/home/agent/workspace`,
+the person's folder. A named volume `toad-src-<persona id>` is bound at
+`/home/agent/src`, the teammate's own scratch: a checkout or a build it
+starts there outlives the container the hibernate cycle removes.
+`computer.remove` leaves both volumes; only the runtime's own volume commands
+delete them. A named volume `toad-nix` is bound at `/nix`, one Nix store
+shared by every teammate. The image ships single-user Nix with a seeded
+store, so an empty volume is populated on first use and a `nix develop`
+against a flake is a download the first time and a cache hit after, for
+every teammate. Store paths are immutable, so sharing is safe; the one
+hazard is `nix-collect-garbage` from inside a container, which cannot see
+the processes of another. Apple `container` gets neither named volume; its
+rw layer is what it has.
+
+`persona.computer.mounts` binds host folders the teammate needs besides
+the workspace, so a checkout it has to test is reachable without a clone
+through a remote it cannot sign in to. Each is `{ host, path, readonly }`:
+an absolute host path (`~` expands) that must be a folder that exists,
+because a runtime creates a missing one as root; an absolute container
+path that may not equal, contain, or sit inside `/home/agent/workspace`,
+`/home/agent/src` or `/nix`; and `readonly`, which defaults to false in the JSON and to true in the window,
+where a teammate tests a checkout rather than edits it in place.
+
 In the window, Settings › Computer writes `computerRuntime` (blank is
 automatic) and `computerImage`; the teammate's pane writes
-`persona.computer` and shows `computer.status` — Open desktop opens
-`viewer` outside the window, Stop and Remove call `computer.stop` and
-`computer.remove`. A `computer_frame` on the tape is drawn as a thumbnail
-card.
+`persona.computer` and shows `computer.status` as the Desktop row under
+the Computer switch. That row opens to the image, memory and process
+fields (blank is absent on the wire, so the default), the mounts with a
+form that adds one read-only unless unticked, and Stop or Remove, which
+call `computer.stop` and `computer.remove`. Every edit spreads the rest
+of `persona.computer`, so no field drops another. Opening the desktop is
+the conversation band's Screen key while the status says running. A
+`computer_frame` on the tape is drawn as a thumbnail card.
 
 Toad Agent writes that frame immediately after a `computer__*` tool's
 completed event, with `dataUrl` a `data:<mime>;base64,…` of the image the
@@ -472,6 +507,35 @@ conversation asks every five seconds while the teammate has a computer and
 a session; the band shows Screen on the same condition. Outside the desk
 (a browser tab) the viewer opens as a link instead.
 
+## Teammate collaboration
+
+`message_teammate` is authority to ask another teammate to use its own
+workspace and enabled tools, so the room checks collaboration before opening a
+thread or starting a peer session. A Toad Agent caller with explicit Whole
+machine reach has that authority implicitly. A workspace caller needs a
+first-contact operator decision for each caller and recipient direction,
+regardless of whether the two teammates happen to have the same tools. ACP
+trust or mode labels and the separate Computer capability do not count as
+Whole machine reach.
+
+The card says `Allow <caller> to ask <recipient> to work?` and explains that
+the recipient can use its workspace and enabled tools to fulfill the caller's
+requests and return results. `Allow this session` binds a temporary grant to
+both live capability leases. It expires when either session or chapter is
+replaced, when the room restarts, or when a cached peer session is revoked.
+`Always allow <caller>` appends the caller's stable id to the recipient's
+`allowedSenders` list. The recipient's settings show that list as `Accept
+requests from <caller>` and removing one revokes active and queued delegated
+work and cached peer sessions. New and imported records have an empty list.
+
+An authorized exchange does not need a reverse grant for its reply or receipt,
+and it does not authorize a reverse or transitive request. Further delegated
+work depends on the original request's authority: revoking it stops those
+delegated sessions without revoking the recipients' independent main sessions.
+Pending approvals expire after ten minutes or when the requesting call is
+cancelled. They also settle when a participant stops, a policy changes, or the
+room closes. One pending first-contact decision is held per direction.
+
 ## Peer threads
 
 A teammate asking a colleague is not a line on either tape. Three records
@@ -493,10 +557,11 @@ come out of `message_teammate` (`session/peers.rs`):
   session, which is also how far apart two exchanges may be and still be
   drawn as one line: ten minutes idle, then the session is stopped.
 
-`list_teammates` is roster metadata only — id, name, goal, and what that
-teammate's own session is doing — never anyone's conversation, and never
-the caller. The caller may be mid-turn on its own tape while the delivery
-runs: nothing here touches the caller's session, only its tape's marker.
+`list_teammates` is public roster metadata only — id and name,
+never anyone's conversation, session details, working path or tool inventory,
+and never the caller. The caller may be mid-turn on its own tape while the
+delivery runs: nothing here touches the caller's session, only its tape's
+marker.
 
 A pair is refused a second delivery while one is running (`"That thread is
 already answering."`). A teammate cannot message itself. A message is at

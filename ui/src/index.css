@@ -281,8 +281,12 @@
 	.btn-primary:hover:not(:disabled) {
 		background: var(--accent-hover);
 	}
+	/* Destructive: danger ink, no fill; the system dialog is the fill. */
 	.btn-danger {
 		color: var(--danger);
+	}
+	.btn-danger:hover:not(:disabled) {
+		background: var(--fill-hover);
 	}
 	.btn-quiet {
 		color: var(--ink-2);

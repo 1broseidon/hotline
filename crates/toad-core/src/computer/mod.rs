@@ -37,6 +37,19 @@ pub const COMPUTER_HIBERNATE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 const MCP_PORT: u16 = 8787;
 const WORKSPACE_MOUNT: &str = "/home/agent/workspace";
+/// A named volume per teammate, so a checkout or a build it starts outlives
+/// the container the hibernate cycle removes. The workspace is the person's
+/// folder; this one is the teammate's.
+const SCRATCH_MOUNT: &str = "/home/agent/src";
+/// One Nix store for every teammate. Store paths are content-addressed and
+/// immutable, so sharing costs nothing and a toolchain one teammate pulled
+/// is a cache hit for the next. The image seeds an empty volume on first
+/// use. Only `nix-collect-garbage` is a hazard across containers, since a
+/// path in use by a process one container cannot see looks unused.
+const NIX_MOUNT: &str = "/nix";
+const NIX_VOLUME: &str = "toad-nix";
+const DEFAULT_MEMORY: &str = "2g";
+const DEFAULT_PIDS: u32 = 512;
 const PULL_NOTICE: &str = "Pulling the computer image …";
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -188,7 +201,7 @@ impl Computer {
                 notice(PULL_NOTICE);
                 pull(&cmd, runtime, &image).await?;
             }
-            let args = create_args(runtime, &name, &image, &token, &cwd)?;
+            let args = create_args(runtime, &name, &image, &token, &cwd, persona)?;
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
             run(&cmd, &arg_refs, COMMAND_TIMEOUT).await?;
             run(&cmd, &["start", &name], COMMAND_TIMEOUT).await?;
@@ -453,6 +466,7 @@ fn create_args(
     image: &str,
     token: &str,
     cwd: &str,
+    persona: &Persona,
 ) -> Result<Vec<String>, String> {
     let mut args = vec![
         "create".to_string(),
@@ -467,15 +481,28 @@ fn create_args(
             "--security-opt".into(),
             "no-new-privileges".into(),
             "--pids-limit".into(),
-            "512".into(),
+            pids_of(persona),
         ]);
     }
     args.extend([
         "--memory".into(),
-        "2g".into(),
+        memory_of(persona)?,
         "--shm-size".into(),
         "1g".into(),
     ]);
+    // Named volumes are Docker's and Podman's; Apple container gets the
+    // bind mounts only, and its rw layer is what it has.
+    if runtime != Runtime::AppleContainer {
+        args.extend([
+            "-v".into(),
+            format!("{NIX_VOLUME}:{NIX_MOUNT}"),
+            "-v".into(),
+            format!("{}:{SCRATCH_MOUNT}", scratch_volume(&persona.id)),
+        ]);
+    }
+    for mount in mount_args(persona)? {
+        args.extend(["-v".into(), mount]);
+    }
     let mcp_bind = if runtime == Runtime::AppleContainer {
         format!("127.0.0.1:{}:{MCP_PORT}", free_loopback_port()?)
     } else {
@@ -491,6 +518,107 @@ fn create_args(
         image.into(),
     ]);
     Ok(args)
+}
+
+fn scratch_volume(persona_id: &str) -> String {
+    format!("toad-src-{persona_id}")
+}
+
+/// The teammate's memory limit as the runtime spells it, else 2g. A size
+/// is digits and at most one unit letter; anything else is refused before
+/// the runtime can misread it.
+fn memory_of(persona: &Persona) -> Result<String, String> {
+    let memory = persona
+        .computer
+        .as_ref()
+        .and_then(|computer| computer.memory.as_deref())
+        .map(str::trim)
+        .filter(|memory| !memory.is_empty())
+        .unwrap_or(DEFAULT_MEMORY);
+    let digits = memory.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    let unit = &memory[digits.len()..];
+    let valid = !digits.is_empty()
+        && digits.bytes().all(|b| b.is_ascii_digit())
+        && matches!(
+            unit.to_ascii_lowercase().as_str(),
+            "" | "b" | "k" | "m" | "g"
+        );
+    if !valid {
+        return Err(format!(
+            "The computer's memory limit {memory:?} is not a size like 2g or 512m."
+        ));
+    }
+    Ok(memory.to_string())
+}
+
+/// The teammate's process limit, else 512; zero is the runtime's unlimited.
+fn pids_of(persona: &Persona) -> String {
+    match persona.computer.as_ref().and_then(|computer| computer.pids) {
+        None => DEFAULT_PIDS.to_string(),
+        Some(0) => "-1".to_string(),
+        Some(pids) => pids.to_string(),
+    }
+}
+
+/// The teammate's extra bind mounts as `host:path[:ro]`. A host folder
+/// must exist now, because the runtime would otherwise create it as root;
+/// a container path may not shadow or sit inside one of Toad's own.
+fn mount_args(persona: &Persona) -> Result<Vec<String>, String> {
+    let Some(computer) = persona.computer.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let reserved = [WORKSPACE_MOUNT, SCRATCH_MOUNT, NIX_MOUNT];
+    let mut args = Vec::new();
+    for mount in computer.mounts.iter().flatten() {
+        let host = expand_home(mount.host.trim());
+        let host_path = Path::new(&host);
+        if !host_path.is_absolute() {
+            return Err(format!(
+                "The computer mount {:?} is not an absolute host path.",
+                mount.host
+            ));
+        }
+        if !host_path.is_dir() {
+            return Err(format!(
+                "The computer mount {:?} is not a folder on this machine.",
+                mount.host
+            ));
+        }
+        let path = mount.path.trim().trim_end_matches('/');
+        if !path.starts_with('/') || path.is_empty() {
+            return Err(format!(
+                "The computer mount path {:?} is not an absolute path inside the container.",
+                mount.path
+            ));
+        }
+        let overlaps = |taken: &str| {
+            path == taken
+                || path.starts_with(&format!("{taken}/"))
+                || taken.starts_with(&format!("{path}/"))
+        };
+        if reserved.iter().any(|taken| overlaps(taken)) {
+            return Err(format!(
+                "The computer mount path {path:?} overlaps a path Toad reserves: {}.",
+                reserved.join(", ")
+            ));
+        }
+        let host = abs_cwd(&host);
+        args.push(if mount.readonly {
+            format!("{host}:{path}:ro")
+        } else {
+            format!("{host}:{path}")
+        });
+    }
+    Ok(args)
+}
+
+fn expand_home(path: &str) -> String {
+    if (path == "~" || path.starts_with("~/"))
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return format!("{}{}", home.to_string_lossy(), &path[1..]);
+    }
+    path.to_string()
 }
 
 fn free_loopback_port() -> Result<u16, String> {
@@ -685,7 +813,7 @@ async fn wait_healthy(port: u16) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{McpPolicy, PersonaComputer, PolicyMode};
+    use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
@@ -773,10 +901,14 @@ esac
                 server_ids: Vec::new(),
             },
             background_work: false,
+            allowed_senders: Vec::new(),
             web_search_policy: None,
             computer: Some(PersonaComputer {
                 enabled: true,
                 image: Some("toad-computer:test".into()),
+                memory: None,
+                pids: None,
+                mounts: None,
             }),
             subagents: None,
             session_checkpoints: Vec::new(),
@@ -856,6 +988,10 @@ esac
                 "2g",
                 "--shm-size",
                 "1g",
+                "-v",
+                "toad-nix:/nix",
+                "-v",
+                "toad-src-ada:/home/agent/src",
                 "-p",
                 "127.0.0.1:0:8787",
                 "-e",
@@ -870,6 +1006,68 @@ esac
         );
         assert!(create.contains("--name toad-computer-ada"), "{create}");
         assert!(recorded.contains("start toad-computer-ada"), "{recorded}");
+    }
+
+    #[test]
+    fn limits_are_the_teammates_else_the_defaults() {
+        let mut ada = persona("ada", "/tmp");
+        assert_eq!(memory_of(&ada).unwrap(), "2g");
+        assert_eq!(pids_of(&ada), "512");
+        let computer = ada.computer.as_mut().unwrap();
+        computer.memory = Some(" 8G ".into());
+        computer.pids = Some(0);
+        assert_eq!(memory_of(&ada).unwrap(), "8G");
+        assert_eq!(pids_of(&ada), "-1");
+        ada.computer.as_mut().unwrap().pids = Some(4096);
+        assert_eq!(pids_of(&ada), "4096");
+        for bad in ["8 gigs", "g", "2gb", "-1"] {
+            ada.computer.as_mut().unwrap().memory = Some(bad.into());
+            assert!(memory_of(&ada).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn mounts_are_existing_folders_outside_toads_own_paths() {
+        let root = scratch("mounts");
+        let checkout = root.join("checkout");
+        fs::create_dir_all(&checkout).unwrap();
+        let mut ada = persona("ada", "/tmp");
+        let host = checkout.to_str().unwrap().to_string();
+        let mount = |path: &str, readonly: bool| ComputerMount {
+            host: host.clone(),
+            path: path.into(),
+            readonly,
+        };
+        ada.computer.as_mut().unwrap().mounts = Some(vec![
+            mount("/home/agent/toad-next", true),
+            mount("/mnt/data/", false),
+        ]);
+        let canonical = checkout.canonicalize().unwrap().display().to_string();
+        assert_eq!(
+            mount_args(&ada).unwrap(),
+            vec![
+                format!("{canonical}:/home/agent/toad-next:ro"),
+                format!("{canonical}:/mnt/data"),
+            ]
+        );
+        for taken in [
+            "/nix",
+            "/nix/store",
+            "/home/agent",
+            "/home/agent/workspace/x",
+            "/",
+        ] {
+            ada.computer.as_mut().unwrap().mounts = Some(vec![mount(taken, true)]);
+            assert!(mount_args(&ada).is_err(), "{taken}");
+        }
+        ada.computer.as_mut().unwrap().mounts = Some(vec![mount("relative", true)]);
+        assert!(mount_args(&ada).is_err());
+        ada.computer.as_mut().unwrap().mounts = Some(vec![ComputerMount {
+            host: root.join("missing").to_str().unwrap().into(),
+            path: "/mnt/missing".into(),
+            readonly: true,
+        }]);
+        assert!(mount_args(&ada).is_err());
     }
 
     #[tokio::test]
@@ -1045,12 +1243,18 @@ esac
         ada.computer = Some(PersonaComputer {
             enabled: true,
             image: None,
+            memory: None,
+            pids: None,
+            mounts: None,
         });
         assert_eq!(image_of(&ada, None), default_image());
         assert_eq!(image_of(&ada, Some("room/image:1")), "room/image:1");
         ada.computer = Some(PersonaComputer {
             enabled: true,
             image: Some("  own/image:2  ".into()),
+            memory: None,
+            pids: None,
+            mounts: None,
         });
         assert_eq!(image_of(&ada, Some("room/image:1")), "own/image:2");
     }

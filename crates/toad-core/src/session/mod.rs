@@ -794,6 +794,7 @@ impl Room {
             }
         }
         self.drop_peer_sessions(persona_id);
+        self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
@@ -834,6 +835,7 @@ impl Room {
             sessions
         };
         self.peers.invalidate_all();
+        self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
             self.release_human_waits(&session.persona_id);
@@ -878,6 +880,7 @@ impl Room {
         };
         self.drop_peer_sessions(persona_id);
         let Some(session) = session else {
+            self.settle_collaboration(persona_id);
             self.settle_permissions(persona_id);
             self.release_human_waits(persona_id);
             self.computers.mark_idle(persona_id, now_ms());
@@ -885,6 +888,7 @@ impl Room {
         };
         lock(&session.turns).waiting.clear();
         session.driver.invalidate();
+        self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
         self.computers.mark_idle(persona_id, now_ms());
@@ -1103,6 +1107,7 @@ impl Room {
         let session = self.session(persona_id)?;
         lock(&session.turns).waiting.clear();
         session.driver.cancel();
+        self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
         Ok(())
@@ -1192,16 +1197,68 @@ impl Room {
 
     /// Answers a permission the agent is waiting on.
     ///
-    /// The driver is asked first, because it is the only thing that knows
-    /// whether anything is still behind that request; only then is the card
-    /// superseded, so the transcript never shows a decision the agent never
-    /// heard.
-    pub fn answer_permission(
+    /// Collaboration cards belong to the room, not to a driver. They are
+    /// routed here before the normal driver answer path so an ACP child cannot
+    /// decide whether another teammate may use its workspace. A standing
+    /// grant is appended while the policy lock is held; the lock is acquired
+    /// only after the pending wait has been taken, so it is never held while
+    /// the delivery waits for the operator.
+    pub async fn answer_permission(
         &self,
         persona_id: &str,
         request_id: &str,
         option_id: &str,
     ) -> Result<(), String> {
+        if request_id.starts_with(peers::COLLAB_REQUEST_PREFIX) {
+            let Some(wait) = self.take_collaboration_wait(request_id, persona_id) else {
+                return Err("That request is no longer waiting for an answer.".to_string());
+            };
+            let Some((decision, option_name)) =
+                peers::collaboration_decision(option_id, &wait.caller_name)
+            else {
+                self.write_collaboration_decision(&wait, "expired", "Invalid answer");
+                let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                return Err("That collaboration card has no such answer.".to_string());
+            };
+
+            if wait.caller_capability.check().is_err()
+                || wait.target_capability.check().is_err()
+                || !self
+                    .peers
+                    .scope_current(&wait.caller_id, &wait.target_id, wait.scope)
+                || wait.sender.is_closed()
+            {
+                self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+                let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                return Err("That request is no longer waiting for an answer.".to_string());
+            }
+
+            if decision == peers::CollaborationDecision::Permanent {
+                let policy_updates = self.policy_update_lock();
+                let _held = policy_updates.lock().await;
+                if wait.caller_capability.check().is_err()
+                    || wait.target_capability.check().is_err()
+                    || !self
+                        .peers
+                        .scope_current(&wait.caller_id, &wait.target_id, wait.scope)
+                    || wait.sender.is_closed()
+                {
+                    self.write_collaboration_decision(&wait, "expired", "Expired unanswered");
+                    let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                    return Err("That request is no longer waiting for an answer.".to_string());
+                }
+                if let Err(error) = self.allow_sender(&wait.target_id, &wait.caller_id) {
+                    self.write_collaboration_decision(&wait, "expired", "Grant failed");
+                    let _ = wait.sender.send(peers::CollaborationDecision::Deny);
+                    return Err(error);
+                }
+            }
+
+            self.write_collaboration_decision(&wait, option_id, &option_name);
+            let _ = wait.sender.send(decision);
+            return Ok(());
+        }
+
         let session = self.session(persona_id)?;
         if !session.driver.answer_permission(request_id, option_id) {
             return Err("That request is no longer waiting for an answer.".to_string());
@@ -1661,6 +1718,17 @@ impl Room {
     ) -> Option<ChapterSummary> {
         let events = self.tape(persona_id);
         let open = chapter_view::open_chapter(&events)?.clone();
+        // A chapter replacement is a session boundary for collaboration
+        // authority even when the existing driver remains alive until the
+        // next user line reaches it. Peer sessions are dropped with the
+        // chapter so an active or cached conversation cannot keep using the
+        // old chapter's temporary authority.
+        {
+            let _lifecycle = lock(&self.lifecycle);
+            self.peers.advance_generation(persona_id);
+            self.drop_peer_sessions(persona_id);
+        }
+        self.settle_collaboration(persona_id);
         let persona = self.persona(persona_id).ok()?;
         let slice = chapter_view::slice_of(&events, &open).to_vec();
         // An idle close ends the chapter when the conversation stopped, not

@@ -37,6 +37,13 @@ These come over as ideas and, where the code was already Rust, as code.
   exposes selected host toolchains read-only, without exposing other host data;
   its persistent home lives inside the workspace. Network access and granted
   integrations remain separate capabilities (see [sessions](sessions.md)).
+- **Collaboration crosses a capability boundary by explicit direction.** A
+  Whole machine Toad Agent may ask a colleague without another card. A
+  workspace caller first asks the operator for a recipient-specific session
+  grant or a standing sender grant; the latter is stored on the recipient by
+  stable sender id. ACP mode and Computer access do not widen reach. Grants
+  expire or revoke with their sessions and never imply reverse or transitive
+  authority.
 - **The tool ledger.** Every tool a teammate was given, where it came from,
   and for anything absent, why. A tool that vanishes silently is the worst
   failure the old app shipped.
@@ -150,6 +157,17 @@ including on import; a missing or invalid imported policy grants nothing.
 Reach governs local workspace tools, while an MCP grant authorizes that
 server's own capabilities and permissions. The shell sandbox does not confine
 granted servers. These are standing choices, without per-call approval cards.
+
+Teammate collaboration uses the same capability boundary. A Whole machine
+Toad Agent has implicit authority to ask another teammate to work. A workspace
+caller gets only public teammate names and ids from discovery, then
+needs a first-contact operator decision for each direction. The card names the
+caller and recipient and offers a session grant, a standing sender grant, or
+denial. A standing grant is an `allowedSenders` id on the recipient; it
+survives rename and restart, while a session grant is tied to both live
+capability leases and expires on session or chapter replacement. Revocation
+clears waits, queued work and cached peer sessions. An authorized reply does
+not grant the reverse direction or any third party.
 
 HTTP MCP servers may opt into OAuth 2.1 in the gateway. Toad follows
 protected-resource and authorization-server metadata, requires authorization

@@ -69,6 +69,7 @@ pub(crate) struct CapabilityLease {
     generation: u64,
     active_at_capture: bool,
     revoked: Arc<AtomicBool>,
+    dependencies: Vec<Arc<CapabilityLease>>,
 }
 
 impl CapabilityEpoch {
@@ -79,6 +80,7 @@ impl CapabilityEpoch {
             generation: state.generation,
             active_at_capture: state.active,
             revoked: Arc::new(AtomicBool::new(false)),
+            dependencies: Vec::new(),
         }
     }
 
@@ -108,7 +110,9 @@ impl CapabilityEpoch {
 impl CapabilityLease {
     /// Whether this lease still names the room's active generation.
     pub(crate) fn is_current(&self) -> bool {
-        if self.revoked.load(Ordering::SeqCst) {
+        if self.revoked.load(Ordering::SeqCst)
+            || self.dependencies.iter().any(|lease| !lease.is_current())
+        {
             return false;
         }
         let state = self
@@ -134,6 +138,28 @@ impl CapabilityLease {
     /// is otherwise still within the target's current policy epoch.
     pub(crate) fn revoke(&self) {
         self.revoked.store(true, Ordering::SeqCst);
+    }
+
+    /// Creates an independently revocable child lease in this same session
+    /// generation. A peer session must be able to end without revoking the
+    /// caller's main tool handles, while a stop or policy change on the
+    /// caller still invalidates the peer through the shared epoch.
+    pub(crate) fn scoped(&self) -> Self {
+        Self {
+            epoch: self.epoch.clone(),
+            generation: self.generation,
+            active_at_capture: self.active_at_capture,
+            revoked: Arc::new(AtomicBool::new(false)),
+            dependencies: vec![Arc::new(self.clone())],
+        }
+    }
+
+    /// Delegated tools need both the recipient's authority and the requester's
+    /// authority. Keeping the whole dependency includes session replacement,
+    /// as well as explicit revocation, even across different teammates.
+    pub(crate) fn with_dependency(mut self, requester: &Self) -> Self {
+        self.dependencies.push(Arc::new(requester.clone()));
+        self
     }
 }
 
@@ -393,6 +419,48 @@ mod tests {
         assert!(!peer.is_current());
         assert!(current.is_current());
         assert!(epoch.lease().is_current());
+    }
+
+    #[test]
+    fn a_scoped_lease_follows_ancestors_but_not_its_children() {
+        let epoch = CapabilityEpoch::default();
+        let parent = epoch.lease();
+        let child = parent.scoped();
+        let grandchild = child.scoped();
+
+        child.revoke();
+
+        assert!(parent.is_current());
+        assert!(!child.is_current());
+        assert!(!grandchild.is_current());
+
+        let child = parent.scoped();
+        let grandchild = child.scoped();
+        grandchild.revoke();
+
+        assert!(parent.is_current());
+        assert!(child.is_current());
+        assert!(!grandchild.is_current());
+
+        parent.revoke();
+        assert!(!child.is_current());
+    }
+
+    #[test]
+    fn delegated_authority_requires_both_teammates_current_sessions() {
+        let caller = CapabilityEpoch::default();
+        let recipient = CapabilityEpoch::default();
+        let independent = recipient.lease();
+        let delegated = recipient.lease().with_dependency(&caller.lease());
+        assert!(delegated.is_current());
+        caller.stop();
+        assert!(!delegated.is_current());
+        assert!(independent.is_current());
+
+        let delegated = recipient.lease().with_dependency(&caller.lease());
+        recipient.stop();
+        assert!(!delegated.is_current());
+        assert!(caller.lease().is_current());
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! each of their own tapes.
 
 use super::*;
+use crate::contract::ChapterClose;
 use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
@@ -19,6 +20,267 @@ fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     bob.name = "Bob".to_string();
     enrol(&log, &bob);
     Room::with_agents(log, Arc::new(DeskKeys), agents)
+}
+
+/// A pair in the ordinary workspace reach. The tests below deliberately keep
+/// both teammates out of a main session: a peer request itself must carry the
+/// caller and recipient leases that make the approval temporary.
+fn workspace_room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
+    let log = scratch(name);
+    let mut ada = persona("ada");
+    ada.reach = None;
+    enrol(&log, &ada);
+    let mut bob = persona("bob");
+    bob.name = "Bob".to_string();
+    bob.reach = None;
+    enrol(&log, &bob);
+    Room::with_agents(log, Arc::new(DeskKeys), agents)
+}
+
+async fn collaboration_card(room: &Room, persona_id: &str) -> Value {
+    for _ in 0..100 {
+        if let Some(card) = room.tape(persona_id).into_iter().find(|event| {
+            kind_of(event) == "permission"
+                && event["requestId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with(COLLAB_REQUEST_PREFIX))
+                && event.get("decision").is_none()
+        }) {
+            return card;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    panic!("the collaboration card did not reach the tape")
+}
+
+#[tokio::test]
+async fn workspace_delivery_requires_consent_before_peer_side_effects() {
+    let room = workspace_room(
+        "workspace-deny",
+        Fake::new(Scripted::new(answers("a1", "should not run"))),
+    );
+    let delivery = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "read the private file").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    let request_id = card["requestId"].as_str().unwrap().to_string();
+    assert_eq!(
+        card["title"],
+        "Allow Ada to ask Bob to work?\n\nBob can use its workspace and enabled tools to fulfill Ada's requests and return results."
+    );
+    assert_eq!(card["options"][0]["name"], "Allow this session");
+    assert_eq!(card["options"][1]["name"], "Always allow Ada");
+    assert_eq!(card["options"][2]["name"], "Deny");
+    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert!(lock(&room.peers.sessions).is_empty());
+
+    room.answer_permission("ada", &request_id, DENY)
+        .await
+        .unwrap();
+    let error = delivery.await.unwrap().unwrap_err();
+    assert!(error.contains("denied"), "{error}");
+    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert!(lock(&room.peers.sessions).is_empty());
+    let settled = room
+        .tape("ada")
+        .into_iter()
+        .find(|event| event["requestId"] == request_id)
+        .unwrap();
+    assert_eq!(settled["decision"], DENY);
+}
+
+#[tokio::test]
+async fn explicit_whole_machine_toad_agent_can_collaborate_without_a_card() {
+    let room = room(
+        "machine-collaboration",
+        Fake::new(Scripted::new(answers("a1", "ready"))),
+    );
+
+    let answered = room
+        .deliver("ada", "bob", "check the harbour")
+        .await
+        .unwrap();
+
+    assert_eq!(answered.reply, "ready");
+    assert!(room.tape("ada").into_iter().all(|event| {
+        event["requestId"]
+            .as_str()
+            .is_none_or(|request_id| !request_id.starts_with(COLLAB_REQUEST_PREFIX))
+    }));
+    assert!(lock(&room.peers.waiting).is_empty());
+}
+
+#[tokio::test]
+async fn collaboration_rechecks_reach_after_discovery() {
+    let room = room(
+        "collaboration-stale-reach",
+        Fake::new(Scripted::new(answers("a1", "should not run"))),
+    );
+    let previous_caller = room.persona("ada").unwrap();
+    let mut current_caller = previous_caller.clone();
+    current_caller.reach = None;
+    room.stop("ada").unwrap();
+    enrol(room.log(), &current_caller);
+
+    // Discovery saw Whole machine, but the delivery captured its lease after
+    // the operator replaced that policy with workspace reach.
+    let authorization = {
+        let room = room.clone();
+        tokio::spawn(async move {
+            let target = room.persona("bob").unwrap();
+            room.authorize_collaboration(
+                &previous_caller,
+                &target,
+                &room.capability_lease("ada"),
+                &room.capability_lease("bob"),
+            )
+            .await
+        })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), DENY)
+        .await
+        .unwrap();
+    assert!(authorization.await.unwrap().is_err());
+    assert!(thread_of(&room, "ada~bob").is_empty());
+}
+
+#[tokio::test]
+async fn session_consent_is_directional_and_expires_when_a_side_stops() {
+    let room = workspace_room(
+        "workspace-session",
+        Fake::new(Scripted::turns(vec![
+            answers("a1", "first"),
+            answers("a2", "second"),
+            answers("a3", "after restart"),
+        ])),
+    );
+    let first = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "one").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    let request_id = card["requestId"].as_str().unwrap().to_string();
+    room.answer_permission("ada", &request_id, ALLOW_SESSION)
+        .await
+        .unwrap();
+    assert_eq!(first.await.unwrap().unwrap().reply, "first");
+
+    // The same live caller/recipient peer session is covered without a new
+    // prompt, and the reverse direction has no grant of its own.
+    assert_eq!(
+        room.deliver("ada", "bob", "two").await.unwrap().reply,
+        "second"
+    );
+    let reverse = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("bob", "ada", "back").await })
+    };
+    let reverse_card = collaboration_card(&room, "bob").await;
+    room.answer_permission("bob", reverse_card["requestId"].as_str().unwrap(), DENY)
+        .await
+        .unwrap();
+    assert!(reverse.await.unwrap().is_err());
+
+    // Stopping either participant revokes the peer leases and drops the
+    // temporary grant; a later request must ask again.
+    room.stop("bob").unwrap();
+    let after_stop = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "three").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    assert_eq!(after_stop.await.unwrap().unwrap().reply, "after restart");
+}
+
+#[tokio::test]
+async fn permanent_consent_survives_peer_restart_and_uses_stable_sender_id() {
+    let room = workspace_room(
+        "workspace-permanent",
+        Fake::new(Scripted::turns(vec![
+            answers("a1", "first"),
+            answers("a2", "second"),
+            answers("a3", "after rename"),
+        ])),
+    );
+    let first = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "one").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_ALWAYS)
+        .await
+        .unwrap();
+    assert_eq!(first.await.unwrap().unwrap().reply, "first");
+    assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
+
+    room.stop("bob").unwrap();
+    let mut renamed = room.persona("bob").unwrap();
+    renamed.name = "Morgan".to_string();
+    crate::room::append_persona(&room.log, &renamed).unwrap();
+    let second = room.deliver("ada", "Morgan", "two").await.unwrap();
+    assert_eq!(second.from, "Morgan");
+    assert_eq!(second.reply, "second");
+    assert!(room.persona("morgan").is_err());
+    assert_eq!(room.persona("bob").unwrap().allowed_senders, ["ada"]);
+    assert_eq!(
+        room.deliver("ada", "bob", "three").await.unwrap().reply,
+        "after rename"
+    );
+}
+
+#[tokio::test]
+async fn removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again() {
+    let room = workspace_room(
+        "workspace-remove-grant",
+        Fake::new(Scripted::new(answers("a1", "first"))),
+    );
+    let first = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "one").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_ALWAYS)
+        .await
+        .unwrap();
+    first.await.unwrap().unwrap();
+
+    let cached = lock(&room.peers.sessions)
+        .get(&(String::from("ada"), String::from("bob")))
+        .cloned()
+        .expect("the standing grant left a cached peer session");
+    let cached_tools =
+        TeammateTools::new(&room, "bob").with_capability(cached.target_capability.clone());
+
+    // This is the ordering used by persona.update: revoke execution before
+    // writing the replacement record, then reactivate the new epoch. The old
+    // target tools and cached peer session must remain dead after removal.
+    room.invalidate("bob").unwrap();
+    let mut bob = room.persona("bob").unwrap();
+    bob.allowed_senders.clear();
+    crate::room::append_persona(&room.log, &bob).unwrap();
+    room.reattach("bob").await.unwrap();
+    assert!(
+        cached_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .is_err()
+    );
+    assert!(lock(&room.peers.sessions).is_empty());
+
+    let after_removal = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "two").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), DENY)
+        .await
+        .unwrap();
+    assert!(after_removal.await.unwrap().is_err());
 }
 
 /// A turn that thinks once and then answers.
@@ -375,6 +637,316 @@ async fn invalidating_either_side_revokes_cached_peer_tools_without_a_main_sessi
             .call("list_teammates", &json!({}))
             .await
             .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does() {
+    let room = workspace_room(
+        "peer-lease-ownership",
+        Fake::new(Scripted::turns(vec![
+            answers("a1", "first"),
+            answers("a2", "second"),
+        ])),
+    );
+    room.start("ada").await.unwrap();
+    let main_capability = room.session("ada").unwrap().capability.clone();
+    let main_tools = TeammateTools::new(&room, "ada").with_capability(main_capability);
+    assert!(main_tools.call("list_teammates", &json!({})).await.is_ok());
+
+    let first = {
+        let tools = main_tools.clone();
+        tokio::spawn(async move {
+            tools
+                .call(
+                    "message_teammate",
+                    &json!({ "to": "bob", "message": "one" }),
+                )
+                .await
+        })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    let first_result: Value = serde_json::from_str(&first.await.unwrap().unwrap()).unwrap();
+    assert_eq!(first_result["reply"], "first");
+
+    let first_peer = lock(&room.peers.sessions)
+        .get(&(String::from("ada"), String::from("bob")))
+        .cloned()
+        .expect("the peer session is cached");
+    let first_peer_tools =
+        TeammateTools::new(&room, "bob").with_capability(first_peer.target_capability.clone());
+    room.start_fresh_chapter("ada", ChapterClose::User)
+        .await
+        .unwrap();
+    assert!(
+        main_tools.call("list_teammates", &json!({})).await.is_ok(),
+        "ending a peer must leave the main caller lease usable"
+    );
+    assert!(
+        first_peer_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .is_err()
+    );
+
+    let second = {
+        let tools = main_tools.clone();
+        tokio::spawn(async move {
+            tools
+                .call(
+                    "message_teammate",
+                    &json!({ "to": "bob", "message": "two" }),
+                )
+                .await
+        })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    assert!(second.await.unwrap().is_ok());
+    let second_peer = lock(&room.peers.sessions)
+        .get(&(String::from("ada"), String::from("bob")))
+        .cloned()
+        .expect("the replacement peer session is cached");
+    let second_peer_tools =
+        TeammateTools::new(&room, "bob").with_capability(second_peer.target_capability.clone());
+
+    room.stop("ada").unwrap();
+    assert!(main_tools.call("list_teammates", &json!({})).await.is_err());
+    assert!(
+        second_peer_tools
+            .call("list_teammates", &json!({}))
+            .await
+            .is_err()
+    );
+    assert!(lock(&room.peers.sessions).is_empty());
+}
+
+#[tokio::test]
+async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() {
+    let room = workspace_room(
+        "dropped-collaboration-wait",
+        Fake::new(Scripted::new(answers("a1", "should not run"))),
+    );
+    let delivery = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "wait for approval").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    let request_id = card["requestId"].as_str().unwrap().to_string();
+    delivery.abort();
+    assert!(delivery.await.unwrap_err().is_cancelled());
+    for _ in 0..100 {
+        if lock(&room.peers.waiting).is_empty() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(lock(&room.peers.waiting).is_empty());
+    assert!(
+        room.answer_permission("ada", &request_id, ALLOW_ALWAYS)
+            .await
+            .unwrap_err()
+            .contains("no longer waiting")
+    );
+    let settled = room
+        .tape("ada")
+        .into_iter()
+        .find(|event| event["requestId"] == request_id)
+        .expect("cancellation leaves an expired collaboration card");
+    assert_eq!(settled["decision"], "expired");
+    assert!(room.persona("bob").unwrap().allowed_senders.is_empty());
+}
+
+#[tokio::test]
+async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_changes() {
+    let room = workspace_room(
+        "collaboration-generation-race",
+        Fake::new(Scripted::new(answers("a1", "should not run"))),
+    );
+    let delivery = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "start after approval").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    room.peers.advance_generation("ada");
+
+    let error = delivery.await.unwrap().unwrap_err();
+    assert!(error.contains("approval expired"), "{error}");
+    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert!(lock(&room.peers.sessions).is_empty());
+    assert!(lock(&room.peers.session_grants).is_empty());
+}
+
+#[tokio::test]
+async fn nested_peer_leases_follow_the_outer_target_but_revoke_independently() {
+    let room = workspace_room(
+        "nested-peer-leases",
+        Fake::new(Scripted::turns(vec![
+            answers("a1", "outer"),
+            answers("a2", "nested"),
+        ])),
+    );
+    let outer_delivery = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "outer question").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    outer_delivery.await.unwrap().unwrap();
+    let outer = lock(&room.peers.sessions)
+        .get(&(String::from("ada"), String::from("bob")))
+        .cloned()
+        .expect("the outer peer session is cached");
+
+    let nested_delivery = {
+        let room = room.clone();
+        let caller_capability = outer.target_capability.clone();
+        tokio::spawn(async move {
+            room.deliver_with_capability("bob", "ada", "nested question", Some(caller_capability))
+                .await
+        })
+    };
+    let card = collaboration_card(&room, "bob").await;
+    room.answer_permission("bob", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    nested_delivery.await.unwrap().unwrap();
+    let nested = lock(&room.peers.sessions)
+        .get(&(String::from("bob"), String::from("ada")))
+        .cloned()
+        .expect("the nested peer session is cached");
+
+    // Ending B's nested conversation only revokes its scoped caller lease.
+    nested.caller_capability.revoke();
+    assert!(outer.target_capability.is_current());
+    assert!(outer.valid());
+
+    // Revoking the outer A->B target lease propagates through the nested
+    // caller lease, even though the nested session has its own token.
+    outer.target_capability.revoke();
+    assert!(!nested.valid());
+}
+
+#[tokio::test]
+async fn revoking_an_outer_peer_settles_a_nested_collaboration_wait() {
+    let room = workspace_room(
+        "nested-peer-wait",
+        Fake::new(Scripted::new(answers("a1", "outer"))),
+    );
+    let outer_delivery = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "bob", "outer question").await })
+    };
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), ALLOW_SESSION)
+        .await
+        .unwrap();
+    outer_delivery.await.unwrap().unwrap();
+    let outer = lock(&room.peers.sessions)
+        .get(&(String::from("ada"), String::from("bob")))
+        .cloned()
+        .expect("the outer peer session is cached");
+
+    let nested_delivery = {
+        let room = room.clone();
+        let caller_capability = outer.target_capability.clone();
+        tokio::spawn(async move {
+            room.deliver_with_capability("bob", "ada", "nested question", Some(caller_capability))
+                .await
+        })
+    };
+    let card = collaboration_card(&room, "bob").await;
+    let request_id = card["requestId"].as_str().unwrap().to_string();
+    outer.target_capability.revoke();
+    room.settle_invalid_collaboration();
+
+    assert!(nested_delivery.await.unwrap().is_err());
+    assert!(lock(&room.peers.waiting).is_empty());
+    let settled = room
+        .tape("bob")
+        .into_iter()
+        .find(|event| event["requestId"] == request_id)
+        .expect("the nested card is settled when the outer lease ends");
+    assert_eq!(settled["decision"], "expired");
+}
+
+#[tokio::test]
+async fn revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session() {
+    let agents = Fake::new(Scripted::turns(vec![
+        answers("a1", "outer"),
+        answers("a2", "nested"),
+    ]));
+    let room = room("three-party-revocation", agents.clone());
+    let mut cal = persona("cal");
+    cal.name = "Cal".to_string();
+    enrol(room.log(), &cal);
+    for id in ["ada", "bob", "cal"] {
+        room.start(id).await.unwrap();
+    }
+    let ada = TeammateTools::new(&room, "ada")
+        .with_capability(room.session("ada").unwrap().capability.clone());
+    let bob_main = TeammateTools::new(&room, "bob")
+        .with_capability(room.session("bob").unwrap().capability.clone());
+    let cal_main = TeammateTools::new(&room, "cal")
+        .with_capability(room.session("cal").unwrap().capability.clone());
+    ada.call(
+        "message_teammate",
+        &json!({"to": "bob", "message": "outer"}),
+    )
+    .await
+    .unwrap();
+    let outer = lock(&room.peers.sessions)[&("ada".to_string(), "bob".to_string())].clone();
+    let bob_delegated =
+        TeammateTools::new(&room, "bob").with_capability(outer.target_capability.clone());
+    bob_delegated
+        .call(
+            "message_teammate",
+            &json!({"to": "cal", "message": "nested"}),
+        )
+        .await
+        .unwrap();
+    let nested = lock(&room.peers.sessions)[&("bob".to_string(), "cal".to_string())].clone();
+    let cal_delegated =
+        TeammateTools::new(&room, "cal").with_capability(nested.target_capability.clone());
+    assert!(
+        cal_delegated
+            .call("list_teammates", &json!({}))
+            .await
+            .is_ok()
+    );
+    let cancellations = agents.cancel_count();
+
+    room.stop("ada").unwrap();
+
+    assert!(
+        cal_delegated
+            .call("list_teammates", &json!({}))
+            .await
+            .is_err()
+    );
+    assert!(
+        bob_delegated
+            .call("list_teammates", &json!({}))
+            .await
+            .is_err()
+    );
+    assert!(bob_main.call("list_teammates", &json!({})).await.is_ok());
+    assert!(cal_main.call("list_teammates", &json!({})).await.is_ok());
+    assert!(lock(&room.peers.sessions).is_empty());
+    assert_eq!(
+        agents.cancel_count() - cancellations,
+        3,
+        "stop the main caller and both delegated drivers"
     );
 }
 

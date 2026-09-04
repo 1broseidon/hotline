@@ -453,6 +453,17 @@ impl RoomHandle for Desk {
         self.mcp_oauth.sign_out(server_id).await
     }
 
+    /// The server may not be in settings yet: the window saves the token
+    /// first so the settings write that follows reattaches with it.
+    fn mcp_secret_set(&self, server_id: &str, url: &str, secret: &str) -> Result<(), String> {
+        if server_id.is_empty() || url.is_empty() || secret.is_empty() {
+            return Err("A saved MCP token needs a server id, a URL and the token.".to_string());
+        }
+        self.vault
+            .set_mcp_secret(server_id, url, secret)
+            .map_err(|error| format!("could not save the MCP token: {error}"))
+    }
+
     fn models(&self) -> Vec<ConfigChoice> {
         self.room.models_for_desk()
     }

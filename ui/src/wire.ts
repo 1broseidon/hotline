@@ -88,6 +88,7 @@ type Results = {
 	"mcp.auth_status": McpOAuthStatus;
 	"mcp.auth_reconnect": McpOAuthStatus;
 	"mcp.auth_sign_out": null;
+	"mcp.secret_set": null;
 	"backends.list": BackendChoice[];
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];

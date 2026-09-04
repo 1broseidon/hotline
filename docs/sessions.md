@@ -141,11 +141,19 @@ the server URL and issuer binding. They are never settings, stream, tape,
 prompt, ACP descriptor or log data. Refreshes and rotated refresh tokens are
 serialized across sessions, and sign-out clears the registration and tokens.
 
+An HTTP server can instead send a token the person pastes: **bearer** mode
+sends `Authorization: Bearer <token>`, **header** mode sends the token in a
+header the person names. The token goes to the protected vault through
+`mcp.secret_set`, bound to the server URL, and never into settings; a server
+whose token the vault does not hold is absent from the ledger with a sentence
+saying so. Forgetting it is the same sign-out as OAuth.
+
 Toad Agent uses rmcp's auth-aware Streamable HTTP client, so expiry and refresh
-remain inside the gateway. ACP receives a per-session loopback URL and a
-separate proxy bearer token. The handler verifies that token and the capability
-lease, then obtains a current vault token for each request; the child never
-receives OAuth material. Signing in authorizes the
+remain inside the gateway; a pasted token rides the same client as one header.
+ACP receives a per-session loopback URL and a separate proxy bearer token. The
+handler verifies that token and the capability lease, then puts the vault's
+credential on each request — a current OAuth token, or the pasted one; the
+child never receives either. Signing in authorizes the
 gateway connection and does not change any teammate's none, selected or all
 policy.
 
@@ -350,8 +358,9 @@ Unix, so a wrapper like `npx` cannot leave the real agent behind.
 Granted third-party servers are named in the same `session/new` (stdio
 command, or HTTP URL). Toad does not connect them for a child; the child
 connects them itself. An authenticated HTTP server is represented by the
-per-session loopback OAuth proxy described above. Static headers and OAuth
-servers that are not signed in are absent with a sentence saying why, and are
+per-session loopback proxy described above, whether its credential is an
+OAuth token or a pasted one. OAuth servers that are not signed in and token
+servers with no saved token are absent with a sentence saying why, and are
 never labelled connected.
 
 Toad draws permission cards, but it does not decide whether the agent sends

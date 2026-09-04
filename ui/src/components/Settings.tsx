@@ -957,15 +957,35 @@ function ProviderPage({
 	);
 }
 
+type AuthMode = "none" | "oauth" | "bearer" | "header";
+
 type ServerDraft = {
 	name: string;
 	kind: "stdio" | "http";
 	command: string;
 	url: string;
-	authMode: "none" | "oauth" | "keep";
+	authMode: AuthMode;
+	/** The header a custom-header server sends its token in. */
+	headerName: string;
+	/** A token to save; empty on an edit keeps the one already saved. Never part of the server. */
+	secret: string;
 };
 
-const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: "", authMode: "none" };
+const EMPTY_DRAFT: ServerDraft = { name: "", kind: "stdio", command: "", url: "", authMode: "none", headerName: "", secret: "" };
+
+function authModeOf(auth: McpHttpAuth): AuthMode {
+	return auth.mode === "oauth" || auth.mode === "bearer" || auth.mode === "header" ? auth.mode : "none";
+}
+
+function headerNameOf(auth: McpHttpAuth): string {
+	const name = (auth as { name?: unknown }).name;
+	return typeof name === "string" ? name : "";
+}
+
+/** A server that sends a pasted token, kept in the vault rather than in the server. */
+function holdsToken(auth: McpHttpAuth): boolean {
+	return auth.mode === "bearer" || auth.mode === "header";
+}
 
 /**
  * Tools: the MCP servers the room has, drawn the way Providers is. An add
@@ -1102,6 +1122,7 @@ function ServerPage({
 				<div className="pane-column flex flex-col gap-6">
 					<ServerForm title="Server" submit="Save" server={server} writing={writing} onSubmit={onSave} />
 					{server.type === "http" && server.auth.mode === "oauth" && <McpOAuthControls server={server} />}
+					{server.type === "http" && holdsToken(server.auth) && <McpTokenControls server={server} />}
 					<section>
 						<div className="grouped">
 							<div className="group-row">
@@ -1212,6 +1233,67 @@ function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http
 	);
 }
 
+/** Whether the vault holds a token for this server, and the way to forget it. */
+function McpTokenControls({ server }: { server: Extract<McpServer, { type: "http" }> }) {
+	const [saved, setSaved] = useState<boolean | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+
+	const refresh = async () => {
+		try {
+			const status = await wire.command("mcp.auth_status", { serverId: server.id });
+			setSaved(status.status === "signed_in");
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		}
+	};
+
+	useEffect(() => {
+		void refresh();
+		const timer = window.setInterval(() => void refresh(), 2_000);
+		return () => window.clearInterval(timer);
+	}, [server.id]);
+
+	const forget = async () => {
+		setBusy(true);
+		setRefusal(null);
+		try {
+			await wire.command("mcp.auth_sign_out", { serverId: server.id });
+			await refresh();
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<section>
+			<h3 className="group-title">Token</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<span className="group-row-text">
+						<span className="group-row-title">{saved === true ? "Token saved" : saved === false ? "No token saved" : "…"}</span>
+						<span className="group-row-detail">
+							{saved === true
+								? "Kept on this machine, sent on every request. Paste a new one above to replace it."
+								: "Paste a token above and save; the server is not connected until then."}
+						</span>
+					</span>
+					<button type="button" className="control btn-quiet text-danger" disabled={busy || saved !== true} onClick={() => void forget()}>
+						Forget token
+					</button>
+				</div>
+			</div>
+			{refusal !== null && (
+				<p role="status" className="selectable text-sm text-danger">
+					{refusal}
+				</p>
+			)}
+		</section>
+	);
+}
+
 /** The server's fields: one form for adding and for the page. */
 function ServerForm({
 	title,
@@ -1232,40 +1314,55 @@ function ServerForm({
 		server === undefined
 			? EMPTY_DRAFT
 			: server.type === "stdio"
-				? { name: server.name, kind: "stdio", command: [server.command, ...server.args].join(" "), url: "", authMode: "none" }
+				? { name: server.name, kind: "stdio", command: [server.command, ...server.args].join(" "), url: "", authMode: "none", headerName: "", secret: "" }
 				: {
 					name: server.name,
 					kind: "http",
 					command: "",
 					url: server.url,
-					authMode:
-						server.auth.mode === "oauth"
-							? "oauth"
-							: server.auth.mode === "none"
-								? "none"
-								: "keep",
+					authMode: authModeOf(server.auth),
+					headerName: headerNameOf(server.auth),
+					secret: "",
 				},
 	);
+	const [refusal, setRefusal] = useState<string | null>(null);
 	const nameField = useRef<HTMLInputElement>(null);
 	useEffect(() => {
 		if (server === undefined) nameField.current?.focus();
 	}, [server]);
 
+	const takesToken = draft.kind === "http" && (draft.authMode === "bearer" || draft.authMode === "header");
+	/* A new token server needs its token now; an edit may keep the saved one. */
 	const ready =
 		draft.name.trim().length > 0 &&
-		(draft.kind === "stdio" ? draft.command.trim().length > 0 : draft.url.trim().length > 0);
+		(draft.kind === "stdio" ? draft.command.trim().length > 0 : draft.url.trim().length > 0) &&
+		(!takesToken || server !== undefined || draft.secret.length > 0) &&
+		(draft.kind !== "http" || draft.authMode !== "header" || draft.headerName.trim().length > 0);
+
+	const submitDraft = async () => {
+		const name = draft.name.trim();
+		const next = draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, draft, server);
+		/* The token goes to the vault first, so the settings write that
+		 * follows reattaches teammates with it in hand. */
+		if (next.type === "http" && holdsToken(next.auth) && draft.secret.length > 0) {
+			setRefusal(null);
+			try {
+				await wire.command("mcp.secret_set", { serverId: next.id, url: next.url, secret: draft.secret });
+			} catch (error) {
+				setRefusal(error instanceof Error ? error.message : String(error));
+				return;
+			}
+			setDraft({ ...draft, secret: "" });
+		}
+		onSubmit(next);
+	};
 
 	return (
 		<form
 			onSubmit={(event) => {
 				event.preventDefault();
 				if (!ready || writing) return;
-				const name = draft.name.trim();
-				onSubmit(
-					draft.kind === "stdio"
-						? stdioFromDraft(name, draft.command, server)
-						: httpFromDraft(name, draft.url, draft.authMode, server),
-				);
+				void submitDraft();
 			}}
 		>
 			<h3 className="group-title">{title}</h3>
@@ -1335,20 +1432,52 @@ function ServerForm({
 								field
 								value={draft.authMode}
 								choices={[
-									{ id: "none", name: "None", detail: "Connect without an OAuth sign-in" },
+									{ id: "none", name: "None", detail: "Connect without credentials" },
 									{ id: "oauth", name: "OAuth 2.1", detail: "Sign in with the server's authorization page" },
-									{ id: "keep", name: "Existing auth", detail: "Keep this server's existing authentication settings" },
+									{ id: "bearer", name: "Bearer token", detail: "Send a token you paste as Authorization: Bearer" },
+									{ id: "header", name: "Custom header", detail: "Send a token you paste in a header you name" },
 								]}
 								placeholder="Authentication"
 								label="HTTP authentication"
 								onChange={(authMode) =>
 									setDraft({
 										...draft,
-										authMode: authMode === "oauth" || authMode === "keep" ? authMode : "none",
+										authMode: authMode === "oauth" || authMode === "bearer" || authMode === "header" ? authMode : "none",
 									})
 								}
 							/>
 						</div>
+					</div>
+				)}
+				{draft.kind === "http" && draft.authMode === "header" && (
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-header">
+							Header
+						</label>
+						<input
+							id="tool-header"
+							className="field flex-1 font-mono text-sm"
+							spellCheck={false}
+							placeholder="X-API-Key"
+							value={draft.headerName}
+							onChange={(event) => setDraft({ ...draft, headerName: event.target.value })}
+						/>
+					</div>
+				)}
+				{takesToken && (
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-token">
+							Token
+						</label>
+						<input
+							id="tool-token"
+							type="password"
+							className="field flex-1 font-mono text-sm"
+							autoComplete="off"
+							placeholder={server === undefined ? "Paste the token" : "Saved on this machine; paste to replace"}
+							value={draft.secret}
+							onChange={(event) => setDraft({ ...draft, secret: event.target.value })}
+						/>
 					</div>
 				)}
 				<div className="group-row justify-end">
@@ -1362,7 +1491,12 @@ function ServerForm({
 					</button>
 				</div>
 			</div>
-			<p className="group-hint">OAuth sign-in stores tokens on this machine and does not grant server access to a teammate.</p>
+			{refusal !== null && (
+				<p role="status" className="selectable text-sm text-danger">
+					{refusal}
+				</p>
+			)}
+			<p className="group-hint">A sign-in or a pasted token is kept on this machine and does not grant server access to a teammate.</p>
 		</form>
 	);
 }
@@ -1377,16 +1511,22 @@ function stdioFromDraft(name: string, commandLine: string, previous?: McpServer)
 		: { id, type: "stdio", name, command: command ?? "", args };
 }
 
-/** A new HTTP server is none; an edit keeps whatever auth was already stored. */
-function httpFromDraft(name: string, url: string, authMode: "none" | "oauth" | "keep", previous?: McpServer): McpServer {
+/**
+ * The server as settings hold it: the auth names a mode, never a token. An
+ * edit that stays on OAuth keeps the scopes and client the server already
+ * had; a pasted token lives in the vault and is not here to keep.
+ */
+function httpFromDraft(name: string, url: string, draft: ServerDraft, previous?: McpServer): McpServer {
 	const auth: McpHttpAuth =
-		authMode === "oauth"
+		draft.authMode === "oauth"
 			? previous?.type === "http" && previous.auth.mode === "oauth"
 				? previous.auth
 				: { mode: "oauth" }
-			: authMode === "keep" && previous?.type === "http"
-				? previous.auth
-				: { mode: "none" };
+			: draft.authMode === "bearer"
+				? { mode: "bearer" }
+				: draft.authMode === "header"
+					? { mode: "header", name: draft.headerName.trim() }
+					: { mode: "none" };
 	return { id: previous?.id ?? crypto.randomUUID(), type: "http", name, url: url.trim(), auth };
 }
 

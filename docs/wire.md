@@ -96,7 +96,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `mcp.auth_callback` | `{loginId, callbackUrl}` | secret free OAuth status |
 | `mcp.auth_status` | `{serverId}` | secret free OAuth status |
 | `mcp.auth_reconnect` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
-| `mcp.auth_sign_out` | `{serverId}` | none; invalidates live sessions and clears the protected registration |
+| `mcp.auth_sign_out` | `{serverId}` | none; invalidates live sessions and clears the protected registration, and a pasted token with it |
+| `mcp.secret_set` | `{serverId, url, secret}` | none; saves a bearer or header server's token in the protected vault, bound to the URL |
 | `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
@@ -257,6 +258,15 @@ matched than the limit. A missing index or an empty query is
 `{hits: [], truncated: false}`.
 
 `chapter.list` is the tape's chapter markers: `{id, startedAt, endedAt?,
+`mcp.secret_set` is the other credential: the token a server in `bearer` or
+`header` auth mode sends on every request. The window saves it before it
+writes the server into settings, so the reattach that write causes finds
+the token in the vault; the settings entry carries only the mode and, for
+`header`, the header name. A server can be saved before it exists in
+settings, which is how a new one is added in one go. `mcp.auth_status`
+answers `signed_in` when the vault holds the token and `signed_out` when
+it does not, and `mcp.auth_sign_out` forgets it.
+
 title?, note?, status?, closedBy?, messages}`.
 
 `peers.list` is every thread this teammate has with another teammate:

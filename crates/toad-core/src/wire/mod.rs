@@ -249,6 +249,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 
     /// Clears protected MCP OAuth registrations and tokens.
+    fn mcp_secret_set(&self, _server_id: &str, _url: &str, _secret: &str) -> Result<(), String> {
+        Err("This room keeps no MCP credentials.".to_string())
+    }
+
     async fn mcp_auth_sign_out(&self, _server_id: &str) -> Result<(), String> {
         Err("MCP OAuth sign-out is unavailable on this room.".to_string())
     }

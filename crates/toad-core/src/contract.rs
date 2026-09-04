@@ -1485,6 +1485,15 @@ pub enum Command {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     },
+    /// Saves the token an HTTP MCP server in bearer or header mode sends,
+    /// in the protected vault, bound to the server's URL. The settings entry
+    /// never carries it; `mcp.auth_sign_out` forgets it.
+    #[serde(rename = "mcp.secret_set")]
+    McpSecretSet {
+        server_id: String,
+        url: String,
+        secret: String,
+    },
     #[serde(rename = "session.cancel")]
     SessionCancel { persona_id: String },
     #[serde(rename = "session.set_model")]

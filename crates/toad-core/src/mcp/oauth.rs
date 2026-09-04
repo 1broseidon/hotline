@@ -621,6 +621,19 @@ impl McpOAuthService {
         let McpTransport::Http { url, auth } = &server.transport else {
             return Err("MCP OAuth status is only available for HTTP servers".to_string());
         };
+        // A secret server has no login: its status is whether the vault
+        // holds its token, in the same words the window already reads.
+        if let HttpAuth::Secret { .. } = auth {
+            let saved = self
+                .vault
+                .mcp_secret(&server.id, url)
+                .map_err(|error| format!("could not read the saved MCP token: {error}"))?
+                .is_some();
+            return Ok(json!({
+                "serverId": server.id,
+                "status": if saved { "signed_in" } else { "signed_out" },
+            }));
+        }
         if !matches!(auth, HttpAuth::Oauth | HttpAuth::OauthConfigured { .. }) {
             return Err(
                 "MCP OAuth status requires this HTTP server's authentication mode to be OAuth"

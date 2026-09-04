@@ -92,6 +92,13 @@ pub(crate) async fn run(
             room.reattach_all().await?;
             Ok(Value::Null)
         }
+        Command::McpSecretSet {
+            server_id,
+            url,
+            secret,
+        } => room
+            .mcp_secret_set(&server_id, &url, &secret)
+            .map(|()| Value::Null),
         Command::BackendsList {} => Ok(json!(room.backends().await)),
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),

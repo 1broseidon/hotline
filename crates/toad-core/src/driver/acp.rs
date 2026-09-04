@@ -475,16 +475,28 @@ struct OAuthProxyState {
     upstream: reqwest::Url,
     upstream_path: String,
     client: reqwest::Client,
-    manager: tokio::sync::Mutex<rmcp::transport::auth::AuthorizationManager>,
-    token_lock: Arc<tokio::sync::Mutex<()>>,
+    credential: ProxyCredential,
     capability: Option<CapabilityLease>,
 }
 
+/// What the proxy puts on each upstream request. OAuth asks the manager for
+/// a current token every time, so expiry and refresh stay in the gateway; a
+/// pasted token is fixed for the session and read from the vault once.
+enum ProxyCredential {
+    Oauth {
+        manager: Box<tokio::sync::Mutex<rmcp::transport::auth::AuthorizationManager>>,
+        token_lock: Arc<tokio::sync::Mutex<()>>,
+    },
+    Fixed(mcp::Presented),
+}
+
+/// A server whose credential lives in the vault is reached through the
+/// proxy, so the child never holds it: OAuth tokens and pasted tokens alike.
 fn is_oauth_server(server: &McpServer) -> bool {
     matches!(
         &server.transport,
         McpTransport::Http {
-            auth: HttpAuth::Oauth | HttpAuth::OauthConfigured { .. },
+            auth: HttpAuth::Oauth | HttpAuth::OauthConfigured { .. } | HttpAuth::Secret { .. },
             ..
         }
     )
@@ -495,19 +507,31 @@ async fn start_oauth_proxy(
     vault: Arc<Vault>,
     capability: Option<CapabilityLease>,
 ) -> Result<OAuthProxy, String> {
-    let McpTransport::Http { url, .. } = &server.transport else {
+    let McpTransport::Http { url, auth } = &server.transport else {
         return Err("MCP OAuth proxy requires an HTTP server".to_string());
     };
     let upstream = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
-    let token_lock = vault.mcp_token_lock(&server.id);
-    let manager = mcp::manager_for_server(server, vault, None).await?;
-    {
-        let _token_guard = token_lock.lock().await;
-        manager
-            .get_access_token()
-            .await
-            .map_err(|_| "MCP OAuth sign-in is required in Settings → Tools.".to_string())?;
-    }
+    let credential = if let HttpAuth::Secret { header } = auth {
+        let token = vault
+            .mcp_secret(&server.id, url)
+            .map_err(|error| format!("could not read the saved MCP token: {error}"))?
+            .ok_or_else(|| mcp::NO_SAVED_TOKEN.to_string())?;
+        ProxyCredential::Fixed(mcp::Presented::new(header.as_deref(), &token)?)
+    } else {
+        let token_lock = vault.mcp_token_lock(&server.id);
+        let manager = mcp::manager_for_server(server, vault, None).await?;
+        {
+            let _token_guard = token_lock.lock().await;
+            manager
+                .get_access_token()
+                .await
+                .map_err(|_| "MCP OAuth sign-in is required in Settings → Tools.".to_string())?;
+        }
+        ProxyCredential::Oauth {
+            manager: Box::new(tokio::sync::Mutex::new(manager)),
+            token_lock,
+        }
+    };
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .map_err(|error| format!("could not open MCP OAuth proxy: {error}"))?;
@@ -535,8 +559,7 @@ async fn start_oauth_proxy(
         upstream_path: upstream.path().to_string(),
         upstream,
         client,
-        manager: tokio::sync::Mutex::new(manager),
-        token_lock,
+        credential,
         capability,
     });
     let shutdown = CancellationToken::new();
@@ -591,12 +614,28 @@ async fn oauth_proxy_request(
         Ok(body) => body,
         Err(_) => return proxy_error(StatusCode::BAD_REQUEST, "MCP request body was too large"),
     };
-    let token = {
-        let _token_guard = state.token_lock.lock().await;
-        let manager = state.manager.lock().await;
-        match manager.get_access_token().await {
-            Ok(token) => token,
-            Err(_) => return proxy_error(StatusCode::UNAUTHORIZED, "MCP OAuth sign-in required"),
+    let (presented, oauth_token) = match &state.credential {
+        ProxyCredential::Fixed(presented) => (presented.clone(), None),
+        ProxyCredential::Oauth {
+            manager,
+            token_lock,
+        } => {
+            let _token_guard = token_lock.lock().await;
+            let manager = manager.lock().await;
+            match manager.get_access_token().await {
+                Ok(token) => match mcp::Presented::new(None, &token) {
+                    Ok(presented) => (presented, Some(token)),
+                    Err(_) => {
+                        return proxy_error(
+                            StatusCode::BAD_GATEWAY,
+                            "MCP OAuth token is malformed",
+                        );
+                    }
+                },
+                Err(_) => {
+                    return proxy_error(StatusCode::UNAUTHORIZED, "MCP OAuth sign-in required");
+                }
+            }
         }
     };
     if let Some(capability) = &state.capability
@@ -610,16 +649,25 @@ async fn oauth_proxy_request(
         headers.clone(),
         body.clone(),
         query.as_deref(),
-        &token,
+        &presented,
     )
     .await
     {
         Ok(response) => response,
         Err(_) => return proxy_error(StatusCode::BAD_GATEWAY, "MCP OAuth proxy request failed"),
     };
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+    // A pasted token has nothing to refresh; a 401 on it is the answer.
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        && let (
+            ProxyCredential::Oauth {
+                manager,
+                token_lock,
+            },
+            Some(token),
+        ) = (&state.credential, oauth_token)
+    {
         let refreshed = {
-            let _token_guard = state.token_lock.lock().await;
+            let _token_guard = token_lock.lock().await;
             if state
                 .capability
                 .as_ref()
@@ -627,7 +675,7 @@ async fn oauth_proxy_request(
             {
                 Err(rmcp::transport::auth::AuthError::AuthorizationRequired)
             } else {
-                let manager = state.manager.lock().await;
+                let manager = manager.lock().await;
                 match manager.get_access_token().await {
                     Ok(current) if current != token => Ok(current),
                     Ok(_) => {
@@ -642,12 +690,14 @@ async fn oauth_proxy_request(
             }
         };
         if let Ok(token) = refreshed
+            && let Ok(presented) = mcp::Presented::new(None, &token)
             && state
                 .capability
                 .as_ref()
                 .is_none_or(CapabilityLease::is_current)
             && let Ok(retried) =
-                send_proxy_request(&state, method, headers, body, query.as_deref(), &token).await
+                send_proxy_request(&state, method, headers, body, query.as_deref(), &presented)
+                    .await
         {
             response = retried;
         }
@@ -675,14 +725,14 @@ async fn send_proxy_request(
     headers: Vec<(HeaderName, HeaderValue)>,
     body: axum::body::Bytes,
     query: Option<&str>,
-    token: &str,
+    presented: &mcp::Presented,
 ) -> Result<reqwest::Response, reqwest::Error> {
     let mut upstream = state.upstream.clone();
     upstream.set_query(query);
     let mut request = state
         .client
         .request(method, upstream)
-        .bearer_auth(token)
+        .header(presented.name.clone(), presented.value.clone())
         .body(body);
     for (name, value) in headers {
         request = request.header(name.as_str(), value.as_bytes());
@@ -1197,8 +1247,10 @@ impl ChildAgent {
                     let proxy_url = proxy.map(|proxy| proxy.url.as_str()).unwrap_or(url);
                     let http = acp::McpServerHttp::new(&server.name, proxy_url);
                     acp::McpServer::Http(match auth {
-                        HttpAuth::Oauth | HttpAuth::OauthConfigured { .. } => {
-                            let proxy = proxy.expect("only connected OAuth proxies are declared");
+                        HttpAuth::Oauth
+                        | HttpAuth::OauthConfigured { .. }
+                        | HttpAuth::Secret { .. } => {
+                            let proxy = proxy.expect("only connected proxies are declared");
                             http.headers(vec![acp::HttpHeader::new(
                                 "Authorization",
                                 format!("Bearer {}", proxy.token),
@@ -2024,8 +2076,10 @@ mod tests {
             upstream: url.parse().unwrap(),
             upstream_path: "/mcp".to_string(),
             client: reqwest::Client::new(),
-            manager: tokio::sync::Mutex::new(manager),
-            token_lock: Arc::new(tokio::sync::Mutex::new(())),
+            credential: ProxyCredential::Oauth {
+                manager: Box::new(tokio::sync::Mutex::new(manager)),
+                token_lock: Arc::new(tokio::sync::Mutex::new(())),
+            },
             capability: Some(epoch.lease()),
         });
         let request = |token: Option<&str>| {

@@ -36,6 +36,7 @@ pub use tool::{CallContent, CallError, CallImage, McpTool};
 
 use crate::contract::{McpPolicy, PolicyMode};
 use crate::driver::CapabilityLease;
+use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rmcp::ServiceExt;
 use rmcp::model::{ClientInfo, Implementation};
 use rmcp::service::RunningService;
@@ -83,21 +84,25 @@ pub enum McpTransport {
 
 /// How an HTTP server authenticates.
 ///
-/// [`HttpAuth::None`], [`HttpAuth::Static`], [`HttpAuth::Oauth`] and
-/// [`HttpAuth::OauthConfigured`] are what settings parse to. Static-header
-/// servers are refused; OAuth servers use the operator's protected vault and
-/// are refused until that operator signs in.
+/// [`HttpAuth::None`], [`HttpAuth::Secret`], [`HttpAuth::Oauth`] and
+/// [`HttpAuth::OauthConfigured`] are what settings parse to. A secret server
+/// sends a token the person pasted, kept in the protected vault and never in
+/// settings; OAuth servers use the same vault and are refused until the
+/// operator signs in. Either is refused, with a sentence, until the vault
+/// holds what it needs.
 ///
 /// [`HttpAuth::Bearer`] is process state, never settings. The computer module
-/// is the only constructor: a settings entry whose `auth.mode` is `"bearer"`,
-/// or that lists header names, still becomes [`HttpAuth::Static`] or
-/// [`HttpAuth::None`]. Serialising this into the room stream would write the
-/// container's token next to the roster.
+/// is the only constructor: a settings entry whose `auth` carries a token
+/// still parses to [`HttpAuth::Secret`] with the token dropped. Serialising
+/// this into the room stream would write the container's token next to the
+/// roster.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HttpAuth {
     None,
-    Static {
-        header_names: Vec<String>,
+    /// A token from the vault on every request: `Authorization: Bearer
+    /// <token>` when `header` is `None`, else `<header>: <token>`.
+    Secret {
+        header: Option<String>,
     },
     Oauth,
     /// OAuth settings that include a public client id and/or requested
@@ -345,13 +350,6 @@ pub fn unsupported(server: &McpServer) -> Option<String> {
     }
     match &server.transport {
         McpTransport::Http {
-            auth: HttpAuth::Static { .. },
-            ..
-        } => Some(
-            "Static-header HTTP servers are a later task; this server was not connected."
-                .to_string(),
-        ),
-        McpTransport::Http {
             auth: HttpAuth::Oauth,
             ..
         }
@@ -397,12 +395,25 @@ async fn connect_one(
     if let Some(refusal) = unsupported(server) {
         return Err(refusal);
     }
-    // Static and OAuth were refused above. What is left of an HTTP server is
-    // a URL, and optionally a bearer the computer module minted in this
-    // process.
+    // OAuth was refused above. What is left of an HTTP server is a URL, and
+    // a token: one the person pasted into the vault, or one the computer
+    // module minted in this process.
     match &server.transport {
         McpTransport::Http { url, auth } => {
-            let transport = http_transport(url, auth);
+            let presented = match auth {
+                HttpAuth::Secret { header } => {
+                    let Some(token) = vault
+                        .as_ref()
+                        .and_then(|vault| vault.mcp_secret(&server.id, url).ok().flatten())
+                    else {
+                        return Err(NO_SAVED_TOKEN.to_string());
+                    };
+                    Some(Presented::new(header.as_deref(), &token)?)
+                }
+                HttpAuth::Bearer { token } => Some(Presented::new(None, token)?),
+                _ => None,
+            };
+            let transport = http_transport(url, presented.as_ref());
             let (client, listed) = handshake(toad_client().serve(transport)).await?;
             Ok((client, listed, None))
         }
@@ -458,20 +469,67 @@ fn toad_client() -> ClientInfo {
     )
 }
 
-/// The streamable-HTTP client for one URL. [`HttpAuth::Bearer`] becomes
-/// rmcp's `auth_header`, which sends `Authorization: Bearer <token>` — the
-/// token without the prefix, which is what rmcp 3.2.0's
-/// `StreamableHttpClientTransportConfig::auth_header` takes.
-pub(crate) fn http_config(url: &str, auth: &HttpAuth) -> StreamableHttpClientTransportConfig {
+/// A secret server whose token the vault does not hold yet.
+pub const NO_SAVED_TOKEN: &str =
+    "This server has no saved token; paste one in Settings → Tools. It was not connected.";
+
+/// The credential one request carries: the header name and its whole value.
+/// A bearer is `Authorization: Bearer <token>`; a named header is the token
+/// as given. Built once per connection so a token that is not a legal
+/// header value is refused before any request is sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Presented {
+    pub(crate) name: HeaderName,
+    pub(crate) value: HeaderValue,
+}
+
+impl Presented {
+    pub(crate) fn new(header: Option<&str>, token: &str) -> Result<Self, String> {
+        let (name, value) = match header {
+            Some(name) => (
+                HeaderName::from_bytes(name.as_bytes()).map_err(|_| {
+                    format!("{name:?} is not a header name; this server was not connected.")
+                })?,
+                HeaderValue::from_str(token),
+            ),
+            None => (
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {token}")),
+            ),
+        };
+        let mut value = value.map_err(|_| {
+            "The saved token is not a legal header value; this server was not connected."
+                .to_string()
+        })?;
+        value.set_sensitive(true);
+        Ok(Self { name, value })
+    }
+}
+
+/// The streamable-HTTP client for one URL, with the credential on every
+/// request. rmcp's `custom_headers` carries it whole, so a bearer and a named
+/// header are one path.
+pub(crate) fn http_config(
+    url: &str,
+    presented: Option<&Presented>,
+) -> StreamableHttpClientTransportConfig {
     let mut config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
-    if let HttpAuth::Bearer { token } = auth {
-        config = config.auth_header(token.clone());
+    if let Some(presented) = presented {
+        config
+            .custom_headers
+            .insert(presented.name.clone(), presented.value.clone());
     }
     config
 }
 
-fn http_transport(url: &str, auth: &HttpAuth) -> StreamableHttpClientTransport<reqwest::Client> {
-    StreamableHttpClientTransport::with_client(reqwest::Client::default(), http_config(url, auth))
+fn http_transport(
+    url: &str,
+    presented: Option<&Presented>,
+) -> StreamableHttpClientTransport<reqwest::Client> {
+    StreamableHttpClientTransport::with_client(
+        reqwest::Client::default(),
+        http_config(url, presented),
+    )
 }
 
 fn normalize_server(value: &Value) -> Option<Value> {
@@ -533,27 +591,35 @@ fn normalize_server(value: &Value) -> Option<Value> {
     Some(server)
 }
 
+/// A legacy `headers` map (the old app kept header values in settings) keeps
+/// its shape and loses its values: `Authorization` becomes bearer mode and
+/// one other header becomes header mode, and the token has to be pasted
+/// again in Settings, into the vault this time.
 fn normalize_http_auth(value: Option<&Value>, legacy: Option<&Map<String, Value>>) -> Value {
     if let Some(legacy) = legacy {
-        let header_names: Vec<String> = legacy.keys().cloned().collect();
-        return json!({ "mode": "static", "headerNames": header_names });
+        let mut names = legacy.keys().filter(|name| !name.is_empty());
+        return match (names.next(), names.next()) {
+            (Some(name), None) if !name.eq_ignore_ascii_case("authorization") => {
+                json!({ "mode": "header", "name": name })
+            }
+            (Some(_), _) => json!({ "mode": "bearer" }),
+            (None, _) => json!({ "mode": "none" }),
+        };
     }
     let Some(candidate) = value.and_then(Value::as_object) else {
         return json!({ "mode": "none" });
     };
     match candidate.get("mode").and_then(Value::as_str) {
-        Some("static") => {
-            let header_names: Vec<String> = candidate
-                .get("headerNames")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .filter(|name| !name.is_empty())
-                .map(str::to_string)
-                .collect();
-            json!({ "mode": "static", "headerNames": header_names })
-        }
+        Some("bearer") => json!({ "mode": "bearer" }),
+        Some("header") => match candidate
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            Some(name) => json!({ "mode": "header", "name": name }),
+            None => json!({ "mode": "none" }),
+        },
         Some("oauth") => {
             let scopes: Vec<String> = unique_keep_first(
                 candidate
@@ -621,18 +687,20 @@ fn parse_server(value: &Value) -> Option<McpServer> {
                 .and_then(|auth| auth.get("mode"))
                 .and_then(Value::as_str)
             {
-                Some("static") => {
-                    let header_names = object
+                Some("bearer") => HttpAuth::Secret { header: None },
+                Some("header") => {
+                    let name = object
                         .get("auth")
                         .and_then(Value::as_object)
-                        .and_then(|auth| auth.get("headerNames"))
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect();
-                    HttpAuth::Static { header_names }
+                        .and_then(|auth| auth.get("name"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string);
+                    match name {
+                        Some(name) => HttpAuth::Secret { header: Some(name) },
+                        None => HttpAuth::None,
+                    }
                 }
                 Some("oauth") => {
                     let auth = object
@@ -1001,7 +1069,7 @@ mod tests {
                 "type": "http",
                 "name": "Legacy",
                 "url": "https://example.test",
-                "auth": { "mode": "static", "headerNames": ["Authorization"] },
+                "auth": { "mode": "bearer" },
             })
         );
         assert!(server.get("headers").is_none());
@@ -1203,16 +1271,30 @@ mod tests {
     }
 
     #[test]
-    fn bearer_sets_the_authorization_header_on_the_transport() {
-        let config = super::http_config(
-            "http://127.0.0.1:9/mcp",
-            &HttpAuth::Bearer {
-                token: "secret-token".into(),
-            },
+    fn a_token_is_one_header_on_the_transport_bearer_or_named() {
+        let bearer = Presented::new(None, "secret-token").unwrap();
+        let config = super::http_config("http://127.0.0.1:9/mcp", Some(&bearer));
+        assert_eq!(
+            config
+                .custom_headers
+                .get(&AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer secret-token")
         );
-        assert_eq!(config.auth_header.as_deref(), Some("secret-token"));
-        let none = super::http_config("http://127.0.0.1:9/mcp", &HttpAuth::None);
-        assert_eq!(none.auth_header, None);
+        let named = Presented::new(Some("X-API-Key"), "secret-token").unwrap();
+        let config = super::http_config("http://127.0.0.1:9/mcp", Some(&named));
+        assert_eq!(
+            config
+                .custom_headers
+                .get(&HeaderName::from_static("x-api-key"))
+                .and_then(|value| value.to_str().ok()),
+            Some("secret-token")
+        );
+        assert!(named.value.is_sensitive());
+        assert!(Presented::new(Some("not a header"), "token").is_err());
+        assert!(Presented::new(None, "line\nbreak").is_err());
+        let none = super::http_config("http://127.0.0.1:9/mcp", None);
+        assert!(none.custom_headers.is_empty());
     }
 
     #[test]
@@ -1254,20 +1336,18 @@ mod tests {
                 McpTransport::Http {
                     auth: HttpAuth::None,
                     ..
-                } if server.id == "plain" || server.id == "claimed" => {}
+                } if server.id == "plain" => {}
                 McpTransport::Http {
-                    auth: HttpAuth::Static { header_names },
+                    auth: HttpAuth::Secret { header: None },
                     ..
-                } if server.id == "legacy" => {
-                    assert_eq!(header_names, &["Authorization"]);
-                }
+                } if server.id == "claimed" || server.id == "legacy" => {}
                 other => panic!("{} parsed as {other:?}", server.id),
             }
         }
     }
 
     #[tokio::test]
-    async fn oauth_and_static_http_are_refused_with_a_sentence() {
+    async fn oauth_and_a_secret_server_without_its_token_are_refused_with_a_sentence() {
         let oauth = McpServer {
             id: "oauth".into(),
             name: "OAuth".into(),
@@ -1277,22 +1357,46 @@ mod tests {
             },
             refuse: None,
         };
-        let static_header = McpServer {
-            id: "static".into(),
-            name: "Static".into(),
+        let bearer = McpServer {
+            id: "bearer".into(),
+            name: "Bearer".into(),
             transport: McpTransport::Http {
                 url: "https://example.test".into(),
-                auth: HttpAuth::Static {
-                    header_names: vec!["Authorization".into()],
-                },
+                auth: HttpAuth::Secret { header: None },
             },
             refuse: None,
         };
-        let connected = connect("oauth-refuse", &[oauth, static_header]).await;
+        let connected = connect("oauth-refuse", &[oauth, bearer]).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 2);
         assert!(connected.failed[0].reason.contains("OAuth"));
-        assert!(connected.failed[1].reason.contains("Static-header"));
+        assert_eq!(connected.failed[1].reason, NO_SAVED_TOKEN);
+    }
+
+    #[test]
+    fn a_legacy_header_map_keeps_its_shape_and_drops_its_values() {
+        let one = Map::from_iter([("X-API-Key".to_string(), json!("secret"))]);
+        assert_eq!(
+            normalize_http_auth(None, Some(&one)),
+            json!({ "mode": "header", "name": "X-API-Key" })
+        );
+        let auth = Map::from_iter([("Authorization".to_string(), json!("Bearer secret"))]);
+        assert_eq!(
+            normalize_http_auth(None, Some(&auth)),
+            json!({ "mode": "bearer" })
+        );
+        let several = Map::from_iter([
+            ("X-A".to_string(), json!("1")),
+            ("X-B".to_string(), json!("2")),
+        ]);
+        assert_eq!(
+            normalize_http_auth(None, Some(&several)),
+            json!({ "mode": "bearer" })
+        );
+        assert_eq!(
+            normalize_http_auth(Some(&json!({ "mode": "header" })), None),
+            json!({ "mode": "none" })
+        );
     }
 
     #[test]

@@ -46,11 +46,17 @@ pub(crate) struct McpOAuthRegistration {
     pub scopes: Vec<String>,
 }
 
+/// Everything the vault keeps for one HTTP MCP server, bound to the URL it
+/// was saved for. OAuth fills the registration and credentials; a bearer or
+/// header server fills the secret. One file per server, so forgetting a
+/// server's login forgets its token too.
 #[derive(Clone, Deserialize, Serialize)]
-struct McpOAuthRecord {
+struct McpRecord {
     server_url: String,
     registration: Option<McpOAuthRegistration>,
     credentials: Option<StoredCredentials>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
 }
 
 /// The vault over one data root.
@@ -358,8 +364,45 @@ impl Vault {
         })
     }
 
+    /// The token a bearer or header server sends, if one was saved for this
+    /// URL. A token saved for another URL is not this server's token.
+    pub(crate) fn mcp_secret(
+        &self,
+        server_id: &str,
+        server_url: &str,
+    ) -> io::Result<Option<String>> {
+        Ok(self
+            .read_mcp_record_any_url(server_id)?
+            .filter(|record| record.server_url == server_url)
+            .and_then(|record| record.secret))
+    }
+
+    /// Saves the token for a URL. A record bound to a different URL is
+    /// replaced whole: a token minted for the old origin, and any OAuth
+    /// material with it, must not follow the server to a new one.
+    pub(crate) fn set_mcp_secret(
+        &self,
+        server_id: &str,
+        server_url: &str,
+        secret: &str,
+    ) -> io::Result<()> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut record = self
+            .read_mcp_record_any_url(server_id)?
+            .filter(|record| record.server_url == server_url)
+            .unwrap_or_else(|| McpRecord {
+                server_url: server_url.to_string(),
+                registration: None,
+                credentials: None,
+                secret: None,
+            });
+        record.secret = Some(secret.to_string());
+        self.write_mcp_record(server_id, &record)
+    }
+
     /// Deletes all OAuth state for a server, including a saved client secret
-    /// and refresh token. Sign-out uses this after invalidating live leases.
+    /// and refresh token, and a saved bearer or header token. Sign-out uses
+    /// this after invalidating live leases.
     pub(crate) fn clear_mcp_oauth(&self, server_id: &str) -> io::Result<()> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.check_layout()?;
@@ -496,11 +539,19 @@ impl Vault {
         )
     }
 
-    fn read_mcp_record(
-        &self,
-        server_id: &str,
-        server_url: &str,
-    ) -> io::Result<Option<McpOAuthRecord>> {
+    fn read_mcp_record(&self, server_id: &str, server_url: &str) -> io::Result<Option<McpRecord>> {
+        let Some(record) = self.read_mcp_record_any_url(server_id)? else {
+            return Ok(None);
+        };
+        if record.server_url != server_url {
+            return Err(io::Error::other(
+                "saved MCP OAuth credentials belong to a different server URL; sign in again",
+            ));
+        }
+        Ok(Some(record))
+    }
+
+    fn read_mcp_record_any_url(&self, server_id: &str) -> io::Result<Option<McpRecord>> {
         self.check_layout()?;
         let path = self.mcp_path(server_id);
         let text = match fs::symlink_metadata(&path) {
@@ -514,17 +565,12 @@ impl Vault {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
-        let record: McpOAuthRecord = serde_json::from_str(&text).map_err(|error| {
+        let record: McpRecord = serde_json::from_str(&text).map_err(|error| {
             io::Error::other(format!(
-                "{} is not a readable MCP OAuth record ({error})",
+                "{} is not a readable MCP record ({error})",
                 path.display()
             ))
         })?;
-        if record.server_url != server_url {
-            return Err(io::Error::other(
-                "saved MCP OAuth credentials belong to a different server URL; sign in again",
-            ));
-        }
         Ok(Some(record))
     }
 
@@ -532,21 +578,22 @@ impl Vault {
         &self,
         server_id: &str,
         server_url: &str,
-        update: impl FnOnce(&mut McpOAuthRecord),
+        update: impl FnOnce(&mut McpRecord),
     ) -> io::Result<()> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let mut record = self
             .read_mcp_record(server_id, server_url)?
-            .unwrap_or_else(|| McpOAuthRecord {
+            .unwrap_or_else(|| McpRecord {
                 server_url: server_url.to_string(),
                 registration: None,
                 credentials: None,
+                secret: None,
             });
         update(&mut record);
         self.write_mcp_record(server_id, &record)
     }
 
-    fn write_mcp_record(&self, server_id: &str, record: &McpOAuthRecord) -> io::Result<()> {
+    fn write_mcp_record(&self, server_id: &str, record: &McpRecord) -> io::Result<()> {
         self.check_layout()?;
         let directory = self.mcp_dir();
         make_private_directory(&directory)?;
@@ -803,6 +850,36 @@ mod tests {
 
     fn secrets(vault: &Vault) -> String {
         fs::read_to_string(vault.secrets_path()).unwrap()
+    }
+
+    #[test]
+    fn a_pasted_token_is_bound_to_its_url_and_replaced_whole_on_a_new_one() {
+        let vault = vault("mcp-secret");
+        assert_eq!(vault.mcp_secret("s1", "https://a.test/mcp").unwrap(), None);
+        vault
+            .set_mcp_secret("s1", "https://a.test/mcp", "tok-a")
+            .unwrap();
+        assert_eq!(
+            vault
+                .mcp_secret("s1", "https://a.test/mcp")
+                .unwrap()
+                .as_deref(),
+            Some("tok-a")
+        );
+        assert_eq!(vault.mcp_secret("s1", "https://b.test/mcp").unwrap(), None);
+        vault
+            .set_mcp_secret("s1", "https://b.test/mcp", "tok-b")
+            .unwrap();
+        assert_eq!(vault.mcp_secret("s1", "https://a.test/mcp").unwrap(), None);
+        assert_eq!(
+            vault
+                .mcp_secret("s1", "https://b.test/mcp")
+                .unwrap()
+                .as_deref(),
+            Some("tok-b")
+        );
+        vault.clear_mcp_oauth("s1").unwrap();
+        assert_eq!(vault.mcp_secret("s1", "https://b.test/mcp").unwrap(), None);
     }
 
     /// A credential is a read of the whole map, one entry added, and the map

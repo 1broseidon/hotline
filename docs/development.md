@@ -14,7 +14,12 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
   `cargo install tauri-cli --version ^2`.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
-- On Linux, `libayatana-appindicator3` at runtime, for the tray.
+- On Linux, `libayatana-appindicator3` at runtime, for the tray, and its
+  dev package (`libayatana-appindicator3-dev`) to bundle: the Tauri CLI
+  finds the library through pkg-config before it writes the deb. A
+  Homebrew `pkg-config` earlier on PATH searches only Homebrew's
+  directories; point `PKG_CONFIG_PATH` at the system one
+  (`/usr/lib/x86_64-linux-gnu/pkgconfig`) for `make build`.
 
 `toad-core` has no Tauri dependency. The shell crate is the only place
 Rust that needs Tauri lives.

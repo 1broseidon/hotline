@@ -72,6 +72,13 @@ make build      # a release bundle under target/release/bundle (unsigned)
 make icons      # every platform's app icon, and the tray marks, from assets/
 ```
 
+A release is a tag `desktop-vX.Y.Z` whose version matches `Cargo.toml` and
+`tauri.conf.json`; `.github/workflows/desktop-release.yml` builds each
+target on its own runner, signs and notarizes the Mac bundles from the
+repository secrets, and publishes one GitHub Release marked latest. A hand
+run of the workflow builds and keeps artifacts only. `CHANGELOG.md` takes
+an entry per version.
+
 `make dev` exports `TOAD_DATA_DIR` to `.toad-dev` in the checkout, then
 runs `cargo tauri dev` from `crates/toad-desktop`, where `tauri.conf.json`
 is. That starts Vite for the window on port 5174 and refuses any other

@@ -1,0 +1,178 @@
+# The desk, built and signed on the machine it ships for. Tauri bundles for
+# the host it runs on — there is no cross compile from Linux to a Mac — so
+# each target is its own runner, and every one of them lands its bundles on
+# one GitHub Release for the tag.
+#
+# A tag `desktop-v*` is what becomes a Release. A hand-run builds and keeps
+# its bundles as workflow artifacts only, so a smoke test can never move
+# `latest`: toad.team's release worker answers with GitHub's latest/download
+# of this repository, and an installed desk resolves its updates there.
+#
+# The Release is created as a draft, because three runners upload into it
+# and a Release nobody can install half of should not be visible; the
+# publish job takes it out of draft and marks it latest once every runner
+# has finished. A tag that already has a published Release is refused
+# before any build starts: a published version is immutable, and a fix
+# ships as the next version.
+#
+# macOS signing and notarization are optional and driven by the repository
+# secrets from the Electrobun era, whose names are kept because a secret
+# cannot be copied, only re-uploaded. Developer ID Application certificate
+# (base64 p12), its password and identity turn signing on; the App Store
+# Connect API key, issuer and .p8 turn notarization on. Without them the
+# Mac job still produces a DMG that Gatekeeper will quarantine.
+#
+# Windows is not built here yet: the vault does not make its directory
+# private on Windows and refuses to write instead (docs/log.md), and a
+# desk that cannot keep a secret is not a desk to ship.
+name: desktop-release
+
+on:
+  push:
+    tags: ["desktop-v[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tag must match the workspace version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#desktop-v}"
+          cargo="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\([^"]*\)".*/\1/p}' Cargo.toml)"
+          tauri="$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' crates/toad-desktop/tauri.conf.json)"
+          if [ "$tag" != "$cargo" ] || [ "$tag" != "$tauri" ]; then
+            echo "tag desktop-v$tag, Cargo.toml $cargo, tauri.conf.json $tauri" >&2
+            exit 1
+          fi
+
+      - name: A published version is immutable
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          if [ "$state" = "false" ]; then
+            echo "release $GITHUB_REF_NAME is already published — refusing to rebuild it." >&2
+            echo "Bump the version and tag that; if this release is truly broken," >&2
+            echo "delete the release and the tag by hand first." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # The window's toolkit and the tray's library, found through pkg-config
+      # before the deb is written (docs/development.md).
+      - name: Install the Linux toolkit
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf build-essential libssl-dev
+
+      - name: Install the window's dependencies
+        working-directory: ui
+        run: bun install --frozen-lockfile
+
+      # Tauri reads its signing and notarization from the environment, and
+      # treats a variable that is set as one that is meant: an empty value
+      # would fail the build. So each is exported only when the secret exists.
+      - name: Expose Apple signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          P12_BASE64: ${{ secrets.ELECTROBUN_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.ELECTROBUN_P12_PASSWORD }}
+          DEVELOPER_ID: ${{ secrets.ELECTROBUN_DEVELOPER_ID }}
+          API_KEY: ${{ secrets.ELECTROBUN_APPLEAPIKEY }}
+          API_ISSUER: ${{ secrets.ELECTROBUN_APPLEAPIISSUER }}
+          API_KEY_P8: ${{ secrets.ELECTROBUN_APPLEAPIKEY_P8 }}
+        run: |
+          if [ -n "$P12_BASE64" ] && [ -n "$P12_PASSWORD" ]; then
+            echo "APPLE_CERTIFICATE=$P12_BASE64" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=$P12_PASSWORD" >> "$GITHUB_ENV"
+            if [ -n "$DEVELOPER_ID" ]; then
+              echo "APPLE_SIGNING_IDENTITY=$DEVELOPER_ID" >> "$GITHUB_ENV"
+            fi
+          fi
+          if [ -n "$API_KEY" ] && [ -n "$API_ISSUER" ] && [ -n "$API_KEY_P8" ]; then
+            keypath="$RUNNER_TEMP/AuthKey_$API_KEY.p8"
+            printf '%s\n' "$API_KEY_P8" > "$keypath"
+            echo "APPLE_API_KEY=$API_KEY" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER=$API_ISSUER" >> "$GITHUB_ENV"
+            echo "APPLE_API_KEY_PATH=$keypath" >> "$GITHUB_ENV"
+          fi
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: crates/toad-desktop
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          releaseName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          releaseDraft: true
+          prerelease: false
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            target/${{ matrix.target }}/release/bundle/deb/*.deb
+            target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the Release as latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --latest --title "$GITHUB_REF_NAME"

@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME#desktop-v}"
-          cargo="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\([^"]*\)".*/\1/p}' Cargo.toml)"
+          cargo="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
           tauri="$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' crates/toad-desktop/tauri.conf.json)"
           if [ "$tag" != "$cargo" ] || [ "$tag" != "$tauri" ]; then
             echo "tag desktop-v$tag, Cargo.toml $cargo, tauri.conf.json $tauri" >&2

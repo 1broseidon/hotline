@@ -5,11 +5,12 @@ All notable changes to the Toad desk are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). A tag `desktop-vX.Y.Z` on this
 repository is what builds and publishes a release.
 
-## [0.1.0] - 2026-09-08
+## [0.5.0] - 2026-09-08
 
 The first release of the Rust desk, replacing the Electrobun edition on
 this repository. The previous Toad shipped up to desktop-v0.4.1 and is
-archived privately.
+archived privately; the version line continues from it, so an installed
+desk always sees the Rust one as newer.
 
 ### Added
 - A room: a named roster of teammates, each with its own project directory,

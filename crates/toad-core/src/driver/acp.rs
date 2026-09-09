@@ -1036,8 +1036,22 @@ impl ChildAgent {
                 ),
             )
             .block_task()
-            .await
-            .map_err(|error| format!("The agent refused to start: {error}"))?;
+            .await;
+        let initialized = match initialized {
+            Ok(initialized) => initialized,
+            Err(error) => {
+                // A child that closes its pipe at the handshake has usually
+                // said why on stderr — npm, a missing binary, a crash — and
+                // the pump reads that a beat behind the close. The tail is
+                // what tells the person what happened; "transport closed"
+                // tells them nothing.
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                return Err(format!(
+                    "The agent refused to start: {error}.{}",
+                    self.live.stderr_hint()
+                ));
+            }
+        };
         self.check_capability()?;
 
         let capabilities = capabilities_of(&initialized.agent_capabilities);

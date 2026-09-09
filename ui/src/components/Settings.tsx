@@ -53,7 +53,7 @@ export function SettingsRail({
 }) {
 	return (
 		<nav aria-label="Settings" className="rail flex flex-col">
-			<Band rail>
+			<Band>
 				<button
 					type="button"
 					className="control btn-icon -ml-1"

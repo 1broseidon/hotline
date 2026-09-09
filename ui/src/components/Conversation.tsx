@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob, SessionConfig, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, InfoIcon, MoreIcon, SearchIcon, WarningIcon } from "../icons";
+import { ClockIcon, InfoIcon, MoreIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
-import { nextText, useRoomSettings } from "../room";
+import { nextText } from "../room";
 import { useTape } from "../tape";
 import { Avatar } from "../ui/Avatar";
 import { BackKey, Band } from "../ui/Band";
-import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
+import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
 import { Composer } from "./Composer";
@@ -16,12 +16,11 @@ import { Search } from "./Search";
 import type { OpenThread } from "./Thread";
 import { Transcript, type ReplyTarget } from "./Transcript";
 
-/** Toad Agent's stored backend id. Any other id is an ACP harness. */
-const TOAD_AGENT = "pi";
-
 /**
  * One teammate's conversation: the band naming them, the transcript, the
- * composer, and the search over it. Keyed by teammate above, so switching
+ * composer, and the search over it. The model and effort are not here:
+ * they are on the window's strip (ui/Titlebar.tsx), which hands a refusal
+ * down as `said` for the band to say. Keyed by teammate above, so switching
  * tears the tape subscription down and puts up another rather than folding
  * two conversations into one column.
  *
@@ -33,15 +32,14 @@ const TOAD_AGENT = "pi";
 export function Conversation({
 	entry,
 	roster,
-	models,
 	jobs,
+	said,
 	searchOpen,
 	inspectorOpen,
 	focus,
 	onBack,
 	onToggleInspector,
 	onOpenSchedules,
-	onToggleSearch,
 	onCloseSearch,
 	onDelete,
 	onPick,
@@ -51,14 +49,14 @@ export function Conversation({
 	/** A narrow window: the rail is a step back from here. */
 	onBack?: () => void;
 	roster: RosterEntry[];
-	models: ConfigChoice[];
 	jobs: ScheduledJob[];
+	/** What the strip's model or effort picker was refused with, or nothing. */
+	said: string | null;
 	searchOpen: boolean;
 	inspectorOpen: boolean;
 	focus: { eventId: string; at: number } | null;
 	onToggleInspector(): void;
 	onOpenSchedules(): void;
-	onToggleSearch(): void;
 	onCloseSearch(): void;
 	onDelete(): void;
 	onPick(personaId: string, eventId: string): void;
@@ -69,10 +67,7 @@ export function Conversation({
 	const { events, streaming } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
-	const [modelSaid, setModelSaid] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
-	const [idleEfforts, setIdleEfforts] = useState<ConfigChoice[]>([]);
-	const { defaultModelId, lastModelId } = useRoomSettings();
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
@@ -122,64 +117,6 @@ export function Conversation({
 		return () => window.removeEventListener("keydown", onKey);
 	}, [replying]);
 
-	const toad = persona.backendId === TOAD_AGENT;
-	const modelChoices = session.models.length > 0 ? session.models : toad ? models : [];
-	// The band names the model a turn would run on, whether or not a session
-	// is up. For Toad Agent that is the driver's own rule: the teammate's
-	// choice when the list still has it, else the room default, else the
-	// last model used, else the first choice — newest only on a desk that
-	// has never run a model. For a harness it is the last model a session
-	// reported, remembered on the teammate; before any ever has, the
-	// harness's own name stands where the model will.
-	const currentModel =
-		session.currentModelId ??
-		(toad ? toadModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
-	const [harnessName, setHarnessName] = useState<string | null>(null);
-	useEffect(() => {
-		if (toad || currentModel !== "") return;
-		let cancelled = false;
-		void wire.command("backends.list", {}).then(
-			(list) => {
-				if (!cancelled) setHarnessName(list.find((one) => one.id === persona.backendId)?.name ?? null);
-			},
-			() => {
-				if (!cancelled) setHarnessName(null);
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [toad, currentModel, persona.backendId]);
-	const restingModel = currentModel !== "" ? currentModel : harnessName;
-	const currentMode = session.currentModeId ?? persona.modeId ?? "";
-	// An idle Toad Agent session carries no configs. The band derives the
-	// effort picker the same way it derives currentModel: the catalogue
-	// for the model a turn would run on.
-	useEffect(() => {
-		if (!toad || currentModel === "") {
-			setIdleEfforts([]);
-			return;
-		}
-		let cancelled = false;
-		void wire.command("models.efforts", { modelId: currentModel }).then(
-			(choices) => {
-				if (!cancelled) setIdleEfforts(choices);
-			},
-			() => {
-				if (!cancelled) setIdleEfforts([]);
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [toad, currentModel]);
-	const configs: SessionConfig[] =
-		session.configs.length > 0
-			? session.configs
-			: toad && idleEfforts.length > 0
-				? [{ id: "effort", name: "Effort", category: "effort", currentId: persona.effortId ?? "", options: idleEfforts }]
-				: [];
-	const visibleConfigs = toad ? configs : configs.filter((config) => config.category === "effort");
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const screen = useComputerViewer(personaId, running && (persona.computer?.enabled ?? false));
 	const openScreen = screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen);
@@ -189,52 +126,18 @@ export function Conversation({
 	);
 	const scheduleDetail = next === null ? "Paused" : `Next ${nextText(next.nextAt)}`;
 
-	/* A narrow band keeps the name, the model and the three keys. Toad Agent's
-	 * mode and effort move into the More menu as checked groups, and so does the
-	 * schedule line: ACP runtime modes live in the Reach card instead. */
+	/* A narrow band keeps the name and its keys; the schedule line folds into
+	 * the More menu, one press further away, rather than a band that clips it. */
 	const narrow = useNarrow();
 	const folded: MenuEntry[] = [];
-	if (narrow) {
-		if (toad && session.modes.length > 0) {
-			folded.push({ kind: "heading", text: session.modeLabel ?? "Mode" });
-			for (const mode of session.modes) {
-				folded.push({
-					kind: "item",
-					id: `mode-${mode.id}`,
-					text: mode.name,
-					checked: mode.id === currentMode,
-					onSelect: () => void wire.command("session.set_mode", { personaId, modeId: mode.id }),
-				});
-			}
-		}
-		for (const config of visibleConfigs) {
-			folded.push({ kind: "heading", text: config.name });
-			for (const option of config.options) {
-				folded.push({
-					kind: "item",
-					id: `${config.id}-${option.id}`,
-					text: option.name,
-					checked: option.id === (config.currentId ?? ""),
-					onSelect: () => {
-						setModelSaid(null);
-						void wire
-							.command("session.set_config", { personaId, configId: config.id, value: option.id })
-							.catch((error: Error) => setModelSaid(error.message));
-					},
-				});
-			}
-		}
-		if (jobs.length > 0) {
-			if (folded.length > 0) folded.push({ kind: "rule" });
-			folded.push({
-				kind: "item",
-				id: "schedules",
-				text: jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`,
-				detail: scheduleDetail,
-				onSelect: onOpenSchedules,
-			});
-		}
-		if (folded.length > 0) folded.push({ kind: "rule" });
+	if (narrow && jobs.length > 0) {
+		folded.push({
+			kind: "item",
+			id: "schedules",
+			text: jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`,
+			detail: scheduleDetail,
+			onSelect: onOpenSchedules,
+		});
 	}
 
 	const more: MenuEntry[] = [
@@ -256,10 +159,10 @@ export function Conversation({
 		{ kind: "item", id: "delete", text: "Remove teammate…", danger: true, onSelect: onDelete },
 	];
 
-	const said =
+	const notice =
 		session.error !== undefined && session.error !== ""
 			? session.error
-			: (modelSaid ??
+			: (said ??
 				chapterSaid ??
 				(resumeBlocked !== null && resumeBlocked !== "There is no previous chapter to reopen."
 					? resumeBlocked
@@ -298,69 +201,11 @@ export function Conversation({
 					</button>
 				)}
 
-				{modelChoices.length > 0 ? (
-					<Picker
-						value={currentModel}
-						choices={modelChoices}
-						placeholder="Model"
-						label={session.modelLabel ?? "Model"}
-						onChange={(modelId) => {
-							setModelSaid(null);
-							void wire
-								.command("session.set_model", { personaId, modelId })
-								.catch((error: Error) => setModelSaid(error.message));
-						}}
-					/>
-				) : (
-					restingModel !== null && (
-						<span
-							className="control max-w-[220px] truncate px-2 font-medium text-ink-2"
-							title={currentModel !== "" ? "The model of the last session; the list comes once it starts" : "Starts on its own model"}
-						>
-							{restingModel}
-						</span>
-					)
-				)}
-				{toad && session.modes.length > 0 && !narrow && (
-					<Picker
-						value={currentMode}
-						choices={session.modes}
-						placeholder={session.modeLabel ?? "Mode"}
-						label={session.modeLabel ?? "Mode"}
-						onChange={(modeId) => void wire.command("session.set_mode", { personaId, modeId })}
-					/>
-				)}
-				{!narrow && visibleConfigs.map((config) => (
-					<Picker
-						key={config.id}
-						value={config.currentId ?? ""}
-						choices={config.options}
-						placeholder={config.name}
-						label={config.name}
-						onChange={(value) => {
-							setModelSaid(null);
-							void wire
-								.command("session.set_config", { personaId, configId: config.id, value })
-								.catch((error: Error) => setModelSaid(error.message));
-						}}
-					/>
-				))}
-
 				{openScreen !== undefined && (
 					<button type="button" className="control btn-quiet" title="Open the teammate's desktop" onClick={openScreen}>
 						Screen
 					</button>
 				)}
-				<button
-					type="button"
-					className="control btn-icon"
-					title={`Search (${chordKeys("search")})`}
-					aria-label="Search"
-					aria-pressed={searchOpen}
-					onClick={onToggleSearch}
-				>
-					<SearchIcon />
-				</button>
 				<button
 					type="button"
 					className="control btn-icon"
@@ -376,13 +221,13 @@ export function Conversation({
 				</MenuButton>
 			</Band>
 
-			{said !== null && (
+			{notice !== null && (
 				<p
 					role="status"
 					className="flex shrink-0 items-center gap-2 bg-danger-soft px-4 py-1.5 text-sm text-ink"
 				>
 					<WarningIcon className="shrink-0 text-danger" />
-					<span className="min-w-0 flex-1 selectable">{said}</span>
+					<span className="min-w-0 flex-1 selectable">{notice}</span>
 				</p>
 			)}
 
@@ -422,18 +267,6 @@ export function Conversation({
 }
 
 /** The model Toad Agent starts on: see `model_for` in the core. */
-function toadModel(
-	chosen: string | undefined,
-	defaultModelId: string | null,
-	lastModelId: string | null,
-	choices: ConfigChoice[],
-): string {
-	if (chosen !== undefined && choices.some((one) => one.id === chosen)) return chosen;
-	if (defaultModelId !== null && choices.some((one) => one.id === defaultModelId)) return defaultModelId;
-	if (lastModelId !== null && choices.some((one) => one.id === lastModelId)) return lastModelId;
-	return choices[0]?.id ?? "";
-}
-
 /**
  * What `chapter.resume` would say without asking. The room refuses a
  * second hop and a missing predecessor; the window greys the item so

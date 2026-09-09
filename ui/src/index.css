@@ -146,36 +146,66 @@
 	}
 
 	/* ------------------------------------------------------------ titlebar
-	 * Where the shell draws no frame, this strip is the window's: the well
-	 * itself, so the window is one material to its edge. The title is a
-	 * reading, not a heading; the controls are marks on the chrome. */
+	 * The window's top strip on every platform: the well itself, so the
+	 * window is one material to its edge. Three cells, the outer two equal,
+	 * so the title stays on the window's centre line whatever stands at
+	 * the right; a title that does not fit truncates, and a narrow window
+	 * drops it, since the pane's band already says the name. The title is
+	 * a reading, not a heading; the controls are marks on the chrome. On
+	 * macOS the traffic lights sit in the left corner, on this strip's
+	 * centre line (toad-desktop), and the strip leaves 80 for them; in
+	 * fullscreen they leave with the menu bar and the room goes too. */
 	.titlebar {
 		position: relative;
-		display: flex;
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
 		height: 32px;
 		flex-shrink: 0;
 		align-items: center;
-		justify-content: center;
+		gap: 8px;
+		padding: 0 8px 0 14px;
+	}
+	html[data-platform="macos"]:not([data-fullscreen]) .titlebar {
+		padding-left: 80px;
 	}
 	.titlebar-drag {
 		position: absolute;
 		inset: 0;
 	}
 	.titlebar-mark {
-		position: absolute;
-		left: 14px;
-		top: 50%;
-		transform: translateY(-50%);
+		position: relative;
+		justify-self: start;
 		pointer-events: none;
 		color: var(--ink-3);
 	}
 	.titlebar-title {
 		position: relative;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		pointer-events: none;
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
 		font-weight: 500;
 		color: var(--ink-3);
+	}
+	@media (max-width: 719px) {
+		.titlebar-title {
+			display: none;
+		}
+	}
+	.titlebar-tools {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-self: end;
+		gap: 4px;
+	}
+	/* The three controls are 44 each; the tools stop short of them. */
+	html[data-platform="linux"] .titlebar-tools,
+	html[data-platform="windows"] .titlebar-tools {
+		margin-right: 132px;
 	}
 	.titlebar-controls {
 		position: absolute;
@@ -210,8 +240,7 @@
 	/* ---------------------------------------------------------------- band
 	 * The 40px strip along the top of every pane. It drags the window; a
 	 * double-click maximises; anything inside it still takes the click. It
-	 * has no line under it: what scrolls fades out beneath it instead. On
-	 * macOS the rail's band leaves room for the traffic lights. */
+	 * has no line under it: what scrolls fades out beneath it instead. */
 	.band {
 		position: relative;
 		display: flex;
@@ -232,10 +261,6 @@
 		gap: 4px;
 		padding: 0 8px;
 	}
-	html[data-platform="macos"] .band-rail .band-row {
-		padding-left: 80px;
-	}
-
 	/* ------------------------------------------------------------ controls */
 	.control {
 		display: inline-flex;

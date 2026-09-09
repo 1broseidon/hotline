@@ -17,15 +17,18 @@ press.
 
 One family, **Workbench**, for every screen:
 
-- On Linux and Windows the shell draws no frame. The window's top strip is
-  the well itself: 32px, the window's title in the centre in ink-3, the
-  mark in the left corner where a frame keeps its app icon, and minimize,
-  maximize and close flush to the right corner as marks on the chrome, not
-  keys. A hairline a shade lighter and bluer than the well outlines the
-  whole window, so it has an edge against a dark desktop. On Linux the
-  window is see-through and the page rounds its own corners to the pane
-  radius, so the window is one more pane on the desk; maximised, it is
-  square. macOS keeps its traffic lights over the rail band instead.
+- The window's top strip, on every platform, is the well itself: 32px,
+  the mark in the left corner where a frame keeps its app icon, the
+  window's title in the centre in ink-3, and at the right the open
+  teammate's model and effort and the search. On Linux and Windows the
+  shell draws no frame, and minimize, maximize and close sit flush to the
+  right corner beyond them as marks on the chrome, not keys. A hairline a
+  shade lighter and bluer than the well outlines the whole window there,
+  so it has an edge against a dark desktop. On Linux the window is
+  see-through and the page rounds its own corners to the pane radius, so
+  the window is one more pane on the desk; maximised, it is square. macOS
+  keeps its traffic lights in the left corner, on the strip's centre
+  line, and the strip leaves room for them.
 - The **mark** is one shape in one colour, `ui/src/ui/ToadMark.tsx`. In
   chrome it is ink-3, the colour of a reading, never the accent: the
   accent is for what is happening, and the mark is furniture. The app
@@ -52,9 +55,9 @@ One family, **Workbench**, for every screen:
   Searching, Editing, Running, Thinking, or Waiting on you. Nothing
   streams. A reply lands whole, the way a text does, and the mark
   collapses into three dots while it is on its way. A press on the mark
-  opens the work behind it for that turn. The band is the name, the
-  model, and the tools — everything else about a teammate lives under the
-  inspector.
+  opens the work behind it for that turn. The band is the name and the
+  tools; the model and effort are on the window's strip, and everything
+  else about a teammate — its mode included — lives under the inspector.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
 
@@ -62,10 +65,10 @@ A window narrower than 720px holds one thing at a time, the way a phone
 does: the rail, or what was chosen in it, with a back key at the head of
 the pane's band and Escape as the same step. Nothing is re-laid out in
 place; a pane replaces the rail rather than squeezing beside it, and a
-wide window never shows the back key. The conversation's band keeps the
-name, the model and its three keys; mode, effort and the schedule line
-fold into the More menu as checked groups — the same choices, one press
-further away, rather than a band that clips them. The inspector has its own, wider
+wide window never shows the back key. The strip keeps the model, the
+effort and the search and drops its title, which the pane's band already
+says; the schedule line folds into the More menu, one press further
+away, rather than a band that clips it. The inspector has its own, wider
 cut-off, because it needs the conversation beside it and the rail does not.
 
 Providers and Tools are one shape, because they do one job: a list of

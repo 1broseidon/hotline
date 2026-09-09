@@ -4,7 +4,6 @@ import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar } from "../ui/Avatar";
-import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 
 /**
@@ -56,19 +55,6 @@ export function Rail({
 	];
 	return (
 		<nav aria-label="Team" className="rail flex flex-col">
-			<Band rail>
-				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Team</h1>
-				<button
-					type="button"
-					className="control btn-icon"
-					title={`New teammate (${chordKeys("new-teammate")})`}
-					aria-label="New teammate"
-					onClick={onNew}
-				>
-					<PlusIcon />
-				</button>
-			</Band>
-
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
 				{entries.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-ink-3">
@@ -100,6 +86,15 @@ export function Rail({
 				>
 					<GearIcon className="text-ink-3" />
 					Settings
+				</button>
+				<button
+					type="button"
+					className="control btn-icon"
+					title={`New teammate (${chordKeys("new-teammate")})`}
+					aria-label="New teammate"
+					onClick={onNew}
+				>
+					<PlusIcon />
 				</button>
 				<MenuButton className="control btn-icon" label="More" entries={help}>
 					<MoreIcon />
@@ -192,7 +187,8 @@ function Row({
 }
 
 /** Off-screen, and the tape has a line newer than the last one this window showed. */
-function unreadOf(
+/** Whether a row shows as unread: the badge on the dock counts these (App.tsx). */
+export function unreadOf(
 	entry: RosterEntry,
 	selectedId: string | null,
 	seen: Record<string, number>,

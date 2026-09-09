@@ -1,14 +1,14 @@
 /**
  * The desk's native pieces: a folder picker, opening a path or a link, the
- * clipboard, the menu the shell emits, the window chrome, and the version
- * and data directory the shell injected. Each call is a no-op — or a web
+ * clipboard, the menu the shell emits, the window chrome, the dock, and the
+ * version and data directory the shell injected. Each call is a no-op — or a web
  * fallback — in a browser tab, so the window can still typecheck and render
  * there.
  */
 
 import { listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { UserAttentionType, getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -114,16 +114,38 @@ export async function closeWindow(): Promise<void> {
 	}
 }
 
-/** Tells `onChange` whether the window is maximised, now and on every resize. */
-export function watchMaximized(onChange: (maximized: boolean) => void): () => void {
+/**
+ * The dock's badge: how many teammates have said something not yet read.
+ * Nothing at zero, not a zero.
+ */
+export async function setBadge(count: number): Promise<void> {
+	try {
+		await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
+	} catch {
+		// A browser tab has no dock.
+	}
+}
+
+/** One bounce of the dock icon, or a flash of the taskbar button, for a window not in focus. */
+export async function requestAttention(): Promise<void> {
+	try {
+		await getCurrentWindow().requestUserAttention(UserAttentionType.Informational);
+	} catch {
+		// A browser tab has no dock.
+	}
+}
+
+export type WindowShape = { maximized: boolean; fullscreen: boolean };
+
+/** Tells `onChange` the window's shape, now and on every resize. */
+export function watchWindowShape(onChange: (shape: WindowShape) => void): () => void {
 	let stop: (() => void) | undefined;
 	let gone = false;
 	const current = getCurrentWindow();
 	const read = () => {
-		current
-			.isMaximized()
-			.then((maximized) => {
-				if (!gone) onChange(maximized);
+		Promise.all([current.isMaximized(), current.isFullscreen()])
+			.then(([maximized, fullscreen]) => {
+				if (!gone) onChange({ maximized, fullscreen });
 			})
 			.catch(() => {});
 	};

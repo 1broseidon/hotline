@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-set-title",
@@ -12,6 +14,9 @@
     "core:window:allow-minimize",
     "core:window:allow-close",
     "core:window:allow-is-maximized",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-request-user-attention",
     "core:webview:allow-create-webview-window",
     "core:menu:allow-new",
     "core:menu:allow-popup",

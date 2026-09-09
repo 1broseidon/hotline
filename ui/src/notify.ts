@@ -16,6 +16,7 @@ import {
 	sendNotification,
 } from "@tauri-apps/plugin-notification";
 import type { SessionState } from "./generated/contract";
+import { requestAttention } from "./native";
 import type { RosterEntry } from "./wire";
 
 /** Last state seen per teammate, so a transition can be recognised as one. */
@@ -25,6 +26,8 @@ const lastState = new Map<string, SessionState>();
  * A roster fold just arrived. Notify only on thinking → ready or thinking →
  * error, and only when this window is not focused. A snapshot, a teammate
  * that was never thinking, and a window you are looking at are all silent.
+ * A teammate that blocked also bounces the dock once: a finished turn can
+ * wait for the toast to be read, a stuck one is asking for a hand.
  */
 export function noticeRoster(entries: RosterEntry[]): void {
 	const live = new Set<string>();
@@ -36,6 +39,7 @@ export function noticeRoster(entries: RosterEntry[]): void {
 		if (entry.session.state !== "ready" && entry.session.state !== "error") continue;
 		if (document.hasFocus()) continue;
 		void tell(entry.persona.name, lastLine(entry));
+		if (entry.session.state === "error") void requestAttention();
 	}
 	for (const id of lastState.keys()) {
 		if (!live.has(id)) lastState.delete(id);

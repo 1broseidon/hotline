@@ -2,13 +2,15 @@
 //!
 //! There is no child process. The core is a library; this binds its door on
 //! a loopback port, hands the page the port and a token before it loads, and
-//! opens a window on it. Everything the window does from then on is the
+//! opens a window on it once the page has loaded. Everything the window
+//! does from then on is the
 //! wire's business. Plugins remember the window's place, post toasts, pick
 //! folders, open links, and write the clipboard; the judgement for those
-//! lives in the page, not here. On macOS the menu bar is this process's,
-//! and its items emit an event the window handles. On Linux and Windows
-//! there is no menu bar and no system frame: the page draws the window's
-//! own top strip and controls, so the window is one material to its edge.
+//! lives in the page, not here. The page draws the window's top strip on
+//! every platform. On macOS the menu bar is this process's, and its items
+//! emit an event the window handles. On Linux and Windows there is no menu
+//! bar and no system frame: the strip carries the window's controls too,
+//! so the window is one material to its edge.
 //! Closing the window hides it; the tray is how the person gets it back and
 //! how they actually quit, because the room keeps working either way.
 
@@ -22,6 +24,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use toad_core::desk::Desk;
@@ -43,23 +46,45 @@ fn random_token() -> String {
 }
 
 /// The chords the window already listens for, shown on the menu so a shortcut
-/// nobody can see is no shortcut. Ctrl, not Cmd, because the window's own
-/// listener is Ctrl on every platform. The rows themselves live in
-/// `ui/src/chords.ts`; a change here that is not a change there is a drift.
-/// macOS only: a Mac app without a menu bar has no Quit and no Paste, while
-/// elsewhere the webview answers those chords itself and the page lists
-/// the rest under the rail's More menu.
+/// nobody can see is no shortcut. `CmdOrCtrl` is Cmd here, matching the
+/// window's own listener, which is Cmd on macOS and Ctrl elsewhere. The rows
+/// themselves live in `ui/src/chords.ts`; a change here that is not a change
+/// there is a drift. macOS only: a Mac app without a menu bar has no Quit and
+/// no Paste, while elsewhere the webview answers those chords itself and the
+/// page lists the rest under the rail's More menu.
+///
+/// The app and Window menus carry the items every Mac app has — Hide, Hide
+/// Others, Services, Minimize, Zoom — because a hand that presses Cmd+H or
+/// Cmd+M expects them to work, and AppKit adds Emoji & Symbols to an Edit
+/// menu and a search field to a Help menu on its own once each is
+/// registered as such.
 #[cfg(target_os = "macos")]
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
-    let settings = MenuItemBuilder::with_id("settings", "Settings")
-        .accelerator("Ctrl+,")
+    let settings = MenuItemBuilder::with_id("settings", "Settings…")
+        .accelerator("CmdOrCtrl+,")
         .build(app)?;
-    let about = MenuItemBuilder::with_id("about", "About").build(app)?;
+    let about = MenuItemBuilder::with_id("about", "About Toad").build(app)?;
     let app_menu = SubmenuBuilder::new(app, "Toad")
-        .item(&settings)
         .item(&about)
         .separator()
+        .item(&settings)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
         .quit()
+        .build()?;
+
+    let new_teammate = MenuItemBuilder::with_id("new-teammate", "New Teammate")
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let file = SubmenuBuilder::new(app, "File")
+        .item(&new_teammate)
+        .separator()
+        .close_window()
         .build()?;
 
     let edit = SubmenuBuilder::new(app, "Edit")
@@ -73,39 +98,45 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .build()?;
 
     let search = MenuItemBuilder::with_id("search", "Search")
-        .accelerator("Ctrl+F")
-        .build(app)?;
-    let new_teammate = MenuItemBuilder::with_id("new-teammate", "New Teammate")
-        .accelerator("Ctrl+N")
+        .accelerator("CmdOrCtrl+F")
         .build(app)?;
     let teammate = MenuItemBuilder::with_id("teammate", "Teammate")
-        .accelerator("Ctrl+I")
+        .accelerator("CmdOrCtrl+I")
         .build(app)?;
     let mut view = SubmenuBuilder::new(app, "View")
         .item(&search)
-        .separator()
-        .item(&new_teammate)
         .item(&teammate)
         .separator();
     for n in 1..=9 {
         let item = MenuItemBuilder::with_id(format!("teammate-{n}"), format!("Teammate {n}"))
-            .accelerator(format!("Ctrl+{n}"))
+            .accelerator(format!("CmdOrCtrl+{n}"))
             .build(app)?;
         view = view.item(&item);
     }
     let view = view.build()?;
-    let shortcuts = MenuItemBuilder::with_id("shortcuts", "Keyboard shortcuts").build(app)?;
-    let about_toad = MenuItemBuilder::with_id("about", "About Toad").build(app)?;
+
+    let window = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize_with_text("Zoom")
+        .separator()
+        .bring_all_to_front()
+        .build()?;
+    window.set_as_windows_menu_for_nsapp()?;
+
+    let shortcuts = MenuItemBuilder::with_id("shortcuts", "Keyboard Shortcuts").build(app)?;
     let github = MenuItemBuilder::with_id("github", "Toad on GitHub").build(app)?;
     let help = SubmenuBuilder::new(app, "Help")
         .item(&shortcuts)
-        .item(&about_toad)
         .item(&github)
         .build()?;
+    help.set_as_help_menu_for_nsapp()?;
+
     let menu = MenuBuilder::new(app)
         .item(&app_menu)
+        .item(&file)
         .item(&edit)
         .item(&view)
+        .item(&window)
         .item(&help)
         .build()?;
     app.set_menu(menu)?;
@@ -229,19 +260,41 @@ pub fn run() {
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             install_menu(app)?;
+            // The window stays hidden until the page has loaded, because a
+            // window shown first is a white frame before the well paints,
+            // and a dark theme notices. Shown once: a reload of the page
+            // while the window is hidden in the tray must not raise it.
+            let shown = std::sync::Once::new();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Toad")
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(520.0, 420.0)
                 .center()
+                .visible(false)
+                .on_page_load(move |window, payload| {
+                    if matches!(payload.event(), PageLoadEvent::Finished) {
+                        shown.call_once(|| {
+                            let _ = window.show();
+                        });
+                    }
+                })
                 .initialization_script(&script);
-            // Overlay puts the traffic lights on the page so the rail header
-            // can sit on their centre line. Elsewhere the system frame is
+            // Overlay puts the traffic lights on the page, and the inset
+            // puts their centre on the top strip's centre line: 16 logical
+            // pixels down, half the strip's 32. The number is tao's, not a
+            // centre — it resizes AppKit's title bar container and the
+            // buttons keep their seat in it, so the centre lands 2 above
+            // the given y; measured, not derived. The strip leaves 80 for
+            // them (index.css). A click into an inactive
+            // window lands on what it hit, the way Finder's does, rather
+            // than only waking the window. Elsewhere the system frame is
             // dropped and the page draws its own strip and controls.
             #[cfg(target_os = "macos")]
             let window = window
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true);
+                .hidden_title(true)
+                .traffic_light_position(tauri::LogicalPosition::new(12.0, 18.0))
+                .accept_first_mouse(true);
             #[cfg(not(target_os = "macos"))]
             let window = window.decorations(false);
             // A frameless window on Linux is a rectangle unless it is see-through

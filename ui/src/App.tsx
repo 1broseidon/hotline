@@ -4,7 +4,7 @@ import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
-import { Rail } from "./components/Rail";
+import { Rail, unreadOf } from "./components/Rail";
 import { Titlebar } from "./ui/Titlebar";
 import { Settings, SettingsRail, type SettingsSection } from "./components/Settings";
 import { Shortcuts } from "./components/Shortcuts";
@@ -12,7 +12,7 @@ import { Teammate } from "./components/Teammate";
 import { Thread, type OpenThread } from "./components/Thread";
 import { matchChord } from "./chords";
 import { PlusIcon } from "./icons";
-import { confirmRemove, drawsFrame, listenMenu, openLink } from "./native";
+import { confirmRemove, listenMenu, openLink, platform, setBadge, watchWindowShape } from "./native";
 import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
 import { useRoomJobs, useRoomSettings } from "./room";
 import { Band } from "./ui/Band";
@@ -40,6 +40,13 @@ export function App() {
 	const [inspector, setInspector] = useState(false);
 	const [focusSchedules, setFocusSchedules] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
+	/* What the strip's model or effort picker was refused with. The strip
+	 * has no room for a sentence, so the conversation says it; a new
+	 * teammate is a new conversation, so it goes when the selection does. */
+	const [said, setSaid] = useState<string | null>(null);
+	useEffect(() => {
+		setSaid(null);
+	}, [selectedId]);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
 	const jobs = useRoomJobs();
 	const { enabledModels } = useRoomSettings();
@@ -98,6 +105,20 @@ export function App() {
 	useEffect(() => {
 		noticeRoster(roster);
 	}, [roster]);
+
+	// The dock's badge is the rail's unread count: the rows in bold, counted.
+	useEffect(() => {
+		void setBadge(roster.filter((entry) => unreadOf(entry, selectedId, seen)).length);
+	}, [roster, selectedId, seen]);
+
+	// In native fullscreen the traffic lights leave with the menu bar, and
+	// the rail's gutter for them goes too (index.css).
+	useEffect(() => {
+		if (platform() !== "macos") return;
+		return watchWindowShape(({ fullscreen }) => {
+			document.documentElement.toggleAttribute("data-fullscreen", fullscreen);
+		});
+	}, []);
 
 	useEffect(() => {
 		setWindowTitle(selected?.persona.name ?? null);
@@ -301,8 +322,15 @@ export function App() {
 
 	return (
 		<div className="flex h-full flex-col">
-			{drawsFrame() && <Titlebar name={selected?.persona.name ?? null} />}
-			<div className={drawsFrame() ? "flex min-h-0 flex-1 gap-2 p-2 pt-0" : "flex min-h-0 flex-1 gap-2 p-2"}>
+			<Titlebar
+				selected={selected}
+				models={models}
+				searchable={pane === null && selected !== null}
+				searchOpen={searchOpen}
+				onToggleSearch={() => setSearchOpen((open) => !open)}
+				onSaid={setSaid}
+			/>
+			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{narrow && !railOnly ? null : pane === "settings" ? (
 				<SettingsRail
 					section={settingsSection}
@@ -350,14 +378,13 @@ export function App() {
 							entry={selected}
 							{...(back !== undefined ? { onBack: back } : {})}
 							roster={roster}
-							models={models}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
+							said={said}
 							searchOpen={searchOpen}
 							inspectorOpen={inspector}
 							focus={focus}
 							onToggleInspector={() => toggleInspector()}
 							onOpenSchedules={() => toggleInspector(true)}
-							onToggleSearch={() => setSearchOpen((open) => !open)}
 							onCloseSearch={() => setSearchOpen(false)}
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
 							onPick={(personaId, eventId) => {

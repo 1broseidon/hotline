@@ -36,6 +36,14 @@ repository is what builds and publishes a release.
   away; the hints that repeated their titles are gone, and the section list
   is titles alone. The image field shows the pinned image it stands for.
 
+### Fixed
+- Apple container reads as ready when it is: the probe asks it `ls`, since
+  its CLI has no `version` and called the missing one a missing plugin.
+- The strip's model, effort and search stay at the right edge of a narrow
+  window instead of sliding into the title's empty column.
+- An agent that closes its pipe at the handshake is refused with what it
+  said on stderr, not only "transport closed".
+
 ## [0.5.0] - 2026-09-08
 
 The first release of the Rust desk, replacing the Electrobun edition on

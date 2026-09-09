@@ -879,8 +879,7 @@ impl Room {
                 let events = self.log.load(&StreamId::Thread(key.clone()));
                 let last = events
                     .iter()
-                    .filter(|event| matches!(kind_of(event), "user" | "agent"))
-                    .next_back();
+                    .rfind(|event| matches!(kind_of(event), "user" | "agent"));
                 Some(PeerThreadSummary {
                     with_persona_id: other.to_string(),
                     with_name: named(other),
@@ -914,7 +913,7 @@ impl Room {
                 })
             })
             .collect();
-        summaries.sort_by(|a, b| b.last_at.cmp(&a.last_at));
+        summaries.sort_by_key(|summary| std::cmp::Reverse(summary.last_at));
         summaries
     }
 

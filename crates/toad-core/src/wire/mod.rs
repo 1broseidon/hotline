@@ -376,6 +376,10 @@ fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
     }
 }
 
+// The handshake callback's error is tungstenite's `ErrorResponse`, a whole
+// HTTP response by value; the trait fixes the type, so the lint has nothing to
+// offer here.
+#[allow(clippy::result_large_err)]
 async fn serve(
     stream: TcpStream,
     desk_token: &str,

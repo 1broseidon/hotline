@@ -520,6 +520,7 @@ impl Room {
         message: &str,
         caller_capability: Option<CapabilityLease>,
     ) -> Result<DeliverResult, String> {
+        let _working = self.working()?;
         let caller = self.persona(from)?;
         let target = self.teammate_named(to)?;
         if caller.id == target.id {

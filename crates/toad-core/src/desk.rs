@@ -110,6 +110,11 @@ impl Desk {
         })
     }
 
+    /// Hold through installation and restart; release on failure to allow work again.
+    pub fn prepare_restart(&self) -> Result<tokio::sync::OwnedRwLockWriteGuard<()>, String> {
+        self.room.prepare_restart()
+    }
+
     fn mcp_server(&self, server_id: &str) -> Result<McpServer, String> {
         crate::mcp::servers(&crate::room::settings(&self.log))
             .into_iter()

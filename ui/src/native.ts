@@ -235,3 +235,47 @@ export async function popupTeammateMenu(actions: {
 		// A browser tab has the page menu.
 	}
 }
+
+export type UpdateStatus = {
+	current: string;
+	available: { version: string; notes: string } | null;
+	checkedAt: number | null;
+	phase: "idle" | "checking" | "downloading" | "installing" | "restarting";
+	downloaded: number;
+	total: number | null;
+	error: string | null;
+	disabledReason: string | null;
+};
+
+export async function updateStatus(): Promise<UpdateStatus> {
+	if (!isDesktop()) return {
+		current: appVersion(), available: null, checkedAt: null, phase: "idle",
+		downloaded: 0, total: null, error: null,
+		disabledReason: "Open the desktop application to check for updates.",
+	};
+	return invoke<UpdateStatus>("get_update_status");
+}
+
+/** Read after subscribing so reopening Settings catches up with a background check. */
+export function watchUpdates(onChange: (status: UpdateStatus) => void, onError: (error: unknown) => void): () => void {
+	let gone = false;
+	let stop: (() => void) | undefined;
+	void (async () => {
+		try {
+			if (isDesktop()) {
+				const unlisten = await listen<UpdateStatus>("toad://update", (event) => {
+					if (!gone) onChange(event.payload);
+				});
+				if (gone) { unlisten(); return; }
+				stop = unlisten;
+			}
+			const status = await updateStatus();
+			if (!gone) onChange(status);
+		} catch (error) { if (!gone) onError(error); }
+	})();
+	return () => { gone = true; stop?.(); };
+}
+
+export async function checkUpdate(): Promise<void> { await invoke("check_update"); }
+export async function installUpdate(version: string): Promise<void> { await invoke("install_update", { version }); }
+export async function cancelUpdate(): Promise<void> { await invoke("cancel_update"); }

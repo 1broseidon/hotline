@@ -1648,3 +1648,41 @@ async fn native_connection_metadata_and_account_restrictions_survive_reopening_o
             .contains("private-test-key")
     );
 }
+
+#[tokio::test]
+async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() {
+    let root = scratch("restart-wire");
+    let desk = Arc::new(Desk::open(&root).unwrap());
+    assert!(
+        desk.prepare_restart().is_ok(),
+        "An empty installation can update too"
+    );
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone()).unwrap();
+    let port = door.port();
+    let door_task = tokio::spawn(door.run());
+    let mut client = Client::connect(port).await;
+    let made = client
+        .call("persona.create", json!({"draft":{"name":"Update tester"}}))
+        .await;
+    assert_eq!(made["ok"], true, "{made}");
+    let id = made["result"]["id"].as_str().unwrap();
+    let saved = desk.log.load(&toad_core::log::StreamId::Room);
+    let held = desk.prepare_restart().unwrap();
+    let start = client.call("session.start", json!({"personaId":id})).await;
+    assert_eq!(start["ok"], false, "{start}");
+    assert!(start.to_string().contains("restart"), "{start}");
+    let prompt = client
+        .call(
+            "session.prompt",
+            json!({"personaId":id,"text":"Wait until after the update"}),
+        )
+        .await;
+    assert_eq!(prompt["ok"], false, "{prompt}");
+    assert!(prompt.to_string().contains("restart"), "{prompt}");
+    assert_eq!(desk.log.load(&toad_core::log::StreamId::Room), saved);
+    drop(held);
+    assert!(desk.prepare_restart().is_ok());
+    door_task.abort();
+    let reopened = Desk::open(&root).unwrap();
+    assert_eq!(reopened.log.load(&toad_core::log::StreamId::Room), saved);
+}

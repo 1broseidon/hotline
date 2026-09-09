@@ -12,6 +12,7 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
 - [Rust](https://rustup.rs) stable. The workspace edition is 2024.
 - The [Tauri CLI](https://v2.tauri.app/) as a cargo subcommand:
   `cargo install tauri-cli --version ^2`.
+- Python 3, for release manifest validation in `make check`.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
 - On Linux, `libayatana-appindicator3` at runtime, for the tray, and its
@@ -88,7 +89,7 @@ instance. The shell generates a one-launch token, binds the door on
 `{platform, origin, token, version, dataDir}` before the page loads.
 
 `make check` is, in order: `bun install --frozen-lockfile` and `bun run
-typecheck` in `ui/`; `cargo fmt --all --check`; `cargo clippy --workspace
+typecheck` in `ui/`; the Python release-manifest tests; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.
 
@@ -97,6 +98,64 @@ tests under `crates/toad-core/tests/`, not the unit tests that live beside
 the code. `make check` already runs those unit tests as part of
 `cargo test --workspace`. Two of those tests talk to a real agent and are
 skipped unless you set the env they name — see [The harness](#the-harness).
+
+## Application updates
+
+Settings → Updates checks GitHub every six hours while a packaged Toad is
+running, with a first check after 20 seconds when due. **Check now** bypasses
+that interval. The last attempt and available version are stored in
+`<data dir>/updater.json`; restarting Toad preserves the interval. A new
+installed version starts a fresh check. Failures keep the previous offer.
+Release notes are plain text, and cached offers never authorize installation:
+Toad rechecks the trusted endpoint and requires the version the user reviewed.
+
+**Download, install and restart** uses `tauri-plugin-updater` 2.11.0, following
+Prism's desktop updater. The plugin verifies the downloaded signature before
+installation. A download can be cancelled; installation cannot be cancelled
+from Toad after the native installer starts. Linux deb/rpm installs may ask
+for system privileges. Failed download, verification or installation leaves
+Toad running and releases the room so work can continue. Successful installation
+hands restart to Tauri. If the OS cannot relaunch it, reopen Toad normally.
+
+The room refuses installation while a turn, queued message, peer request,
+session start or chapter handoff is running. Once idle, it holds a restart
+lease through download and installation, blocking new work and syncing the
+room, tape and thread files. Due schedules stay on disk for the next launch,
+or resume after cancellation/failure. Installation replaces application files;
+it does not migrate, reset or overwrite the data directory, vault, discovered
+models, manual model entries or conversations.
+
+The shipped targets are macOS aarch64/x86_64 app bundles and Linux x86_64
+AppImage/deb/rpm. Explicit manifest keys include the installer suffix, so a
+missing deb is an error, never an AppImage fallback. Other packages and
+architectures open the release page instead. Development builds, including
+`make dev`, neither check nor install. Headless tests use Tauri's mock runtime,
+a separate test signing key, and loopback HTTP fixtures; they never install.
+The first release containing this updater must itself be installed manually
+on copies that predate it.
+
+The public signing key and HTTPS endpoint live in
+`crates/toad-desktop/tauri.conf.json`. The endpoint currently points directly
+to GitHub's `releases/latest/download/latest.json`; a future hosting change can
+serve the same contract from another configured HTTPS endpoint. There is no
+runtime URL or signing-key control in the window.
+
+CI requires `TAURI_SIGNING_PRIVATE_KEY` and optionally
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in repository secrets. This key is separate
+from Apple signing credentials. Keep an independent private backup: replacing
+the public key in a future build does not teach already installed copies to
+trust the replacement. Never commit the private key or include it in artifacts.
+`make build` keeps ordinary local bundling available without a signing key;
+release CI explicitly enables `createUpdaterArtifacts` and requires signatures.
+
+Each workflow build collects packages and signatures under predictable names.
+After all three targets succeed, `scripts/updater_manifest.py` verifies that
+every expected package/signature exists and writes `updater-X.Y.Z.json` and
+`latest.json`. Notes come from the draft GitHub release. The release becomes
+latest only after all assets are uploaded. Manual workflow runs produce signed
+workflow artifacts without publishing. Published versions cannot be rebuilt;
+ship a new stable `desktop-vX.Y.Z` tag. Windows remains outside the release
+matrix until its existing vault prerequisite is resolved.
 
 ## The window
 
@@ -121,6 +180,7 @@ Capabilities for the main window are
 | `dialog` | the folder picker, and "Remove …? Their conversation goes too." |
 | `opener` | open a link, reveal a path in the file manager |
 | `clipboard-manager` | write the clipboard |
+| `updater` | signed updates, through desktop commands with an idle-room guard |
 
 Closing the window hides it; the process, the teammates and the schedules
 stay. The tray is how the person gets the window back and how they actually
@@ -164,7 +224,7 @@ components (Avatar, Band, Menu). A colour or a face is always a token,
 never a literal in a component. Settings, New
 Teammate, Keyboard shortcuts and About are panes that replace the
 conversation, not a card over it. While Settings is open the rail is its
-sections — General, Providers, Tools, Import — with a back key in its band
+sections — General, Providers, Tools, Computer, Updates, Import — with a back key in its band
 where the team's plus was, and the pane shows one section at a time. The
 teammate inspector sits beside the
 conversation; search is a popover that hangs under the band over the

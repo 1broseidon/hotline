@@ -5,6 +5,7 @@ dev: export TOAD_DATA_DIR := $(CURDIR)/.toad-dev
 .PHONY: check ui-check dev build verify icons tray-icons
 
 check: ui-check
+	python3 -m unittest discover -s scripts -p 'test_*.py'
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace

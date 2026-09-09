@@ -231,6 +231,15 @@ the selected model, connection endpoint, or credentials. Persisted connection
 data is separate from the application's bundled snapshot.
 Claude subscription access stays with Claude Code through ACP.
 
+Application updates follow Prism's Tauri updater: a six-hour GitHub check,
+brief notes in Settings, and user-triggered signed download, install and restart.
+Installer-specific manifest keys preserve the installed package format. The
+core has no Tauri dependency; it provides an idle restart lease so the desktop
+cannot discard queued work or race a new turn. A held lease pauses admission
+and leaves due schedules durable; dropping it after failure resumes the room.
+User data stays outside replaced application assets. Development builds never
+check or install updates.
+
 ## Module map
 
 ```

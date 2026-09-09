@@ -484,6 +484,8 @@ pub struct Room {
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
+    /// Work holds a read lease; an installer can pause an idle room atomically.
+    activity: Arc<tokio::sync::RwLock<()>>,
 }
 
 impl Room {
@@ -544,11 +546,40 @@ impl Room {
             human_waits: Mutex::new(HashMap::new()),
             computers: Computer::new(),
             policy_updates: Arc::new(TokioMutex::new(())),
+            activity: Arc::new(tokio::sync::RwLock::new(())),
         });
         room.settle_tapes();
         sweep_idle_chapters(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
         room
+    }
+
+    fn working(&self) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, String> {
+        self.activity.clone().try_read_owned().map_err(|_| {
+            "Toad is preparing to restart for an update. Try again when it finishes.".to_string()
+        })
+    }
+
+    /// Refuses while any turn, queued work, session start, peer request or
+    /// chapter handoff is running. Dropping the lease resumes the room after
+    /// a failed installation; scheduled jobs remain on disk throughout.
+    pub fn prepare_restart(&self) -> Result<tokio::sync::OwnedRwLockWriteGuard<()>, String> {
+        let held = self.activity.clone().try_write_owned()
+            .map_err(|_| "Teammates are still working. Wait for them to finish or stop their turns, then try again.".to_string())?;
+        self.log
+            .sync(&StreamId::Room)
+            .map_err(|error| error.to_string())?;
+        for persona in room::roster(&self.log) {
+            self.log
+                .sync(&StreamId::Tape(persona.id))
+                .map_err(|error| error.to_string())?;
+        }
+        for key in thread::list_all_keys(self.log.root()) {
+            self.log
+                .sync(&StreamId::Thread(key))
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(held)
     }
 
     /// The room-wide gate used by the wire around policy updates. A caller
@@ -606,6 +637,7 @@ impl Room {
     /// starts the same teammate — gets the session that exists, not a second
     /// agent on the same tape that only one of them could ever stop.
     pub async fn start(self: &Arc<Self>, persona_id: &str) -> Result<SessionInfo, String> {
+        let _working = self.working()?;
         let capability = self.capability_lease(persona_id);
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
@@ -648,6 +680,7 @@ impl Room {
         persona_id: &str,
         capability: CapabilityLease,
     ) -> Result<SessionInfo, String> {
+        let _working = self.working()?;
         capability.check()?;
         let persona = self.persona(persona_id)?;
         capability.check()?;
@@ -936,6 +969,7 @@ impl Room {
     /// An old turn cannot delay the change: its handles are revoked before
     /// replacement, and its remaining updates cannot change the new session.
     pub async fn reattach(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let _working = self.working()?;
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
         // The wire invalidates before appending. Repeating it also gives
@@ -1025,6 +1059,7 @@ impl Room {
         reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
+        let _working = self.working()?;
         let session = self.in_this_chapter(persona_id).await?;
         if let Some(answered) = reply_to {
             mark(&session.pending_reply, answered);
@@ -1060,6 +1095,7 @@ impl Room {
         prompt: &str,
         run: ScheduledRun,
     ) -> Result<(), String> {
+        let _working = self.working()?;
         let session = self.in_this_chapter(persona_id).await?;
         if !schedule::scheduled_run_allowed(&self.log, persona_id, &run) {
             return Err("Background work is not granted for this teammate.".to_string());
@@ -1084,6 +1120,7 @@ impl Room {
     /// Queued like a prompt and never written down: the driver hears it, the
     /// record does not.
     pub fn nudge(self: &Arc<Self>, persona_id: &str, text: &str) -> Result<(), String> {
+        let _working = self.working()?;
         let session = self.session(persona_id)?;
         self.dispatch(session, Wired::words(text));
         Ok(())
@@ -1113,6 +1150,7 @@ impl Room {
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
     fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
+        let working = self.working().expect("dispatch caller holds a work lease");
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.
@@ -1120,7 +1158,10 @@ impl Room {
             return;
         };
         let room = self.clone();
-        tokio::spawn(async move { room.run_turns(session, wire).await });
+        tokio::spawn(async move {
+            let _working = working;
+            room.run_turns(session, wire).await;
+        });
     }
 
     /// Stops the turn in flight and drops whatever was waiting behind it.
@@ -1607,6 +1648,7 @@ impl Room {
         self: &Arc<Self>,
         persona_id: &str,
     ) -> Result<ChapterSummary, String> {
+        let _working = self.working()?;
         let persona = self.persona(persona_id)?;
         let events = self.tape(persona_id);
         let previous = chapter_view::previous_chapter(&events)
@@ -1744,6 +1786,7 @@ impl Room {
         persona_id: &str,
         by: ChapterClose,
     ) -> Option<ChapterSummary> {
+        let _working = self.working().ok()?;
         let events = self.tape(persona_id);
         let open = chapter_view::open_chapter(&events)?.clone();
         // A chapter replacement is a session boundary for collaboration

@@ -143,6 +143,21 @@ impl Log {
         })
     }
 
+    /// Ensure an idle room's already-written events reach disk before the
+    /// desktop replaces its executable. This never rewrites stream bytes.
+    pub fn sync(&self, stream: &StreamId) -> io::Result<()> {
+        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        for path in self.readable_files(stream) {
+            match fs::File::open(path) {
+                Ok(file) => file.sync_all()?,
+                // A new installation has no room stream until its first edit.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
     /// Rewrites the file this stream is written to with its fold, and answers
     /// the epoch it rewrote. A tape's older segments are closed history and
     /// are left alone, duplicates and all.

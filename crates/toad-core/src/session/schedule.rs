@@ -257,6 +257,9 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
 }
 
 async fn fire(room: &Arc<Room>, job: ScheduledJob) {
+    let Ok(_working) = room.working() else {
+        return;
+    };
     let Some(current) = room::schedules(&room.log)
         .into_iter()
         .find(|living| living.id == job.id)
@@ -696,5 +699,36 @@ mod tests {
         assert!(advanced[0].operator_created);
         assert_eq!(advanced[0].quiet, None);
         assert!(advanced[0].next_at > now);
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_update_does_not_consume_or_reschedule_a_due_job() {
+        let log = super::super::tests::scratch("update-keeps-jobs");
+        super::super::tests::enrol(&log, &super::super::tests::persona("ada"));
+        let room = Room::new(log.clone(), Arc::new(super::super::tests::DeskKeys));
+        let held = room.prepare_restart().unwrap();
+        let job = ScheduledJob {
+            id: "due-during-update".into(),
+            persona_id: "ada".into(),
+            kind: ScheduleKind::Schedule,
+            when: Some(now_ms()),
+            every: None,
+            prompt: "Resume after updating".into(),
+            quiet: None,
+            operator_created: true,
+            next_at: now_ms(),
+            created_at: now_ms(),
+        };
+        room::append_schedule(&log, &job).unwrap();
+        let before = log.load(&crate::log::StreamId::Room);
+        fire(&room, job).await;
+        assert_eq!(log.load(&crate::log::StreamId::Room), before);
+        assert_eq!(room::schedules(&log).len(), 1);
+        drop(held);
     }
 }

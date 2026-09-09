@@ -19,6 +19,8 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod updater;
+
 use rand::RngCore;
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
@@ -231,10 +233,11 @@ pub fn run() {
     // background work — the idle chapter sweep — and a task has to be spawned
     // onto a runtime that is already there.
     let root = data_root();
-    let desk =
-        tauri::async_runtime::block_on(async { Desk::open(&root) }).expect("the desk did not open");
+    let desk = Arc::new(
+        tauri::async_runtime::block_on(async { Desk::open(&root) }).expect("the desk did not open"),
+    );
     let token = random_token();
-    let door = Door::bind(desk.log.clone(), token.clone(), Arc::new(desk))
+    let door = Door::bind(desk.log.clone(), token.clone(), desk.clone())
         .expect("the room's door did not bind");
     let port = door.port();
     tauri::async_runtime::spawn(async move {
@@ -254,6 +257,13 @@ pub fn run() {
     let script = format!("window.__toadDesk = {injected};");
 
     let builder = tauri::Builder::default()
+        .manage(desk)
+        .manage(updater::Updates::new(
+            &root,
+            env!("CARGO_PKG_VERSION").to_string(),
+            tauri::is_dev() || cfg!(debug_assertions),
+        ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state_flags())
@@ -265,7 +275,20 @@ pub fn run() {
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_notification::init());
     #[cfg(target_os = "macos")]
-    let builder = builder.invoke_handler(tauri::generate_handler![notify::notify]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        notify::notify,
+        updater::get_update_status,
+        updater::check_update,
+        updater::install_update,
+        updater::cancel_update
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        updater::get_update_status,
+        updater::check_update,
+        updater::install_update,
+        updater::cancel_update
+    ]);
     builder
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -330,6 +353,7 @@ pub fn run() {
                 }
             });
             install_tray(app)?;
+            updater::start(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

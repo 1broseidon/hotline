@@ -6,3 +6,7 @@ dist/
 .claude/
 crates/toad-desktop/gen/
 .hallmark/
+
+# Private updater signing backup; never a release asset.
+.toad-release-signing/
+__pycache__/

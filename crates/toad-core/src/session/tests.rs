@@ -2646,3 +2646,52 @@ async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
         "a card nobody is behind still took an answer"
     );
 }
+
+#[tokio::test]
+async fn updates_wait_for_queued_work_and_release_the_room_after_failure() {
+    let semaphore = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(vec![Update::Message {
+        kind: MessageKind::Agent,
+        id: "answer".into(),
+        text: "done".into(),
+    }]);
+    driver.gate = Some(semaphore.clone());
+    let room = room("update-lease", Fake::new(driver));
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "first", None, None).await.unwrap();
+    room.prompt("ada", "queued", None, None).await.unwrap();
+    assert!(
+        room.prepare_restart()
+            .unwrap_err()
+            .contains("still working")
+    );
+    semaphore.add_permits(2);
+    let held = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(held) = room.prepare_restart() {
+                break held;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let before = tape(&room, "ada");
+    assert!(
+        room.prompt("ada", "must not be lost", None, None)
+            .await
+            .unwrap_err()
+            .contains("restart")
+    );
+    assert!(room.start("ada").await.unwrap_err().contains("restart"));
+    assert!(
+        room.nudge("ada", "new work")
+            .unwrap_err()
+            .contains("restart")
+    );
+    assert_eq!(before, tape(&room, "ada"));
+    // Failed installation/cancellation drops its lease, restoring normal admission.
+    drop(held);
+    semaphore.add_permits(1);
+    room.prompt("ada", "retry", None, None).await.unwrap();
+}

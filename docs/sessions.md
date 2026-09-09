@@ -263,10 +263,40 @@ The models a credential unlocks come from the model catalogue
 (`crates/toad-core/models.json`, a filtered snapshot of models.dev — see
 [development.md](development.md#the-model-catalogue)) for the providers
 `models.rs` wires: Anthropic, OpenAI, OpenRouter, Google, xAI, Groq,
-DeepSeek and Mistral as API keys, and GitHub Copilot and ChatGPT
-(`openai-codex`) as subscription logins, as `provider/model`. A saved
+DeepSeek, Mistral, Ollama Cloud, Z.ai Standard and Z.ai Coding Plan as API keys, and GitHub Copilot and ChatGPT
+(`openai-codex`) as subscription logins, as `provider/model`. OpenRouter also
+offers browser sign-in: PKCE issues an API key, kept privately beside the
+login and passed to Rig's existing OpenRouter client. It uses the same
+OpenRouter models and billing as a pasted key. A saved
 `enabledModels` filter narrows what is offered, never the model a
 teammate is on.
+
+xAI also offers **Sign in with SuperGrok or X Premium+**. It uses xAI's device
+authorization page and stores access and refresh tokens privately. Toad
+refreshes before expiry, serializes refresh across teammates, and retries a
+rejected bearer once. Sign-out or revocation removes these tokens. A failed
+subscription request never switches to API-key billing. The picker uses the
+xAI catalogue; actual model access and usage limits depend on the signed-in
+plan, and a refusal is shown on the turn. This follows xAI's documented
+[subscription OAuth integration](https://x.ai/news/grok-kilocode).
+
+Z.ai Standard uses `https://api.z.ai/api/paas/v4`; Z.ai Coding Plan uses
+`https://api.z.ai/api/coding/paas/v4`. Each has its own key and model list so
+a coding-plan request cannot accidentally use the standard billing endpoint.
+Both use Rig's native Z.ai client, including streaming and tools. See the
+[Z.ai quick start](https://docs.z.ai/guides/overview/quick-start) and
+[Coding Plan guide](https://docs.z.ai/devpack/overview).
+
+Ollama Local connects to an HTTP or HTTPS server URL (default
+`http://localhost:11434`) without a key. Connection first reads `/api/tags`
+through Rig, so custom installed model ids enter the picker unchanged, even
+when absent from models.dev. Ollama Cloud uses the same Rig client at
+`https://ollama.com` with its API key. Its discovered models replace the
+bundled cloud list; a failed refresh keeps the last successful list. Both
+connections offer Refresh in Settings → Providers. Pull local models with
+Ollama itself; cloud models exposed by a local server after `ollama signin`
+also work through the Local connection. Choose models that support tools
+for Toad Agent's workspace and teammate tools.
 
 GitHub Copilot's picker is that catalogue cut to the models the signed-in
 account can run. The list is fetched at sign-in (`GET {api}/models`,
@@ -297,11 +327,12 @@ what is sent:
 | client | body |
 | --- | --- |
 | Anthropic | `{"thinking": {"type": "adaptive"}, "output_config": {"effort": e}}` |
+| Ollama (catalogued effort levels) | `{"think": e}` |
 | OpenAI, ChatGPT, OpenRouter, xAI | `{"reasoning": {"effort": e}}` |
 | Copilot (Responses, a `codex` model) | `{"reasoning": {"effort": e}}` |
 | Copilot (chat completions) | `{"reasoning_effort": e}` |
 | Gemini | `{"generationConfig": {"thinkingConfig": {"thinkingLevel": e}}}` for `minimal\|low\|medium\|high` |
-| Groq, DeepSeek, Mistral | `{"reasoning_effort": e}` |
+| Groq, DeepSeek, Mistral, Z.ai Standard and Coding Plan | `{"reasoning_effort": e}` |
 
 ## An ACP child
 

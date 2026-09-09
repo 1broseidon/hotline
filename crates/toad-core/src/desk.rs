@@ -8,7 +8,7 @@
 
 use crate::contract::{
     Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
-    Credential, LoginPrompt, LoginState, LoginStatus, SessionInfo, StreamDelta,
+    Credential, CredentialKind, LoginPrompt, LoginState, LoginStatus, SessionInfo, StreamDelta,
 };
 use crate::driver::{PI_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
@@ -27,6 +27,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
+use tokio_util::sync::CancellationToken;
 
 /// The vault's keys and the room's model settings, as one seam.
 ///
@@ -59,7 +60,7 @@ impl ProviderKeys for DeskCredentials {
 /// How far an in-flight device-code login has got. Lives only in this
 /// process: a finished login stays queryable until Toad exits.
 enum LoginOutcome {
-    Pending,
+    Pending(CancellationToken),
     Done(Credential),
     Failed(String),
 }
@@ -121,6 +122,16 @@ impl Desk {
         match self.logins().get(login_id) {
             Some(LoginOutcome::Failed(error)) => error.clone(),
             _ => "Sign-in failed before a code arrived.".to_string(),
+        }
+    }
+}
+
+impl Drop for Desk {
+    fn drop(&mut self) {
+        for outcome in self.logins().values() {
+            if let LoginOutcome::Pending(cancel) = outcome {
+                cancel.cancel();
+            }
         }
     }
 }
@@ -243,8 +254,16 @@ impl RoomHandle for Desk {
         label: &str,
         secret: &str,
     ) -> Result<Credential, String> {
+        let wiring = crate::models::wiring(provider_id)
+            .ok_or_else(|| format!("Unknown provider {provider_id}."))?;
+        if !wiring.credential_kinds.contains(&CredentialKind::ApiKey) {
+            return Err(format!("{provider_id} does not accept an API key."));
+        }
+        if secret.trim().is_empty() {
+            return Err("Enter an API key.".into());
+        }
         self.vault
-            .create(provider_id, label, secret)
+            .create(provider_id, label, secret.trim())
             .map_err(|error| error.to_string())
     }
 
@@ -271,102 +290,75 @@ impl RoomHandle for Desk {
             .vault
             .begin_login(provider_id)
             .map_err(|error| error.to_string())?;
-        self.logins().insert(id.clone(), LoginOutcome::Pending);
-
+        let cancel = CancellationToken::new();
+        self.logins()
+            .insert(id.clone(), LoginOutcome::Pending(cancel.clone()));
         let (prompt_tx, prompt_rx) = oneshot::channel();
         let prompt_tx = Arc::new(Mutex::new(Some(prompt_tx)));
         let login_id = id.clone();
-        let emit = {
-            let prompt_tx = prompt_tx.clone();
-            let login_id = login_id.clone();
-            move |user_code: String, verification_uri: String| {
-                if let Some(tx) = prompt_tx
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take()
-                {
-                    let _ = tx.send(LoginPrompt {
-                        login_id: login_id.clone(),
-                        user_code,
-                        verification_uri,
-                    });
-                }
+        let emit = move |user_code: String, verification_uri: String| {
+            if let Some(tx) = prompt_tx
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+            {
+                let _ = tx.send(LoginPrompt {
+                    login_id: login_id.clone(),
+                    user_code,
+                    verification_uri,
+                });
             }
         };
-
         let vault = self.vault.clone();
         let logins = self.logins.clone();
-        let id_for_task = id.clone();
-        let provider_for_task = provider_id.to_string();
-        let label_for_task = label.clone();
-
-        let mut task = match wiring.client {
-            Client::ChatGpt => {
-                let client = chatgpt::Client::builder()
-                    .oauth()
-                    .auth_file(token_dir.join("auth.json"))
-                    .on_device_code(move |prompt| emit(prompt.user_code, prompt.verification_uri))
-                    .allow_device_flow(true)
-                    .build()
-                    .map_err(|error| error.to_string());
-                let client = match client {
-                    Ok(client) => client,
-                    Err(error) => {
-                        let _ = self.vault.abandon_login(&id);
-                        self.logins().remove(&id);
-                        return Err(error);
+        let task_id = id.clone();
+        let provider_id = provider_id.to_string();
+        let log = self.log.clone();
+        let mut task = tokio::spawn(async move {
+            let authorize = async {
+                match wiring.client {
+                    Client::ChatGpt => chatgpt::Client::builder()
+                        .oauth()
+                        .auth_file(token_dir.join("auth.json"))
+                        .on_device_code(move |prompt| {
+                            emit(prompt.user_code, prompt.verification_uri)
+                        })
+                        .allow_device_flow(true)
+                        .build()
+                        .map_err(|error| error.to_string())?
+                        .authorize()
+                        .await
+                        .map_err(|error| error.to_string()),
+                    Client::Copilot => copilot::Client::builder()
+                        .oauth()
+                        .token_dir(&token_dir)
+                        .on_device_code(move |prompt| {
+                            emit(prompt.user_code, prompt.verification_uri)
+                        })
+                        .allow_device_flow(true)
+                        .build()
+                        .map_err(|error| error.to_string())?
+                        .authorize()
+                        .await
+                        .map_err(|error| error.to_string()),
+                    Client::OpenRouter => {
+                        crate::providers::openrouter_login(&token_dir, emit).await
                     }
-                };
-                tokio::spawn(async move {
-                    record_login(
-                        vault,
-                        logins,
-                        id_for_task,
-                        provider_for_task,
-                        label_for_task,
-                        client.authorize().await.map_err(|error| error.to_string()),
-                    );
-                })
+                    Client::XAi => crate::providers::xai::login(&token_dir, emit).await,
+                    _ => Err(format!("{provider_id} does not support sign-in.")),
+                }
+            };
+            let result = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
+                result = tokio::time::timeout(Duration::from_secs(10 * 60), authorize) =>
+                    result.unwrap_or_else(|_| Err("Sign-in timed out. Try again.".to_string())),
+            };
+            let recorded = record_login(vault, logins, task_id, provider_id, label, result);
+            if recorded && wiring.client == Client::Copilot {
+                store_copilot_account_models(&token_dir, &log).await;
             }
-            Client::Copilot => {
-                let client = copilot::Client::builder()
-                    .oauth()
-                    .token_dir(&token_dir)
-                    .on_device_code(move |prompt| emit(prompt.user_code, prompt.verification_uri))
-                    .allow_device_flow(true)
-                    .build()
-                    .map_err(|error| error.to_string());
-                let client = match client {
-                    Ok(client) => client,
-                    Err(error) => {
-                        let _ = self.vault.abandon_login(&id);
-                        self.logins().remove(&id);
-                        return Err(error);
-                    }
-                };
-                let log_for_task = self.log.clone();
-                let token_dir_for_task = token_dir.clone();
-                tokio::spawn(async move {
-                    let recorded = record_login(
-                        vault,
-                        logins,
-                        id_for_task,
-                        provider_for_task,
-                        label_for_task,
-                        client.authorize().await.map_err(|error| error.to_string()),
-                    );
-                    if recorded {
-                        store_copilot_account_models(&token_dir_for_task, &log_for_task).await;
-                    }
-                })
-            }
-            _ => {
-                let _ = self.vault.abandon_login(&id);
-                self.logins().remove(&id);
-                return Err(format!("{provider_id} takes an API key, not a sign-in."));
-            }
-        };
-
+        });
         tokio::select! {
             biased;
             prompt = prompt_rx => match prompt {
@@ -378,18 +370,35 @@ impl RoomHandle for Desk {
             },
             _ = &mut task => Err(self.login_error(&id)),
             _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                task.abort();
-                let _ = self.vault.abandon_login(&id);
-                let message = "Timed out waiting for a sign-in code.".to_string();
-                self.logins().insert(id, LoginOutcome::Failed(message.clone()));
-                Err(message)
+                self.credential_login_cancel(&id)?;
+                Err("Timed out waiting for sign-in instructions.".to_string())
             }
         }
     }
 
+    fn credential_login_cancel(&self, login_id: &str) -> Result<(), String> {
+        let mut logins = self.logins();
+        let outcome = logins
+            .get_mut(login_id)
+            .ok_or_else(|| format!("There is no login {login_id}."))?;
+        if let LoginOutcome::Pending(cancel) = outcome {
+            cancel.cancel();
+            *outcome = LoginOutcome::Failed("Sign-in cancelled.".into());
+        }
+        Ok(())
+    }
+
+    async fn credential_connect_local(&self, base_url: &str) -> Result<Credential, String> {
+        let base_url = crate::providers::ollama_url(base_url)?;
+        let ids = crate::providers::ollama_models(&base_url, "").await?;
+        self.vault
+            .connect_local(&base_url, &ids)
+            .map_err(|error| error.to_string())
+    }
+
     fn login_status(&self, login_id: &str) -> Result<LoginStatus, String> {
         match self.logins().get(login_id) {
-            Some(LoginOutcome::Pending) => Ok(LoginStatus {
+            Some(LoginOutcome::Pending(_)) => Ok(LoginStatus {
                 state: LoginState::Pending,
                 credential: None,
                 error: None,
@@ -533,24 +542,34 @@ impl RoomHandle for Desk {
         &self,
         provider_id: &str,
     ) -> Result<Vec<CatalogModel>, String> {
-        if let Some(message) = crate::models::login_refusal(provider_id) {
-            return Err(message);
-        }
-        let token_dir = match self.vault.provider_auth().get(provider_id) {
-            Some(ProviderAuth::Login { token_dir }) => token_dir.clone(),
+        let wiring = crate::models::wiring(provider_id)
+            .ok_or_else(|| format!("Unknown provider {provider_id}."))?;
+        let (credential, auth) = self
+            .vault
+            .connection(provider_id)
+            .ok_or_else(|| format!("There is no connection for {provider_id}."))?;
+        let ids = match (wiring.client, auth) {
+            (Client::Ollama, ProviderAuth::Local { base_url }) => {
+                Some(crate::providers::ollama_models(&base_url, "").await?)
+            }
+            (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => Some(
+                crate::providers::ollama_models(crate::providers::OLLAMA_CLOUD_URL, &key).await?,
+            ),
+            (Client::Copilot, ProviderAuth::Login { token_dir }) => {
+                Some(fetch_copilot_account_models(&token_dir).await?)
+            }
+            (Client::ChatGpt | Client::OpenRouter | Client::XAi, ProviderAuth::Login { .. }) => {
+                None
+            }
             _ => {
-                let name = crate::models::catalog()
-                    .providers
-                    .get(provider_id)
-                    .map(|entry| entry.name.as_str())
-                    .unwrap_or(provider_id);
-                return Err(format!("There is no sign-in for {name}."));
+                return Err(format!(
+                    "{provider_id} does not offer account model discovery for this connection."
+                ));
             }
         };
-        if crate::models::wiring(provider_id).is_some_and(|wiring| wiring.client == Client::Copilot)
-        {
-            let ids = fetch_copilot_account_models(&token_dir).await?;
-            crate::vault::write_account_models(&token_dir, &ids)
+        if let Some(ids) = ids {
+            self.vault
+                .cache_models(&credential.id, &ids)
                 .map_err(|error| error.to_string())?;
         }
         self.models_catalog(provider_id)
@@ -588,6 +607,11 @@ fn record_login(
     label: String,
     result: Result<(), String>,
 ) -> bool {
+    let mut logins = logins.lock().unwrap_or_else(PoisonError::into_inner);
+    if !matches!(logins.get(&id), Some(LoginOutcome::Pending(cancel)) if !cancel.is_cancelled()) {
+        let _ = vault.abandon_login(&id);
+        return false;
+    }
     let outcome = match result {
         Ok(()) => match vault.finish_login(&id, &provider_id, &label) {
             Ok(credential) => LoginOutcome::Done(credential),
@@ -602,10 +626,7 @@ fn record_login(
         }
     };
     let recorded = matches!(outcome, LoginOutcome::Done(_));
-    logins
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(id, outcome);
+    logins.insert(id, outcome);
     recorded
 }
 

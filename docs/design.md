@@ -202,8 +202,20 @@ screens exist and how they behave, and a component is lifted from it only
 where that is cheaper than writing it. Bun and Node exist only as the UI's
 build tools; nothing runs on them.
 
-Providers are Rig providers: API keys first (Anthropic, OpenAI, OpenRouter),
-subscription logins later as custom providers.
+Providers use Rig's native clients for inference. Rig also owns ChatGPT and
+Copilot login and refresh. OpenRouter offers pasted keys and browser PKCE
+sign-in; Toad exchanges the code for a private API key and hands that key to
+Rig's OpenRouter client. Ollama Local takes a server URL, while Ollama Cloud
+takes an API key for `https://ollama.com`. Both use Rig's Ollama client for
+native chat and model discovery. A discovered list belongs to its connection,
+so replacing a server or account cannot reuse another connection's list.
+Grok offers subscription device sign-in alongside xAI API keys. Toad uses
+the OAuth device flow and a private token store; a shared refresh lock keeps
+teammates from spending the same rotated refresh token. Rig's xAI client
+still owns inference, with a bearer-refresh HTTP client that retries a 401
+once and never falls back to an API key. Z.ai Standard and Coding Plan are
+separate API-key connections using Rig's native Z.ai endpoints.
+Claude subscription access stays with Claude Code through ACP.
 
 ## Module map
 

@@ -66,6 +66,13 @@ pub(crate) async fn run(
             .credential_login(&provider_id)
             .await
             .map(|prompt| json!(prompt)),
+        Command::CredentialLoginCancel { login_id } => room
+            .credential_login_cancel(&login_id)
+            .map(|()| Value::Null),
+        Command::CredentialConnectLocal { base_url } => room
+            .credential_connect_local(&base_url)
+            .await
+            .map(|credential| json!(credential)),
         Command::CredentialLoginStatus { login_id } => {
             room.login_status(&login_id).map(|status| json!(status))
         }

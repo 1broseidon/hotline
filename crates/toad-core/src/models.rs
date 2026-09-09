@@ -1,6 +1,6 @@
 //! The models Toad Agent can offer, and the providers that serve them.
 //!
-//! Nobody hand-writes a model list here, with one exception. `models.json`
+//! Model metadata comes from models.dev; Ollama also discovers live ids. `models.json`
 //! beside this crate is a filtered snapshot of models.dev — the catalogue
 //! opencode and pi draw theirs from — and `toad-models-sync` rewrites it:
 //! fetch, keep the providers in [`WIRING`] and the models a coding agent can
@@ -8,13 +8,15 @@
 //! a person edits is [`WIRING`]: which providers Toad reaches, which Rig
 //! client speaks to each, and whether a credential is a key or a login.
 //!
-//! `openai-codex` is the exception: models.dev has no ChatGPT subscription
+//! `openai-codex` is synthesized: models.dev has no ChatGPT subscription
 //! provider, so the snapshot copies the listed models off `openai` and
 //! drops their per-token price. A subscription has no per-token price.
 //!
 //! The snapshot is checked in rather than fetched at run time because a
 //! catalogue is behaviour: it says what a model is called, costs and can do,
 //! and a release should mean the same thing on every machine that runs it.
+//! Ollama Local has no fixed models; its discovered ids are supplied separately.
+//! Ollama Cloud discovery takes precedence over its bundled list.
 
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, Provider};
 use serde::{Deserialize, Serialize};
@@ -38,6 +40,10 @@ pub enum Client {
     Mistral,
     ChatGpt,
     Copilot,
+    Ollama,
+    OllamaCloud,
+    Zai,
+    ZaiCoding,
 }
 
 /// One provider Toad reaches: its models.dev id, how it is spoken to, and
@@ -45,7 +51,7 @@ pub enum Client {
 pub struct Wiring {
     pub id: &'static str,
     pub client: Client,
-    pub credential_kind: CredentialKind,
+    pub credential_kinds: &'static [CredentialKind],
 }
 
 /// Model ids ChatGPT's subscription serves. Copied from openai's catalogue
@@ -71,54 +77,74 @@ pub const WIRING: &[Wiring] = &[
     Wiring {
         id: "anthropic",
         client: Client::Anthropic,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "openai",
         client: Client::OpenAi,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "openrouter",
         client: Client::OpenRouter,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::Oauth, CredentialKind::ApiKey],
     },
     Wiring {
         id: "google",
         client: Client::Gemini,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "xai",
         client: Client::XAi,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::Oauth, CredentialKind::ApiKey],
+    },
+    Wiring {
+        id: "zai",
+        client: Client::Zai,
+        credential_kinds: &[CredentialKind::ApiKey],
+    },
+    Wiring {
+        id: "zai-coding-plan",
+        client: Client::ZaiCoding,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "groq",
         client: Client::Groq,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "deepseek",
         client: Client::DeepSeek,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "mistral",
         client: Client::Mistral,
-        credential_kind: CredentialKind::ApiKey,
+        credential_kinds: &[CredentialKind::ApiKey],
+    },
+    Wiring {
+        id: "ollama",
+        client: Client::Ollama,
+        credential_kinds: &[CredentialKind::Local],
+    },
+    Wiring {
+        id: "ollama-cloud",
+        client: Client::OllamaCloud,
+        credential_kinds: &[CredentialKind::ApiKey],
     },
     Wiring {
         id: "github-copilot",
         client: Client::Copilot,
-        credential_kind: CredentialKind::Oauth,
+        credential_kinds: &[CredentialKind::Oauth],
     },
     // models.dev has no ChatGPT subscription provider. This row is
     // hand-written so the picker can offer the same models billed as a login.
     Wiring {
         id: "openai-codex",
         client: Client::ChatGpt,
-        credential_kind: CredentialKind::Oauth,
+        credential_kinds: &[CredentialKind::Oauth],
     },
 ];
 
@@ -245,6 +271,17 @@ fn usable(model: &Value) -> bool {
 pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
     let mut providers = BTreeMap::new();
     for wiring in WIRING {
+        if wiring.client == Client::Ollama {
+            providers.insert(
+                wiring.id.to_string(),
+                ProviderEntry {
+                    name: "Ollama Local".into(),
+                    doc: Some("https://ollama.com/download".into()),
+                    models: BTreeMap::new(),
+                },
+            );
+            continue;
+        }
         if wiring.id == "openai-codex" {
             providers.insert(wiring.id.to_string(), chatgpt_from_openai(api)?);
             continue;
@@ -308,7 +345,7 @@ pub fn providers() -> Vec<Provider> {
                 id: wiring.id.to_string(),
                 name: entry.name.clone(),
                 doc: entry.doc.clone(),
-                credential_kind: wiring.credential_kind,
+                credential_kinds: wiring.credential_kinds.to_vec(),
             })
         })
         .collect()
@@ -320,14 +357,18 @@ pub fn login_refusal(provider_id: &str) -> Option<String> {
         None => Some(format!(
             "{provider_id} is not a provider Toad Agent can use."
         )),
-        Some(wiring) if wiring.credential_kind == CredentialKind::Oauth => None,
+        Some(wiring) if wiring.credential_kinds.contains(&CredentialKind::Oauth) => None,
         Some(wiring) => {
             let name = catalog()
                 .providers
                 .get(wiring.id)
                 .map(|entry| entry.name.as_str())
                 .unwrap_or(wiring.id);
-            Some(format!("{name} takes an API key, not a sign-in."))
+            Some(if wiring.client == Client::Ollama {
+                format!("{name} takes a server URL, not a sign-in.")
+            } else {
+                format!("{name} takes an API key, not a sign-in.")
+            })
         }
     }
 }
@@ -381,12 +422,12 @@ fn model_offered(
         .is_none_or(|list| list.iter().any(|wanted| wanted == model_id))
 }
 
-/// Whether a subscription's account list lets this catalogue id through.
-/// A key provider is never narrowed this way. `None` is the whole catalogue;
+/// Whether Copilot's account list lets this catalogue id through.
+/// Other static catalogues are never narrowed this way. `None` is the whole catalogue;
 /// a present list is only those bare ids — the same "narrows what is offered,
 /// never what is in use" rule as [`model_offered`].
-fn account_offered(kind: CredentialKind, account: Option<&[String]>, model_id: &str) -> bool {
-    if kind != CredentialKind::Oauth {
+fn account_offered(provider_id: &str, account: Option<&[String]>, model_id: &str) -> bool {
+    if provider_id != "github-copilot" {
         return true;
     }
     account.is_none_or(|list| list.iter().any(|id| id == model_id))
@@ -418,26 +459,33 @@ pub fn choices<T>(
         .filter(|wiring| keys.contains_key(wiring.id))
         .filter_map(|wiring| Some((wiring, catalog().providers.get(wiring.id)?)))
         .flat_map(|(wiring, entry)| {
-            let flavor = match wiring.credential_kind {
-                CredentialKind::ApiKey => "API key",
-                CredentialKind::Oauth => "subscription",
-            };
+            if matches!(wiring.client, Client::Ollama | Client::OllamaCloud)
+                && let Some(ids) = account.get(wiring.id)
+            {
+                return ids
+                    .iter()
+                    .filter(|id| model_offered(enabled, wiring.id, id))
+                    .map(|id| ConfigChoice {
+                        id: format!("{}/{id}", wiring.id),
+                        name: id.clone(),
+                        description: Some(wiring.id.to_string()),
+                        group: Some(entry.name.clone()),
+                    })
+                    .collect::<Vec<_>>();
+            }
             newest_first(entry)
                 .into_iter()
                 .filter(|(id, _)| {
                     model_offered(enabled, wiring.id, id)
-                        && account_offered(
-                            wiring.credential_kind,
-                            account.get(wiring.id).map(Vec::as_slice),
-                            id,
-                        )
+                        && account_offered(wiring.id, account.get(wiring.id).map(Vec::as_slice), id)
                 })
                 .map(move |(id, model)| ConfigChoice {
                     id: format!("{}/{id}", wiring.id),
                     name: model.name.clone(),
                     description: Some(wiring.id.to_string()),
-                    group: Some(format!("{} — {flavor}", entry.name)),
+                    group: Some(entry.name.clone()),
                 })
+                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -456,12 +504,22 @@ pub fn catalog_models(
     let Some(entry) = catalog().providers.get(provider_id) else {
         return Vec::new();
     };
-    let kind = wiring(provider_id)
-        .map(|wiring| wiring.credential_kind)
-        .unwrap_or(CredentialKind::ApiKey);
+    if matches!(provider_id, "ollama" | "ollama-cloud")
+        && let Some(ids) = account
+    {
+        return ids
+            .iter()
+            .map(|id| CatalogModel {
+                id: id.clone(),
+                name: id.clone(),
+                release_date: String::new(),
+                enabled: model_offered(enabled, provider_id, id),
+            })
+            .collect();
+    }
     newest_first(entry)
         .into_iter()
-        .filter(|(id, _)| account_offered(kind, account, id))
+        .filter(|(id, _)| account_offered(provider_id, account, id))
         .map(|(id, model)| CatalogModel {
             id: id.clone(),
             name: model.name.clone(),
@@ -552,7 +610,11 @@ mod tests {
                 .providers
                 .get(wiring.id)
                 .unwrap_or_else(|| panic!("{} is wired but not in models.json", wiring.id));
-            assert!(!entry.models.is_empty(), "{} has no models", wiring.id);
+            assert!(
+                wiring.client == Client::Ollama || !entry.models.is_empty(),
+                "{} has no models",
+                wiring.id
+            );
         }
         for id in catalog.providers.keys() {
             assert!(wiring(id).is_some(), "{id} is in models.json but not wired");
@@ -651,7 +713,7 @@ mod tests {
                 .iter()
                 .all(|model| model.id.starts_with("anthropic/"))
         );
-        assert_eq!(listed[0].group.as_deref(), Some("Anthropic — API key"));
+        assert_eq!(listed[0].group.as_deref(), Some("Anthropic"));
         let entry = &catalog().providers["anthropic"];
         let dates: Vec<&str> = listed
             .iter()
@@ -766,12 +828,32 @@ mod tests {
     }
 
     #[test]
+    fn discovered_ollama_ids_replace_the_catalogue_and_an_empty_list_stays_empty() {
+        for provider in ["ollama", "ollama-cloud"] {
+            let keys = HashMap::from([(provider.to_string(), ())]);
+            let none = HashMap::new();
+            let ids = vec!["custom/coder:latest".into()];
+            let mut account = HashMap::from([(provider.to_string(), ids.clone())]);
+            let listed = choices(&keys, &none, &account);
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].id, format!("{provider}/custom/coder:latest"));
+            assert_eq!(catalog_models(provider, &none, Some(&ids)).len(), 1);
+            account.insert(provider.to_string(), vec![]);
+            assert!(choices(&keys, &none, &account).is_empty());
+            assert!(catalog_models(provider, &none, Some(&[])).is_empty());
+        }
+    }
+
+    #[test]
     fn providers_are_offered_in_wired_order() {
         let ids: Vec<String> = providers().into_iter().map(|one| one.id).collect();
         let wired: Vec<&str> = WIRING.iter().map(|wiring| wiring.id).collect();
         assert_eq!(ids, wired);
         assert_eq!(providers()[0].name, "Anthropic");
-        assert_eq!(providers()[0].credential_kind, CredentialKind::ApiKey);
+        assert_eq!(
+            providers()[0].credential_kinds,
+            vec![CredentialKind::ApiKey]
+        );
     }
 
     #[test]
@@ -850,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn an_oauth_providers_models_are_labelled_as_a_subscription() {
+    fn oauth_does_not_change_the_provider_group_name() {
         let mut keys = HashMap::new();
         keys.insert("openai-codex".to_string(), "ignored");
         let listed = choices(&keys, &HashMap::new(), &HashMap::new());
@@ -859,7 +941,7 @@ mod tests {
                 .iter()
                 .all(|model| model.id.starts_with("openai-codex/"))
         );
-        assert_eq!(listed[0].group.as_deref(), Some("ChatGPT — subscription"));
+        assert_eq!(listed[0].group.as_deref(), Some("ChatGPT"));
     }
 
     #[test]

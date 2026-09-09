@@ -225,27 +225,38 @@ An ACP teammate does not store one: the harness owns its config ids.
 
 `models.catalog` lists every model the catalogue has for one wired
 provider, each with `enabled` set by that filter, whether or not the
-desk holds a credential — except a subscription whose account list is
-on disk, which lists only those models. An unwired provider is an error.
+desk holds a credential — except Copilot's account list and Ollama's
+discovered list, which take precedence when present. Ollama Local has no
+bundled models. An unwired provider is an error.
 The filter narrows what `models.list` and a session's picker offer; a
 teammate already on a filtered-out model stays on it.
 
-`credential.refresh_models` re-reads the models a subscription login
-can run and answers with that provider's `models.catalog`. A provider
-without a login, or whose credential is a key, is an error; a fetch
-that fails is the error text. This is how a login made before the
-account list existed, or a model newly enabled on the account, lands
-in the picker.
+`credential.refresh_models` re-reads Copilot's account list or Ollama's
+server list through Rig and answers with that provider's `models.catalog`.
+An absent connection is an error. A failed fetch leaves the previous list
+intact; successfully reading an empty server produces an empty picker.
+ChatGPT, signed-in OpenRouter and signed-in xAI return their bundled catalogue.
 
-`credential.login` starts a device-code login for a provider whose
-`credentialKind` is `oauth`, and answers with the code and URL the person
-must visit. It is start-then-poll rather than one blocking command because
-a command runs sequentially per socket: a waiting authorize would hold
-every later command on that socket until they signed in. An `api_key`
-provider is refused with `"<Name> takes an API key, not a sign-in."`.
-`credential.login_status` is how far that login has got (`pending`,
-`done`, `failed`); an unknown id is an error, and a finished login stays
-queryable until the process exits. The login id is the credential id.
+`providers.list` exposes `credentialKinds`, the methods each provider
+offers (`api_key`, `oauth`, or `local`). `credential.create` accepts only
+providers offering `api_key` and refuses blank keys.
+`credential.connect_local {baseUrl}` validates an Ollama HTTP/HTTPS URL,
+discovers its models, and then records a `local` credential with that
+`baseUrl`. It writes no secret. The chosen server may have a reverse-proxy
+path, but the URL cannot contain credentials, a query or a fragment.
+
+`credential.login` starts sign-in for a provider offering `oauth`, and
+answers with a login id and browser URL. ChatGPT, Copilot and xAI also provide
+a `userCode`; OpenRouter leaves it empty and uses a loopback PKCE callback.
+It is start-then-poll because commands run sequentially per socket.
+`credential.login_status` reports `pending`, `done`, or `failed`; an unknown
+id is an error, and a finished login stays queryable until process exit.
+The login id is the credential id. `credential.login_cancel {loginId}`
+stops a pending attempt, closes its callback listener or polling future,
+and discards its unfinished vault files. A completed attempt stays completed.
+OpenRouter expires after five minutes waiting for the browser; all login
+attempts are bounded by ten minutes overall. Only credential metadata is
+returned through the wire; acquired keys remain in the private vault.
 
 `mcp.auth_start` and `mcp.auth_reconnect` discover an HTTP MCP server's
 protected-resource and authorization-server metadata, register a native

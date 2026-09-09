@@ -22,6 +22,92 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 const TOKEN: &str = "a-token-only-this-harness-knows";
 
+#[tokio::test]
+async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
+    let root = scratch("grok-zai-connections");
+    let log = toad_core::log::Log::open(&root);
+    let vault = toad_core::vault::Vault::open(&root, log).unwrap();
+    // A completed fake login is written before the core starts, like an
+    // imported credential. The wire must never expose this private half.
+    let (id, dir) = vault.begin_login("xai").unwrap();
+    std::fs::write(dir.join("auth.json"), json!({"access_token":"private-grok-access", "refresh_token":"private-grok-refresh", "refresh_at":u64::MAX}).to_string()).unwrap();
+    vault.finish_login(&id, "xai", "SuperGrok").unwrap();
+    drop(vault);
+    let port = open_at(&root);
+    let mut client = Client::connect(port).await;
+    let providers = client.call("providers.list", json!({})).await;
+    let providers = providers["result"].as_array().unwrap();
+    for (id, kinds) in [
+        ("xai", json!(["oauth", "api_key"])),
+        ("zai", json!(["api_key"])),
+        ("zai-coding-plan", json!(["api_key"])),
+    ] {
+        assert_eq!(
+            providers.iter().find(|p| p["id"] == id).unwrap()["credentialKinds"],
+            kinds
+        );
+    }
+    let credentials = client.call("credential.list", json!({})).await;
+    assert_eq!(credentials["result"][0]["credentialKind"], "oauth");
+    assert!(!credentials.to_string().contains("private-grok"));
+    let models = client.call("models.list", json!({})).await;
+    assert!(
+        models["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"].as_str().unwrap().starts_with("xai/"))
+    );
+    let revoked = client.call("credential.revoke", json!({"id":id})).await;
+    assert_eq!(revoked["ok"], true, "{revoked}");
+    assert!(!dir.exists());
+    assert_eq!(
+        client.call("models.list", json!({})).await["result"],
+        json!([])
+    );
+
+    let standard = client
+        .call(
+            "credential.create",
+            json!({"providerId":"zai", "label":"standard", "secret":"private-standard-key"}),
+        )
+        .await;
+    assert_eq!(standard["ok"], true, "{standard}");
+    let models = client.call("models.list", json!({})).await;
+    assert!(!models["result"].as_array().unwrap().is_empty());
+    assert!(
+        models["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["id"].as_str().unwrap().starts_with("zai/"))
+    );
+    let coding = client.call("credential.create", json!({"providerId":"zai-coding-plan", "label":"coding", "secret":"private-coding-key"})).await;
+    assert_eq!(coding["ok"], true, "{coding}");
+    let removed = client
+        .call("credential.delete", json!({"id":standard["result"]["id"]}))
+        .await;
+    assert_eq!(removed["ok"], true, "{removed}");
+    let models = client.call("models.list", json!({})).await;
+    assert!(!models["result"].as_array().unwrap().is_empty());
+    assert!(
+        models["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["id"].as_str().unwrap().starts_with("zai-coding-plan/"))
+    );
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let made = client.call("persona.create", json!({"draft":{"name":"Zai tester", "goal":"Check the connection.", "cwd":workspace.to_string_lossy()}})).await;
+    let started = client
+        .call("session.start", json!({"personaId":made["result"]["id"]}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let credentials = client.call("credential.list", json!({})).await;
+    assert!(!credentials.to_string().contains("private-"));
+}
+
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("toad-harness-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -261,7 +347,7 @@ async fn credential_refresh_models_needs_a_login() {
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(
         refused["error"].as_str(),
-        Some("There is no sign-in for GitHub Copilot.")
+        Some("There is no connection for github-copilot.")
     );
 }
 
@@ -704,4 +790,216 @@ async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
             );
         }
     }
+}
+
+/// Local discovery, filtering and a streamed Rig turn use the same wire as
+/// Settings and the conversation. No installed Ollama or cloud account needed.
+#[tokio::test(flavor = "multi_thread")]
+async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
+    use axum::{
+        Router,
+        body::Bytes,
+        http::HeaderMap,
+        routing::{get, post},
+    };
+    use std::sync::Mutex;
+    let installed = Arc::new(Mutex::new(vec!["custom/coder:latest".to_string()]));
+    let tags = installed.clone();
+    let (requests_tx, mut requests_rx) = tokio::sync::mpsc::channel(4);
+    let app = Router::new()
+        .route("/api/tags", get(move |headers: HeaderMap| {
+            assert!(!headers.contains_key("authorization"));
+            let tags = tags.clone();
+            async move {
+                json!({"models": tags.lock().unwrap().iter().map(|id| json!({"name": id, "model": id})).collect::<Vec<_>>()}).to_string()
+            }
+        }))
+        .route("/api/chat", post(move |headers: HeaderMap, bytes: Bytes| {
+            assert!(!headers.contains_key("authorization"));
+            let tx = requests_tx.clone();
+            async move {
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                tx.send(request).await.unwrap();
+                let chunk = json!({"model":"custom/coder:latest", "created_at":"2026-09-09T00:00:00Z",
+                    "message":{"role":"assistant", "content":"Hello from Ollama."}, "done":false});
+                let done = json!({"model":"custom/coder:latest", "created_at":"2026-09-09T00:00:00Z",
+                    "message":{"role":"assistant", "content":""}, "done":true, "done_reason":"stop",
+                    "prompt_eval_count":10, "eval_count":4});
+                ([("Content-Type", "application/x-ndjson")], format!("{chunk}\n{done}\n"))
+            }
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (root, port) = open("ollama-local").await;
+    let mut client = Client::connect(port).await;
+    let providers = client.call("providers.list", json!({})).await;
+    let providers = providers["result"].as_array().unwrap();
+    assert_eq!(
+        providers.iter().find(|p| p["id"] == "openrouter").unwrap()["credentialKinds"],
+        json!(["oauth", "api_key"])
+    );
+    assert_eq!(
+        providers.iter().find(|p| p["id"] == "ollama").unwrap()["credentialKinds"],
+        json!(["local"])
+    );
+    assert_eq!(
+        providers
+            .iter()
+            .find(|p| p["id"] == "ollama-cloud")
+            .unwrap()["credentialKinds"],
+        json!(["api_key"])
+    );
+    let bad = client
+        .call(
+            "credential.connect_local",
+            json!({"baseUrl":"http://user:password@localhost"}),
+        )
+        .await;
+    assert_eq!(bad["ok"], false, "{bad}");
+    assert_eq!(
+        client.call("credential.list", json!({})).await["result"],
+        json!([])
+    );
+    let connected = client
+        .call(
+            "credential.connect_local",
+            json!({"baseUrl":format!("{url}/")}),
+        )
+        .await;
+    assert_eq!(connected["ok"], true, "{connected}");
+    let credential = connected["result"].clone();
+    assert_eq!(credential["credentialKind"], "local");
+    assert_eq!(credential["baseUrl"], url);
+    assert!(!root.join("vault/secrets.json").exists());
+    let models = client.call("models.list", json!({})).await;
+    assert_eq!(models["result"][0]["id"], "ollama/custom/coder:latest");
+    let cached = root
+        .join("vault/logins")
+        .join(credential["id"].as_str().unwrap())
+        .join("models.json");
+    let reopened = Desk::open(&root).unwrap();
+    assert_eq!(
+        toad_core::wire::RoomHandle::models(&reopened)[0].id,
+        "ollama/custom/coder:latest"
+    );
+    drop(reopened);
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let made = client.call("persona.create", json!({"draft":{"name":"Ollama tester", "goal":"Answer plainly.", "cwd":workspace.to_string_lossy()}})).await;
+    let persona = made["result"]["id"].as_str().unwrap();
+    let tape = client.subscribe(json!({"tape":persona})).await;
+    let started = client
+        .call("session.start", json!({"personaId":persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let sent = client
+        .call(
+            "session.prompt",
+            json!({"personaId":persona,"text":"Say hello."}),
+        )
+        .await;
+    assert_eq!(sent["ok"], true, "{sent}");
+    let request = tokio::time::timeout(Duration::from_secs(15), requests_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(request["model"], "custom/coder:latest");
+    assert_eq!(request["stream"], true);
+    assert!(!request["tools"].as_array().unwrap().is_empty());
+    let answer = client
+        .next_where(Duration::from_secs(15), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
+        })
+        .await;
+    assert!(
+        answer["event"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Hello from Ollama."),
+        "{answer}"
+    );
+    installed.lock().unwrap().push("second:cloud".into());
+    let refreshed = client
+        .call("credential.refresh_models", json!({"providerId":"ollama"}))
+        .await;
+    assert_eq!(
+        refreshed["result"].as_array().unwrap().len(),
+        2,
+        "{refreshed}"
+    );
+    client
+        .call(
+            "settings.update",
+            json!({"patch":{"enabledModels":{"ollama":["second:cloud"]}}}),
+        )
+        .await;
+    let filtered = client.call("models.list", json!({})).await;
+    assert_eq!(
+        filtered["result"].as_array().unwrap().len(),
+        1,
+        "{filtered}"
+    );
+    assert_eq!(filtered["result"][0]["id"], "ollama/second:cloud");
+    server.abort();
+    let _ = server.await;
+    let failed = client
+        .call("credential.refresh_models", json!({"providerId":"ollama"}))
+        .await;
+    assert_eq!(failed["ok"], false);
+    let preserved = client
+        .call("models.catalog", json!({"providerId":"ollama"}))
+        .await;
+    assert_eq!(preserved["result"].as_array().unwrap().len(), 2);
+    client
+        .call("credential.delete", json!({"id":credential["id"]}))
+        .await;
+    assert!(!cached.exists());
+    assert_eq!(
+        client.call("models.list", json!({})).await["result"],
+        json!([])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_openrouter_login_closes_callback_and_discards_pending_credentials() {
+    let (root, port) = open("openrouter-cancel").await;
+    let mut client = Client::connect(port).await;
+    let prompt = client
+        .call("credential.login", json!({"providerId":"openrouter"}))
+        .await;
+    assert_eq!(prompt["ok"], true, "{prompt}");
+    assert_eq!(prompt["result"]["userCode"], "");
+    let id = prompt["result"]["loginId"].as_str().unwrap();
+    let authorize = url::Url::parse(prompt["result"]["verificationUri"].as_str().unwrap()).unwrap();
+    assert_eq!(authorize.host_str(), Some("openrouter.ai"));
+    let callback = authorize
+        .query_pairs()
+        .find(|(key, _)| key == "callback_url")
+        .unwrap()
+        .1
+        .into_owned();
+    let cancel = client
+        .call("credential.login_cancel", json!({"loginId":id}))
+        .await;
+    assert_eq!(cancel["ok"], true, "{cancel}");
+    let status = client
+        .call("credential.login_status", json!({"loginId":id}))
+        .await;
+    assert_eq!(status["result"]["state"], "failed");
+    let dir = root.join("vault/logins").join(id);
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while dir.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(reqwest::get(callback).await.is_err());
+    assert_eq!(
+        client.call("credential.list", json!({})).await["result"],
+        json!([])
+    );
 }

@@ -48,7 +48,7 @@ use rig::message::{
 };
 use rig::prelude::*;
 use rig::providers::{
-    anthropic, chatgpt, copilot, deepseek, gemini, groq, mistral, openai, openrouter, xai,
+    anthropic, chatgpt, copilot, deepseek, gemini, groq, mistral, openai, openrouter, xai, zai,
 };
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
@@ -336,7 +336,9 @@ impl Driver for InProcess {
         let keys = self.keys.provider_auth();
         let provider = model_id.split('/').next().unwrap_or("");
         if !keys.contains_key(provider) {
-            return Err(format!("No key for {provider} is available on this desk."));
+            return Err(format!(
+                "No connection for {provider} is available on this desk."
+            ));
         }
         *lock(&self.model) = model_id.to_string();
         // A model switch keeps the effort only when the new model lists it.
@@ -847,7 +849,11 @@ fn effort_params(client: Client, effort: &str) -> Option<serde_json::Value> {
             })),
             _ => None,
         },
-        Client::Groq | Client::DeepSeek | Client::Mistral => {
+        Client::Ollama | Client::OllamaCloud => match effort {
+            "low" | "medium" | "high" | "max" => Some(serde_json::json!({"think": effort})),
+            _ => None,
+        },
+        Client::Groq | Client::DeepSeek | Client::Mistral | Client::Zai | Client::ZaiCoding => {
             Some(serde_json::json!({"reasoning_effort": effort}))
         }
     }
@@ -879,7 +885,7 @@ fn agent_builder(
         .ok_or_else(|| format!("{model_id} is not a provider/model id"))?;
     let held = keys
         .get(provider)
-        .ok_or_else(|| format!("No key for {provider} is available on this desk."))?;
+        .ok_or_else(|| format!("No connection for {provider} is available on this desk."))?;
     let wiring = models::wiring(provider)
         .ok_or_else(|| format!("{provider} is not a provider Toad Agent can use"))?;
     let builder = match (wiring.client, held) {
@@ -897,6 +903,23 @@ fn agent_builder(
             .build()
             .map_err(text)?
             .agent(model),
+        (Client::OpenRouter, ProviderAuth::Login { token_dir }) => {
+            openrouter::Client::new(&crate::providers::openrouter_key(token_dir)?)
+                .map_err(text)?
+                .agent(model)
+        }
+        (Client::XAi, ProviderAuth::Login { token_dir }) => {
+            crate::providers::xai::client(token_dir)?.agent(model)
+        }
+        (Client::Ollama, ProviderAuth::Local { base_url }) => {
+            crate::providers::ollama_client(base_url, "")?.agent(model)
+        }
+        (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => {
+            crate::providers::ollama_client(crate::providers::OLLAMA_CLOUD_URL, key)?.agent(model)
+        }
+        (_, ProviderAuth::Local { .. }) | (Client::Ollama, ProviderAuth::ApiKey(_)) => {
+            return Err(format!("{provider} has an incompatible connection method."));
+        }
         (Client::ChatGpt | Client::Copilot, ProviderAuth::ApiKey(_)) => {
             return Err(format!("{provider} needs a sign-in, not a key."));
         }
@@ -927,6 +950,18 @@ fn agent_builder(
         (Client::Mistral, ProviderAuth::ApiKey(key)) => {
             mistral::Client::new(key).map_err(text)?.agent(model)
         }
+        (Client::Zai, ProviderAuth::ApiKey(key)) => zai::Client::builder()
+            .api_key(key)
+            .general()
+            .build()
+            .map_err(text)?
+            .agent(model),
+        (Client::ZaiCoding, ProviderAuth::ApiKey(key)) => zai::Client::builder()
+            .api_key(key)
+            .coding()
+            .build()
+            .map_err(text)?
+            .agent(model),
     };
     // Anthropic refuses a request that names no ceiling, and Rig only knows
     // one for the models it shipped with. The catalogue knows every model's,
@@ -1549,6 +1584,16 @@ mod tests {
 
     #[test]
     fn effort_params_per_client() {
+        assert_eq!(
+            effort_params(Client::OllamaCloud, "max"),
+            Some(serde_json::json!({"think": "max"}))
+        );
+        assert_eq!(
+            effort_params(Client::Ollama, "medium"),
+            Some(serde_json::json!({"think": "medium"}))
+        );
+        assert_eq!(effort_params(Client::OllamaCloud, "xhigh"), None);
+
         assert_eq!(
             effort_params(Client::Anthropic, "high"),
             Some(json!({

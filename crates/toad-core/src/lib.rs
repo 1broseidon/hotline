@@ -19,6 +19,7 @@ pub mod log;
 pub mod mcp;
 pub mod models;
 pub mod paths;
+mod providers;
 pub mod room;
 pub mod session;
 pub mod store;

@@ -117,6 +117,7 @@ impl Vault {
             id: uuid::Uuid::new_v4().to_string(),
             provider_id: provider_id.to_string(),
             credential_kind: CredentialKind::ApiKey,
+            base_url: None,
             label: label.to_string(),
             revoked: false,
             created_at: now,
@@ -135,9 +136,16 @@ impl Vault {
     /// The secret stays on disk until `delete` takes it, because the two are
     /// different acts: revoking is the room's record that a key is not to be
     /// used, and the row keeps its label so the user can find the key they
-    /// still have to rotate at the provider.
+    /// still have to rotate at the provider. Grok OAuth tokens are removed
+    /// immediately so live clients cannot refresh a revoked login.
     pub fn revoke(&self, id: &str) -> io::Result<()> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let mut credential = self.find(id)?;
+        // Live Grok clients reread this directory before sending or refreshing.
+        // Removing it also invalidates clients already held by a teammate.
+        if credential.provider_id == "xai" && credential.credential_kind == CredentialKind::Oauth {
+            self.abandon_login(id)?;
+        }
         credential.revoked = true;
         credential.updated_at = now_ms();
         self.log.append(&StreamId::Room, &event(&credential))?;
@@ -150,22 +158,13 @@ impl Vault {
     pub fn delete(&self, id: &str) -> io::Result<()> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let credential = self.find(id)?;
-        match credential.credential_kind {
-            CredentialKind::Oauth => {
-                let dir = self.login_dir(&credential.id);
-                match fs::remove_dir_all(&dir) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            CredentialKind::ApiKey => {
-                let mut secrets = self.read_secrets()?;
-                if secrets.remove(&credential.id).is_some() {
-                    self.write_secrets(&secrets)?;
-                }
+        if credential.credential_kind == CredentialKind::ApiKey {
+            let mut secrets = self.read_secrets()?;
+            if secrets.remove(&credential.id).is_some() {
+                self.write_secrets(&secrets)?;
             }
         }
+        self.abandon_login(id)?;
         self.log.append(
             &StreamId::Room,
             &json!({ "kind": "credential", "id": credential.id, "deleted": true }),
@@ -202,6 +201,7 @@ impl Vault {
             id: id.to_string(),
             provider_id: provider_id.to_string(),
             credential_kind: CredentialKind::Oauth,
+            base_url: None,
             label: label.to_string(),
             revoked: false,
             created_at: now,
@@ -242,15 +242,24 @@ impl Vault {
     /// without its vault looks like. Handing the provider nothing at all
     /// beats handing it an empty string.
     pub fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
-        // A vault that cannot be read is no keys rather than a failure: the
-        // place where refusing matters is the write, where a key could be lost.
+        self.connections()
+            .into_iter()
+            .map(|(id, (_, auth))| (id, auth))
+            .collect()
+    }
+
+    pub(crate) fn connection(&self, provider_id: &str) -> Option<(Credential, ProviderAuth)> {
+        self.connections().remove(provider_id)
+    }
+
+    fn connections(&self) -> HashMap<String, (Credential, ProviderAuth)> {
         let secrets = self.read_secrets().unwrap_or_default();
-        let mut auth = HashMap::new();
+        let mut connections = HashMap::new();
         for credential in self.list() {
             if credential.revoked {
                 continue;
             }
-            let value = match credential.credential_kind {
+            let auth = match credential.credential_kind {
                 CredentialKind::ApiKey => {
                     let Some(secret) = secrets.get(&credential.id) else {
                         continue;
@@ -264,30 +273,70 @@ impl Vault {
                     }
                     ProviderAuth::Login { token_dir: dir }
                 }
+                CredentialKind::Local => {
+                    let Some(base_url) = credential.base_url.clone() else {
+                        continue;
+                    };
+                    ProviderAuth::Local { base_url }
+                }
             };
-            auth.entry(credential.provider_id).or_insert(value);
+            connections
+                .entry(credential.provider_id.clone())
+                .or_insert((credential, auth));
         }
-        auth
+        connections
     }
 
-    /// The model ids each held login can run, when they have been written
-    /// beside it. A login with no list, an unreadable one, or a revoked
-    /// login is absent from the map, which the picker treats as the whole
-    /// catalogue — a missing list is not an empty one. Read from the login
-    /// directory `ProviderAuth` already carries rather than a second field
-    /// on the credential.
+    /// Discovery belongs to the active credential, so switching accounts or
+    /// local servers cannot leave another connection's models in the picker.
     pub fn account_models(&self) -> HashMap<String, Vec<String>> {
-        self.provider_auth()
+        self.connections()
             .into_iter()
-            .filter_map(|(provider_id, auth)| match auth {
-                ProviderAuth::Login { token_dir } => {
-                    let text = fs::read_to_string(token_dir.join("models.json")).ok()?;
-                    let ids: Vec<String> = serde_json::from_str(&text).ok()?;
-                    Some((provider_id, ids))
-                }
-                ProviderAuth::ApiKey(_) => None,
+            .filter_map(|(provider_id, (credential, _))| {
+                let text =
+                    fs::read_to_string(self.login_dir(&credential.id).join("models.json")).ok()?;
+                let ids: Vec<String> = serde_json::from_str(&text).ok()?;
+                Some((provider_id, ids))
             })
             .collect()
+    }
+
+    pub(crate) fn cache_models(&self, credential_id: &str, ids: &[String]) -> io::Result<()> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.find(credential_id)?.revoked {
+            return Err(io::Error::other(
+                "This connection was revoked during model discovery.",
+            ));
+        }
+        self.check_layout()?;
+        let dir = self.login_dir(credential_id);
+        make_private_directory(&dir)?;
+        write_account_models(&dir, ids)
+    }
+
+    pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
+        let (id, dir) = self.begin_login("ollama")?;
+        let now = now_ms();
+        let credential = Credential {
+            id: id.clone(),
+            provider_id: "ollama".into(),
+            credential_kind: CredentialKind::Local,
+            base_url: Some(base_url.into()),
+            label: "Ollama Local".into(),
+            revoked: false,
+            created_at: now,
+            updated_at: now,
+        };
+        let result = write_account_models(&dir, ids).and_then(|()| {
+            self.log
+                .append(&StreamId::Room, &event(&credential))
+                .map(|_| ())
+        });
+        if let Err(error) = result {
+            let _ = self.abandon_login(&id);
+            return Err(error);
+        }
+        Ok(credential)
     }
 
     /// Returns the rmcp credential store bound to one configured server URL.
@@ -799,11 +848,22 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
 /// A 0600 file whose contents Rig will overwrite in place, so the mode it
 /// is created with is the mode it keeps. JSON records start as `{}` because
 /// Rig treats an empty file as a parse error, not as absent.
-fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     let mut file = create_private_file(path)?;
     file.write_all(contents)?;
     file.sync_all()?;
     Ok(())
+}
+
+/// Refresh replaces tokens atomically without recreating a deleted login.
+pub(crate) fn write_login_tokens(token_dir: &Path, contents: &[u8]) -> io::Result<()> {
+    let temporary = token_dir.join(format!(".auth-{}.tmp", uuid::Uuid::new_v4()));
+    persist_renamed(
+        &temporary,
+        &token_dir.join("auth.json"),
+        token_dir,
+        contents,
+    )
 }
 
 /// The account's model ids as a JSON array of bare catalogue ids, 0600
@@ -813,10 +873,8 @@ pub(crate) fn write_account_models(token_dir: &Path, ids: &[String]) -> io::Resu
     let path = token_dir.join("models.json");
     let mut body = serde_json::to_vec(ids).map_err(io::Error::other)?;
     body.push(b'\n');
-    if path.exists() {
-        fs::remove_file(&path)?;
-    }
-    write_private(&path, &body)
+    let temporary = token_dir.join(format!(".models-{}.tmp", uuid::Uuid::new_v4()));
+    persist_renamed(&temporary, &path, token_dir, &body)
 }
 
 #[cfg(test)]
@@ -850,6 +908,39 @@ mod tests {
 
     fn secrets(vault: &Vault) -> String {
         fs::read_to_string(vault.secrets_path()).unwrap()
+    }
+
+    #[test]
+    fn model_discovery_belongs_to_the_connection_and_cannot_restore_a_deleted_one() {
+        let vault = vault("provider-model-cache");
+        let first = vault.create("ollama-cloud", "First", "first-key").unwrap();
+        let second = vault
+            .create("ollama-cloud", "Second", "second-key")
+            .unwrap();
+        vault
+            .cache_models(&first.id, &["first-model".into()])
+            .unwrap();
+        vault
+            .cache_models(&second.id, &["second-model".into()])
+            .unwrap();
+        assert_eq!(vault.account_models()["ollama-cloud"], ["first-model"]);
+        vault.delete(&first.id).unwrap();
+        assert_eq!(vault.account_models()["ollama-cloud"], ["second-model"]);
+        assert!(
+            vault
+                .cache_models(&first.id, &["stale-result".into()])
+                .is_err()
+        );
+        assert!(!vault.login_dir(&first.id).exists());
+        vault.cache_models(&second.id, &[]).unwrap();
+        assert!(vault.account_models()["ollama-cloud"].is_empty());
+        vault.revoke(&second.id).unwrap();
+        assert!(vault.account_models().is_empty());
+        assert!(
+            vault
+                .cache_models(&second.id, &["stale-result".into()])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1066,6 +1157,7 @@ mod tests {
             id: "torn".to_string(),
             provider_id: "anthropic".to_string(),
             credential_kind: CredentialKind::ApiKey,
+            base_url: None,
             label: "torn".to_string(),
             revoked: false,
             created_at: 1,

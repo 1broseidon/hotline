@@ -182,8 +182,10 @@ path: `~/Library/Application Support/Toad` on macOS, `%APPDATA%\Toad` on
 Windows, and `${XDG_DATA_HOME:-~/.local/share}/toad` on Linux.
 
 The vault is `<data dir>/vault/`: `secrets.json` for pasted API keys,
-`vault/logins/<id>/` for a subscription login's tokens (the files Rig
-writes, pre-created owner-only), and `vault/mcp/<server>.json` for an HTTP
+`vault/logins/<id>/` for login tokens (the files Rig
+writes, pre-created owner-only), Grok's atomically replaced OAuth tokens,
+OpenRouter's acquired key, and discovered
+model ids for each connection, and `vault/mcp/<server>.json` for an HTTP
 MCP server's protected OAuth registration and tokens. MCP records are bound
 to the configured server URL and authorization issuer; they never enter
 settings, streams, tapes or agent descriptors.
@@ -264,11 +266,24 @@ To add a provider: one `Wiring` line in `models.rs`, one `Client` arm in
 `driver/rig.rs` naming the Rig client that speaks to it, and a sync. The
 key form and the picker learn the name from the catalogue.
 
-`openai-codex` is the one hand-written provider. models.dev has no ChatGPT
+`openai-codex` is a synthesized provider. models.dev has no ChatGPT
 subscription row, so the sync copies the listed models off `openai` and
 clears their per-token price. A subscription has no per-token price; an id
 `openai` lacks is an error from the sync, so the list cannot drift
 silently.
+
+Ollama Local is the other exception: its catalogue row has no fixed models.
+Rig discovers the installed ids from the chosen server on connection and
+refresh. Ollama Cloud has a bundled models.dev list as a fallback, replaced
+by discovery once available. `providers.rs` contains the connection work
+Rig does not supply (OpenRouter PKCE and URL validation); `providers/xai.rs`
+adds Grok's device sign-in and a refresh wrapper around Rig's HTTP client.
+The device protocol follows [Pi's xAI implementation](https://github.com/earendil-works/pi/blob/main/packages/ai/src/auth/oauth/xai.ts)
+and the [Grok CLI authentication guide](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
+The public device client id is not a secret; requests identify Toad as their
+referrer. OAuth response bodies never enter user-facing errors. Model requests
+still go through Rig. `credentialKinds` lists all connection methods a
+provider offers, while each saved credential retains its own singular kind.
 
 ## The harness
 

@@ -78,6 +78,8 @@ type Results = {
 	"settings.update": Record<string, unknown>;
 	"credential.create": Credential;
 	"credential.login": LoginPrompt;
+	"credential.login_cancel": null;
+	"credential.connect_local": Credential;
 	"credential.login_status": LoginStatus;
 	"credential.refresh_models": CatalogModel[];
 	"credential.revoke": null;

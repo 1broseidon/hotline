@@ -1754,6 +1754,284 @@
         }
       }
     },
+    "ollama": {
+      "name": "Ollama Local",
+      "doc": "https://ollama.com/download",
+      "models": {}
+    },
+    "ollama-cloud": {
+      "name": "Ollama Cloud",
+      "doc": "https://docs.ollama.com/cloud",
+      "models": {
+        "deepseek-v4-flash": {
+          "name": "deepseek-v4-flash",
+          "release_date": "2026-04-24",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 1048576,
+            "output": 1048576
+          }
+        },
+        "deepseek-v4-flash:0731": {
+          "name": "DeepSeek V4 Flash 0731",
+          "release_date": "2026-07-31",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 1048576,
+            "output": 1048576
+          }
+        },
+        "deepseek-v4-pro": {
+          "name": "deepseek-v4-pro",
+          "release_date": "2026-04-24",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 1048576,
+            "output": 1048576
+          }
+        },
+        "gemma4:31b": {
+          "name": "gemma4:31b",
+          "release_date": "2026-04-02",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 262144
+          }
+        },
+        "glm-5.1": {
+          "name": "glm-5.1",
+          "release_date": "2026-03-27",
+          "reasoning": true,
+          "attachment": false,
+          "limit": {
+            "context": 202752,
+            "output": 131072
+          }
+        },
+        "glm-5.2": {
+          "name": "GLM-5.2",
+          "release_date": "2026-06-13",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 976000,
+            "output": 131072
+          }
+        },
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "release_date": "2026-08-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "release_date": "2026-08-26",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "gpt-oss:120b": {
+          "name": "gpt-oss:120b",
+          "release_date": "2025-08-05",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 131072,
+            "output": 32768
+          }
+        },
+        "gpt-oss:20b": {
+          "name": "gpt-oss:20b",
+          "release_date": "2025-08-05",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "attachment": false,
+          "limit": {
+            "context": 131072,
+            "output": 32768
+          }
+        },
+        "kimi-k2.5": {
+          "name": "kimi-k2.5",
+          "release_date": "2026-01-27",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 262144
+          }
+        },
+        "kimi-k2.6": {
+          "name": "kimi-k2.6",
+          "release_date": "2026-04-20",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 262144
+          }
+        },
+        "kimi-k2.7-code": {
+          "name": "kimi-k2.7-code",
+          "release_date": "2026-06-12",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 262144
+          }
+        },
+        "kimi-k3": {
+          "name": "kimi-k3",
+          "release_date": "2026-07-16",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        },
+        "minimax-m2.5": {
+          "name": "minimax-m2.5",
+          "release_date": "2026-02-12",
+          "reasoning": true,
+          "attachment": false,
+          "limit": {
+            "context": 204800,
+            "output": 131072
+          }
+        },
+        "minimax-m2.7": {
+          "name": "minimax-m2.7",
+          "release_date": "2026-03-18",
+          "reasoning": true,
+          "attachment": false,
+          "limit": {
+            "context": 196608,
+            "output": 196608
+          }
+        },
+        "minimax-m3": {
+          "name": "minimax-m3",
+          "release_date": "2026-05-31",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "limit": {
+            "context": 512000,
+            "output": 131072
+          }
+        },
+        "mistral-large-3:675b": {
+          "name": "mistral-large-3:675b",
+          "release_date": "2025-12-02",
+          "reasoning": false,
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 262144
+          }
+        },
+        "nemotron-3-nano:30b": {
+          "name": "nemotron-3-nano:30b",
+          "release_date": "2025-12-15",
+          "reasoning": true,
+          "attachment": false,
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        },
+        "nemotron-3-super": {
+          "name": "nemotron-3-super",
+          "release_date": "2026-03-11",
+          "reasoning": true,
+          "attachment": false,
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          }
+        },
+        "nemotron-3-ultra": {
+          "name": "nemotron-3-ultra",
+          "release_date": "2026-06-04",
+          "reasoning": true,
+          "attachment": false,
+          "limit": {
+            "context": 262144,
+            "output": 128000
+          }
+        },
+        "qwen3.5:397b": {
+          "name": "qwen3.5:397b",
+          "release_date": "2026-02-15",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          }
+        }
+      }
+    },
     "openai": {
       "name": "OpenAI",
       "doc": "https://platform.openai.com/docs/models",
@@ -7463,6 +7741,419 @@
           "limit": {
             "context": 256000,
             "output": 256000
+          }
+        }
+      }
+    },
+    "zai": {
+      "name": "Z.AI",
+      "doc": "https://docs.z.ai/guides/overview/pricing",
+      "models": {
+        "glm-4.5": {
+          "name": "GLM-4.5",
+          "release_date": "2025-07-28",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.6,
+            "output": 2.2,
+            "cache_read": 0.11,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 131072,
+            "output": 98304
+          }
+        },
+        "glm-4.5-air": {
+          "name": "GLM-4.5-Air",
+          "release_date": "2025-07-28",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.2,
+            "output": 1.1,
+            "cache_read": 0.03,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 131072,
+            "output": 98304
+          }
+        },
+        "glm-4.5-flash": {
+          "name": "GLM-4.5-Flash",
+          "release_date": "2025-07-28",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 131072,
+            "output": 98304
+          }
+        },
+        "glm-4.5v": {
+          "name": "GLM-4.5V",
+          "release_date": "2025-08-11",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.6,
+            "output": 1.8
+          },
+          "limit": {
+            "context": 64000,
+            "output": 16384
+          }
+        },
+        "glm-4.6": {
+          "name": "GLM-4.6",
+          "release_date": "2025-09-30",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.6,
+            "output": 2.2,
+            "cache_read": 0.11,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 204800,
+            "output": 131072
+          }
+        },
+        "glm-4.6v": {
+          "name": "GLM-4.6V",
+          "release_date": "2025-12-08",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.3,
+            "output": 0.9
+          },
+          "limit": {
+            "context": 128000,
+            "output": 32768
+          }
+        },
+        "glm-4.7": {
+          "name": "GLM-4.7",
+          "release_date": "2025-12-22",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.6,
+            "output": 2.2,
+            "cache_read": 0.11,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 204800,
+            "output": 131072
+          }
+        },
+        "glm-4.7-flash": {
+          "name": "GLM-4.7-Flash",
+          "release_date": "2026-01-19",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-4.7-flashx": {
+          "name": "GLM-4.7-FlashX",
+          "release_date": "2026-01-19",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.07,
+            "output": 0.4,
+            "cache_read": 0.01,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-5": {
+          "name": "GLM-5",
+          "release_date": "2026-02-12",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 1.0,
+            "output": 3.2,
+            "cache_read": 0.2,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 204800,
+            "output": 131072
+          }
+        },
+        "glm-5-turbo": {
+          "name": "GLM-5-Turbo",
+          "release_date": "2026-03-16",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 1.2,
+            "output": 4.0,
+            "cache_read": 0.24,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-5.1": {
+          "name": "GLM-5.1",
+          "release_date": "2026-04-07",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-5.2": {
+          "name": "GLM-5.2",
+          "release_date": "2026-06-13",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "release_date": "2026-08-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "release_date": "2026-08-26",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.075,
+            "output": 0.25,
+            "cache_read": 0.015,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5v-turbo": {
+          "name": "GLM-5V-Turbo",
+          "release_date": "2026-04-01",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 1.2,
+            "output": 4.0,
+            "cache_read": 0.24,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        }
+      }
+    },
+    "zai-coding-plan": {
+      "name": "Z.AI Coding Plan",
+      "doc": "https://docs.z.ai/devpack/overview",
+      "models": {
+        "glm-4.7": {
+          "name": "GLM-4.7",
+          "release_date": "2025-12-22",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 204800,
+            "output": 131072
+          }
+        },
+        "glm-5-turbo": {
+          "name": "GLM-5-Turbo",
+          "release_date": "2026-03-16",
+          "reasoning": true,
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-5.2": {
+          "name": "GLM-5.2",
+          "release_date": "2026-06-13",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.2-highspeed": {
+          "name": "GLM-5.2 Highspeed",
+          "release_date": "2026-06-13",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "release_date": "2026-08-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "release_date": "2026-08-26",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.3-highspeed": {
+          "name": "GLM-5.3 Highspeed",
+          "release_date": "2026-08-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
           }
         }
       }

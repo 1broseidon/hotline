@@ -114,6 +114,7 @@ pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
 pub enum ProviderAuth {
     ApiKey(String),
     Login { token_dir: PathBuf },
+    Local { base_url: String },
 }
 
 /// Where the provider credentials come from.

@@ -149,12 +149,21 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
     fn credential_delete(&self, id: &str) -> Result<(), String>;
-    /// Starts a device-code login. Returns the prompt as soon as the provider
+    /// Starts provider sign-in. Returns the prompt as soon as the provider
     /// issues a code; the login keeps running until the person signs in.
     async fn credential_login(
         &self,
         provider_id: &str,
     ) -> Result<crate::contract::LoginPrompt, String>;
+    fn credential_login_cancel(&self, _login_id: &str) -> Result<(), String> {
+        Err("Login cancellation is unavailable.".into())
+    }
+    async fn credential_connect_local(
+        &self,
+        _base_url: &str,
+    ) -> Result<crate::contract::Credential, String> {
+        Err("Local providers are unavailable.".into())
+    }
     /// How far a login started by [`Self::credential_login`] has got.
     fn login_status(&self, login_id: &str) -> Result<crate::contract::LoginStatus, String>;
     /// What the room knows of every credential, the secrets left in the vault.
@@ -207,9 +216,8 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Marks messages in a peer thread read, answering how many moved.
     fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
 
-    /// Re-reads the models a subscription login can run and answers with
-    /// that provider's catalogue as [`Self::models_catalog`] would. A
-    /// provider without a login, or whose credential is a key, is an error.
+    /// Re-reads Copilot account models or Ollama server models and answers
+    /// with the provider's catalogue as [`Self::models_catalog`] would.
     async fn credential_refresh_models(
         &self,
         provider_id: &str,

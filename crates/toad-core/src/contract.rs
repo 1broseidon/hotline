@@ -580,6 +580,9 @@ pub struct Credential {
     /// The event's own `kind` names the event, so a credential's kind is
     /// spelled differently here: two fields called `kind` would be one field.
     pub credential_kind: CredentialKind,
+    /// The chosen Ollama server. Keys and sign-ins use their provider's endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
     /// What the user called it, so a list of keys is a list they recognise.
     pub label: String,
     /// Revoked. Set once and never unset — revocation is a fact, not a toggle.
@@ -590,8 +593,7 @@ pub struct Credential {
 
 /// A provider Toad Agent can hold a credential for, as the key form offers
 /// them. Which ones there are is `models::WIRING`; the name and the doc link
-/// come from the model catalogue. `credential_kind` is what a credential for
-/// this provider is: a key you paste or a login you do.
+/// come from the model catalogue. A provider can offer several ways to connect.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -600,23 +602,22 @@ pub struct Provider {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
-    pub credential_kind: CredentialKind,
+    pub credential_kinds: Vec<CredentialKind>,
 }
 
-/// What a credential is: a key you paste, or a login you do. The second word
-/// is the ChatGPT and GitHub Copilot subscriptions, whose tokens Rig keeps
-/// in a file rather than in `secrets.json`.
+/// How this connection was established: a pasted key, a provider sign-in,
+/// or an Ollama server URL. OAuth does not imply subscription billing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
 pub enum CredentialKind {
     ApiKey,
     Oauth,
+    Local,
 }
 
-/// The code and URL a person needs to finish a device-code login. Returned
-/// the moment the provider issues them; the login itself keeps running until
-/// they sign in, fail, or the process exits.
+/// Instructions for provider sign-in. Browser callback flows leave `user_code`
+/// empty; device flows supply the code to enter at `verification_uri`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -626,7 +627,7 @@ pub struct LoginPrompt {
     pub verification_uri: String,
 }
 
-/// How far a device-code login has got. A finished one stays queryable until
+/// How far a provider login has got. A finished one stays queryable until
 /// the process exits, so a window that missed the moment can still read it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1472,12 +1473,17 @@ pub enum Command {
     /// until the person signed in.
     #[serde(rename = "credential.login")]
     CredentialLogin { provider_id: String },
+    /// Stops a pending login, including its callback listener or device polling.
+    #[serde(rename = "credential.login_cancel")]
+    CredentialLoginCancel { login_id: String },
+    /// Connects an Ollama server and discovers the models installed there.
+    #[serde(rename = "credential.connect_local")]
+    CredentialConnectLocal { base_url: String },
     #[serde(rename = "credential.login_status")]
     CredentialLoginStatus { login_id: String },
-    /// Re-reads the models a subscription login can run and answers with
-    /// that provider's catalogue as `models.catalog` would. A provider
-    /// without a login, or whose credential is a key, is an error; a fetch
-    /// that fails is the error text.
+    /// Re-reads Copilot account models or Ollama server models and answers with
+    /// that provider's catalogue as `models.catalog` would. An absent
+    /// connection or a failed fetch is an error; the previous list survives.
     #[serde(rename = "credential.refresh_models")]
     CredentialRefreshModels { provider_id: String },
     #[serde(rename = "credential.revoke")]

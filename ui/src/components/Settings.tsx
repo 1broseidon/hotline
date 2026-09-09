@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { BackendChoice, CatalogModel, ComputerRuntime, ConfigChoice, Credential, LoginPrompt, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
+import type { BackendChoice, CatalogModel, ComputerRuntime, ConfigChoice, Credential, CredentialKind, LoginPrompt, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
@@ -455,6 +455,12 @@ function ProvidersSection({
 	 * the prompt once the core has one. */
 	const [choosing, setChoosing] = useState(false);
 	const [adding, setAdding] = useState<Provider | null>(null);
+	const [method, setMethod] = useState<CredentialKind | null>(null);
+	const replacing = useRef<string | null>(null);
+	const loginAttempt = useRef(0);
+	useEffect(() => () => {
+		loginAttempt.current += 1;
+	}, []);
 	const [login, setLogin] = useState<{ providerId: string; prompt: LoginPrompt } | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [open, setOpen] = useState<string | null>(null);
@@ -483,13 +489,13 @@ function ProvidersSection({
 				.then((status) => {
 					if (cancelled) return;
 					if (status.state === "done") {
-						if (status.credential) {
-							const made = status.credential;
-							setHeld((known) => [...(known ?? []).filter((one) => one.id !== made.id), made]);
-						}
 						setLogin(null);
-						setAdding(null);
-						setBusy(false);
+						if (status.credential) {
+							void accept(status.credential);
+						} else {
+							setAdding(null);
+							setBusy(false);
+						}
 						return;
 					}
 					if (status.state === "failed") {
@@ -513,6 +519,7 @@ function ProvidersSection({
 		return () => {
 			cancelled = true;
 			if (timer !== undefined) clearTimeout(timer);
+			void wire.command("credential.login_cancel", { loginId: login.prompt.loginId }).catch(() => {});
 		};
 	}, [login]);
 
@@ -524,21 +531,67 @@ function ProvidersSection({
 	const live = new Set(connected.filter((one) => !one.credential.revoked).map((one) => one.credential.providerId));
 	const addable = providers.filter((one) => !live.has(one.id)).slice().sort(byName);
 
-	const begin = (provider: Provider) => {
+	const begin = (provider: Provider, replaceId: string | null = null) => {
 		setRefusal(null);
 		setChoosing(false);
 		setAdding(provider);
-		if (provider.credentialKind === "oauth") void signIn(provider.id);
+		replacing.current = replaceId;
+		const initial = provider.credentialKinds.length === 1 ? provider.credentialKinds[0] ?? null : null;
+		setMethod(initial);
+		if (initial === "oauth") void signIn(provider.id);
 	};
 
 	const signIn = async (id: string) => {
 		if (busy) return;
 		setBusy(true);
+		setMethod("oauth");
+		const attempt = ++loginAttempt.current;
 		try {
-			setLogin({ providerId: id, prompt: await wire.command("credential.login", { providerId: id }) });
+			const prompt = await wire.command("credential.login", { providerId: id });
+			if (attempt !== loginAttempt.current) {
+				await wire.command("credential.login_cancel", { loginId: prompt.loginId });
+				return;
+			}
+			setLogin({ providerId: id, prompt });
+		} catch (error) {
+			if (attempt !== loginAttempt.current) return;
+			setRefusal(error instanceof Error ? error.message : String(error));
+			setAdding(null);
+			setBusy(false);
+		}
+	};
+
+	const cancelLogin = async () => {
+		loginAttempt.current += 1;
+		try {
+			if (login) await wire.command("credential.login_cancel", { loginId: login.prompt.loginId });
+			setHeld(await wire.command("credential.list", {}));
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		} finally {
+			setLogin(null);
+			setAdding(null);
+			setBusy(false);
+		}
+	};
+
+	// Keep the existing connection usable until its replacement has succeeded.
+	const accept = async (made: Credential) => {
+		const previous = replacing.current;
+		replacing.current = null;
+		try {
+			if (previous !== null) await wire.command("credential.delete", { id: previous });
+			setHeld((known) => [...(known ?? []).filter((one) => one.id !== previous && one.id !== made.id), made]);
+			setAdding(null);
+			if (made.providerId === "ollama-cloud") {
+				await wire.command("credential.refresh_models", { providerId: made.providerId });
+			}
+			setOpen(made.id);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
 			setAdding(null);
+			await wire.command("credential.list", {}).then(setHeld).catch(() => {});
+		} finally {
 			setBusy(false);
 		}
 	};
@@ -548,12 +601,21 @@ function ProvidersSection({
 		setBusy(true);
 		setRefusal(null);
 		try {
-			const made = await wire.command("credential.create", { providerId: adding.id, label: adding.name, secret });
-			setHeld((known) => [...(known ?? []), made]);
-			setAdding(null);
+			await accept(await wire.command("credential.create", { providerId: adding.id, label: adding.name, secret }));
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
-		} finally {
+			setBusy(false);
+		}
+	};
+
+	const connectLocal = async (baseUrl: string) => {
+		if (busy) return;
+		setBusy(true);
+		setRefusal(null);
+		try {
+			await accept(await wire.command("credential.connect_local", { baseUrl }));
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
 			setBusy(false);
 		}
 	};
@@ -568,7 +630,7 @@ function ProvidersSection({
 				onBack={() => setOpen(null)}
 				onSignIn={() => {
 					setOpen(null);
-					if (opened.provider) begin(opened.provider);
+					if (opened.provider) begin(opened.provider, opened.credential.id);
 				}}
 				onRemoved={() => {
 					setHeld((known) => (known ?? []).filter((one) => one.id !== opened.credential.id));
@@ -604,7 +666,7 @@ function ProvidersSection({
 											<span className="group-row-text">
 												<span className="group-row-title">{provider.name}</span>
 											</span>
-											<span className="text-sm text-ink-3">{provider.credentialKind === "oauth" ? "Sign in" : "API key"}</span>
+											<span className="text-sm text-ink-3">{provider.credentialKinds.map(connectionMethod).join(" or ")}</span>
 											<ChevronRightIcon className="shrink-0 text-ink-3" />
 										</button>
 									))
@@ -617,27 +679,54 @@ function ProvidersSection({
 							</div>
 						</section>
 					)}
-					{adding !== null && adding.credentialKind === "api_key" && (
+					{adding !== null && method === null && (
+						<section>
+							<h3 className="group-title">Connect {adding.name}</h3>
+							<div className="grouped">
+								{adding.credentialKinds.map((kind) => (
+									<button
+										key={kind}
+										type="button"
+										className="group-row group-row-choice w-full text-left"
+										disabled={busy}
+										onClick={() => kind === "oauth" ? void signIn(adding.id) : setMethod(kind)}
+									>
+										<span className="group-row-text">{adding.id === "xai" && kind === "oauth" ? "Sign in with SuperGrok or X Premium+" : connectionMethod(kind)}</span>
+										<ChevronRightIcon />
+									</button>
+								))}
+								<div className="group-row justify-end">
+									<button type="button" className="control btn-quiet" onClick={() => setAdding(null)}>Cancel</button>
+								</div>
+							</div>
+						</section>
+					)}
+					{adding !== null && method === "local" && (
+						<LocalProviderForm busy={busy} onSave={(url) => void connectLocal(url)} onCancel={() => setAdding(null)} />
+					)}
+					{adding !== null && method === "api_key" && (
 						<KeyForm provider={adding} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={() => setAdding(null)} />
 					)}
-					{adding !== null && adding.credentialKind === "oauth" && (
+					{adding !== null && method === "oauth" && (
 						<section>
 							<h3 className="group-title">Sign in to {adding.name}</h3>
 							<div className="grouped">
 								{login === null ? (
-									<p className="group-row text-sm text-ink-3">Asking {adding.name} for a code…</p>
+									<p className="group-row text-sm text-ink-3">Preparing sign-in…</p>
 								) : (
 									<>
-										<div className="group-row">
-											<span className="selectable font-mono text-xl tracking-wide">{login.prompt.userCode}</span>
-										</div>
+										{login.prompt.userCode !== "" && (
+											<div className="group-row">
+												<span className="selectable font-mono text-xl tracking-wide">{login.prompt.userCode}</span>
+											</div>
+										)}
 										<div className="group-row">
 											<button
 												type="button"
 												className="text-sm text-ink-2 underline"
 												onClick={() => void openLink(login.prompt.verificationUri)}
 											>
-												{login.prompt.verificationUri}
+												Open {adding.name} sign-in
 											</button>
 										</div>
 										<p className="group-row text-sm text-ink-3">Waiting for you to sign in…</p>
@@ -647,17 +736,13 @@ function ProvidersSection({
 									<button
 										type="button"
 										className="control btn-quiet"
-										onClick={() => {
-											setLogin(null);
-											setAdding(null);
-											setBusy(false);
-										}}
+										onClick={() => void cancelLogin()}
 									>
 										Cancel
 									</button>
 								</div>
 							</div>
-							<p className="group-hint">Enter the code on that page.</p>
+							<p className="group-hint">{login?.prompt.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
 						</section>
 					)}
 					<section>
@@ -684,10 +769,8 @@ function ProvidersSection({
 											<span className="group-row-title">{nameOf(one)}</span>
 											<span className="group-row-detail">
 												{one.credential.revoked
-													? one.credential.credentialKind === "oauth"
-														? "Signed out"
-														: "Key revoked"
-													: `${one.credential.credentialKind === "oauth" ? "Signed in" : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
+													? "Disconnected"
+													: `${one.credential.credentialKind === "oauth" ? "Signed in" : one.credential.credentialKind === "local" ? one.credential.baseUrl : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
 											</span>
 										</span>
 										<ChevronRightIcon className="shrink-0 text-ink-3" />
@@ -701,6 +784,42 @@ function ProvidersSection({
 				</div>
 			</Scroll>
 		</div>
+	);
+}
+
+function connectionMethod(kind: CredentialKind): string {
+	return kind === "oauth" ? "Sign in" : kind === "local" ? "Server URL" : "API key";
+}
+
+function LocalProviderForm({ busy, onSave, onCancel }: { busy: boolean; onSave(url: string): void; onCancel(): void }) {
+	const [url, setUrl] = useState("http://localhost:11434");
+	return (
+		<form onSubmit={(event) => {
+			event.preventDefault();
+			if (url.trim()) onSave(url.trim());
+		}}>
+			<h3 className="group-title">Connect Ollama Local</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<label htmlFor="ollama-url" className="w-24 shrink-0 text-sm text-ink-2">Server URL</label>
+					<input
+						id="ollama-url"
+						type="url"
+						className="field flex-1 font-mono text-sm"
+						value={url}
+						onChange={(event) => setUrl(event.target.value)}
+						disabled={busy}
+						spellCheck={false}
+						autoComplete="off"
+					/>
+				</div>
+				<div className="group-row justify-end">
+					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>Cancel</button>
+					<button type="submit" className="control btn-primary" disabled={busy || !url.trim()}>{busy ? "Connecting…" : "Connect"}</button>
+				</div>
+			</div>
+			<p className="group-hint">Start Ollama first. Toad discovers the models installed on this server. Cloud models available through your Ollama sign-in work here too.</p>
+		</form>
 	);
 }
 
@@ -795,6 +914,8 @@ function ProviderPage({
 }) {
 	const providerId = credential.providerId;
 	const oauth = credential.credentialKind === "oauth";
+	const local = credential.credentialKind === "local";
+	const discover = providerId === "github-copilot" || providerId === "ollama" || providerId === "ollama-cloud";
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [catalog, setCatalog] = useState<CatalogModel[] | null>(null);
 	const [query, setQuery] = useState("");
@@ -878,9 +999,9 @@ function ProviderPage({
 							<div className="grouped">
 								<div className="group-row">
 									<span className="group-row-text">
-										<span className="group-row-title">{oauth ? "Signed out" : "Key revoked"}</span>
+										<span className="group-row-title">{oauth ? "Signed out" : local ? "Disconnected" : "Key revoked"}</span>
 										<span className="group-row-detail">
-											{oauth ? "The login no longer works." : "The key no longer works."}
+											{oauth ? "The login no longer works." : local ? "Connect the server again to use its models." : "The key no longer works."}
 										</span>
 									</span>
 									{oauth && (
@@ -915,7 +1036,7 @@ function ProviderPage({
 									<button type="button" className="control btn-quiet" disabled={catalog === null} onClick={() => setOn(new Set())}>
 										None
 									</button>
-									{oauth && (
+									{discover && (
 										<button
 											type="button"
 											className="control btn-quiet"
@@ -927,7 +1048,7 @@ function ProviderPage({
 									)}
 								</div>
 								<p className="group-row text-sm text-ink-3">
-									{catalog === null ? "Reading…" : `${on.size} of ${catalog.length} shown`}
+									{catalog === null ? "Reading…" : catalog.length === 0 && local ? "No models found. Pull a model with Ollama, then refresh." : `${on.size} of ${catalog.length} shown`}
 								</p>
 								{visible.map((model) => (
 									<label key={model.id} className="group-row group-row-choice">
@@ -968,11 +1089,12 @@ function ProviderPage({
 						<div className="grouped">
 							<div className="group-row">
 								<span className="group-row-text">
-									<span className="group-row-title">{oauth ? "Sign out" : "Remove key"}</span>
+									<span className="group-row-title">{oauth ? "Sign out" : local ? "Disconnect server" : "Remove key"}</span>
 									<span className="group-row-detail">
-										{oauth ? "Forgets the login on this machine." : "Forgets the key on this machine."}
+										{oauth ? "Forgets the login on this machine." : local ? credential.baseUrl : "Forgets the key on this machine."}
 									</span>
 								</span>
+								<button type="button" className="control btn-quiet" disabled={busy} onClick={onSignIn}>Change connection</button>
 								<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove()}>
 									{oauth ? "Sign out" : "Remove"}
 								</button>

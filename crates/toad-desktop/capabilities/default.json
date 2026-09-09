@@ -21,7 +21,6 @@
     "core:menu:allow-new",
     "core:menu:allow-popup",
     "window-state:default",
-    "notification:default",
     "dialog:allow-open",
     "dialog:allow-ask",
     "opener:allow-open-url",

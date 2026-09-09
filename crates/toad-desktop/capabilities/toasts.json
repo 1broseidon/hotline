@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "toasts",
+  "description": "The toast plugin, where it is the one posting: on macOS the shell's notify command does, and the plugin is not built.",
+  "platforms": [
+    "linux",
+    "windows"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "notification:default"
+  ]
+}

@@ -12,8 +12,8 @@ import { Teammate } from "./components/Teammate";
 import { Thread, type OpenThread } from "./components/Thread";
 import { matchChord } from "./chords";
 import { PlusIcon } from "./icons";
-import { confirmRemove, listenMenu, openLink, platform, setBadge, watchWindowShape } from "./native";
-import { noticeRoster, setWindowTitle, watchNotificationClicks } from "./notify";
+import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
+import { noticeRoster, setWindowTitle } from "./notify";
 import { useRoomJobs, useRoomSettings } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
@@ -124,8 +124,6 @@ export function App() {
 		setWindowTitle(selected?.persona.name ?? null);
 	}, [selected]);
 
-	useEffect(() => watchNotificationClicks(), []);
-
 	/* A different teammate is a different conversation: the search was asking
 	 * about the one that just left, and the inspector was editing them. */
 	useEffect(() => {
@@ -146,6 +144,11 @@ export function App() {
 		setPane(null);
 		setRailShown(false);
 	}, []);
+
+	// A clicked toast is a teammate asking to be looked at; the shell has
+	// already raised the window.
+	useEffect(() => listenToastClicks(select), [select]);
+
 	/* Closing a pane lands on the rail: it is where the pane was opened from. */
 	const closePane = useCallback(() => {
 		setPane(null);

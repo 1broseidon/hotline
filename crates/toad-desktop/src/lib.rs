@@ -4,15 +4,20 @@
 //! a loopback port, hands the page the port and a token before it loads, and
 //! opens a window on it once the page has loaded. Everything the window
 //! does from then on is the
-//! wire's business. Plugins remember the window's place, post toasts, pick
-//! folders, open links, and write the clipboard; the judgement for those
-//! lives in the page, not here. The page draws the window's top strip on
+//! wire's business. Plugins remember the window's place, pick folders, open
+//! links, and write the clipboard; on Linux and Windows one posts toasts too,
+//! while on macOS the notification center does, through `notify`, because it
+//! is the one that hands a click back. The judgement for all of it lives in
+//! the page, not here. The page draws the window's top strip on
 //! every platform. On macOS the menu bar is this process's, and its items
 //! emit an event the window handles. On Linux and Windows there is no menu
 //! bar and no system frame: the strip carries the window's controls too,
 //! so the window is one material to its edge.
 //! Closing the window hides it; the tray is how the person gets it back and
 //! how they actually quit, because the room keeps working either way.
+
+#[cfg(target_os = "macos")]
+mod notify;
 
 use rand::RngCore;
 use std::sync::Arc;
@@ -158,7 +163,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
 /// Show, unminimize and focus the main window. The tray's Open, a left click
 /// on Linux and Windows, and a macOS dock reopen of a hidden app all mean
 /// the same thing: the room is still here, bring the window back.
-fn show_main_window(app: &tauri::AppHandle) {
+pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -247,19 +252,26 @@ pub fn run() {
     });
     let script = format!("window.__toadDesk = {injected};");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state_flags())
                 .build(),
         )
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_clipboard_manager::init());
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    #[cfg(target_os = "macos")]
+    let builder = builder.invoke_handler(tauri::generate_handler![notify::notify]);
+    builder
         .setup(move |app| {
             #[cfg(target_os = "macos")]
-            install_menu(app)?;
+            {
+                install_menu(app)?;
+                notify::install(app.handle());
+            }
             // The window stays hidden until the page has loaded, because a
             // window shown first is a white frame before the well paints,
             // and a dark theme notices. Shown once: a reload of the page

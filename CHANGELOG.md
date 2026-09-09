@@ -27,6 +27,9 @@ repository is what builds and publishes a release.
   opens on a white frame.
 - A click into an inactive Toad window lands on what it hit.
 - The Mac bundle asks for macOS 13, which the window's CSS needs.
+- Mac toasts come from the notification center Apple keeps, not the one it
+  retired: they thread by teammate, and a click raises the window and opens
+  that teammate. A `make dev` run, being no bundle, posts none.
 
 ## [0.5.0] - 2026-09-08
 

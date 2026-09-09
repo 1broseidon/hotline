@@ -4,19 +4,13 @@
  *
  * The judgement lives here, not in the shell, because the roster view already
  * carries the session edge and the last line, and a toast about the screen
- * already in your hand is noise. The plugin posts; this file only decides.
- * Phone push is a later seat — not this.
+ * already in your hand is noise. The shell posts (native.ts); this file only
+ * decides. Phone push is a later seat — not this.
  */
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-	isPermissionGranted,
-	onAction,
-	requestPermission,
-	sendNotification,
-} from "@tauri-apps/plugin-notification";
 import type { SessionState } from "./generated/contract";
-import { requestAttention } from "./native";
+import { postToast, requestAttention } from "./native";
 import type { RosterEntry } from "./wire";
 
 /** Last state seen per teammate, so a transition can be recognised as one. */
@@ -38,35 +32,12 @@ export function noticeRoster(entries: RosterEntry[]): void {
 		if (previous !== "thinking") continue;
 		if (entry.session.state !== "ready" && entry.session.state !== "error") continue;
 		if (document.hasFocus()) continue;
-		void tell(entry.persona.name, lastLine(entry));
+		void postToast(entry.persona.id, entry.persona.name, lastLine(entry));
 		if (entry.session.state === "error") void requestAttention();
 	}
 	for (const id of lastState.keys()) {
 		if (!live.has(id)) lastState.delete(id);
 	}
-}
-
-/**
- * Clicking a toast should raise this window. The plugin's action channel is
- * mobile-only today; on the desk the OS may still raise us, and a missing
- * channel is nothing rather than a second path.
- */
-export function watchNotificationClicks(): () => void {
-	let stop: (() => void) | undefined;
-	void onAction(() => {
-		try {
-			void getCurrentWindow().setFocus();
-		} catch {
-			// A browser tab has no window to raise.
-		}
-	})
-		.then((listener) => {
-			stop = () => {
-				void listener.unregister();
-			};
-		})
-		.catch(() => {});
-	return () => stop?.();
 }
 
 /** The chrome names who is open, so the task bar is the rail's selected row. */
@@ -86,15 +57,4 @@ export function setWindowTitle(name: string | null): void {
 
 function lastLine(entry: RosterEntry): string {
 	return (entry.preview?.text ?? "").replace(/\s+/g, " ").trim();
-}
-
-async function tell(title: string, body: string): Promise<void> {
-	try {
-		let granted = await isPermissionGranted();
-		if (!granted) granted = (await requestPermission()) === "granted";
-		if (!granted) return;
-		sendNotification({ title, body });
-	} catch {
-		// A missed toast is not a failed turn.
-	}
 }

@@ -192,7 +192,10 @@ starting the session elsewhere, designed then on the log.
 in it. `toad-desktop` is the Tauri 2 shell: the window, the desk door, the
 menus. The window remembers its size, place and maximised state, and posts
 a desktop toast when a teammate finishes or blocks while the window is not
-focused — both through plugins, with the judgement in the page. The window
+focused — the first through a plugin, the second through a plugin on Linux
+and Windows and through the notification center on macOS, where a click
+comes back as an event and the toasts thread by teammate; the judgement is
+the page's either way. The window
 is built fresh in Phase 1 against the generated contract and the
 subscription wire; `../toad/src/mainview` is the reference for which
 screens exist and how they behave, and a component is lifted from it only

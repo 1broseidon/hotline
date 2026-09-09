@@ -1,16 +1,18 @@
 /**
  * The desk's native pieces: a folder picker, opening a path or a link, the
- * clipboard, the menu the shell emits, the window chrome, the dock, and the
- * version and data directory the shell injected. Each call is a no-op — or a web
+ * clipboard, the menu the shell emits, the window chrome, the dock, toasts,
+ * and the version and data directory the shell injected. Each call is a no-op — or a web
  * fallback — in a browser tab, so the window can still typecheck and render
  * there.
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
 import { UserAttentionType, getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask, open } from "@tauri-apps/plugin-dialog";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 export function isDesktop(): boolean {
@@ -133,6 +135,41 @@ export async function requestAttention(): Promise<void> {
 	} catch {
 		// A browser tab has no dock.
 	}
+}
+
+/**
+ * A desktop toast for a teammate. On macOS the shell posts it through the
+ * notification center, which threads toasts by teammate and hands a click
+ * back (`listenToastClicks`); elsewhere the plugin posts it, and a click is
+ * the OS's own business. The first toast asks the person's leave. Nothing
+ * from a browser tab, and nothing from a macOS `make dev`, which is a bare
+ * binary the center will not post for.
+ */
+export async function postToast(personaId: string, title: string, body: string): Promise<void> {
+	try {
+		if (platform() === "macos") {
+			await invoke("notify", { personaId, title, body });
+			return;
+		}
+		let granted = await isPermissionGranted();
+		if (!granted) granted = (await requestPermission()) === "granted";
+		if (granted) sendNotification({ title, body });
+	} catch {
+		// A missed toast is not a failed turn.
+	}
+}
+
+/** A toast was clicked: the shell has raised the window, and this is whose toast it was. */
+export function listenToastClicks(onPersona: (personaId: string) => void): () => void {
+	let stop: (() => void) | undefined;
+	void listen<string>("toad://notification", (event) => {
+		onPersona(event.payload);
+	})
+		.then((unlisten) => {
+			stop = unlisten;
+		})
+		.catch(() => {});
+	return () => stop?.();
 }
 
 export type WindowShape = { maximized: boolean; fullscreen: boolean };

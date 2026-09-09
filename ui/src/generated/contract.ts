@@ -534,9 +534,17 @@ latest?: number,
 activity?: string, session: SessionInfo, };
 
 /**
- * What probing one runtime found, for the window's settings.
+ * What probing one runtime found, for the window's settings: a state the
+ * window can name in two words, and, when the runtime said something on
+ * its way to that state, its words kept apart for whoever wants them.
  */
-export type RuntimeReport = { runtime: ComputerRuntime, available: boolean, reason?: string, rootless: boolean, };
+export type RuntimeReport = { runtime: ComputerRuntime, state: RuntimeState, detail?: string, rootless: boolean, };
+
+/**
+ * How a probe of a container runtime ended. `Ready` is the only state a
+ * computer can start on; the rest are the two words the window shows.
+ */
+export type RuntimeState = "ready" | "not_installed" | "not_running" | "not_responding" | "failed" | "unsupported";
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.

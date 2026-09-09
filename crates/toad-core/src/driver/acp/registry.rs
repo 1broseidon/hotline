@@ -157,9 +157,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
                 ),
                 args: native.args.iter().map(|arg| (*arg).to_string()).collect(),
             }),
-            unavailable: found
-                .is_none()
-                .then(|| format!("needs {} on PATH", native.command)),
+            unavailable: found.is_none().then(|| "Not installed".to_string()),
         });
     }
 
@@ -191,7 +189,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
                 ),
                 Some(launch) => which(&launch.command)
                     .is_none()
-                    .then(|| format!("needs {} on PATH", launch.command)),
+                    .then(|| "Not installed".to_string()),
             };
             Backend {
                 id: agent.id.clone(),
@@ -297,11 +295,11 @@ fn launch_for(agent: &Published) -> Option<Launch> {
 /// saying nothing.
 fn adapter_missing(client: &str, launcher: &str) -> Option<String> {
     if which(client).is_none() {
-        return Some(format!("needs the {client} CLI on PATH"));
+        return Some("Not installed".to_string());
     }
     which(launcher)
         .is_none()
-        .then(|| format!("needs {launcher} on PATH"))
+        .then(|| "Not installed".to_string())
 }
 
 fn npx(package: &str, extra: &[String]) -> Launch {
@@ -547,11 +545,11 @@ mod tests {
         assert_eq!(adapter_missing("sh", "sh"), None);
         assert_eq!(
             adapter_missing("sh", NOWHERE),
-            Some(format!("needs {NOWHERE} on PATH"))
+            Some("Not installed".to_string())
         );
         assert_eq!(
             adapter_missing(NOWHERE, "sh"),
-            Some(format!("needs the {NOWHERE} CLI on PATH"))
+            Some("Not installed".to_string())
         );
     }
 }

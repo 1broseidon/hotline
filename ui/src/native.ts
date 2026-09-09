@@ -37,6 +37,11 @@ export function dataDirectory(): string {
 	return window.__toadDesk?.dataDir ?? "";
 }
 
+/** The computer image this build of Toad pins, so a blank field can show it. */
+export function pinnedComputerImage(): string {
+	return window.__toadDesk?.computerImage ?? "";
+}
+
 export async function pickDirectory(): Promise<string | null> {
 	try {
 		const selected = await open({ directory: true, multiple: false });

@@ -1,23 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import type {
-	BackendChoice,
-	CatalogModel,
-	ComputerRuntime,
-	ConfigChoice,
-	Credential,
-	LoginPrompt,
-	Provider,
-	Report,
-	RuntimeReport,
-} from "../generated/contract";
-import { openLink } from "../native";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { BackendChoice, CatalogModel, ComputerRuntime, ConfigChoice, Credential, LoginPrompt, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
+import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
-import { ArrowLeftIcon, ChevronRightIcon, PlusIcon } from "../icons";
+import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
+import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
@@ -28,12 +19,12 @@ const MAX_IDLE_HOURS = 336;
 
 export type SettingsSection = "general" | "providers" | "tools" | "computer" | "import";
 
-const SECTIONS: { id: SettingsSection; title: string; detail: string }[] = [
-	{ id: "general", title: "General", detail: "Chapters, the default harness, and the default model" },
-	{ id: "providers", title: "Providers", detail: "What Toad Agent can run a model on" },
-	{ id: "tools", title: "Tools", detail: "MCP gateway for your teammates" },
-	{ id: "computer", title: "Computer", detail: "The desktop a teammate can be given" },
-	{ id: "import", title: "Import", detail: "A previous Toad's room" },
+const SECTIONS: { id: SettingsSection; title: string }[] = [
+	{ id: "general", title: "General" },
+	{ id: "providers", title: "Providers" },
+	{ id: "tools", title: "Tools" },
+	{ id: "computer", title: "Computer" },
+	{ id: "import", title: "Import" },
 ];
 
 /**
@@ -74,10 +65,7 @@ export function SettingsRail({
 						aria-current={section === one.id ? "true" : undefined}
 						onClick={() => onSection(one.id)}
 					>
-						<span className="min-w-0 flex-1">
-							<span className="block h-[18px] truncate font-medium text-ink">{one.title}</span>
-							<span className="block h-4 truncate text-sm text-ink-3">{one.detail}</span>
-						</span>
+						<span className="block min-w-0 flex-1 truncate font-medium text-ink">{one.title}</span>
 					</button>
 				))}
 			</div>
@@ -132,11 +120,7 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 						/>
 					)}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
-					{refusal !== null && (
-						<p role="status" className="selectable text-sm text-danger">
-							{refusal}
-						</p>
-					)}
+					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -192,9 +176,6 @@ function GeneralSection({
 					<div className="group-row">
 						<label className="group-row-text" htmlFor="setting-idle">
 							<span className="group-row-title">Close a chapter after</span>
-							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-								How long a teammate sits quiet before its working context closes.
-							</span>
 						</label>
 						<span className="flex items-center gap-2 text-sm text-ink-2">
 							<input
@@ -211,7 +192,7 @@ function GeneralSection({
 						</span>
 					</div>
 				</div>
-				<p className="group-hint">Eight hours is a night&rsquo;s sleep. The default is {DEFAULT_IDLE_HOURS}.</p>
+				<p className="group-hint">The default is {DEFAULT_IDLE_HOURS}.</p>
 			</section>
 			<section>
 				<h3 className="group-title" id="setting-backend">
@@ -230,7 +211,6 @@ function GeneralSection({
 						<p className="group-row text-sm text-ink-3">Reading which harnesses this machine can start…</p>
 					</div>
 				)}
-				<p className="group-hint">The new-teammate form can still pick another.</p>
 			</section>
 			<section>
 				<h3 className="group-title">Default model</h3>
@@ -238,9 +218,6 @@ function GeneralSection({
 					<div className="group-row">
 						<span className="group-row-text">
 							<span className="group-row-title">Toad Agent starts on</span>
-							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-								A new teammate takes this when its draft leaves the model blank.
-							</span>
 						</span>
 						<Picker
 							value={defaultModelId ?? ""}
@@ -251,7 +228,6 @@ function GeneralSection({
 						/>
 					</div>
 				</div>
-				<p className="group-hint">Clearing it falls back to the last model a Toad Agent teammate ran on.</p>
 			</section>
 		</>
 	);
@@ -263,11 +239,43 @@ const RUNTIME_NAMES: Record<ComputerRuntime, string> = {
 	container: "Apple container",
 };
 
+/** Two words per state; the runtime's own words go behind the info key. */
+const STATE_NAMES: Record<Exclude<RuntimeState, "ready">, string> = {
+	not_installed: "Not installed",
+	not_running: "Not running",
+	not_responding: "Not responding",
+	failed: "Failed",
+	unsupported: "macOS only",
+};
+
+/** What to do about a runtime that is not ready, and where it is written up. */
+const RUNTIME_HELP: Record<ComputerRuntime, { install: string; start: string; docs: string }> = {
+	docker: { install: "Install Docker Desktop or OrbStack.", start: "Start Docker Desktop or OrbStack.", docs: "https://docs.docker.com/get-started/get-docker/" },
+	podman: { install: "Install Podman.", start: "Run podman machine start.", docs: "https://podman.io/docs/installation" },
+	container: { install: "Install Apple container.", start: "Run container system start.", docs: "https://github.com/apple/container" },
+};
+
+function runtimeAdvice(report: RuntimeReport): string | null {
+	const help = RUNTIME_HELP[report.runtime];
+	switch (report.state) {
+		case "not_installed":
+			return help.install;
+		case "not_running":
+			return help.start;
+		case "not_responding":
+		case "failed":
+			return `Run ${report.runtime} version in a terminal.`;
+		default:
+			return null;
+	}
+}
+
 /**
  * Computer: which container runtime wakes a teammate's desktop, and which
  * image it wakes. Every runtime this machine could have is a row, the
- * missing ones greyed with the sentence that names what is missing, so
- * "no computer" is never a mystery. Automatic is the room's default and
+ * missing ones greyed with two words for how, and an info key that opens
+ * what the runtime said and what to do about it, so "no computer" is never
+ * a mystery and never a paragraph. Automatic is the room's default and
  * leaves the pick to the desk, rootless first.
  */
 function ComputerSection({
@@ -283,6 +291,7 @@ function ComputerSection({
 }) {
 	const [reports, setReports] = useState<RuntimeReport[] | undefined>(undefined);
 	const [draft, setDraft] = useState(image ?? "");
+	const [shown, setShown] = useState<ComputerRuntime | null>(null);
 
 	useEffect(() => {
 		setDraft(image ?? "");
@@ -303,13 +312,14 @@ function ComputerSection({
 	};
 
 	const chosen = runtime ?? "";
-	const rows: { id: string; name: string; detail: string; off: boolean }[] = [
-		{ id: "", name: "Automatic", detail: "The first runtime that answers, rootless before a root daemon.", off: false },
+	const rows: { id: string; name: string; detail: string; off: boolean; report?: RuntimeReport }[] = [
+		{ id: "", name: "Automatic", detail: "First runtime that answers.", off: false },
 		...(reports ?? []).map((one) => ({
 			id: one.runtime,
 			name: RUNTIME_NAMES[one.runtime],
-			detail: one.available ? (one.rootless ? "Ready, rootless." : "Ready.") : (one.reason ?? "Not available."),
-			off: !one.available,
+			detail: one.state === "ready" ? (one.rootless ? "Ready, rootless" : "Ready") : STATE_NAMES[one.state],
+			off: one.state !== "ready",
+			report: one,
 		})),
 	];
 
@@ -325,33 +335,65 @@ function ComputerSection({
 					</div>
 				) : (
 					<div role="radiogroup" aria-labelledby="setting-computer-runtime" className="grouped">
-						{rows.map((row) => (
-							<label key={row.id} className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
-								<input
-									type="radio"
-									className="radio"
-									name="setting-computer-runtime"
-									checked={chosen === row.id}
-									aria-disabled={row.off ? true : undefined}
-									onChange={() => {
-										if (row.off) return;
-										onRuntime(row.id === "" ? null : row.id);
-									}}
-								/>
-								<span className="group-row-text">
-									<span className="group-row-title">{row.name}</span>
-									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-										{row.detail}
-									</span>
-								</span>
-							</label>
-						))}
+						{rows.map((row) => {
+							const advice = row.report === undefined ? null : runtimeAdvice(row.report);
+							const more = row.report !== undefined && (row.report.detail !== undefined || advice !== null);
+							const open = more && shown === row.report?.runtime;
+							return (
+								<Fragment key={row.id}>
+									<label className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
+										<input
+											type="radio"
+											className="radio"
+											name="setting-computer-runtime"
+											checked={chosen === row.id}
+											aria-disabled={row.off ? true : undefined}
+											onChange={() => {
+												if (row.off) return;
+												onRuntime(row.id === "" ? null : row.id);
+											}}
+										/>
+										<span className="group-row-text">
+											<span className="group-row-title">{row.name}</span>
+											<span className="group-row-detail">{row.detail}</span>
+										</span>
+										{more && (
+											<button
+												type="button"
+												className="control btn-icon"
+												title="Why"
+												aria-label={`Why ${row.name} is ${row.detail.toLowerCase()}`}
+												aria-expanded={open}
+												onClick={(event) => {
+													event.preventDefault();
+													setShown(open ? null : (row.report?.runtime ?? null));
+												}}
+											>
+												<InfoIcon />
+											</button>
+										)}
+									</label>
+									{open && row.report !== undefined && (
+										<div className="group-row flex-col items-stretch gap-1.5 pl-10">
+											{advice !== null && <span className="text-sm text-ink-2">{advice}</span>}
+											{row.report.detail !== undefined && (
+												<pre className="refusal-detail selectable">{row.report.detail}</pre>
+											)}
+											<button
+												type="button"
+												className="self-start text-sm underline"
+												onClick={() => void openLink(RUNTIME_HELP[row.report?.runtime ?? "docker"].docs)}
+											>
+												{row.name} docs
+											</button>
+										</div>
+									)}
+								</Fragment>
+							);
+						})}
 					</div>
 				)}
-				<p className="group-hint">
-					A computer is a Linux desktop in a container, one per teammate that asks for one. Nothing wakes until a
-					teammate with one starts.
-				</p>
+				<p className="group-hint">A teammate&rsquo;s computer is a Linux desktop in a container.</p>
 			</section>
 			<section>
 				<h3 className="group-title">Image</h3>
@@ -359,14 +401,11 @@ function ComputerSection({
 					<div className="group-row">
 						<label className="group-row-text" htmlFor="setting-computer-image">
 							<span className="group-row-title">Desktop image</span>
-							<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-								Blank is the image pinned to this version of Toad.
-							</span>
 						</label>
 						<input
 							id="setting-computer-image"
-							className="field w-56 min-w-0 font-mono text-sm"
-							placeholder="Pinned default"
+							className="field w-72 min-w-0 font-mono text-sm"
+							placeholder={pinnedComputerImage() || "Pinned default"}
 							autoComplete="off"
 							spellCheck={false}
 							value={draft}
@@ -380,7 +419,6 @@ function ComputerSection({
 						/>
 					</div>
 				</div>
-				<p className="group-hint">A teammate&rsquo;s own image, set in its pane, wins over this one.</p>
 			</section>
 		</>
 	);
@@ -577,7 +615,6 @@ function ProvidersSection({
 									</button>
 								</div>
 							</div>
-							<p className="group-hint">A key is pasted; a sign-in opens the provider's page with a code.</p>
 						</section>
 					)}
 					{adding !== null && adding.credentialKind === "api_key" && (
@@ -620,7 +657,7 @@ function ProvidersSection({
 									</button>
 								</div>
 							</div>
-							<p className="group-hint">Enter the code on that page. Toad keeps the login on this machine.</p>
+							<p className="group-hint">Enter the code on that page.</p>
 						</section>
 					)}
 					<section>
@@ -658,13 +695,9 @@ function ProvidersSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">A key or a login never leaves this machine; the room remembers only that it exists.</p>
+						<p className="group-hint">Keys and logins stay on this machine.</p>
 					</section>
-					{refusal !== null && (
-						<p role="status" className="selectable text-sm text-danger">
-							{refusal}
-						</p>
-					)}
+					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -946,11 +979,7 @@ function ProviderPage({
 							</div>
 						</div>
 					</section>
-					{refusal !== null && (
-						<p role="status" className="selectable text-sm text-danger">
-							{refusal}
-						</p>
-					)}
+					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -1051,8 +1080,7 @@ function ToolsSection({
 						/>
 					)}
 					<section>
-						<h3 className="label">MCP gateway</h3>
-						<p className="hint">New teammates have no server access. Grant selected servers or all servers on each teammate.</p>
+						<h3 className="group-title">MCP servers</h3>
 						<div className="grouped">
 							{!adding && (
 								<button type="button" className="group-row group-row-add" onClick={() => setAdding(true)}>
@@ -1061,9 +1089,7 @@ function ToolsSection({
 								</button>
 							)}
 							{servers.length === 0 ? (
-								<p className="group-row text-sm text-ink-3">
-									No servers yet. Add a server here, then grant access on a teammate.
-								</p>
+								<p className="group-row text-sm text-ink-3">No servers yet.</p>
 							) : (
 								servers.map((server) => (
 									<button
@@ -1083,13 +1109,9 @@ function ToolsSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">Teammates with All servers also receive servers added later.</p>
+						<p className="group-hint">Grant servers per teammate, in its pane.</p>
 					</section>
-					{refusal !== null && (
-						<p role="status" className="selectable text-sm text-danger">
-							{refusal}
-						</p>
-					)}
+					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -1136,11 +1158,7 @@ function ServerPage({
 							</div>
 						</div>
 					</section>
-					{refusal !== null && (
-						<p role="status" className="selectable text-sm text-danger">
-							{refusal}
-						</p>
-					)}
+					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -1196,12 +1214,12 @@ function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http
 	const state = status?.status ?? "signed_out";
 	const detail =
 		state === "signed_in"
-			? "Signed in on this machine. Teammate access still follows each teammate's MCP policy."
+			? "Signed in."
 			: state === "pending"
 				? "Waiting for consent in your browser…"
 				: state === "failed"
-					? (status?.error ?? "Sign-in failed; try again.")
-					: "This server has no saved sign-in.";
+					? "Sign-in failed."
+					: "No saved sign-in.";
 
 	return (
 		<section>
@@ -1224,11 +1242,8 @@ function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http
 					</div>
 				</div>
 			</div>
-			{refusal !== null && (
-				<p role="status" className="selectable text-sm text-danger">
-					{refusal}
-				</p>
-			)}
+			{state === "failed" && status?.error !== undefined && <Refusal message="Sign-in failed." detail={status.error} />}
+			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
 }
@@ -1275,9 +1290,7 @@ function McpTokenControls({ server }: { server: Extract<McpServer, { type: "http
 					<span className="group-row-text">
 						<span className="group-row-title">{saved === true ? "Token saved" : saved === false ? "No token saved" : "…"}</span>
 						<span className="group-row-detail">
-							{saved === true
-								? "Kept on this machine, sent on every request. Paste a new one above to replace it."
-								: "Paste a token above and save; the server is not connected until then."}
+							{saved === true ? "Sent on every request." : "Not connected until a token is saved."}
 						</span>
 					</span>
 					<button type="button" className="control btn-quiet text-danger" disabled={busy || saved !== true} onClick={() => void forget()}>
@@ -1285,11 +1298,7 @@ function McpTokenControls({ server }: { server: Extract<McpServer, { type: "http
 					</button>
 				</div>
 			</div>
-			{refusal !== null && (
-				<p role="status" className="selectable text-sm text-danger">
-					{refusal}
-				</p>
-			)}
+			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
 }
@@ -1474,7 +1483,7 @@ function ServerForm({
 							type="password"
 							className="field flex-1 font-mono text-sm"
 							autoComplete="off"
-							placeholder={server === undefined ? "Paste the token" : "Saved on this machine; paste to replace"}
+							placeholder={server === undefined ? "Paste the token" : "Saved · paste to replace"}
 							value={draft.secret}
 							onChange={(event) => setDraft({ ...draft, secret: event.target.value })}
 						/>
@@ -1491,12 +1500,8 @@ function ServerForm({
 					</button>
 				</div>
 			</div>
-			{refusal !== null && (
-				<p role="status" className="selectable text-sm text-danger">
-					{refusal}
-				</p>
-			)}
-			<p className="group-hint">A sign-in or a pasted token is kept on this machine and does not grant server access to a teammate.</p>
+			{refusal !== null && <Refusal message={refusal} />}
+			<p className="group-hint">Kept on this machine.</p>
 		</form>
 	);
 }
@@ -1568,9 +1573,7 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 					</div>
 				</div>
 				<p className="group-hint">
-					Teammates, their conversations, the peer threads those conversations name, schedules, settings and keys are
-					copied. The other Toad is never written to. A teammate keeps its working directory inside the old data
-					directory; deleting that directory takes those workspaces with it.
+					Copies teammates, conversations, schedules, settings and keys. The previous Toad is left as it is.
 				</p>
 			</section>
 			{report !== null && (

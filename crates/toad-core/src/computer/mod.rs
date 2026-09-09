@@ -9,7 +9,7 @@
 
 pub mod runtime;
 
-use crate::contract::{ComputerState, ComputerStatus, Persona, RuntimeReport};
+use crate::contract::{ComputerState, ComputerStatus, Persona, RuntimeReport, RuntimeState};
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 use runtime::{BinSearch, Runtime};
 use serde_json::Value;
@@ -439,19 +439,27 @@ async fn pick_runtime(
             .iter()
             .find(|report| report.runtime == want.wire())
             .ok_or_else(|| format!("{} is not a runtime Toad looks for.", want.name()))?;
-        if report.available {
+        if report.state.ready() {
             let cmd = bins
                 .resolve(want.command())
                 .ok_or_else(|| format!("{} not found on PATH", want.command()))?;
             return Ok((want, cmd));
         }
-        return Err(report.reason.clone().unwrap_or_else(|| {
-            "No container runtime was found; install Docker or Podman.".to_string()
-        }));
+        // The sentence is enough here: the runtime's own words are on the
+        // Computer settings page, where the person chose this runtime.
+        return Err(match report.state {
+            RuntimeState::NotInstalled => format!("{} is not installed.", want.name()),
+            RuntimeState::NotRunning => format!("{} is not running.", want.name()),
+            RuntimeState::NotResponding => format!("{} is not responding.", want.name()),
+            RuntimeState::Unsupported => format!("{} is macOS only.", want.name()),
+            RuntimeState::Failed | RuntimeState::Ready => {
+                format!("{} failed its check.", want.name())
+            }
+        });
     }
     let best = reports
         .iter()
-        .find(|report| report.available)
+        .find(|report| report.state.ready())
         .ok_or_else(|| "No container runtime was found; install Docker or Podman.".to_string())?;
     let runtime = Runtime::from_wire(best.runtime);
     let cmd = bins

@@ -214,6 +214,14 @@ The well and the pane shape; the planes and the accent's meaning; Plex in
 both faces; the control heights and radii; the band at 40px with no line
 under it; the scroll fade.
 
+## Words
+
+A title says what a thing is and its control shows what it is set to; a
+hint is one sentence, and only where the title cannot carry it. A refusal
+is one sentence of ours. Someone else's words — a daemon's, a provider's, a
+process's — go behind a disclosure, selectable, with a page to read when
+there is one, and never in the row.
+
 ## Per-surface allowances
 
 - The conversation alone has the floating composer.

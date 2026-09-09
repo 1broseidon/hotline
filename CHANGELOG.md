@@ -30,6 +30,11 @@ repository is what builds and publishes a release.
 - Mac toasts come from the notification center Apple keeps, not the one it
   retired: they thread by teammate, and a click raises the window and opens
   that teammate. A `make dev` run, being no bundle, posts none.
+- Settings say less. A runtime that cannot host a computer is "Not
+  installed" or "Not running", with what it said and what to do behind an
+  info key; a refusal anywhere is one sentence with its details folded
+  away; the hints that repeated their titles are gone, and the section list
+  is titles alone. The image field shows the pinned image it stands for.
 
 ## [0.5.0] - 2026-09-08
 

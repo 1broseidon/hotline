@@ -2,11 +2,12 @@
 //!
 //! Toad shells out to the runtime CLI — docker and podman agree on the
 //! `create`/`start`/`stop`/`rm`/`inspect` subset we need — and takes no SDK
-//! dependency. Every candidate reports `available` or a `reason`, and
-//! rootless runtimes rank first so a machine that has both prefers the one
-//! that is not a root daemon.
+//! dependency. Every candidate reports a state — ready, or one of the ways
+//! of not being — with the runtime's own words kept beside it, and rootless
+//! runtimes rank first so a machine that has both prefers the one that is
+//! not a root daemon.
 
-use crate::contract::{ComputerRuntime, RuntimeReport};
+use crate::contract::{ComputerRuntime, RuntimeReport, RuntimeState};
 use crate::paths;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
@@ -115,36 +116,33 @@ pub async fn detect_with(bins: &BinSearch) -> Vec<RuntimeReport> {
     }
     reports.sort_by(|left, right| {
         right
-            .available
-            .cmp(&left.available)
+            .state
+            .ready()
+            .cmp(&left.state.ready())
             .then(right.rootless.cmp(&left.rootless))
     });
     reports
 }
 
 async fn probe(runtime: Runtime, bins: &BinSearch) -> RuntimeReport {
-    let report = |available: bool, reason: Option<String>, rootless: bool| RuntimeReport {
+    let report = |state: RuntimeState, detail: Option<String>, rootless: bool| RuntimeReport {
         runtime: runtime.wire(),
-        available,
-        reason,
+        state,
+        detail,
         rootless,
     };
 
     if runtime == Runtime::AppleContainer && !cfg!(target_os = "macos") {
-        return report(false, Some("macOS only".into()), false);
+        return report(RuntimeState::Unsupported, None, false);
     }
 
     let Some(cmd) = bins.resolve(runtime.command()) else {
-        return report(
-            false,
-            Some(format!("{} not found on PATH", runtime.command())),
-            false,
-        );
+        return report(RuntimeState::NotInstalled, None, false);
     };
 
     match output(&cmd, &["version"]).await {
         Ok(_) => {}
-        Err(reason) => return report(false, Some(reason), false),
+        Err(failure) => return report(failure.state, Some(failure.detail), false),
     }
 
     let rootless = match runtime {
@@ -160,10 +158,37 @@ async fn probe(runtime: Runtime, bins: &BinSearch) -> RuntimeReport {
         // there is no root daemon on the host to be rootless relative to.
         Runtime::AppleContainer => true,
     };
-    report(true, None, rootless)
+    report(RuntimeState::Ready, None, rootless)
 }
 
-async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, String> {
+/// How a probe fell short, and the words it fell short with: the runtime's
+/// own where it had any, a sentence of ours where it did not.
+struct Failure {
+    state: RuntimeState,
+    detail: String,
+}
+
+/// A CLI that is installed but whose daemon or services are down says so in
+/// its own words; these are the ones the three runtimes use, so the window
+/// can say "not running" instead of quoting them. Anything else the CLI
+/// says is a failure the person has to read.
+fn looks_stopped(said: &str) -> bool {
+    let said = said.to_ascii_lowercase();
+    [
+        "cannot connect to the docker daemon",
+        "is the docker daemon running",
+        "failed to connect to the docker api",
+        "cannot connect to podman",
+        "connection refused",
+        "connect: no such file or directory",
+        "system services are not running",
+        "not running",
+    ]
+    .iter()
+    .any(|sign| said.contains(sign))
+}
+
+async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, Failure> {
     let child = Command::new(cmd)
         .args(args)
         .stdout(Stdio::piped())
@@ -171,7 +196,10 @@ async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, String> 
         .stdin(Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|error| format!("{} could not be started: {error}", cmd.display()))?;
+        .map_err(|error| Failure {
+            state: RuntimeState::Failed,
+            detail: format!("{} could not be started: {error}", cmd.display()),
+        })?;
     match tokio::time::timeout(PROBE_TIMEOUT, child.wait_with_output()).await {
         Ok(Ok(output)) if output.status.success() => {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -179,23 +207,44 @@ async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, String> 
         Ok(Ok(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let detail = stderr.trim();
-            if !detail.is_empty() {
-                return Err(detail.to_string());
+            let said = match (stderr.trim(), stdout.trim()) {
+                ("", "") => "",
+                ("", out) => out,
+                (err, _) => err,
+            };
+            if said.is_empty() {
+                return Err(Failure {
+                    state: RuntimeState::NotResponding,
+                    detail: format!(
+                        "{} version exited with {} and said nothing",
+                        cmd.file_name()
+                            .unwrap_or_else(|| OsStr::new("runtime"))
+                            .to_string_lossy(),
+                        output.status
+                    ),
+                });
             }
-            let detail = stdout.trim();
-            if !detail.is_empty() {
-                return Err(detail.to_string());
-            }
-            Err(format!(
-                "{} not responding",
-                cmd.file_name()
-                    .unwrap_or_else(|| OsStr::new("runtime"))
-                    .to_string_lossy()
-            ))
+            Err(Failure {
+                state: if looks_stopped(said) {
+                    RuntimeState::NotRunning
+                } else {
+                    RuntimeState::Failed
+                },
+                detail: said.to_string(),
+            })
         }
-        Ok(Err(error)) => Err(format!("{} could not be started: {error}", cmd.display())),
-        Err(_) => Err(format!("{} not responding", cmd.display())),
+        Ok(Err(error)) => Err(Failure {
+            state: RuntimeState::Failed,
+            detail: format!("{} could not be started: {error}", cmd.display()),
+        }),
+        Err(_) => Err(Failure {
+            state: RuntimeState::NotResponding,
+            detail: format!(
+                "{} version did not answer within {} seconds",
+                cmd.display(),
+                PROBE_TIMEOUT.as_secs()
+            ),
+        }),
     }
 }
 
@@ -223,14 +272,23 @@ mod tests {
     /// Linux refuses to run a file anyone holds open for writing. The window
     /// is microseconds wide and the retry is the honest fix for a test suite
     /// that writes executables while other tests spawn.
+    /// The state a CLI's words land in, without a CLI.
+    fn output_state(said: &str) -> RuntimeState {
+        if looks_stopped(said) {
+            RuntimeState::NotRunning
+        } else {
+            RuntimeState::Failed
+        }
+    }
+
     async fn detect_settled(search: &BinSearch) -> Vec<RuntimeReport> {
         let mut reports = detect_with(search).await;
         for _ in 0..5 {
             let busy = reports.iter().any(|report| {
                 report
-                    .reason
+                    .detail
                     .as_deref()
-                    .is_some_and(|reason| reason.contains("Text file busy"))
+                    .is_some_and(|detail| detail.contains("Text file busy"))
             });
             if !busy {
                 break;
@@ -248,7 +306,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_script_that_answers_version_is_available_and_a_failing_one_carries_the_reason() {
+    async fn a_script_that_answers_version_is_ready_and_a_failing_one_carries_its_words() {
         let path = scratch("probe");
         write_script(
             &path,
@@ -273,20 +331,20 @@ exit 1
             .iter()
             .find(|report| report.runtime == ComputerRuntime::Docker)
             .unwrap();
-        assert!(docker.available, "{docker:?}");
+        assert_eq!(docker.state, RuntimeState::Ready, "{docker:?}");
         assert!(!docker.rootless);
-        assert_eq!(docker.reason, None);
+        assert_eq!(docker.detail, None);
 
         let podman = reports
             .iter()
             .find(|report| report.runtime == ComputerRuntime::Podman)
             .unwrap();
-        assert!(!podman.available, "{podman:?}");
+        assert_eq!(podman.state, RuntimeState::Failed, "{podman:?}");
         assert!(
             podman
-                .reason
+                .detail
                 .as_deref()
-                .is_some_and(|reason| reason.contains("daemon exploded")),
+                .is_some_and(|detail| detail.contains("daemon exploded")),
             "{podman:?}"
         );
     }
@@ -316,7 +374,7 @@ exit 1
         let reports = detect_settled(&BinSearch::only(path.into_os_string())).await;
         let available: Vec<_> = reports
             .iter()
-            .filter(|report| report.available)
+            .filter(|report| report.state.ready())
             .map(|report| report.runtime)
             .collect();
         assert_eq!(
@@ -329,14 +387,27 @@ exit 1
     }
 
     #[tokio::test]
-    async fn a_missing_binary_is_unavailable_with_the_path_reason() {
+    async fn a_missing_binary_is_not_installed_and_a_down_daemon_is_not_running() {
         let path = scratch("missing");
         let reports = detect_settled(&BinSearch::only(path.into_os_string())).await;
         let docker = reports
             .iter()
             .find(|report| report.runtime == ComputerRuntime::Docker)
             .unwrap();
-        assert!(!docker.available);
-        assert_eq!(docker.reason.as_deref(), Some("docker not found on PATH"));
+        assert_eq!(docker.state, RuntimeState::NotInstalled);
+        assert_eq!(docker.detail, None);
+        assert_eq!(
+            output_state(
+                "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
+            ),
+            RuntimeState::NotRunning
+        );
+        assert_eq!(
+            output_state(
+                "Error: Plugin 'container-version' not found. - If system services are not running, start them with: container system start"
+            ),
+            RuntimeState::NotRunning
+        );
+        assert_eq!(output_state("daemon exploded"), RuntimeState::Failed);
     }
 }

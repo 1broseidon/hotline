@@ -420,15 +420,37 @@ pub enum ComputerRuntime {
     Container,
 }
 
-/// What probing one runtime found, for the window's settings.
+/// What probing one runtime found, for the window's settings: a state the
+/// window can name in two words, and, when the runtime said something on
+/// its way to that state, its words kept apart for whoever wants them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct RuntimeReport {
     pub runtime: ComputerRuntime,
-    pub available: bool,
+    pub state: RuntimeState,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    pub detail: Option<String>,
     pub rootless: bool,
+}
+
+/// How a probe of a container runtime ended. `Ready` is the only state a
+/// computer can start on; the rest are the two words the window shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum RuntimeState {
+    Ready,
+    NotInstalled,
+    NotRunning,
+    NotResponding,
+    Failed,
+    Unsupported,
+}
+
+impl RuntimeState {
+    pub fn ready(self) -> bool {
+        self == Self::Ready
+    }
 }
 
 /// Whether a teammate's computer container is up, stopped, or gone.

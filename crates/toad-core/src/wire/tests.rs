@@ -656,14 +656,14 @@ impl RoomHandle for Quiet {
         vec![
             crate::contract::RuntimeReport {
                 runtime: crate::contract::ComputerRuntime::Podman,
-                available: true,
-                reason: None,
+                state: crate::contract::RuntimeState::Ready,
+                detail: None,
                 rootless: true,
             },
             crate::contract::RuntimeReport {
                 runtime: crate::contract::ComputerRuntime::Docker,
-                available: true,
-                reason: None,
+                state: crate::contract::RuntimeState::Ready,
+                detail: None,
                 rootless: false,
             },
         ]
@@ -2002,7 +2002,7 @@ async fn computer_commands_and_the_runtime_setting() {
     let runtimes = answered(&mut socket, 2).await;
     assert_eq!(runtimes["ok"], true, "{runtimes}");
     assert_eq!(runtimes["result"][0]["runtime"], "podman");
-    assert_eq!(runtimes["result"][0]["available"], true);
+    assert_eq!(runtimes["result"][0]["state"], "ready");
     assert_eq!(runtimes["result"][0]["rootless"], true);
     assert_eq!(runtimes["result"][1]["runtime"], "docker");
 

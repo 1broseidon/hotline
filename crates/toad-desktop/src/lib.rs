@@ -249,6 +249,7 @@ pub fn run() {
         "token": token,
         "version": env!("CARGO_PKG_VERSION"),
         "dataDir": root.display().to_string(),
+        "computerImage": toad_core::computer::default_image(),
     });
     let script = format!("window.__toadDesk = {injected};");
 

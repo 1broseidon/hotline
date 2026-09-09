@@ -158,6 +158,7 @@ declare global {
 			token: string;
 			version?: string;
 			dataDir?: string;
+			computerImage?: string;
 		};
 	}
 }

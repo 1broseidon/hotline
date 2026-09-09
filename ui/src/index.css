@@ -261,6 +261,43 @@
 		gap: 4px;
 		padding: 0 8px;
 	}
+	/* ------------------------------------------------------------- refusal
+	 * A refusal is a row on the danger fill: the glyph, one sentence of ours,
+	 * and a disclosure for whoever wants the words behind it. */
+	.refusal {
+		border-radius: var(--radius-card);
+		background: var(--danger-soft);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink);
+	}
+	.refusal-row {
+		display: flex;
+		min-height: 36px;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px;
+	}
+	.refusal-message {
+		min-width: 0;
+		flex: 1;
+	}
+	.refusal-more {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 0 12px 10px 32px;
+	}
+	.refusal-detail {
+		margin: 0;
+		white-space: pre-wrap;
+		word-break: break-word;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-2);
+	}
+
 	/* ------------------------------------------------------------ controls */
 	.control {
 		display: inline-flex;

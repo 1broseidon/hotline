@@ -21,14 +21,17 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 const TOKEN: &str = "a-token-only-this-harness-knows";
 
 /// Path to the one-tool stdio server this package builds. Cargo used to
-/// inject it at compile time; this toolchain only sets it at run time.
+/// inject it at compile time; this toolchain only sets it at run time, and
+/// when it does not, the bin is one directory up from this test's own
+/// `deps`, wherever the target directory lives.
 fn echo_command() -> String {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_toad_mcp_echo") {
         return path;
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/debug/toad-mcp-echo")
-        .canonicalize()
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.join("toad-mcp-echo")))
+        .filter(|path| path.exists())
         .expect("toad-mcp-echo should have been built with this test")
         .to_string_lossy()
         .into_owned()

@@ -152,9 +152,15 @@ pub trait ProviderKeys: Send + Sync {
         None
     }
 
-    /// The model ids each subscription login can run, when the vault has
-    /// written them beside it. A provider absent from the map offers its
-    /// whole catalogue. Test doubles leave it empty.
+    /// Validated live metadata, keyed by exact provider/model identity. Missing
+    /// fields fall back to that exact bundled entry; no labels choose routes.
+    fn model_metadata(&self) -> HashMap<String, crate::contract::CatalogModel> {
+        HashMap::new()
+    }
+
+    /// Discovered and permitted manual ids for each active connection. An
+    /// absent provider uses bundled fallback choices; a present empty list
+    /// remains empty. Test doubles leave the map empty.
     fn account_models(&self) -> HashMap<String, Vec<String>> {
         HashMap::new()
     }
@@ -258,7 +264,17 @@ impl Agents for DeskAgents {
     }
 
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String> {
-        rig::complete(&self.keys.provider_auth(), model_id, system, prompt).await
+        rig::complete(
+            &self.keys.provider_auth(),
+            model_id,
+            system,
+            prompt,
+            self.keys
+                .model_metadata()
+                .get(model_id)
+                .and_then(|model| model.output_limit),
+        )
+        .await
     }
 }
 
@@ -1505,6 +1521,7 @@ impl Room {
             &self.keys.provider_auth(),
             &self.keys.enabled_models(),
             &self.keys.account_models(),
+            &self.keys.model_metadata(),
         )
     }
 
@@ -1878,6 +1895,7 @@ impl Room {
                     &keys,
                     &self.keys.enabled_models(),
                     &self.keys.account_models(),
+                    &self.keys.model_metadata(),
                 )
                 .first()
                 .map(|model| model.id.clone())

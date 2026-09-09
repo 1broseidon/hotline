@@ -584,7 +584,8 @@ function ProvidersSection({
 			if (previous !== null && previous !== made.id) await wire.command("credential.delete", { id: previous });
 			setHeld((known) => [...(known ?? []).filter((one) => one.id !== previous && one.id !== made.id), made]);
 			setAdding(null);
-			if (made.providerId === "ollama-cloud") {
+			const provider = providers.find((one) => one.id === made.providerId);
+			if (provider?.modelDiscovery && made.providerId !== "ollama" && made.providerId !== "github-copilot") {
 				await wire.command("credential.refresh_models", { providerId: made.providerId });
 			}
 			setOpen(made.id);
@@ -627,6 +628,7 @@ function ProvidersSection({
 			<ProviderPage
 				credential={opened.credential}
 				name={nameOf(opened)}
+				discover={opened.provider?.modelDiscovery ?? false}
 				enabledModels={enabledModels}
 				onBack={() => setOpen(null)}
 				onSignIn={() => {
@@ -905,6 +907,7 @@ function KeyForm({
 function ProviderPage({
 	credential,
 	name,
+	discover,
 	enabledModels,
 	onBack,
 	onSignIn,
@@ -912,6 +915,7 @@ function ProviderPage({
 }: {
 	credential: Credential;
 	name: string;
+	discover: boolean;
 	enabledModels: Record<string, string[]>;
 	onBack(): void;
 	onSignIn(): void;
@@ -921,16 +925,25 @@ function ProviderPage({
 	const oauth = credential.credentialKind === "oauth";
 	const local = credential.credentialKind === "local";
 	const custom = credential.custom;
-	const discover = providerId === "github-copilot" || providerId === "ollama" || providerId === "ollama-cloud";
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [catalog, setCatalog] = useState<CatalogModel[] | null>(null);
+	const [manualId, setManualId] = useState("");
+	const [notice, setNotice] = useState<string | null>(null);
 	const [query, setQuery] = useState("");
 	const [on, setOn] = useState<Set<string>>(new Set());
 	const [busy, setBusy] = useState(false);
 
-	const applyCatalog = (list: CatalogModel[]) => {
+	const applyCatalog = (list: CatalogModel[], preserveSelections = false) => {
 		setCatalog(list);
-		setOn(new Set(list.filter((model) => model.enabled).map((model) => model.id)));
+		setOn((known) => {
+			if (!preserveSelections) return new Set([...(enabledModels[providerId] ?? []), ...list.filter((model) => model.enabled).map((model) => model.id)]);
+			const next = new Set(known);
+			const previousIds = new Set(catalog?.map((model) => model.id));
+			for (const model of list) {
+				if (!previousIds.has(model.id) && model.enabled) next.add(model.id);
+			}
+			return next;
+		});
 	};
 
 	useEffect(() => {
@@ -940,10 +953,10 @@ function ProviderPage({
 		}
 		wire
 			.command("models.catalog", { providerId })
-			.then(applyCatalog)
+			.then((list) => applyCatalog(list))
 			.catch((error: Error) => {
 				setRefusal(error.message);
-				setCatalog([]);
+				setCatalog(null);
 			});
 	}, [providerId, credential.revoked]);
 
@@ -951,6 +964,7 @@ function ProviderPage({
 		if (busy) return;
 		setBusy(true);
 		setRefusal(null);
+		setNotice(null);
 		try {
 			await work();
 		} catch (error) {
@@ -961,7 +975,32 @@ function ProviderPage({
 	};
 
 	const refresh = () =>
-		run(async () => applyCatalog(await wire.command("credential.refresh_models", { providerId })));
+		run(async () => {
+			applyCatalog(await wire.command("credential.refresh_models", { providerId }), true);
+			setNotice("Model list refreshed. Your model selection is unchanged.");
+		});
+
+	const setManualModels = async (modelIds: string[]) => {
+		const list = await wire.command("models.manual_set", { providerId, modelIds });
+		applyCatalog(list, true);
+		return list;
+	};
+
+	const addManualModel = () => run(async () => {
+		const id = manualId.trim();
+		if (!id || catalog === null) return;
+		const list = await setManualModels([...new Set([...catalog.filter((model) => model.manual).map((model) => model.id), id])]);
+		setManualId("");
+		setNotice(list.find((model) => model.id === id)?.enabled
+			? "Model ID added to this connection."
+			: "Model ID added. Check it under Models shown and save to include it in the picker.");
+	});
+
+	const removeManualModel = (id: string) => run(async () => {
+		if (catalog === null) return;
+		await setManualModels(catalog.filter((model) => model.manual && model.id !== id).map((model) => model.id));
+		setNotice("Manual entry removed. A model listed by the provider or catalogue can still appear.");
+	});
 
 	const save = () =>
 		run(async () => {
@@ -970,7 +1009,7 @@ function ProviderPage({
 			if (on.size === catalog.length && catalog.every((model) => on.has(model.id))) {
 				delete next[providerId];
 			} else {
-				next[providerId] = catalog.filter((model) => on.has(model.id)).map((model) => model.id);
+				next[providerId] = [...on];
 			}
 			await wire.command("settings.update", { patch: { enabledModels: next } });
 			onBack();
@@ -1053,7 +1092,8 @@ function ProviderPage({
 										<button
 											type="button"
 											className="control btn-quiet"
-											disabled={catalog === null || busy}
+											disabled={busy}
+											aria-label="Refresh provider models"
 											onClick={() => void refresh()}
 										>
 											Refresh
@@ -1061,13 +1101,15 @@ function ProviderPage({
 									)}
 								</div>
 								<p className="group-row text-sm text-ink-3">
-									{catalog === null ? "Reading…" : catalog.length === 0 && local ? "No models found. Pull a model with Ollama, then refresh." : `${on.size} of ${catalog.length} shown`}
+									{catalog === null ? (refusal ? "Model list unavailable." : "Reading…") : catalog.length === 0 && providerId === "ollama" ? "No models found. Pull a model with Ollama, then refresh." : `${catalog.filter((model) => on.has(model.id)).length} of ${catalog.length} shown`}
 								</p>
 								{visible.map((model) => (
 									<label key={model.id} className="group-row group-row-choice">
 										<span className="group-row-text">
 											<span className="group-row-title">{model.name}</span>
 											<span className="group-row-detail font-mono">{model.id}</span>
+											{((model.contextLimit ?? 0) > 0 || (model.outputLimit ?? 0) > 0) && <span className="group-row-detail">{[model.contextLimit ? `${model.contextLimit.toLocaleString()} context tokens` : null, model.outputLimit ? `${model.outputLimit.toLocaleString()} output tokens` : null].filter(Boolean).join(" · ")}</span>}
+											{(model.manual || !model.metadataKnown) && <span className="group-row-detail">{[model.manual ? "Manually added" : null, !model.metadataKnown ? "Catalogue metadata unavailable" : null].filter(Boolean).join(" · ")}</span>}
 										</span>
 										<input
 											type="checkbox"
@@ -1089,6 +1131,7 @@ function ProviderPage({
 										type="button"
 										className="control btn-primary"
 										disabled={busy || catalog === null}
+										aria-label="Save model visibility"
 										onClick={() => void save()}
 									>
 										{busy ? "Saving…" : "Save"}
@@ -1098,6 +1141,22 @@ function ProviderPage({
 							<p className="group-hint">Every model checked is the same as no filter.</p>
 						</section>
 					)}
+					{!credential.revoked && !custom && <section>
+						<h3 className="group-title">Manual model IDs</h3>
+						<div className="grouped">
+							<form className="group-row" onSubmit={(event) => { event.preventDefault(); void addManualModel(); }}>
+								<input className="field min-w-0 flex-1 font-mono text-sm" aria-label="Model ID to add" placeholder="Exact model ID" value={manualId} onChange={(event) => setManualId(event.target.value)} spellCheck={false} autoComplete="off" disabled={busy || catalog === null} />
+								<button type="submit" className="control btn-quiet" disabled={busy || catalog === null || !manualId.trim()}>Add model</button>
+							</form>
+							{catalog?.filter((model) => model.manual).map((model) => <div className="group-row" key={model.id}>
+								<span className="group-row-text"><span className="group-row-title font-mono">{model.id}</span></span>
+								<button type="button" className="control btn-quiet" disabled={busy} aria-label={`Remove manual model ${model.id}`} onClick={() => void removeManualModel(model.id)}>Remove</button>
+							</div>)}
+						</div>
+						<p className="group-hint">Add an ID from this provider when it is missing above. Use a model that supports chat and tools. Entries save immediately and survive refreshes and app updates.</p>
+						{providerId === "github-copilot" && <p className="group-hint">Copilot IDs must also appear in your account’s refreshed model list.</p>}
+					</section>}
+					{notice !== null && <p className="group-hint" role="status">{notice}</p>}
 					<section>
 						<div className="grouped">
 							<div className="group-row">

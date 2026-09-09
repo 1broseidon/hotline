@@ -1,22 +1,16 @@
 //! The models Toad Agent can offer, and the providers that serve them.
 //!
-//! Model metadata comes from models.dev; Ollama also discovers live ids. `models.json`
-//! beside this crate is a filtered snapshot of models.dev — the catalogue
-//! opencode and pi draw theirs from — and `toad-models-sync` rewrites it:
-//! fetch, keep the providers in [`WIRING`] and the models a coding agent can
-//! use, write. A refresh is one command and one diff to read. The one thing
-//! a person edits is [`WIRING`]: which providers Toad reaches, which Rig
-//! client speaks to each, and whether a credential is a key or a login.
+//! Provider connections discover current ids through native Rig clients. The
+//! checked-in `models.json` snapshot from models.dev supplies exact identity
+//! metadata and fallback choices before a successful discovery. Unknown ids
+//! remain usable without invented capabilities or limits. Live provider limits
+//! and labels take precedence; catalogue effort and price metadata is joined
+//! only by exact provider and model id.
 //!
-//! `openai-codex` is synthesized: models.dev has no ChatGPT subscription
-//! provider, so the snapshot copies the listed models off `openai` and
-//! drops their per-token price. A subscription has no per-token price.
-//!
-//! The snapshot is checked in rather than fetched at run time because a
-//! catalogue is behaviour: it says what a model is called, costs and can do,
-//! and a release should mean the same thing on every machine that runs it.
-//! Ollama Local has no fixed models; its discovered ids are supplied separately.
-//! Ollama Cloud discovery takes precedence over its bundled list.
+//! `toad-models-sync` updates the bundled snapshot. Connection discovery and
+//! manual additions live in the vault, so a release cannot replace them.
+//! `openai-codex` is synthesized from listed OpenAI models with prices removed:
+//! models.dev has no ChatGPT subscription provider.
 
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, Provider};
 use crate::session::ProviderAuth;
@@ -154,6 +148,22 @@ pub const WIRING: &[Wiring] = &[
         credential_kinds: &[CredentialKind::ApiKey, CredentialKind::Local],
     },
 ];
+
+pub fn supports_discovery(client: Client) -> bool {
+    matches!(
+        client,
+        Client::Anthropic
+            | Client::OpenAi
+            | Client::OpenRouter
+            | Client::Gemini
+            | Client::Groq
+            | Client::DeepSeek
+            | Client::Mistral
+            | Client::Copilot
+            | Client::Ollama
+            | Client::OllamaCloud
+    )
+}
 
 pub fn wiring(provider_id: &str) -> Option<&'static Wiring> {
     let provider_id = if is_custom(provider_id) {
@@ -375,6 +385,7 @@ pub fn providers() -> Vec<Provider> {
                 name: entry.name.clone(),
                 doc: entry.doc.clone(),
                 credential_kinds: wiring.credential_kinds.to_vec(),
+                model_discovery: supports_discovery(wiring.client),
             })
         })
         .collect()
@@ -451,70 +462,40 @@ fn model_offered(
         .is_none_or(|list| list.iter().any(|wanted| wanted == model_id))
 }
 
-/// Whether Copilot's account list lets this catalogue id through.
-/// Other static catalogues are never narrowed this way. `None` is the whole catalogue;
-/// a present list is only those bare ids — the same "narrows what is offered,
-/// never what is in use" rule as [`model_offered`].
-fn account_offered(provider_id: &str, account: Option<&[String]>, model_id: &str) -> bool {
-    if provider_id != "github-copilot" {
-        return true;
-    }
-    account.is_none_or(|list| list.iter().any(|id| id == model_id))
-}
-
-/// The models of one catalogue provider, newest first.
-fn newest_first(entry: &ProviderEntry) -> Vec<(&String, &Model)> {
-    let mut models: Vec<(&String, &Model)> = entry.models.iter().collect();
-    models.sort_by(|a, b| b.1.release_date.cmp(&a.1.release_date).then(a.0.cmp(b.0)));
-    models
-}
-
 /// The models the given provider credentials unlock, as the picker lists
 /// them: providers in wired order, and within one the newest model first. An
 /// id on the wire is `provider/model`, the shape the room has always stored,
 /// so a teammate's saved choice keeps meaning the same thing. A connection
 /// unlocks a group; custom connections also supply its name and model ids. `enabled` is the
 /// saved filter: a provider absent from it shows every model, a present one
-/// only the listed ids. `account` is the same shape for a subscription's
-/// held list: present means only those bare ids, absent the whole catalogue.
+/// only the listed ids. `account` contains connection discovery and permitted
+/// manual additions: present means those bare ids, absent the bundled fallback.
 /// Both narrow what is offered, never a model already in use.
 pub fn choices(
     keys: &HashMap<String, ProviderAuth>,
     enabled: &HashMap<String, Vec<String>>,
     account: &HashMap<String, Vec<String>>,
+    metadata: &HashMap<String, CatalogModel>,
 ) -> Vec<ConfigChoice> {
     let mut choices: Vec<_> = WIRING
         .iter()
         .filter(|wiring| keys.contains_key(wiring.id))
         .filter_map(|wiring| Some((wiring, catalog().providers.get(wiring.id)?)))
         .flat_map(|(wiring, entry)| {
-            if matches!(wiring.client, Client::Ollama | Client::OllamaCloud)
-                && let Some(ids) = account.get(wiring.id)
-            {
-                return ids
-                    .iter()
-                    .filter(|id| model_offered(enabled, wiring.id, id))
-                    .map(|id| ConfigChoice {
-                        id: format!("{}/{id}", wiring.id),
-                        name: id.clone(),
-                        description: Some(wiring.id.to_string()),
-                        group: Some(entry.name.clone()),
-                    })
-                    .collect::<Vec<_>>();
-            }
-            newest_first(entry)
-                .into_iter()
-                .filter(|(id, _)| {
-                    model_offered(enabled, wiring.id, id)
-                        && account_offered(wiring.id, account.get(wiring.id).map(Vec::as_slice), id)
-                })
-                .map(move |(id, model)| ConfigChoice {
-                    id: format!("{}/{id}", wiring.id),
-                    name: model.name.clone(),
-                    description: Some(wiring.id.to_string()),
-                    group: Some(entry.name.clone()),
-                })
-                .collect::<Vec<_>>()
+            catalog_models(
+                wiring.id,
+                enabled,
+                account.get(wiring.id).map(Vec::as_slice),
+            )
+            .into_iter()
+            .filter(|model| model.enabled)
+            .map(|model| ConfigChoice {
+                id: format!("{}/{}", wiring.id, model.id),
+                name: model.name,
+                description: Some(wiring.id.to_string()),
+                group: Some(entry.name.clone()),
+            })
+            .collect::<Vec<_>>()
         })
         .collect();
     let mut custom: Vec<_> = keys
@@ -539,58 +520,64 @@ pub fn choices(
                 }),
         );
     }
+    for choice in &mut choices {
+        if let Some(model) = metadata.get(&choice.id) {
+            choice.name = model.name.clone();
+        }
+    }
     choices
 }
 
 /// Every model of this provider in the catalogue, newest first, each flagged
 /// by the saved filter. All `enabled` when the provider is absent from it.
-/// A subscription with an `account` list omits models the account cannot
-/// run, so the Models shown panel has no checkbox for them. An unwired
-/// provider, or one the snapshot has not got, is an empty list; the wire
-/// turns that into an error before it gets here.
+/// A connection list replaces bundled choices, including when it is empty.
+/// Unknown ids stay present and carry no invented metadata. The wire refuses
+/// unsupported provider identities before calling this function.
 pub fn catalog_models(
     provider_id: &str,
     enabled: &HashMap<String, Vec<String>>,
     account: Option<&[String]>,
 ) -> Vec<CatalogModel> {
-    if is_custom(provider_id) {
-        return account
-            .unwrap_or_default()
-            .iter()
-            .map(|id| CatalogModel {
-                id: id.clone(),
-                name: id.clone(),
-                release_date: String::new(),
-                enabled: model_offered(enabled, provider_id, id),
-            })
-            .collect();
-    }
-    let Some(entry) = catalog().providers.get(provider_id) else {
-        return Vec::new();
+    let entry = catalog().providers.get(provider_id);
+    let ids: Vec<String> = match account {
+        Some(ids) => ids.to_vec(),
+        None => entry
+            .map(|entry| entry.models.keys().cloned().collect())
+            .unwrap_or_default(),
     };
-    if matches!(provider_id, "ollama" | "ollama-cloud")
-        && let Some(ids) = account
-    {
-        return ids
-            .iter()
-            .map(|id| CatalogModel {
-                id: id.clone(),
-                name: id.clone(),
-                release_date: String::new(),
-                enabled: model_offered(enabled, provider_id, id),
-            })
-            .collect();
-    }
-    newest_first(entry)
+    let mut models: Vec<_> = ids
         .into_iter()
-        .filter(|(id, _)| account_offered(provider_id, account, id))
-        .map(|(id, model)| CatalogModel {
-            id: id.clone(),
-            name: model.name.clone(),
-            release_date: model.release_date.clone(),
-            enabled: model_offered(enabled, provider_id, id),
+        .map(|id| {
+            let metadata = entry.and_then(|entry| entry.models.get(&id));
+            CatalogModel {
+                name: metadata
+                    .map(|model| model.name.clone())
+                    .unwrap_or_else(|| id.clone()),
+                release_date: metadata
+                    .map(|model| model.release_date.clone())
+                    .unwrap_or_default(),
+                enabled: model_offered(enabled, provider_id, &id),
+                manual: false,
+                metadata_known: metadata.is_some(),
+                context_limit: metadata.map(|model| model.limit.context),
+                output_limit: metadata.map(|model| model.limit.output),
+                reasoning: metadata.map(|model| model.reasoning),
+                attachment: metadata.map(|model| model.attachment),
+                efforts: metadata.map(|model| model.efforts.clone()),
+                cost: metadata.and_then(|model| model.cost.as_ref()).map(|cost| {
+                    crate::contract::ModelCost {
+                        input: cost.input,
+                        output: cost.output,
+                        cache_read: cost.cache_read,
+                        cache_write: cost.cache_write,
+                    }
+                }),
+                id,
+            }
         })
-        .collect()
+        .collect();
+    models.sort_by(|a, b| b.release_date.cmp(&a.release_date).then(a.id.cmp(&b.id)));
+    models
 }
 
 /// The picker's name for a `provider/model` id, when the catalogue has it.
@@ -770,9 +757,9 @@ mod tests {
     fn choices_follow_the_keys_the_desk_holds_newest_first() {
         let mut keys = HashMap::new();
         let none = HashMap::new();
-        assert!(choices(&keys, &none, &none).is_empty());
+        assert!(choices(&keys, &none, &none, &HashMap::new()).is_empty());
         keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
-        let listed = choices(&keys, &none, &none);
+        let listed = choices(&keys, &none, &none, &HashMap::new());
         assert!(
             listed
                 .iter()
@@ -855,18 +842,18 @@ mod tests {
         let mut keys = HashMap::new();
         keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
         let none = HashMap::new();
-        let all = choices(&keys, &none, &none);
+        let all = choices(&keys, &none, &none, &HashMap::new());
         assert!(all.len() > 1, "anthropic must list more than one model");
 
         let kept = all[0].id.trim_start_matches("anthropic/").to_string();
         let mut filter = HashMap::new();
         filter.insert("anthropic".to_string(), vec![kept.clone()]);
-        let listed = choices(&keys, &filter, &none);
+        let listed = choices(&keys, &filter, &none, &HashMap::new());
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, format!("anthropic/{kept}"));
 
         filter.insert("openai".to_string(), vec!["nope".to_string()]);
-        assert_eq!(choices(&keys, &filter, &none).len(), 1);
+        assert_eq!(choices(&keys, &filter, &none, &HashMap::new()).len(), 1);
     }
 
     #[test]
@@ -900,12 +887,12 @@ mod tests {
             let none = HashMap::new();
             let ids = vec!["custom/coder:latest".into()];
             let mut account = HashMap::from([(provider.to_string(), ids.clone())]);
-            let listed = choices(&keys, &none, &account);
+            let listed = choices(&keys, &none, &account, &HashMap::new());
             assert_eq!(listed.len(), 1);
             assert_eq!(listed[0].id, format!("{provider}/custom/coder:latest"));
             assert_eq!(catalog_models(provider, &none, Some(&ids)).len(), 1);
             account.insert(provider.to_string(), vec![]);
-            assert!(choices(&keys, &none, &account).is_empty());
+            assert!(choices(&keys, &none, &account, &HashMap::new()).is_empty());
             assert!(catalog_models(provider, &none, Some(&[])).is_empty());
         }
     }
@@ -1004,7 +991,7 @@ mod tests {
             "openai-codex".to_string(),
             ProviderAuth::ApiKey("ignored".into()),
         );
-        let listed = choices(&keys, &HashMap::new(), &HashMap::new());
+        let listed = choices(&keys, &HashMap::new(), &HashMap::new(), &HashMap::new());
         assert!(
             listed
                 .iter()
@@ -1014,77 +1001,52 @@ mod tests {
     }
 
     #[test]
-    fn choices_narrow_an_oauth_account_and_leave_key_providers_alone() {
-        let mut keys = HashMap::new();
-        keys.insert(
-            "github-copilot".to_string(),
-            ProviderAuth::ApiKey("ignored".into()),
-        );
-        keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
-        let none = HashMap::new();
-        let all = choices(&keys, &none, &none);
-        let copilot: Vec<&str> = all
-            .iter()
-            .filter(|choice| choice.id.starts_with("github-copilot/"))
-            .map(|choice| choice.id.as_str())
-            .collect();
-        assert!(
-            copilot.len() > 2,
-            "github-copilot must list more than two models"
-        );
-        let first = copilot[0].trim_start_matches("github-copilot/").to_string();
-        let later = copilot[2].trim_start_matches("github-copilot/").to_string();
-
-        let mut account = HashMap::new();
-        account.insert(
-            "github-copilot".to_string(),
-            vec![later.clone(), first.clone(), "copilot-search-a".to_string()],
-        );
-        account.insert("anthropic".to_string(), vec!["nope".to_string()]);
-        let listed = choices(&keys, &none, &account);
-        let copilot: Vec<String> = listed
-            .iter()
-            .filter(|choice| choice.id.starts_with("github-copilot/"))
-            .map(|choice| choice.id.clone())
-            .collect();
-        assert_eq!(
-            copilot,
-            vec![
-                format!("github-copilot/{first}"),
-                format!("github-copilot/{later}"),
-            ]
-        );
-
-        let anthropic: Vec<&str> = listed
-            .iter()
-            .filter(|choice| choice.id.starts_with("anthropic/"))
-            .map(|choice| choice.id.as_str())
-            .collect();
-        let all_anthropic: Vec<&str> = all
-            .iter()
-            .filter(|choice| choice.id.starts_with("anthropic/"))
-            .map(|choice| choice.id.as_str())
-            .collect();
-        assert_eq!(anthropic, all_anthropic);
+    fn every_discovered_list_replaces_the_bundle_and_unknown_ids_stay_available() {
+        for provider in [
+            "github-copilot",
+            "anthropic",
+            "openai",
+            "openrouter",
+            "google",
+            "groq",
+            "deepseek",
+            "mistral",
+        ] {
+            let keys = HashMap::from([(provider.into(), ProviderAuth::ApiKey("test".into()))]);
+            let account = HashMap::from([(provider.into(), vec!["new-coder".into()])]);
+            let choices = choices(&keys, &HashMap::new(), &account, &HashMap::new());
+            assert_eq!(choices.len(), 1);
+            assert_eq!(choices[0].id, format!("{provider}/new-coder"));
+            let models = catalog_models(provider, &HashMap::new(), Some(&["new-coder".into()]));
+            assert_eq!(models.len(), 1);
+            assert!(!models[0].metadata_known);
+            assert_eq!(models[0].reasoning, None);
+            assert_eq!(models[0].output_limit, None);
+            assert!(catalog_models(provider, &HashMap::new(), Some(&[])).is_empty());
+        }
     }
 
     #[test]
-    fn catalog_models_intersect_an_oauth_account_in_catalogue_order() {
-        let none = HashMap::new();
-        let all = catalog_models("github-copilot", &none, None);
-        assert!(all.len() > 2);
-        let first = all[0].id.clone();
-        let later = all[2].id.clone();
-        let account = vec![later.clone(), first.clone(), "copilot-search-a".to_string()];
-        let listed = catalog_models("github-copilot", &none, Some(&account));
-        let ids: Vec<&str> = listed.iter().map(|model| model.id.as_str()).collect();
-        assert_eq!(ids, [first.as_str(), later.as_str()]);
-        assert!(listed.iter().all(|model| model.enabled));
-
-        let anthropic = catalog_models("anthropic", &none, Some(&["nope".to_string()]));
+    fn metadata_joins_only_exact_provider_and_model_ids() {
+        let (id, model) = catalog().providers["anthropic"]
+            .models
+            .iter()
+            .next()
+            .unwrap();
+        let exact = catalog_models("anthropic", &HashMap::new(), Some(std::slice::from_ref(id)));
+        assert!(exact[0].metadata_known);
+        assert_eq!(exact[0].output_limit, Some(model.limit.output));
+        assert_eq!(exact[0].efforts.as_ref(), Some(&model.efforts));
         assert_eq!(
-            anthropic.len(),
-            catalog_models("anthropic", &none, None).len()
+            exact[0].cost.as_ref().map(|cost| cost.input),
+            model.cost.as_ref().map(|cost| cost.input)
         );
+        let other = catalog_models(
+            "openrouter",
+            &HashMap::new(),
+            Some(std::slice::from_ref(id)),
+        );
+        assert!(!other[0].metadata_known);
+        assert_eq!(other[0].output_limit, None);
     }
 }

@@ -86,8 +86,9 @@ pub async fn complete(
     model_id: &str,
     system: &str,
     prompt: &str,
+    output_limit: Option<u64>,
 ) -> Result<String, String> {
-    let agent = agent_builder(keys, model_id, None)?
+    let agent = agent_builder(keys, model_id, None, output_limit)?
         .preamble(system)
         .build();
     agent
@@ -198,14 +199,19 @@ impl InProcess {
     fn info(&self, keys: &HashMap<String, ProviderAuth>) -> DriverInfo {
         let model = lock(&self.model).clone();
         let effort = lock(&self.effort).clone();
+        let metadata = self.keys.model_metadata();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
             models: models::choices(
                 keys,
                 &self.keys.enabled_models(),
                 &self.keys.account_models(),
+                &metadata,
             ),
-            model_label: models::label_of(&model),
+            model_label: metadata
+                .get(&model)
+                .map(|model| model.name.clone())
+                .or_else(|| models::label_of(&model)),
             current_model_id: model.clone(),
             configs: effort_config(&model, effort.as_deref()),
             ..DriverInfo::default()
@@ -224,6 +230,7 @@ impl Driver for InProcess {
             &keys,
             &self.keys.enabled_models(),
             &self.keys.account_models(),
+            &self.keys.model_metadata(),
         );
         let preferred = self.keys.preferred_model();
         let model = model_for(
@@ -291,9 +298,16 @@ impl Driver for InProcess {
                     .map(|tool| mcp_dynamic(tool, sender.clone())),
             );
         }
+        let model = lock(&self.model).clone();
+        let output_limit = self
+            .keys
+            .model_metadata()
+            .get(&model)
+            .and_then(|model| model.output_limit);
         let turn = Turn {
             keys: self.keys.provider_auth(),
-            model: lock(&self.model).clone(),
+            model,
+            output_limit,
             effort: lock(&self.effort).clone(),
             preamble: self.preamble.clone(),
             cwd: lock(&self.cwd).clone(),
@@ -372,23 +386,18 @@ impl Driver for InProcess {
     }
 }
 
-/// The model a Toad Agent teammate starts on: its own choice when the desk
-/// still lists it, else the room's preferred model when that is listed, else
-/// the first choice. Newest is only the answer on a desk that has never run
-/// a model.
+/// An explicit model selection survives discovery and picker filtering. If
+/// access disappeared, starting that model fails without routing its prompts
+/// to a different model. Only a teammate with no preference takes the first.
 fn model_for(
     persona_model: Option<&str>,
     preferred: Option<&str>,
     choices: &[ConfigChoice],
 ) -> Option<String> {
-    let listed = |id: &str| choices.iter().any(|choice| choice.id == id);
-    if let Some(id) = persona_model.filter(|id| listed(id)) {
-        return Some(id.to_string());
-    }
-    if let Some(id) = preferred.filter(|id| listed(id)) {
-        return Some(id.to_string());
-    }
-    choices.first().map(|choice| choice.id.clone())
+    persona_model
+        .or(preferred)
+        .map(str::to_string)
+        .or_else(|| choices.first().map(|choice| choice.id.clone()))
 }
 
 /// How many updates may be in flight before the turn waits for the session to
@@ -436,6 +445,7 @@ impl Stop {
 struct Turn {
     keys: HashMap<String, ProviderAuth>,
     model: String,
+    output_limit: Option<u64>,
     effort: Option<String>,
     preamble: String,
     cwd: PathBuf,
@@ -473,7 +483,12 @@ impl Turn {
         };
         let provider = self.model.split('/').next().unwrap_or("");
         let outcomes = ToolOutcomes::new(self.output_dir.clone(), images_to_model(provider));
-        let builder = match agent_builder(&self.keys, &self.model, self.effort.as_deref()) {
+        let builder = match agent_builder(
+            &self.keys,
+            &self.model,
+            self.effort.as_deref(),
+            self.output_limit,
+        ) {
             Ok(builder) => builder,
             Err(error) => {
                 remember_prompt(&mut history, &text);
@@ -880,6 +895,7 @@ fn agent_builder(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
+    output_limit: Option<u64>,
 ) -> Result<rig::agent::AgentBuilder, String> {
     let (provider, model) = model_id
         .split_once('/')
@@ -984,10 +1000,13 @@ fn agent_builder(
             .map_err(text)?
             .agent(model),
     };
-    // Anthropic refuses a request that names no ceiling, and Rig only knows
-    // one for the models it shipped with. The catalogue knows every model's,
-    // so every request carries it rather than only the ones Rig remembers.
-    let builder = match models::output_limit(model_id) {
+    // Anthropic requires max_tokens even for a model Rig has never seen.
+    // 4096 is a conservative request budget, not a claim about that model's
+    // unknown output ceiling. Other providers can choose their own defaults.
+    let ceiling = output_limit
+        .or_else(|| models::output_limit(model_id))
+        .or_else(|| (wiring.client == Client::Anthropic).then_some(4096));
+    let builder = match ceiling {
         Some(ceiling) => builder.max_tokens(ceiling),
         None => builder,
     };
@@ -1212,41 +1231,77 @@ mod tests {
     }
 
     #[test]
-    fn model_for_takes_the_personas_choice_when_the_list_has_it() {
-        let choices = [choice("a"), choice("b")];
+    fn saved_model_and_room_preference_survive_missing_or_filtered_choices() {
+        let choices = [choice("other")];
         assert_eq!(
-            model_for(Some("b"), Some("a"), &choices).as_deref(),
-            Some("b")
+            model_for(Some("chosen"), Some("default"), &choices).as_deref(),
+            Some("chosen")
         );
-    }
-
-    #[test]
-    fn model_for_takes_the_preferred_when_the_persona_is_not_listed() {
-        let choices = [choice("a"), choice("b")];
         assert_eq!(
-            model_for(Some("gone"), Some("b"), &choices).as_deref(),
-            Some("b")
+            model_for(None, Some("default"), &choices).as_deref(),
+            Some("default")
         );
-        assert_eq!(model_for(None, Some("b"), &choices).as_deref(), Some("b"));
-    }
-
-    #[test]
-    fn model_for_takes_the_first_choice_when_neither_is_listed() {
-        let choices = [choice("a"), choice("b")];
         assert_eq!(
-            model_for(Some("gone"), Some("also"), &choices).as_deref(),
-            Some("a")
+            model_for(Some("chosen"), Some("default"), &[]).as_deref(),
+            Some("chosen")
         );
-        assert_eq!(model_for(None, None, &choices).as_deref(), Some("a"));
+        assert_eq!(
+            model_for(None, Some("default"), &[]).as_deref(),
+            Some("default")
+        );
+        assert_eq!(model_for(None, None, &choices).as_deref(), Some("other"));
+        assert_eq!(model_for(None, None, &[]), None);
     }
 
-    #[test]
-    fn model_for_is_none_when_there_are_no_choices() {
-        assert_eq!(model_for(Some("a"), Some("b"), &[]), None);
+    #[tokio::test]
+    async fn native_anthropic_requests_use_live_limits_or_a_conservative_unknown_budget() {
+        use axum::{Router, body::Bytes, routing::post};
+        use rig::client::CompletionClient;
+        use serde_json::json;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let app = Router::new().route("/v1/messages", post(move |body: Bytes| {
+            let tx = tx.clone();
+            async move {
+                tx.send(serde_json::from_slice::<serde_json::Value>(&body).unwrap()).await.unwrap();
+                json!({"id":"msg_test", "type":"message", "role":"assistant", "model":"brand-new-claude", "content":[{"type":"text","text":"ok"}], "stop_reason":"end_turn", "stop_sequence":null, "usage":{"input_tokens":2,"output_tokens":1}}).to_string()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = anthropic::Client::builder()
+            .api_key("test-only-key")
+            .base_url(&url)
+            .build()
+            .unwrap();
+        let keys = HashMap::from([("anthropic".into(), ProviderAuth::ApiKey("test-key".into()))]);
+        let known = models::catalog().providers["anthropic"]
+            .models
+            .keys()
+            .next()
+            .unwrap();
+        for (id, live_limit, expected) in [
+            ("brand-new-claude", None, 4096),
+            ("brand-new-claude", Some(1234), 1234),
+            (known.as_str(), Some(1234), 1234),
+        ] {
+            let model_id = format!("anthropic/{id}");
+            let agent = agent_builder(&keys, &model_id, None, live_limit)
+                .unwrap()
+                .build()
+                .with_model(client.completion_model(id));
+            assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+            let request = rx.recv().await.unwrap();
+            assert_eq!(request["model"], id);
+            assert_eq!(request["max_tokens"], expected);
+        }
+        assert_eq!(models::output_limit("anthropic/brand-new-claude"), None);
+        assert!(models::efforts("anthropic/brand-new-claude").is_empty());
+        server.abort();
     }
 
-    /// Toad Agent is handed paths rather than bytes, because it opens a file
-    /// with its read tool.
     #[test]
     fn attachments_reach_this_agent_as_paths_under_the_message() {
         use crate::contract::AttachmentKind;
@@ -1403,6 +1458,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let history = Arc::new(AsyncMutex::new(Vec::new()));
         let turn = Turn {
+            output_limit: None,
             keys: HashMap::new(),
             model: "nope/none".to_string(),
             effort: None,
@@ -1450,7 +1506,7 @@ mod tests {
         )]);
         let err = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            complete(&keys, "openai-codex/gpt-5.6", "you are Ada", "hello"),
+            complete(&keys, "openai-codex/gpt-5.6", "you are Ada", "hello", None),
         )
         .await
         .expect("ChatGPT auth without a token must not wait on the network")
@@ -1477,7 +1533,13 @@ mod tests {
         )]);
         let err = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            complete(&keys, "github-copilot/gpt-5-mini", "you are Ada", "hello"),
+            complete(
+                &keys,
+                "github-copilot/gpt-5-mini",
+                "you are Ada",
+                "hello",
+                None,
+            ),
         )
         .await
         .expect("Copilot auth without a token must not wait on the network")

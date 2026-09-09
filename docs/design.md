@@ -222,6 +222,13 @@ discovery. A small Rig provider builder makes bearer authentication optional;
 no custom inference transport is added. Keys are privately bound to the exact
 endpoint, so editing a URL requires explicitly supplying or removing its key.
 Discovery fills the form without changing a saved connection until Save.
+Provider discovery supplies current model IDs wherever Rig has a supported
+listing client. The bundled models.dev snapshot enriches exact provider/model
+matches with metadata; it does not gate newly discovered IDs. Manual model
+IDs belong to the existing connection and survive refreshes and releases.
+Unknown metadata remains unknown. Refresh changes the available list, never
+the selected model, connection endpoint, or credentials. Persisted connection
+data is separate from the application's bundled snapshot.
 Claude subscription access stays with Claude Code through ACP.
 
 ## Module map

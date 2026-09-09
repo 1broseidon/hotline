@@ -123,6 +123,12 @@ pub(crate) async fn run(
         Command::ModelsCatalog { provider_id } => room
             .models_catalog(&provider_id)
             .map(|models| json!(models)),
+        Command::ModelsManualSet {
+            provider_id,
+            model_ids,
+        } => room
+            .models_manual_set(&provider_id, &model_ids)
+            .map(|models| json!(models)),
         Command::ModelsEfforts { model_id } => Ok(json!(room.models_efforts(&model_id))),
 
         Command::SessionStart { persona_id } => {

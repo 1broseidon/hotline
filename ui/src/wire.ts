@@ -97,6 +97,7 @@ type Results = {
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
 	"models.catalog": CatalogModel[];
+	"models.manual_set": CatalogModel[];
 	"models.efforts": ConfigChoice[];
 	"session.start": SessionInfo;
 	"session.stop": null;

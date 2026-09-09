@@ -258,13 +258,15 @@ cargo run -p toad-core --bin toad-models-sync -- --from api.json   # from a save
 
 It prints what each provider gained and lost against the snapshot it was
 built with, then writes the file. Read that diff, run `make check`, commit.
-The snapshot lives in git rather than being fetched at run time because a
-catalogue is behaviour — names, prices, limits — and a release should mean
-the same thing on every machine that runs it.
+The metadata snapshot lives in git. Runtime provider discovery supplies
+current model IDs independently, and exact catalogue matches enrich those
+IDs. A new ID is usable without a snapshot update. Toad does not download
+models.dev at runtime. Persisted discovery and manual additions live with
+connection data, so installing a new release cannot replace them.
 
 To add a provider: one `Wiring` line in `models.rs`, one `Client` arm in
 `driver/rig.rs` naming the Rig client that speaks to it, and a sync. The
-key form and the picker learn the name from the catalogue.
+key form and picker use the trusted provider identity from wiring and the bundled catalogue.
 
 `openai-codex` is a synthesized provider. models.dev has no ChatGPT
 subscription row, so the sync copies the listed models off `openai` and
@@ -284,6 +286,15 @@ The public device client id is not a secret; requests identify Toad as their
 referrer. OAuth response bodies never enter user-facing errors. Model requests
 still go through Rig. `credentialKinds` lists all connection methods a
 provider offers, while each saved credential retains its own singular kind.
+
+Active provider connections can refresh models through native Rig listing
+clients. The validated list lives in `vault/logins/<credential-id>/discovery.json`;
+`manual-models.json` holds separate user additions. Legacy `models.json` ID
+lists remain readable. A valid discovery file takes precedence; neither
+file is overwritten by installing a new application bundle. Live model names
+and limits take precedence over exact bundled matches; the catalogue fills
+missing fields, including efforts, capabilities and pricing. Provider identity
+still comes from trusted wiring, not live `owned_by` fields or display names.
 
 The `openai-compatible` catalogue row is also empty. Each custom connection
 supplies its own model IDs, optionally discovered with Rig's model-listing

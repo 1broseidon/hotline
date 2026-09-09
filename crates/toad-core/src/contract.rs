@@ -606,6 +606,8 @@ pub struct Provider {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     pub credential_kinds: Vec<CredentialKind>,
+    /// Whether Rig can discover models using this provider connection.
+    pub model_discovery: bool,
 }
 
 /// How this connection was established: a pasted key, a provider sign-in,
@@ -793,7 +795,7 @@ pub struct ConfigChoice {
 /// when that provider is absent from the setting. A subscription with an
 /// account list omits models the account cannot run, so they never appear
 /// here to be flagged.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct CatalogModel {
@@ -801,6 +803,34 @@ pub struct CatalogModel {
     pub name: String,
     pub release_date: String,
     pub enabled: bool,
+    pub manual: bool,
+    /// An exact provider/model match exists in the bundled metadata.
+    pub metadata_known: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<ModelCost>,
+}
+
+/// Dollars per million tokens, when exact catalogue metadata has a price.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ModelCost {
+    pub input: f64,
+    pub output: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -1525,7 +1555,7 @@ pub enum Command {
     },
     #[serde(rename = "credential.login_status")]
     CredentialLoginStatus { login_id: String },
-    /// Re-reads Copilot account models or Ollama server models and answers with
+    /// Discovers models through the connection's native Rig client and answers with
     /// that provider's catalogue as `models.catalog` would. An absent
     /// connection or a failed fetch is an error; the previous list survives.
     #[serde(rename = "credential.refresh_models")]
@@ -1580,6 +1610,13 @@ pub enum Command {
     /// on disk lists only those models. An unwired provider is an error.
     #[serde(rename = "models.catalog")]
     ModelsCatalog { provider_id: String },
+    /// Replaces manual ids for the active connection, without changing its
+    /// endpoint, credentials, selected models, or enabled-model filter.
+    #[serde(rename = "models.manual_set")]
+    ModelsManualSet {
+        provider_id: String,
+        model_ids: Vec<String>,
+    },
     /// The effort levels a catalogue model offers, as picker choices. Empty
     /// when the id is unknown or the model has no `effort` option.
     #[serde(rename = "models.efforts")]

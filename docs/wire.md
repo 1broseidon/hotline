@@ -223,21 +223,30 @@ one catalogue id, each choice labelled (`low` → "Low", `xhigh` →
 `effortId` on the persona is the stored effort, optional like `modeId`.
 An ACP teammate does not store one: the harness owns its config ids.
 
-`models.catalog` lists every model the catalogue has for one wired
-provider, each with `enabled` set by that filter, whether or not the
-desk holds a credential — except Copilot's account list and Ollama's
-discovered list, which take precedence when present. Ollama Local has no
-bundled models. An unwired provider is an error.
-The filter narrows what `models.list` and a session's picker offer; a
-teammate already on a filtered-out model stays on it.
+`models.catalog` lists a provider's discovered models when available, with
+manual additions and bundled metadata matched by exact provider/model ID.
+Without a discovered list, the bundled catalogue supplies the fallback.
+Models absent from models.dev remain visible; `metadataKnown` distinguishes
+exact catalogue matches and `manual` identifies user-added IDs. Live names
+and limits take precedence over bundled values; the bundle fills missing
+metadata. Unknown optional limits and capabilities are omitted. Each row's `enabled` flag reflects the
+saved filter. An unwired provider is an error.
 
-`credential.refresh_models` re-reads Copilot's account list or Ollama's
-server list through Rig and answers with that provider's `models.catalog`.
-An absent connection is an error. A failed fetch leaves the previous list
-intact; successfully reading an empty server produces an empty picker.
-ChatGPT, signed-in OpenRouter and signed-in xAI return their bundled catalogue.
+`credential.refresh_models` uses the active connection and Rig's native
+listing client, then answers with `models.catalog`. An absent connection or
+unsupported discovery method is an error. Failed discovery preserves the
+last successful list; manual IDs remain separate. Refresh never updates
+selected models or enabled-model filters. `providers.list` exposes
+`modelDiscovery` so the window offers Refresh only for supported providers.
 
-`providers.list` exposes `credentialKinds`, the methods each provider
+`models.manual_set {providerId, modelIds}` replaces the manual IDs for an
+active non-custom connection and returns its updated `models.catalog`.
+The input is a list of exact model IDs, not display labels or URLs. It never
+changes credentials, endpoints, filters, or the current model. Copilot manual
+IDs must also occur in its successfully fetched account list. Custom
+connections continue to edit their IDs through `credential.custom_save`.
+
+`providers.list` also exposes `credentialKinds`, the methods each provider
 offers (`api_key`, `oauth`, or `local`). `credential.create` accepts only
 providers offering `api_key` and refuses blank keys.
 `credential.connect_local {baseUrl}` validates an Ollama HTTP/HTTPS URL,

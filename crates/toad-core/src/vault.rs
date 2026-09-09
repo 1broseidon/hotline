@@ -20,14 +20,15 @@
 use crate::contract::{Credential, CredentialKind};
 use crate::log::{Log, StreamId};
 use crate::models::Client;
+use crate::providers::discovery::{self, ListedModel};
 use crate::session::ProviderAuth;
 use async_trait::async_trait;
 use rmcp::transport::auth::{CredentialRefreshGuard, CredentialStore, StoredCredentials};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::{Mutex, PoisonError};
@@ -403,8 +404,8 @@ impl Vault {
         connections
     }
 
-    /// Discovery belongs to the active credential, so switching accounts or
-    /// local servers cannot leave another connection's models in the picker.
+    /// Discovery and manual additions belong to the active credential. A new
+    /// account or local server never inherits the previous connection's ids.
     pub fn account_models(&self) -> HashMap<String, Vec<String>> {
         self.connections()
             .into_iter()
@@ -412,25 +413,157 @@ impl Vault {
                 if let Some(custom) = credential.custom {
                     return Some((provider_id, custom.models));
                 }
-                let text =
-                    fs::read_to_string(self.login_dir(&credential.id).join("models.json")).ok()?;
-                let ids: Vec<String> = serde_json::from_str(&text).ok()?;
+                let discovered = self.read_discovery(&credential.id);
+                let manual = self.read_manual_models(&credential.id);
+                let mut ids = match discovered {
+                    Some(models) => models.into_iter().map(|model| model.id).collect::<Vec<_>>(),
+                    None if manual.is_empty() => return None,
+                    None => crate::models::catalog()
+                        .providers
+                        .get(&provider_id)
+                        .map(|entry| entry.models.keys().cloned().collect())
+                        .unwrap_or_default(),
+                };
+                // Copilot's successful account response remains authoritative,
+                // including when an older manual addition is no longer offered.
+                if provider_id != "github-copilot" {
+                    ids.extend(manual);
+                }
+                ids.sort();
+                ids.dedup();
                 Some((provider_id, ids))
             })
             .collect()
     }
 
-    pub(crate) fn cache_models(&self, credential_id: &str, ids: &[String]) -> io::Result<()> {
+    /// The same resolved metadata feeds Settings, pickers, and request limits.
+    pub(crate) fn model_metadata(&self) -> HashMap<String, crate::contract::CatalogModel> {
+        let mut result = HashMap::new();
+        for (provider_id, (credential, _)) in self.connections() {
+            let discovered: BTreeMap<_, _> = self
+                .read_discovery(&credential.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|model| (model.id.clone(), model))
+                .collect();
+            let manual: BTreeSet<_> = self
+                .read_manual_models(&credential.id)
+                .into_iter()
+                .collect();
+            let ids: Vec<_> = discovered
+                .keys()
+                .chain(manual.iter())
+                .cloned()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            for mut model in
+                crate::models::catalog_models(&provider_id, &HashMap::new(), Some(&ids))
+            {
+                model.manual = manual.contains(&model.id);
+                if let Some(listed) = discovered.get(&model.id) {
+                    if let Some(name) = &listed.name {
+                        model.name = name.clone();
+                    }
+                    model.context_limit = listed.context_limit.or(model.context_limit);
+                    model.output_limit = listed.output_limit.or(model.output_limit);
+                }
+                result.insert(format!("{provider_id}/{}", model.id), model);
+            }
+        }
+        result
+    }
+
+    pub(crate) fn read_discovery(&self, credential_id: &str) -> Option<Vec<ListedModel>> {
+        let dir = self.checked_model_directory(credential_id).ok()?;
+        if let Ok(bytes) = read_model_file(&dir.join("discovery.json"))
+            && let Ok(models) = serde_json::from_slice::<Vec<ListedModel>>(&bytes)
+            && discovery::validate(&models).is_ok()
+        {
+            return Some(models);
+        }
+        // Pre-discovery releases wrote only ids. Reading that file never
+        // rewrites it, so installing a newer bundle preserves original data.
+        let bytes = read_model_file(&dir.join("models.json")).ok()?;
+        let ids: Vec<String> = serde_json::from_slice(&bytes).ok()?;
+        let ids = discovery::validate_ids(&ids).ok()?;
+        Some(
+            ids.into_iter()
+                .map(|id| ListedModel {
+                    id,
+                    name: None,
+                    context_limit: None,
+                    output_limit: None,
+                })
+                .collect(),
+        )
+    }
+
+    pub(crate) fn read_manual_models(&self, credential_id: &str) -> Vec<String> {
+        let read = || {
+            let dir = self.checked_model_directory(credential_id).ok()?;
+            let bytes = read_model_file(&dir.join("manual-models.json")).ok()?;
+            let ids: Vec<String> = serde_json::from_slice(&bytes).ok()?;
+            discovery::validate_ids(&ids).ok()
+        };
+        read().unwrap_or_default()
+    }
+
+    fn checked_model_directory(&self, credential_id: &str) -> io::Result<PathBuf> {
+        if uuid::Uuid::parse_str(credential_id).is_err() {
+            return Err(io::Error::other("Invalid model-cache connection id."));
+        }
+        self.check_layout()?;
+        let dir = self.login_dir(credential_id);
+        if let Ok(entry) = dir.symlink_metadata()
+            && !entry.is_dir()
+        {
+            return Err(io::Error::other("Model cache must be a real directory."));
+        }
+        Ok(dir)
+    }
+
+    pub(crate) fn cache_discovery(
+        &self,
+        credential_id: &str,
+        models: &[ListedModel],
+    ) -> io::Result<()> {
+        discovery::validate(models).map_err(io::Error::other)?;
+        let body = serde_json::to_vec(models).map_err(io::Error::other)?;
+        self.write_models_file(credential_id, "discovery.json", &body)
+    }
+
+    pub(crate) fn set_manual_models(&self, credential_id: &str, ids: &[String]) -> io::Result<()> {
+        let ids = discovery::validate_ids(ids).map_err(io::Error::other)?;
+        let body = serde_json::to_vec(&ids).map_err(io::Error::other)?;
+        self.write_models_file(credential_id, "manual-models.json", &body)
+    }
+
+    fn write_models_file(
+        &self,
+        credential_id: &str,
+        filename: &str,
+        body: &[u8],
+    ) -> io::Result<()> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        if body.len() > discovery::MAX_BYTES {
+            return Err(io::Error::other("Model cache is too large."));
+        }
         if self.find(credential_id)?.revoked {
             return Err(io::Error::other(
                 "This connection was revoked during model discovery.",
             ));
         }
-        self.check_layout()?;
-        let dir = self.login_dir(credential_id);
+        let dir = self.checked_model_directory(credential_id)?;
         make_private_directory(&dir)?;
-        write_account_models(&dir, ids)
+        let dest = dir.join(filename);
+        if let Ok(entry) = dest.symlink_metadata()
+            && !entry.is_file()
+        {
+            return Err(io::Error::other("Model cache must be a regular file."));
+        }
+        let temporary = dir.join(format!(".models-{}.tmp", uuid::Uuid::new_v4()));
+        persist_renamed(&temporary, &dest, &dir, body)
     }
 
     pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
@@ -1003,12 +1136,40 @@ pub(crate) fn write_login_tokens(token_dir: &Path, contents: &[u8]) -> io::Resul
     )
 }
 
+/// Fixed model-cache files are bounded before parsing and never follow links.
+fn read_model_file(path: &Path) -> io::Result<Vec<u8>> {
+    if !path.symlink_metadata()?.is_file() {
+        return Err(io::Error::other("Model cache must be a regular file."));
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() || file.metadata()?.len() > discovery::MAX_BYTES as u64 {
+        return Err(io::Error::other(
+            "Model cache is too large or is not a regular file.",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(discovery::MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > discovery::MAX_BYTES {
+        return Err(io::Error::other("Model cache is too large."));
+    }
+    Ok(bytes)
+}
+
 /// The account's model ids as a JSON array of bare catalogue ids, 0600
 /// beside the login. Replaces a list already there so Refresh can rewrite
 /// without leaving the previous bytes behind a `create_new` refusal.
 pub(crate) fn write_account_models(token_dir: &Path, ids: &[String]) -> io::Result<()> {
+    let ids = discovery::validate_ids(ids).map_err(io::Error::other)?;
     let path = token_dir.join("models.json");
-    let mut body = serde_json::to_vec(ids).map_err(io::Error::other)?;
+    let mut body = serde_json::to_vec(&ids).map_err(io::Error::other)?;
     body.push(b'\n');
     let temporary = token_dir.join(format!(".models-{}.tmp", uuid::Uuid::new_v4()));
     persist_renamed(&temporary, &path, token_dir, &body)
@@ -1017,6 +1178,15 @@ pub(crate) fn write_account_models(token_dir: &Path, ids: &[String]) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn listed(id: &str) -> ListedModel {
+        ListedModel {
+            id: id.into(),
+            name: None,
+            context_limit: None,
+            output_limit: None,
+        }
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let root =
@@ -1055,28 +1225,124 @@ mod tests {
             .create("ollama-cloud", "Second", "second-key")
             .unwrap();
         vault
-            .cache_models(&first.id, &["first-model".into()])
+            .cache_discovery(&first.id, &[listed("first-model")])
             .unwrap();
         vault
-            .cache_models(&second.id, &["second-model".into()])
+            .cache_discovery(&second.id, &[listed("second-model")])
             .unwrap();
         assert_eq!(vault.account_models()["ollama-cloud"], ["first-model"]);
         vault.delete(&first.id).unwrap();
         assert_eq!(vault.account_models()["ollama-cloud"], ["second-model"]);
         assert!(
             vault
-                .cache_models(&first.id, &["stale-result".into()])
+                .cache_discovery(&first.id, &[listed("stale-result")])
                 .is_err()
         );
         assert!(!vault.login_dir(&first.id).exists());
-        vault.cache_models(&second.id, &[]).unwrap();
+        vault.cache_discovery(&second.id, &[]).unwrap();
         assert!(vault.account_models()["ollama-cloud"].is_empty());
         vault.revoke(&second.id).unwrap();
         assert!(vault.account_models().is_empty());
         assert!(
             vault
-                .cache_models(&second.id, &["stale-result".into()])
+                .cache_discovery(&second.id, &[listed("stale-result")])
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn invalid_discovery_caches_keep_legacy_bytes_and_refuse_unsafe_paths() {
+        let vault = vault("untrusted-model-cache");
+        let credential = vault.create("anthropic", "Test", "secret").unwrap();
+        let dir = vault.checked_model_directory(&credential.id).unwrap();
+        make_private_directory(&dir).unwrap();
+        write_account_models(&dir, &["legacy-coder".into()]).unwrap();
+        let original = fs::read(dir.join("models.json")).unwrap();
+        for content in [
+            br#"[{"id":"../escape"}]"#.to_vec(),
+            br#"[{"id":"coder","output_limit":0}]"#.to_vec(),
+            br#"[{"id":"coder","context_limit":100000001}]"#.to_vec(),
+            br#"[{"id":"coder","endpoint":"https://other.example"}]"#.to_vec(),
+            vec![b'x'; discovery::MAX_BYTES + 1],
+        ] {
+            fs::write(dir.join("discovery.json"), &content).unwrap();
+            assert_eq!(vault.account_models()["anthropic"], ["legacy-coder"]);
+            assert_eq!(fs::read(dir.join("discovery.json")).unwrap(), content);
+            assert_eq!(fs::read(dir.join("models.json")).unwrap(), original);
+        }
+        vault
+            .cache_discovery(&credential.id, &[listed("new-coder")])
+            .unwrap();
+        let good = fs::read(dir.join("discovery.json")).unwrap();
+        assert!(
+            vault
+                .cache_discovery(&credential.id, &[listed("bad\nmodel")])
+                .is_err()
+        );
+        assert_eq!(fs::read(dir.join("discovery.json")).unwrap(), good);
+        assert!(vault.read_discovery("../escape").is_none());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = vault.root.join("untouched.json");
+            fs::write(&outside, b"[\"outside-model\"]").unwrap();
+            fs::remove_file(dir.join("discovery.json")).unwrap();
+            symlink(&outside, dir.join("discovery.json")).unwrap();
+            assert_eq!(vault.account_models()["anthropic"], ["legacy-coder"]);
+            assert!(
+                vault
+                    .cache_discovery(&credential.id, &[listed("attempt")])
+                    .is_err()
+            );
+            symlink(&outside, dir.join("manual-models.json")).unwrap();
+            assert!(vault.read_manual_models(&credential.id).is_empty());
+            assert!(
+                vault
+                    .set_manual_models(&credential.id, &["manual".into()])
+                    .is_err()
+            );
+            assert_eq!(fs::read(&outside).unwrap(), b"[\"outside-model\"]");
+        }
+    }
+
+    #[test]
+    fn manual_models_follow_the_active_connection_and_copilot_cannot_expand_its_account() {
+        let vault = vault("manual-model-account");
+        let first = vault.create("anthropic", "First", "first-key").unwrap();
+        let second = vault.create("anthropic", "Second", "second-key").unwrap();
+        vault
+            .cache_discovery(&first.id, &[listed("first-model")])
+            .unwrap();
+        vault
+            .set_manual_models(&first.id, &["manual-first".into()])
+            .unwrap();
+        vault
+            .cache_discovery(&second.id, &[listed("second-model")])
+            .unwrap();
+        assert_eq!(
+            vault.account_models()["anthropic"],
+            ["first-model", "manual-first"]
+        );
+        vault.delete(&first.id).unwrap();
+        assert_eq!(vault.account_models()["anthropic"], ["second-model"]);
+        assert!(
+            vault
+                .set_manual_models(&first.id, &["stale".into()])
+                .is_err()
+        );
+        let (id, _) = vault.begin_login("github-copilot").unwrap();
+        vault
+            .finish_login(&id, "github-copilot", "Copilot")
+            .unwrap();
+        vault
+            .cache_discovery(&id, &[listed("current-account")])
+            .unwrap();
+        vault
+            .set_manual_models(&id, &["previous-account".into()])
+            .unwrap();
+        assert_eq!(
+            vault.account_models()["github-copilot"],
+            ["current-account"]
         );
     }
 

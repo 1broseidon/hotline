@@ -18,7 +18,6 @@ use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
-use rig::client::ModelListingClient;
 use rig::providers::{chatgpt, copilot};
 use serde_json::json;
 use std::collections::HashMap;
@@ -50,6 +49,10 @@ impl ProviderKeys for DeskCredentials {
 
     fn preferred_model(&self) -> Option<String> {
         crate::models::preferred_model(&crate::room::settings(&self.log))
+    }
+
+    fn model_metadata(&self) -> HashMap<String, CatalogModel> {
+        self.vault.model_metadata()
     }
 
     fn account_models(&self) -> HashMap<String, Vec<String>> {
@@ -515,14 +518,56 @@ impl RoomHandle for Desk {
                 "{provider_id} is not a provider Toad Agent can use."
             ));
         }
-        Ok(crate::models::catalog_models(
+        let mut models = crate::models::catalog_models(
             provider_id,
             &crate::models::enabled_models(&crate::room::settings(&self.log)),
             self.vault
                 .account_models()
                 .get(provider_id)
                 .map(Vec::as_slice),
-        ))
+        );
+        let metadata = self.vault.model_metadata();
+        for model in &mut models {
+            if let Some(resolved) = metadata.get(&format!("{provider_id}/{}", model.id)) {
+                let enabled = model.enabled;
+                *model = resolved.clone();
+                model.enabled = enabled;
+            }
+        }
+        Ok(models)
+    }
+
+    fn models_manual_set(
+        &self,
+        provider_id: &str,
+        model_ids: &[String],
+    ) -> Result<Vec<CatalogModel>, String> {
+        if crate::models::wiring(provider_id).is_none()
+            || crate::models::is_custom(provider_id)
+            || provider_id == "openai-compatible"
+        {
+            return Err("Choose an existing native provider connection; edit custom IDs in its connection form.".into());
+        }
+        let (credential, _) = self
+            .vault
+            .connection(provider_id)
+            .ok_or_else(|| format!("There is no connection for {provider_id}."))?;
+        let ids = crate::providers::discovery::validate_ids(model_ids)?;
+        if provider_id == "github-copilot" && !ids.is_empty() {
+            let account = self.vault.read_discovery(&credential.id).ok_or_else(|| {
+                "Refresh Copilot's account models before adding a manual ID.".to_string()
+            })?;
+            if ids
+                .iter()
+                .any(|id| !account.iter().any(|model| &model.id == id))
+            {
+                return Err("Copilot manual IDs must be offered by the signed-in account.".into());
+            }
+        }
+        self.vault
+            .set_manual_models(&credential.id, &ids)
+            .map_err(|error| error.to_string())?;
+        self.models_catalog(provider_id)
     }
 
     fn import(&self, from: &Path) -> Result<crate::import::Report, String> {
@@ -576,30 +621,33 @@ impl RoomHandle for Desk {
             .vault
             .connection(provider_id)
             .ok_or_else(|| format!("There is no connection for {provider_id}."))?;
-        let ids = match (wiring.client, auth) {
+        let discovered = match (wiring.client, auth) {
             (Client::Ollama, ProviderAuth::Local { base_url }) => {
-                Some(crate::providers::ollama_models(&base_url, "").await?)
+                crate::providers::discovery::ollama_models(&base_url, "").await?
             }
-            (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => Some(
-                crate::providers::ollama_models(crate::providers::OLLAMA_CLOUD_URL, &key).await?,
-            ),
+            (Client::OllamaCloud, ProviderAuth::ApiKey(key)) => {
+                crate::providers::discovery::ollama_models(crate::providers::OLLAMA_CLOUD_URL, &key)
+                    .await?
+            }
             (Client::Copilot, ProviderAuth::Login { token_dir }) => {
-                Some(fetch_copilot_account_models(&token_dir).await?)
+                crate::providers::discovery::copilot_models(&token_dir).await?
             }
-            (Client::ChatGpt | Client::OpenRouter | Client::XAi, ProviderAuth::Login { .. }) => {
-                None
+            (Client::OpenRouter, ProviderAuth::Login { token_dir }) => {
+                let key = crate::providers::openrouter_key(&token_dir)?;
+                crate::providers::discovery::api_models(Client::OpenRouter, &key).await?
+            }
+            (client, ProviderAuth::ApiKey(key)) if crate::models::supports_discovery(client) => {
+                crate::providers::discovery::api_models(client, &key).await?
             }
             _ => {
                 return Err(format!(
-                    "{provider_id} does not offer account model discovery for this connection."
+                    "{provider_id} does not offer model discovery for this connection. Add an exact model ID manually."
                 ));
             }
         };
-        if let Some(ids) = ids {
-            self.vault
-                .cache_models(&credential.id, &ids)
-                .map_err(|error| error.to_string())?;
-        }
+        self.vault
+            .cache_discovery(&credential.id, &discovered)
+            .map_err(|error| error.to_string())?;
         self.models_catalog(provider_id)
     }
 
@@ -687,17 +735,11 @@ fn notice_unread_account_models(log: &Log) {
 /// The Copilot account's model ids, from Rig. Tests never call this: they
 /// write `models.json` beside a login themselves.
 async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, String> {
-    let client = copilot::Client::builder()
-        .oauth()
-        .token_dir(token_dir)
-        .allow_device_flow(false)
-        .build()
-        .map_err(|error| error.to_string())?;
-    let listed = client
-        .list_models()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(listed.iter().map(|model| model.id.clone()).collect())
+    Ok(crate::providers::discovery::copilot_models(token_dir)
+        .await?
+        .into_iter()
+        .map(|model| model.id)
+        .collect())
 }
 
 #[cfg(test)]

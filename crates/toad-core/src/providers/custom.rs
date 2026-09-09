@@ -1,7 +1,7 @@
 //! OpenAI-compatible connections use Rig's native request and streaming code.
 
 use crate::contract::CustomProviderDraft;
-use rig::client::{ApiKey, ClientBuilder, ModelListingClient, ProviderBuilder};
+use rig::client::{ApiKey, ClientBuilder, ProviderBuilder};
 use rig::http_client::{self, HttpClientExt};
 use rig::providers::openai;
 use std::time::Duration;
@@ -36,17 +36,12 @@ pub(crate) fn validate(mut draft: CustomProviderDraft) -> Result<CustomProviderD
 }
 
 fn model_ids(ids: Vec<String>) -> Result<Vec<String>, String> {
-    let mut ids: Vec<_> = ids
+    let ids: Vec<_> = ids
         .into_iter()
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty())
         .collect();
-    if ids.iter().any(|id| id.chars().any(char::is_control)) {
-        return Err("Model IDs cannot contain control characters.".into());
-    }
-    ids.sort();
-    ids.dedup();
-    Ok(ids)
+    super::discovery::validate_ids(&ids)
 }
 
 struct OptionalKey(Option<String>);
@@ -93,13 +88,16 @@ pub(crate) fn client(base_url: &str, key: Option<&str>) -> Result<openai::Client
 }
 
 pub(crate) async fn discover(base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {
-    let client = client(base_url, key)?;
-    let models = tokio::time::timeout(Duration::from_secs(30), client.list_models())
-        .await
-        .map_err(|_| "Model discovery timed out. You can enter model IDs manually.".to_string())?
-        .map_err(|_| {
-            "Could not discover models. Check the URL and key, or enter model IDs manually."
-                .to_string()
-        })?;
-    model_ids(models.data.into_iter().map(|model| model.id).collect())
+    let base_url = server_url(base_url)?;
+    let client = ClientBuilder::<CompatibleBuilder>::default()
+        .api_key(OptionalKey(key.map(str::to_string)))
+        .base_url(&base_url)
+        .http_client(super::discovery::DiscoveryHttp::default())
+        .build()
+        .map_err(|_| "Could not prepare model discovery.".to_string())?;
+    Ok(super::discovery::collect(&client)
+        .await?
+        .into_iter()
+        .map(|model| model.id)
+        .collect())
 }

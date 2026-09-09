@@ -2,10 +2,10 @@
 //! on Rig's native provider clients.
 
 pub(crate) mod custom;
+pub(crate) mod discovery;
 pub(crate) mod xai;
 
 use oauth2::PkceCodeChallenge;
-use rig::client::ModelListingClient;
 use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -48,22 +48,11 @@ pub(crate) fn ollama_client(base_url: &str, key: &str) -> Result<ollama::Client,
 }
 
 pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<String>, String> {
-    let client = ollama_client(base_url, key)?;
-    let models = tokio::time::timeout(Duration::from_secs(30), client.list_models())
-        .await
-        .map_err(|_| {
-            "Ollama model discovery timed out. Check that the server is running.".to_string()
-        })?
-        .map_err(|error| format!("Could not read Ollama models: {error}"))?;
-    let mut ids: Vec<String> = models
-        .data
+    Ok(discovery::ollama_models(base_url, key)
+        .await?
         .into_iter()
         .map(|model| model.id)
-        .filter(|id| !id.trim().is_empty())
-        .collect();
-    ids.sort();
-    ids.dedup();
-    Ok(ids)
+        .collect())
 }
 
 #[derive(Deserialize, Serialize)]

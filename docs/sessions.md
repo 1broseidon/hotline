@@ -259,7 +259,7 @@ rewritten as `\u003c` — the same character to anything parsing JSON, and
 no character at all to anything scanning for a tag — so nothing quoted can
 close the fence early, whichever fence it is in.
 
-The models a credential unlocks come from the model catalogue
+The bundled fallback and metadata for models come from the model catalogue
 (`crates/toad-core/models.json`, a filtered snapshot of models.dev — see
 [development.md](development.md#the-model-catalogue)) for the providers
 `models.rs` wires: Anthropic, OpenAI, OpenRouter, Google, xAI, Groq,
@@ -327,8 +327,9 @@ have no inferred context limits or effort controls; compatibility depends on
 the server and model. As with other unverified providers, images returned by
 tools go to the tape with a text placeholder sent to the model.
 
-GitHub Copilot's picker is that catalogue cut to the models the signed-in
-account can run. The list is fetched at sign-in (`GET {api}/models`,
+GitHub Copilot's picker uses the models its signed-in account lists,
+including IDs absent from the bundled catalogue. Metadata is added when an
+exact match exists. The list is fetched at sign-in (`GET {api}/models`,
 through Rig) and stored as `models.json` beside the login. A fetch that
 fails leaves the login in place and no list, with a notice that Refresh
 on the provider's own page under Settings → Providers retries. Refresh re-reads the list, which is
@@ -337,9 +338,36 @@ on the account, lands in the picker. Toad does not POST
 `/models/{id}/policy {state: "enabled"}` after login the way pi does, so
 a model the account lists as policy-disabled is simply not offered.
 
-A turn runs on the teammate's own model when the desk
-still lists it, else the room's `defaultModelId`, else `lastModelId`,
-else the newest model the keys unlock. An ACP teammate's `modelId` is
+Provider model discovery is also available through **Refresh** for OpenAI
+API, Anthropic API, OpenRouter, Gemini, Groq, DeepSeek, and Mistral. It uses
+the configured provider's Rig client. Supported connections also refresh
+when added in Settings; failure leaves the saved connection available for a
+later retry. A discovered ID does not need to wait
+for the next models.dev snapshot or Toad release. Listed models can still
+have account or capability restrictions; the provider decides whether a
+request is allowed. A failed refresh preserves the last successful list.
+
+Use **Manual model IDs** on a connected provider's page to add an exact ID
+when discovery is unavailable or incomplete. Add and Remove save immediately;
+these entries survive refreshes and app upgrades. The model uses that
+connection's existing credentials and endpoint. Copilot manual IDs must also
+appear in the account list; use Refresh first. Custom connections edit their
+model IDs in Edit connection. No advanced metadata form is required.
+
+Toad matches IDs against its bundled models.dev snapshot for effort options,
+limits, capabilities, and pricing. Provider-reported names and limits take
+precedence where available. Missing metadata stays unspecified, with a notice
+when the model has no catalogue match. Unknown Anthropic models receive a
+conservative 4,096-token request ceiling because that API requires one; this
+is a request default, not a claim about the model's maximum output. Toad does not infer tool support from the fact
+that a model appears in a provider list. Refresh and manual additions do not
+switch a teammate's selected model or replace its saved model filter.
+
+A turn keeps the teammate's explicit model, otherwise the room's
+`defaultModelId`, otherwise `lastModelId`. A saved choice survives a refresh
+or filter that no longer lists it; an unavailable model reports an error
+rather than silently routing to another model. Only a teammate without a
+preference takes the first available model. An ACP teammate's `modelId` is
 instead what its last session reported, written when a session starts or
 its model changes, so the band names a model before the child is up; one
 that has never run shows its harness's name where the model will be. A turn never

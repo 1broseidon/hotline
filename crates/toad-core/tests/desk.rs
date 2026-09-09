@@ -1347,3 +1347,304 @@ fn custom_stream_events(api: &str, has_tool_result: bool) -> Vec<Value> {
         events
     }
 }
+
+#[tokio::test]
+async fn discovery_and_manual_ids_preserve_filters_selections_and_offline_data_over_the_wire() {
+    use axum::{Router, routing::get};
+    use std::sync::Mutex;
+    use toad_core::wire::RoomHandle;
+    let ids = Arc::new(Mutex::new(vec!["original-coder".to_string()]));
+    let served = ids.clone();
+    let app = Router::new().route("/api/tags", get(move || {
+        let served = served.clone();
+        async move { json!({"models":served.lock().unwrap().iter().map(|id| json!({"name":id,"model":id})).collect::<Vec<_>>()}).to_string() }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (root, port) = open("manual-discovery").await;
+    let mut wire = Client::connect(port).await;
+    let credential = wire
+        .call("credential.connect_local", json!({"baseUrl":url}))
+        .await;
+    assert_eq!(credential["ok"], true, "{credential}");
+    let original_credential = credential["result"].clone();
+    let added = wire
+        .call(
+            "models.manual_set",
+            json!({"providerId":"ollama", "modelIds":["manual-coder"]}),
+        )
+        .await;
+    assert_eq!(added["ok"], true, "{added}");
+    let manual = added["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "manual-coder")
+        .unwrap();
+    assert_eq!(manual["manual"], true);
+    assert_eq!(manual["metadataKnown"], false);
+    assert!(manual.get("outputLimit").is_none());
+    let settings = json!({"defaultModelId":"ollama/manual-coder", "lastModelId":"ollama/original-coder", "enabledModels":{"ollama":["original-coder", "manual-coder", "previously-hidden"]}});
+    assert_eq!(
+        wire.call("settings.update", json!({"patch":settings}))
+            .await["ok"],
+        true
+    );
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let selected = wire.call("persona.create", json!({"draft":{"name":"Selected", "goal":"Keep my selected model.", "cwd":workspace, "modelId":"ollama/original-coder"}})).await;
+    let default = wire
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Default", "goal":"Keep the room model.", "cwd":workspace}}),
+        )
+        .await;
+    *ids.lock().unwrap() = vec!["new-coder".into()];
+    let refreshed = wire
+        .call("credential.refresh_models", json!({"providerId":"ollama"}))
+        .await;
+    assert_eq!(refreshed["ok"], true, "{refreshed}");
+    let models = refreshed["result"].as_array().unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| model["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["manual-coder", "new-coder"]
+    );
+    assert_eq!(models[1]["enabled"], false);
+    assert_eq!(
+        wire.call("credential.list", json!({})).await["result"][0],
+        original_credential
+    );
+    let removed = wire
+        .call(
+            "models.manual_set",
+            json!({"providerId":"ollama", "modelIds":[]}),
+        )
+        .await;
+    assert_eq!(removed["ok"], true);
+    assert_eq!(removed["result"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        wire.call("models.list", json!({})).await["result"],
+        json!([])
+    );
+    for (persona, model) in [
+        (&selected, "ollama/original-coder"),
+        (&default, "ollama/manual-coder"),
+    ] {
+        let started = wire
+            .call(
+                "session.start",
+                json!({"personaId":persona["result"]["id"]}),
+            )
+            .await;
+        assert_eq!(started["ok"], true, "{started}");
+        assert_eq!(started["result"]["currentModelId"], model, "{started}");
+        wire.call("session.stop", json!({"personaId":persona["result"]["id"]}))
+            .await;
+    }
+    // Manual additions persist independently from discovery and its failure.
+    let saved = wire
+        .call(
+            "models.manual_set",
+            json!({"providerId":"ollama", "modelIds":["manual-coder"]}),
+        )
+        .await;
+    server.abort();
+    let _ = server.await;
+    let failed = wire
+        .call("credential.refresh_models", json!({"providerId":"ollama"}))
+        .await;
+    assert_eq!(failed["ok"], false);
+    assert_eq!(
+        wire.call("models.catalog", json!({"providerId":"ollama"}))
+            .await["result"],
+        saved["result"]
+    );
+    let reopened = Desk::open(&root).unwrap();
+    assert_eq!(
+        serde_json::to_value(reopened.models_catalog("ollama").unwrap()).unwrap(),
+        saved["result"]
+    );
+    let persisted = toad_core::room::settings(&reopened.log);
+    assert_eq!(persisted["defaultModelId"], settings["defaultModelId"]);
+    assert_eq!(persisted["enabledModels"], settings["enabledModels"]);
+    let dir = root
+        .join("vault/logins")
+        .join(original_credential["id"].as_str().unwrap());
+    assert!(
+        dir.join("models.json").exists(),
+        "the original legacy data is retained"
+    );
+    assert!(dir.join("discovery.json").exists());
+    assert!(dir.join("manual-models.json").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(dir.join("manual-models.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+}
+
+#[tokio::test]
+async fn native_connection_metadata_and_account_restrictions_survive_reopening_over_the_wire() {
+    use toad_core::{log::Log, vault::Vault, wire::RoomHandle};
+    let root = scratch("native-discovery-metadata");
+    let log = Log::open(&root);
+    let vault = Vault::open(&root, log).unwrap();
+    let anthropic = vault
+        .create("anthropic", "Anthropic key", "private-test-key")
+        .unwrap();
+    let router = vault
+        .create("openrouter", "Router key", "private-router-key")
+        .unwrap();
+    let (copilot_id, copilot_dir) = vault.begin_login("github-copilot").unwrap();
+    vault
+        .finish_login(&copilot_id, "github-copilot", "Copilot")
+        .unwrap();
+    let known = toad_core::models::catalog().providers["anthropic"]
+        .models
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    let dir = root.join("vault/logins").join(&anthropic.id);
+    std::fs::create_dir_all(&dir).unwrap();
+    let legacy = b"[\"legacy-model\"]\n";
+    std::fs::write(dir.join("models.json"), legacy).unwrap();
+    let discovery = serde_json::to_vec(&json!([
+        {"id":known,"name":"Provider label","context_limit":99000,"output_limit":1234},
+        {"id":"released-after-toad","name":"New provider model","output_limit":4096}
+    ]))
+    .unwrap();
+    std::fs::write(dir.join("discovery.json"), &discovery).unwrap();
+    let router_dir = root.join("vault/logins").join(router.id);
+    std::fs::create_dir_all(&router_dir).unwrap();
+    std::fs::write(
+        router_dir.join("models.json"),
+        serde_json::to_vec(std::slice::from_ref(&known)).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        copilot_dir.join("models.json"),
+        b"[\"account-only-new-model\"]",
+    )
+    .unwrap();
+    drop(vault);
+    let mut wire = Client::connect(open_at(&root)).await;
+    let providers = wire.call("providers.list", json!({})).await;
+    for provider in providers["result"].as_array().unwrap() {
+        let supported = [
+            "anthropic",
+            "openai",
+            "openrouter",
+            "google",
+            "groq",
+            "deepseek",
+            "mistral",
+            "ollama",
+            "ollama-cloud",
+            "github-copilot",
+        ]
+        .contains(&provider["id"].as_str().unwrap());
+        assert_eq!(provider["modelDiscovery"], supported);
+    }
+    let models = wire
+        .call("models.catalog", json!({"providerId":"anthropic"}))
+        .await;
+    let exact = models["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == known)
+        .unwrap();
+    assert_eq!(exact["metadataKnown"], true);
+    assert_eq!(exact["name"], "Provider label");
+    assert_eq!(exact["contextLimit"], 99000);
+    assert_eq!(exact["outputLimit"], 1234);
+    assert!(exact["efforts"].is_array());
+    let router = wire
+        .call("models.catalog", json!({"providerId":"openrouter"}))
+        .await;
+    assert_eq!(
+        router["result"][0]["metadataKnown"], false,
+        "metadata must not join across providers"
+    );
+    let choices = wire.call("models.list", json!({})).await;
+    let choice = choices["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|choice| choice["id"] == format!("anthropic/{known}"))
+        .unwrap();
+    assert_eq!(choice["name"], "Provider label");
+    assert_eq!(choice["group"], "Anthropic");
+    let account = wire
+        .call("models.catalog", json!({"providerId":"github-copilot"}))
+        .await;
+    assert_eq!(account["result"].as_array().unwrap().len(), 1);
+    assert_eq!(account["result"][0]["id"], "account-only-new-model");
+    assert_eq!(account["result"][0]["metadataKnown"], false);
+    let rejected = wire
+        .call(
+            "models.manual_set",
+            json!({"providerId":"github-copilot", "modelIds":["outside-account"]}),
+        )
+        .await;
+    assert_eq!(rejected["ok"], false);
+    let allowed = wire
+        .call(
+            "models.manual_set",
+            json!({"providerId":"github-copilot", "modelIds":["account-only-new-model"]}),
+        )
+        .await;
+    assert_eq!(allowed["ok"], true, "{allowed}");
+    assert_eq!(allowed["result"][0]["manual"], true);
+    for (provider, id) in [
+        ("anthropic", "bad\nmodel"),
+        ("anthropic", "bad\u{202e}model"),
+        ("anthropic", "../escape"),
+        ("unwired-provider", "coder"),
+        ("openai", "coder"),
+    ] {
+        let rejected = wire
+            .call(
+                "models.manual_set",
+                json!({"providerId":provider, "modelIds":[id]}),
+            )
+            .await;
+        assert_eq!(rejected["ok"], false, "{rejected}");
+    }
+    let manual = wire
+        .call(
+            "models.manual_set",
+            json!({"providerId":"anthropic", "modelIds":["another-new-model"]}),
+        )
+        .await;
+    assert_eq!(manual["ok"], true);
+    let reopened = Desk::open(&root).unwrap();
+    assert_eq!(
+        serde_json::to_value(reopened.models_catalog("anthropic").unwrap()).unwrap(),
+        manual["result"]
+    );
+    assert_eq!(
+        std::fs::read(dir.join("discovery.json")).unwrap(),
+        discovery
+    );
+    assert_eq!(std::fs::read(dir.join("models.json")).unwrap(), legacy);
+    assert!(
+        !serde_json::to_string(&manual)
+            .unwrap()
+            .contains("private-test-key")
+    );
+}

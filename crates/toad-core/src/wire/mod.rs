@@ -231,12 +231,20 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Marks messages in a peer thread read, answering how many moved.
     fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
 
-    /// Re-reads Copilot account models or Ollama server models and answers
+    /// Discovers models through the connection's native Rig client and answers
     /// with the provider's catalogue as [`Self::models_catalog`] would.
     async fn credential_refresh_models(
         &self,
         provider_id: &str,
     ) -> Result<Vec<crate::contract::CatalogModel>, String>;
+
+    fn models_manual_set(
+        &self,
+        _provider_id: &str,
+        _model_ids: &[String],
+    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+        Err("Manual model IDs are unavailable on this room.".into())
+    }
 
     /// A teammate is gone: its agent is stopped, every peer session it was a
     /// side of is dropped, and nothing is kept for its id.

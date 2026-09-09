@@ -1003,3 +1003,347 @@ async fn cancelling_openrouter_login_closes_callback_and_discards_pending_creden
         json!([])
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_connections_keep_models_keys_and_edits_separate() {
+    use axum::{Router, http::HeaderMap, routing::get};
+    let app = Router::new()
+        .route("/local/v1/models", get(|headers: HeaderMap| async move {
+            assert!(!headers.contains_key("authorization"));
+            json!({"object":"list","data":[{"id":"vendor/coder","object":"model","created":0,"owned_by":"local"}]}).to_string()
+        }))
+        .route("/cloud/v1/models", get(|headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer custom-test-key");
+            json!({"object":"list","data":[{"id":"vendor/coder","object":"model","created":0,"owned_by":"cloud"}]}).to_string()
+        }))
+        .route("/redirect/v1/models", get(|| async {
+            axum::response::Redirect::temporary("/cloud/v1/models")
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (root, port) = open("custom-connections").await;
+    let mut client = Client::connect(port).await;
+    for url in [
+        "ftp://localhost/v1",
+        "http://user:password@localhost/v1",
+        "http://localhost/v1?api_key=secret",
+        "http://localhost/v1#fragment",
+    ] {
+        let rejected = client
+            .call("credential.custom_models", json!({"baseUrl":url}))
+            .await;
+        assert_eq!(rejected["ok"], false, "{rejected}");
+        assert!(!rejected.to_string().contains(url));
+    }
+    let redirected = client
+        .call(
+            "credential.custom_models",
+            json!({"baseUrl":format!("{base}/redirect/v1"),"secret":"custom-test-key"}),
+        )
+        .await;
+    assert_eq!(
+        redirected["ok"], false,
+        "a key must not follow an endpoint redirect: {redirected}"
+    );
+    let mut saved = Vec::new();
+    for (name, api, secret) in [
+        ("local", "responses", ""),
+        ("cloud", "chat_completions", "custom-test-key"),
+    ] {
+        let url = format!("{base}/{name}/v1");
+        let discovered = client
+            .call(
+                "credential.custom_models",
+                json!({"baseUrl":url,"secret":secret}),
+            )
+            .await;
+        assert_eq!(
+            discovered["result"],
+            json!(["vendor/coder"]),
+            "{discovered}"
+        );
+        let made = client.call("credential.custom_save", json!({"draft":{"name":name,"baseUrl":url,"api":api,"secret":secret,"models":["vendor/coder"]}})).await;
+        assert_eq!(made["ok"], true, "{made}");
+        saved.push(made["result"].clone());
+    }
+    assert_ne!(saved[0]["providerId"], saved[1]["providerId"]);
+    let choices = client.call("models.list", json!({})).await;
+    let choices = choices["result"].as_array().unwrap();
+    assert_eq!(choices.len(), 2);
+    assert_ne!(choices[0]["id"], choices[1]["id"]);
+    assert!(
+        !client
+            .call("credential.list", json!({}))
+            .await
+            .to_string()
+            .contains("custom-test-key")
+    );
+    let id = saved[1]["id"].as_str().unwrap();
+    let auth = root.join("vault/logins").join(id).join("auth.json");
+    assert!(auth.exists());
+    let wrong_url = format!("{base}/local/v1");
+    let refused = client
+        .call(
+            "credential.custom_models",
+            json!({"id":id,"baseUrl":wrong_url}),
+        )
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let refused_edit = client.call("credential.custom_save", json!({"id":id,"draft":{"name":"Changed endpoint","baseUrl":wrong_url,"api":"responses","models":["another-model"]}})).await;
+    assert_eq!(refused_edit["ok"], false, "{refused_edit}");
+    assert_eq!(
+        client.call("credential.list", json!({})).await["result"],
+        json!(saved)
+    );
+    let failed = client
+        .call(
+            "credential.custom_models",
+            json!({"baseUrl":format!("{base}/missing"),"secret":""}),
+        )
+        .await;
+    assert_eq!(failed["ok"], false);
+    let edited = client.call("credential.custom_save", json!({"id":id,"draft":{"name":"Renamed cloud","baseUrl":saved[1]["baseUrl"],"api":"responses","models":["vendor/manual"]}})).await;
+    assert_eq!(edited["result"]["id"], id, "{edited}");
+    assert_eq!(edited["result"]["providerId"], saved[1]["providerId"]);
+    let discovered = client
+        .call(
+            "credential.custom_models",
+            json!({"id":id,"baseUrl":saved[1]["baseUrl"]}),
+        )
+        .await;
+    assert_eq!(discovered["ok"], true, "{discovered}");
+    let cleared = client.call("credential.custom_save", json!({"id":id,"draft":{"name":"Keyless","baseUrl":wrong_url,"api":"responses","secret":"","models":["vendor/manual"]}})).await;
+    assert_eq!(cleared["result"]["credentialKind"], "local", "{cleared}");
+    assert!(!auth.exists());
+    let reopened = Desk::open(&root).unwrap();
+    assert_eq!(toad_core::wire::RoomHandle::models(&reopened).len(), 2);
+    drop(reopened);
+    client.call("credential.delete", json!({"id":id})).await;
+    assert_eq!(
+        client.call("models.list", json!({})).await["result"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let stale = client
+        .call(
+            "credential.custom_models",
+            json!({"id":id,"baseUrl":wrong_url}),
+        )
+        .await;
+    assert_eq!(stale["ok"], false);
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_connections_roundtrip_tools_through_both_native_rig_apis() {
+    use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
+    for (api, secret) in [
+        ("responses", ""),
+        ("responses", "custom-inference-key"),
+        ("chat_completions", ""),
+        ("chat_completions", "custom-inference-key"),
+    ] {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let path = if api == "responses" {
+            "/prefix/v1/responses"
+        } else {
+            "/prefix/v1/chat/completions"
+        };
+        let app = Router::new().route(
+            path,
+            post(move |headers: HeaderMap, bytes: Bytes| {
+                let tx = tx.clone();
+                async move {
+                    if secret.is_empty() {
+                        assert!(!headers.contains_key("authorization"));
+                    } else {
+                        assert_eq!(headers["authorization"], format!("Bearer {secret}"));
+                    }
+                    let request = serde_json::from_slice::<Value>(&bytes).unwrap();
+                    let has_tool_result = request.to_string().contains("harbour is open");
+                    tx.send(request).await.unwrap();
+                    let events = custom_stream_events(api, has_tool_result);
+                    let body = events
+                        .into_iter()
+                        .map(|event| format!("data: {event}\n\n"))
+                        .collect::<String>();
+                    (
+                        [("Content-Type", "text/event-stream")],
+                        format!("{body}data: [DONE]\n\n"),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/prefix/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let (root, port) = open(&format!("custom-stream-{api}-{}", !secret.is_empty())).await;
+        let mut client = Client::connect(port).await;
+        let made = client.call("credential.custom_save", json!({"draft":{"name":api,"baseUrl":url,"api":api,"secret":secret,"models":["vendor/coder"]}})).await;
+        assert_eq!(made["ok"], true, "{made}");
+        let workspace = root.join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::write(workspace.join("note.txt"), "The harbour is open.\n").unwrap();
+        let made = client.call("persona.create", json!({"draft":{"name":"Custom tester","goal":"Answer plainly.","cwd":workspace.to_string_lossy()}})).await;
+        let persona = made["result"]["id"].as_str().unwrap();
+        let tape = client.subscribe(json!({"tape":persona})).await;
+        assert_eq!(
+            client
+                .call("session.start", json!({"personaId":persona}))
+                .await["ok"],
+            true
+        );
+        assert_eq!(
+            client
+                .call(
+                    "session.prompt",
+                    json!({"personaId":persona,"text":"Read note.txt and report its contents."})
+                )
+                .await["ok"],
+            true
+        );
+        let request = tokio::time::timeout(Duration::from_secs(15), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request["model"], "vendor/coder");
+        assert_eq!(request["stream"], true);
+        assert!(
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| { tool["name"] == "read" || tool["function"]["name"] == "read" })
+        );
+        let resumed = tokio::time::timeout(Duration::from_secs(15), rx.recv())
+            .await
+            .expect("the executed tool must resume the model")
+            .unwrap();
+        assert_eq!(resumed["model"], "vendor/coder");
+        assert_eq!(resumed["stream"], true);
+        if api == "responses" {
+            let input = resumed["input"].as_array().unwrap();
+            let call = input
+                .iter()
+                .find(|item| item["type"] == "function_call")
+                .unwrap();
+            assert_eq!(call["call_id"], "call_read");
+            assert_eq!(call["name"], "read");
+            assert_eq!(
+                serde_json::from_str::<Value>(call["arguments"].as_str().unwrap()).unwrap(),
+                json!({"path":"note.txt"})
+            );
+            let result = input
+                .iter()
+                .find(|item| item["type"] == "function_call_output")
+                .unwrap();
+            assert_eq!(result["call_id"], "call_read");
+            assert!(
+                result["output"]
+                    .to_string()
+                    .contains("The harbour is open.")
+            );
+        } else {
+            let messages = resumed["messages"].as_array().unwrap();
+            let call = &messages
+                .iter()
+                .find(|item| item["tool_calls"].is_array())
+                .unwrap()["tool_calls"][0];
+            assert_eq!(call["id"], "call_read");
+            assert_eq!(call["function"]["name"], "read");
+            assert_eq!(
+                serde_json::from_str::<Value>(call["function"]["arguments"].as_str().unwrap())
+                    .unwrap(),
+                json!({"path":"note.txt"})
+            );
+            let result = messages.iter().find(|item| item["role"] == "tool").unwrap();
+            assert_eq!(result["tool_call_id"], "call_read");
+            assert!(
+                result["content"]
+                    .to_string()
+                    .contains("The harbour is open.")
+            );
+        }
+        let completed = client
+            .next_where(Duration::from_secs(15), |frame| {
+                is_sub(frame, tape, "event")
+                    && frame["event"]["kind"] == "tool"
+                    && frame["event"]["status"] == "completed"
+            })
+            .await;
+        assert_eq!(completed["event"]["toolKind"], "read");
+        assert!(
+            completed["event"]["output"]
+                .to_string()
+                .contains("The harbour is open.")
+        );
+        let answer = client
+            .next_where(Duration::from_secs(15), |frame| {
+                is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
+            })
+            .await;
+        assert!(
+            answer["event"]["text"]
+                .as_str()
+                .unwrap()
+                .contains("The harbour is open."),
+            "{api}: {answer}"
+        );
+        let turn = client
+            .next_where(Duration::from_secs(15), |frame| {
+                is_sub(frame, tape, "event") && frame["event"]["kind"] == "turn"
+            })
+            .await;
+        assert_eq!(turn["event"]["stopReason"], "end_turn");
+        client
+            .call("session.stop", json!({"personaId":persona}))
+            .await;
+        server.abort();
+    }
+}
+
+/// The provider emits one fragmented read call, then answers only once its
+/// next request contains the file contents from Toad's actual workspace tool.
+fn custom_stream_events(api: &str, has_tool_result: bool) -> Vec<Value> {
+    if api == "responses" {
+        let output = if has_tool_result {
+            json!({"type":"message","id":"msg_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":"The harbour is open.","annotations":[]}]})
+        } else {
+            json!({"type":"function_call","id":"fc_read","call_id":"call_read","name":"read","arguments":"{\"path\":\"note.txt\"}","status":"completed"})
+        };
+        let mut events = if has_tool_result {
+            vec![
+                json!({"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"sequence_number":1,"delta":"The harbour is open."}),
+            ]
+        } else {
+            vec![
+                json!({"type":"response.output_item.added","output_index":0,"sequence_number":1,"item":{"type":"function_call","id":"fc_read","call_id":"call_read","name":"read","arguments":"","status":"in_progress"}}),
+                json!({"type":"response.function_call_arguments.delta","item_id":"fc_read","output_index":0,"sequence_number":2,"delta":"{\"path\":"}),
+                json!({"type":"response.function_call_arguments.delta","item_id":"fc_read","output_index":0,"sequence_number":3,"delta":"\"note.txt\"}"}),
+                json!({"type":"response.output_item.done","output_index":0,"sequence_number":4,"item":output}),
+            ]
+        };
+        events.push(json!({"type":"response.completed","sequence_number":5,"response":{"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"vendor/coder","output":[output],"usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}}));
+        events
+    } else {
+        let mut events = if has_tool_result {
+            vec![
+                json!({"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","content":"The harbour is open."},"finish_reason":null}]}),
+            ]
+        } else {
+            vec![
+                json!({"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_read","type":"function","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":null}]}),
+                json!({"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"note.txt\"}"}}]},"finish_reason":null}]}),
+            ]
+        };
+        events.push(json!({"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":if has_tool_result { "stop" } else { "tool_calls" }}]}));
+        events
+    }
+}

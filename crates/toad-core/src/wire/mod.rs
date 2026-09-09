@@ -164,6 +164,21 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::Credential, String> {
         Err("Local providers are unavailable.".into())
     }
+    fn credential_custom_save(
+        &self,
+        _id: Option<&str>,
+        _draft: crate::contract::CustomProviderDraft,
+    ) -> Result<crate::contract::Credential, String> {
+        Err("Custom connections are unavailable.".into())
+    }
+    async fn credential_custom_models(
+        &self,
+        _id: Option<&str>,
+        _base_url: &str,
+        _secret: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        Err("Custom model discovery is unavailable.".into())
+    }
     /// How far a login started by [`Self::credential_login`] has got.
     fn login_status(&self, login_id: &str) -> Result<crate::contract::LoginStatus, String>;
     /// What the room knows of every credential, the secrets left in the vault.

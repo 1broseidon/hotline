@@ -830,6 +830,7 @@ async fn flush(sender: &mpsc::Sender<Update>, open: &mut Option<OpenMessage>) {
 /// body Copilot shares with OpenAI and ChatGPT.
 fn effort_params(client: Client, effort: &str) -> Option<serde_json::Value> {
     match client {
+        Client::CustomOpenAi => None,
         Client::Anthropic => Some(serde_json::json!({
             "thinking": {"type": "adaptive"},
             "output_config": {"effort": effort}
@@ -889,6 +890,26 @@ fn agent_builder(
     let wiring = models::wiring(provider)
         .ok_or_else(|| format!("{provider} is not a provider Toad Agent can use"))?;
     let builder = match (wiring.client, held) {
+        (
+            Client::CustomOpenAi,
+            ProviderAuth::Custom {
+                base_url,
+                api_key,
+                config,
+                ..
+            },
+        ) => {
+            let client = crate::providers::custom::client(base_url, api_key.as_deref())?;
+            match config.api {
+                crate::contract::OpenAiApi::Responses => client.agent(model),
+                crate::contract::OpenAiApi::ChatCompletions => {
+                    client.completions_api().agent(model)
+                }
+            }
+        }
+        (Client::CustomOpenAi, _) | (_, ProviderAuth::Custom { .. }) => {
+            return Err("This model needs its saved custom connection.".into());
+        }
         (Client::ChatGpt, ProviderAuth::Login { token_dir }) => chatgpt::Client::builder()
             .oauth()
             .auth_file(token_dir.join("auth.json"))

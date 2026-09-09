@@ -215,6 +215,13 @@ teammates from spending the same rotated refresh token. Rig's xAI client
 still owns inference, with a bearer-refresh HTTP client that retries a 401
 once and never falls back to an API key. Z.ai Standard and Coding Plan are
 separate API-key connections using Rig's native Z.ai endpoints.
+Custom OpenAI-compatible connections have stable, separate provider ids, a
+name, base URL, optional key, API choice, and an editable model list. Rig's
+native OpenAI Responses and Chat Completions clients own inference and model
+discovery. A small Rig provider builder makes bearer authentication optional;
+no custom inference transport is added. Keys are privately bound to the exact
+endpoint, so editing a URL requires explicitly supplying or removing its key.
+Discovery fills the form without changing a saved connection until Save.
 Claude subscription access stays with Claude Code through ACP.
 
 ## Module map

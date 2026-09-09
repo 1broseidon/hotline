@@ -73,6 +73,17 @@ pub(crate) async fn run(
             .credential_connect_local(&base_url)
             .await
             .map(|credential| json!(credential)),
+        Command::CredentialCustomSave { id, draft } => room
+            .credential_custom_save(id.as_deref(), draft)
+            .map(|credential| json!(credential)),
+        Command::CredentialCustomModels {
+            id,
+            base_url,
+            secret,
+        } => room
+            .credential_custom_models(id.as_deref(), &base_url, secret.as_deref())
+            .await
+            .map(|models| json!(models)),
         Command::CredentialLoginStatus { login_id } => {
             room.login_status(&login_id).map(|status| json!(status))
         }

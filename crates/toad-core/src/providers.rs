@@ -1,6 +1,7 @@
 //! Connection work Rig does not own. Model requests and model discovery stay
 //! on Rig's native provider clients.
 
+pub(crate) mod custom;
 pub(crate) mod xai;
 
 use oauth2::PkceCodeChallenge;

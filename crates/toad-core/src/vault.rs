@@ -86,6 +86,99 @@ pub struct Vault {
 }
 
 impl Vault {
+    /// A saved key belongs to an exact endpoint. Changing the URL requires
+    /// explicitly supplying a new key or choosing a keyless connection.
+    pub(crate) fn custom_key(
+        &self,
+        id: Option<&str>,
+        base_url: &str,
+        secret: Option<&str>,
+    ) -> io::Result<Option<String>> {
+        let previous = id.map(|id| self.custom_credential(id)).transpose()?;
+        if let Some(secret) = secret {
+            let secret = secret.trim();
+            if secret.is_empty() {
+                return Ok(None);
+            }
+            if secret.chars().any(char::is_control) {
+                return Err(io::Error::other(
+                    "The API key cannot contain control characters.",
+                ));
+            }
+            return Ok(Some(secret.into()));
+        }
+        let Some(previous) = previous.filter(|c| c.credential_kind == CredentialKind::ApiKey)
+        else {
+            return Ok(None);
+        };
+        if previous.base_url.as_deref() != Some(base_url) {
+            return Err(io::Error::other(
+                "Enter the API key again when changing the server URL, or turn off API key authentication.",
+            ));
+        }
+        read_custom_key(&self.login_dir(&previous.id), base_url).map(Some)
+    }
+
+    fn custom_credential(&self, id: &str) -> io::Result<Credential> {
+        let credential = self.find(id)?;
+        if credential.custom.is_none() || credential.revoked {
+            return Err(io::Error::other("This is not an active custom connection."));
+        }
+        Ok(credential)
+    }
+
+    pub(crate) fn save_custom(
+        &self,
+        id: Option<&str>,
+        draft: crate::contract::CustomProviderDraft,
+    ) -> io::Result<Credential> {
+        let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let previous = id.map(|id| self.custom_credential(id)).transpose()?;
+        let key = self.custom_key(id, &draft.base_url, draft.secret.as_deref())?;
+        let id = previous
+            .as_ref()
+            .map(|c| c.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        self.check_layout()?;
+        let dir = self.login_dir(&id);
+        make_private_directory(&dir)?;
+        if let Some(key) = &key {
+            let bytes = serde_json::to_vec(&CustomKey {
+                base_url: draft.base_url.clone(),
+                key: key.clone(),
+            })
+            .map_err(io::Error::other)?;
+            write_login_tokens(&dir, &bytes)?;
+        } else {
+            match fs::remove_file(dir.join("auth.json")) {
+                Ok(()) => sync_directory(&dir)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let now = now_ms();
+        let credential = Credential {
+            provider_id: format!("custom-{id}"),
+            id,
+            credential_kind: if key.is_some() {
+                CredentialKind::ApiKey
+            } else {
+                CredentialKind::Local
+            },
+            base_url: Some(draft.base_url),
+            custom: Some(crate::contract::CustomProvider {
+                api: draft.api,
+                models: draft.models,
+            }),
+            label: draft.name,
+            revoked: false,
+            created_at: previous.map_or(now, |c| c.created_at),
+            updated_at: now,
+        };
+        self.log.append(&StreamId::Room, &event(&credential))?;
+        Ok(credential)
+    }
+
     /// Opens the vault over a data root, refusing one whose directory or file
     /// is not the plain directory and plain file it must be.
     ///
@@ -118,6 +211,7 @@ impl Vault {
             provider_id: provider_id.to_string(),
             credential_kind: CredentialKind::ApiKey,
             base_url: None,
+            custom: None,
             label: label.to_string(),
             revoked: false,
             created_at: now,
@@ -202,6 +296,7 @@ impl Vault {
             provider_id: provider_id.to_string(),
             credential_kind: CredentialKind::Oauth,
             base_url: None,
+            custom: None,
             label: label.to_string(),
             revoked: false,
             created_at: now,
@@ -259,25 +354,46 @@ impl Vault {
             if credential.revoked {
                 continue;
             }
-            let auth = match credential.credential_kind {
-                CredentialKind::ApiKey => {
-                    let Some(secret) = secrets.get(&credential.id) else {
+            let auth = if let Some(config) = &credential.custom {
+                let Some(base_url) = credential.base_url.clone() else {
+                    continue;
+                };
+                let key = if credential.credential_kind == CredentialKind::ApiKey {
+                    let Ok(key) = read_custom_key(&self.login_dir(&credential.id), &base_url)
+                    else {
                         continue;
                     };
-                    ProviderAuth::ApiKey(secret.clone())
+                    Some(key)
+                } else {
+                    None
+                };
+                ProviderAuth::Custom {
+                    name: credential.label.clone(),
+                    base_url,
+                    api_key: key,
+                    config: config.clone(),
                 }
-                CredentialKind::Oauth => {
-                    let dir = self.login_dir(&credential.id);
-                    if !dir.is_dir() {
-                        continue;
+            } else {
+                match credential.credential_kind {
+                    CredentialKind::ApiKey => {
+                        let Some(secret) = secrets.get(&credential.id) else {
+                            continue;
+                        };
+                        ProviderAuth::ApiKey(secret.clone())
                     }
-                    ProviderAuth::Login { token_dir: dir }
-                }
-                CredentialKind::Local => {
-                    let Some(base_url) = credential.base_url.clone() else {
-                        continue;
-                    };
-                    ProviderAuth::Local { base_url }
+                    CredentialKind::Oauth => {
+                        let dir = self.login_dir(&credential.id);
+                        if !dir.is_dir() {
+                            continue;
+                        }
+                        ProviderAuth::Login { token_dir: dir }
+                    }
+                    CredentialKind::Local => {
+                        let Some(base_url) = credential.base_url.clone() else {
+                            continue;
+                        };
+                        ProviderAuth::Local { base_url }
+                    }
                 }
             };
             connections
@@ -293,6 +409,9 @@ impl Vault {
         self.connections()
             .into_iter()
             .filter_map(|(provider_id, (credential, _))| {
+                if let Some(custom) = credential.custom {
+                    return Some((provider_id, custom.models));
+                }
                 let text =
                     fs::read_to_string(self.login_dir(&credential.id).join("models.json")).ok()?;
                 let ids: Vec<String> = serde_json::from_str(&text).ok()?;
@@ -322,6 +441,7 @@ impl Vault {
             provider_id: "ollama".into(),
             credential_kind: CredentialKind::Local,
             base_url: Some(base_url.into()),
+            custom: None,
             label: "Ollama Local".into(),
             revoked: false,
             created_at: now,
@@ -746,6 +866,23 @@ fn event(credential: &Credential) -> Value {
     )
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CustomKey {
+    base_url: String,
+    key: String,
+}
+
+fn read_custom_key(dir: &Path, base_url: &str) -> io::Result<String> {
+    let key: CustomKey = serde_json::from_slice(&fs::read(dir.join("auth.json"))?)
+        .map_err(|_| io::Error::other("The custom connection's key is unreadable."))?;
+    if key.base_url != base_url || key.key.is_empty() {
+        return Err(io::Error::other(
+            "The saved key does not belong to this endpoint. Enter it again.",
+        ));
+    }
+    Ok(key.key)
+}
+
 /// Bytes onto a temporary, fsync, rename, fsync the directory. A failure
 /// removes the temporary so a later write is not stepping over a half-written
 /// file this process still names.
@@ -1158,6 +1295,7 @@ mod tests {
             provider_id: "anthropic".to_string(),
             credential_kind: CredentialKind::ApiKey,
             base_url: None,
+            custom: None,
             label: "torn".to_string(),
             revoked: false,
             created_at: 1,

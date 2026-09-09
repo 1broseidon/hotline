@@ -245,6 +245,23 @@ discovers its models, and then records a `local` credential with that
 `baseUrl`. It writes no secret. The chosen server may have a reverse-proxy
 path, but the URL cannot contain credentials, a query or a fragment.
 
+`credential.custom_save {id?, draft: {name, baseUrl, api, models, secret?}}`
+creates a custom connection or edits the given active custom credential.
+`api` is `responses` or `chat_completions`; `models` holds raw model IDs.
+Omitting `secret` preserves the existing key; an empty string removes it.
+A saved key cannot be reused at a changed URL without explicitly re-entering
+it. The result is credential metadata with `custom: {api, models}` and a stable
+`providerId` of `custom-<credential-id>`. Its kind is `api_key` or `local`.
+The generic `openai-compatible` provider row uses these commands, not
+`credential.create`.
+
+`credential.custom_models {id?, baseUrl, secret?}` discovers model IDs through
+Rig's OpenAI client, using the same key semantics. It returns a sorted list
+without saving anything. Errors leave manual models usable. Custom model
+catalogues and enabled-model filters are keyed by the unique provider id.
+Custom keys live privately beside their credential, bound to the normalized
+base URL, and are never returned in credential metadata.
+
 `credential.login` starts sign-in for a provider offering `oauth`, and
 answers with a login id and browser URL. ChatGPT, Copilot and xAI also provide
 a `userCode`; OpenRouter leaves it empty and uses a loopback PKCE callback.

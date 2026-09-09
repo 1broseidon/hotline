@@ -108,13 +108,23 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 /// shorter deadline; the tool uses this.
 pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
-/// How Toad Agent reaches a provider: a pasted key, or a login directory
-/// Rig already knows how to read.
+/// How Toad Agent reaches a provider: a key, a login directory, or a
+/// configured endpoint with its own protocol and optional key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderAuth {
     ApiKey(String),
-    Login { token_dir: PathBuf },
-    Local { base_url: String },
+    Login {
+        token_dir: PathBuf,
+    },
+    Local {
+        base_url: String,
+    },
+    Custom {
+        name: String,
+        base_url: String,
+        api_key: Option<String>,
+        config: crate::contract::CustomProvider,
+    },
 }
 
 /// Where the provider credentials come from.

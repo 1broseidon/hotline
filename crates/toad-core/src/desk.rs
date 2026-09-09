@@ -256,6 +256,9 @@ impl RoomHandle for Desk {
     ) -> Result<Credential, String> {
         let wiring = crate::models::wiring(provider_id)
             .ok_or_else(|| format!("Unknown provider {provider_id}."))?;
+        if wiring.client == Client::CustomOpenAi {
+            return Err("Use the custom connection form to choose its URL and API.".into());
+        }
         if !wiring.credential_kinds.contains(&CredentialKind::ApiKey) {
             return Err(format!("{provider_id} does not accept an API key."));
         }
@@ -394,6 +397,31 @@ impl RoomHandle for Desk {
         self.vault
             .connect_local(&base_url, &ids)
             .map_err(|error| error.to_string())
+    }
+
+    fn credential_custom_save(
+        &self,
+        id: Option<&str>,
+        draft: crate::contract::CustomProviderDraft,
+    ) -> Result<Credential, String> {
+        let draft = crate::providers::custom::validate(draft)?;
+        self.vault
+            .save_custom(id, draft)
+            .map_err(|error| error.to_string())
+    }
+
+    async fn credential_custom_models(
+        &self,
+        id: Option<&str>,
+        base_url: &str,
+        secret: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let base_url = crate::providers::custom::server_url(base_url)?;
+        let key = self
+            .vault
+            .custom_key(id, &base_url, secret)
+            .map_err(|error| error.to_string())?;
+        crate::providers::custom::discover(&base_url, key.as_deref()).await
     }
 
     fn login_status(&self, login_id: &str) -> Result<LoginStatus, String> {

@@ -13,6 +13,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
+import { CustomProviderForm } from "./CustomProviderForm";
 
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
@@ -580,7 +581,7 @@ function ProvidersSection({
 		const previous = replacing.current;
 		replacing.current = null;
 		try {
-			if (previous !== null) await wire.command("credential.delete", { id: previous });
+			if (previous !== null && previous !== made.id) await wire.command("credential.delete", { id: previous });
 			setHeld((known) => [...(known ?? []).filter((one) => one.id !== previous && one.id !== made.id), made]);
 			setAdding(null);
 			if (made.providerId === "ollama-cloud") {
@@ -630,7 +631,8 @@ function ProvidersSection({
 				onBack={() => setOpen(null)}
 				onSignIn={() => {
 					setOpen(null);
-					if (opened.provider) begin(opened.provider, opened.credential.id);
+					const provider = opened.credential.custom ? providers.find((one) => one.id === "openai-compatible") : opened.provider;
+					if (provider) begin(provider, opened.credential.custom && opened.credential.revoked ? null : opened.credential.id);
 				}}
 				onRemoved={() => {
 					setHeld((known) => (known ?? []).filter((one) => one.id !== opened.credential.id));
@@ -679,7 +681,10 @@ function ProvidersSection({
 							</div>
 						</section>
 					)}
-					{adding !== null && method === null && (
+					{adding?.id === "openai-compatible" && (
+						<CustomProviderForm key={replacing.current ?? "new"} credential={held?.find((one) => one.id === replacing.current)} onSaved={(made) => void accept(made)} onCancel={() => setAdding(null)} />
+					)}
+					{adding !== null && adding.id !== "openai-compatible" && method === null && (
 						<section>
 							<h3 className="group-title">Connect {adding.name}</h3>
 							<div className="grouped">
@@ -770,7 +775,7 @@ function ProvidersSection({
 											<span className="group-row-detail">
 												{one.credential.revoked
 													? "Disconnected"
-													: `${one.credential.credentialKind === "oauth" ? "Signed in" : one.credential.credentialKind === "local" ? one.credential.baseUrl : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
+												: `${one.credential.custom ? (one.credential.custom.api === "responses" ? "Responses" : "Chat Completions") : one.credential.credentialKind === "oauth" ? "Signed in" : one.credential.credentialKind === "local" ? one.credential.baseUrl : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
 											</span>
 										</span>
 										<ChevronRightIcon className="shrink-0 text-ink-3" />
@@ -915,6 +920,7 @@ function ProviderPage({
 	const providerId = credential.providerId;
 	const oauth = credential.credentialKind === "oauth";
 	const local = credential.credentialKind === "local";
+	const custom = credential.custom;
 	const discover = providerId === "github-copilot" || providerId === "ollama" || providerId === "ollama-cloud";
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [catalog, setCatalog] = useState<CatalogModel[] | null>(null);
@@ -994,6 +1000,13 @@ function ProviderPage({
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
+					{custom && <section>
+						<h3 className="group-title">Connection</h3>
+						<div className="grouped"><div className="group-row"><span className="group-row-text">
+							<span className="group-row-title">{custom.api === "responses" ? "Responses" : "Chat Completions"}</span>
+							<span className="group-row-detail break-all">{credential.baseUrl}</span>
+						</span></div></div>
+					</section>}
 					{credential.revoked ? (
 						<section>
 							<div className="grouped">
@@ -1004,9 +1017,9 @@ function ProviderPage({
 											{oauth ? "The login no longer works." : local ? "Connect the server again to use its models." : "The key no longer works."}
 										</span>
 									</span>
-									{oauth && (
+									{(oauth || custom) && (
 										<button type="button" className="control btn-primary" disabled={busy} onClick={onSignIn}>
-											Sign in again
+											{custom ? "Add connection again" : "Sign in again"}
 										</button>
 									)}
 								</div>
@@ -1089,12 +1102,12 @@ function ProviderPage({
 						<div className="grouped">
 							<div className="group-row">
 								<span className="group-row-text">
-									<span className="group-row-title">{oauth ? "Sign out" : local ? "Disconnect server" : "Remove key"}</span>
+									<span className="group-row-title">{custom ? "Remove connection" : oauth ? "Sign out" : local ? "Disconnect server" : "Remove key"}</span>
 									<span className="group-row-detail">
 										{oauth ? "Forgets the login on this machine." : local ? credential.baseUrl : "Forgets the key on this machine."}
 									</span>
 								</span>
-								<button type="button" className="control btn-quiet" disabled={busy} onClick={onSignIn}>Change connection</button>
+								<button type="button" className="control btn-quiet" disabled={busy} onClick={onSignIn}>{custom ? "Edit connection" : "Change connection"}</button>
 								<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove()}>
 									{oauth ? "Sign out" : "Remove"}
 								</button>

@@ -285,6 +285,14 @@ referrer. OAuth response bodies never enter user-facing errors. Model requests
 still go through Rig. `credentialKinds` lists all connection methods a
 provider offers, while each saved credential retains its own singular kind.
 
+The `openai-compatible` catalogue row is also empty. Each custom connection
+supplies its own model IDs, optionally discovered with Rig's model-listing
+client, and gets a stable `custom-<uuid>` provider id. `providers/custom.rs`
+uses a Rig provider builder solely to allow keyless servers; both inference
+protocols retain Rig's native request, tool-call and streaming implementation.
+Custom API keys are endpoint-bound records in the private credential's
+`auth.json`, while the API choice and model IDs are ordinary metadata.
+
 ## The harness
 
 The house proof is a headless harness that starts the real core and drives

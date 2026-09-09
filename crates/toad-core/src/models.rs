@@ -19,6 +19,7 @@
 //! Ollama Cloud discovery takes precedence over its bundled list.
 
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, Provider};
+use crate::session::ProviderAuth;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -44,6 +45,7 @@ pub enum Client {
     OllamaCloud,
     Zai,
     ZaiCoding,
+    CustomOpenAi,
 }
 
 /// One provider Toad reaches: its models.dev id, how it is spoken to, and
@@ -146,10 +148,26 @@ pub const WIRING: &[Wiring] = &[
         client: Client::ChatGpt,
         credential_kinds: &[CredentialKind::Oauth],
     },
+    Wiring {
+        id: "openai-compatible",
+        client: Client::CustomOpenAi,
+        credential_kinds: &[CredentialKind::ApiKey, CredentialKind::Local],
+    },
 ];
 
 pub fn wiring(provider_id: &str) -> Option<&'static Wiring> {
+    let provider_id = if is_custom(provider_id) {
+        "openai-compatible"
+    } else {
+        provider_id
+    };
     WIRING.iter().find(|wiring| wiring.id == provider_id)
+}
+
+pub fn is_custom(provider_id: &str) -> bool {
+    provider_id
+        .strip_prefix("custom-")
+        .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
 }
 
 /// The snapshot: `models.json` as written by the sync and read at start.
@@ -271,6 +289,17 @@ fn usable(model: &Value) -> bool {
 pub fn snapshot(api: &Value, synced: &str) -> Result<Catalog, String> {
     let mut providers = BTreeMap::new();
     for wiring in WIRING {
+        if wiring.client == Client::CustomOpenAi {
+            providers.insert(
+                wiring.id.to_string(),
+                ProviderEntry {
+                    name: "OpenAI-compatible".into(),
+                    doc: None,
+                    models: BTreeMap::new(),
+                },
+            );
+            continue;
+        }
         if wiring.client == Client::Ollama {
             providers.insert(
                 wiring.id.to_string(),
@@ -443,18 +472,18 @@ fn newest_first(entry: &ProviderEntry) -> Vec<(&String, &Model)> {
 /// The models the given provider credentials unlock, as the picker lists
 /// them: providers in wired order, and within one the newest model first. An
 /// id on the wire is `provider/model`, the shape the room has always stored,
-/// so a teammate's saved choice keeps meaning the same thing. The keys map's
-/// values are unused; presence is what unlocks a group. `enabled` is the
+/// so a teammate's saved choice keeps meaning the same thing. A connection
+/// unlocks a group; custom connections also supply its name and model ids. `enabled` is the
 /// saved filter: a provider absent from it shows every model, a present one
 /// only the listed ids. `account` is the same shape for a subscription's
 /// held list: present means only those bare ids, absent the whole catalogue.
 /// Both narrow what is offered, never a model already in use.
-pub fn choices<T>(
-    keys: &HashMap<String, T>,
+pub fn choices(
+    keys: &HashMap<String, ProviderAuth>,
     enabled: &HashMap<String, Vec<String>>,
     account: &HashMap<String, Vec<String>>,
 ) -> Vec<ConfigChoice> {
-    WIRING
+    let mut choices: Vec<_> = WIRING
         .iter()
         .filter(|wiring| keys.contains_key(wiring.id))
         .filter_map(|wiring| Some((wiring, catalog().providers.get(wiring.id)?)))
@@ -487,7 +516,30 @@ pub fn choices<T>(
                 })
                 .collect::<Vec<_>>()
         })
-        .collect()
+        .collect();
+    let mut custom: Vec<_> = keys
+        .iter()
+        .filter_map(|(id, auth)| match auth {
+            ProviderAuth::Custom { name, config, .. } => Some((id, name, config)),
+            _ => None,
+        })
+        .collect();
+    custom.sort_by(|a, b| a.1.cmp(b.1).then(a.0.cmp(b.0)));
+    for (provider_id, name, config) in custom {
+        choices.extend(
+            config
+                .models
+                .iter()
+                .filter(|id| model_offered(enabled, provider_id, id))
+                .map(|id| ConfigChoice {
+                    id: format!("{provider_id}/{id}"),
+                    name: id.clone(),
+                    description: Some(name.clone()),
+                    group: Some(name.clone()),
+                }),
+        );
+    }
+    choices
 }
 
 /// Every model of this provider in the catalogue, newest first, each flagged
@@ -501,6 +553,18 @@ pub fn catalog_models(
     enabled: &HashMap<String, Vec<String>>,
     account: Option<&[String]>,
 ) -> Vec<CatalogModel> {
+    if is_custom(provider_id) {
+        return account
+            .unwrap_or_default()
+            .iter()
+            .map(|id| CatalogModel {
+                id: id.clone(),
+                name: id.clone(),
+                release_date: String::new(),
+                enabled: model_offered(enabled, provider_id, id),
+            })
+            .collect();
+    }
     let Some(entry) = catalog().providers.get(provider_id) else {
         return Vec::new();
     };
@@ -611,7 +675,8 @@ mod tests {
                 .get(wiring.id)
                 .unwrap_or_else(|| panic!("{} is wired but not in models.json", wiring.id));
             assert!(
-                wiring.client == Client::Ollama || !entry.models.is_empty(),
+                matches!(wiring.client, Client::Ollama | Client::CustomOpenAi)
+                    || !entry.models.is_empty(),
                 "{} has no models",
                 wiring.id
             );
@@ -706,7 +771,7 @@ mod tests {
         let mut keys = HashMap::new();
         let none = HashMap::new();
         assert!(choices(&keys, &none, &none).is_empty());
-        keys.insert("anthropic".to_string(), "k".to_string());
+        keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
         let listed = choices(&keys, &none, &none);
         assert!(
             listed
@@ -788,7 +853,7 @@ mod tests {
     #[test]
     fn choices_omit_a_model_the_filter_did_not_list() {
         let mut keys = HashMap::new();
-        keys.insert("anthropic".to_string(), "k");
+        keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
         let none = HashMap::new();
         let all = choices(&keys, &none, &none);
         assert!(all.len() > 1, "anthropic must list more than one model");
@@ -830,7 +895,8 @@ mod tests {
     #[test]
     fn discovered_ollama_ids_replace_the_catalogue_and_an_empty_list_stays_empty() {
         for provider in ["ollama", "ollama-cloud"] {
-            let keys = HashMap::from([(provider.to_string(), ())]);
+            let keys =
+                HashMap::from([(provider.to_string(), ProviderAuth::ApiKey("unused".into()))]);
             let none = HashMap::new();
             let ids = vec!["custom/coder:latest".into()];
             let mut account = HashMap::from([(provider.to_string(), ids.clone())]);
@@ -934,7 +1000,10 @@ mod tests {
     #[test]
     fn oauth_does_not_change_the_provider_group_name() {
         let mut keys = HashMap::new();
-        keys.insert("openai-codex".to_string(), "ignored");
+        keys.insert(
+            "openai-codex".to_string(),
+            ProviderAuth::ApiKey("ignored".into()),
+        );
         let listed = choices(&keys, &HashMap::new(), &HashMap::new());
         assert!(
             listed
@@ -947,8 +1016,11 @@ mod tests {
     #[test]
     fn choices_narrow_an_oauth_account_and_leave_key_providers_alone() {
         let mut keys = HashMap::new();
-        keys.insert("github-copilot".to_string(), "ignored");
-        keys.insert("anthropic".to_string(), "k");
+        keys.insert(
+            "github-copilot".to_string(),
+            ProviderAuth::ApiKey("ignored".into()),
+        );
+        keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
         let none = HashMap::new();
         let all = choices(&keys, &none, &none);
         let copilot: Vec<&str> = all

@@ -529,6 +529,7 @@ impl RoomHandle for Quiet {
             provider_id: provider_id.to_string(),
             credential_kind: CredentialKind::ApiKey,
             base_url: None,
+            custom: None,
             label: label.to_string(),
             revoked: false,
             created_at: 1,

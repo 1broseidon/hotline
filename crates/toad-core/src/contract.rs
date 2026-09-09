@@ -580,9 +580,12 @@ pub struct Credential {
     /// The event's own `kind` names the event, so a credential's kind is
     /// spelled differently here: two fields called `kind` would be one field.
     pub credential_kind: CredentialKind,
-    /// The chosen Ollama server. Keys and sign-ins use their provider's endpoint.
+    /// The chosen Ollama or custom server. Other providers use their fixed endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// Custom connections keep their protocol and model ids with their identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomProvider>,
     /// What the user called it, so a list of keys is a list they recognise.
     pub label: String,
     /// Revoked. Set once and never unset — revocation is a fact, not a toggle.
@@ -606,7 +609,7 @@ pub struct Provider {
 }
 
 /// How this connection was established: a pasted key, a provider sign-in,
-/// or an Ollama server URL. OAuth does not imply subscription billing.
+/// or a keyless server URL. OAuth does not imply subscription billing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "contract.ts")]
@@ -614,6 +617,35 @@ pub enum CredentialKind {
     ApiKey,
     Oauth,
     Local,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum OpenAiApi {
+    Responses,
+    ChatCompletions,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CustomProvider {
+    pub api: OpenAiApi,
+    pub models: Vec<String>,
+}
+
+/// Input only. The key is never copied into credential metadata or a stream.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CustomProviderDraft {
+    pub name: String,
+    pub base_url: String,
+    pub api: OpenAiApi,
+    pub models: Vec<String>,
+    /// Omitted keeps an existing key; an empty string removes it.
+    pub secret: Option<String>,
 }
 
 /// Instructions for provider sign-in. Browser callback flows leave `user_code`
@@ -1479,6 +1511,18 @@ pub enum Command {
     /// Connects an Ollama server and discovers the models installed there.
     #[serde(rename = "credential.connect_local")]
     CredentialConnectLocal { base_url: String },
+    #[serde(rename = "credential.custom_save")]
+    CredentialCustomSave {
+        id: Option<String>,
+        draft: CustomProviderDraft,
+    },
+    /// Discovery can run before saving; a failed fetch leaves the connection alone.
+    #[serde(rename = "credential.custom_models")]
+    CredentialCustomModels {
+        id: Option<String>,
+        base_url: String,
+        secret: Option<String>,
+    },
     #[serde(rename = "credential.login_status")]
     CredentialLoginStatus { login_id: String },
     /// Re-reads Copilot account models or Ollama server models and answers with

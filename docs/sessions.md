@@ -298,6 +298,35 @@ Ollama itself; cloud models exposed by a local server after `ollama signin`
 also work through the Local connection. Choose models that support tools
 for Toad Agent's workspace and teammate tools.
 
+Custom servers use **Settings → Providers → OpenAI-compatible**. Give the
+connection a name, enter its API base URL (including `/v1` when required),
+choose Responses or Chat Completions, and enable API key authentication only
+when the server requires it. Discover models or enter one exact model ID per
+line, then save. Choose models that support tool calls. Discovery replaces the
+form's list; a failed discovery preserves what you typed. It does not change
+the saved list until you save. Use Edit connection to discover again.
+
+| Connection recipe | Base URL | API | Authentication |
+| --- | --- | --- | --- |
+| Together AI | `https://api.together.ai/v1` | Chat Completions | Together API key |
+| LM Studio | `http://localhost:1234/v1` | Responses | None by default; token if enabled in LM Studio |
+
+For Together, use an exact model ID from discovery or the Together model
+catalogue, including its owner prefix. Together does not implement Responses;
+see its [OpenAI compatibility guide](https://docs.together.ai/docs/inference/openai-compatibility).
+For LM Studio, load a tool-capable model and start its API server before
+connecting. See [supported endpoints](https://lmstudio.ai/docs/developer/openai-compat)
+and [optional authentication](https://lmstudio.ai/docs/developer/core/authentication).
+
+Multiple custom connections can offer the same model ID. Toad groups them by
+your connection names and stores each selection as `custom-<connection-id>/<model-id>`.
+Editing preserves that identity; deleting the connection removes its key and
+models. Leaving an existing key blank preserves it, but changing the URL
+requires entering the key again or turning authentication off. Custom models
+have no inferred context limits or effort controls; compatibility depends on
+the server and model. As with other unverified providers, images returned by
+tools go to the tape with a text placeholder sent to the model.
+
 GitHub Copilot's picker is that catalogue cut to the models the signed-in
 account can run. The list is fetched at sign-in (`GET {api}/models`,
 through Rig) and stored as `models.json` beside the login. A fetch that

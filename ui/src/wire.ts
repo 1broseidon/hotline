@@ -80,6 +80,8 @@ type Results = {
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;
 	"credential.connect_local": Credential;
+	"credential.custom_save": Credential;
+	"credential.custom_models": string[];
 	"credential.login_status": LoginStatus;
 	"credential.refresh_models": CatalogModel[];
 	"credential.revoke": null;

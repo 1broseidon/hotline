@@ -2727,6 +2727,10 @@
         }
       }
     },
+    "openai-compatible": {
+      "name": "OpenAI-compatible",
+      "models": {}
+    },
     "openrouter": {
       "name": "OpenRouter",
       "doc": "https://openrouter.ai/models",

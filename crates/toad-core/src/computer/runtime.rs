@@ -140,7 +140,15 @@ async fn probe(runtime: Runtime, bins: &BinSearch) -> RuntimeReport {
         return report(RuntimeState::NotInstalled, None, false);
     };
 
-    match output(&cmd, &["version"]).await {
+    // docker and podman answer `version` from the daemon, so one call says
+    // installed and running. Apple's container has no `version` subcommand
+    // — its CLI calls an unknown one a missing plugin — and `ls` is the
+    // cheapest call that goes through its services.
+    let ask: &[&str] = match runtime {
+        Runtime::AppleContainer => &["ls"],
+        Runtime::Docker | Runtime::Podman => &["version"],
+    };
+    match output(&cmd, ask).await {
         Ok(_) => {}
         Err(failure) => return report(failure.state, Some(failure.detail), false),
     }

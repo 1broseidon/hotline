@@ -174,12 +174,14 @@
 	}
 	.titlebar-mark {
 		position: relative;
+		grid-column: 1;
 		justify-self: start;
 		pointer-events: none;
 		color: var(--ink-3);
 	}
 	.titlebar-title {
 		position: relative;
+		grid-column: 2;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -195,8 +197,11 @@
 			display: none;
 		}
 	}
+	/* Placed by number, not by order: a narrow window drops the title, and
+	 * auto-placement would then seat the tools in its column, mid-strip. */
 	.titlebar-tools {
 		position: relative;
+		grid-column: 3;
 		display: flex;
 		align-items: center;
 		justify-self: end;

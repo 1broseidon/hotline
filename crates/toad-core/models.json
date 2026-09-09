@@ -2429,6 +2429,23 @@
             "context": 1050000,
             "output": 128000
           }
+        },
+        "gpt-6-astra": {
+          "name": "GPT-6 Astra",
+          "release_date": "2026-09-04",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
         }
       }
     },

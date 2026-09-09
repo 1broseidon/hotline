@@ -53,6 +53,7 @@ pub struct Wiring {
 /// An id openai lacks is an error from the sync, so this list cannot drift
 /// silently.
 pub const CHATGPT_MODELS: &[&str] = &[
+    "gpt-6-astra",
     "gpt-5.6",
     "gpt-5.6-sol",
     "gpt-5.6-terra",

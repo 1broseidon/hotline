@@ -35,6 +35,7 @@
 //! work before a live session is rebuilt.
 
 mod chapters;
+pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod pacing;
 mod peers;

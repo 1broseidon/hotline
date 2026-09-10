@@ -335,6 +335,9 @@ impl Driver for InProcess {
     }
 
     fn cancel(&self) {
+        if let Some(steering) = lock(&self.steering).as_ref() {
+            steering.close_admission();
+        }
         lock(&self.stop).raise();
     }
 
@@ -482,9 +485,9 @@ impl Turn {
         tools.add_tool(FindFiles::new(workspace.clone()));
         tools.add_tool(WriteFile::new(workspace.clone()));
         tools.add_tool(EditFile::new(workspace.clone()));
-        if tools::shell_available(self.reach).is_ok() {
-            tools.add_tool(RunCommand::new(workspace));
-        }
+        let shell = tools::shell_available(self.reach)
+            .is_ok()
+            .then(|| RunCommand::new(workspace));
         for tool in &self.mcp_tools {
             tools.add_dynamic_tool(tool.clone());
         }
@@ -510,7 +513,7 @@ impl Turn {
             output_schema: None,
             record_telemetry_content: false,
         };
-        turn::run(agent.model_handle(), request, &tools, self, sender).await
+        turn::run(agent.model_handle(), request, &tools, self, sender, shell).await
     }
 }
 
@@ -969,6 +972,15 @@ pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &
             );
             ledger.absent(ToolSourceKind::Builtin, "pi", "shell", reason);
         }
+    }
+    if tools::shell_available(reach).is_ok() {
+        ledger.all(
+            crate::contract::ToolState::Verified,
+            ToolSourceKind::Builtin,
+            "pi",
+            crate::session::jobs::CONTROL_TOOLS,
+            "Toad supervises shell jobs independently of model requests",
+        );
     }
     // Toad's own tools are built here, not connected to: the agent and the
     // server are the same process, so there is nothing to observe and nothing

@@ -156,6 +156,212 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
     }
 }
 
+/// Reproduces the operator's screenshot with a real process: shell returns a
+/// handle, wait_jobs is interrupted, and cancel_job reaches the process tree.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finishes() {
+    for api in ["responses", "chat_completions"] {
+        let (seen, mut requests) = tokio::sync::mpsc::channel(8);
+        let step = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let command = if cfg!(windows) {
+            "echo started & echo x > heartbeat & ping -n 91 127.0.0.1 > nul & echo done > done"
+        } else {
+            "echo started; while true; do echo x >> heartbeat; sleep 0.05; done & sleep 90; echo done > done"
+        };
+        let app = Router::new().route(
+            if api == "responses" { "/v1/responses" } else { "/v1/chat/completions" },
+            post(move |body: Bytes| {
+                let seen = seen.clone();
+                let step = step.clone();
+                async move {
+                    let request: Value = serde_json::from_slice(&body).unwrap();
+                    let index = step.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let receipt = json_values(&request).into_iter().find_map(|value| {
+                        value.get("job").and_then(|job| job["job_id"].as_str()).map(str::to_owned)
+                    });
+                    let events = match index {
+                        0 => tool_events(api, "shell", json!({"command":command}), "call_shell"),
+                        1 => tool_events(api, "wait_jobs", json!({"job_ids":[receipt.unwrap()]}), "call_wait"),
+                        2 => {
+                            assert!(request.to_string().contains("nice, cancel that"));
+                            assert!(json_values(&request).iter().any(|value| value["status"] == "interrupted_by_message"));
+                            tool_events(api, "cancel_job", json!({"job_id":receipt.unwrap(),"reason":"The operator asked to cancel it"}), "call_cancel")
+                        }
+                        3 => tool_events(api, "wait_jobs", json!({"job_ids":[receipt.unwrap()]}), "call_confirm"),
+                        4 => {
+                            assert!(json_values(&request).iter().any(|value| value["jobs"].as_array().is_some_and(|jobs| jobs.iter().any(|job| job["state"] == "cancelled"))));
+                            events(api, true)
+                        }
+                        _ => panic!("unexpected continuation after cancellation: {request}"),
+                    };
+                    seen.send(request).await.unwrap();
+                    let body = events.into_iter().map(|event| format!("data: {event}\n\n")).collect::<String>();
+                    ([("Content-Type", "text/event-stream")], format!("{body}data: [DONE]\n\n"))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let desk = common::open_desk(root.path()).unwrap();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+        let port = door.port();
+        let door_task = tokio::spawn(door.run());
+        let mut client = Client::connect(port).await;
+        let saved = client
+            .call(
+                "credential.custom_save",
+                json!({"draft": {
+                    "name":api,"baseUrl":base,"api":api,"models":["vendor/coder"]
+                }}),
+            )
+            .await;
+        assert_eq!(saved["ok"], true, "{saved}");
+        let made = client.call("persona.create", json!({"draft": {
+            "name":"Shell steering tester", "goal":"Follow the operator", "cwd":workspace.to_string_lossy(),
+            "reach":toad_core::contract::Reach::Machine
+        }})).await;
+        let persona = made["result"]["id"].as_str().unwrap().to_owned();
+        let tape = client.subscribe(json!({"tape":persona})).await;
+        assert_eq!(
+            client
+                .call("session.start", json!({"personaId":persona}))
+                .await["ok"],
+            true
+        );
+        assert_eq!(
+            client
+                .call(
+                    "session.prompt",
+                    json!({"personaId":persona,"text":"Run a command that takes 90 seconds"})
+                )
+                .await["ok"],
+            true
+        );
+        next_request(&mut requests).await;
+        let launched = next_request(&mut requests).await;
+        assert!(
+            json_values(&launched)
+                .iter()
+                .any(|value| value["status"] == "accepted")
+        );
+        client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape
+                    && frame["event"]["kind"] == "tool"
+                    && frame["event"]["toolKind"] == "wait_jobs"
+                    && frame["event"]["status"] == "in_progress"
+            })
+            .await;
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while !std::fs::metadata(workspace.join("heartbeat")).is_ok_and(|file| file.len() > 0) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the command must actually start before cancellation");
+        let began = tokio::time::Instant::now();
+        assert_eq!(
+            client
+                .call(
+                    "session.prompt",
+                    json!({"personaId":persona,"text":"nice, cancel that"})
+                )
+                .await["ok"],
+            true
+        );
+        next_request(&mut requests).await;
+        next_request(&mut requests).await;
+        let confirmed = next_request(&mut requests).await;
+        assert!(began.elapsed() < Duration::from_secs(15));
+        let items = confirmed[if api == "responses" {
+            "input"
+        } else {
+            "messages"
+        }]
+        .as_array()
+        .unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|item| item["call_id"] == "call_shell"
+                    && item["type"] == "function_call_output"
+                    || item["tool_call_id"] == "call_shell" && item["role"] == "tool")
+                .count(),
+            1,
+            "the launch gets exactly one ordinary tool reply"
+        );
+        let completion = client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape && frame["event"]["kind"] == "turn"
+            })
+            .await;
+        assert_eq!(completion["event"]["stopReason"], "end_turn");
+        let shell = client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape
+                    && frame["event"]["kind"] == "tool"
+                    && frame["event"]["toolKind"] == "shell"
+                    && frame["event"]["status"] == "failed"
+            })
+            .await;
+        assert!(shell.to_string().contains("Cancelled"), "{shell}");
+        assert!(
+            shell.to_string().contains("started"),
+            "partial output must survive cancellation: {shell}"
+        );
+        let before = std::fs::read(workspace.join("heartbeat")).unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            std::fs::read(workspace.join("heartbeat")).unwrap(),
+            before,
+            "a descendant kept running after cancellation was reported"
+        );
+        assert!(!workspace.join("done").exists());
+        assert_eq!(
+            client
+                .call("session.stop", json!({"personaId":persona}))
+                .await["ok"],
+            true
+        );
+        drop(client);
+        door_task.abort();
+        server.abort();
+    }
+}
+
+fn json_values(value: &Value) -> Vec<Value> {
+    match value {
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .ok()
+            .into_iter()
+            .collect(),
+        Value::Array(items) => items.iter().flat_map(json_values).collect(),
+        Value::Object(fields) => fields.values().flat_map(json_values).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn tool_events(api: &str, name: &str, arguments: Value, call_id: &str) -> Vec<Value> {
+    if api == "responses" {
+        let output = json!({"type":"function_call","id":format!("fc_{call_id}"),"call_id":call_id,"name":name,"arguments":arguments.to_string(),"status":"completed"});
+        vec![
+            json!({"type":"response.output_item.added","output_index":0,"sequence_number":1,"item":{"type":"function_call","id":format!("fc_{call_id}"),"call_id":call_id,"name":name,"arguments":"","status":"in_progress"}}),
+            json!({"type":"response.function_call_arguments.delta","item_id":format!("fc_{call_id}"),"output_index":0,"sequence_number":2,"delta":arguments.to_string()}),
+            json!({"type":"response.output_item.done","output_index":0,"sequence_number":3,"item":output}),
+            json!({"type":"response.completed","sequence_number":4,"response":{"id":"resp_test","object":"response","created_at":1,"status":"completed","model":"vendor/coder","output":[output],"usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}}),
+        ]
+    } else {
+        vec![
+            json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":call_id,"type":"function","function":{"name":name,"arguments":arguments.to_string()}}]},"finish_reason":null}]}),
+            json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
+        ]
+    }
+}
+
 async fn next_request(requests: &mut tokio::sync::mpsc::Receiver<Value>) -> Value {
     tokio::time::timeout(Duration::from_secs(15), requests.recv())
         .await

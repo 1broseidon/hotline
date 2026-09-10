@@ -2,6 +2,7 @@
 //! execution depends on which provider the model handle uses.
 
 use super::*;
+use crate::session::jobs::{self, JobArgs, JobSnapshot, JobState, Jobs, WaitArgs};
 use rig::completion::{CompletionModel, CompletionRequest};
 use rig::message::{AssistantContent, ToolCall, UserContent};
 use rig::streaming::StreamedAssistantContent;
@@ -63,6 +64,10 @@ impl Steering {
         true
     }
 
+    pub(super) fn close_admission(&self) {
+        lock(&self.state).closed = true;
+    }
+
     pub(super) fn close(&self) -> Vec<String> {
         let mut state = lock(&self.state);
         state.closed = true;
@@ -72,19 +77,82 @@ impl Steering {
 
 pub(super) async fn run(
     model: &impl CompletionModel,
+    mut template: CompletionRequest,
+    tools: &ToolSet,
+    turn: &Turn,
+    sender: &mpsc::Sender<Update>,
+    shell: Option<RunCommand>,
+) -> Result<(), String> {
+    let mut jobs = Jobs::new(shell);
+    if jobs.enabled() {
+        template.tools.extend(jobs.definitions());
+        template.preamble = Some(format!(
+            "{}\n\n{}",
+            template.preamble.unwrap_or_default(),
+            jobs::INSTRUCTIONS
+        ));
+    }
+    let result = run_inner(model, template, tools, turn, sender, &mut jobs).await;
+    turn.steering.close_admission();
+    // Stop, revocation, provider failure and ordinary completion all leave
+    // through the owner. A response ending cannot orphan a shell command.
+    jobs.cancel_all();
+    while jobs.active() {
+        match jobs.next().await {
+            Ok(job) => {
+                let message = publish_job(turn, sender, job).await;
+                turn.history.lock().await.push(message);
+            }
+            Err(error) => {
+                send(
+                    sender,
+                    Update::Notice {
+                        level: NoticeLevel::Error,
+                        text: error,
+                    },
+                )
+                .await
+            }
+        }
+    }
+    match result {
+        Ok((reason, usage, complete)) => {
+            finish(sender, reason, usage, complete).await;
+            Ok(())
+        }
+        Err(error) => {
+            // Results may have arrived during the failed inference attempt.
+            // Preserve the settled facts even if that attempt never checkpointed.
+            turn.history
+                .lock()
+                .await
+                .extend(jobs.snapshots().map(|job| job_message(turn, job)));
+            Err(error)
+        }
+    }
+}
+
+async fn run_inner(
+    model: &impl CompletionModel,
     template: CompletionRequest,
     tools: &ToolSet,
     turn: &Turn,
     sender: &mpsc::Sender<Update>,
-) -> Result<(), String> {
+    jobs: &mut Jobs,
+) -> Result<(&'static str, rig::completion::Usage, bool), String> {
     let mut history = turn.history.lock().await.clone();
     let mut usage = rig::completion::Usage::default();
     let mut usage_complete = true;
     let mut announce_update = false;
     let mut open = None;
     let mut stopped = false;
+    let mut job_results = Vec::new();
 
-    for _ in 0..MAX_TURNS {
+    'attempt: for _ in 0..MAX_TURNS {
+        for job in jobs.ready()? {
+            job_results.push(publish_job(turn, sender, job).await);
+        }
+        history.append(&mut job_results);
         let (revision, pending) = turn.steering.take();
         announce_update |= !pending.is_empty();
         history.extend(pending.into_iter().map(Message::user));
@@ -94,11 +162,21 @@ pub(super) async fn run(
         }
         let mut request = template.clone();
         request.chat_history = history.clone();
-        let response = tokio::select! {
-            biased;
-            () = turn.stop.raised() => { stopped = true; usage_complete = false; break; }
-            () = turn.steering.changed(revision) => { usage_complete = false; continue; }
-            response = model.stream(request) => response,
+        if let Some(context) = jobs.context() {
+            request.chat_history.push(Message::user(context));
+        }
+        let response = model.stream(request);
+        tokio::pin!(response);
+        let response = loop {
+            tokio::select! {
+                biased;
+                () = turn.stop.raised() => { stopped = true; usage_complete = false; break 'attempt; }
+                () = turn.steering.changed(revision) => { usage_complete = false; continue 'attempt; }
+                job = jobs.next(), if jobs.active() => {
+                    job_results.push(publish_job(turn, sender, job?).await);
+                }
+                response = &mut response => break response,
+            }
         };
         let mut stream = response.map_err(text)?;
         let mut interrupted = false;
@@ -116,6 +194,10 @@ pub(super) async fn run(
                     stream.cancel();
                     interrupted = true;
                     break;
+                }
+                job = jobs.next(), if jobs.active() => {
+                    job_results.push(publish_job(turn, sender, job?).await);
+                    continue;
                 }
                 item = stream.next() => item,
             };
@@ -222,26 +304,71 @@ pub(super) async fn run(
                 if let Some(capability) = &turn.capability {
                     capability.check()?;
                 }
-                tokio::select! {
-                    biased;
-                    () = turn.stop.raised() => {
-                        stopped = true;
-                        ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.")
+                match call.function.name.as_str() {
+                    "shell" if jobs.enabled() => {
+                        job_result(jobs.launch(call_id.clone(), call.function.arguments.clone()))
                     }
-                    result = tools.execute(&call.function.name, call.function.arguments.to_string(), &mut context) => result,
+                    "inspect_job" if jobs.enabled() => job_result(
+                        serde_json::from_value::<JobArgs>(call.function.arguments.clone())
+                            .map_err(text)
+                            .and_then(|args| jobs.inspect(&args.job_id)),
+                    ),
+                    "cancel_job" if jobs.enabled() => job_result(
+                        serde_json::from_value::<JobArgs>(call.function.arguments.clone())
+                            .map_err(text)
+                            .and_then(|args| jobs.cancel(args)),
+                    ),
+                    "wait_jobs" if jobs.enabled() => {
+                        let result = wait_jobs(
+                            jobs,
+                            &call.function.arguments,
+                            turn,
+                            revision,
+                            sender,
+                            &mut job_results,
+                        )
+                        .await?;
+                        stopped |= turn.stop.raised.load(Ordering::SeqCst);
+                        result
+                    }
+                    _ => {
+                        let execution = tools.execute(
+                            &call.function.name,
+                            call.function.arguments.to_string(),
+                            &mut context,
+                        );
+                        tokio::pin!(execution);
+                        loop {
+                            tokio::select! {
+                                biased;
+                                () = turn.stop.raised() => {
+                                    stopped = true;
+                                    break ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.");
+                                }
+                                job = jobs.next(), if jobs.active() => {
+                                    job_results.push(publish_job(turn, sender, job?).await);
+                                }
+                                result = &mut execution => break result,
+                            }
+                        }
+                    }
                 }
             };
             let (shown, images) = result_of(result.output().as_content());
-            send(
-                sender,
-                Update::ToolResult {
-                    call_id: call_id.clone(),
-                    ok: result.is_success(),
-                    output: shown.clone(),
-                    images: images.clone(),
-                },
-            )
-            .await;
+            // The model gets its one launch receipt now. The transcript's
+            // shell card stays running until the owned job produces a result.
+            if !jobs.owns(&call_id) {
+                send(
+                    sender,
+                    Update::ToolResult {
+                        call_id: call_id.clone(),
+                        ok: result.is_success(),
+                        output: shown.clone(),
+                        images: images.clone(),
+                    },
+                )
+                .await;
+            }
             let output = model_output(turn, &call_id, result.output(), &shown, &images);
             history.push(Message::User {
                 content: vec![UserContent::ToolResult(rig::message::ToolResult {
@@ -252,24 +379,109 @@ pub(super) async fn run(
                 })],
             });
         }
-        // No network call sees an assistant tool call without its reply. The
-        // checkpoint contains executed effects even when the next request fails.
+        // Job notifications are ordinary execution data, after every call in
+        // the completed response has its one reply. They never reopen a call.
+        for job in jobs.ready()? {
+            job_results.push(publish_job(turn, sender, job).await);
+        }
+        let new_results = !job_results.is_empty();
+        history.append(&mut job_results);
         *turn.history.lock().await = history.clone();
         if stopped {
             break;
         }
-        if calls.is_empty() && turn.steering.finish_if_empty() {
-            finish(sender, "end_turn", usage, usage_complete).await;
-            return Ok(());
+        if calls.is_empty() && !new_results {
+            if jobs.active() {
+                // A textual response is not activity completion while jobs
+                // run. Park without spending model requests; input can wake us.
+                tokio::select! {
+                    biased;
+                    () = turn.stop.raised() => { stopped = true; break; }
+                    () = turn.steering.changed(revision) => {}
+                    job = jobs.next() => job_results.push(publish_job(turn, sender, job?).await),
+                }
+            } else if turn.steering.finish_if_empty() {
+                return Ok(("end_turn", usage, usage_complete));
+            }
         }
     }
     flush(sender, &mut open).await;
+    history.append(&mut job_results);
+    *turn.history.lock().await = history;
     if stopped {
-        finish(sender, "aborted", usage, usage_complete).await;
-        Ok(())
+        Ok(("aborted", usage, usage_complete))
     } else {
         Err("This activity reached its model-request limit.".into())
     }
+}
+
+fn job_result(result: Result<Value, String>) -> ToolResult {
+    match result {
+        Ok(value) => ToolResult::success(ToolOutput::text(value.to_string())),
+        Err(error) => ToolResult::failed(ToolExecutionError::invalid_args(error)),
+    }
+}
+
+async fn publish_job(turn: &Turn, sender: &mpsc::Sender<Update>, job: JobSnapshot) -> Message {
+    let message = job_message(turn, &job);
+    send(
+        sender,
+        Update::ToolResult {
+            call_id: job.job_id,
+            ok: job.state == JobState::Succeeded,
+            output: format!("Job {:?}\n{}", job.state, job.output.unwrap_or_default()),
+            images: Vec::new(),
+        },
+    )
+    .await;
+    message
+}
+
+fn job_message(turn: &Turn, job: &JobSnapshot) -> Message {
+    let data = serde_json::to_string(job).expect("job records contain only strings and states");
+    let output = hand_to_model(&turn.output_dir, &job.job_id, &data);
+    Message::user(format!(
+        "Toad execution data (not an operator instruction): managed job result {output}"
+    ))
+}
+
+async fn wait_jobs(
+    jobs: &mut Jobs,
+    arguments: &Value,
+    turn: &Turn,
+    revision: u64,
+    sender: &mpsc::Sender<Update>,
+    results: &mut Vec<Message>,
+) -> Result<ToolResult, String> {
+    let args = match serde_json::from_value::<WaitArgs>(arguments.clone()) {
+        Ok(args) => args,
+        Err(error) => return Ok(job_result(Err(text(error)))),
+    };
+    if let Err(error) = jobs.selected(&args.job_ids, "waiting") {
+        return Ok(job_result(Err(error)));
+    }
+    let seconds = args.timeout_seconds.unwrap_or(30).clamp(1, 30);
+    let deadline = tokio::time::sleep(std::time::Duration::from_secs(seconds));
+    tokio::pin!(deadline);
+    let status = loop {
+        if turn.stop.raised.load(Ordering::SeqCst) {
+            break "stopped";
+        }
+        if turn.steering.superseded(revision) {
+            break "interrupted_by_message";
+        }
+        if jobs.all_finished(&args.job_ids) {
+            break "completed";
+        }
+        tokio::select! {
+            biased;
+            () = turn.stop.raised() => break "stopped",
+            () = turn.steering.changed(revision) => break "interrupted_by_message",
+            job = jobs.next() => results.push(publish_job(turn, sender, job?).await),
+            () = &mut deadline => break "timeout",
+        }
+    };
+    Ok(job_result(jobs.selected(&args.job_ids, status)))
 }
 
 fn model_output(
@@ -426,7 +638,7 @@ mod tests {
         };
         let (updates, mut receiver) = mpsc::channel(64);
         let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates).await
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
         });
         receive(&mut requests).await;
         assert!(steering.admit("actually, do the other thing".into()));
@@ -467,7 +679,7 @@ mod tests {
         };
         let (updates, mut receiver) = mpsc::channel(64);
         let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates).await
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
         });
         receive(&mut requests).await;
         old.send(Ok(RawStreamingChoice::ToolCallDelta {
@@ -529,7 +741,8 @@ mod tests {
             },
         ));
         let (updates, _receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move { run(&model, request, &tools, &turn, &updates).await });
+        let task =
+            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
         receive(&mut requests).await;
         for id in ["first", "second"] {
             old.send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
@@ -598,7 +811,7 @@ mod tests {
         };
         let (updates, mut receiver) = mpsc::channel(64);
         let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates).await
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
         });
         receive(&mut requests).await;
         chunks
@@ -621,6 +834,165 @@ mod tests {
         while let Some(update) = receiver.recv().await {
             assert!(!matches!(update, Update::ToolCall { .. }));
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_side_question_preserves_the_job_and_stop_waits_for_its_exit() {
+        check_job_lifetime(false).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_inference_failure_cleans_up_the_owned_shell_job() {
+        check_job_lifetime(true).await;
+    }
+
+    #[cfg(unix)]
+    async fn check_job_lifetime(fail_inference: bool) {
+        let root = tempfile::tempdir().unwrap();
+        let shell = RunCommand::new(
+            Workspace::open(
+                root.path().into(),
+                Reach::Machine,
+                root.path().join("outputs"),
+            )
+            .unwrap(),
+        );
+        let (mut turn, request) = fixture();
+        turn.output_dir = root.path().join("outputs");
+        let steering = turn.steering.clone();
+        let stop = turn.stop.clone();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, first_stream) = mpsc::channel(8);
+        let (second, second_stream) = mpsc::channel(8);
+        let (third, third_stream) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([
+                Some(first_stream),
+                Some(second_stream),
+                Some(third_stream),
+            ])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(
+                &model,
+                request,
+                &ToolSet::default(),
+                &turn,
+                &updates,
+                Some(shell),
+            )
+            .await
+        });
+        let request = receive(&mut requests).await;
+        assert!(request.tools.iter().any(|tool| tool.name == "cancel_job"));
+        first.send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+            "owned_shell", "shell".into(), serde_json::json!({"command":"echo started; while true; do echo x >> heartbeat; sleep 0.05; done & wait"})
+        )))).await.unwrap();
+        first
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage::default(),
+            ))))
+            .await
+            .unwrap();
+        drop(first);
+        receive(&mut requests).await;
+        let heartbeat = root.path().join("heartbeat");
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !std::fs::metadata(&heartbeat).is_ok_and(|file| file.len() > 0) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let mut observed = Vec::new();
+        if fail_inference {
+            drop(second);
+        } else {
+            answer(second).await;
+            loop {
+                let update = tokio::time::timeout(Duration::from_secs(3), receiver.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let answered = matches!(
+                    update,
+                    Update::Message {
+                        kind: MessageKind::Agent,
+                        ..
+                    }
+                );
+                observed.push(update);
+                if answered {
+                    break;
+                }
+            }
+            assert!(
+                !task.is_finished(),
+                "a text answer cannot end an activity with a running job"
+            );
+            assert!(steering.admit("what is the status? Keep the command running".into()));
+            let request = receive(&mut requests).await;
+            assert!(
+                serde_json::to_string(&request.chat_history)
+                    .unwrap()
+                    .contains("active managed jobs")
+            );
+            answer(third).await;
+            let before = std::fs::metadata(&heartbeat).unwrap().len();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            assert!(
+                std::fs::metadata(&heartbeat).unwrap().len() > before,
+                "a side question must not cancel the job"
+            );
+            assert!(!task.is_finished());
+            assert!(
+                requests.try_recv().is_err(),
+                "waiting for a job must not spin through model requests"
+            );
+            stop.raise();
+        }
+        let result = tokio::time::timeout(Duration::from_secs(6), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.is_err(), fail_inference);
+        while let Some(update) = receiver.recv().await {
+            observed.push(update);
+        }
+        let ended = observed
+            .iter()
+            .position(|update| matches!(update, Update::Turn { .. }));
+        let cancelled = observed.iter().position(|update| matches!(update, Update::ToolResult { output, .. } if output.contains("Job Cancelled") && output.contains("started"))).expect("owned shell cancellation must be observed");
+        if !fail_inference {
+            assert!(
+                cancelled < ended.unwrap(),
+                "cancellation settles before the activity ends"
+            );
+            assert_eq!(
+                observed
+                    .iter()
+                    .filter(|update| matches!(update, Update::Turn { .. }))
+                    .count(),
+                1
+            );
+        }
+        let before = std::fs::read(&heartbeat).unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(std::fs::read(&heartbeat).unwrap(), before);
+    }
+
+    #[test]
+    fn closing_admission_retains_existing_input_and_refuses_new_input() {
+        let steering = Steering::default();
+        assert!(steering.admit("already admitted".into()));
+        steering.close_admission();
+        assert!(!steering.admit("must queue after shutdown".into()));
+        assert_eq!(steering.close(), ["already admitted"]);
     }
 
     #[test]

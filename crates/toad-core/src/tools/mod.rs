@@ -7,6 +7,7 @@ use std::{
     fmt::{self, Display},
 };
 
+pub(crate) use shell::{CommandOutcome, CommandState, RunCommandArgs};
 pub use shell::{RunCommand, shell_available};
 pub use workspace::{
     EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile,

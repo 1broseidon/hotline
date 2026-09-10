@@ -117,13 +117,37 @@ produces response evidence. Steering produces no extra logical turn boundary;
 Stop remains a separate control. The composer offers Send alongside Stop
 while working.
 
-Tool execution is currently synchronous. An update arriving during a running
-tool waits for that tool to settle, then skips further calls from the old
-request and reaches the next model invocation. An obsolete `request_human`
-wait is released without treating the new text as an answer or approval.
-Stop still cancels the running tool through its existing cleanup guards.
-Neither interruption nor Stop rolls back completed effects. Missing usage
-from an interrupted request is reported as unknown.
+Shell commands run as managed jobs owned by `session/jobs.rs` for the active
+conversation activity. `shell` promptly returns a job receipt; `inspect_job`
+reads its state, `wait_jobs` waits up to 30 seconds, and `cancel_job` requests
+termination. A new operator message interrupts a wait without cancelling its
+jobs. The model decides what to keep or cancel, using the current job snapshot
+included with each request. These controls use ordinary Rig tool calls on all
+providers. Up to four commands can run concurrently; controls remain available
+when those launch slots are occupied.
+
+A launch receives exactly one model tool reply. Later results arrive as
+labelled execution data and update the original shell card on the tape. The
+shell card stays in progress until its actual result, including partial output,
+is available. A textual model response cannot finish the logical activity while
+jobs remain: the loop waits for an operator message or a job result without
+issuing idle model requests. Job completion resumes the loop once with the new
+result. Job handles live for that activity; completed facts remain in its
+conversation history. Jobs are not restarted after a process or session restart.
+
+Cancellation signals the command's owned Unix process group or Windows job,
+then waits for process exit and output collection. `cancelling` is only a
+request. `cancelled` requires exit evidence; if termination cannot be confirmed
+within five seconds, the result says `interrupted` with that uncertainty. Stop,
+revocation, and a failed inference also cancel the activity's jobs and settle
+their results before the driver closes. A dropped driver retains process cleanup
+guards. Existing effects are never rolled back.
+
+Other tools remain synchronous. An update arriving during one of those tools
+waits for it to settle, then skips further calls from the old request. An
+obsolete `request_human` wait is released without treating the new text as an
+answer or approval. Missing usage from an interrupted request is reported as
+unknown.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, today's date, how to use Toad's

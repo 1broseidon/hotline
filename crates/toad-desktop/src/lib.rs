@@ -21,6 +21,9 @@ mod notify;
 
 mod updater;
 
+#[cfg(target_os = "macos")]
+mod shell_path;
+
 use rand::RngCore;
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
@@ -229,6 +232,9 @@ fn window_state_flags() -> StateFlags {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    shell_path::restore();
+
     // Opened inside the async runtime because the room it stands up owns
     // background work — the idle chapter sweep — and a task has to be spawned
     // onto a runtime that is already there.

@@ -7,6 +7,22 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-10
+
+### Added
+- Mid-turn steering for Toad Agent: send corrections, change direction or ask
+  a question while work is running in the same conversation. The conversation
+  shows when the agent receives the update. Steering works through Toad's Rig
+  loop across providers.
+- Managed shell jobs that keep the conversation responsive during long
+  commands. The agent can inspect progress, wait for results or cancel work
+  when the operator changes direction. Stop also terminates owned shell
+  processes and their descendants.
+
+### Fixed
+- macOS launches recover the user's shell PATH so ACP harnesses and Docker
+  helpers can be found when Toad opens from Finder or the Dock.
+
 ## [0.6.0] - 2026-09-09
 
 ### Added

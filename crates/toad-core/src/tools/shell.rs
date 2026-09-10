@@ -3,8 +3,9 @@
 //! Nothing here is on a clock. An agent that is building, testing or watching
 //! is doing its job, and a command killed at two minutes taught the previous
 //! Toad's teammates to avoid the work rather than to finish it. The human's
-//! Stop is the cap: cancelling the turn drops the future this call is running
-//! in, and the guard on the way out kills the whole process group — so the
+//! Stop is the cap. Managed jobs also accept cancellation independently of
+//! model requests, signal the owned process tree, and observe its exit. A
+//! dropped call still kills its process group through its guard, so the
 //! child's own children go with it, which is the difference between stopping a
 //! build and orphaning its compiler. An agent that wants its own deadline
 //! passes `timeout_seconds`.
@@ -26,6 +27,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 /// Why the ledger omits `shell` when Linux cannot confine it.
 #[cfg(target_os = "linux")]
@@ -40,13 +42,14 @@ const WINDOWS_UNCONFINED: &str = "The shell is not confined to the workspace on 
 
 #[derive(Deserialize)]
 pub struct RunCommandArgs {
-    command: String,
+    pub(crate) command: String,
     /// A deadline the agent set for itself. Absent means none.
     #[serde(default)]
     timeout_seconds: Option<u64>,
 }
 
 /// A shell command, run in the teammate's working directory.
+#[derive(Clone)]
 pub struct RunCommand {
     workspace: Workspace,
 }
@@ -64,20 +67,10 @@ impl Tool for RunCommand {
     type Output = String;
 
     fn description(&self) -> String {
-        match self.workspace.reach() {
-            Reach::Workspace => {
-                let boundary = if cfg!(target_os = "linux") {
-                    "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .toad-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available."
-                } else {
-                    "Writes stay in the working directory and temporary directories; the rest of the machine is readable."
-                };
-                format!("Run a shell command in the working directory and return its output. {boundary} There is no time limit unless timeout_seconds is provided.")
-            }
-            Reach::Machine => {
-                "Run a shell command in the working directory and return its output. There is no time limit: a build, a test run or a long install can take as long as it takes."
-                    .to_string()
-            }
-        }
+        format!(
+            "Run a shell command in the working directory and return its output. {} There is no time limit unless timeout_seconds is provided.",
+            self.boundary()
+        )
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -107,6 +100,52 @@ impl Tool for RunCommand {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
+        let outcome = self.run(args, CancellationToken::new()).await?;
+        if matches!(
+            outcome.state,
+            CommandState::TimedOut | CommandState::Interrupted
+        ) {
+            return Err(ToolError::other(outcome.output));
+        }
+        Ok(outcome.output)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CommandState {
+    Succeeded,
+    Failed,
+    Cancelled,
+    TimedOut,
+    Interrupted,
+}
+
+pub(crate) struct CommandOutcome {
+    pub state: CommandState,
+    pub output: String,
+}
+
+impl RunCommand {
+    pub(crate) fn boundary(&self) -> &'static str {
+        match self.workspace.reach() {
+            Reach::Workspace if cfg!(target_os = "linux") => {
+                "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .toad-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available."
+            }
+            Reach::Workspace => {
+                "Writes stay in the working directory and temporary directories; the rest of the machine is readable."
+            }
+            Reach::Machine => "The command runs with the teammate's whole-machine reach.",
+        }
+    }
+
+    /// Cancellation owns the same process group as Stop, but keeps waiting
+    /// after signalling it so the caller can distinguish a request from exit.
+    pub(crate) async fn run(
+        &self,
+        args: RunCommandArgs,
+        cancel: CancellationToken,
+    ) -> Result<CommandOutcome, ToolError> {
         self.workspace.check_capability()?;
         let command = args.command.trim().to_string();
         if command.is_empty() {
@@ -124,34 +163,56 @@ impl Tool for RunCommand {
             .kill_on_drop(true);
         #[cfg(unix)]
         process.process_group(0);
-
         #[cfg(windows)]
         crate::process_windows::prepare(&mut process);
         self.workspace.check_capability()?;
+        if cancel.is_cancelled() {
+            return Ok(CommandOutcome {
+                state: CommandState::Cancelled,
+                output: "Cancelled before the command started.".into(),
+            });
+        }
         let child = process
             .spawn()
             .map_err(|error| ToolError::other(format!("The command could not start: {error}")))?;
         #[cfg(windows)]
-        let _job = crate::process_windows::Job::attach(child.id()).map_err(|error| {
+        let job = crate::process_windows::Job::attach(child.id()).map_err(|error| {
             ToolError::other(format!(
                 "Could not contain the command process tree: {error}"
             ))
         })?;
         let mut group = ProcessGroup::of(&child);
         let waiting = child.wait_with_output();
-        let output = match args.timeout_seconds {
-            Some(seconds) => tokio::time::timeout(Duration::from_secs(seconds), waiting)
-                .await
-                .map_err(|_| {
-                    ToolError::other(format!(
-                        "The command did not finish within {seconds} seconds."
-                    ))
-                })?,
-            None => waiting.await,
-        }
-        .map_err(|error| ToolError::other(format!("The command could not be run: {error}")))?;
+        tokio::pin!(waiting);
+        let deadline = async {
+            match args.timeout_seconds {
+                Some(seconds) => tokio::time::sleep(Duration::from_secs(seconds)).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        let mut stopped = None;
+        let output = tokio::select! {
+            biased;
+            output = &mut waiting => Some(output),
+            () = cancel.cancelled() => { stopped = Some(CommandState::Cancelled); None },
+            () = deadline => { stopped = Some(CommandState::TimedOut); None },
+        };
+        let output = if let Some(state) = stopped {
+            #[cfg(unix)]
+            group.terminate().map_err(|error| ToolError::other(format!("Cancellation could not be sent: {error}")))?;
+            #[cfg(windows)]
+            job.terminate().map_err(|error| ToolError::other(format!("Cancellation could not be sent: {error}")))?;
+            match tokio::time::timeout(Duration::from_secs(5), &mut waiting).await {
+                Ok(output) => output,
+                Err(_) => return Ok(CommandOutcome {
+                    state: CommandState::Interrupted,
+                    output: format!("{state:?} was requested, but process termination could not be confirmed. Files or other effects may already have changed."),
+                }),
+            }
+        } else {
+            output.expect("an uninterrupted wait returned its output")
+        }.map_err(|error| ToolError::other(format!("The command could not be run: {error}")))?;
         group.finished();
-
         let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
         let errors = String::from_utf8_lossy(&output.stderr);
         if !errors.trim().is_empty() {
@@ -159,10 +220,21 @@ impl Tool for RunCommand {
             text.push_str(&errors);
         }
         let status = output.status.code().unwrap_or(-1);
-        if status != 0 {
-            text.push_str(&format!("\n[exit status {status}]"));
+        let state = stopped.unwrap_or(if status == 0 {
+            CommandState::Succeeded
+        } else {
+            CommandState::Failed
+        });
+        match state {
+            CommandState::Cancelled => text.push_str("\n[Cancelled: the command exited after termination was requested. Existing effects were not rolled back.]"),
+            CommandState::TimedOut => text.push_str(&format!("\nThe command did not finish within {} seconds.", args.timeout_seconds.unwrap_or_default())),
+            _ if status != 0 => text.push_str(&format!("\n[exit status {status}]")),
+            _ => {},
         }
-        Ok(text)
+        Ok(CommandOutcome {
+            state,
+            output: text,
+        })
     }
 }
 
@@ -311,6 +383,21 @@ impl ProcessGroup {
 
     fn finished(&mut self) {
         self.id = None;
+    }
+
+    #[cfg(unix)]
+    fn terminate(&self) -> std::io::Result<()> {
+        let Some(id) = self.id else { return Ok(()) };
+        // The id is captured from the child we spawned in its own group.
+        if unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) } == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            Ok(())
+        } else {
+            Err(error)
+        }
     }
 }
 
@@ -482,6 +569,25 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let second = fs::read_to_string(&heartbeat).unwrap().len();
         assert_eq!(first, second, "a sandbox child survived cancellation");
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_start_never_spawns_the_command() {
+        let root = TestDirectory::new();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result = RunCommand::new(workspace(root.path(), Reach::Machine))
+            .run(
+                RunCommandArgs {
+                    command: "echo unwanted > unwanted.txt".into(),
+                    timeout_seconds: None,
+                },
+                cancel,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.state, CommandState::Cancelled);
+        assert!(!root.path().join("unwanted.txt").exists());
     }
 
     /// The command's own output is not cut here: the driver keeps the full

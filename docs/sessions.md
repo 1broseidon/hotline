@@ -32,11 +32,13 @@ is open, and only then may a scheduled firing open one of its own:
 | scheduled | a firing claims the user line, stamps `scheduled` on it, and may open a quiet window over the turn that follows |
 
 A prompt needs a live session; `session.start` is what brings one up. The
-command returns as soon as the turn is started. A line that arrives while a
-turn is running is queued behind it. Joining that queue and claiming an idle
-driver are one decision under one lock, so a line cannot be filed behind a
-turn that has already stopped coming back for it. `session.cancel` stops the
-turn in flight and drops whatever was waiting. Deltas go out on the tape
+command returns as soon as the turn is started. Toad Agent admits new operator
+input into its running activity. An external driver without active-input
+support queues it. Scheduled runs and internal nudges remain queued. Joining
+the queue and claiming an idle driver are one decision under one lock, so a
+line cannot be filed behind a turn that has already stopped coming back for
+it. `session.cancel` stops the turn in flight and drops whatever was waiting.
+Deltas go out on the tape
 subscription as `ephemeral` and are never written; the durable line is the
 message that lands when it is whole.
 
@@ -101,6 +103,51 @@ also restarts the session; see [Reattaching](#reattaching).
 Toad Agent (`driver/rig.rs`) runs the model in this process. Nothing asks
 permission: the teammate's one policy is how far its tools reach, and the
 session says which with every prompt.
+
+`driver/rig/turn.rs` owns one loop over Rig's ordinary streaming completion
+requests and tool execution. Rig keeps provider construction, authentication,
+request encoding, and response parsing. Every Toad Agent provider uses that
+loop; `capabilities.activeInput` is true without a provider steering endpoint.
+
+An operator update interrupts inference, including a request still waiting
+for its first response. The next request includes the update and completed
+history. Incomplete tool calls never execute, and completed calls keep their
+result pairing and provider metadata. A notice confirms when the new request
+produces response evidence. Steering produces no extra logical turn boundary;
+Stop remains a separate control. The composer offers Send alongside Stop
+while working.
+
+Shell commands run as managed jobs owned by `session/jobs.rs` for the active
+conversation activity. `shell` promptly returns a job receipt; `inspect_job`
+reads its state, `wait_jobs` waits up to 30 seconds, and `cancel_job` requests
+termination. A new operator message interrupts a wait without cancelling its
+jobs. The model decides what to keep or cancel, using the current job snapshot
+included with each request. These controls use ordinary Rig tool calls on all
+providers. Up to four commands can run concurrently; controls remain available
+when those launch slots are occupied.
+
+A launch receives exactly one model tool reply. Later results arrive as
+labelled execution data and update the original shell card on the tape. The
+shell card stays in progress until its actual result, including partial output,
+is available. A textual model response cannot finish the logical activity while
+jobs remain: the loop waits for an operator message or a job result without
+issuing idle model requests. Job completion resumes the loop once with the new
+result. Job handles live for that activity; completed facts remain in its
+conversation history. Jobs are not restarted after a process or session restart.
+
+Cancellation signals the command's owned Unix process group or Windows job,
+then waits for process exit and output collection. `cancelling` is only a
+request. `cancelled` requires exit evidence; if termination cannot be confirmed
+within five seconds, the result says `interrupted` with that uncertainty. Stop,
+revocation, and a failed inference also cancel the activity's jobs and settle
+their results before the driver closes. A dropped driver retains process cleanup
+guards. Existing effects are never rolled back.
+
+Other tools remain synchronous. An update arriving during one of those tools
+waits for it to settle, then skips further calls from the old request. An
+obsolete `request_human` wait is released without treating the new text as an
+answer or approval. Missing usage from an interrupted request is reported as
+unknown.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, today's date, how to use Toad's

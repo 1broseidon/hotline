@@ -630,7 +630,11 @@ operatorCreated: boolean, quiet?: boolean, };
 /**
  * What the agent behind a session can be asked to do.
  */
-export type SessionCapabilities = { loadSession: boolean, resume: boolean, fork: boolean, mcpHttp: boolean, image: boolean, };
+export type SessionCapabilities = {
+/**
+ * The driver admits operator input during its active conversation.
+ */
+activeInput: boolean, loadSession: boolean, resume: boolean, fork: boolean, mcpHttp: boolean, image: boolean, };
 
 /**
  * One backend's durable session id for one teammate.

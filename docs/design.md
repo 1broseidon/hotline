@@ -133,7 +133,10 @@ notices, the quiet window, chapters' gate, receipts, the ledger — and a
 `Driver` beneath it that speaks ACP semantics:
 
 - `Driver::InProcess`: Toad Agent on Rig, in this process, owning its tools
-  and its loop. The Rig turn loop from the migration moves over as is.
+  and its loop. A shared loop makes ordinary Rig model requests and admits
+  operator steering between them, independently of the selected provider.
+  Owned shell jobs outlive individual model requests; waits yield to operator
+  input, and cancellation observes exit before reporting completion.
 - `Driver::Child`: an external harness over the Agent Client Protocol on
   Zed's `agent-client-protocol` crate, a child on tokio.
 

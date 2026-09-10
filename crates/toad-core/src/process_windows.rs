@@ -9,7 +9,7 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject,
+    SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA,
@@ -32,6 +32,15 @@ fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
 pub(crate) struct Job(#[allow(dead_code)] OwnedHandle);
 
 impl Job {
+    pub(crate) fn terminate(&self) -> io::Result<()> {
+        // This handle names only the process job created for this child.
+        if unsafe { TerminateJobObject(self.0.as_raw_handle(), 1) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn attach(id: Option<u32>) -> io::Result<Self> {
         let id = id.ok_or_else(|| {
             io::Error::other("The child exited before its process job was established.")

@@ -24,8 +24,8 @@ function isDown(state: SessionState): boolean {
  * a session is up behind them is plumbing: a message typed at one that is
  * not running starts it and then says the message, and nothing on screen
  * asks the person to know the difference. The send key is there only when
- * there is something to send, and is the stop key while the teammate is
- * working; nothing in the pill is ever greyed out, waiting. Attach is the
+ * there is something to send. Stop stays separate while the teammate is
+ * working, so a correction never needs an interruption first. Attach is the
  * plus at the left end. A reply being composed is a one-line quote at the
  * head of the pill, and chips there are files picked or dropped, never a
  * path typed or pasted into it. Escape puts the chips down first, then the
@@ -202,11 +202,12 @@ export function Composer({
 						}}
 					/>
 				</div>
-				{working ? (
+				{working && (
 					<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
 						<StopIcon />
 					</button>
-				) : (
+				)}
+				{(!working || hasContent) && (
 					<button
 						type="button"
 						className="composer-key composer-send"

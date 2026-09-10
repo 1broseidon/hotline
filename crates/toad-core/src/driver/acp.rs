@@ -1848,6 +1848,7 @@ fn usage_of(usage: Option<&acp::Usage>) -> Option<TokenUsage> {
 
 fn capabilities_of(capabilities: &acp::AgentCapabilities) -> SessionCapabilities {
     SessionCapabilities {
+        active_input: false,
         load_session: capabilities.load_session,
         resume: capabilities.session_capabilities.resume.is_some(),
         fork: capabilities.session_capabilities.fork.is_some(),

@@ -126,7 +126,7 @@ jobs:
 
       - name: Verify native desktop credential storage
         if: runner.os != 'Linux'
-        run: cargo test -p toad-core native_store_roundtrip --locked -- --ignored
+        run: cargo test --workspace native_store_roundtrip --locked -- --ignored
 
       # Tauri reads its signing and notarization from the environment, and
       # treats a variable that is set as one that is meant: an empty value

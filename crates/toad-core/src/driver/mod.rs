@@ -307,6 +307,13 @@ pub trait Driver: Send + Sync {
         reach: Reach,
     ) -> mpsc::Receiver<Update>;
 
+    /// Admits new operator input into the current activity. False means the
+    /// activity already ended or this driver cannot steer; the session keeps
+    /// the message in its queue. This never means Stop.
+    fn steer(&self, _text: String, _attachments: Vec<Attachment>) -> bool {
+        false
+    }
+
     /// Stops the turn in flight. A driver with no turn running does nothing.
     fn cancel(&self);
 

@@ -1,25 +1,10 @@
 //! Toad Agent: the driver that runs the model in this process, on Rig.
 //!
-//! A turn is a Rig multi-turn stream — text and reasoning deltas, the tools
-//! the agent calls, their results, and a final response — and every one of
-//! those becomes an [`Update`]. Nothing asks permission: a teammate's one
-//! policy is how far its tools reach, and the session says which with every
-//! prompt.
-//!
-//! Two things this driver cannot learn from the stream it gets, and how it
-//! learns them anyway:
-//!
-//! - **Whether a tool failed.** The tool result Rig streams is the message
-//!   the model will see (`{call, name, content}`); it carries no error flag,
-//!   and a tool that returned `Err` is presented as its error text. Rig's
-//!   canonical result — the one that knows — is offered to a hook, so
-//!   [`ToolOutcomes`] is registered as one and the loop reads the outcome
-//!   back by the call id the stream item carries.
-//! - **That the human pressed Stop.** The turn waits on a [`Stop`] beside the
-//!   stream; raising it abandons the stream, which drops the tool future in
-//!   flight, which kills that command's process group. It is a raised flag
-//!   and not a bare wake, because a turn between two of its own awaits is
-//!   waiting nowhere, and a wake nobody is waiting for never happened.
+//! The shared loop owns each ordinary Rig model request and tool dispatch.
+//! Steering replaces an inference attempt while preserving completed context;
+//! Stop ends the activity. Provider construction and wire formats remain Rig's.
+
+mod turn;
 
 use super::{
     CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
@@ -41,16 +26,11 @@ use crate::tools::{
 use crate::vault::Vault;
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use rig::agent::MultiTurnStreamItem;
-use rig::agent::hook::{AgentHook, HookContext, ToolResultAction, ToolResultEvent};
-use rig::message::{
-    DocumentSourceKind, ImageMediaType, Message, MimeType, ReasoningContent, ToolResultContent,
-};
+use rig::message::{DocumentSourceKind, ImageMediaType, Message, MimeType, ToolResultContent};
 use rig::prelude::*;
 use rig::providers::{
     anthropic, chatgpt, copilot, deepseek, gemini, groq, mistral, openai, openrouter, xai, zai,
 };
-use rig::streaming::{StreamedAssistantContent, StreamedUserContent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -124,6 +104,7 @@ pub struct InProcess {
     /// The stop for the turn in flight. A fresh one per prompt, so a stop
     /// nobody was running is not still standing over the next turn.
     stop: Mutex<Arc<Stop>>,
+    steering: Mutex<Option<Arc<turn::Steering>>>,
     /// Directory oversized tool results are written into, one `{call id}.txt`
     /// each. Created on first use so a teammate that never overflows never
     /// gets a folder.
@@ -168,6 +149,7 @@ impl InProcess {
             effort: Mutex::new(None),
             history: Arc::new(AsyncMutex::new(history)),
             stop: Mutex::new(Arc::new(Stop::default())),
+            steering: Mutex::new(None),
             output_dir,
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
@@ -202,6 +184,10 @@ impl InProcess {
         let metadata = self.keys.model_metadata();
         DriverInfo {
             agent_name: AGENT_NAME.to_string(),
+            capabilities: crate::contract::SessionCapabilities {
+                active_input: true,
+                ..Default::default()
+            },
             models: models::choices(
                 keys,
                 &self.keys.enabled_models(),
@@ -288,6 +274,8 @@ impl Driver for InProcess {
         // so a Stop pressed the instant the prompt returns still finds it.
         let stop = Arc::new(Stop::default());
         *lock(&self.stop) = stop.clone();
+        let steering = Arc::new(turn::Steering::default());
+        *lock(&self.steering) = Some(steering.clone());
         let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
         if let Some(connected) = lock(&self.mcp).as_ref() {
             mcp_tools.extend(
@@ -314,12 +302,21 @@ impl Driver for InProcess {
             reach,
             history: self.history.clone(),
             stop,
+            steering,
             output_dir: self.output_dir.clone(),
             mcp_tools,
             capability: self.capability.clone(),
         };
         tokio::spawn(async move {
-            if let Err(error) = turn.run(&sender, text).await {
+            let result = turn.run(&sender, text).await;
+            let pending = turn.steering.close();
+            if !pending.is_empty() {
+                turn.history
+                    .lock()
+                    .await
+                    .extend(pending.into_iter().map(Message::user));
+            }
+            if let Err(error) = result {
                 let _ = sender
                     .send(Update::Notice {
                         level: NoticeLevel::Error,
@@ -329,6 +326,12 @@ impl Driver for InProcess {
             }
         });
         receiver
+    }
+
+    fn steer(&self, text: String, attachments: Vec<Attachment>) -> bool {
+        lock(&self.steering)
+            .as_ref()
+            .is_some_and(|steering| steering.admit(with_paths(&text, &attachments)))
     }
 
     fn cancel(&self) {
@@ -452,6 +455,7 @@ struct Turn {
     reach: Reach,
     history: Arc<AsyncMutex<Vec<Message>>>,
     stop: Arc<Stop>,
+    steering: Arc<turn::Steering>,
     output_dir: PathBuf,
     mcp_tools: Vec<DynamicTool>,
     capability: Option<CapabilityLease>,
@@ -459,202 +463,55 @@ struct Turn {
 
 impl Turn {
     async fn run(&self, sender: &mpsc::Sender<Update>, text: String) -> Result<(), String> {
+        // Keep admitted input even if workspace or provider construction fails.
+        self.history.lock().await.push(Message::user(text));
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
-        // Taken first so a failure after we have the prompt still keeps the
-        // line: cancel already did, and a retry without the question reaches
-        // the model as a stranger.
-        let mut history = self.history.lock().await;
-        if let Some(capability) = &self.capability {
-            capability.check()?;
-        }
-        let workspace = match Workspace::open_with_capability(
+        let workspace = Workspace::open_with_capability(
             self.cwd.clone(),
             self.reach,
             self.output_dir.clone(),
             self.capability.clone(),
-        ) {
-            Ok(workspace) => workspace,
-            Err(error) => {
-                remember_prompt(&mut history, &text);
-                return Err(error.to_string());
-            }
-        };
-        let provider = self.model.split('/').next().unwrap_or("");
-        let outcomes = ToolOutcomes::new(self.output_dir.clone(), images_to_model(provider));
-        let builder = match agent_builder(
+        )
+        .map_err(|error| error.to_string())?;
+        let mut tools = rig::tool::ToolSet::default();
+        tools.add_tool(ListDirectory::new(workspace.clone()));
+        tools.add_tool(ReadFile::new(workspace.clone()));
+        tools.add_tool(SearchFiles::new(workspace.clone()));
+        tools.add_tool(FindFiles::new(workspace.clone()));
+        tools.add_tool(WriteFile::new(workspace.clone()));
+        tools.add_tool(EditFile::new(workspace.clone()));
+        if tools::shell_available(self.reach).is_ok() {
+            tools.add_tool(RunCommand::new(workspace));
+        }
+        for tool in &self.mcp_tools {
+            tools.add_dynamic_tool(tool.clone());
+        }
+        let agent = agent_builder(
             &self.keys,
             &self.model,
             self.effort.as_deref(),
             self.output_limit,
-        ) {
-            Ok(builder) => builder,
-            Err(error) => {
-                remember_prompt(&mut history, &text);
-                return Err(error);
-            }
+        )?
+        .build();
+        let (max_tokens, additional_params) =
+            request_settings(&self.model, self.effort.as_deref(), self.output_limit)?;
+        let request = rig::completion::CompletionRequest {
+            preamble: Some(self.preamble.clone()),
+            tools: tools.get_tool_definitions(),
+            max_tokens,
+            additional_params,
+            model: None,
+            chat_history: Vec::new(),
+            documents: Vec::new(),
+            temperature: None,
+            tool_choice: None,
+            output_schema: None,
+            record_telemetry_content: false,
         };
-        let mut builder = builder
-            .preamble(&self.preamble)
-            .tool(ListDirectory::new(workspace.clone()))
-            .tool(ReadFile::new(workspace.clone()))
-            .tool(SearchFiles::new(workspace.clone()))
-            .tool(FindFiles::new(workspace.clone()))
-            .tool(WriteFile::new(workspace.clone()))
-            .tool(EditFile::new(workspace.clone()));
-        if tools::shell_available(self.reach).is_ok() {
-            builder = builder.tool(RunCommand::new(workspace));
-        }
-        let agent = builder
-            .dynamic_tools(self.mcp_tools.clone())
-            .add_hook(outcomes.clone())
-            .default_max_turns(MAX_TURNS)
-            .build();
-        let mut stream = agent
-            .stream_chat(text.as_str(), history.clone())
-            .max_turns(MAX_TURNS)
-            .await;
-
-        let mut open: Option<OpenMessage> = None;
-        let mut usage = (0i64, 0i64, 0i64);
-        let mut ended = false;
-
-        loop {
-            let item = tokio::select! {
-                () = self.stop.raised() => {
-                    flush(sender, &mut open).await;
-                    send(sender, Update::Turn { stop_reason: "aborted".to_string(), usage: None }).await;
-                    history.push(Message::user(text));
-                    return Ok(());
-                }
-                item = stream.next() => item,
-            };
-            let Some(item) = item else { break };
-            let item = match item {
-                Ok(item) => item,
-                Err(error) => {
-                    remember_prompt(&mut history, &text);
-                    return Err(error.to_string());
-                }
-            };
-            match item {
-                MultiTurnStreamItem::StreamAssistantItem(content) => match content {
-                    StreamedAssistantContent::Text(chunk) => {
-                        chunk_into(sender, &mut open, MessageKind::Agent, &chunk.text).await;
-                    }
-                    StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
-                        chunk_into(sender, &mut open, MessageKind::Thought, &reasoning).await;
-                    }
-                    StreamedAssistantContent::Reasoning { reasoning, .. } => {
-                        for part in reasoning.content {
-                            if let ReasoningContent::Text { text, .. } = part {
-                                chunk_into(sender, &mut open, MessageKind::Thought, &text).await;
-                            }
-                        }
-                    }
-                    StreamedAssistantContent::ToolCall {
-                        tool_call,
-                        internal_call_id,
-                    } => {
-                        flush(sender, &mut open).await;
-                        send(
-                            sender,
-                            Update::ToolCall {
-                                call_id: internal_call_id,
-                                title: describe_tool(
-                                    &tool_call.function.name,
-                                    &tool_call.function.arguments,
-                                ),
-                                kind: tool_call.function.name,
-                            },
-                        )
-                        .await;
-                    }
-                    _ => {}
-                },
-                MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-                    tool_result,
-                    internal_call_id,
-                }) => {
-                    let (output, mut images) = result_of(&tool_result.content);
-                    if images.is_empty() {
-                        images = outcomes.take_images(&internal_call_id);
-                    }
-                    let ok = outcomes.take(&internal_call_id);
-                    send(
-                        sender,
-                        Update::ToolResult {
-                            call_id: internal_call_id,
-                            ok,
-                            output,
-                            images,
-                        },
-                    )
-                    .await;
-                }
-                MultiTurnStreamItem::CompletionCall(call) => {
-                    usage.0 += call.usage.input_tokens as i64;
-                    usage.1 += call.usage.output_tokens as i64;
-                    usage.2 += call.usage.total_tokens as i64;
-                }
-                MultiTurnStreamItem::FinalResponse(response) => {
-                    flush(sender, &mut open).await;
-                    send(
-                        sender,
-                        Update::Turn {
-                            stop_reason: "end_turn".to_string(),
-                            usage: Some(TokenUsage {
-                                input_tokens: Some(usage.0),
-                                output_tokens: Some(usage.1),
-                                total_tokens: Some(usage.2),
-                            }),
-                        },
-                    )
-                    .await;
-                    match response.messages {
-                        Some(messages) => *history = messages,
-                        None => {
-                            history.push(Message::user(text.clone()));
-                            history.push(Message::assistant(response.output));
-                        }
-                    }
-                    ended = true;
-                }
-                _ => {}
-            }
-        }
-        flush(sender, &mut open).await;
-        if !ended {
-            remember_prompt(&mut history, &text);
-            return Err("the model ended the turn without a response".to_string());
-        }
-        Ok(())
+        turn::run(agent.model_handle(), request, &tools, self, sender).await
     }
-}
-
-/// A failed turn still owes the model the question that started it, so a
-/// retry is a continuation rather than a stranger asking something new.
-fn remember_prompt(history: &mut Vec<Message>, text: &str) {
-    history.push(Message::user(text));
-}
-
-/// Which tool calls failed, by the id the stream will name them with, and the
-/// rewrite that keeps an oversized result off the model's context.
-///
-/// Rig hands the canonical result — the one carrying the disposition — only to
-/// a hook, so this is registered as one and the turn loop reads the outcome
-/// back. The same hook is the only place that can change what the model is
-/// shown, so a result that does not fit is written to disk here and rewritten
-/// to the elided text plus that path.
-#[derive(Clone)]
-struct ToolOutcomes {
-    outcomes: Arc<Mutex<HashMap<String, bool>>>,
-    /// The images each call returned, kept here from the raw result so the
-    /// tape gets its frame even when the model is handed text instead.
-    images: Arc<Mutex<HashMap<String, Vec<ToolImage>>>>,
-    output_dir: PathBuf,
-    images_to_model: bool,
 }
 
 /// Whether a provider takes an image block inside a tool result. Anthropic
@@ -663,67 +520,6 @@ struct ToolOutcomes {
 /// placeholder line and the picture goes to the tape only.
 fn images_to_model(provider: &str) -> bool {
     matches!(provider, "anthropic" | "openai" | "openai-codex")
-}
-
-impl ToolOutcomes {
-    fn new(output_dir: PathBuf, images_to_model: bool) -> Self {
-        Self {
-            outcomes: Arc::new(Mutex::new(HashMap::new())),
-            images: Arc::new(Mutex::new(HashMap::new())),
-            output_dir,
-            images_to_model,
-        }
-    }
-
-    fn take_images(&self, internal_call_id: &str) -> Vec<ToolImage> {
-        lock(&self.images)
-            .remove(internal_call_id)
-            .unwrap_or_default()
-    }
-
-    /// Whether that call succeeded. A call the hook never saw reads as
-    /// succeeded: the transcript's job is to mark the failures it knows about,
-    /// not to accuse a tool of failing because Rig went quiet.
-    fn take(&self, internal_call_id: &str) -> bool {
-        lock(&self.outcomes)
-            .remove(internal_call_id)
-            .unwrap_or(true)
-    }
-}
-
-impl AgentHook for ToolOutcomes {
-    async fn on_tool_result(
-        &self,
-        _context: &HookContext,
-        event: ToolResultEvent<'_>,
-    ) -> ToolResultAction {
-        lock(&self.outcomes).insert(
-            event.internal_call_id.to_string(),
-            event.raw_result.is_success(),
-        );
-        let (text_with_placeholders, images) = result_of(event.presentation.as_content());
-        if !images.is_empty() {
-            lock(&self.images).insert(event.internal_call_id.to_string(), images);
-            // A screenshot is meant for the model, and a rewrite can only
-            // produce text: a provider that takes the picture keeps the
-            // blocks as they are, one that would refuse the message gets the
-            // placeholder line instead.
-            return if self.images_to_model {
-                ToolResultAction::Keep
-            } else {
-                ToolResultAction::rewrite(text_with_placeholders)
-            };
-        }
-        let text = event.presentation.render();
-        if text.len() <= MODEL_TOOL_OUTPUT_BYTES {
-            return ToolResultAction::Keep;
-        }
-        ToolResultAction::rewrite(hand_to_model(
-            &self.output_dir,
-            event.internal_call_id,
-            &text,
-        ))
-    }
 }
 
 /// The text the model is given for a tool result: the whole thing when it
@@ -1001,32 +797,36 @@ fn agent_builder(
             .map_err(text)?
             .agent(model),
     };
-    // Anthropic requires max_tokens even for a model Rig has never seen.
-    // 4096 is a conservative request budget, not a claim about that model's
-    // unknown output ceiling. Other providers can choose their own defaults.
-    let ceiling = output_limit
-        .or_else(|| models::output_limit(model_id))
-        .or_else(|| (wiring.client == Client::Anthropic).then_some(4096));
+    let (ceiling, params) = request_settings(model_id, effort, output_limit)?;
     let builder = match ceiling {
         Some(ceiling) => builder.max_tokens(ceiling),
         None => builder,
     };
-    let Some(effort) = effort else {
-        return Ok(builder);
-    };
-    // Copilot's chat-completions route takes `reasoning_effort`; its
-    // Responses route (a model whose id contains "codex") takes the same
-    // body as OpenAI. Rig's `route_for_model` is that contains check.
-    let params =
-        if wiring.client == Client::Copilot && !model.to_ascii_lowercase().contains("codex") {
-            Some(serde_json::json!({"reasoning_effort": effort}))
-        } else {
-            effort_params(wiring.client, effort)
-        };
     Ok(match params {
         Some(params) => builder.additional_params(params),
         None => builder,
     })
+}
+
+fn request_settings(
+    model_id: &str,
+    effort: Option<&str>,
+    output_limit: Option<u64>,
+) -> Result<(Option<u64>, Option<Value>), String> {
+    let (provider, model) = model_id.split_once('/').ok_or("Model has no provider")?;
+    let wiring = models::wiring(provider).ok_or("Unknown provider")?;
+    // Anthropic requires a ceiling even for a model absent from discovery.
+    let ceiling = output_limit
+        .or_else(|| models::output_limit(model_id))
+        .or_else(|| (wiring.client == Client::Anthropic).then_some(4096));
+    let params = effort.and_then(|effort| {
+        if wiring.client == Client::Copilot && !model.to_ascii_lowercase().contains("codex") {
+            Some(serde_json::json!({"reasoning_effort": effort}))
+        } else {
+            effort_params(wiring.client, effort)
+        }
+    });
+    Ok((ceiling, params))
 }
 
 fn text(error: impl std::fmt::Display) -> String {
@@ -1333,23 +1133,12 @@ mod tests {
         assert_eq!(describe_tool("glob", &json!({})), "glob");
     }
 
-    /// A tool nobody reported on succeeded; one the hook saw fail did not, and
-    /// the answer is taken only once because a tape event is written once.
     #[test]
     fn only_providers_that_take_a_picture_in_a_tool_result_get_one() {
         assert!(images_to_model("anthropic"));
         assert!(images_to_model("openai-codex"));
         assert!(!images_to_model("openrouter"));
         assert!(!images_to_model("ollama"));
-    }
-
-    #[test]
-    fn a_tool_outcome_is_read_back_by_the_call_id_the_stream_names() {
-        let outcomes = ToolOutcomes::new(PathBuf::new(), true);
-        assert!(outcomes.take("call-1"));
-        lock(&outcomes.outcomes).insert("call-1".to_string(), false);
-        assert!(!outcomes.take("call-1"));
-        assert!(outcomes.take("call-1"));
     }
 
     #[test]
@@ -1468,6 +1257,7 @@ mod tests {
             reach: Reach::Workspace,
             history: history.clone(),
             stop: Arc::new(Stop::default()),
+            steering: Arc::new(turn::Steering::default()),
             output_dir: root.join("out"),
             mcp_tools: Vec::new(),
             capability: None,

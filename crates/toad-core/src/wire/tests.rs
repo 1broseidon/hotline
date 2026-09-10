@@ -42,6 +42,7 @@ fn idle(persona_id: &str) -> SessionInfo {
         configs: Vec::new(),
         slash_commands: Vec::new(),
         capabilities: SessionCapabilities {
+            active_input: false,
             load_session: false,
             resume: false,
             fork: false,

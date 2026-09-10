@@ -32,11 +32,13 @@ is open, and only then may a scheduled firing open one of its own:
 | scheduled | a firing claims the user line, stamps `scheduled` on it, and may open a quiet window over the turn that follows |
 
 A prompt needs a live session; `session.start` is what brings one up. The
-command returns as soon as the turn is started. A line that arrives while a
-turn is running is queued behind it. Joining that queue and claiming an idle
-driver are one decision under one lock, so a line cannot be filed behind a
-turn that has already stopped coming back for it. `session.cancel` stops the
-turn in flight and drops whatever was waiting. Deltas go out on the tape
+command returns as soon as the turn is started. Toad Agent admits new operator
+input into its running activity. An external driver without active-input
+support queues it. Scheduled runs and internal nudges remain queued. Joining
+the queue and claiming an idle driver are one decision under one lock, so a
+line cannot be filed behind a turn that has already stopped coming back for
+it. `session.cancel` stops the turn in flight and drops whatever was waiting.
+Deltas go out on the tape
 subscription as `ephemeral` and are never written; the durable line is the
 message that lands when it is whole.
 
@@ -101,6 +103,27 @@ also restarts the session; see [Reattaching](#reattaching).
 Toad Agent (`driver/rig.rs`) runs the model in this process. Nothing asks
 permission: the teammate's one policy is how far its tools reach, and the
 session says which with every prompt.
+
+`driver/rig/turn.rs` owns one loop over Rig's ordinary streaming completion
+requests and tool execution. Rig keeps provider construction, authentication,
+request encoding, and response parsing. Every Toad Agent provider uses that
+loop; `capabilities.activeInput` is true without a provider steering endpoint.
+
+An operator update interrupts inference, including a request still waiting
+for its first response. The next request includes the update and completed
+history. Incomplete tool calls never execute, and completed calls keep their
+result pairing and provider metadata. A notice confirms when the new request
+produces response evidence. Steering produces no extra logical turn boundary;
+Stop remains a separate control. The composer offers Send alongside Stop
+while working.
+
+Tool execution is currently synchronous. An update arriving during a running
+tool waits for that tool to settle, then skips further calls from the old
+request and reaches the next model invocation. An obsolete `request_human`
+wait is released without treating the new text as an answer or approval.
+Stop still cancels the running tool through its existing cleanup guards.
+Neither interruption nor Stop rolls back completed effects. Missing usage
+from an interrupted request is reported as unknown.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, today's date, how to use Toad's

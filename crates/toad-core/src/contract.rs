@@ -766,6 +766,9 @@ pub struct SessionConfig {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct SessionCapabilities {
+    /// The driver admits operator input during its active conversation.
+    #[serde(default)]
+    pub active_input: bool,
     pub load_session: bool,
     pub resume: bool,
     pub fork: bool,

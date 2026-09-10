@@ -305,6 +305,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         configs: Vec::new(),
         slash_commands: Vec::new(),
         capabilities: SessionCapabilities {
+            active_input: false,
             load_session: false,
             resume: false,
             fork: false,
@@ -325,10 +326,9 @@ struct Session {
     backend_id: String,
     driver: Arc<dyn Driver>,
     info: Mutex<SessionInfo>,
-    /// The lines waiting for this teammate and whether a driver is already
-    /// taking them, under one lock. One turn at a time: a redirect waits for
-    /// the turn it would have interrupted.
+    /// Queued lines and the claim on the active driver share one lock.
     turns: Mutex<Turns>,
+    input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
     /// The firing the next user line belongs to.
@@ -395,6 +395,8 @@ struct Wired {
     /// Authorization travels with the queued turn: a one-shot job may have
     /// left the room stream by the time the driver is free to take it.
     scheduled: Option<ScheduledRun>,
+    /// Operator input can steer. Internal nudges and scheduled runs queue.
+    steer: bool,
 }
 
 impl Wired {
@@ -403,6 +405,7 @@ impl Wired {
             text: text.into(),
             attachments: Vec::new(),
             scheduled: None,
+            steer: false,
         }
     }
 }
@@ -766,6 +769,7 @@ impl Room {
             driver,
             info: Mutex::new(info.clone()),
             turns: Mutex::new(Turns::default()),
+            input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
             quiet: Mutex::new(None),
@@ -1052,7 +1056,7 @@ impl Room {
 
     /// Hands the teammate a message and returns at once: the turn runs on its
     /// own task and everything it does arrives as tape events and deltas. A
-    /// message sent during a turn is queued behind it.
+    /// message sent during a turn steers when the driver supports active input.
     ///
     /// `reply_to` is the id of the message this one answers, and the
     /// attachments are files the teammate is handed alongside the words.
@@ -1079,6 +1083,7 @@ impl Room {
                     text: text.to_string(),
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,
+                    steer: true,
                 },
                 attachments,
             },
@@ -1159,6 +1164,7 @@ impl Room {
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.
         let Some(wire) = lock(&session.turns).claim(wire) else {
+            session.input_ready.notify_one();
             return;
         };
         let room = self.clone();
@@ -2015,7 +2021,14 @@ impl Room {
                 .await;
             let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
             let mut asked = false;
-            while let Some(update) = updates.recv().await {
+            loop {
+                self.steer_waiting(&session);
+                let update = tokio::select! {
+                    biased;
+                    () = session.input_ready.notified() => continue,
+                    update = updates.recv() => update,
+                };
+                let Some(update) = update else { break };
                 asked |= matches!(update, Update::Permission { .. });
                 self.record(&session, update, &mut in_flight);
             }
@@ -2044,6 +2057,31 @@ impl Room {
             return;
         }
         self.set_state(&session, SessionState::Ready);
+    }
+
+    fn steer_waiting(&self, session: &Arc<Session>) {
+        if !session.capability.is_current() || !self.current_session(session) {
+            return;
+        }
+        let mut turns = lock(&session.turns);
+        let mut steered = false;
+        while let Some(index) = turns.waiting.iter().position(|wire| wire.steer) {
+            let wire = &turns.waiting[index];
+            if !session
+                .driver
+                .steer(wire.text.clone(), wire.attachments.clone())
+            {
+                break;
+            }
+            turns.waiting.remove(index);
+            steered = true;
+        }
+        drop(turns);
+        if steered {
+            // A new instruction is neither an answer nor permission. Release
+            // an obsolete human wait so the model can reconsider the request.
+            self.release_human_waits(&session.persona_id);
+        }
     }
 
     /// One driver update, as the tape and the wire see it.

@@ -1561,7 +1561,10 @@ mod tests {
         // directory up from `deps`, wherever the target directory lives.
         std::env::current_exe()
             .ok()
-            .and_then(|exe| Some(exe.parent()?.parent()?.join("toad-mcp-echo")))
+            .and_then(|exe| {
+                let name = format!("toad-mcp-echo{}", std::env::consts::EXE_SUFFIX);
+                Some(exe.parent()?.parent()?.join(name))
+            })
             .filter(|path| path.exists())
             .expect("toad-mcp-echo should have been built with this test")
             .to_string_lossy()

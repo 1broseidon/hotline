@@ -2163,6 +2163,11 @@ mod tests {
         crate::session::Room::new(crate::log::Log::open(scratch(name)), Arc::new(NoKeys))
     }
 
+    /// A directory that exists on every platform; `/tmp` is not one on Windows.
+    fn scratch_cwd() -> String {
+        std::env::temp_dir().to_string_lossy().into_owned()
+    }
+
     fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona {
         Persona {
             node: None,
@@ -2432,7 +2437,7 @@ mod tests {
         let heard = Heard::default();
         let agent = scripted_agent(heard.clone(), false);
         let held = room("turn-room");
-        let ada = persona("/tmp", Vec::new());
+        let ada = persona(&scratch_cwd(), Vec::new());
         let briefing = crate::session::preamble(&ada, None, None);
         let driver = ChildAgent::new(
             root,
@@ -2546,7 +2551,7 @@ mod tests {
         tokio::spawn(agent);
 
         let ada = persona(
-            "/tmp",
+            &scratch_cwd(),
             vec![SessionCheckpoint {
                 backend_id: "cursor".to_string(),
                 session_id: "old-session".to_string(),
@@ -2669,7 +2674,7 @@ mod tests {
         );
         tokio::spawn(agent);
 
-        let mut ada = persona("/tmp", Vec::new());
+        let mut ada = persona(&scratch_cwd(), Vec::new());
         ada.id = "declared".to_string();
         driver.handshake(&ada, client_transport()).await.unwrap();
 
@@ -2869,7 +2874,7 @@ mod tests {
         );
         tokio::spawn(agent);
         driver
-            .handshake(&persona("/tmp", Vec::new()), client_transport())
+            .handshake(&persona(&scratch_cwd(), Vec::new()), client_transport())
             .await
             .unwrap();
 
@@ -3002,7 +3007,7 @@ mod tests {
         );
         tokio::spawn(agent);
 
-        let mut ada = persona("/tmp", Vec::new());
+        let mut ada = persona(&scratch_cwd(), Vec::new());
         ada.id = "eager".to_string();
         driver.handshake(&ada, client_transport()).await.unwrap();
 

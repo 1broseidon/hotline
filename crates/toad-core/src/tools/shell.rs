@@ -205,11 +205,18 @@ fn workspace_shell_on_path(path: Option<&std::ffi::OsStr>) -> Result<(), String>
 }
 
 fn unconfined(command: &str, workspace: &Path) -> Command {
-    let mut process = if cfg!(target_os = "windows") {
+    #[cfg(windows)]
+    let mut process = {
+        // cmd.exe does not read CommandLineToArgvW escaping, so the standard
+        // quoting would turn every `"` in the command into `\"`. With `/s`
+        // cmd strips the outer quotes and runs the rest as typed; `/d` skips
+        // AutoRun commands from the registry.
         let mut process = Command::new("cmd");
-        process.args(["/C", command]);
+        process.raw_arg(format!("/d /s /c \"{command}\""));
         process
-    } else {
+    };
+    #[cfg(not(windows))]
+    let mut process = {
         let mut process = Command::new("sh");
         process.args(["-c", command]);
         process

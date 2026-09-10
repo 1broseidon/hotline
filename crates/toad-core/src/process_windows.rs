@@ -82,37 +82,56 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+    use windows_sys::Win32::System::JobObjects::{
+        JOBOBJECT_BASIC_PROCESS_ID_LIST, JobObjectBasicProcessIdList, QueryInformationJobObject,
+    };
     use windows_sys::Win32::System::Threading::{
         PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
     };
 
+    /// The process ids the job holds right now.
+    fn members(job: &Job) -> Vec<u32> {
+        // Two counts, then the ids; a buffer too small for every id still
+        // reports the ones that fit.
+        let mut buffer = [0usize; 64];
+        let mut returned = 0u32;
+        unsafe {
+            QueryInformationJobObject(
+                job.0.as_raw_handle(),
+                JobObjectBasicProcessIdList,
+                buffer.as_mut_ptr().cast(),
+                size_of_val(&buffer) as u32,
+                &mut returned,
+            );
+            let list = &*(buffer.as_ptr() as *const JOBOBJECT_BASIC_PROCESS_ID_LIST);
+            let count = (list.NumberOfProcessIdsInList as usize).min(buffer.len() - 1);
+            std::slice::from_raw_parts(list.ProcessIdList.as_ptr(), count)
+                .iter()
+                .map(|id| *id as u32)
+                .collect()
+        }
+    }
+
     #[tokio::test]
     async fn children_wait_for_the_job_and_descendants_die_when_it_closes() {
-        let root = tempfile::tempdir().unwrap();
-        let marker = root.path().join("child.pid");
-        let marker_text = marker.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$p = Start-Process -FilePath cmd.exe -ArgumentList '/d /c ping -n 60 127.0.0.1 > nul' -PassThru -NoNewWindow; $p.Id | Set-Content -Path '{marker_text}'; Start-Sleep -Seconds 60"
-        );
-        let mut command = tokio::process::Command::new("powershell.exe");
-        command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+        let mut command = tokio::process::Command::new("cmd.exe");
+        command.raw_arg("/d /s /c \"ping -n 60 127.0.0.1 > nul\"");
         prepare(&mut command);
         let mut child = command.spawn().unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(!marker.exists(), "the child ran before job assignment");
-        let job = Job::attach(child.id()).unwrap();
-        let descendant = tokio::time::timeout(Duration::from_secs(20), async {
+        let id = child.id().unwrap();
+        let job = Job::attach(Some(id)).unwrap();
+        // The child was resumed inside the job, so the ping it starts is a
+        // member too: a descendant the job can reach.
+        let descendant = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
-                if let Ok(text) = std::fs::read_to_string(&marker)
-                    && let Ok(id) = text.trim().parse::<u32>()
-                {
-                    break id;
+                if let Some(found) = members(&job).into_iter().find(|member| *member != id) {
+                    break found;
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
         .await
-        .unwrap();
+        .expect("the resumed child never started a descendant inside the job");
         let handle = owned(unsafe {
             OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,

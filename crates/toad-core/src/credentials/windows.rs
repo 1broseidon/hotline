@@ -244,7 +244,14 @@ mod tests {
             assert!(dacl.starts_with("D:P"), "{dacl}");
             assert_eq!(dacl.matches("(A;").count(), 2, "{dacl}");
             assert!(dacl.contains(";;;SY)"), "{dacl}");
-            assert!(dacl.contains(";;;S-"), "{dacl}");
+            // A well-known account prints as an alias such as `LA` rather than
+            // an `S-` SID, so the owner's ACE is the one that is not SYSTEM's.
+            let owner = dacl
+                .split("(A;")
+                .skip(1)
+                .find(|ace| !ace.contains(";;;SY)"))
+                .expect(&dacl);
+            assert!(owner.contains(";FA;;;"), "{dacl}");
         }
         let other = root.path().join("other");
         std::fs::create_dir(&other).unwrap();

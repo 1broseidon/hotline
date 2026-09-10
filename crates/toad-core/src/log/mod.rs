@@ -148,7 +148,9 @@ impl Log {
     pub fn sync(&self, stream: &StreamId) -> io::Result<()> {
         let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         for path in self.readable_files(stream) {
-            match fs::File::open(path) {
+            // Windows refuses to flush a handle that was opened without write
+            // access, so the file is opened for writing and never written.
+            match fs::OpenOptions::new().write(true).open(path) {
                 Ok(file) => file.sync_all()?,
                 // A new installation has no room stream until its first edit.
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}

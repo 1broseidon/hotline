@@ -185,6 +185,12 @@ puts in that workspace.
 | macOS | The existing `sandbox-exec` profile confines writes but still permits host reads. It does **not** provide Linux's read isolation. Built, unproven on a Mac until George runs it. |
 | Windows | No confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
 
+On Windows, shell commands, ACP agents and stdio MCP servers start suspended,
+enter a kill-on-close job, and resume only after assignment succeeds. Closing
+the job cleans up descendants as well as the direct child. A job controls
+process lifetime; it does not provide workspace confinement.
+
+
 On Linux, `.toad-home/` inside the workspace is the shell's persistent `HOME`,
 with private XDG and Cargo directories. It is created inside the sandbox so a
 project-controlled symlink cannot make Toad write outside. Workspaces do not

@@ -5,10 +5,10 @@ pub(crate) mod custom;
 pub(crate) mod discovery;
 pub(crate) mod xai;
 
+use crate::credentials::CredentialFile;
 use oauth2::PkceCodeChallenge;
 use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use url::Url;
@@ -60,9 +60,11 @@ struct OpenRouterKey {
     key: String,
 }
 
-pub(crate) fn openrouter_key(token_dir: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(token_dir.join("auth.json"))
-        .map_err(|_| "OpenRouter sign-in is missing. Sign in again.".to_string())?;
+pub(crate) fn openrouter_key(tokens: &CredentialFile) -> Result<String, String> {
+    let bytes = tokens
+        .read()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "OpenRouter sign-in is missing. Sign in again.".to_string())?;
     let auth: OpenRouterKey = serde_json::from_slice(&bytes)
         .map_err(|_| "OpenRouter sign-in could not be read. Sign in again.".to_string())?;
     if auth.key.trim().is_empty() {
@@ -72,11 +74,11 @@ pub(crate) fn openrouter_key(token_dir: &Path) -> Result<String, String> {
 }
 
 pub(crate) async fn openrouter_login(
-    token_dir: &Path,
+    tokens: &CredentialFile,
     emit: impl FnOnce(String, String),
 ) -> Result<(), String> {
     openrouter_login_at(
-        token_dir,
+        tokens,
         emit,
         "https://openrouter.ai/auth",
         "https://openrouter.ai/api/v1/auth/keys",
@@ -93,7 +95,7 @@ impl Drop for CallbackServer {
 }
 
 async fn openrouter_login_at(
-    token_dir: &Path,
+    tokens: &CredentialFile,
     emit: impl FnOnce(String, String),
     authorize_url: &str,
     exchange_url: &str,
@@ -199,13 +201,17 @@ async fn openrouter_login_at(
         return Err("OpenRouter returned an empty key.".into());
     }
     let bytes = serde_json::to_vec(&auth).map_err(|error| error.to_string())?;
-    crate::vault::write_private(&token_dir.join("auth.json"), &bytes)
-        .map_err(|error| error.to_string())
+    tokens.write(&bytes).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn record(dir: &std::path::Path) -> CredentialFile {
+        crate::credentials::CredentialFiles::new(dir.into(), crate::credentials::default_store())
+            .file(dir.join("auth.json"))
+    }
     use axum::{
         Router,
         body::Bytes,
@@ -306,7 +312,7 @@ mod tests {
         let target = dir.clone();
         let login = tokio::spawn(async move {
             openrouter_login_at(
-                &target,
+                &record(&target),
                 |code, url| {
                     assert!(code.is_empty());
                     prompt_tx.send(url).unwrap();
@@ -351,7 +357,10 @@ mod tests {
             params["code_challenge"]
         );
         login.await.unwrap().unwrap();
-        assert_eq!(openrouter_key(&dir).unwrap(), "openrouter-test-secret");
+        assert_eq!(
+            openrouter_key(&record(&dir)).unwrap(),
+            "openrouter-test-secret"
+        );
         vault.finish_login(&id, "openrouter", "OpenRouter").unwrap();
         assert!(
             !serde_json::to_string(&log.load(&crate::log::StreamId::Room))
@@ -371,7 +380,7 @@ mod tests {
             );
         }
         vault.delete(&id).unwrap();
-        assert!(openrouter_key(&dir).is_err());
+        assert!(openrouter_key(&record(&dir)).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -397,7 +406,7 @@ mod tests {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let task = tokio::spawn(async move {
                 openrouter_login_at(
-                    &target,
+                    &record(&target),
                     |_, url| {
                         let _ = tx.send(url);
                     },

@@ -125,8 +125,8 @@ or resume after cancellation/failure. Installation replaces application files;
 it does not migrate, reset or overwrite the data directory, vault, discovered
 models, manual model entries or conversations.
 
-The shipped targets are macOS aarch64/x86_64 app bundles and Linux x86_64
-AppImage/deb/rpm. Explicit manifest keys include the installer suffix, so a
+The configured targets are macOS aarch64/x86_64 app bundles, Linux x86_64
+AppImage/deb/rpm, and a Windows x86_64 per-user NSIS installer. Explicit manifest keys include the installer suffix, so a
 missing deb is an error, never an AppImage fallback. Other packages and
 architectures open the release page instead. Development builds, including
 `make dev`, neither check nor install. Headless tests use Tauri's mock runtime,
@@ -149,13 +149,23 @@ trust the replacement. Never commit the private key or include it in artifacts.
 release CI explicitly enables `createUpdaterArtifacts` and requires signatures.
 
 Each workflow build collects packages and signatures under predictable names.
-After all three targets succeed, `scripts/updater_manifest.py` verifies that
+After all four build targets pass their checks, `scripts/updater_manifest.py` verifies that
 every expected package/signature exists and writes `updater-X.Y.Z.json` and
 `latest.json`. Notes come from the draft GitHub release. The release becomes
 latest only after all assets are uploaded. Manual workflow runs produce signed
 workflow artifacts without publishing. Published versions cannot be rebuilt;
-ship a new stable `desktop-vX.Y.Z` tag. Windows remains outside the release
-matrix until its existing vault prerequisite is resolved.
+ship a new stable `desktop-vX.Y.Z` tag. Windows updater signatures use the
+same required updater key. Authenticode publisher signing is deferred; an
+unsigned installer can still trigger Windows reputation warnings.
+
+Each build runs formatting, Clippy, the workspace tests, UI type checking and
+manifest tests. Windows and macOS also test a disposable native credential entry.
+Local core harnesses inject in-memory stores; they never use the operator's
+keychain. Run `cargo test -p toad-core native_store_roundtrip -- --ignored`
+to explicitly test the native store with a disposable entry. Linux build hosts
+need `libdbus-1-dev`, and desktop credential use needs an unlocked Secret
+Service session. The credential format and Rig OAuth exception are described
+in [the vault](log.md#the-vault).
 
 ## The window
 

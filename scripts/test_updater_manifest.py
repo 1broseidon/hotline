@@ -16,7 +16,9 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_installer_has_its_own_architecture_and_package(self):
         data = manifest(self.root, "0.6.0", "1Broseidon/toad", "Release notes")
-        self.assertEqual(len(data["platforms"]), 5)
+        self.assertEqual(len(data["platforms"]), 6)
+        windows = data["platforms"]["windows-x86_64-nsis"]
+        self.assertTrue(windows["url"].endswith("windows_x86_64-setup.exe"))
         deb = data["platforms"]["linux-x86_64-deb"]
         self.assertTrue(deb["url"].endswith(".deb"))
         self.assertIn("/desktop-v0.6.0/", deb["url"])

@@ -8,13 +8,14 @@
 //! other kind of agent: set `TOAD_HARNESS_ACP` to a backend id this machine
 //! can run (`cursor`, say) and it drives a real harness as a child.
 
+mod common;
+
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use toad_core::desk::Desk;
 use toad_core::wire::Door;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -23,10 +24,68 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 const TOKEN: &str = "a-token-only-this-harness-knows";
 
 #[tokio::test]
+async fn legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history() {
+    let root = scratch("legacy-mcp-redaction");
+    let log = toad_core::log::Log::open(&root);
+    log.append(&toad_core::log::StreamId::Room, &json!({
+        "kind":"setting", "id":"mcpServers", "value":[
+            {"id":"remote", "name":"Remote", "type":"http", "url":"https://example.com/mcp?token=legacy-url-secret"},
+            {"id":"local", "name":"Local", "type":"stdio", "command":"example-server", "args":["legacy-argument-secret"], "env":{"TOKEN":"legacy-env-secret"}}
+        ]
+    })).unwrap();
+    drop(log);
+    let port = open_at(&root);
+    let mut client = Client::connect(port).await;
+    let subscription = client.subscribe(json!("room")).await;
+    let snapshot = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, subscription, "snapshot")
+        })
+        .await;
+    for secret in [
+        "legacy-url-secret",
+        "legacy-argument-secret",
+        "legacy-env-secret",
+    ] {
+        assert!(!snapshot.to_string().contains(secret));
+    }
+    let setting = snapshot["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["id"] == "mcpServers")
+        .unwrap();
+    let public = &setting["value"];
+    assert_eq!(public[0]["url"], "");
+    assert_eq!(public[0]["urlNeedsRepair"], true);
+    assert_eq!(public[1]["launchValuesPending"], true);
+    let refused = client
+        .call("settings.update", json!({"patch":{"mcpServers":public}}))
+        .await;
+    assert_eq!(refused["ok"], false);
+    let updated = client.call("settings.update", json!({"patch":{"mcpServers":[
+        {"id":"remote", "name":"Remote", "type":"http", "url":"https://example.com/mcp"},
+        {"id":"local", "name":"Local", "type":"stdio", "command":"example-server", "args":["replacement-secret"]}
+    ]}})).await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert!(!updated.to_string().contains("replacement-secret"));
+    let disk = std::fs::read_to_string(root.join("room.jsonl")).unwrap();
+    for secret in [
+        "legacy-url-secret",
+        "legacy-argument-secret",
+        "legacy-env-secret",
+        "replacement-secret",
+    ] {
+        assert!(!disk.contains(secret));
+    }
+    assert!(disk.contains("credentialRef"));
+}
+
+#[tokio::test]
 async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
     let root = scratch("grok-zai-connections");
     let log = toad_core::log::Log::open(&root);
-    let vault = toad_core::vault::Vault::open(&root, log).unwrap();
+    let vault = common::open_vault(&root, log).unwrap();
     // A completed fake login is written before the core starts, like an
     // imported credential. The wire must never expose this private half.
     let (id, dir) = vault.begin_login("xai").unwrap();
@@ -124,7 +183,7 @@ async fn open(name: &str) -> (PathBuf, u16) {
 
 /// The same, on a data directory somebody has already put something in.
 fn open_at(root: &Path) -> u16 {
-    let desk = Desk::open(root).unwrap();
+    let desk = common::open_desk(root).unwrap();
     let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
@@ -880,7 +939,7 @@ async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
         .join("vault/logins")
         .join(credential["id"].as_str().unwrap())
         .join("models.json");
-    let reopened = Desk::open(&root).unwrap();
+    let reopened = common::open_desk(&root).unwrap();
     assert_eq!(
         toad_core::wire::RoomHandle::models(&reopened)[0].id,
         "ollama/custom/coder:latest"
@@ -1118,7 +1177,7 @@ async fn custom_connections_keep_models_keys_and_edits_separate() {
     let cleared = client.call("credential.custom_save", json!({"id":id,"draft":{"name":"Keyless","baseUrl":wrong_url,"api":"responses","secret":"","models":["vendor/manual"]}})).await;
     assert_eq!(cleared["result"]["credentialKind"], "local", "{cleared}");
     assert!(!auth.exists());
-    let reopened = Desk::open(&root).unwrap();
+    let reopened = common::open_desk(&root).unwrap();
     assert_eq!(toad_core::wire::RoomHandle::models(&reopened).len(), 2);
     drop(reopened);
     client.call("credential.delete", json!({"id":id})).await;
@@ -1465,7 +1524,7 @@ async fn discovery_and_manual_ids_preserve_filters_selections_and_offline_data_o
             .await["result"],
         saved["result"]
     );
-    let reopened = Desk::open(&root).unwrap();
+    let reopened = common::open_desk(&root).unwrap();
     assert_eq!(
         serde_json::to_value(reopened.models_catalog("ollama").unwrap()).unwrap(),
         saved["result"]
@@ -1498,10 +1557,10 @@ async fn discovery_and_manual_ids_preserve_filters_selections_and_offline_data_o
 
 #[tokio::test]
 async fn native_connection_metadata_and_account_restrictions_survive_reopening_over_the_wire() {
-    use toad_core::{log::Log, vault::Vault, wire::RoomHandle};
+    use toad_core::{log::Log, wire::RoomHandle};
     let root = scratch("native-discovery-metadata");
     let log = Log::open(&root);
-    let vault = Vault::open(&root, log).unwrap();
+    let vault = common::open_vault(&root, log).unwrap();
     let anthropic = vault
         .create("anthropic", "Anthropic key", "private-test-key")
         .unwrap();
@@ -1632,7 +1691,7 @@ async fn native_connection_metadata_and_account_restrictions_survive_reopening_o
         )
         .await;
     assert_eq!(manual["ok"], true);
-    let reopened = Desk::open(&root).unwrap();
+    let reopened = common::open_desk(&root).unwrap();
     assert_eq!(
         serde_json::to_value(reopened.models_catalog("anthropic").unwrap()).unwrap(),
         manual["result"]
@@ -1652,7 +1711,7 @@ async fn native_connection_metadata_and_account_restrictions_survive_reopening_o
 #[tokio::test]
 async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() {
     let root = scratch("restart-wire");
-    let desk = Arc::new(Desk::open(&root).unwrap());
+    let desk = Arc::new(common::open_desk(&root).unwrap());
     assert!(
         desk.prepare_restart().is_ok(),
         "An empty installation can update too"
@@ -1683,6 +1742,6 @@ async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() 
     drop(held);
     assert!(desk.prepare_restart().is_ok());
     door_task.abort();
-    let reopened = Desk::open(&root).unwrap();
+    let reopened = common::open_desk(&root).unwrap();
     assert_eq!(reopened.log.load(&toad_core::log::StreamId::Room), saved);
 }

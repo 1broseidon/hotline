@@ -79,9 +79,10 @@ file folded by id, exactly the tape's model:
 | `thread/<a~b>` | a conversation between two teammates | pair |
 
 The roster is a fold over `room`. Settings are a fold over `room`. A delete
-is a tombstone event. Secrets are never events: they live in the vault (a
-`0600` file in a `0700` directory) and the log holds only the fact that a
-credential exists. Replication, when it returns, is shipping a stream's
+is a tombstone event. Secrets are never events: Toad-owned provider and MCP values live in the
+operating system credential store; the vault files hold opaque references.
+Rig-owned ChatGPT and Copilot OAuth caches remain permission-restricted files.
+The log holds only credential metadata. Replication, when it returns, is shipping a stream's
 bytes, which the tape's segment model already does.
 
 What breaks without it: every stored thing needs its own writer, its own

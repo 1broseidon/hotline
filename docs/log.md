@@ -214,24 +214,49 @@ chapter sweep and the scheduler's clock start on the same open; those are
 
 ## The vault
 
-`<root>/vault/secrets.json` is a JSON map from credential id to secret.
-On Unix the directory is `0700` and the file is `0600`, written through a
-temporary file, an fsync of those bytes, a rename, and an fsync of the
-directory so the rename is durable. A write that fails removes its
-temporary. Permissions are set on the directory's fd, not through a path
-that could be a symlink. Opening the vault creates nothing; the layout is
-a write-time obligation. A symlink where the directory or the file should
-be is refused rather than followed. On Windows, making the directory
-private is not built, and a write is refused rather than pretending.
+Toad-owned provider keys, OpenRouter/Grok logins and MCP credentials use
+macOS Keychain, Windows Credential Manager or Linux Secret Service through
+`keyring`. Vault files hold versioned, opaque references and integrity digests,
+not their secret values. Each reference is bound to its exact data-root path
+and record path, so copying it into another connection does not copy access.
+Large records use 2,000-byte chunks for Windows' credential size limit. A
+replacement writes a new generation, verifies it, then durably replaces the
+reference before deleting the previous generation. Failed writes preserve the
+old credential; an uncertain filesystem commit keeps both generations for
+recovery. Missing records and locked/unavailable stores remain distinct errors.
+There is no plaintext fallback for migrated credentials.
 
-Create writes the secret first, then the room event. Delete takes the
-secret first, then the tombstone. Create and delete share one lock,
-because each is a read of the whole map, one entry changed, and the whole
-map written back. A login's tokens live in `vault/logins/<id>/` and never
-in `secrets.json`. `list` is the room's metadata in creation order;
-`provider_auth` is one usable credential per provider — the first created
-wins — skipping revoked rows, rows whose secret is missing, and logins
-whose directory is gone.
+Existing JSON credentials migrate on first use. A failed migration preserves
+the original bytes and refuses credential use. MCP launch arguments and
+environment values migrate when the vault opens or a source connects. The
+core atomically rewrites the room fold after storing those values, removing
+superseded settings that also contained secrets. An unavailable store leaves
+the original room untouched, keeps Settings accessible, and prevents that
+source from starting. Window responses and subscriptions redact unmigrated
+launch values. HTTP endpoints cannot contain userinfo, queries or fragments;
+tokens belong in the authentication fields. Legacy endpoints with those parts
+are hidden and cannot connect until replaced in Settings. Replacing or deleting
+sources also compacts their old room history. Failed migrations preserve the
+original files for recovery; this does not erase copies in external backups.
+
+ChatGPT and Copilot are the explicit exception: Rig owns their OAuth file
+persistence until it provides an injectable store. Unix vault directories use
+`0700` and files `0600`. Windows creates directories with a protected DACL for
+the current user and SYSTEM, repairs existing vault ACLs through handles, and
+rejects reparse points. Rig's token files inherit that protection. These files
+are permission-restricted plaintext, not OS credential-store records.
+
+Create writes the secret first, then the room event. Delete takes the secret
+first, then the tombstone. Shared locks serialize mutation and OAuth refresh.
+`list` returns room metadata; `provider_auth` resolves the first active
+credential for each provider and surfaces unavailable storage as a connection
+error. Model lists and manual model IDs remain ordinary non-secret vault data.
+
+Linux needs a session D-Bus and an unlocked Secret Service, such as GNOME
+Keyring or KWallet. Copying the Toad data directory alone does not transfer
+native-store credentials: reconnect providers and tool sources on the new
+machine or data-root path. The store does not grant agents access to unrelated
+credentials; future credential-sharing grants remain a separate feature.
 
 ## The search index
 

@@ -39,15 +39,27 @@ pub(crate) async fn run(
             let _held = gate.lock().await;
             delete_persona(log, room, &id)
         }
-        Command::SettingsUpdate { patch } => {
+        Command::SettingsUpdate { mut patch } => {
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
+            if let Some(value) = patch.get_mut("mcpServers")
+                && !value.is_null()
+            {
+                *value = room.protect_mcp_settings(value)?;
+            }
             let servers = patch.contains_key("mcpServers");
             if servers {
                 room.invalidate_all()?;
             }
             let updated = update_settings(log, patch)?;
             if servers {
+                // Replacing or deleting legacy sources also removes their
+                // superseded plaintext values from the room's history.
+                log.migrate_mcp_settings(|value| {
+                    room.protect_mcp_settings(value)
+                        .map_err(std::io::Error::other)
+                })
+                .map_err(|error| error.to_string())?;
                 room.reattach_all().await?;
             }
             Ok(updated)
@@ -420,7 +432,11 @@ fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Value, String
         };
         append(log, &event)?;
     }
-    Ok(Value::Object(room::settings(log)))
+    let mut settings = room::settings(log);
+    if let Some(servers) = settings.get_mut("mcpServers") {
+        *servers = crate::mcp::public_servers(servers);
+    }
+    Ok(Value::Object(settings))
 }
 
 fn living(log: &Log, id: &str) -> Result<Persona, String> {

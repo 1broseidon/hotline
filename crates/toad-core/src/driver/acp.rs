@@ -207,6 +207,8 @@ pub struct ChildAgent {
     /// close. Dropping the driver kills the child, the child's stdout closes,
     /// and the connection ends on its own.
     child: Mutex<Option<tokio::process::Child>>,
+    #[cfg(windows)]
+    job: Mutex<Option<crate::process_windows::Job>>,
     /// What the room would have made a system prompt of: who the teammate is,
     /// where it stands, and what happened in the chapter that closed. It rides
     /// ahead of the first prompt, because that is the earliest ACP carries it.
@@ -244,6 +246,8 @@ impl ChildAgent {
             root,
             backend_id,
             child: Mutex::new(None),
+            #[cfg(windows)]
+            job: Mutex::new(None),
             preamble,
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
@@ -271,6 +275,12 @@ impl ChildAgent {
     }
 
     pub(crate) fn with_mcp_vault(mut self, vault: Arc<Vault>) -> Self {
+        for server in &mut self.mcp_servers {
+            match vault.resolve_mcp_server(server) {
+                Ok(resolved) => *server = resolved,
+                Err(error) => server.refuse = Some(error.to_string()),
+            }
+        }
         self.mcp_vault = Some(vault);
         self
     }
@@ -288,6 +298,8 @@ impl ChildAgent {
             // Safety: the group is the one this driver made for its child.
             unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
         }
+        #[cfg(windows)]
+        drop(lock(&self.job).take());
         drop(child);
     }
 }
@@ -789,15 +801,18 @@ impl Driver for ChildAgent {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            // Windows has no process group to put it in, so the child itself
-            // is what a drop can kill there.
             .kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
 
+        #[cfg(windows)]
+        crate::process_windows::prepare(&mut command);
         let mut child = command
             .spawn()
             .map_err(|error| format!("Could not start {}: {error}", launch.command))?;
+        #[cfg(windows)]
+        let job = crate::process_windows::Job::attach(child.id())
+            .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
         let (stdin, stdout, stderr) =
             match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
                 (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
@@ -805,6 +820,10 @@ impl Driver for ChildAgent {
             };
         pump_stderr(self.live.clone(), stderr);
         *lock(&self.child) = Some(child);
+        #[cfg(windows)]
+        {
+            *lock(&self.job) = Some(job);
+        }
 
         let result = self
             .handshake(

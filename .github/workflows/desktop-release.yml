@@ -10,9 +10,8 @@
 # Connect API key, issuer and .p8 turn notarization on. Without them the
 # Mac job still produces a DMG that Gatekeeper will quarantine.
 #
-# Windows is not built here yet: the vault does not make its directory
-# private on Windows and refuses to write instead (docs/log.md), and a
-# desk that cannot keep a secret is not a desk to ship.
+# Windows ships a per-user NSIS installer. Updater signatures are required;
+# a trusted Authenticode publisher identity is a separate, deferred expense.
 name: desktop-release
 
 concurrency:
@@ -45,6 +44,9 @@ jobs:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             suffix: linux_x86_64
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            suffix: windows_x86_64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -82,6 +84,10 @@ jobs:
         with:
           node-version: 24
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -102,11 +108,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            patchelf build-essential libssl-dev
+            patchelf build-essential libssl-dev libdbus-1-dev
 
       - name: Install the window's dependencies
         working-directory: ui
         run: bun install --frozen-lockfile
+
+      - name: Check the core and window on this operating system
+        shell: bash
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+          bun run --cwd ui typecheck
+          python -m unittest discover -s scripts -p 'test_updater_manifest.py'
+
+      - name: Verify native desktop credential storage
+        if: runner.os != 'Linux'
+        run: cargo test -p toad-core native_store_roundtrip --locked -- --ignored
 
       # Tauri reads its signing and notarization from the environment, and
       # treats a variable that is set as one that is meant: an empty value
@@ -166,6 +185,8 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then
             cp "$bundle"/dmg/*.dmg "out/toad_${version}_${SUFFIX}.dmg"
             take "$bundle/macos/Toad.app.tar.gz" "toad_${version}_${SUFFIX}.app.tar.gz"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            take "$bundle"/nsis/*-setup.exe "toad_${version}_${SUFFIX}-setup.exe"
           else
             take "$bundle"/appimage/*.AppImage "toad_${version}_${SUFFIX}.AppImage"
             take "$bundle"/deb/*.deb "toad_${version}_${SUFFIX}.deb"

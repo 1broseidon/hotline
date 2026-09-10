@@ -158,6 +158,58 @@ impl Log {
         Ok(())
     }
 
+    /// The core alone migrates credential-bearing settings. Replace the room
+    /// with its fold so superseded MCP arguments cannot remain in history.
+    /// The callback must durably protect values before returning references.
+    pub(crate) fn migrate_mcp_settings(
+        &self,
+        protect: impl FnOnce(&Value) -> io::Result<Value>,
+    ) -> io::Result<()> {
+        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let file = self.root.join("room.jsonl");
+        let before = match fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let parsed = before.lines().filter(|line| !line.trim().is_empty())
+            .map(serde_json::from_str::<Value>).collect::<Result<Vec<_>, _>>()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "The room contains an incomplete record; credential migration left it unchanged."))?;
+        if !parsed
+            .iter()
+            .any(|event| event["kind"] == "setting" && event["id"] == "mcpServers")
+        {
+            return Ok(());
+        }
+        let mut events = fold(parsed.into_iter());
+        let mut changed = None;
+        let current = events
+            .iter_mut()
+            .find(|event| event["kind"] == "setting" && event["id"] == "mcpServers");
+        if let Some(event) = current
+            && event["deleted"] != true
+        {
+            let value = protect(&event["value"])?;
+            if value != event["value"] {
+                event["value"] = value;
+                changed = Some(event.clone());
+            }
+        }
+        let after = events
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        if after != before {
+            crate::credentials::atomic_write(&file, after.as_bytes())?;
+        }
+        if let Some(event) = changed {
+            self.publish(&StreamId::Room, &event);
+        }
+        Ok(())
+    }
+
     /// Rewrites the file this stream is written to with its fold, and answers
     /// the epoch it rewrote. A tape's older segments are closed history and
     /// are left alone, duplicates and all.

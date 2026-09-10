@@ -906,6 +906,7 @@ fn agent_builder(
     let wiring = models::wiring(provider)
         .ok_or_else(|| format!("{provider} is not a provider Toad Agent can use"))?;
     let builder = match (wiring.client, held) {
+        (_, ProviderAuth::Unavailable(error)) => return Err(error.clone()),
         (
             Client::CustomOpenAi,
             ProviderAuth::Custom {
@@ -940,13 +941,13 @@ fn agent_builder(
             .build()
             .map_err(text)?
             .agent(model),
-        (Client::OpenRouter, ProviderAuth::Login { token_dir }) => {
-            openrouter::Client::new(&crate::providers::openrouter_key(token_dir)?)
+        (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
+            openrouter::Client::new(&crate::providers::openrouter_key(tokens)?)
                 .map_err(text)?
                 .agent(model)
         }
-        (Client::XAi, ProviderAuth::Login { token_dir }) => {
-            crate::providers::xai::client(token_dir)?.agent(model)
+        (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
+            crate::providers::xai::client(tokens)?.agent(model)
         }
         (Client::Ollama, ProviderAuth::Local { base_url }) => {
             crate::providers::ollama_client(base_url, "")?.agent(model)
@@ -960,7 +961,7 @@ fn agent_builder(
         (Client::ChatGpt | Client::Copilot, ProviderAuth::ApiKey(_)) => {
             return Err(format!("{provider} needs a sign-in, not a key."));
         }
-        (_, ProviderAuth::Login { .. }) => {
+        (_, ProviderAuth::Login { .. } | ProviderAuth::StoredLogin { .. }) => {
             return Err(format!("{provider} needs a key, not a sign-in."));
         }
         (Client::Anthropic, ProviderAuth::ApiKey(key)) => {

@@ -19,7 +19,7 @@ grep-regex = "0.1.14"
 globset = "0.4.20"
 futures-util = "0.3.34"
 tokio-tungstenite = "0.30"
-uuid = { version = "1.26.0", features = ["v4"] }
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
 ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
 # Pinned: the two features below are the SDK's own "unstable", and a minor
 # release is allowed to change them. `unstable_end_turn_token_usage` is how a
@@ -38,6 +38,9 @@ url = "2.5.8"
 oauth2 = { version = "5", default-features = false }
 bytes = "1"
 http = "1"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+sha2 = "0.10"
+tempfile = "3"
 # Both halves of MCP on one version: Toad is a client of the servers a
 # teammate is granted and the server of its own teammate tools. Pinned exactly,
 # because the model types are `non_exhaustive` and a minor release is free to
@@ -61,3 +64,6 @@ axum = { version = "0.8.9", default-features = false, features = ["tokio", "http
 # what the command itself started.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory"] }

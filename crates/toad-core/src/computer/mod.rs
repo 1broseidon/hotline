@@ -818,7 +818,8 @@ async fn wait_healthy(port: u16) -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
+// These fixtures execute POSIX shell scripts; native process jobs have Windows coverage.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};

@@ -113,6 +113,10 @@ pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderAuth {
     ApiKey(String),
+    Unavailable(String),
+    StoredLogin {
+        tokens: crate::credentials::CredentialFile,
+    },
     Login {
         token_dir: PathBuf,
     },

@@ -1,6 +1,7 @@
 //! xAI's subscription device flow, with bearer refresh at Rig's HTTP boundary.
 //! Rig still constructs requests and decodes responses, including tool streams.
 
+use crate::credentials::CredentialFile;
 use bytes::Bytes;
 use oauth2::{
     AuthType, ClientId, DeviceAuthorizationUrl, RefreshToken, RequestTokenError, Scope,
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     future::Future,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex, OnceLock, Weak},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -93,14 +94,14 @@ fn poll_wait(interval: Duration) -> tokio::time::Sleep {
 }
 
 pub(crate) async fn login(
-    token_dir: &Path,
+    token_dir: &CredentialFile,
     emit: impl FnOnce(String, String),
 ) -> Result<(), String> {
     login_at(token_dir, emit, DEVICE_URL, TOKEN_URL).await
 }
 
 async fn login_at(
-    token_dir: &Path,
+    token_dir: &CredentialFile,
     emit: impl FnOnce(String, String),
     device_url: &str,
     token_url: &str,
@@ -201,31 +202,33 @@ impl Tokens {
         })
     }
 
-    fn read(dir: &Path) -> Result<Self, String> {
-        let tokens: Self = std::fs::read(dir.join("auth.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .ok_or_else(|| "Grok sign-in is missing or unreadable. Sign in again.".to_string())?;
+    fn read(dir: &CredentialFile) -> Result<Self, String> {
+        let bytes = dir
+            .read()
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "Grok sign-in is missing. Sign in again.".to_string())?;
+        let tokens: Self = serde_json::from_slice(&bytes)
+            .map_err(|_| "Grok sign-in is unreadable. Sign in again.".to_string())?;
         if tokens.access_token.trim().is_empty() || tokens.refresh_token.trim().is_empty() {
             return Err("Grok sign-in is incomplete. Sign in again.".into());
         }
         Ok(tokens)
     }
 
-    fn save(&self, dir: &Path) -> Result<(), String> {
+    fn save(&self, dir: &CredentialFile) -> Result<(), String> {
         let bytes = serde_json::to_vec(self).map_err(|_| oauth_failure(None))?;
-        crate::vault::write_login_tokens(dir, &bytes)
-            .map_err(|_| "Could not save Grok sign-in. Sign in again.".into())
+        dir.write(&bytes)
+            .map_err(|error| format!("Could not save Grok sign-in: {error}"))
     }
 }
 
 struct TokenStore {
-    dir: PathBuf,
+    dir: CredentialFile,
     refresh: AsyncMutex<()>,
 }
 
 impl TokenStore {
-    fn shared(dir: &Path) -> Arc<Self> {
+    fn shared(dir: &CredentialFile) -> Arc<Self> {
         // Each teammate builds its own Rig client. They must share the refresh
         // lock or a rotated refresh token can be spent twice.
         static STORES: OnceLock<Mutex<HashMap<PathBuf, Weak<TokenStore>>>> = OnceLock::new();
@@ -234,14 +237,14 @@ impl TokenStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         stores.retain(|_, store| store.strong_count() > 0);
-        if let Some(store) = stores.get(dir).and_then(Weak::upgrade) {
+        if let Some(store) = stores.get(dir.path()).and_then(Weak::upgrade) {
             return store;
         }
         let store = Arc::new(Self {
-            dir: dir.into(),
+            dir: dir.clone(),
             refresh: AsyncMutex::new(()),
         });
-        stores.insert(dir.into(), Arc::downgrade(&store));
+        stores.insert(dir.path().into(), Arc::downgrade(&store));
         store
     }
 
@@ -335,7 +338,7 @@ fn subscription_error(error: Error) -> Error {
 }
 
 impl SubscriptionHttp {
-    fn new(dir: &Path) -> Result<Self, String> {
+    fn new(dir: &CredentialFile) -> Result<Self, String> {
         Tokens::read(dir)?;
         Ok(Self {
             http: http_client()?,
@@ -431,7 +434,9 @@ impl HttpClientExt for SubscriptionHttp {
     }
 }
 
-pub(crate) fn client(dir: &Path) -> Result<rig::providers::xai::Client<SubscriptionHttp>, String> {
+pub(crate) fn client(
+    dir: &CredentialFile,
+) -> Result<rig::providers::xai::Client<SubscriptionHttp>, String> {
     rig::providers::xai::Client::builder()
         // The transport supplies the current bearer immediately before sending.
         .api_key("oauth")
@@ -443,6 +448,12 @@ pub(crate) fn client(dir: &Path) -> Result<rig::providers::xai::Client<Subscript
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    fn record(dir: &Path) -> CredentialFile {
+        crate::credentials::CredentialFiles::new(dir.into(), crate::credentials::default_store())
+            .file(dir.join("auth.json"))
+    }
     use axum::{Router, response::IntoResponse, routing::post};
     use futures_util::StreamExt;
     use serde_json::{Value, json};
@@ -461,7 +472,7 @@ mod tests {
                 refresh_token: "old-refresh".into(),
                 refresh_at: if expired { 0 } else { now() + 3600 },
             }
-            .save(&self.0)
+            .save(&record(&self.0))
             .unwrap();
         }
     }
@@ -500,7 +511,7 @@ mod tests {
     }
 
     fn transport(dir: &Path, url: &str) -> SubscriptionHttp {
-        let mut http = SubscriptionHttp::new(dir).unwrap();
+        let mut http = SubscriptionHttp::new(&record(dir)).unwrap();
         http.api_url = url.into();
         http.token_url = format!("{url}/token");
         http
@@ -584,7 +595,7 @@ mod tests {
         let (url, _server) = serve(app).await;
         let started = std::time::Instant::now();
         login_at(
-            &scratch.0,
+            &record(&scratch.0),
             |code, url| {
                 assert_eq!(code, "USER-CODE");
                 assert_eq!(url, "https://auth.x.ai/activate?code=USER-CODE");
@@ -597,7 +608,7 @@ mod tests {
         .unwrap();
         assert!(started.elapsed() >= Duration::from_secs(2));
         assert_eq!(polls.load(Ordering::SeqCst), 2);
-        let saved = Tokens::read(&scratch.0).unwrap();
+        let saved = Tokens::read(&record(&scratch.0)).unwrap();
         assert_eq!(saved.access_token, "new-access");
         assert_eq!(saved.refresh_token, "new-refresh");
         #[cfg(unix)]
@@ -637,7 +648,7 @@ mod tests {
                 );
             let (url, _server) = serve(app).await;
             let error = login_at(
-                &scratch.0,
+                &record(&scratch.0),
                 |_, _| {},
                 &format!("{url}/device"),
                 &format!("{url}/token"),
@@ -662,7 +673,7 @@ mod tests {
         let dir = scratch.0.clone();
         let task = tokio::spawn(async move {
             login_at(
-                &dir,
+                &record(&dir),
                 |_, _| {
                     tx.send(()).unwrap();
                 },
@@ -699,7 +710,7 @@ mod tests {
             );
         let (url, _server) = serve(app).await;
         let error = login_at(
-            &scratch.0,
+            &record(&scratch.0),
             |_, _| panic!("unsafe prompt"),
             &format!("{url}/device"),
             &format!("{url}/token"),
@@ -708,7 +719,7 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("invalid"));
         let error = login_at(
-            &scratch.0,
+            &record(&scratch.0),
             |_, _| {},
             &format!("{url}/expires"),
             &format!("{url}/token"),
@@ -761,7 +772,7 @@ mod tests {
         futures_util::future::join_all(jobs).await;
         assert_eq!(refreshes.load(Ordering::SeqCst), 1);
         assert_eq!(
-            Tokens::read(&scratch.0).unwrap().refresh_token,
+            Tokens::read(&record(&scratch.0)).unwrap().refresh_token,
             "new-refresh"
         );
     }
@@ -823,7 +834,7 @@ mod tests {
         assert_eq!(requests.load(Ordering::SeqCst), 2);
         assert_eq!(refreshes.load(Ordering::SeqCst), 1);
         assert_eq!(
-            Tokens::read(&scratch.0).unwrap().refresh_token,
+            Tokens::read(&record(&scratch.0)).unwrap().refresh_token,
             "old-refresh"
         );
     }

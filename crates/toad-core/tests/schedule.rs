@@ -1,11 +1,12 @@
 //! The scheduler over the wire: a job is created, listed, silenced, and
 //! cancelled, and the room stream is what remembers it.
 
+mod common;
+
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
-use toad_core::desk::Desk;
 use toad_core::log::{Log, StreamId};
 use toad_core::wire::Door;
 use tokio::net::TcpStream;
@@ -26,7 +27,7 @@ fn scratch(name: &str) -> PathBuf {
 
 async fn open(name: &str) -> u16 {
     let root = scratch(name);
-    let desk = Desk::open(&root).unwrap();
+    let desk = common::open_desk(&root).unwrap();
     let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
@@ -177,7 +178,7 @@ async fn an_old_job_on_the_wire_requires_the_background_grant() {
         }),
     )
     .unwrap();
-    let desk = Desk::open(&root).unwrap();
+    let desk = common::open_desk(&root).unwrap();
     let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
     let port = door.port();
     tokio::spawn(door.run());

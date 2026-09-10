@@ -256,7 +256,8 @@ async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, Failure>
     }
 }
 
-#[cfg(test)]
+// These fixtures execute POSIX shell scripts; native process jobs have Windows coverage.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::fs;

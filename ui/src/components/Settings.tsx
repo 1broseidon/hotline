@@ -789,7 +789,7 @@ function ProvidersSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">Keys and logins stay on this machine.</p>
+						<p className="group-hint">API keys, OpenRouter and Grok sign-ins use your OS credential store. ChatGPT and Copilot keep tokens in permission-restricted files.</p>
 					</section>
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
@@ -1533,6 +1533,10 @@ function ServerForm({
 				},
 	);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const savedLaunch = server?.type === "stdio" && (!!server.credentialRef || !!server.launchValuesPending);
+	const [replaceLaunch, setReplaceLaunch] = useState(false);
+	const [environment, setEnvironment] = useState(() => server?.type === "stdio" && server.env ? JSON.stringify(server.env, null, 2) : "{}");
+	const keepLaunch = savedLaunch && !replaceLaunch;
 	const nameField = useRef<HTMLInputElement>(null);
 	useEffect(() => {
 		if (server === undefined) nameField.current?.focus();
@@ -1548,7 +1552,18 @@ function ServerForm({
 
 	const submitDraft = async () => {
 		const name = draft.name.trim();
-		const next = draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, draft, server);
+		let next = draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, draft, server);
+		if (next.type === "stdio" && !keepLaunch) {
+			try {
+				const env: unknown = JSON.parse(environment);
+				if (!env || typeof env !== "object" || Array.isArray(env) || !Object.values(env).every((value) => typeof value === "string")) throw new Error("Use a JSON object with string values for environment variables.");
+				const { credentialRef: _savedReference, launchValuesPending: _pendingValues, ...launch } = next;
+				next = { ...launch, env: env as Record<string, string> };
+			} catch (error) {
+				setRefusal(error instanceof Error ? error.message : String(error));
+				return;
+			}
+		}
 		/* The token goes to the vault first, so the settings write that
 		 * follows reattaches teammates with it in hand. */
 		if (next.type === "http" && holdsToken(next.auth) && draft.secret.length > 0) {
@@ -1609,6 +1624,7 @@ function ServerForm({
 						</label>
 						<input
 							id="tool-command"
+							readOnly={keepLaunch}
 							className="field flex-1 font-mono text-sm"
 							spellCheck={false}
 							placeholder="npx -y @modelcontextprotocol/server-filesystem /some/path"
@@ -1630,6 +1646,27 @@ function ServerForm({
 							onChange={(event) => setDraft({ ...draft, url: event.target.value })}
 						/>
 					</div>
+				)}
+				{draft.kind === "stdio" && savedLaunch && (
+					<div className="group-row">
+						<span className="group-row-text">
+							<span className="group-row-title">{server?.type === "stdio" && server.launchValuesPending ? "Launch values need credential migration" : "Launch values stored securely"}</span>
+							<span className="group-row-detail">{keepLaunch ? server?.type === "stdio" && server.launchValuesPending ? "Unlock the OS credential store and retry this source, or replace its launch values." : "Saved arguments and environment variables are kept when you rename this source." : "Enter the complete command and environment to replace the saved launch values."}</span>
+						</span>
+						<button type="button" className="control btn-quiet" onClick={() => {
+							setReplaceLaunch(!replaceLaunch);
+							if (replaceLaunch && server?.type === "stdio") setDraft({ ...draft, command: server.command });
+						}}>{keepLaunch ? "Replace launch values" : "Keep saved values"}</button>
+					</div>
+				)}
+				{draft.kind === "stdio" && !keepLaunch && (
+					<div className="group-row items-start">
+						<label htmlFor="tool-environment" className="w-24 shrink-0 text-sm text-ink-2">Environment</label>
+						<textarea id="tool-environment" className="field flex-1 font-mono text-sm" rows={3} spellCheck={false} value={environment} onChange={(event) => setEnvironment(event.target.value)} />
+					</div>
+				)}
+				{draft.kind === "http" && server?.type === "http" && server.urlNeedsRepair && (
+					<div className="group-row text-sm text-ink-2">Re-enter the endpoint without credentials, a query, or a fragment. Put tokens in the authentication fields below.</div>
 				)}
 				{draft.kind === "http" && (
 					<div className="group-row">
@@ -1704,10 +1741,13 @@ function ServerForm({
 	);
 }
 
-/** The form does not edit env, so an edit of a stdio server keeps the map it already had. */
+/** Renaming a source keeps its saved launch reference until explicitly replaced. */
 function stdioFromDraft(name: string, commandLine: string, previous?: McpServer): McpServer {
 	const [command, ...args] = commandLine.trim().split(/\s+/);
 	const id = previous?.id ?? crypto.randomUUID();
+	if (previous?.type === "stdio" && (previous.credentialRef || previous.launchValuesPending) && commandLine.trim() === previous.command) {
+		return { ...previous, name };
+	}
 	const env = previous?.type === "stdio" ? previous.env : undefined;
 	return env
 		? { id, type: "stdio", name, command: command ?? "", args, env }

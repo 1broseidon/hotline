@@ -80,8 +80,16 @@ pub struct Desk {
 impl Desk {
     /// Opens the log, the vault and the room over one data directory.
     pub fn open(root: &Path) -> io::Result<Desk> {
+        Self::open_with_store(root, crate::credentials::default_store())
+    }
+
+    /// Open against an explicitly supplied credential backend.
+    pub fn open_with_store(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+    ) -> io::Result<Desk> {
         let log = Log::open(root);
-        let vault = Arc::new(Vault::open(root, log.clone())?);
+        let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
         let keys = Arc::new(DeskCredentials {
             vault: vault.clone(),
             log: log.clone(),
@@ -146,6 +154,12 @@ impl Drop for Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    fn protect_mcp_settings(&self, value: &serde_json::Value) -> Result<serde_json::Value, String> {
+        self.vault
+            .protect_mcp_settings(value)
+            .map_err(|error| error.to_string())
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.room.policy_update_lock()
     }
@@ -301,6 +315,7 @@ impl RoomHandle for Desk {
             .vault
             .begin_login(provider_id)
             .map_err(|error| error.to_string())?;
+        let tokens = self.vault.login_tokens(&id);
         let cancel = CancellationToken::new();
         self.logins()
             .insert(id.clone(), LoginOutcome::Pending(cancel.clone()));
@@ -352,10 +367,8 @@ impl RoomHandle for Desk {
                         .authorize()
                         .await
                         .map_err(|error| error.to_string()),
-                    Client::OpenRouter => {
-                        crate::providers::openrouter_login(&token_dir, emit).await
-                    }
-                    Client::XAi => crate::providers::xai::login(&token_dir, emit).await,
+                    Client::OpenRouter => crate::providers::openrouter_login(&tokens, emit).await,
+                    Client::XAi => crate::providers::xai::login(&tokens, emit).await,
                     _ => Err(format!("{provider_id} does not support sign-in.")),
                 }
             };
@@ -627,6 +640,7 @@ impl RoomHandle for Desk {
             .connection(provider_id)
             .ok_or_else(|| format!("There is no connection for {provider_id}."))?;
         let discovered = match (wiring.client, auth) {
+            (_, ProviderAuth::Unavailable(error)) => return Err(error),
             (Client::Ollama, ProviderAuth::Local { base_url }) => {
                 crate::providers::discovery::ollama_models(&base_url, "").await?
             }
@@ -637,8 +651,8 @@ impl RoomHandle for Desk {
             (Client::Copilot, ProviderAuth::Login { token_dir }) => {
                 crate::providers::discovery::copilot_models(&token_dir).await?
             }
-            (Client::OpenRouter, ProviderAuth::Login { token_dir }) => {
-                let key = crate::providers::openrouter_key(&token_dir)?;
+            (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
+                let key = crate::providers::openrouter_key(&tokens)?;
                 crate::providers::discovery::api_models(Client::OpenRouter, &key).await?
             }
             (client, ProviderAuth::ApiKey(key)) if crate::models::supports_discovery(client) => {

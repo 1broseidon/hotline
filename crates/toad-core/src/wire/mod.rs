@@ -69,6 +69,14 @@ mod tests;
 /// socket's commands are still answered one at a time, in order.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
+    /// Move confidential launch configuration into the credential vault before
+    /// settings or subscriptions can retain it.
+    fn protect_mcp_settings(&self, value: &Value) -> Result<Value, String> {
+        if value.as_array().is_none_or(Vec::is_empty) {
+            return Ok(value.clone());
+        }
+        Err("This room has no credential vault for saving tool sources.".into())
+    }
     /// Serializes policy persistence and reattachment across client sockets.
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>>;
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
@@ -665,6 +673,18 @@ fn subscribe(
 
 /// A stream's fold, then its events, and on a tape the deltas that are never
 /// written beside them.
+fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
+    let events = log.load(stream);
+    if *stream == StreamId::Room {
+        events
+            .into_iter()
+            .map(crate::mcp::public_room_event)
+            .collect()
+    } else {
+        events
+    }
+}
+
 async fn stream_events(
     id: i64,
     stream: StreamId,
@@ -677,7 +697,10 @@ async fn stream_events(
         StreamId::Tape(persona_id) => persona_id.clone(),
         _ => String::new(),
     };
-    if !send(&sender, json!({ "sub": id, "snapshot": log.load(&stream) })) {
+    if !send(
+        &sender,
+        json!({ "sub": id, "snapshot": public_snapshot(&log, &stream) }),
+    ) {
         return;
     }
 
@@ -691,6 +714,7 @@ async fn stream_events(
         tokio::select! {
             event = events.recv() => match event {
                 Ok(event) => {
+                    let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { event };
                     if !send(&sender, json!({ "sub": id, "event": event })) {
                         return;
                     }
@@ -699,7 +723,7 @@ async fn stream_events(
                 // everything instead: a second snapshot, which a client that
                 // folds by id absorbs the same way it absorbed the first.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    if !send(&sender, json!({ "sub": id, "snapshot": log.load(&stream) })) {
+                    if !send(&sender, json!({ "sub": id, "snapshot": public_snapshot(&log, &stream) })) {
                         return;
                     }
                 }

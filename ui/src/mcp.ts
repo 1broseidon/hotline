@@ -16,6 +16,8 @@ export type McpStdioServer = {
 	name: string;
 	command: string;
 	args: string[];
+	credentialRef?: string;
+	launchValuesPending?: boolean;
 	env?: Record<string, string>;
 };
 
@@ -31,6 +33,7 @@ export type McpHttpServer = {
 	type: "http";
 	name: string;
 	url: string;
+	urlNeedsRepair?: boolean;
 	auth: McpHttpAuth;
 };
 
@@ -66,7 +69,7 @@ export function useMcpServers(): McpServer[] {
 
 /** The command line, or the URL — whichever the list and the grant show. */
 export function mcpServerDetail(server: McpServer): string {
-	return server.type === "stdio" ? [server.command, ...server.args].join(" ") : server.url;
+	return server.type === "stdio" ? [server.command, ...server.args].join(" ") : server.urlNeedsRepair ? "Re-enter this source’s URL" : server.url;
 }
 
 /**
@@ -100,8 +103,9 @@ function readServer(value: unknown): McpServer | null {
 
 	if (raw.type === "http") {
 		const url = typeof raw.url === "string" ? raw.url.trim() : "";
-		if (!url) return null;
-		return { id, type: "http", name, url, auth: readAuth(raw.auth) };
+		if (!url && raw.urlNeedsRepair !== true) return null;
+		return { id, type: "http", name, url, auth: readAuth(raw.auth),
+			...(raw.urlNeedsRepair === true ? { urlNeedsRepair: true } : {}) };
 	}
 
 	if (raw.type !== "stdio" && raw.type !== undefined) return null;
@@ -111,7 +115,9 @@ function readServer(value: unknown): McpServer | null {
 		? raw.args.filter((arg): arg is string => typeof arg === "string")
 		: [];
 	const env = isStringMap(raw.env) ? raw.env : undefined;
-	return env ? { id, type: "stdio", name, command, args, env } : { id, type: "stdio", name, command, args };
+	return { id, type: "stdio", name, command, args, ...(env ? { env } : {}),
+		...(typeof raw.credentialRef === "string" ? { credentialRef: raw.credentialRef } : {}),
+		...(raw.launchValuesPending === true ? { launchValuesPending: true } : {}) };
 }
 
 function readAuth(value: unknown): McpHttpAuth {

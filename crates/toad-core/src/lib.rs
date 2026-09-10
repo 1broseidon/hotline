@@ -11,6 +11,7 @@
 
 pub mod computer;
 pub mod contract;
+pub mod credentials;
 pub mod desk;
 pub mod driver;
 mod fence;
@@ -19,6 +20,8 @@ pub mod log;
 pub mod mcp;
 pub mod models;
 pub mod paths;
+#[cfg(windows)]
+mod process_windows;
 mod providers;
 pub mod room;
 pub mod session;

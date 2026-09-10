@@ -121,16 +121,22 @@ impl Tool for RunCommand {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            // Windows has no process group to put it in, so the child itself
-            // is what a drop can kill there.
             .kill_on_drop(true);
         #[cfg(unix)]
         process.process_group(0);
 
+        #[cfg(windows)]
+        crate::process_windows::prepare(&mut process);
         self.workspace.check_capability()?;
         let child = process
             .spawn()
             .map_err(|error| ToolError::other(format!("The command could not start: {error}")))?;
+        #[cfg(windows)]
+        let _job = crate::process_windows::Job::attach(child.id()).map_err(|error| {
+            ToolError::other(format!(
+                "Could not contain the command process tree: {error}"
+            ))
+        })?;
         let mut group = ProcessGroup::of(&child);
         let waiting = child.wait_with_output();
         let output = match args.timeout_seconds {
@@ -480,7 +486,12 @@ mod tests {
         fs::write(root.path().join("big.txt"), &body).unwrap();
         // Machine reach so this is the command's output, not the sandbox.
         let workspace = workspace(root.path(), Reach::Machine);
-        let output = run(workspace, "cat big.txt").await.unwrap();
+        let command = if cfg!(windows) {
+            "type big.txt"
+        } else {
+            "cat big.txt"
+        };
+        let output = run(workspace, command).await.unwrap();
         assert_eq!(output, body);
     }
 
@@ -764,7 +775,7 @@ mod tests {
         let outside = TestDirectory::new();
         let leak = outside.path().join("leak.txt");
         let workspace = workspace(root.path(), Reach::Machine);
-        let output = run(workspace, &format!("echo hi > {}", leak.display()))
+        let output = run(workspace, &format!("echo hi > \"{}\"", leak.display()))
             .await
             .unwrap();
         assert!(finished_ok(&output), "{output}");

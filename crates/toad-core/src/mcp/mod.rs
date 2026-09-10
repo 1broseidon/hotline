@@ -165,6 +165,8 @@ impl Connections {
 struct ProcessGroup {
     #[cfg_attr(not(unix), allow(dead_code))]
     id: Option<u32>,
+    #[cfg(windows)]
+    _job: crate::process_windows::Job,
 }
 
 #[cfg(unix)]
@@ -194,6 +196,60 @@ pub fn normalize_servers(value: &Value) -> Vec<Value> {
         .flatten()
         .filter_map(normalize_server)
         .collect()
+}
+
+pub(crate) fn validate_http_url(raw: &str) -> std::io::Result<()> {
+    let url = url::Url::parse(raw)
+        .map_err(|_| std::io::Error::other("Enter a full HTTP or HTTPS tool-source URL."))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(std::io::Error::other(
+            "Tool-source URLs cannot contain credentials, a query, or a fragment. Use the authentication fields for secrets.",
+        ));
+    }
+    Ok(())
+}
+
+/// A locked store may leave legacy configuration on disk for recovery. Those
+/// values still must not be copied into a window subscription or response.
+pub(crate) fn public_servers(value: &Value) -> Value {
+    let mut servers = normalize_servers(value);
+    for server in &mut servers {
+        if server["type"] == "http" {
+            if validate_http_url(server["url"].as_str().unwrap_or_default()).is_err() {
+                server["url"] = json!("");
+                server["urlNeedsRepair"] = json!(true);
+            }
+            continue;
+        }
+        let pending = server["args"]
+            .as_array()
+            .is_some_and(|args| !args.is_empty())
+            || server
+                .get("env")
+                .is_some_and(|env| env.as_object().is_none_or(|env| !env.is_empty()));
+        if pending {
+            server["args"] = json!([]);
+            server
+                .as_object_mut()
+                .expect("normalized server")
+                .remove("env");
+            server["launchValuesPending"] = json!(true);
+        }
+    }
+    Value::Array(servers)
+}
+
+pub(crate) fn public_room_event(mut event: Value) -> Value {
+    if event["kind"] == "setting" && event["id"] == "mcpServers" && event.get("value").is_some() {
+        event["value"] = public_servers(&event["value"]);
+    }
+    event
 }
 
 /// Typed servers from the room's settings fold. A missing or unusable
@@ -376,6 +432,15 @@ async fn connect_one(
     ),
     String,
 > {
+    let resolved;
+    let server = if let Some(vault) = &vault {
+        resolved = vault
+            .resolve_mcp_server(server)
+            .map_err(|error| error.to_string())?;
+        &resolved
+    } else {
+        server
+    };
     if matches!(
         &server.transport,
         McpTransport::Http {
@@ -404,7 +469,9 @@ async fn connect_one(
                 HttpAuth::Secret { header } => {
                     let Some(token) = vault
                         .as_ref()
-                        .and_then(|vault| vault.mcp_secret(&server.id, url).ok().flatten())
+                        .ok_or_else(|| NO_SAVED_TOKEN.to_string())?
+                        .mcp_secret(&server.id, url)
+                        .map_err(|error| error.to_string())?
                     else {
                         return Err(NO_SAVED_TOKEN.to_string());
                     };
@@ -421,8 +488,8 @@ async fn connect_one(
             let transport = TokioChildProcess::new(Command::new(command).configure(|cmd| {
                 cmd.args(args);
                 cmd.envs(env);
-                // Windows has no process group to put it in, so the child
-                // itself is all rmcp's own kill can reach there.
+                #[cfg(windows)]
+                crate::process_windows::prepare(cmd);
                 #[cfg(unix)]
                 cmd.process_group(0);
             }))
@@ -432,7 +499,12 @@ async fn connect_one(
                     server.name, server.id
                 )
             })?;
-            let group = ProcessGroup { id: transport.id() };
+            let group = ProcessGroup {
+                id: transport.id(),
+                #[cfg(windows)]
+                _job: crate::process_windows::Job::attach(transport.id())
+                    .map_err(|error| format!("Could not contain the MCP process tree: {error}"))?,
+            };
             let (client, listed) = handshake(toad_client().serve(transport)).await?;
             Ok((client, listed, Some(group)))
         }
@@ -587,6 +659,9 @@ fn normalize_server(value: &Value) -> Option<Value> {
             .as_object_mut()
             .expect("just built as an object")
             .insert("env".to_string(), env.clone());
+    }
+    if let Some(reference) = candidate.get("credentialRef") {
+        server["credentialRef"] = reference.clone();
     }
     Some(server)
 }
@@ -766,11 +841,17 @@ fn parse_server(value: &Value) -> Option<McpServer> {
             });
         }
     };
+    let refuse = match &transport {
+        McpTransport::Http { url, .. } => {
+            validate_http_url(url).err().map(|error| error.to_string())
+        }
+        _ => None,
+    };
     Some(McpServer {
         id,
         name,
         transport,
-        refuse: None,
+        refuse,
     })
 }
 

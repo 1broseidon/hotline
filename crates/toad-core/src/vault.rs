@@ -1,23 +1,8 @@
-//! The vault: provider secrets on this machine's disk, and the room's record
-//! that they exist.
-//!
-//! A secret is never an event. `<root>/vault/secrets.json` is a JSON map from
-//! credential id to secret — a `0600` file in a `0700` directory, written
-//! through a temporary file, a rename, and an fsync of the directory so no
-//! reader ever sees half of one and a crash cannot lose the rename — and a
-//! login's tokens live in `<root>/vault/logins/<id>/`, the same modes, the
-//! files Rig will write pre-created so a `std::fs::write` cannot leave them
-//! world-readable. The room stream carries only the metadata: which provider,
-//! what the user called it, whether it is revoked. That is why `list` and
-//! `provider_auth` are two different questions. The room knows a credential
-//! exists; only this disk knows what it is, which is what lets a stream be
-//! read, copied or shipped without carrying a key along with it.
-//!
-//! The discipline is the previous Toad's `src/bun/store/credentials.ts`,
-//! minus the fleet: nothing is replicated and nothing is sealed to another
-//! desk, because there are no other desks here.
+//! Credential metadata belongs to the room; secret values belong to the OS store.
+//! Rig-owned ChatGPT/Copilot caches remain private files until Rig exposes a store hook.
 
 use crate::contract::{Credential, CredentialKind};
+use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
 use crate::models::Client;
 use crate::providers::discovery::{self, ListedModel};
@@ -33,6 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::{Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
+
+mod launch;
 
 /// The client identity Toad received from an MCP authorization server. The
 /// secret is kept beside the token in the vault record; this type never crosses
@@ -68,6 +55,7 @@ struct McpRecord {
 pub struct Vault {
     root: PathBuf,
     log: Log,
+    files: CredentialFiles,
     /// The one writer of `secrets.json`. Create and delete are each a read of
     /// the whole map, one entry changed, and the whole map written back, so
     /// two of them at once — two sockets, or a socket and a teammate's tool —
@@ -117,7 +105,7 @@ impl Vault {
                 "Enter the API key again when changing the server URL, or turn off API key authentication.",
             ));
         }
-        read_custom_key(&self.login_dir(&previous.id), base_url).map(Some)
+        read_custom_key(&self.login_tokens(&previous.id), base_url).map(Some)
     }
 
     fn custom_credential(&self, id: &str) -> io::Result<Credential> {
@@ -149,13 +137,9 @@ impl Vault {
                 key: key.clone(),
             })
             .map_err(io::Error::other)?;
-            write_login_tokens(&dir, &bytes)?;
+            self.login_tokens(&id).write(&bytes)?;
         } else {
-            match fs::remove_file(dir.join("auth.json")) {
-                Ok(()) => sync_directory(&dir)?,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
+            self.login_tokens(&id).delete()?;
         }
         let now = now_ms();
         let credential = Credential {
@@ -188,14 +172,28 @@ impl Vault {
     /// would be a private-looking folder saying something untrue about the
     /// machine.
     pub fn open(root: impl Into<PathBuf>, log: Log) -> io::Result<Vault> {
+        Self::open_with_store(root, log, crate::credentials::default_store())
+    }
+
+    /// Supply an isolated credential backend for a harness or embedding application.
+    pub fn open_with_store(
+        root: impl Into<PathBuf>,
+        log: Log,
+        store: Arc<dyn SecretStore>,
+    ) -> io::Result<Vault> {
+        let root = root.into();
         let vault = Vault {
-            root: root.into(),
+            files: CredentialFiles::new(root.clone(), store),
+            root,
             log,
             writer: Mutex::new(()),
             mcp_refresh_guards: Mutex::new(HashMap::new()),
             mcp_token_locks: Mutex::new(HashMap::new()),
         };
         vault.check_layout()?;
+        // A locked keychain must not prevent Settings from opening. Resolution
+        // retries migration and surfaces its error before starting a server.
+        let _ = vault.migrate_mcp_settings();
         Ok(vault)
     }
 
@@ -310,6 +308,7 @@ impl Vault {
     /// Removes a login that did not finish, so a failed attempt leaves nothing.
     pub fn abandon_login(&self, id: &str) -> io::Result<()> {
         let dir = self.login_dir(id);
+        self.login_tokens(id).delete()?;
         match fs::remove_dir_all(&dir) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -349,59 +348,74 @@ impl Vault {
     }
 
     fn connections(&self) -> HashMap<String, (Credential, ProviderAuth)> {
-        let secrets = self.read_secrets().unwrap_or_default();
+        let secrets = self.read_secrets();
         let mut connections = HashMap::new();
         for credential in self.list() {
             if credential.revoked {
                 continue;
             }
-            let auth = if let Some(config) = &credential.custom {
-                let Some(base_url) = credential.base_url.clone() else {
-                    continue;
-                };
-                let key = if credential.credential_kind == CredentialKind::ApiKey {
-                    let Ok(key) = read_custom_key(&self.login_dir(&credential.id), &base_url)
-                    else {
-                        continue;
-                    };
-                    Some(key)
-                } else {
-                    None
-                };
-                ProviderAuth::Custom {
-                    name: credential.label.clone(),
-                    base_url,
-                    api_key: key,
-                    config: config.clone(),
-                }
-            } else {
-                match credential.credential_kind {
-                    CredentialKind::ApiKey => {
-                        let Some(secret) = secrets.get(&credential.id) else {
-                            continue;
-                        };
-                        ProviderAuth::ApiKey(secret.clone())
-                    }
-                    CredentialKind::Oauth => {
-                        let dir = self.login_dir(&credential.id);
-                        if !dir.is_dir() {
-                            continue;
-                        }
-                        ProviderAuth::Login { token_dir: dir }
-                    }
-                    CredentialKind::Local => {
-                        let Some(base_url) = credential.base_url.clone() else {
-                            continue;
-                        };
-                        ProviderAuth::Local { base_url }
-                    }
-                }
+            let auth = match self.credential_auth(&credential, &secrets) {
+                Ok(Some(auth)) => auth,
+                Ok(None) => continue,
+                Err(error) => ProviderAuth::Unavailable(error.to_string()),
             };
             connections
                 .entry(credential.provider_id.clone())
                 .or_insert((credential, auth));
         }
         connections
+    }
+
+    fn credential_auth(
+        &self,
+        credential: &Credential,
+        secrets: &io::Result<BTreeMap<String, String>>,
+    ) -> io::Result<Option<ProviderAuth>> {
+        if let Some(config) = &credential.custom {
+            let Some(base_url) = credential.base_url.clone() else {
+                return Ok(None);
+            };
+            let key = if credential.credential_kind == CredentialKind::ApiKey {
+                Some(read_custom_key(
+                    &self.login_tokens(&credential.id),
+                    &base_url,
+                )?)
+            } else {
+                None
+            };
+            return Ok(Some(ProviderAuth::Custom {
+                name: credential.label.clone(),
+                base_url,
+                api_key: key,
+                config: config.clone(),
+            }));
+        }
+        Ok(match credential.credential_kind {
+            CredentialKind::ApiKey => match secrets {
+                Ok(secrets) => secrets
+                    .get(&credential.id)
+                    .cloned()
+                    .map(ProviderAuth::ApiKey),
+                Err(error) => return Err(io::Error::new(error.kind(), error.to_string())),
+            },
+            CredentialKind::Oauth => {
+                let dir = self.login_dir(&credential.id);
+                if !dir.is_dir() {
+                    return Ok(None);
+                }
+                if matches!(credential.provider_id.as_str(), "openrouter" | "xai") {
+                    Some(ProviderAuth::StoredLogin {
+                        tokens: self.login_tokens(&credential.id),
+                    })
+                } else {
+                    Some(ProviderAuth::Login { token_dir: dir })
+                }
+            }
+            CredentialKind::Local => credential
+                .base_url
+                .clone()
+                .map(|base_url| ProviderAuth::Local { base_url }),
+        })
     }
 
     /// Discovery and manual additions belong to the active credential. A new
@@ -708,19 +722,7 @@ impl Vault {
     pub(crate) fn clear_mcp_oauth(&self, server_id: &str) -> io::Result<()> {
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.check_layout()?;
-        let path = self.mcp_path(server_id);
-        match fs::symlink_metadata(&path) {
-            Ok(entry) if !entry.is_file() => Err(io::Error::other(format!(
-                "{} is not a regular file",
-                path.display()
-            ))),
-            Ok(_) => {
-                fs::remove_file(&path)?;
-                sync_directory(&self.mcp_dir())
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
-        }
+        self.files.file(self.mcp_path(server_id)).delete()
     }
 
     fn directory(&self) -> PathBuf {
@@ -765,6 +767,10 @@ impl Vault {
     /// file this writes is refused rather than followed.
     fn check_layout(&self) -> io::Result<()> {
         let directory = self.directory();
+        #[cfg(windows)]
+        if directory.exists() {
+            check_vault_tree(&directory)?;
+        }
         if let Ok(entry) = directory.symlink_metadata()
             && !entry.is_dir()
         {
@@ -808,37 +814,27 @@ impl Vault {
     /// away keys this cannot see.
     fn read_secrets(&self) -> io::Result<BTreeMap<String, String>> {
         let path = self.secrets_path();
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
-            Err(error) => return Err(error),
+        let Some(bytes) = self.files.file(path).read()? else {
+            return Ok(BTreeMap::new());
         };
-        serde_json::from_str(&text).map_err(|error| {
-            io::Error::other(format!(
-                "{} is not the map of secrets Toad writes ({error}). Fix or remove it; Toad will not overwrite provider credentials it cannot read.",
-                path.display()
-            ))
+        serde_json::from_slice(&bytes).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "The provider credential record is unreadable; Toad will not overwrite it.",
+            )
         })
     }
 
-    /// Atomic, owner-only persistence. No backup: a rotated key is not worth
-    /// keeping.
     fn write_secrets(&self, secrets: &BTreeMap<String, String>) -> io::Result<()> {
         self.check_layout()?;
-        let directory = self.directory();
-        make_private_directory(&directory)?;
-        // A crash can leave this process's own temporary behind. Removing the
-        // directory entry first is safe even if something replaced it, because
-        // `create_new` then refuses the race instead of following it.
-        let temporary = directory.join(format!("secrets.json.{}.tmp", std::process::id()));
-        let _ = fs::remove_file(&temporary);
-        let text = serde_json::to_string_pretty(secrets).map_err(io::Error::other)?;
-        persist_renamed(
-            &temporary,
-            &self.secrets_path(),
-            &directory,
-            format!("{text}\n").as_bytes(),
-        )
+        make_private_directory(&self.directory())?;
+        let _ = fs::remove_file(
+            self.directory()
+                .join(format!("secrets.json.{}.tmp", std::process::id())),
+        );
+        self.files
+            .file(self.secrets_path())
+            .write(&serde_json::to_vec(secrets).map_err(io::Error::other)?)
     }
 
     fn read_mcp_record(&self, server_id: &str, server_url: &str) -> io::Result<Option<McpRecord>> {
@@ -856,22 +852,14 @@ impl Vault {
     fn read_mcp_record_any_url(&self, server_id: &str) -> io::Result<Option<McpRecord>> {
         self.check_layout()?;
         let path = self.mcp_path(server_id);
-        let text = match fs::symlink_metadata(&path) {
-            Ok(entry) if !entry.is_file() => {
-                return Err(io::Error::other(format!(
-                    "{} is not a regular file",
-                    path.display()
-                )));
-            }
-            Ok(_) => fs::read_to_string(&path)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
+        let Some(bytes) = self.files.file(path).read()? else {
+            return Ok(None);
         };
-        let record: McpRecord = serde_json::from_str(&text).map_err(|error| {
-            io::Error::other(format!(
-                "{} is not a readable MCP record ({error})",
-                path.display()
-            ))
+        let record: McpRecord = serde_json::from_slice(&bytes).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "The MCP credential record is unreadable.",
+            )
         })?;
         Ok(Some(record))
     }
@@ -899,19 +887,13 @@ impl Vault {
         self.check_layout()?;
         let directory = self.mcp_dir();
         make_private_directory(&directory)?;
-        let temporary = directory.join(format!(
-            "{}.{}.tmp",
-            mcp_path_component(server_id),
-            std::process::id()
-        ));
-        let _ = fs::remove_file(&temporary);
-        let text = serde_json::to_string_pretty(record).map_err(io::Error::other)?;
-        persist_renamed(
-            &temporary,
-            &self.mcp_path(server_id),
-            &directory,
-            format!("{text}\n").as_bytes(),
-        )
+        self.files
+            .file(self.mcp_path(server_id))
+            .write(&serde_json::to_vec(record).map_err(io::Error::other)?)
+    }
+
+    pub(crate) fn login_tokens(&self, id: &str) -> CredentialFile {
+        self.files.file(self.login_dir(id).join("auth.json"))
     }
 }
 
@@ -990,6 +972,24 @@ fn mcp_path_component(id: &str) -> String {
     format!("{readable}-{hash:016x}")
 }
 
+#[cfg(windows)]
+fn check_vault_tree(path: &Path) -> io::Result<()> {
+    crate::credentials::check_private_path(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    if metadata.is_dir() {
+        crate::credentials::windows::private_directory(path)?;
+    } else {
+        crate::credentials::windows::private_file(path)?;
+    }
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path)? {
+            check_vault_tree(&entry?.path())?;
+        }
+    }
+    Ok(())
+}
+
 /// The room event contains the credential metadata, never its secret.
 fn event(credential: &Credential) -> Value {
     crate::room::room_event(
@@ -1005,9 +1005,14 @@ struct CustomKey {
     key: String,
 }
 
-fn read_custom_key(dir: &Path, base_url: &str) -> io::Result<String> {
-    let key: CustomKey = serde_json::from_slice(&fs::read(dir.join("auth.json"))?)
-        .map_err(|_| io::Error::other("The custom connection's key is unreadable."))?;
+fn read_custom_key(file: &CredentialFile, base_url: &str) -> io::Result<String> {
+    let key: CustomKey = serde_json::from_slice(&file.read()?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "The custom connection key is missing.",
+        )
+    })?)
+    .map_err(|_| io::Error::other("The custom connection's key is unreadable."))?;
     if key.base_url != base_url || key.key.is_empty() {
         return Err(io::Error::other(
             "The saved key does not belong to this endpoint. Enter it again.",
@@ -1087,18 +1092,10 @@ fn open_directory(path: &Path) -> io::Result<fs::File> {
         .open(path)
 }
 
-/// Windows has no mode bits, so the ACL is the boundary: the directory's
-/// inherited ACEs have to be removed and full control granted to the current
-/// user alone — `icacls <dir> /inheritance:r /grant:r *<SID>:(OI)(CI)F`, the
-/// discipline `../toad/src/bun/store/credentials.ts` runs. That is not built
-/// here yet, and a vault that cannot prove its directory is private must not
-/// write a secret into it, so this refuses instead of pretending.
+/// Windows files inherit the private DACL established at directory creation.
 #[cfg(windows)]
 fn make_private_directory(path: &Path) -> io::Result<()> {
-    Err(io::Error::other(format!(
-        "Could not make {} private to the current Windows user; provider credentials were not written",
-        path.display()
-    )))
+    crate::credentials::windows::private_directory(path)
 }
 
 /// Creates a file only this user can read. On Windows the file's privacy is
@@ -1125,18 +1122,6 @@ pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-/// Refresh replaces tokens atomically without recreating a deleted login.
-pub(crate) fn write_login_tokens(token_dir: &Path, contents: &[u8]) -> io::Result<()> {
-    let temporary = token_dir.join(format!(".auth-{}.tmp", uuid::Uuid::new_v4()));
-    persist_renamed(
-        &temporary,
-        &token_dir.join("auth.json"),
-        token_dir,
-        contents,
-    )
-}
-
-/// Fixed model-cache files are bounded before parsing and never follow links.
 fn read_model_file(path: &Path) -> io::Result<Vec<u8>> {
     if !path.symlink_metadata()?.is_file() {
         return Err(io::Error::other("Model cache must be a regular file."));
@@ -1474,7 +1459,11 @@ mod tests {
         let stream = room(&vault);
         assert!(!stream.contains("sk-ant-secret"), "{stream}");
         assert!(stream.contains(&credential.id), "{stream}");
-        assert!(secrets(&vault).contains("sk-ant-secret"));
+        assert!(!secrets(&vault).contains("sk-ant-secret"));
+        assert_eq!(
+            vault.read_secrets().unwrap().values().next().unwrap(),
+            "sk-ant-secret"
+        );
     }
 
     #[test]
@@ -1513,7 +1502,14 @@ mod tests {
         let listed = vault.list();
         assert_eq!(listed.len(), 1);
         assert!(listed[0].revoked);
-        assert!(secrets(&vault).contains("sk-ant-001"));
+        assert!(!secrets(&vault).contains("sk-ant-001"));
+        assert!(
+            vault
+                .read_secrets()
+                .unwrap()
+                .values()
+                .any(|key| key == "sk-ant-001")
+        );
 
         vault.delete(&credential.id).unwrap();
         assert!(vault.list().is_empty());

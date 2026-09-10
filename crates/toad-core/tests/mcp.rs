@@ -5,12 +5,13 @@
 //! the tool attached, no MCP rows under a policy of none, and an absent row
 //! — with the error as its reason — when the child could not start.
 
+mod common;
+
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use toad_core::desk::Desk;
 use toad_core::log::{Log, StreamId};
 use toad_core::mcp::{self, McpServer, McpTransport};
 use toad_core::wire::Door;
@@ -53,7 +54,7 @@ fn scratch(name: &str) -> PathBuf {
 
 async fn open(name: &str) -> (PathBuf, u16) {
     let root = scratch(name);
-    let desk = Desk::open(&root).unwrap();
+    let desk = common::open_desk(&root).unwrap();
     let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
@@ -513,12 +514,12 @@ async fn teammate_tools_is_null_before_a_session_has_started() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_non_string_env_value_is_absent_naming_the_key() {
-    let (_root, port) = open("env-not-string").await;
+async fn a_non_string_env_value_is_rejected_before_settings_are_written() {
+    let (root, port) = open("env-not-string").await;
     let mut client = Client::connect(port).await;
     keyed(&mut client).await;
 
-    client
+    let rejected = client
         .call(
             "settings.update",
             json!({ "patch": { "mcpServers": [{
@@ -531,37 +532,17 @@ async fn a_non_string_env_value_is_absent_naming_the_key() {
             }] } }),
         )
         .await;
-    let created = client
-        .call(
-            "persona.create",
-            json!({ "draft": { "name": "Ada", "goal": "Notice the token." } }),
-        )
-        .await;
-    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
-    set_policy(&mut client, &persona_id, "some", &["needs-token"]).await;
-    let started = client
-        .call("session.start", json!({ "personaId": persona_id }))
-        .await;
-    assert_eq!(started["ok"], true, "{started}");
-
-    let tools = client
-        .call("teammate.tools", json!({ "personaId": persona_id }))
-        .await;
-    let rows = tools["result"]["rows"].as_array().unwrap();
-    let gone = rows
-        .iter()
-        .find(|row| row["origin"] == "needs-token")
-        .expect("the refused server is on the ledger");
-    assert_eq!(gone["source"], "mcp");
-    assert_eq!(gone["state"], "absent");
+    assert_eq!(rejected["ok"], false, "{rejected}");
     assert!(
-        gone["reason"].as_str().unwrap().contains("API_TOKEN"),
-        "{}",
-        gone["reason"]
+        rejected["error"]
+            .as_str()
+            .unwrap()
+            .contains("environment values must be strings")
     );
     assert!(
-        rows.iter().all(|row| row["name"] != "echo__shout"),
-        "the server started without its token: {rows:?}"
+        !std::fs::read_to_string(root.join("room.jsonl"))
+            .unwrap()
+            .contains("API_TOKEN")
     );
 }
 

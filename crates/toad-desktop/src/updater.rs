@@ -100,12 +100,12 @@ fn target_for(
         ("linux", Some(BundleType::Rpm)) => "rpm",
         ("linux", Some(BundleType::AppImage)) => "appimage",
         ("macos", Some(BundleType::App | BundleType::Dmg)) => "app",
-        // Windows is not shipped by Toad's release matrix yet.
+        ("windows", Some(BundleType::Nsis)) => "nsis",
         _ => return None,
     };
     if !matches!(
         (os, arch),
-        ("linux", "x86_64") | ("macos", "x86_64" | "aarch64")
+        ("linux" | "windows", "x86_64") | ("macos", "x86_64" | "aarch64")
     ) {
         return None;
     }
@@ -572,7 +572,12 @@ mod tests {
             Some("darwin-x86_64-app")
         );
         assert!(target_for("linux", "aarch64", Some(Deb)).is_none());
-        assert!(target_for("windows", "x86_64", Some(Nsis)).is_none());
+        assert_eq!(
+            target_for("windows", "x86_64", Some(Nsis)).as_deref(),
+            Some("windows-x86_64-nsis")
+        );
+        assert!(target_for("windows", "aarch64", Some(Nsis)).is_none());
+        assert!(target_for("windows", "x86_64", Some(Msi)).is_none());
         assert!(target_for("linux", "x86_64", None).is_none());
     }
 

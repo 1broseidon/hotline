@@ -275,6 +275,12 @@ rootless-available first:
 | `podman` | `podman` | Linux and macOS |
 | `container` | Apple `container` | macOS only |
 
+On macOS, desktop startup restores `PATH` from the user's interactive login
+shell before starting the core. This covers shell-managed Node installations
+and ACP harnesses as well as Docker credential helpers inherited by child
+processes. Shell startup has a five-second limit; failure retains the inherited
+path and adds the standard Homebrew, local CLI, and Docker Desktop directories.
+
 Detection is `version` (available or a reason) then `info` (rootless).
 Binaries are resolved on `PATH` plus `/usr/local/bin`, `/opt/homebrew/bin`
 and `~/.local/bin`, because a packaged Mac app's GUI PATH is the bare

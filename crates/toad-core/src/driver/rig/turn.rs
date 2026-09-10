@@ -228,12 +228,12 @@ async fn run_inner(
                     reasoning_deltas.insert(id);
                     chunk_into(sender, &mut open, MessageKind::Thought, &reasoning).await;
                 }
-                StreamedAssistantContent::Reasoning { id, reasoning } => {
-                    if !reasoning_deltas.contains(&id) {
-                        for part in reasoning.content {
-                            if let rig::message::ReasoningContent::Text { text, .. } = part {
-                                chunk_into(sender, &mut open, MessageKind::Thought, &text).await;
-                            }
+                StreamedAssistantContent::Reasoning { id, reasoning }
+                    if !reasoning_deltas.contains(&id) =>
+                {
+                    for part in reasoning.content {
+                        if let rig::message::ReasoningContent::Text { text, .. } = part {
+                            chunk_into(sender, &mut open, MessageKind::Thought, &text).await;
                         }
                     }
                 }

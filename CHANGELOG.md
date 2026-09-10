@@ -7,6 +7,42 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-09
+
+### Added
+- Ollama local and cloud connections, OpenRouter sign-in, Z.ai API keys and
+  coding-plan connections, and Grok subscription sign-in. Model requests
+  continue to use Rig's provider clients.
+- Named OpenAI-compatible connections with a custom URL, optional key,
+  Responses or Chat Completions, model discovery and manual model IDs.
+- Provider model refresh and manual additions. Provider discovery supplies
+  available models; the bundled models.dev catalogue supplies metadata.
+  Refresh preserves manual entries and the user's model selections.
+- An updater in Settings that checks GitHub every six hours, shows release
+  notes, and installs a signed package for the current OS and architecture.
+  Installation waits for an idle room and preserves local data.
+- A Windows x86_64 installer and updater support. Windows publisher signing
+  is deferred, so Windows may still show an installation reputation warning.
+
+### Security
+- Toad-owned API keys, OpenRouter and Grok sign-ins, and MCP credentials use
+  macOS Keychain, Windows Credential Manager or Linux Secret Service. Existing
+  credentials migrate with verified writes and no plaintext fallback on failure.
+  ChatGPT and Copilot OAuth tokens remain in permission-restricted files
+  managed by Rig.
+- MCP command arguments and environment values move out of saved room settings
+  into native credential storage. Settings responses hide unmigrated values;
+  successful migration removes their superseded room history. Legacy HTTP
+  URLs with credentials, queries or fragments must be re-entered with secrets
+  in the authentication fields.
+- Windows vault files receive private ACLs, and shell, ACP and MCP processes
+  run in owned jobs so stopping a session also terminates their descendants.
+
+To upgrade from 0.5.0, download and install this release manually; the in-app
+updater is new in 0.6.0. Linux credential storage needs an unlocked Secret
+Service session. Credential references do not transfer secrets to another
+machine: reconnect providers and tool sources after moving the data directory.
+
 ### Changed
 - The window's top strip is the same on every platform: the mark, the
   title, the open teammate's model and effort, and the search. The rail's

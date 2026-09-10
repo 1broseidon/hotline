@@ -99,6 +99,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       # The window's toolkit and the tray's library, found through pkg-config
       # before the deb is written (docs/development.md).

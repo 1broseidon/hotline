@@ -390,6 +390,17 @@ enum AcceptAgain {
 }
 
 fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Networking::WinSock::{WSAECONNRESET, WSAEMFILE, WSAENOBUFS};
+        // Winsock reports a reset peer separately from an exhausted socket
+        // table or buffer pool. Only resource pressure needs a delayed retry.
+        match error.raw_os_error() {
+            Some(WSAECONNRESET) => return Some(AcceptAgain::Now),
+            Some(WSAEMFILE) | Some(WSAENOBUFS) => return Some(AcceptAgain::AfterPause),
+            _ => {}
+        }
+    }
     #[cfg(unix)]
     {
         // accept(2): a network error already pending on the new socket is

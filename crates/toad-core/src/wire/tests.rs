@@ -1368,6 +1368,28 @@ fn too_many_open_files_pauses_and_a_gone_listener_does_not() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn winsock_resource_pressure_pauses_without_losing_the_listener() {
+    use windows_sys::Win32::Networking::WinSock::{
+        WSAECONNRESET, WSAEMFILE, WSAENOBUFS, WSAENOTSOCK,
+    };
+    for code in [WSAEMFILE, WSAENOBUFS] {
+        assert_eq!(
+            accept_again(&std::io::Error::from_raw_os_error(code)),
+            Some(AcceptAgain::AfterPause)
+        );
+    }
+    assert_eq!(
+        accept_again(&std::io::Error::from_raw_os_error(WSAECONNRESET)),
+        Some(AcceptAgain::Now)
+    );
+    assert_eq!(
+        accept_again(&std::io::Error::from_raw_os_error(WSAENOTSOCK)),
+        None
+    );
+}
+
 /// A stream subscription that ends without an unsubscribe used to keep its
 /// id forever, so the next client that reused the number was told it was
 /// already open for a task that would never deliver.

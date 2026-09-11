@@ -1,0 +1,35 @@
+---
+title: Toad
+description: A local-first room for your team of agents. Open source, self-hosted, on your machine.
+template: splash
+hero:
+  tagline: A local-first room for your team of agents. Each teammate has a name, a project folder and a conversation that keeps going whether or not you are watching.
+  actions:
+    - text: Install Toad
+      link: /docs/get-started/install/
+      icon: right-arrow
+    - text: Watch the intro
+      link: /
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="Your first teammate" icon="rocket">
+		Add a provider key, name a teammate, give it a folder. [Start here](/docs/get-started/first-teammate/).
+	</Card>
+	<Card title="Bring the tools you have" icon="seti:shell">
+		Claude Code, Codex, Cursor, opencode and Gemini CLI run as teammates in their own lane. [Teammates and drivers](/docs/setup/teammates/).
+	</Card>
+	<Card title="Give a teammate a computer" icon="laptop">
+		A containerized Linux desktop it drives, and you can watch and take over. [The computer](/docs/setup/computer/).
+	</Card>
+	<Card title="Everything stays on your machine" icon="approve-check">
+		Conversations, keys and schedules live in one data directory you own. [Data and privacy](/docs/reference/data/).
+	</Card>
+</CardGrid>
+
+These docs are a v0. What is not here yet is written up in the repository under
+[`docs/`](https://github.com/1Broseidon/toad/tree/main/docs).

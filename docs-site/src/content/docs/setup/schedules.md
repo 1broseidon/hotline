@@ -1,0 +1,41 @@
+---
+title: Schedules
+description: Wake a teammate once, or on an interval, from the pane or from the teammate itself.
+---
+
+A schedule is a message delivered to a teammate at a time. It fires through
+the same door as you typing: the teammate starts if it was idle, reads the
+prompt, and works.
+
+## Add one yourself
+
+Open the teammate's conversation and choose **Schedules** in its band. A
+schedule is either **once**, at a date and time, or **every** so many
+seconds, minutes, hours or days. The prompt is what to ask when it fires.
+Each job has a **quiet** switch: quiet runs land in the tape as thoughts
+rather than as a reply that lights up the rail.
+
+Bounds:
+
+| | |
+| --- | --- |
+| once | 1 second to 30 days ahead |
+| every | 15 seconds to 7 days |
+| prompt | up to 8000 characters |
+| jobs per teammate | 20 |
+
+A schedule you add runs regardless of the teammate's **Background work**
+setting. Cancel it from the same list.
+
+## Let the teammate schedule itself
+
+Turn on **Background work** in the teammate's pane. The teammate then has
+`schedule`, `loop`, `list_schedules` and `cancel_schedule` as tools and can
+say "check the build again in 20 minutes" and mean it. Turning it off pauses
+the jobs it made without deleting them; turning it on wakes them.
+
+## While Toad is closed
+
+Nothing fires while Toad is not running. A tick missed while Toad was closed
+fires once on reopen, not once per missed interval. Closing the window does
+not close Toad; quitting from the tray does.

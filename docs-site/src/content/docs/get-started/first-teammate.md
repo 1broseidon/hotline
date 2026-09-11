@@ -11,11 +11,11 @@ Toad's built-in agent, **Toad Agent**, runs on a model key you hold. Open
 **Settings** (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>,</kbd>), pick **Providers**,
 and choose **Add provider**. Paste an API key, or sign in where the provider
 offers it. The key is stored in Toad's vault on this machine and nowhere
-else. The full list is in [Providers and keys](/setup/providers/).
+else. The full list is in [Providers and keys](/docs/setup/providers/).
 
 If you would rather drive a tool you already have, such as Claude Code or
 Cursor, skip this step: those teammates sign themselves in. See
-[Teammates and drivers](/setup/teammates/).
+[Teammates and drivers](/docs/setup/teammates/).
 
 ## 2. New teammate
 
@@ -42,7 +42,7 @@ teammate finishes or needs you.
 
 ## Where next
 
-- Give it tools: [Tools and MCP servers](/setup/tools/).
-- Give it a desktop: [The computer](/setup/computer/).
-- Have it wake itself: [Schedules](/setup/schedules/).
-- Understand the room: [How a room works](/get-started/room/).
+- Give it tools: [Tools and MCP servers](/docs/setup/tools/).
+- Give it a desktop: [The computer](/docs/setup/computer/).
+- Have it wake itself: [Schedules](/docs/setup/schedules/).
+- Understand the room: [How a room works](/docs/get-started/room/).

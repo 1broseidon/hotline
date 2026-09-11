@@ -52,4 +52,4 @@ teammate's model can be changed any time from the picker in its title bar.
 
 Teammates that run Claude Code, Codex, Cursor, opencode, Gemini CLI or Grok
 Build sign in through that tool, not through Toad. Toad holds no key for
-them. See [Teammates and drivers](/setup/teammates/).
+them. See [Teammates and drivers](/docs/setup/teammates/).

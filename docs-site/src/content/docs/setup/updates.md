@@ -18,7 +18,7 @@ holds new work until the restart completes. Schedules that come due in
 between run after the relaunch.
 
 Installing replaces the application only. The data directory, vault,
-conversations and settings are untouched. See [Data and privacy](/reference/data/).
+conversations and settings are untouched. See [Data and privacy](/docs/reference/data/).
 
 Development builds never check or install. Every release is also on the
 [GitHub releases page](https://github.com/1Broseidon/toad/releases), with

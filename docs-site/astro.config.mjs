@@ -3,7 +3,9 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-	site: 'https://docs.toad.team',
+	site: 'https://toad.team',
+	base: '/docs',
+	outDir: '../site/public/docs',
 	integrations: [
 		starlight({
 			title: 'Toad',

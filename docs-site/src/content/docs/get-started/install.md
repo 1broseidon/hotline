@@ -52,8 +52,8 @@ somebody closed a window.
 ## Updating
 
 A packaged Toad checks GitHub for a new version every six hours and offers it
-under **Settings → Updates**. See [Updates](/setup/updates/).
+under **Settings → Updates**. See [Updates](/docs/setup/updates/).
 
 ## Next
 
-[Your first teammate](/get-started/first-teammate/).
+[Your first teammate](/docs/get-started/first-teammate/).

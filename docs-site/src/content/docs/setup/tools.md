@@ -43,5 +43,5 @@ Every teammate, whichever driver, also has tools that belong to the room:
 | `message_teammate` | Sends a message to another teammate, once you have allowed that pair. |
 | `schedule`, `loop`, `list_schedules`, `cancel_schedule` | Wakes itself later, or on an interval, with **Background work** on. |
 
-A teammate with a [computer](/setup/computer/) gets that machine's tools as
+A teammate with a [computer](/docs/setup/computer/) gets that machine's tools as
 one more server, whatever its MCP grant says.

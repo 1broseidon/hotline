@@ -52,11 +52,11 @@ pane sits beside the conversation and controls:
 - **Working directory.** Reveal it, or choose another folder.
 - **Access.** Workspace only, or **Whole machine** (Toad Agent).
 - **Background work.** Whether the teammate may schedule its own wakes. Off
-  by default. See [Schedules](/setup/schedules/).
+  by default. See [Schedules](/docs/setup/schedules/).
 - **Collaboration.** Which other teammates it may message, granted per
   direction the first time it is tried.
-- **Tools.** Which MCP servers it gets. See [Tools and MCP servers](/setup/tools/).
-- **Computer.** A containerized desktop of its own. See [The computer](/setup/computer/).
+- **Tools.** Which MCP servers it gets. See [Tools and MCP servers](/docs/setup/tools/).
+- **Computer.** A containerized desktop of its own. See [The computer](/docs/setup/computer/).
 - **Threads.** Its exchanges with other teammates.
 
 Changing anything the driver is built from restarts the session. The

@@ -1,0 +1,1223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toad</title>
+<meta name="description" content="A local-first room for your team of agents. Open source, self-hosted, on your machine.">
+<link rel="canonical" href="https://toad.team/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0a0b0d">
+<meta name="color-scheme" content="dark">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Toad">
+<meta property="og:title" content="Toad">
+<meta property="og:description" content="A local-first room for your team of agents. Open source, self-hosted, on your machine.">
+<meta property="og:url" content="https://toad.team/">
+<meta property="og:image" content="https://toad.team/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Toad">
+<meta name="twitter:description" content="A local-first room for your team of agents. Open source, self-hosted, on your machine.">
+<meta name="twitter:image" content="https://toad.team/og.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Toad launch film. One committed dark world: the window's own tokens
+   * (ui/src/tokens.css) and the window's own furniture (ui/src/index.css),
+   * lifted onto a desktop stage with a camera over it. Nothing on the tape
+   * is invented: bubbles, step rows, rule lines, the mark above the composer. */
+  :root {
+    --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI Variable Text", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+    --ground: oklch(9.5% 0.006 250);
+    --well: oklch(12% 0.006 250);
+    --edge: oklch(30% 0.024 252);
+    --canvas: oklch(16% 0.006 250);
+    --raised: oklch(20% 0.007 250);
+    --pop: oklch(24% 0.008 250);
+    --pressed: oklch(28% 0.008 250);
+    --top-light: inset 0 1px 0 oklch(100% 0 0 / 0.04);
+
+    --ink: oklch(95% 0.004 250);
+    --ink-2: oklch(78% 0.006 250);
+    --ink-3: oklch(62% 0.008 250);
+    --ink-4: oklch(46% 0.008 250);
+
+    --fill-hover: oklch(100% 0 0 / 0.05);
+    --fill-active: oklch(100% 0 0 / 0.09);
+    --fill-selected: oklch(100% 0 0 / 0.08);
+    --fill-code: oklch(100% 0 0 / 0.05);
+    --line: oklch(100% 0 0 / 0.09);
+    --line-strong: oklch(100% 0 0 / 0.16);
+
+    --accent: oklch(76% 0.17 142);
+    --accent-hover: oklch(81% 0.17 142);
+    --on-accent: oklch(16% 0.04 142);
+    --accent-soft: oklch(76% 0.17 142 / 0.16);
+
+    --said-me: oklch(30% 0.034 255);
+    --said-them: oklch(21% 0.008 250);
+    --warn: oklch(80% 0.14 80);
+    --danger: oklch(72% 0.17 25);
+    --face-ink: oklch(17% 0.02 250);
+
+    --shadow-float: 0 0 0 1px oklch(100% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.3), 0 12px 32px -8px oklch(0% 0 0 / 0.55);
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+    --ease-cam: cubic-bezier(0.55, 0, 0.15, 1);
+    --dur-typing: 1100ms;
+    --dur-move: 220ms;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body.fonts-pending .viewport, body.fonts-pending .controls { visibility: hidden; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 14px/1.45 var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    overflow-x: hidden;
+    padding-inline: 16px;
+  }
+
+  /* Stage: a 1280x720 canvas scaled to fit whatever viewport it lands in. The
+   * one light on the desk spills from the window itself. */
+  .viewport { display: grid; place-items: center; padding-block: 24px 8px; }
+  .frame { width: min(100%, 1280px); aspect-ratio: 16 / 9; position: relative; max-width: 100%; }
+  .stage {
+    position: absolute; top: 0; left: 0;
+    width: 1280px; height: 720px;
+    transform-origin: top left;
+    border-radius: 12px;
+    overflow: hidden;
+    background:
+      radial-gradient(760px 420px at 50% 5%, oklch(21% 0.02 250 / 0.6), transparent 60%),
+      linear-gradient(180deg, oklch(13% 0.008 252), var(--well));
+    box-shadow: 0 0 0 1px var(--line), 0 30px 80px -30px oklch(0% 0 0 / 0.85);
+    user-select: none;
+  }
+
+  /* The camera: everything on the desk sits inside it. A slow drift under it
+   * keeps a held shot alive without touching the camera's own maths. */
+  .camera-drift { position: absolute; inset: 0; animation: drift 14s var(--ease-in-out) infinite; }
+  @keyframes drift { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(3px, -2px) scale(1.006); } }
+  .camera { position: absolute; inset: 0; transform-origin: 0 0; transition: transform 1.4s var(--ease-cam); will-change: transform; }
+  .stage.seeking .camera, .stage.seeking .camera *, .stage.seeking .card, .stage.seeking .card * { transition: none !important; }
+
+  /* ---------------------------------------------------------- the window */
+  .win {
+    position: absolute; left: 56px; top: 36px;
+    width: 1168px; height: 516px;
+    display: flex; flex-direction: column;
+    background: var(--well);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px var(--edge), 0 24px 60px -24px oklch(0% 0 0 / 0.8);
+    opacity: 0;
+    transform: translateY(14px) scale(.985);
+    transition: opacity .6s var(--ease-out), transform .8s var(--ease-out);
+  }
+  .stage.lit .win { opacity: 1; transform: none; }
+
+  /* Titlebar: the well itself, with the mark where a frame keeps its app
+   * icon, the title in the centre, the model and the search at the right.
+   * macOS keeps its traffic lights in the left corner. */
+  .titlebar { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; height: 32px; flex: none; align-items: center; gap: 8px; padding: 0 8px 0 80px; }
+  .titlebar .lights { position: absolute; left: 14px; top: 0; height: 32px; display: flex; align-items: center; gap: 8px; }
+  .titlebar .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .titlebar .lights .r { background: oklch(68% 0.19 27); }
+  .titlebar .lights .y { background: oklch(82% 0.16 85); }
+  .titlebar .lights .g { background: oklch(72% 0.19 145); }
+  .titlebar-mark { grid-column: 1; justify-self: start; width: 18px; color: var(--ink-3); display: block; }
+  .titlebar-title { grid-column: 2; margin: 0; min-width: 0; white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--ink-3); }
+  .titlebar-tools { grid-column: 3; justify-self: end; display: flex; align-items: center; gap: 4px; }
+  .titlebar .control { height: 24px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 500; color: var(--ink-2); }
+  .titlebar .control.ico { width: 24px; padding: 0; justify-content: center; color: var(--ink-3); }
+  .titlebar .control svg { width: 14px; height: 14px; }
+  .deck { display: flex; flex: 1; min-height: 0; }
+
+  /* Rail: the roster you watch. 240 wide, like the window's. */
+  .rail { width: 240px; flex: none; display: flex; flex-direction: column; padding: 8px 8px 0; }
+  .rail-row {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 6px 8px 6px 10px; border-radius: 6px;
+    opacity: 0; transform: translateX(-6px);
+    transition: opacity .4s var(--ease-out), transform .5s var(--ease-out), background .09s var(--ease-out);
+  }
+  .rail-row.on { opacity: 1; transform: none; }
+  .rail-row.active { background: var(--fill-selected); }
+  .rail-row .text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+  .rail-row .namerow { display: flex; align-items: center; gap: 6px; height: 18px; }
+  .rail-row .name { font-weight: 500; font-size: 13px; line-height: 18px; color: var(--ink); }
+  .rail-row .line { font-size: 12px; line-height: 16px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rail-row .line.tool { font-family: var(--font-mono); font-size: 11px; letter-spacing: .02em; }
+  .rail-row .vital { width: 8px; height: 8px; border-radius: 50%; flex: none; background: transparent; }
+  .rail-row .vital.working { background: var(--accent); animation: beat 1.8s var(--ease-out) infinite; }
+  @keyframes beat { 50% { opacity: .3; } }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex: none;
+    display: grid; place-items: center;
+    font: 600 12px var(--font-sans); color: var(--face-ink);
+    background: oklch(72% 0.10 var(--hue, 156));
+  }
+  .rail footer { margin-top: auto; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 4px; color: var(--ink-2); font-size: 12px; }
+  .rail footer .ctl { height: 26px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; }
+  .rail footer .ctl svg { width: 14px; height: 14px; color: var(--ink-3); }
+  .rail footer .ico { width: 26px; padding: 0; justify-content: center; color: var(--ink-3); }
+
+  /* Panes: a canvas standing in the well. */
+  .pane, .inspector {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    background: var(--canvas);
+    border-radius: 10px;
+    box-shadow: var(--top-light), 0 0 0 1px var(--line);
+  }
+  .pane { flex: 1; position: relative; margin: 6px 6px 6px 0; }
+  .band { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; flex: none; padding: 0 8px; }
+  .band .who { display: inline-flex; align-items: center; gap: 8px; padding: 0 8px 0 4px; height: 28px; border-radius: 6px; }
+  .band .who .avatar { width: 20px; height: 20px; font-size: 9px; }
+  .band .who b { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .band .who .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: none; }
+  .band.thinking .who .dot { display: block; animation: beat 1.8s var(--ease-out) infinite; }
+  .band .spacer { flex: 1; }
+  .band .ctl { height: 28px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); transition: background .09s var(--ease-out); }
+  .band .ctl.press { background: var(--fill-hover); }
+  .band .ctl.ico { width: 28px; padding: 0; justify-content: center; color: var(--ink-2); }
+  .band .ctl svg { width: 14px; height: 14px; }
+  .band .ctl .sub { color: var(--ink-3); }
+  .band .close { font-size: 15px; color: var(--ink-2); }
+
+  /* The transcript column: 46rem, centred, like the window's. */
+  .scroller { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  .col { max-width: 736px; margin: 0 auto; padding: 0 24px; }
+  .tape { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding-bottom: 40px; }
+  .tape > * { animation: rise .3s var(--ease-out); }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .speech { position: relative; min-width: 0; max-width: 78%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 22px; color: var(--ink); overflow-wrap: anywhere; }
+  .said-me { background: var(--said-me); align-self: flex-end; margin-top: 12px; }
+  .said-them { background: var(--said-them); width: fit-content; margin-top: 12px; }
+  /* Inside a run from one speaker the corners that face each other tighten. */
+  .said-me.said-run-top { border-top-right-radius: 4px; margin-top: 4px; }
+  .said-me.said-run-bottom { border-bottom-right-radius: 4px; }
+  .said-them.said-run-top { border-top-left-radius: 4px; margin-top: 4px; }
+  .said-them.said-run-bottom { border-bottom-left-radius: 4px; }
+  .speech code { font: 400 12.5px var(--font-mono); background: var(--fill-code); padding: 1px 5px; border-radius: 4px; }
+  .speech p { margin: 0; }
+  .speech p + p, .speech table + p { margin-top: 8px; }
+  .speech blockquote { margin: 8px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--line-strong); color: var(--ink-2); }
+  .speech table { border-collapse: collapse; margin-top: 8px; font-size: 13px; line-height: 18px; }
+  .speech th, .speech td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
+  .speech th { font-weight: 600; background: var(--fill-code); }
+  .said-name { margin: 12px 0 4px; font-size: 11px; line-height: 14px; font-weight: 500; color: var(--ink-3); }
+  .named { display: flex; flex-direction: column; }
+  .named.mine { align-items: flex-end; }
+  .named .speech { margin-top: 0; }
+  .inspector .body > * { animation: rise .3s var(--ease-out); }
+
+  /* Rule lines: a notice, a peer marker. */
+  .rule-line { margin: 0; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0; font: 400 11px/14px var(--font-mono); letter-spacing: .04em; color: var(--ink-3); transition: color .09s var(--ease-out); }
+  .rule-line.press { color: var(--ink-2); }
+
+  /* The scheduled line: a firing claimed the user line. */
+  .scheduled { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .scheduled .step { width: auto; max-width: 78%; }
+
+  /* Steps: the machinery between two messages. While live, only if the mark was pressed. */
+  .steps-block { margin: 8px 0; }
+  .steps-caption { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; margin-left: -6px; padding: 0 6px; border-radius: 6px; font: 400 11px/14px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  .steps-caption .chev { opacity: 0; }
+  .steps { margin: 4px 0 0 11px; border-left: 2px solid var(--line); padding-left: 6px; overflow: hidden; max-height: 0; opacity: 0; transition: max-height .3s var(--ease-in-out), opacity .22s var(--ease-out); }
+  .steps-block.open .steps { max-height: 480px; opacity: 1; }
+  .steps-block.open .steps-caption { display: none; }
+  .steps-block.live .steps-caption { display: none; }
+  .step { display: flex; width: 100%; min-height: 24px; align-items: center; gap: 8px; padding: 2px 8px; border-radius: 6px; font-size: 12px; line-height: 16px; color: var(--ink-2); animation: rise .3s var(--ease-out); }
+  .step.press { background: var(--fill-hover); }
+  .step-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
+  .step.running .step-mark { background: var(--accent); animation: beat 1.8s var(--ease-out) infinite; }
+  .step-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 11px var(--font-mono); letter-spacing: .02em; }
+  .step .state { flex: none; color: var(--ink-3); display: none; }
+  .step.running .state { display: inline; }
+  .chev { flex: none; width: 12px; height: 12px; color: var(--ink-3); }
+  .step-out { max-height: 120px; margin: 2px 0 6px 22px; padding: 8px 10px; border-radius: 6px; background: var(--fill-code); font: 400 11px/16px var(--font-mono); color: var(--ink-2); white-space: pre-wrap; animation: rise .3s var(--ease-out); }
+
+  /* Them, at work: the mark above the composer, with one word. */
+  .ambient { position: absolute; left: 0; right: 0; bottom: 10px; z-index: 1; }
+  .ambient-mark { display: inline-flex; align-items: center; gap: 10px; padding: 4px 4px 4px 2px; border-radius: 6px; color: var(--ink-3); animation: pop-in .13s var(--ease-out) both; transition: background .09s var(--ease-out); }
+  .ambient-word { font-size: 12px; line-height: 16px; }
+  @keyframes pop-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+  .glyph { display: block; flex: none; fill: currentColor; }
+  .glyph .g-pupils { fill: var(--canvas); }
+  .glyph .g-body, .glyph .g-eyeL, .glyph .g-eyeR, .glyph .g-dot, .glyph .g-pupils { transform-box: fill-box; transform-origin: center; }
+  .glyph-mark .g-dot { transform: scale(0); }
+  .glyph-dots .g-body { transform: scaleY(0.001); transition: transform var(--dur-move) var(--ease-in-out); }
+  .glyph-dots .g-pupils { opacity: 0; transition: opacity var(--dur-move) var(--ease-in-out); }
+  .glyph-dots .g-eyeL, .glyph-dots .g-eyeR { transform: translateY(9px) scale(0.4); transition: transform var(--dur-move) var(--ease-in-out); animation: typing var(--dur-typing) var(--ease-in-out) infinite; }
+  .glyph-dots .g-dot { transition: transform var(--dur-move) var(--ease-in-out); animation: typing var(--dur-typing) var(--ease-in-out) infinite; animation-delay: calc(var(--dur-typing) / 6); }
+  .glyph-dots .g-eyeR { animation-delay: calc(var(--dur-typing) / 3); }
+  @keyframes typing { 0%, 55%, 100% { opacity: 0.35; } 25% { opacity: 1; } }
+
+  /* Composer: the one thing in the window that rests on a shadow. */
+  .composer-wrap { position: relative; flex: none; padding: 0 24px 16px; }
+  .composer { display: flex; align-items: flex-end; gap: 2px; max-width: 736px; margin: 0 auto; padding: 6px; border-radius: 20px; background: var(--pop); box-shadow: var(--top-light), 0 0 0 1px var(--line), var(--shadow-float); }
+  .composer-key { display: flex; width: 28px; height: 28px; flex: none; align-items: center; justify-content: center; border-radius: 50%; transition: background .09s var(--ease-out), opacity .09s var(--ease-out), transform .09s var(--ease-out); }
+  .composer-key svg { width: 16px; height: 16px; }
+  .composer-attach { color: var(--ink-3); }
+  .composer-body { flex: 1; min-width: 0; padding: 0 6px; }
+  .composer .text { display: block; min-height: 22px; padding: 3px 0; font-size: 14px; line-height: 22px; color: var(--ink); }
+  .composer .text:empty::before { content: attr(data-ph); color: var(--ink-3); }
+  .composer .text .caret { display: inline-block; width: 1px; height: 16px; background: var(--ink); vertical-align: -3px; margin-left: 1px; animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .composer-send { background: var(--accent); color: var(--on-accent); opacity: 0; transform: scale(0.6); }
+  .composer.has .composer-send { opacity: 1; transform: none; }
+  .composer-stop { background: var(--fill-active); color: var(--ink); display: none; }
+  .composer.working .composer-stop { display: flex; }
+  .composer.working:not(.has) .composer-send { display: none; }
+  .composer-key.press { transform: scale(0.94); }
+
+  /* Inspector: the thread, in the inspector's place. 320 wide, like the window's. */
+  .inspector { width: 0; flex: none; overflow: hidden; margin: 6px 0; opacity: 0; transition: width .22s var(--ease-out), opacity .2s var(--ease-out), margin .22s var(--ease-out); }
+  .inspector.open { width: 320px; margin: 6px 6px 6px 0; opacity: 1; }
+  .inspector .band b { font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .inspector .body { padding: 0 16px 16px; display: flex; flex-direction: column; }
+
+  /* The teammate's screen, in a window of its own. */
+  .screenwin {
+    position: absolute; left: 760px; top: 168px; width: 440px;
+    background: var(--well); border-radius: 10px; overflow: hidden;
+    box-shadow: 0 0 0 1px var(--edge), 0 24px 60px -24px oklch(0% 0 0 / 0.9);
+    opacity: 0; transform: translateY(8px) scale(.98); pointer-events: none;
+    transition: opacity .25s var(--ease-out), transform .3s var(--ease-out);
+  }
+  .screenwin.open { opacity: 1; transform: none; }
+  .screenwin .band { padding: 0 10px; }
+  .screenwin .band .t { font-size: 13px; font-weight: 600; }
+  .screen { position: relative; width: 440px; height: 275px; background: #0a0a0a; overflow: hidden; }
+  .screen .wall { position: absolute; inset: 0; display: grid; place-items: center; color: oklch(28% 0 0); }
+  .screen .wall svg { width: 100px; }
+  .screen .dock { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); display: flex; gap: 7px; padding: 5px 7px; border-radius: 7px; background: oklch(20% 0 0 / 0.9); box-shadow: 0 0 0 1px oklch(100% 0 0 / 0.08); }
+  .screen .dock i { width: 16px; height: 16px; border-radius: 4px; background: oklch(46% 0.01 250); display: block; }
+  .screen .dock i.chrome { background: oklch(60% 0.12 240); }
+  .screen .dock i.term { background: oklch(35% 0.01 250); }
+  .screen .dock i.files { background: oklch(70% 0.12 80); }
+  .browser {
+    position: absolute; left: 20px; top: 14px; width: 400px; height: 218px;
+    background: oklch(98% 0.003 250); color: oklch(22% 0.01 250);
+    border-radius: 6px; overflow: hidden;
+    box-shadow: 0 8px 24px -8px oklch(0% 0 0 / 0.9), 0 0 0 1px oklch(0% 0 0 / 0.4);
+    opacity: 0; transform: translateY(6px) scale(.98);
+    transition: opacity .3s var(--ease-out), transform .35s var(--ease-out);
+    font-family: var(--font-sans);
+  }
+  .browser.on { opacity: 1; transform: none; }
+  .browser .tabbar { height: 22px; background: oklch(90% 0.004 250); display: flex; align-items: center; gap: 5px; padding: 0 8px; }
+  .browser .tabbar i { width: 7px; height: 7px; border-radius: 50%; background: oklch(70% 0.01 250); }
+  .browser .tabbar span { margin-left: 8px; font-size: 8px; color: oklch(40% 0.01 250); }
+  .browser .url { height: 18px; margin: 4px 8px 0; border-radius: 4px; background: oklch(100% 0 0); font: 400 7.5px/18px var(--font-mono); color: oklch(45% 0.01 250); padding: 0 8px; box-shadow: 0 0 0 0.5px oklch(0% 0 0 / 0.15); }
+  .browser .page { padding: 10px 14px; }
+  .browser .h { font-size: 12px; font-weight: 600; letter-spacing: -0.01em; }
+  .browser .sub { font-size: 8px; color: oklch(45% 0.01 250); margin-top: 2px; }
+  .browser .field { margin-top: 9px; height: 20px; border-radius: 4px; background: oklch(100% 0 0); box-shadow: 0 0 0 0.6px oklch(0% 0 0 / 0.25); font-size: 9px; line-height: 20px; padding: 0 7px; color: oklch(22% 0.01 250); }
+  .browser .field.focus { box-shadow: 0 0 0 1.4px oklch(60% 0.15 250); }
+  .browser .field.body { height: 52px; line-height: 13px; padding-top: 4px; font-size: 8px; color: oklch(35% 0.01 250); white-space: pre-line; }
+  .browser .btn { margin-top: 9px; display: inline-flex; align-items: center; height: 20px; padding: 0 10px; border-radius: 4px; background: oklch(55% 0.14 145); color: white; font-size: 9px; font-weight: 600; transition: background .12s var(--ease-out); }
+  .browser .btn.hover { background: oklch(50% 0.14 145); }
+  .browser .btn.press { transform: translateY(0.5px) scale(.97); }
+  .browser .opened { display: none; }
+  .browser.pr .compose { display: none; }
+  .browser.pr .opened { display: block; animation: rise .3s var(--ease-out); }
+  .browser .pill { display: inline-flex; align-items: center; height: 15px; padding: 0 7px; border-radius: 8px; background: oklch(55% 0.14 145); color: white; font-size: 8px; font-weight: 600; margin-top: 5px; }
+  .browser .line { height: 5px; border-radius: 3px; background: oklch(88% 0.004 250); margin-top: 7px; }
+  .browser .line.short { width: 60%; }
+  .screen .mcur { position: absolute; left: 60px; top: 160px; width: 12px; height: 16px; opacity: 0; z-index: 3; transition: left .6s var(--ease-out), top .6s var(--ease-out), opacity .25s var(--ease-out); filter: drop-shadow(0 1px 1px oklch(0% 0 0 / 0.6)); }
+  .screen .mcur.on { opacity: 1; }
+  .screen .mcur.click { animation: click .2s var(--ease-out); }
+  @keyframes click { 50% { transform: scale(.82); } }
+
+  /* The person's pointer: HUD, so it keeps its size whatever the camera does. */
+  .pointer { position: absolute; left: 640px; top: 600px; width: 18px; height: 24px; z-index: 3; opacity: 0; pointer-events: none; transition: left .7s var(--ease-out), top .7s var(--ease-out), opacity .25s var(--ease-out); filter: drop-shadow(0 2px 4px oklch(0% 0 0 / 0.5)); }
+  .pointer.on { opacity: 1; }
+  .pointer.click { animation: click .2s var(--ease-out); }
+
+  /* HUD: the scrim, the caption rail and the chapter list sit over the camera. */
+  .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 290px; background: linear-gradient(to top, oklch(11% 0.006 250 / 0.98) 0 48%, oklch(11% 0.006 250 / 0.85) 62%, oklch(11% 0.006 250 / 0.3) 82%, transparent); pointer-events: none; z-index: 2; opacity: 0; transition: opacity .6s var(--ease-out); }
+  .stage.lit .scrim { opacity: 1; }
+  .caption { position: absolute; left: 56px; top: 578px; width: 720px; z-index: 3; }
+  .caption .k { font: 500 12px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 8px; opacity: 0; transform: translateY(6px); transition: opacity .4s var(--ease-out), transform .5s var(--ease-out); }
+  .caption .h { margin: 0; font-size: 32px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; text-wrap: balance; opacity: 0; transform: translateY(8px); transition: opacity .45s var(--ease-out) .05s, transform .55s var(--ease-out) .05s; }
+  .caption .s { margin: 8px 0 0; font-size: 15px; line-height: 1.4; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; opacity: 0; transform: translateY(8px); transition: opacity .45s var(--ease-out) .12s, transform .55s var(--ease-out) .12s; }
+  .caption.on .k, .caption.on .h, .caption.on .s { opacity: 1; transform: none; }
+
+  .chapters { position: absolute; right: 56px; top: 584px; z-index: 3; display: grid; grid-template-columns: auto auto; column-gap: 22px; row-gap: 5px; font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); opacity: 0; transition: opacity .6s var(--ease-out); }
+  .stage.lit .chapters { opacity: 1; }
+  .chapters span { display: flex; align-items: center; gap: 8px; transition: color .3s var(--ease-out); }
+  .chapters span::before { content: ""; width: 14px; height: 1px; background: currentColor; opacity: .5; }
+  .chapters span.on { color: var(--ink); }
+  .chapters span.past { color: var(--ink-3); }
+
+  /* Title and outro cards, on the same left edge as everything else. The
+   * mark is drawn with separate eyes so the outro can wink. */
+  .card {
+    position: absolute; inset: 0;
+    display: flex; align-items: center;
+    padding-left: 56px;
+    background: var(--well);
+    opacity: 0; pointer-events: none;
+    transition: opacity .7s var(--ease-out);
+    z-index: 4;
+  }
+  .card.on { opacity: 1; }
+  .card .mark { width: 120px; color: var(--ink); overflow: visible; display: block; }
+  .card .mark .eye { opacity: 0; transform: translateY(10px); transition: opacity .6s var(--ease-out), transform .8s var(--ease-out); transform-box: fill-box; transform-origin: center; }
+  .card .mark .body { opacity: 0; transition: opacity .6s var(--ease-out) .25s; }
+  .card .mark .pupil { fill: var(--well); }
+  .card.on .mark .eye { opacity: 1; transform: none; }
+  .card.on .mark .eye.r { transition-delay: .12s; }
+  .card.on .mark .body { opacity: 1; }
+  .card .mark.wink .eye.l { transition: none; animation: wink .56s var(--ease-in-out) both; }
+  @keyframes wink { 0% { transform: scaleY(1); } 36% { transform: scaleY(0.08); } 45% { transform: scaleY(0.08); } 78% { transform: scaleY(1); } 100% { transform: scaleY(1); } }
+  .card .name { margin: 22px 0 0; font-size: 64px; font-weight: 600; letter-spacing: -0.045em; line-height: 1; opacity: 0; transform: translateY(8px); transition: opacity .6s var(--ease-out) .45s, transform .7s var(--ease-out) .45s; }
+  .card .line { margin: 14px 0 0; font-size: 19px; color: var(--ink-2); opacity: 0; transition: opacity .6s var(--ease-out) .85s; text-wrap: balance; }
+  .card.on .name, .card.on .line { opacity: 1; transform: none; }
+  .card .url { margin: 34px 0 0; font: 400 13px var(--font-mono); letter-spacing: .04em; color: var(--ink-3); opacity: 0; transition: opacity .6s var(--ease-out) 1.05s; }
+  .card .url b { color: var(--ink); font-weight: 500; }
+  .card.on .url { opacity: 1; }
+  .card .replay {
+    margin-top: 22px; height: 32px; padding: 0 12px 0 10px; border-radius: 6px;
+    background: var(--pop); color: var(--ink);
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 500 12.5px var(--font-sans);
+    opacity: 0; transition: opacity .5s var(--ease-out) 1.25s, background .13s var(--ease-out);
+    cursor: pointer; border: 0; pointer-events: auto;
+  }
+  .card .replay svg { width: 14px; height: 14px; }
+  .card.on .replay { opacity: 1; }
+  .card .replay:hover { background: var(--pressed); }
+
+  /* Controls under the stage. */
+  .controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; padding-block: 14px 22px; }
+  .controls button {
+    height: 30px; padding: 0 11px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--ink-3);
+    font: 500 12.5px var(--font-sans); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: background .13s var(--ease-out), color .13s var(--ease-out);
+  }
+  .controls button:hover, .controls button.on { background: var(--raised); color: var(--ink); }
+  .controls .play { background: var(--raised); color: var(--ink); margin-right: 8px; min-width: 76px; justify-content: center; }
+  .controls .bar { flex-basis: 100%; height: 2px; max-width: 1280px; margin: 8px auto 0; background: var(--raised); border-radius: 2px; overflow: hidden; }
+  .controls .bar b { display: block; height: 100%; width: 0; background: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Render mode for frame capture: stage only, at native size. */
+  body.bare { display: block; padding: 0; }
+  body.bare .viewport { padding: 0; display: block; }
+  body.bare .frame { width: 1280px; }
+  body.bare .stage { border-radius: 0; box-shadow: none; }
+  body.bare .controls { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    body:not(.bare) .vital, body:not(.bare) .step-mark, body:not(.bare) .composer .caret, body:not(.bare) .glyph-dots .g-eyeL, body:not(.bare) .glyph-dots .g-eyeR, body:not(.bare) .glyph-dots .g-dot, body:not(.bare) .camera-drift { animation-duration: 0.01s; animation-iteration-count: 1; }
+    body:not(.bare) .screen .mcur, body:not(.bare) .pointer, body:not(.bare) .camera { transition-duration: 0.01s; }
+  }
+
+  /* ------------------------------------------------------------ the site */
+  body { display: block; padding-inline: 0; }
+  .mast { max-width: 1280px; margin: 0 auto; padding: 22px 24px 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .mast .brand { display: inline-flex; align-items: center; gap: 12px; color: var(--ink); text-decoration: none; }
+  .mast .brand svg { width: 34px; height: 17px; display: block; }
+  .mast .brand b { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+  .mast nav { display: flex; gap: 4px; }
+  .mast nav a { height: 32px; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); text-decoration: none; font-size: 13.5px; font-weight: 500; transition: background .13s var(--ease-out), color .13s var(--ease-out); }
+  .mast nav a:hover { background: var(--raised); color: var(--ink); }
+  .mast nav a svg { width: 14px; height: 14px; }
+
+  .hero { position: relative; background: linear-gradient(180deg, oklch(13% 0.008 252), var(--well)); }
+  .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(760px 420px at 50% 0%, oklch(21% 0.02 250 / 0.6), transparent 60%); pointer-events: none; }
+  .viewport { position: relative; padding-block: 8px 0; padding-inline: 0; }
+  .stage { border-radius: 0; box-shadow: none; background: transparent; cursor: pointer; }
+  .frame { border-radius: 12px; overflow: hidden; }
+
+  /* The chapter bar: the film's own scene list, as the page's navigation. */
+  .controls { position: relative; max-width: 1280px; margin: 0 auto; padding: 0 24px 26px; display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }
+  .controls::-webkit-scrollbar { display: none; }
+  .controls .bar { flex-basis: auto; position: absolute; left: 24px; right: 24px; top: 0; margin: 0; height: 2px; max-width: none; border-radius: 0; background: var(--raised); }
+  .controls button { height: 44px; padding: 0 12px; border-radius: 0; background: transparent; color: var(--ink-4); font: 400 12px var(--font-mono); letter-spacing: .04em; flex: none; }
+  .controls button:hover { background: transparent; color: var(--ink-2); }
+  .controls button.on { background: transparent; color: var(--ink); }
+  .controls .play { background: transparent; color: var(--ink-2); min-width: 0; margin-right: 6px; padding: 0 8px; font: 500 12.5px var(--font-sans); }
+  .controls .play svg { width: 14px; height: 14px; }
+  .controls .play:hover { background: var(--raised); color: var(--ink); border-radius: 6px; }
+  .chapters { display: none; }
+
+  /* Below the film: one line, then the footer. */
+  .about { max-width: 1280px; margin: 0 auto; padding: 56px 24px 24px; display: grid; grid-template-columns: minmax(0, 60ch) 1fr; gap: 24px; }
+  .about p { margin: 0; font-size: 17px; line-height: 1.5; color: var(--ink-2); text-wrap: pretty; }
+  .about p b { color: var(--ink); font-weight: 500; }
+  .about .get { justify-self: end; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+  .get .row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .btn { height: 34px; padding: 0 14px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-size: 13px; font-weight: 500; color: var(--ink); background: var(--pop); transition: background .13s var(--ease-out); border: 0; cursor: pointer; font-family: var(--font-sans); }
+  .btn:hover { background: var(--pressed); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn svg { width: 14px; height: 14px; }
+  .get small { font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  .get small a { color: var(--ink-3); text-decoration: none; }
+  .get small a:hover { color: var(--ink); }
+  footer.site { max-width: 1280px; margin: 0 auto; padding: 40px 24px 36px; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  footer.site a { color: var(--ink-3); text-decoration: none; }
+  footer.site a:hover { color: var(--ink); }
+  footer.site .spacer { flex: 1; }
+
+  /* The outro is the page's own install block; the card's links are live. */
+  .card .get { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; opacity: 0; transition: opacity .6s var(--ease-out) 1.05s; pointer-events: auto; }
+  .card.on .get { opacity: 1; }
+  .card .get .row { justify-content: flex-start; }
+  .card .replay { margin-top: 0; }
+
+  /* Phone cut: a 3:4 window on the stage, centred on the camera; captions
+   * leave the stage and read below it; the cards centre themselves. */
+  .capbar { display: none; }
+  @media (max-width: 720px) {
+    .mast { padding: 16px 16px 8px; }
+    .mast .brand b { font-size: 16px; }
+    .mast nav a { padding: 0 10px; font-size: 13px; }
+    .frame { aspect-ratio: 3 / 4; border-radius: 0; }
+    .caption, .scrim { display: none; }
+    .capbar { display: block; padding: 18px 16px 4px; min-height: 108px; }
+    .capbar .k { font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 6px; }
+    .capbar .h { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; text-wrap: balance; }
+    .capbar .s { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-2); text-wrap: pretty; }
+    .capbar .k, .capbar .h, .capbar .s { opacity: 0; transition: opacity .35s var(--ease-out); }
+    .capbar.on .k, .capbar.on .h, .capbar.on .s { opacity: 1; }
+    .card { padding-left: 0; justify-content: center; text-align: center; }
+    .card .mark { margin: 0 auto; }
+    .card .get { align-items: center; }
+    .card .get .row { justify-content: center; }
+    .controls { padding: 0 16px 18px; }
+    .controls .bar { left: 16px; right: 16px; }
+    .about { grid-template-columns: 1fr; padding: 40px 16px 8px; }
+    .about .get { justify-self: start; align-items: flex-start; }
+    .get .row { justify-content: flex-start; }
+    footer.site { padding: 28px 16px 32px; }
+  }
+</style>
+
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <mask id="pupils" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff"/>
+      <rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000"/>
+      <rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000"/>
+    </mask>
+    <symbol id="toad" viewBox="4 19.5 56 28.5">
+      <g mask="url(#pupils)" fill="currentColor">
+        <rect x="4" y="30" width="56" height="18" rx="6"/>
+        <circle cx="20" cy="30" r="10.5"/>
+        <circle cx="44" cy="30" r="10.5"/>
+      </g>
+    </symbol>
+    <symbol id="gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></symbol>
+    <symbol id="info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7v4M8 5v.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8V8l2.2 1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="chevd" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="arrow" viewBox="0 0 16 16"><path d="M8 13V3.5M4 7.5 8 3.5l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="gh" viewBox="0 0 16 16"><path d="M8 .8a7.2 7.2 0 0 0-2.3 14c.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.8-.8-1-.8-1-.7-.5 0-.5 0-.5.7.1 1.1.8 1.1.8.7 1.1 1.7.8 2.1.6.1-.5.3-.8.5-1-1.6-.2-3.3-.8-3.3-3.6 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 2 .7a6.9 6.9 0 0 1 3.6 0c1.4-.9 2-.7 2-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.8-1.7 3.4-3.3 3.6.3.2.5.7.5 1.3v2c0 .2.1.5.5.4A7.2 7.2 0 0 0 8 .8Z" fill="currentColor"/></symbol>
+    <symbol id="play-ico" viewBox="0 0 16 16"><path d="M4.5 3.2v9.6L12.5 8Z" fill="currentColor"/></symbol>
+    <symbol id="pause-ico" viewBox="0 0 16 16"><rect x="3.5" y="3" width="3.2" height="10" rx="1" fill="currentColor"/><rect x="9.3" y="3" width="3.2" height="10" rx="1" fill="currentColor"/></symbol>
+    <symbol id="stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></symbol>
+    <symbol id="replay-ico" viewBox="0 0 16 16"><path d="M12.8 5.6A5 5 0 1 0 13.2 9.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13.4 2.6v3.4h-3.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="cursor" viewBox="0 0 18 24"><path d="M2 1 L2 18 L6.5 13.8 L9.5 21 L12.5 19.8 L9.6 12.8 L16 12.6 Z" fill="oklch(98% 0 0)" stroke="oklch(15% 0 0)" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<header class="mast">
+  <a class="brand" href="https://toad.team" aria-label="Toad"><svg viewBox="0 0 56 28.5" aria-hidden="true"><use href="#toad"/></svg><b>Toad</b></a>
+  <nav><a href="https://docs.toad.team">Docs</a><a href="https://github.com/1Broseidon/toad"><svg aria-hidden="true"><use href="#gh"/></svg>GitHub</a></nav>
+</header>
+<section class="hero">
+<div class="viewport">
+  <div class="frame">
+    <div class="stage" id="stage">
+      <div class="camera-drift">
+      <div class="camera" id="camera">
+        <div class="win">
+          <header class="titlebar">
+            <span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>
+            <svg class="titlebar-mark" viewBox="0 0 56 28.5" width="18" height="9" aria-hidden="true"><use href="#toad"/></svg>
+            <p class="titlebar-title" id="wtitle">Ada — Toad</p>
+            <span class="titlebar-tools"><span class="control">claude-sonnet-5</span><span class="control ico"><svg><use href="#search"/></svg></span></span>
+          </header>
+          <div class="deck">
+          <nav class="rail" aria-label="Team">
+            <div id="rows"></div>
+            <footer><span class="ctl"><svg><use href="#gear"/></svg>Settings</span><span class="ctl ico"><svg><use href="#plus"/></svg></span><span class="ctl ico"><svg><use href="#more"/></svg></span></footer>
+          </nav>
+
+          <section class="pane">
+            <div class="band" id="band">
+              <span class="who"><span class="avatar" id="bava" style="--hue:156">A</span><b id="bname">Ada</b><span class="dot"></span></span>
+              <span class="spacer"></span>
+              <span class="ctl" id="bsched" hidden><svg><use href="#clock"/></svg>1 scheduled <span class="sub">Next in 4d</span></span>
+              <span class="ctl" id="bscreen" hidden>Screen</span>
+              <span class="ctl ico"><svg><use href="#info"/></svg></span>
+              <span class="ctl ico"><svg><use href="#more"/></svg></span>
+            </div>
+            <div class="scroller">
+              <div class="tape col" id="tape"></div>
+              <div class="ambient col" id="ambient" hidden>
+                <span class="ambient-mark" id="amark">
+                  <svg class="glyph glyph-mark" id="glyph" viewBox="4 15 56 34" width="30" height="18" aria-hidden="true">
+                    <g class="g-all"><g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g><circle class="g-dot" cx="32" cy="39" r="4.2"/><g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g><g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g><g class="g-pupils"><rect x="14.5" y="28" width="11" height="4" rx="2"/><rect x="38.5" y="28" width="11" height="4" rx="2"/></g></g>
+                  </svg>
+                  <span class="ambient-word" id="aword">Thinking</span>
+                </span>
+              </div>
+            </div>
+            <div class="composer-wrap">
+              <div class="composer" id="composer">
+                <span class="composer-key composer-attach"><svg><use href="#plus"/></svg></span>
+                <div class="composer-body"><span class="text" id="ctext" data-ph="Message Ada"></span></div>
+                <span class="composer-key composer-stop" id="kstop"><svg><use href="#stop"/></svg></span>
+                <span class="composer-key composer-send" id="ksend"><svg><use href="#arrow"/></svg></span>
+              </div>
+            </div>
+          </section>
+
+          <aside class="inspector" id="inspector">
+            <div class="band"><b id="itit">Ada &amp; Lin</b><span class="spacer"></span><span class="ctl ico close">×</span></div>
+            <div class="body" id="thread"></div>
+          </aside>
+          </div>
+        </div>
+
+        <div class="screenwin" id="screenwin">
+          <div class="band"><span class="t" id="stit">Ada's computer</span><span class="spacer"></span><span class="ctl ico close">×</span></div>
+          <div class="screen">
+            <div class="wall"><svg viewBox="0 0 56 28.5"><use href="#toad"/></svg></div>
+            <div class="browser" id="browser">
+              <div class="tabbar"><i></i><i></i><i></i><span>Compare · acme/api</span></div>
+              <div class="url" id="burl">github.com/acme/api/compare/main...fix/token-refresh</div>
+              <div class="page">
+                <div class="compose">
+                  <div class="h">Open a pull request</div>
+                  <div class="sub">fix/token-refresh → main · 2 commits · 3 files changed</div>
+                  <div class="field" id="ftitle"></div>
+                  <div class="field body">Refresh once on 401, never in a loop.
+The retry read a stale token; the test raced it.
+Adds a changelog entry.</div>
+                  <div class="btn" id="fbtn">Create pull request</div>
+                </div>
+                <div class="opened">
+                  <div class="h">Fix flaky token refresh <span style="color:oklch(55% 0.01 250);font-weight:400">#142</span></div>
+                  <span class="pill">Open</span>
+                  <div class="line"></div><div class="line"></div><div class="line short"></div>
+                </div>
+              </div>
+            </div>
+            <div class="mcur" id="mcur"><svg viewBox="0 0 18 24" width="12" height="16"><use href="#cursor"/></svg></div>
+            <div class="dock"><i class="chrome"></i><i class="term"></i><i class="files"></i><i></i></div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div class="scrim"></div>
+      <div class="pointer" id="pointer"><svg viewBox="0 0 18 24" width="18" height="24"><use href="#cursor"/></svg></div>
+
+      <div class="caption" id="cap">
+        <span class="k" id="capk"></span>
+        <p class="h" id="caph"></p>
+        <p class="s" id="caps"></p>
+      </div>
+
+      <div class="chapters" id="chapters">
+        <span data-ch="1">room</span><span data-ch="5">computer</span>
+        <span data-ch="2">work</span><span data-ch="6">books</span>
+        <span data-ch="3">redirect</span><span data-ch="7">writers</span>
+        <span data-ch="4">team</span><span data-ch="8">party</span>
+      </div>
+
+      <div class="card on" id="title">
+        <div>
+          <svg class="mark" viewBox="4 15 56 34"><rect class="body" x="4" y="30" width="56" height="18" rx="6" fill="currentColor"/><g class="eye l"><circle cx="20" cy="30" r="10.5" fill="currentColor"/><rect class="pupil" x="14.5" y="28" width="11" height="4" rx="2"/></g><g class="eye r"><circle cx="44" cy="30" r="10.5" fill="currentColor"/><rect class="pupil" x="38.5" y="28" width="11" height="4" rx="2"/></g></svg>
+          <p class="name">Toad</p>
+          <p class="line">A local-first room for your team of agents.</p>
+        </div>
+      </div>
+
+      <div class="card" id="outro">
+        <div>
+          <svg class="mark" id="omark" viewBox="4 15 56 34"><rect class="body" x="4" y="30" width="56" height="18" rx="6" fill="currentColor"/><g class="eye l"><circle cx="20" cy="30" r="10.5" fill="currentColor"/><rect class="pupil" x="14.5" y="28" width="11" height="4" rx="2"/></g><g class="eye r"><circle cx="44" cy="30" r="10.5" fill="currentColor"/><rect class="pupil" x="38.5" y="28" width="11" height="4" rx="2"/></g></svg>
+          <p class="name">Toad</p>
+          <p class="line">Yours to run.</p>
+          <div class="get">
+            <div class="row">
+              <a class="btn primary" data-dl="mac" href="https://github.com/1Broseidon/toad/releases/latest">Download for macOS</a>
+              <a class="btn" data-dl="win" href="https://github.com/1Broseidon/toad/releases/latest">Windows</a>
+              <a class="btn" data-dl="linux" href="https://github.com/1Broseidon/toad/releases/latest">Linux</a>
+            </div>
+            <div class="row">
+              <a class="btn" href="https://docs.toad.team">Docs</a>
+              <a class="btn" href="https://github.com/1Broseidon/toad"><svg aria-hidden="true"><use href="#gh"/></svg>GitHub</a>
+              <button class="replay" id="replay" type="button"><svg aria-hidden="true"><use href="#replay-ico"/></svg>Play again</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="capbar" id="capbar"><span class="k" id="mcapk"></span><p class="h" id="mcaph"></p><p class="s" id="mcaps"></p></div>
+<div class="controls" id="controls">
+  <div class="bar"><b id="bar"></b></div>
+  <button class="play" id="play" aria-label="Pause"><svg aria-hidden="true"><use href="#pause-ico"/></svg></button>
+  <button data-go="1">room</button>
+  <button data-go="2">work</button>
+  <button data-go="3">redirect</button>
+  <button data-go="4">team</button>
+  <button data-go="5">computer</button>
+  <button data-go="6">books</button>
+  <button data-go="7">writers</button>
+  <button data-go="8">party</button>
+</div>
+</section>
+
+<section class="about">
+  <p><b>Toad is a room for a team of agents</b>, on your machine. Each teammate has a name, a goal, its own tools and, when it needs one, its own computer. They ask each other for help, work on a schedule, and everything they do is on the record in one window. Open source under MIT or Apache-2.0, self-hosted, no account.</p>
+  <div class="get">
+    <div class="row">
+      <a class="btn primary" data-dl="mac" href="https://github.com/1Broseidon/toad/releases/latest">Download for macOS</a>
+      <a class="btn" data-dl="win" href="https://github.com/1Broseidon/toad/releases/latest">Windows</a>
+      <a class="btn" data-dl="linux" href="https://github.com/1Broseidon/toad/releases/latest">Linux</a>
+    </div>
+    <small><span data-version>latest</span> · Apple silicon · <a data-dl="macIntel" href="https://github.com/1Broseidon/toad/releases/latest">Intel Mac</a> · <a data-dl="deb" href="https://github.com/1Broseidon/toad/releases/latest">.deb</a> · <a data-dl="rpm" href="https://github.com/1Broseidon/toad/releases/latest">.rpm</a> · <a href="https://github.com/1Broseidon/toad/releases/latest">all releases</a></small>
+  </div>
+</section>
+
+<footer class="site">
+  <span>© 2026 George Dikeakos</span>
+  <span>MIT or Apache-2.0</span>
+  <span class="spacer"></span>
+  <a href="https://docs.toad.team">Docs</a>
+  <a href="https://github.com/1Broseidon/toad">GitHub</a>
+  <a href="https://github.com/1broseidon/toad-computer">toad.computer</a>
+</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const stage = $("stage"), camera = $("camera"), tape = $("tape"), composer = $("composer"), ctext = $("ctext");
+  const ksend = $("ksend"), inspector = $("inspector"), itit = $("itit"), thread = $("thread");
+  const band = $("band"), bava = $("bava"), bname = $("bname"), bsched = $("bsched"), bscreen = $("bscreen"), wtitle = $("wtitle");
+  const ambient = $("ambient"), amark = $("amark"), glyph = $("glyph"), aword = $("aword");
+  const screenwin = $("screenwin"), browser = $("browser"), burl = $("burl"), ftitle = $("ftitle"), fbtn = $("fbtn"), mcur = $("mcur");
+  const pointer = $("pointer"), cap = $("cap"), title = $("title"), outro = $("outro"), omark = $("omark"), chapters = $("chapters");
+  const rows = $("rows"), bar = $("bar"), playBtn = $("play"), controls = $("controls");
+
+  // Scale the 1280x720 stage into its frame.
+  const frame = stage.parentElement;
+  const phone = () => matchMedia("(max-width: 720px)").matches;
+  // On a phone the stage is cropped to a 3:4 window; crop() is that window in stage pixels.
+  const crop = () => { const top = 10, height = 580; const k = frame.clientHeight / height; const w = frame.clientWidth / k; return { left: (1280 - w) / 2, width: w, top, height, k }; };
+  let mode = null, onModeChange = null;
+  const fit = () => {
+    const now = phone();
+    if (now) {
+      const c = crop();
+      stage.style.transform = `translate(${((frame.clientWidth - 1280 * c.k) / 2).toFixed(1)}px, ${(-c.top * c.k).toFixed(1)}px) scale(${c.k})`;
+    } else stage.style.transform = `scale(${frame.clientWidth / 1280})`;
+    if (mode !== null && mode !== now && onModeChange) onModeChange();
+    mode = now;
+  };
+  new ResizeObserver(fit).observe(frame);
+  fit();
+
+  const q = new URLSearchParams(location.search);
+  if (q.has("bare")) document.body.classList.add("bare");
+  const reduce = !q.has("bare") && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Delays run on the film's own clock, so pause holds them and frame capture stays deterministic.
+  let queue = [];
+  let elapsed = 0;
+  const after = (ms, fn) => queue.push({ at: elapsed + ms, fn });
+  const drain = () => { const due = queue.filter((q) => q.at <= elapsed); queue = queue.filter((q) => q.at > elapsed); due.forEach((q) => q.fn()); };
+
+  // The camera. Focus a stage point at a scale; the view never leaves the stage.
+  const view = { tx: 0, ty: 0, s: 1 };
+  const cam = (cx, cy, s, ms = 1400) => {
+    const win = phone() ? crop() : { left: 0, width: 1280, top: 0, height: 720 };
+    view.tx = Math.min(win.left, Math.max(win.left + win.width - 1280 * s, 640 - cx * s));
+    view.ty = Math.min(win.top, Math.max(win.top + win.height - 720 * s, win.top + win.height / 2 - cy * s));
+    view.s = s;
+    camera.style.transitionDuration = ms + "ms";
+    camera.style.transform = `translate(${view.tx.toFixed(1)}px, ${view.ty.toFixed(1)}px) scale(${s})`;
+  };
+  const home = (ms) => cam(640, 360, 1, ms);
+  // A cut: the camera snaps home in the same instant the room changes.
+  const cut = () => cam(phone() ? 258 : 640, 360, 1, 0);
+
+  // The person's pointer, in stage coordinates, drawn on the HUD at the camera's view.
+  // A hidden pointer is placed before it fades in, so it never glides in from nowhere.
+  const place = (el, x, y, instant) => {
+    if (instant) el.style.transition = "none";
+    el.style.left = x + "px"; el.style.top = y + "px";
+    if (instant) { void el.offsetWidth; el.style.transition = ""; }
+  };
+  const pointerOn = (x, y) => { place(pointer, x * view.s + view.tx, y * view.s + view.ty, !pointer.classList.contains("on")); pointer.classList.add("on"); };
+  const pointerOff = () => pointer.classList.remove("on");
+  const press = (el) => { pointer.classList.add("click"); el?.classList.add("press"); after(200, () => { pointer.classList.remove("click"); el?.classList.remove("press"); }); };
+  const mouseOn = (x, y) => { place(mcur, x, y, !mcur.classList.contains("on")); mcur.classList.add("on"); };
+
+  // Rooms. A teammate is a name, a goal, a hue and whatever it said last.
+  const ROOMS = {
+    code: { active: "ada", members: [["ada", "Ada", 156, "Keep acme/api green."], ["lin", "Lin", 242, "Web client, in Claude Code."], ["rook", "Rook", 70, "Staging, in opencode."]] },
+    books: { active: "ledger", members: [["ledger", "Ledger", 199, "Close the books every week."], ["marlow", "Marlow", 285, "Explain what moved."], ["sable", "Sable", 328, "Watch competitor pricing."]], sched: true },
+    writers: { active: "ines", members: [["ines", "Ines", 285, "Draft the novel."], ["hollis", "Hollis", 70, "Cut. Then cut again."], ["pim", "Pim", 199, "Keep the facts straight."]] },
+    party: { active: "keeper", members: [["keeper", "Keeper", 113, "Rolls in the open."], ["bram", "Bram", 70, "Fighter. Goes first."], ["wren", "Wren", 242, "Rogue. Reads the floor."], ["oriel", "Oriel", 328, "Mage. Cold flame, warm heart."]] },
+  };
+  const HUE = {}, NAME = {};
+  const setRoom = (r) => {
+    rows.innerHTML = "";
+    r.members.forEach(([id, name, hue, goal]) => {
+      HUE[id] = hue; NAME[id] = name;
+      const el = document.createElement("div");
+      el.className = "rail-row" + (id === r.active ? " active" : "");
+      el.id = `row-${id}`;
+      el.innerHTML = `<span class="avatar" style="--hue:${hue}">${name[0]}</span><span class="text"><span class="namerow"><span class="name">${name}</span><span class="vital" id="vital-${id}"></span></span><span class="line" id="line-${id}">${goal}</span></span>`;
+      rows.appendChild(el);
+    });
+    bava.style.setProperty("--hue", HUE[r.active]); bava.textContent = NAME[r.active][0];
+    bname.textContent = NAME[r.active];
+    wtitle.textContent = `${NAME[r.active]} — Toad`;
+    ctext.dataset.ph = `Message ${NAME[r.active]}`;
+    bsched.hidden = !r.sched; bscreen.hidden = true;
+    tape.innerHTML = ""; stepsBlock = null; workShown = false; lastBubble = null;
+    setMark(null);
+  };
+  const rowsOn = (r, gap = 220) => r.members.forEach(([id], i) => after(i * gap, () => $(`row-${id}`)?.classList.add("on")));
+  const vital = (who, state) => { const el = $(`vital-${who}`); if (el) el.className = "vital " + (state || ""); };
+  // The rail's line: the live tool title while working, else what was said last.
+  const line = (who, text, tool) => { const el = $(`line-${who}`); if (el) { el.textContent = text; el.classList.toggle("tool", !!tool); } };
+  const thinking = (on) => { band.classList.toggle("thinking", on); composer.classList.toggle("working", on); };
+
+  // Tape helpers. The scroller clips whatever scrolls above the pane; a room's tape is never trimmed mid-scene.
+  const TAPE_MAX = 16;
+  const trim = () => { while (tape.children.length > TAPE_MAX) tape.firstChild.remove(); };
+  const put = (el) => { tape.appendChild(el); trim(); return el; };
+  const html = (cls, inner, tag = "div") => { const el = document.createElement(tag); el.className = cls; el.innerHTML = inner; return el; };
+  // Bubbles from one side in a row tighten the corners that face each other; steps between them are transparent.
+  let lastBubble = null;
+  const said = (side, text) => {
+    foldLive();
+    const run = lastBubble !== null && lastBubble.side === side;
+    const el = put(html(`speech said-${side}${run ? " said-run-top" : ""}`, text));
+    if (run) lastBubble.el.classList.add("said-run-bottom");
+    lastBubble = { side, el };
+    return el;
+  };
+  const ruleLine = (text, id) => { foldLive(); lastBubble = null; const el = put(html("rule-line", text, "p")); if (id) el.id = id; return el; };
+  const ruleText = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+  const scheduledLine = (name) => { foldLive(); lastBubble = null; return put(html("scheduled", `<span class="step"><svg class="chev"><use href="#clock"/></svg><span class="step-title" style="font-family:var(--font-sans);font-size:12px;letter-spacing:0"><span style="color:var(--ink-3)">Scheduled · </span>${name}</span><svg class="chev"><use href="#chev"/></svg></span>`)); };
+
+  // Steps: a run of tool calls between two messages, one block. Only the last
+  // block is live: rows show if the mark was pressed; anything that lands after
+  // it (a notice, a peer line, a message) folds it to a caption with the count.
+  let stepsBlock = null, workShown = false;
+  const foldBlock = (block) => {
+    const n = block.querySelectorAll(".step").length;
+    block.querySelector(".n").textContent = `${n} ${n === 1 ? "step" : "steps"}`;
+    block.classList.remove("live", "open");
+  };
+  const foldLive = () => { if (stepsBlock) foldBlock(stepsBlock); stepsBlock = null; };
+  const stepsHost = () => {
+    if (!stepsBlock) {
+      stepsBlock = put(html("steps-block live" + (workShown ? " open" : ""), `<span class="steps-caption"><span class="n"></span><svg class="chev"><use href="#chev"/></svg></span><div class="steps"></div>`));
+    }
+    return stepsBlock;
+  };
+  const step = (id, title, running) => {
+    const host = stepsHost();
+    const el = html(`step${running ? " running" : ""}`, `<span class="step-mark"></span><span class="step-title">${title}</span><span class="state">running</span>`);
+    el.id = id;
+    host.querySelector(".steps").appendChild(el);
+    return el;
+  };
+  const stepDone = (id, out) => {
+    const el = $(id); if (!el) return;
+    el.classList.remove("running");
+    if (out) { el.dataset.out = out; el.insertAdjacentHTML("beforeend", '<svg class="chev"><use href="#chev"/></svg>'); }
+  };
+  const stepOpen = (id) => {
+    const el = $(id); if (!el || !el.dataset.out) return;
+    el.querySelector(".chev use").setAttribute("href", "#chevd");
+    const out = document.createElement("div"); out.className = "step-out"; out.textContent = el.dataset.out;
+    el.insertAdjacentElement("afterend", out);
+  };
+  const showWork = (on) => { workShown = on; stepsBlock?.classList.toggle("open", on); };
+  // The turn ends: whatever is still live folds, and the mark's toggle resets.
+  const foldSteps = () => { tape.querySelectorAll(".steps-block.live").forEach(foldBlock); stepsBlock = null; workShown = false; };
+
+  // Them, at work: the mark above the composer. The poses are the window's own (ui/src/ui/Glyph.tsx).
+  const WORDS = { thinking: "Thinking", read: "Reading", search: "Searching", edit: "Editing", execute: "Running", doing: "Working", blocked: "Waiting on you", writing: "" };
+  const REST = { pupil: 0, eyeL: 1, eyeR: 1, body: 1, rot: 0, dy: 0 };
+  const DARTS = [-1, 0.6, -0.3, 1, -0.8, 0.2, 0.9, -0.6];
+  const STALL_AFTER = 6, STALL_OVER = 6, HANDOFF = 560;
+  const ease = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+  const winkAt = (p) => (p < 0.36 ? 1 - 0.92 * ease(p / 0.36) : p < 0.45 ? 0.08 : p < 0.78 ? 0.08 + 0.92 * ease((p - 0.45) / 0.33) : 1);
+  const poseOf = (phase, t, stall) => {
+    const speed = 1 - 0.72 * stall;
+    switch (phase) {
+      case "read": { const p = ((t * speed) / 1.7) % 1; const x = p < 0.82 ? -1 + (p / 0.82) * 2 : 1 - ((p - 0.82) / 0.18) * 2; return { ...REST, pupil: x * 2.6 }; }
+      case "search": { const s = Math.floor((t * speed) / 0.34); const n = ((s % DARTS.length) + DARTS.length) % DARTS.length; return { ...REST, pupil: DARTS[n] * 2.8 }; }
+      case "edit": { const push = Math.sin((((t * speed) / 0.95) % 1) * Math.PI); return { ...REST, body: 1 + 0.2 * push, dy: 1.6 * push }; }
+      case "execute": { const steps = (t * speed) / 0.46; const f = ease(steps - Math.floor(steps)); return { ...REST, body: 1 + 0.13 * Math.sin(f * Math.PI), rot: -1.5 + 3 * f }; }
+      case "doing": return { ...REST, body: 1 + 0.07 * Math.sin(t * speed * 3.4) };
+      case "thinking": return { ...REST, rot: -3.6 * Math.sin(t * speed * 0.7), dy: 2.2 * Math.sin(t * speed * 0.5), pupil: 0.9 * Math.sin(t * speed * 0.42) };
+      case "blocked": { const shut = t % 5 > 4.75 ? 0.12 : 1; return { ...REST, eyeL: shut, eyeR: shut }; }
+      default: return { ...REST };
+    }
+  };
+  const MARK = { phase: null, since: 0, dots: false };
+  const setMark = (phase) => {
+    if (!phase) { ambient.hidden = true; MARK.phase = null; return; }
+    if (ambient.hidden) { ambient.hidden = false; amark.style.animation = "none"; void amark.offsetWidth; amark.style.animation = ""; }
+    if (MARK.phase !== phase) { MARK.phase = phase; MARK.since = elapsed; MARK.dots = false; glyph.classList.remove("glyph-dots"); glyph.classList.add("glyph-mark"); }
+    aword.textContent = WORDS[phase]; aword.hidden = !WORDS[phase];
+    if (phase === "writing") after(HANDOFF, () => { if (MARK.phase === "writing") { MARK.dots = true; glyph.classList.remove("glyph-mark"); glyph.classList.add("glyph-dots"); } });
+  };
+  const setAttr = (sel, name, value) => glyph.querySelector(sel)?.setAttribute(name, value);
+  const paintMark = () => {
+    const phase = MARK.phase; if (!phase) return;
+    const held = (elapsed - MARK.since) / 1000;
+    const stall = phase === "read" || phase === "edit" || phase === "execute" || phase === "doing" ? Math.min(1, Math.max(0, (held - STALL_AFTER) / STALL_OVER)) : 0;
+    // The blink, on the film's clock rather than a random one, so a frame is a frame.
+    const gap = (elapsed / 1000) % 3.3;
+    const blink = gap < 0.18 && phase !== "blocked" ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
+    const pose = poseOf(phase, held, stall);
+    pose.eyeL = Math.min(pose.eyeL, blink); pose.eyeR = Math.min(pose.eyeR, blink);
+    if (phase === "writing" && !MARK.dots) { const p = Math.min(1, (held * 1000) / HANDOFF); pose.pupil = 0; pose.body = 1; pose.rot = 0; pose.dy = 0; pose.eyeL = winkAt(p); pose.eyeR = 1; }
+    setAttr(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
+    setAttr(".g-body", "transform", `scale(1 ${pose.body.toFixed(3)})`);
+    setAttr(".g-eyeL", "transform", `scale(1 ${pose.eyeL.toFixed(3)})`);
+    setAttr(".g-eyeR", "transform", `scale(1 ${pose.eyeR.toFixed(3)})`);
+    setAttr(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} 0) scale(1 ${Math.max(pose.eyeL, pose.eyeR).toFixed(3)})`);
+  };
+  // The reply lands whole: the mark goes, the steps fold, the bubble arrives.
+  const reply = (text) => { setMark(null); foldSteps(); thinking(false); return said("them", text); };
+
+  const capbar = $("capbar");
+  const caption = (k, h, s) => {
+    cap.classList.remove("on"); capbar.classList.remove("on");
+    after(220, () => { $("capk").textContent = k; $("caph").textContent = h; $("caps").textContent = s; $("mcapk").textContent = k; $("mcaph").textContent = h; $("mcaps").textContent = s; cap.classList.add("on"); capbar.classList.add("on"); });
+  };
+  const clearCaption = () => { cap.classList.remove("on"); capbar.classList.remove("on"); };
+  const chapter = (n) => chapters.querySelectorAll("span").forEach((s) => { const c = +s.dataset.ch; s.classList.toggle("on", c === n); s.classList.toggle("past", c < n); });
+
+  // Typewriter on the film's clock.
+  const typeInto = (setText, text, per, done) => {
+    for (let i = 1; i <= text.length; i++) after(i * per, () => setText(text.slice(0, i), i === text.length));
+    if (done) after(text.length * per + 40, done);
+  };
+  const composerType = (text) => { composer.classList.add("has"); typeInto((t) => { ctext.innerHTML = t + '<span class="caret"></span>'; }, text, 34); };
+  const composerSend = (text) => {
+    ksend.classList.add("press");
+    after(120, () => { ksend.classList.remove("press"); ctext.innerHTML = ""; composer.classList.remove("has"); said("me", text); });
+  };
+
+  // The inspector, in the thread's place: both sides named, this teammate on the right.
+  const openThread = (a, b) => { itit.textContent = `${NAME[a]} & ${NAME[b]}`; thread.innerHTML = ""; inspector.classList.add("open"); };
+  const closeThread = () => inspector.classList.remove("open");
+  const namedSay = (id, mine, text) => { const el = html(`named${mine ? " mine" : ""}`, `<p class="said-name">${NAME[id]}</p><div class="speech said-${mine ? "me" : "them"}">${text}</div>`); thread.appendChild(el); };
+
+  // Stage points the camera cares about, and where the person's pointer lands.
+  const PD = { rail: [272, 170], composer: [760, 505], mark: [760, 500], tape: [760, 380], tapeLow: [760, 430], thread: [1000, 285], screen: [980, 324], wide: [640, 340] };
+  const PH = { rail: [180, 170, 1.9], composer: [560, 505], mark: [560, 500], tape: [560, 380], tapeLow: [560, 430], thread: [1058, 285], screen: [980, 324, 1.25], wide: [330, 340] };
+  const shot = (key, s, ms) => { const [cx, cy, ps] = (phone() ? PH : PD)[key]; cam(cx, cy, phone() && ps ? ps : s, ms); };
+  const AT = { mark: [432, 467], peer: [757, 435], screenKey: [1116, 94] };
+
+  // Timeline. Each beat is [ms, fn]. Scene markers drive the scrubber.
+  const SCENES = [0, 2700, 7100, 13650, 19000, 24900, 34700, 43700, 54150, 64800];
+  const beats = [
+    // Title.
+    [0, () => title.classList.add("on")],
+    [2500, () => { title.classList.remove("on"); stage.classList.add("lit"); }],
+
+    // The room. Push in close on the roster, then settle wide for Ada's first line.
+    [2700, () => { chapter(1); caption("The room", "A room, not a chat.", "It keeps working whether or not you're watching."); }],
+    [2800, () => rowsOn(ROOMS.code, 220)],
+    [3000, () => shot("rail", 2.4, 1400)],
+    [4450, () => line("lin", "Settings pane shipped. PR up.")],
+    [4800, () => line("rook", "Staging certs rotated.")],
+    [5100, () => shot("wide", 1.08, 900)],
+    [6100, () => { said("them", "Morning. The API tree is clean and the last run was green. What are we doing today?"); line("ada", "Morning. The API tree is clean and the last run was green."); }],
+
+    // The work. Down to the composer, then close on the mark while it works.
+    [7100, () => { chapter(2); caption("The work", "Say what you want done.", "Its only rule is how far it may reach."); }],
+    [7200, () => shot("composer", 1.32, 1300)],
+    [7700, () => composerType("The token refresh test is flaky. Fix it and open a PR.")],
+    [9600, () => { composerSend("The token refresh test is flaky. Fix it and open a PR."); line("ada", "You: The token refresh test is flaky. Fix it and open a PR."); }],
+    [9800, () => { vital("ada", "working"); thinking(true); setMark("thinking"); }],
+    [9900, () => shot("mark", 1.6, 1400)],
+    [10400, () => { step("s-read", "read src/auth/refresh.rs", true); setMark("read"); line("ada", "read src/auth/refresh.rs", true); }],
+    [11400, () => pointerOn(...AT.mark)],
+    [11900, () => { press(amark); showWork(true); }],
+    [12150, () => pointerOff()],
+    [12250, () => { stepDone("s-read"); step("s-grep", "grep refresh_token", true); setMark("search"); line("ada", "grep refresh_token", true); }],
+    [12950, () => { stepDone("s-grep"); step("s-edit", "edit src/auth/refresh.rs", true); setMark("edit"); line("ada", "edit src/auth/refresh.rs", true); }],
+
+    // The redirect. Back to the composer: Stop and Send side by side. The note
+    // lands as a notice; the earlier steps fold; the work goes on in a new run.
+    [13650, () => { chapter(3); caption("The redirect", "Keep going. So does it.", "Your note lands mid-task. Nothing stops."); }],
+    [13750, () => shot("composer", 1.32, 1300)],
+    [14350, () => composerType("And note it in the changelog.")],
+    [15450, () => composerSend("And note it in the changelog.")],
+    [15750, () => ruleLine("Your update is now in the agent's context.")],
+    [15950, () => shot("tape", 1.35, 1300)],
+    [16250, () => { step("s-edit2", "edit CHANGELOG.md", true); setMark("edit"); line("ada", "edit CHANGELOG.md", true); }],
+    [16900, () => { stepDone("s-edit2"); step("s-shell", "shell cargo test auth::refresh", true); setMark("execute"); line("ada", "shell cargo test auth::refresh", true); }],
+    [17900, () => stepDone("s-shell", "     Running tests/auth.rs\ntest result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s")],
+    [18200, () => stepOpen("s-shell")],
+
+    // The team. A peer line on the tape; press it and the thread opens beside.
+    [19000, () => { chapter(4); caption("The team", "Teammates ask each other.", "You see every word. Nothing happens off the record."); }],
+    [19200, () => { step("s-msg", "message_teammate", true); setMark("doing"); line("ada", "message_teammate", true); }],
+    [19600, () => { ruleLine("With Lin · caller · 1 exchange · open", "peer-lin"); vital("lin", "working"); }],
+    [19900, () => pointerOn(...AT.peer)],
+    [20400, () => { press($("peer-lin")); openThread("ada", "lin"); }],
+    [20600, () => { pointerOff(); shot("thread", 1.3, 1300); }],
+    [22000, () => namedSay("ada", true, "Does the web client cache the old token after a 401? I'm changing the API to refresh once, not retry.")],
+    [22700, () => line("lin", "grep token src/", true)],
+    [23500, () => namedSay("lin", false, "No. It drops the token on any 401 and re-reads it from the store on the next call. One refresh is safe to ship.")],
+    [23900, () => { vital("lin", ""); line("lin", "One refresh is safe to ship."); stepDone("s-msg"); ruleText("peer-lin", "With Lin · caller · 1 exchange · done"); }],
+
+    // The computer. Screen opens a window of its own; push all the way in.
+    [24900, () => { chapter(5); caption("The computer", "Its own computer.", "Watch it work, or take the mouse."); }],
+    [25200, () => closeThread()],
+    [25300, () => { step("s-cap", "computer__capture", true); line("ada", "computer__capture", true); bscreen.hidden = false; }],
+    [25600, () => pointerOn(...AT.screenKey)],
+    [26100, () => { press(bscreen); screenwin.classList.add("open"); }],
+    [26300, () => { pointerOff(); shot("screen", 2.0, 1500); }],
+    [26600, () => browser.classList.add("on")],
+    [26900, () => { stepDone("s-cap"); step("s-type", "computer__type", true); line("ada", "computer__type", true); }],
+    [27900, () => mouseOn(150, 112)],
+    [28300, () => { ftitle.classList.add("focus"); typeInto((t) => { ftitle.textContent = t; }, "Fix flaky token refresh", 32, () => stepDone("s-type")); }],
+    [29300, () => { mouseOn(85, 207); step("s-click", "computer__click", true); line("ada", "computer__click", true); }],
+    [29800, () => fbtn.classList.add("hover")],
+    [30100, () => { fbtn.classList.add("press"); mcur.classList.add("click"); after(180, () => { fbtn.classList.remove("press", "hover"); mcur.classList.remove("click"); }); }],
+    [30400, () => { browser.classList.add("pr"); burl.textContent = "github.com/acme/api/pull/142"; stepDone("s-click"); }],
+    [31000, () => { mcur.classList.remove("on"); screenwin.classList.remove("open"); shot("tapeLow", 1.3, 1400); }],
+    [31200, () => setMark("writing")],
+    [32500, () => { reply("Opened <code>acme/api#142</code>. The refresh happens once on 401 now, the test no longer races, and the changelog says so. Lin confirmed the web client is fine."); vital("ada", ""); line("ada", "Opened acme/api#142. The refresh happens once on 401 now."); }],
+
+    // The books. A cut to a new room; hold wide so the roster reads, then push in.
+    [33900, () => clearCaption()],
+    [34500, () => { cut(); setRoom(ROOMS.books); rowsOn(ROOMS.books, 200); }],
+    [34700, () => { chapter(6); caption("The books", "Not only code.", "On schedule, it checks its work and writes the report."); }],
+    [35200, () => { scheduledLine("Weekly close"); vital("ledger", "working"); thinking(true); setMark("thinking"); }],
+    [35500, () => shot("tape", 1.35, 1300)],
+    [35700, () => { step("b-pay", "stripe__list_payouts", true); setMark("doing"); line("ledger", "stripe__list_payouts", true); }],
+    [36900, () => pointerOn(...AT.mark)],
+    [37350, () => { press(amark); showWork(true); }],
+    [37600, () => pointerOff()],
+    [37750, () => { stepDone("b-pay"); step("b-csv", "read ledger/2026-09.csv", true); setMark("read"); line("ledger", "read ledger/2026-09.csv", true); }],
+    [38350, () => { stepDone("b-csv"); step("b-ask", "message_teammate", true); setMark("doing"); line("ledger", "message_teammate", true); }],
+    [38550, () => { ruleLine("With Marlow · caller · 1 exchange · open", "peer-marlow"); vital("marlow", "working"); line("marlow", "read ledger/2026-09.csv", true); }],
+    [39350, () => { ruleText("peer-marlow", "With Marlow · caller · 1 exchange · done"); stepDone("b-ask"); vital("marlow", ""); line("marlow", "FX rounding, both under a dollar. Note them, don't chase."); }],
+    [39550, () => { step("b-rep", "write reports/2026-W37.md", true); setMark("edit"); line("ledger", "write reports/2026-W37.md", true); }],
+    [40050, () => { stepDone("b-rep"); setMark("writing"); }],
+    [40150, () => shot("tapeLow", 1.4, 1300)],
+    [41500, () => { reply('<p>Week 37 is closed.</p><table><tr><th>Revenue</th><th>Net new MRR</th><th>Refunds</th><th>Runway</th></tr><tr><td>$48,210 (+6.1%)</td><td>$3,940</td><td>3 · $412</td><td>19.4 months</td></tr></table><p>Two payouts on 09-04 were off by cents; Marlow traced both to FX rounding. Noted, not chased. The report is in <code>reports/2026-W37.md</code>.</p>'); vital("ledger", ""); line("ledger", "Week 37 is closed."); }],
+
+    // The writers' room.
+    [42900, () => clearCaption()],
+    [43500, () => { cut(); setRoom(ROOMS.writers); rowsOn(ROOMS.writers, 200); }],
+    [43700, () => { chapter(7); caption("The writers' room", "Three tempers, one manuscript.", "Ines drafts. Hollis cuts. Pim keeps the facts straight."); }],
+    [44500, () => shot("composer", 1.32, 1200)],
+    [44900, () => composerType("Chapter twelve: the wire goes quiet.")],
+    [46300, () => { composerSend("Chapter twelve: the wire goes quiet."); line("ines", "You: Chapter twelve: the wire goes quiet."); }],
+    [46500, () => { vital("ines", "working"); thinking(true); setMark("thinking"); }],
+    [46600, () => shot("tape", 1.35, 1200)],
+    [46900, () => { step("w-ch", "write manuscript/ch12.md", true); setMark("edit"); line("ines", "write manuscript/ch12.md", true); }],
+    [47900, () => pointerOn(...AT.mark)],
+    [48350, () => { press(amark); showWork(true); }],
+    [48600, () => pointerOff()],
+    [48750, () => { stepDone("w-ch"); step("w-pim", "message_teammate", true); setMark("doing"); ruleLine("With Pim · caller · 1 exchange · open", "peer-pim"); vital("pim", "working"); line("pim", "search telegraph sounder 1911", true); }],
+    [49550, () => { ruleText("peer-pim", "With Pim · caller · 1 exchange · done"); stepDone("w-pim"); vital("pim", ""); line("pim", "A sounder clicks; it never buzzes. Brass on brass."); }],
+    [49750, () => { step("w-ed", "edit manuscript/ch12.md", true); setMark("edit"); line("ines", "edit manuscript/ch12.md", true); }],
+    [50250, () => { stepDone("w-ed"); step("w-hol", "message_teammate", true); setMark("doing"); ruleLine("With Hollis · caller · 1 exchange · open", "peer-hollis"); vital("hollis", "working"); line("hollis", "edit manuscript/ch12.md", true); }],
+    [50450, () => shot("tapeLow", 1.4, 1300)],
+    [51150, () => { ruleText("peer-hollis", "With Hollis · caller · 1 exchange · done"); stepDone("w-hol"); vital("hollis", ""); line("hollis", "Cut 280. The silence does the work."); setMark("writing"); }],
+    [51950, () => { reply('<p>Twelve is drafted and cut: 1,860 words. Pim gave me the sounder; Hollis cut 280 words from the middle.</p><blockquote>The sounder went quiet at ten past two, and the silence sat up in the room like a third person.</blockquote>'); vital("ines", ""); line("ines", "Twelve is drafted and cut: 1,860 words."); }],
+
+    // The party. The mark is pressed first, so the roll shows in the open.
+    [53350, () => clearCaption()],
+    [53950, () => { cut(); setRoom(ROOMS.party); rowsOn(ROOMS.party, 180); }],
+    [54150, () => { chapter(8); caption("The party", "A keeper and three players.", "You just pulled up a chair."); }],
+    [55000, () => shot("tape", 1.35, 1300)],
+    [55100, () => { said("them", "The lantern gutters. Beyond the arch, water is moving that should not be moving."); line("keeper", "The lantern gutters. Beyond the arch, water is moving."); }],
+    [55600, () => { vital("keeper", "working"); thinking(true); setMark("doing"); step("p-msg", "message_teammate", true); line("keeper", "message_teammate", true); ruleLine("With Wren · caller · 1 exchange · open", "peer-wren"); vital("wren", "working"); }],
+    [56400, () => pointerOn(...AT.mark)],
+    [56850, () => { press(amark); showWork(true); }],
+    [57300, () => pointerOn(...AT.peer)],
+    [57900, () => { press($("peer-wren")); openThread("keeper", "wren"); }],
+    [58100, () => { pointerOff(); shot("thread", 1.3, 1300); }],
+    [59500, () => namedSay("keeper", true, "Wren, you're at the arch first. The water is moving and it should not be. What do you do?")],
+    [60300, () => { namedSay("wren", false, "Hand up. Nobody steps until I've read the floor. Perception, please."); vital("wren", ""); line("wren", "Hand up. Nobody steps until I've read the floor."); ruleText("peer-wren", "With Wren · caller · 1 exchange · done"); stepDone("p-msg"); }],
+    [60800, () => { step("p-dice", "dice__roll", true); setMark("execute"); line("keeper", "dice__roll", true); }],
+    [61300, () => { stepDone("p-dice", "17  (d20 + 4: 13 + 4)"); stepOpen("p-dice"); }],
+    [61500, () => shot("tapeLow", 1.35, 1300)],
+    [61700, () => setMark("writing")],
+    [62800, () => { reply("Wren reads a seventeen off the flags: loose, the third and the seventh, and something under them breathes. Nobody steps. The lantern is nearly out. Oriel, Bram: your move."); vital("keeper", ""); line("keeper", "Wren reads a seventeen off the flags."); }],
+
+    // Outro.
+    [64300, () => { clearCaption(); closeThread(); home(1200); }],
+    [64800, () => outro.classList.add("on")],
+    [66800, () => omark.classList.add("wink")],
+  ];
+  beats.sort((a, b) => a[0] - b[0]);
+  const END = 68500;
+
+  // Playback engine: elapsed clock, pause, seek, and a fresh DOM on every restart.
+  let playing = true, lastT = null, fired = 0, raf = 0;
+  const step_ = (ms) => {
+    elapsed += ms;
+    while (fired < beats.length && beats[fired][0] <= elapsed) beats[fired++][1]();
+    drain();
+    paintMark();
+  };
+
+  const reset = () => {
+    stage.classList.remove("lit");
+    setRoom(ROOMS.code); thread.innerHTML = ""; workShown = false;
+    composer.className = "composer"; ctext.innerHTML = ""; ksend.className = "composer-key composer-send";
+    band.classList.remove("thinking"); inspector.classList.remove("open");
+    screenwin.classList.remove("open"); browser.className = "browser"; burl.textContent = "github.com/acme/api/compare/main...fix/token-refresh";
+    ftitle.textContent = ""; ftitle.className = "field"; fbtn.className = "btn";
+    mcur.className = "mcur"; mcur.style.left = "60px"; mcur.style.top = "160px";
+    pointer.className = "pointer";
+    cap.classList.remove("on"); chapter(0); title.classList.remove("on"); outro.classList.remove("on"); omark.classList.remove("wink");
+    camera.style.transform = ""; camera.style.transitionDuration = ""; view.tx = 0; view.ty = 0; view.s = 1;
+    fired = 0; queue = [];
+  };
+
+  // A seek replays every earlier beat at its own true time and settles only
+  // the delays due by then, so a held pose, a half-typed line and the wink
+  // land exactly as playback would have produced them. A seek is a cut:
+  // whatever was still fading is jumped to rest.
+  const seek = (ms) => {
+    stage.classList.add("seeking");
+    reset();
+    const settle = (cutoff) => {
+      let guard = 0;
+      while (guard++ < 50) {
+        const due = queue.filter((q) => q.at <= cutoff);
+        if (!due.length) break;
+        queue = queue.filter((q) => q.at > cutoff);
+        due.forEach((q) => q.fn());
+      }
+    };
+    while (fired < beats.length && beats[fired][0] <= ms) { elapsed = beats[fired][0]; beats[fired++][1](); settle(elapsed); }
+    elapsed = ms;
+    settle(ms);
+    paintMark();
+    void camera.offsetWidth;
+    document.getAnimations().forEach((a) => { try { a.finish(); } catch (e) {} });
+    stage.classList.remove("seeking");
+  };
+
+  const setPlayBtn = () => { playBtn.querySelector("use").setAttribute("href", playing ? "#pause-ico" : "#play-ico"); playBtn.setAttribute("aria-label", playing ? "Pause" : "Play"); };
+  onModeChange = () => { const was = playing; seek(elapsed); playing = was; };
+  const tick = (t) => {
+    raf = requestAnimationFrame(tick);
+    if (lastT === null) lastT = t;
+    const dt = Math.min(t - lastT, 50); lastT = t;
+    if (!playing) return;
+    step_(dt);
+    bar.style.width = `${Math.min(100, elapsed / END * 100)}%`;
+    let sc = 0; SCENES.forEach((s, i) => { if (elapsed >= s) sc = i; });
+    controls.querySelectorAll("[data-go]").forEach((b) => b.classList.toggle("on", +b.dataset.go === sc));
+    if (elapsed >= END) { playing = false; setPlayBtn(); }
+  };
+
+  playBtn.addEventListener("click", () => {
+    if (elapsed >= END) seek(0);
+    playing = !playing; setPlayBtn();
+  });
+  controls.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => {
+    seek(SCENES[+b.dataset.go]); playing = true; setPlayBtn();
+  }));
+  $("replay").addEventListener("click", (e) => { e.stopPropagation(); seek(0); playing = true; setPlayBtn(); });
+  stage.addEventListener("click", (e) => { if (e.target.closest("a, button")) return; playBtn.click(); });
+  let away = false;
+  new IntersectionObserver(([entry]) => {
+    const visible = entry.isIntersecting;
+    if (!visible && playing) { playing = false; away = true; setPlayBtn(); }
+    else if (visible && away) { away = false; if (elapsed < END) { playing = true; setPlayBtn(); } }
+  }, { threshold: 0.35 }).observe(frame);
+  document.addEventListener("keydown", (e) => { if (e.key === " " && !e.target.closest("button, input, textarea, [contenteditable]")) { e.preventDefault(); playBtn.click(); } });
+
+  if (reduce || q.has("freeze")) { playing = false; }
+  setPlayBtn();
+
+  // Frame capture: step the clock and every running CSS animation by hand, with the live tick paused.
+  window.__toad = {
+    seek, get elapsed() { return elapsed; }, END,
+    freeze() { playing = false; setPlayBtn(); },
+    step(ms) {
+      step_(ms);
+      document.getAnimations().forEach((a) => { a.pause(); a.currentTime = (a.currentTime || 0) + ms; });
+    },
+  };
+
+  // Hold the first paint until IBM Plex has arrived (or 1.2s has passed), so
+  // the wordmark is never caught in a fallback face.
+  document.body.classList.add("fonts-pending");
+  const begin = () => {
+    document.body.classList.remove("fonts-pending");
+    fit();
+    seek(q.has("t") ? +q.get("t") : 0);
+    lastT = null;
+    raf = requestAnimationFrame(tick);
+  };
+  const fontsReady = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1200))]).then(begin, begin);
+})();
+
+// The download keys point at the release page until the latest release's
+// own assets are known; then each key links straight to its file.
+(async () => {
+  const want = { mac: /macos_aarch64\.dmg$/, macIntel: /macos_x86_64\.dmg$/, win: /windows_x86_64-setup\.exe$/, linux: /linux_x86_64\.AppImage$/, deb: /\.deb$/, rpm: /\.rpm$/ };
+  try {
+    const r = await fetch("https://api.github.com/repos/1Broseidon/toad/releases/latest", { headers: { accept: "application/vnd.github+json" } });
+    if (!r.ok) return;
+    const rel = await r.json();
+    for (const [key, re] of Object.entries(want)) {
+      const asset = (rel.assets || []).find((a) => re.test(a.name));
+      if (asset) document.querySelectorAll(`[data-dl="${key}"]`).forEach((el) => { el.href = asset.browser_download_url; });
+    }
+    if (rel.tag_name) document.querySelectorAll("[data-version]").forEach((el) => { el.textContent = rel.tag_name.replace(/^desktop-/, ""); });
+  } catch (e) {}
+})();
+</script>
+
+</body>
+</html>

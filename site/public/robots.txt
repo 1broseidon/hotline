@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://toad.team/sitemap.xml

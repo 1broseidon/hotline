@@ -10,3 +10,6 @@ crates/toad-desktop/gen/
 # Private updater signing backup; never a release asset.
 .toad-release-signing/
 __pycache__/
+
+# wrangler state from deploying site/ and docs-site/
+.wrangler/

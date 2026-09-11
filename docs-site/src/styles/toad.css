@@ -1,0 +1,46 @@
+/* Toad docs theme: the window's own tokens, five planes of one cool hue,
+   IBM Plex, green as the one signal colour. */
+:root {
+	--sl-font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--sl-font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+	--sl-color-accent-low: #123322;
+	--sl-color-accent: #3fb268;
+	--sl-color-accent-high: #a7e6bd;
+	--sl-color-white: #f2f4f7;
+	--sl-color-gray-1: #dfe3ea;
+	--sl-color-gray-2: #b9c0cc;
+	--sl-color-gray-3: #7f889a;
+	--sl-color-gray-4: #4a5261;
+	--sl-color-gray-5: #262b34;
+	--sl-color-gray-6: #15181e;
+	--sl-color-black: #0a0b0d;
+	--sl-text-code: 0.9em;
+}
+:root[data-theme='light'] {
+	--sl-color-accent-low: #d9f2e2;
+	--sl-color-accent: #1f7a45;
+	--sl-color-accent-high: #0f4527;
+	--sl-color-white: #0e1116;
+	--sl-color-gray-1: #262b34;
+	--sl-color-gray-2: #3e4553;
+	--sl-color-gray-3: #6b7383;
+	--sl-color-gray-4: #a3abb8;
+	--sl-color-gray-5: #d6dbe3;
+	--sl-color-gray-6: #eef0f4;
+	--sl-color-gray-7: #f6f7f9;
+	--sl-color-black: #ffffff;
+}
+.site-title { font-weight: 600; letter-spacing: -0.01em; }
+.site-title img { height: 1.1rem; width: auto; color: var(--sl-color-accent); }
+h1, h2, h3 { text-wrap: balance; letter-spacing: -0.015em; }
+.sl-markdown-content { line-height: 1.65; }
+.sl-markdown-content code:not(pre code) { border: 1px solid var(--sl-color-gray-5); }
+.sl-markdown-content table td, .sl-markdown-content table th { font-variant-numeric: tabular-nums; }
+kbd {
+	font: 500 0.85em var(--sl-font-mono);
+	border: 1px solid var(--sl-color-gray-4);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	padding: 0 0.35em;
+	background: var(--sl-color-gray-6);
+}

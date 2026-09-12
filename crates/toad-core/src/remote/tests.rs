@@ -332,7 +332,13 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     assert_eq!(users[0]["attachments"][0]["name"], "brief.txt");
     let path = users[0]["attachments"][0]["path"].as_str().unwrap();
     assert_eq!(fs::read(path).unwrap(), b"hello");
-    assert!(requests.lock().unwrap()[0].to_string().contains(path));
+    // The request is JSON, where a Windows path's backslashes are escaped.
+    let path_in_json = serde_json::to_string(path).unwrap();
+    assert!(
+        requests.lock().unwrap()[0]
+            .to_string()
+            .contains(path_in_json.trim_matches('"'))
+    );
     send(&mut phone, json!({"id":6,"cmd":"mobile.prompt","params":{"operationId":operation,"personaId":persona,"text":"changed","attachmentIds":[]}})).await;
     loop {
         let frame = read(&mut phone).await;

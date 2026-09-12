@@ -969,12 +969,16 @@ mod tests {
                     .contains("active managed jobs")
             );
             answer(third).await;
+            // The job writes every 50 ms; a loaded runner can stall it for
+            // longer than that, so wait for growth rather than sample it.
             let before = std::fs::metadata(&heartbeat).unwrap().len();
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            assert!(
-                std::fs::metadata(&heartbeat).unwrap().len() > before,
-                "a side question must not cancel the job"
-            );
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while std::fs::metadata(&heartbeat).unwrap().len() <= before {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("a side question must not cancel the job");
             assert!(!task.is_finished());
             assert!(
                 requests.try_recv().is_err(),

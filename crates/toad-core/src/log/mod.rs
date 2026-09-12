@@ -31,7 +31,7 @@ mod tape;
 
 pub(crate) use tape::{open_epoch, segments_of};
 
-use crate::paths::room_path;
+use crate::paths::{room_path, transcripts_dir};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -212,6 +212,72 @@ impl Log {
         Ok(())
     }
 
+    /// The built-in agent's stored backend id was `pi`; it is `toad`, with no
+    /// alias anywhere that reads. Records written before the rename are
+    /// rewritten in place, once: every room and tape file, line for line, so
+    /// nothing is folded, reordered, or dropped, and a torn line stays torn.
+    /// Runs at open, before any subscriber or mirror exists, and leaves its
+    /// name in `.migrations` so later opens read nothing.
+    pub fn migrate_backend_id(&self) -> io::Result<()> {
+        const NAME: &str = "backend-id-toad";
+        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let marker = self.root.join(".migrations");
+        let done = fs::read_to_string(&marker).unwrap_or_default();
+        if done.lines().any(|line| line == NAME) {
+            return Ok(());
+        }
+        let mut files = vec![room_path(&self.root)];
+        if let Ok(personas) = fs::read_dir(transcripts_dir(&self.root)) {
+            for entry in personas.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "jsonl") {
+                    files.push(path);
+                } else if let Ok(segments) = fs::read_dir(&path) {
+                    files.extend(
+                        segments
+                            .flatten()
+                            .map(|entry| entry.path())
+                            .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl")),
+                    );
+                }
+            }
+        }
+        for file in files {
+            let before = match fs::read_to_string(&file) {
+                Ok(text) => text,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let mut changed = false;
+            let lines: Vec<String> = before
+                .lines()
+                .map(|line| {
+                    let mut event = match serde_json::from_str::<Value>(line) {
+                        Ok(event) => event,
+                        Err(_) => return line.to_string(),
+                    };
+                    if rename_backend(&mut event) {
+                        changed = true;
+                        event.to_string()
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect();
+            if changed {
+                let mut after = lines.join("\n");
+                if before.ends_with('\n') {
+                    after.push('\n');
+                }
+                crate::credentials::atomic_write(&file, after.as_bytes())?;
+            }
+        }
+        fs::create_dir_all(&self.root)?;
+        let mut record = OpenOptions::new().create(true).append(true).open(&marker)?;
+        writeln!(record, "{NAME}")?;
+        record.sync_all()
+    }
+
     /// Rewrites the file this stream is written to with its fold, and answers
     /// the epoch it rewrote. A tape's older segments are closed history and
     /// are left alone, duplicates and all.
@@ -320,6 +386,34 @@ impl Log {
             StreamId::Thread(key) => thread::file(&self.root, key).into_iter().collect(),
         }
     }
+}
+
+/// Every place a stored record names the built-in backend, renamed. Text a
+/// person typed is untouched: only the id fields are looked at.
+fn rename_backend(event: &mut Value) -> bool {
+    const OLD: &str = "pi";
+    const NEW: &str = "toad";
+    let mut changed = false;
+    if event["backendId"] == OLD {
+        event["backendId"] = Value::from(NEW);
+        changed = true;
+    }
+    if event["kind"] == "setting" && event["id"] == "defaultBackendId" && event["value"] == OLD {
+        event["value"] = Value::from(NEW);
+        changed = true;
+    }
+    if let Some(checkpoints) = event
+        .get_mut("sessionCheckpoints")
+        .and_then(Value::as_array_mut)
+    {
+        for checkpoint in checkpoints {
+            if checkpoint["backendId"] == OLD {
+                checkpoint["backendId"] = Value::from(NEW);
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 /// One line is one event; a torn final line from an unclean exit is skipped.
@@ -523,10 +617,93 @@ mod tests {
     }
 
     #[test]
+    fn the_old_backend_id_is_renamed_on_disk_once_and_prose_is_left_alone() {
+        let log = scratch("rename");
+        let root = log.root().to_path_buf();
+        let room = root.join("room.jsonl");
+        fs::write(
+            &room,
+            concat!(
+                r#"{"kind":"persona","id":"ada","backendId":"pi","goal":"say pi","sessionCheckpoints":[{"backendId":"pi","sessionId":"s1"},{"backendId":"cursor","sessionId":"s2"}]}"#, "\n",
+                r#"{"kind":"setting","id":"defaultBackendId","value":"pi"}"#, "\n",
+                r#"{"kind":"setting","id":"theme","value":"pi"}"#, "\n",
+            ),
+        )
+        .unwrap();
+        let segments = root.join("transcripts").join("ada");
+        fs::create_dir_all(&segments).unwrap();
+        fs::write(
+            segments.join("1.jsonl"),
+            concat!(
+                r#"{"kind":"chapter","id":"c1","ts":1,"backendId":"pi"}"#,
+                "\n",
+                r#"{"kind":"user","id":"u1","text":"the value of pi"}"#,
+                "\n",
+                r#"{"kind":"chapter","id":"c2","ts":2,"backendId":"pi"#,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("transcripts").join("bob.jsonl"),
+            concat!(
+                r#"{"kind":"chapter","id":"c1","ts":1,"backendId":"pi"}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        log.migrate_backend_id().unwrap();
+
+        let room_after = fs::read_to_string(&room).unwrap();
+        assert_eq!(room_after.lines().count(), 3);
+        assert!(!room_after.contains(r#""backendId":"pi""#));
+        assert!(room_after.contains(r#""goal":"say pi""#));
+        assert!(room_after.contains(r#"{"backendId":"cursor","sessionId":"s2"}"#));
+        assert!(room_after.contains(r#""id":"defaultBackendId","value":"toad""#));
+        assert!(room_after.contains(r#""id":"theme","value":"pi""#));
+        let tape_after = fs::read_to_string(segments.join("1.jsonl")).unwrap();
+        assert_eq!(
+            tape_after,
+            concat!(
+                r#"{"kind":"chapter","id":"c1","ts":1,"backendId":"toad"}"#,
+                "\n",
+                r#"{"kind":"user","id":"u1","text":"the value of pi"}"#,
+                "\n",
+                r#"{"kind":"chapter","id":"c2","ts":2,"backendId":"pi"#,
+            )
+        );
+        assert!(
+            fs::read_to_string(root.join("transcripts").join("bob.jsonl"))
+                .unwrap()
+                .contains(r#""backendId":"toad""#)
+        );
+        assert_eq!(log.load(&StreamId::Room)[0]["backendId"], "toad");
+
+        // A second open reads nothing: the marker says so, and a record that
+        // says `pi` afterwards is somebody's business, not the migrator's.
+        fs::write(
+            &room,
+            concat!(r#"{"kind":"persona","id":"cy","backendId":"pi"}"#, "\n"),
+        )
+        .unwrap();
+        Log::open(&root).migrate_backend_id().unwrap();
+        assert!(
+            fs::read_to_string(&room)
+                .unwrap()
+                .contains(r#""backendId":"pi""#)
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".migrations")).unwrap(),
+            "backend-id-toad\n"
+        );
+        // An empty directory is a finished migration too.
+        scratch("rename-empty").migrate_backend_id().unwrap();
+    }
+
+    #[test]
     fn a_clone_of_the_log_is_the_same_log() {
         let log = scratch("clone");
         let mut listener = log.subscribe(&StreamId::Room);
-        let event = json!({"kind": "setting", "id": "defaultBackendId", "value": "pi"});
+        let event = json!({"kind": "setting", "id": "defaultBackendId", "value": "toad"});
         log.clone().append(&StreamId::Room, &event).unwrap();
         assert_eq!(listener.try_recv().unwrap(), event);
     }

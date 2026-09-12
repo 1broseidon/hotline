@@ -276,7 +276,7 @@ pub struct McpPolicy {
 
 /// Which kind of agent produced a tool ledger.
 ///
-/// `pi` is Toad Agent's stored backend id, not a second name: that agent
+/// `toad` is Toad Agent's stored backend id, not a second name: that agent
 /// builds its own tool array, so a verified row is a fact. An ACP backend is
 /// handed descriptors and does not report what it loaded, so its honest
 /// state is declared.
@@ -284,7 +284,7 @@ pub struct McpPolicy {
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum AgentKind {
-    Pi,
+    Toad,
     Acp,
 }
 
@@ -292,7 +292,7 @@ pub enum AgentKind {
 ///
 /// Coarse on purpose: this names the mechanism that supplies the tool,
 /// because that is what decides how an absence is fixed. `origin` beside it
-/// names the particular supplier — an MCP server's id, `pi`.
+/// names the particular supplier — an MCP server's id, `toad`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -326,7 +326,7 @@ pub enum ToolState {
 pub struct ToolLedgerRow {
     pub name: String,
     pub source: ToolSourceKind,
-    /// The particular supplier, named: a server id, or `pi`.
+    /// The particular supplier, named: a server id, or `toad`.
     pub origin: String,
     pub state: ToolState,
     /// Why this tool is in this state. Never empty.
@@ -1492,6 +1492,19 @@ pub struct BackendChoice {
 // The wire
 // ---------------------------------------------------------------------------
 
+/// A bounded, repeatable upload chunk. The phone never supplies a desktop path.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub struct MobileAttachmentChunk {
+    pub id: String,
+    pub name: String,
+    pub mime_type: Option<String>,
+    pub size: u32,
+    pub offset: u32,
+    pub data: String,
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -1507,6 +1520,17 @@ pub struct BackendChoice {
 )]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
+    /// A paired phone supplies a stable operation id; retries never run twice.
+    #[serde(rename = "mobile.prompt")]
+    MobilePrompt {
+        operation_id: String,
+        persona_id: String,
+        text: String,
+        #[serde(default)]
+        attachment_ids: Vec<String>,
+    },
+    #[serde(rename = "mobile.attachment")]
+    MobileAttachment { upload: MobileAttachmentChunk },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is
@@ -1886,11 +1910,11 @@ mod tests {
             }),
             json!({ "kind": "turn", "id": "tu1", "ts": 13, "stopReason": "end_turn", "usage": { "inputTokens": 1, "outputTokens": 2, "totalTokens": 3 } }),
             json!({
-                "kind": "chapter", "id": "c1", "ts": 14, "backendId": "pi", "sessionId": "s1",
+                "kind": "chapter", "id": "c1", "ts": 14, "backendId": "toad", "sessionId": "s1",
                 "endedAt": 20, "title": "First", "note": "did the thing", "status": "done",
                 "tags": ["harbour"], "closedBy": "idle", "resumedFrom": "c0",
             }),
-            json!({ "kind": "chapter", "id": "c2", "ts": 21, "backendId": "pi" }),
+            json!({ "kind": "chapter", "id": "c2", "ts": 21, "backendId": "toad" }),
         ]
     }
 

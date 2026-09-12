@@ -10,7 +10,7 @@ use super::RoomHandle;
 use crate::contract::{
     Command, McpPolicy, Persona, PersonaDraft, PolicyMode, Reach, SessionInfo, SessionState,
 };
-use crate::driver::PI_BACKEND_ID;
+use crate::driver::TOAD_BACKEND_ID;
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
 use crate::{paths, room};
@@ -24,6 +24,9 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::MobilePrompt { .. } | Command::MobileAttachment { .. } => {
+            Err("This command requires a paired phone.".into())
+        }
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => {
             let gate = room.policy_update_lock();
@@ -291,7 +294,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
     let default_backend = settings
         .get("defaultBackendId")
         .and_then(Value::as_str)
-        .unwrap_or("pi")
+        .unwrap_or("toad")
         .to_string();
     let stamped = now();
     let backend_id = given(draft.backend_id).unwrap_or(default_backend);
@@ -299,7 +302,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
     // standing choice, so the teammate starts on what Settings named
     // rather than whichever model happens to lead the catalogue.
     let model_id = given(draft.model_id).or_else(|| {
-        if backend_id != PI_BACKEND_ID {
+        if backend_id != TOAD_BACKEND_ID {
             return None;
         }
         crate::models::preferred_model(&settings)
@@ -457,7 +460,7 @@ async fn set_model(
     model_id: &str,
 ) -> Result<SessionInfo, String> {
     let persona = living(log, persona_id)?;
-    if persona.backend_id == PI_BACKEND_ID {
+    if persona.backend_id == TOAD_BACKEND_ID {
         if !room.models().iter().any(|choice| choice.id == model_id) {
             return Err(format!("{model_id} is not a model this desk can reach."));
         }
@@ -472,7 +475,7 @@ async fn set_model(
     }
     // The persisted choice counts as a use, so lastModelId is the id
     // just written rather than whatever a live session happens to report.
-    if persona.backend_id == PI_BACKEND_ID {
+    if persona.backend_id == TOAD_BACKEND_ID {
         write_last_model(log, model_id)?;
     }
 
@@ -493,7 +496,7 @@ async fn set_config(
     value: &str,
 ) -> Result<SessionInfo, String> {
     let persona = living(log, persona_id)?;
-    if persona.backend_id != PI_BACKEND_ID {
+    if persona.backend_id != TOAD_BACKEND_ID {
         // A harness may offer its model as a config; what it reports after
         // the change is remembered the same way a start's report is.
         let info = room.set_config(persona_id, config_id, value).await?;
@@ -560,7 +563,7 @@ async fn remember_model(
     if model_id.is_empty() {
         return Ok(());
     }
-    if persona.backend_id == PI_BACKEND_ID {
+    if persona.backend_id == TOAD_BACKEND_ID {
         return write_last_model(log, &model_id);
     }
     if persona.model_id.as_deref() == Some(model_id.as_str()) {

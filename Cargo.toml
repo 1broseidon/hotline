@@ -16,3 +16,22 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1.53", features = ["rt", "sync"] }
 chrono = "0.4.45"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+# Image codecs are built optimised in every profile. Unoptimised, decoding
+# and shrinking one phone photo takes seven seconds on the runtime thread;
+# optimised it is a fraction of one. These crates are leaves and never
+# stepped through in a debugger.
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.zune-core]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3
+[profile.dev.package.moxcms]
+opt-level = 3

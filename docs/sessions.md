@@ -65,7 +65,7 @@ quiet — see [Quiet](#quiet).
 
 ## Two drivers
 
-`backendId` on the teammate's record is the whole choice. `"pi"` is Toad
+`backendId` on the teammate's record is the whole choice. `"toad"` is Toad
 Agent, in this process, on the desk's provider keys. Any other id is an ACP
 child; the registry in `driver/acp/registry.rs` is what says whether this
 machine can start that harness, and with which command.

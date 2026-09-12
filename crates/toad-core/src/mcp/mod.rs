@@ -1013,7 +1013,7 @@ mod tests {
     fn publish_echo(persona_id: &str) {
         use crate::contract::{AgentKind, ToolSourceKind};
         use crate::session::ledger::ToolLedger;
-        let mut ledger = ToolLedger::new(persona_id, AgentKind::Pi, "pi");
+        let mut ledger = ToolLedger::new(persona_id, AgentKind::Toad, "toad");
         ledger
             .verified(
                 ToolSourceKind::Mcp,
@@ -1027,7 +1027,7 @@ mod tests {
                 "echo__whisper",
                 "attached from the echo MCP server",
             )
-            .verified(ToolSourceKind::Builtin, "pi", "read", "a built-in")
+            .verified(ToolSourceKind::Builtin, "toad", "read", "a built-in")
             .publish();
     }
 
@@ -1640,7 +1640,7 @@ mod tests {
             goal: String::new(),
             face: None,
             team: None,
-            backend_id: "pi".to_string(),
+            backend_id: "toad".to_string(),
             cwd: "/".to_string(),
             reach: Some(crate::contract::Reach::Machine),
             model_id: None,

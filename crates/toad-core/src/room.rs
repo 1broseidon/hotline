@@ -24,7 +24,7 @@ use crate::contract::{Persona, ScheduleKind, ScheduledJob, SessionCheckpoint};
 use crate::log::{Log, StreamId};
 use serde_json::{Map, Value, json};
 
-/// What a setting means before anybody has set it. `pi` is the built-in Toad
+/// What a setting means before anybody has set it. `toad` is the built-in Toad
 /// Agent, which is what a new teammate runs on, and a chapter closes after
 /// eight hours of quiet — a working day's gap, so yesterday's context does not
 /// follow you into this morning. `enabledModels` is empty: a provider nobody
@@ -33,7 +33,7 @@ use serde_json::{Map, Value, json};
 /// has never named a model has no preference, not an empty string.
 fn defaults() -> Map<String, Value> {
     let mut settings = Map::new();
-    settings.insert("defaultBackendId".into(), Value::from("pi"));
+    settings.insert("defaultBackendId".into(), Value::from("toad"));
     settings.insert("chapterIdleHours".into(), Value::from(8));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
@@ -273,7 +273,7 @@ mod tests {
             goal: "Keep the harbour running.".to_string(),
             face: None,
             team: None,
-            backend_id: "pi".to_string(),
+            backend_id: "toad".to_string(),
             cwd: "/tmp/harbour".to_string(),
             reach: None,
             model_id: None,
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn a_setting_nobody_set_is_the_default_and_a_set_one_stands_over_it() {
         let log = scratch("settings");
-        assert_eq!(settings(&log)["defaultBackendId"], "pi");
+        assert_eq!(settings(&log)["defaultBackendId"], "toad");
         assert_eq!(settings(&log)["chapterIdleHours"], 8);
         assert_eq!(settings(&log)["enabledModels"], json!({}));
 
@@ -378,7 +378,7 @@ mod tests {
         append(&log, &setting("theme", Value::from("dark")));
         assert_eq!(settings(&log)["chapterIdleHours"], 2);
         assert_eq!(settings(&log)["theme"], "dark");
-        assert_eq!(settings(&log)["defaultBackendId"], "pi");
+        assert_eq!(settings(&log)["defaultBackendId"], "toad");
 
         // Clearing a setting is a tombstone, and puts the default back. A
         // setting that never had one is simply gone.

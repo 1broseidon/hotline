@@ -10,7 +10,7 @@ use crate::contract::{
     Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
     Credential, CredentialKind, LoginPrompt, LoginState, LoginStatus, SessionInfo, StreamDelta,
 };
-use crate::driver::{PI_BACKEND_ID, acp};
+use crate::driver::{TOAD_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
 use crate::mcp::{McpOAuthService, McpServer};
 use crate::models::Client;
@@ -89,6 +89,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
     ) -> io::Result<Desk> {
         let log = Log::open(root);
+        log.migrate_backend_id()?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
         let keys = Arc::new(DeskCredentials {
             vault: vault.clone(),
@@ -469,7 +470,7 @@ impl RoomHandle for Desk {
     /// Toad Agent first, then whatever the ACP catalogue and the PATH say.
     async fn backends(&self) -> Vec<BackendChoice> {
         let mut choices = vec![BackendChoice {
-            id: PI_BACKEND_ID.to_string(),
+            id: TOAD_BACKEND_ID.to_string(),
             name: "Toad Agent".to_string(),
             description: "Built in: runs on the desk's provider keys.".to_string(),
             unavailable: None,
@@ -878,7 +879,7 @@ mod tests {
             goal: "Keep the revocation test deterministic.".to_string(),
             face: None,
             team: None,
-            backend_id: "pi".to_string(),
+            backend_id: "toad".to_string(),
             cwd: root.join(id).to_string_lossy().into_owned(),
             reach: Some(Reach::Workspace),
             model_id: None,

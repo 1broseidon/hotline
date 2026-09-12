@@ -11,7 +11,7 @@ import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
-const TOAD_AGENT = "pi";
+const TOAD_AGENT = "toad";
 
 /**
  * Creating a teammate: the things the person decides, and nothing else.

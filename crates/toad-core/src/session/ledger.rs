@@ -247,11 +247,11 @@ mod tests {
 
     #[test]
     fn every_row_carries_a_reason_in_every_state() {
-        let mut ledger = ToolLedger::new("p1", AgentKind::Pi, "pi");
+        let mut ledger = ToolLedger::new("p1", AgentKind::Toad, "toad");
         ledger
             .verified(
                 ToolSourceKind::Builtin,
-                "pi",
+                "toad",
                 "read",
                 "a built-in of the Toad Agent runtime",
             )
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn an_empty_reason_becomes_a_loud_one_rather_than_an_empty_cell() {
-        let mut ledger = ToolLedger::new("p2", AgentKind::Pi, "pi");
+        let mut ledger = ToolLedger::new("p2", AgentKind::Toad, "toad");
         ledger
             .absent(ToolSourceKind::Mcp, "Echo", "shout", "   ")
             .publish();
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn the_same_tool_from_two_suppliers_is_two_rows() {
-        let mut ledger = ToolLedger::new("p3", AgentKind::Pi, "pi");
+        let mut ledger = ToolLedger::new("p3", AgentKind::Toad, "toad");
         ledger
             .verified(ToolSourceKind::Mcp, "A", "search", "from A")
             .verified(ToolSourceKind::Mcp, "B", "search", "from B")
@@ -320,10 +320,10 @@ mod tests {
 
     #[test]
     fn a_supplier_that_goes_away_turns_its_rows_absent_with_one_cause() {
-        let mut ledger = ToolLedger::new("p5", AgentKind::Pi, "pi");
+        let mut ledger = ToolLedger::new("p5", AgentKind::Toad, "toad");
         ledger
             .verified(ToolSourceKind::Mcp, "Echo", "echo__shout", "attached")
-            .verified(ToolSourceKind::Builtin, "pi", "read", "a built-in")
+            .verified(ToolSourceKind::Builtin, "toad", "read", "a built-in")
             .publish();
         mark_absent(
             "p5",
@@ -345,14 +345,14 @@ mod tests {
 
     #[test]
     fn mentioning_names_every_teammate_whose_ledger_holds_the_supplier() {
-        let mut a = ToolLedger::new("mention-a", AgentKind::Pi, "pi");
+        let mut a = ToolLedger::new("mention-a", AgentKind::Toad, "toad");
         a.verified(ToolSourceKind::Mcp, "EchoMention", "t", "attached")
             .publish();
         let mut b = ToolLedger::new("mention-b", AgentKind::Acp, "cursor");
         b.declared(ToolSourceKind::Mcp, "EchoMention", "t", "handed over")
             .publish();
-        let mut c = ToolLedger::new("mention-c", AgentKind::Pi, "pi");
-        c.verified(ToolSourceKind::Builtin, "pi", "read", "built-in")
+        let mut c = ToolLedger::new("mention-c", AgentKind::Toad, "toad");
+        c.verified(ToolSourceKind::Builtin, "toad", "read", "built-in")
             .publish();
         let mut found = mentioning(ToolSourceKind::Mcp, "EchoMention");
         found.sort();

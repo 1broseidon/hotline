@@ -18,22 +18,22 @@ pub(super) struct Steering {
 struct InputState {
     closed: bool,
     revision: u64,
-    pending: Vec<String>,
+    pending: Vec<Message>,
 }
 
 impl Steering {
-    pub(super) fn admit(&self, text: String) -> bool {
+    pub(super) fn admit(&self, message: Message) -> bool {
         let mut state = lock(&self.state);
         if state.closed {
             return false;
         }
-        state.pending.push(text);
+        state.pending.push(message);
         state.revision += 1;
         self.changed.notify_waiters();
         true
     }
 
-    fn take(&self) -> (u64, Vec<String>) {
+    fn take(&self) -> (u64, Vec<Message>) {
         let mut state = lock(&self.state);
         (state.revision, std::mem::take(&mut state.pending))
     }
@@ -68,7 +68,7 @@ impl Steering {
         lock(&self.state).closed = true;
     }
 
-    pub(super) fn close(&self) -> Vec<String> {
+    pub(super) fn close(&self) -> Vec<Message> {
         let mut state = lock(&self.state);
         state.closed = true;
         std::mem::take(&mut state.pending)
@@ -155,7 +155,7 @@ async fn run_inner(
         history.append(&mut job_results);
         let (revision, pending) = turn.steering.take();
         announce_update |= !pending.is_empty();
-        history.extend(pending.into_iter().map(Message::user));
+        history.extend(pending);
         *turn.history.lock().await = history.clone();
         if let Some(capability) = &turn.capability {
             capability.check()?;
@@ -277,8 +277,8 @@ async fn run_inner(
             })
             .collect();
         history.push(Message::Assistant {
-            id: stream.identity().message_id,
-            content: stream.choice,
+            id: stream.identity().message_id.filter(|id| replayable_id(id)),
+            content: stream.choice.into_iter().map(replayable).collect(),
         });
 
         for call in &calls {
@@ -527,6 +527,32 @@ async fn finish(
     .await;
 }
 
+/// What a provider accepts back as an item id: letters, digits, underscores
+/// and dashes. Some backends name an item with more than that and then refuse
+/// the same name as input, which killed the next request of the turn.
+fn replayable_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+/// A reply item as it can go back to the provider. A reasoning item under an
+/// id the provider would refuse goes back without one, which Rig leaves out
+/// of the replay: the turn loses that one item's hidden reasoning and keeps
+/// going, on any provider.
+fn replayable(item: AssistantContent) -> AssistantContent {
+    match item {
+        AssistantContent::Reasoning(mut reasoning)
+            if reasoning.id.as_deref().is_some_and(|id| !replayable_id(id)) =>
+        {
+            reasoning.id = None;
+            AssistantContent::Reasoning(reasoning)
+        }
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,8 +667,8 @@ mod tests {
             run(&model, request, &ToolSet::default(), &turn, &updates, None).await
         });
         receive(&mut requests).await;
-        assert!(steering.admit("actually, do the other thing".into()));
-        assert!(steering.admit("keep the scope small".into()));
+        assert!(steering.admit(Message::user("actually, do the other thing")));
+        assert!(steering.admit(Message::user("keep the scope small")));
         let next = receive(&mut requests).await;
         assert_eq!(
             next.chat_history,
@@ -654,7 +680,7 @@ mod tests {
         );
         answer(chunks).await;
         task.await.unwrap().unwrap();
-        assert!(!steering.admit("after completion".into()));
+        assert!(!steering.admit(Message::user("after completion")));
         let mut ends = 0;
         while let Some(update) = receiver.recv().await {
             if let Update::Turn { stop_reason, usage } = update {
@@ -989,19 +1015,46 @@ mod tests {
     #[test]
     fn closing_admission_retains_existing_input_and_refuses_new_input() {
         let steering = Steering::default();
-        assert!(steering.admit("already admitted".into()));
+        assert!(steering.admit(Message::user("already admitted")));
         steering.close_admission();
-        assert!(!steering.admit("must queue after shutdown".into()));
-        assert_eq!(steering.close(), ["already admitted"]);
+        assert!(!steering.admit(Message::user("must queue after shutdown")));
+        assert_eq!(steering.close(), [Message::user("already admitted")]);
     }
 
     #[test]
     fn completion_and_admission_have_one_order() {
         let steering = Steering::default();
-        assert!(steering.admit("before completion".into()));
+        assert!(steering.admit(Message::user("before completion")));
         assert!(!steering.finish_if_empty());
-        assert_eq!(steering.take().1, ["before completion"]);
+        assert_eq!(steering.take().1, [Message::user("before completion")]);
         assert!(steering.finish_if_empty());
-        assert!(!steering.admit("must stay in the session queue".into()));
+        assert!(!steering.admit(Message::user("must stay in the session queue")));
+    }
+    #[test]
+    fn a_reasoning_id_the_provider_would_refuse_is_not_replayed() {
+        let refused = rig::message::Reasoning {
+            id: Some("rs_6aa4a9c9d86a275b60a343d4:rs_01a09337382371529914c1d1c48d6230".into()),
+            content: vec![rig::message::ReasoningContent::Summary("thinking".into())],
+        };
+        let AssistantContent::Reasoning(back) = replayable(AssistantContent::Reasoning(refused))
+        else {
+            panic!("still a reasoning item");
+        };
+        assert_eq!(back.id, None);
+        assert_eq!(back.content.len(), 1);
+        let kept = rig::message::Reasoning {
+            id: Some("rs_01a09337382371529914c1d1c48d6230".into()),
+            content: vec![],
+        };
+        let AssistantContent::Reasoning(back) = replayable(AssistantContent::Reasoning(kept))
+        else {
+            panic!("still a reasoning item");
+        };
+        assert_eq!(
+            back.id.as_deref(),
+            Some("rs_01a09337382371529914c1d1c48d6230")
+        );
+        assert!(!replayable_id(""));
+        assert!(replayable_id("msg_ab-12_Z"));
     }
 }

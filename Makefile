@@ -18,9 +18,14 @@ ui-check:
 
 # The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
 # It runs from the shell crate, where tauri.conf.json is, and starts Vite for
-# the window itself.
+# the window itself. On macOS the build goes through a runner that signs the
+# debug binary, so the keychain stops asking on every launch; the script says
+# why.
+ifeq ($(shell uname -s),Darwin)
+dev: DEV_RUNNER := --runner $(CURDIR)/scripts/cargo-dev-sign
+endif
 dev:
-	cd crates/toad-desktop && cargo tauri dev
+	cd crates/toad-desktop && cargo tauri dev $(DEV_RUNNER)
 
 # A release: the window built by Vite, the shell by cargo, bundled by the
 # Tauri CLI into target/release/bundle (AppImage, deb and rpm on Linux).

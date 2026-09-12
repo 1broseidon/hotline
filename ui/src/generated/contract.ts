@@ -3,12 +3,12 @@
 /**
  * Which kind of agent produced a tool ledger.
  *
- * `pi` is Toad Agent's stored backend id, not a second name: that agent
+ * `toad` is Toad Agent's stored backend id, not a second name: that agent
  * builds its own tool array, so a verified row is a fact. An ACP backend is
  * handed descriptors and does not report what it loaded, so its honest
  * state is declared.
  */
-export type AgentKind = "pi" | "acp";
+export type AgentKind = "toad" | "acp";
 
 /**
  * Something handed to a teammate alongside a message.
@@ -51,7 +51,7 @@ export type BackendChoice = { id: string, name: string, description: string, una
  * account list omits models the account cannot run, so they never appear
  * here to be flagged.
  */
-export type CatalogModel = { id: string, name: string, releaseDate: string, enabled: boolean, manual: boolean,
+export type CatalogModel = { id: string, name: string, releaseDate: string, enabled: boolean, manual: boolean, 
 /**
  * An exact provider/model match exists in the bundled metadata.
  */
@@ -77,7 +77,7 @@ export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, 
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } };
+export type Command = { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } };
 
 /**
  * One host folder bound into a teammate's computer.
@@ -146,11 +146,11 @@ credentialKind: CredentialKind,
 /**
  * The chosen Ollama or custom server. Other providers use their fixed endpoint.
  */
-baseUrl?: string | null,
+baseUrl?: string | null, 
 /**
  * Custom connections keep their protocol and model ids with their identity.
  */
-custom?: CustomProvider | null,
+custom?: CustomProvider | null, 
 /**
  * What the user called it, so a list of keys is a list they recognise.
  */
@@ -171,7 +171,7 @@ export type CustomProvider = { api: OpenAiApi, models: Array<string>, };
 /**
  * Input only. The key is never copied into credential metadata or a stream.
  */
-export type CustomProviderDraft = { name: string, baseUrl: string, api: OpenAiApi, models: Array<string>,
+export type CustomProviderDraft = { name: string, baseUrl: string, api: OpenAiApi, models: Array<string>, 
 /**
  * Omitted keeps an existing key; an empty string removes it.
  */
@@ -257,6 +257,13 @@ export type LoginState = "pending" | "done" | "failed";
 export type LoginStatus = { state: LoginState, credential?: Credential, error?: string, };
 
 /**
+ * What an operator types into a phone that cannot scan: where the desktop
+ * is, and a six-digit code that is the password of a PAKE, never a secret
+ * sent on the wire.
+ */
+export type ManualPairing = { address: string, port: number, code: string, expiresAt: number, };
+
+/**
  * Which servers from the global MCP gateway a teammate gets.
  *
  * New teammates get `none`: configuring a server does not grant its powers
@@ -267,6 +274,11 @@ export type LoginStatus = { state: LoginState, credential?: Credential, error?: 
 export type McpPolicy = { mode: PolicyMode, serverIds: Array<string>, };
 
 /**
+ * A bounded, repeatable upload chunk. The phone never supplies a desktop path.
+ */
+export type MobileAttachmentChunk = { id: string, name: string, mimeType: string | null, size: number, offset: number, data: string, };
+
+/**
  * Dollars per million tokens, when exact catalogue metadata has a price.
  */
 export type ModelCost = { input: number, output: number, cacheRead?: number, cacheWrite?: number, };
@@ -274,6 +286,8 @@ export type ModelCost = { input: number, output: number, cacheRead?: number, cac
 export type NoticeLevel = "info" | "warn" | "error";
 
 export type OpenAiApi = "responses" | "chat_completions";
+
+export type PairingInvitation = { kind: string, version: number, desktopId: string, name: string, endpoint: string, certificateSha256: string, invitationId: string, secret: string, expiresAt: number, };
 
 /**
  * The last thing said in a peer thread, and which of the two said it.
@@ -505,7 +519,7 @@ export type Preview = { from: Side, text: string, at: number, };
  * them. Which ones there are is `models::WIRING`; the name and the doc link
  * come from the model catalogue. A provider can offer several ways to connect.
  */
-export type Provider = { id: string, name: string, doc?: string, credentialKinds: Array<CredentialKind>,
+export type Provider = { id: string, name: string, doc?: string, credentialKinds: Array<CredentialKind>, 
 /**
  * Whether Rig can discover models using this provider connection.
  */
@@ -527,6 +541,12 @@ export type Reach = "workspace" | "machine";
  * deliberately not a rung.
  */
 export type Receipt = "sent" | "read";
+
+export type RemoteDevice = { id: string, name: string, pairedAt: number, };
+
+export type RemotePairing = { invitation: PairingInvitation, qrSvg: string, manual: ManualPairing, };
+
+export type RemoteStatus = { enabled: boolean, host: string, endpoint: string | null, endpoints: Array<string>, addresses: Array<string>, devices: Array<RemoteDevice>, error: string | null, };
 
 /**
  * What an import did: how many of each thing came over, what it left
@@ -630,7 +650,7 @@ operatorCreated: boolean, quiet?: boolean, };
 /**
  * What the agent behind a session can be asked to do.
  */
-export type SessionCapabilities = {
+export type SessionCapabilities = { 
 /**
  * The driver admits operator input during its active conversation.
  */
@@ -753,7 +773,7 @@ export type TokenUsage = { inputTokens?: number, outputTokens?: number, totalTok
  */
 export type ToolLedgerRow = { name: string, source: ToolSourceKind, 
 /**
- * The particular supplier, named: a server id, or `pi`.
+ * The particular supplier, named: a server id, or `toad`.
  */
 origin: string, state: ToolState, 
 /**
@@ -778,7 +798,7 @@ oldText?: string | null, newText: string, };
  *
  * Coarse on purpose: this names the mechanism that supplies the tool,
  * because that is what decides how an absence is fixed. `origin` beside it
- * names the particular supplier — an MCP server's id, `pi`.
+ * names the particular supplier — an MCP server's id, `toad`.
  */
 export type ToolSourceKind = "builtin" | "mcp";
 

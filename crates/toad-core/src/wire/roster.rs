@@ -26,7 +26,7 @@ pub(super) async fn view(
     handle: Arc<dyn RoomHandle>,
     mut room_events: broadcast::Receiver<Value>,
     infos: broadcast::Receiver<SessionInfo>,
-    sender: mpsc::UnboundedSender<String>,
+    sender: super::Outbox,
 ) {
     let mut infos = Some(infos);
     let (spoke, mut spoken) = mpsc::unbounded_channel::<String>();
@@ -122,7 +122,7 @@ fn snapshot(
 fn row_for(
     log: &Log,
     handle: &Arc<dyn RoomHandle>,
-    sender: &mpsc::UnboundedSender<String>,
+    sender: &super::Outbox,
     id: i64,
     persona_id: &str,
 ) -> bool {

@@ -272,7 +272,7 @@ pub(super) fn persona(id: &str) -> Persona {
         goal: "Keep the harbour running.".to_string(),
         face: None,
         team: None,
-        backend_id: "pi".to_string(),
+        backend_id: "toad".to_string(),
         cwd: std::env::temp_dir().to_string_lossy().to_string(),
         reach: Some(Reach::Machine),
         model_id: None,
@@ -1035,14 +1035,14 @@ fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
     // An open chapter is the context: what came before it belongs to a
     // context that has already been summarised and let go of.
     let mut divided = older.to_vec();
-    divided.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "pi"}));
+    divided.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "toad"}));
     divided.push(json!({"kind": "user", "id": "u2", "ts": 6, "text": "still there?"}));
     assert_eq!(said(&divided), [Said::User("still there?".to_string())]);
 
     // The last chapter closed, so this session starts on nothing: the wake
     // block is what carries the chapter behind it.
     let mut closed = older.to_vec();
-    closed.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "pi", "endedAt": 9}));
+    closed.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "toad", "endedAt": 9}));
     assert_eq!(said(&closed), []);
 }
 
@@ -1726,7 +1726,7 @@ async fn a_session_opens_a_chapter_and_a_restart_within_it_opens_no_second_one()
 
     let opened = markers(&room, "ada");
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0]["backendId"], "pi");
+    assert_eq!(opened[0]["backendId"], "toad");
     assert_eq!(
         opened[0].get("endedAt"),
         None,
@@ -1986,7 +1986,7 @@ async fn the_idle_sweep_closes_a_stale_chapter_and_leaves_a_fresh_one() {
         &log,
         "ada",
         &[
-            json!({"kind": "chapter", "id": "c-ada", "ts": stale, "backendId": "pi"}),
+            json!({"kind": "chapter", "id": "c-ada", "ts": stale, "backendId": "toad"}),
             spoken("user", "u1", stale + 1_000, "did the crane jam?"),
             spoken("agent", "a1", stale + 2_000, "It jammed."),
         ],
@@ -1995,7 +1995,7 @@ async fn the_idle_sweep_closes_a_stale_chapter_and_leaves_a_fresh_one() {
         &log,
         "bob",
         &[
-            json!({"kind": "chapter", "id": "c-bob", "ts": now_ms() - 60_000, "backendId": "pi"}),
+            json!({"kind": "chapter", "id": "c-bob", "ts": now_ms() - 60_000, "backendId": "toad"}),
             spoken("user", "u2", now_ms() - 30_000, "morning"),
         ],
     );
@@ -2288,14 +2288,14 @@ async fn resume_reopens_the_previous_chapter_and_nudges_with_what_was_said_since
         "ada",
         &[
             json!({
-                "kind": "chapter", "id": "c1", "ts": t - 10_000, "backendId": "pi",
+                "kind": "chapter", "id": "c1", "ts": t - 10_000, "backendId": "toad",
                 "sessionId": "s-old", "endedAt": t - 5_000, "title": "Crane jam",
                 "note": "Goal: Get the crane moving", "status": "in-progress",
                 "closedBy": "idle",
             }),
             spoken("user", "u1", t - 9_000, "did the crane jam?"),
             spoken("agent", "a1", t - 8_000, "It jammed."),
-            json!({"kind": "chapter", "id": "c2", "ts": t - 1_000, "backendId": "pi"}),
+            json!({"kind": "chapter", "id": "c2", "ts": t - 1_000, "backendId": "toad"}),
             spoken("user", "u2", t - 500, "and now?"),
         ],
     );

@@ -725,7 +725,7 @@ fn core_door(name: &str) -> (PathBuf, Log, u16, Arc<Room>) {
             "id": id,
             "name": name,
             "goal": format!("Role of {name}"),
-            "backendId": "pi",
+            "backendId": "toad",
             "cwd": root.to_string_lossy(),
             "mcpPolicy": { "mode": "none", "serverIds": [] },
             "backgroundWork": false,
@@ -1094,7 +1094,7 @@ async fn a_new_teammate_takes_the_rooms_defaults() {
     let id = created["id"].as_str().unwrap();
     assert_eq!(created["name"], "Ada");
     assert_eq!(created["goal"], "");
-    assert_eq!(created["backendId"], "pi");
+    assert_eq!(created["backendId"], "toad");
     assert_eq!(
         created["cwd"],
         json!(paths::default_workspace(&root, id).to_string_lossy())

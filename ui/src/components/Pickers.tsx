@@ -5,7 +5,7 @@ import { Picker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
-const TOAD_AGENT = "pi";
+const TOAD_AGENT = "toad";
 
 /**
  * The open teammate's model and effort, on the window's top strip. They

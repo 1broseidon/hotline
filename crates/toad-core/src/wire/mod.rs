@@ -305,18 +305,26 @@ pub trait RoomHandle: Send + Sync + 'static {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Seat {
     Desk,
+    Phone,
 }
 
 impl Seat {
-    pub fn permits(&self, _command: &Command) -> bool {
+    pub fn permits(&self, command: &Command) -> bool {
         match self {
             Seat::Desk => true,
+            Seat::Phone => matches!(
+                command,
+                Command::MobilePrompt { .. }
+                    | Command::MobileAttachment { .. }
+                    | Command::SessionCancel { .. }
+            ),
         }
     }
 
-    pub fn permits_sub(&self, _target: &Target) -> bool {
+    pub fn permits_sub(&self, target: &Target) -> bool {
         match self {
             Seat::Desk => true,
+            Seat::Phone => matches!(target, Target::Tape(_) | Target::View(ViewName::Roster)),
         }
     }
 }
@@ -482,6 +490,64 @@ pub(crate) fn same_secret(presented: &str, expected: &str) -> bool {
 }
 
 /// One admitted socket, until either side closes it.
+#[derive(Clone)]
+pub(super) struct Outbox {
+    sender: Outgoing,
+    cancel: tokio_util::sync::CancellationToken,
+    max: usize,
+}
+#[derive(Clone)]
+enum Outgoing {
+    Desk(mpsc::UnboundedSender<String>),
+    Phone(mpsc::Sender<String>),
+}
+enum IncomingOutput {
+    Desk(mpsc::UnboundedReceiver<String>),
+    Phone(mpsc::Receiver<String>),
+}
+impl IncomingOutput {
+    async fn recv(&mut self) -> Option<String> {
+        match self {
+            Self::Desk(rx) => rx.recv().await,
+            Self::Phone(rx) => rx.recv().await,
+        }
+    }
+}
+impl Outbox {
+    fn send(&self, text: String) -> Result<(), ()> {
+        let oversized = text.len() > self.max;
+        let failed = oversized
+            || match &self.sender {
+                Outgoing::Desk(sender) => sender.send(text).is_err(),
+                Outgoing::Phone(sender) => sender.try_send(text).is_err(),
+            };
+        if failed {
+            self.cancel.cancel();
+            return Err(());
+        }
+        Ok(())
+    }
+}
+
+pub(crate) async fn seated_phone<S>(
+    mut socket: WebSocketStream<S>,
+    log: Log,
+    room: Arc<dyn RoomHandle>,
+    phone: crate::remote::Phone,
+    desktop_id: &str,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    socket
+        .send(Message::text(
+            json!({"type":"hello", "protocolVersion":1, "desktopId":desktop_id, "mode":"team"})
+                .to_string(),
+        ))
+        .await?;
+    seated_inner(socket, Seat::Phone, log, room, Some(phone)).await
+}
+
 async fn seated<S>(
     socket: WebSocketStream<S>,
     seat: Seat,
@@ -491,23 +557,64 @@ async fn seated<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    seated_inner(socket, seat, log, room, None).await
+}
+
+async fn seated_inner<S>(
+    socket: WebSocketStream<S>,
+    seat: Seat,
+    log: Log,
+    room: Arc<dyn RoomHandle>,
+    phone: Option<crate::remote::Phone>,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let (mut sink, mut incoming) = socket.split();
-    let (sender, mut outbox) = mpsc::unbounded_channel::<String>();
+    let cancel = phone.as_ref().map(|p| p.cancel.clone()).unwrap_or_default();
+    let (sender, mut outbox) = if seat == Seat::Phone {
+        let (tx, rx) = mpsc::channel::<String>(64);
+        (Outgoing::Phone(tx), IncomingOutput::Phone(rx))
+    } else {
+        let (tx, rx) = mpsc::unbounded_channel::<String>();
+        (Outgoing::Desk(tx), IncomingOutput::Desk(rx))
+    };
+    let sender = Outbox {
+        sender,
+        cancel: cancel.clone(),
+        max: if seat == Seat::Phone {
+            1_048_576
+        } else {
+            usize::MAX
+        },
+    };
+    let writer_cancel = cancel.clone();
     let writer = tokio::spawn(async move {
         while let Some(text) = outbox.recv().await {
             if sink.send(Message::text(text)).await.is_err() {
                 break;
             }
         }
+        writer_cancel.cancel();
     });
 
     let mut subscriptions: HashMap<i64, JoinHandle<()>> = HashMap::new();
     let result = loop {
-        match incoming.next().await {
+        let incoming = tokio::select! { biased; _ = cancel.cancelled() => break Ok(()), frame = incoming.next() => frame };
+        match incoming {
             None | Some(Ok(Message::Close(_))) => break Ok(()),
             Some(Err(error)) => break Err(error),
             Some(Ok(Message::Text(text))) => {
-                answer(&text, seat, &log, &room, &sender, &mut subscriptions).await;
+                answer(
+                    &text,
+                    seat,
+                    &log,
+                    &room,
+                    &sender,
+                    &mut subscriptions,
+                    phone.as_ref(),
+                )
+                .await;
             }
             Some(Ok(_)) => {}
         }
@@ -527,8 +634,9 @@ async fn answer(
     seat: Seat,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
-    sender: &mpsc::UnboundedSender<String>,
+    sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
+    phone: Option<&crate::remote::Phone>,
 ) {
     let Ok(frame) = serde_json::from_str::<Value>(text) else {
         return;
@@ -551,7 +659,25 @@ async fn answer(
                 // and that null is a value, not a void — collapsing it would
                 // make a missing ledger look like delete or stop.
                 let keep_null = matches!(command, Command::TeammateTools { .. });
-                let result = commands::run(command, log, room).await;
+                let result = match (&command, phone) {
+                    (
+                        Command::MobilePrompt {
+                            operation_id,
+                            persona_id,
+                            text,
+                            attachment_ids,
+                        },
+                        Some(phone),
+                    ) => {
+                        phone
+                            .prompt(operation_id, persona_id, text, attachment_ids)
+                            .await
+                    }
+                    (Command::MobileAttachment { upload }, Some(phone)) => {
+                        phone.upload(upload).await
+                    }
+                    _ => commands::run(command, log, room).await,
+                };
                 reply_to(sender, id, result, keep_null);
             }
             Err(error) => reply(sender, id, Err(error)),
@@ -602,16 +728,11 @@ fn read_command(frame: &Value) -> Result<Command, String> {
         .map_err(|error| format!("This room cannot read that command: {error}."))
 }
 
-fn reply(sender: &mpsc::UnboundedSender<String>, id: i64, result: Result<Value, String>) {
+fn reply(sender: &Outbox, id: i64, result: Result<Value, String>) {
     reply_to(sender, id, result, false);
 }
 
-fn reply_to(
-    sender: &mpsc::UnboundedSender<String>,
-    id: i64,
-    result: Result<Value, String>,
-    keep_null: bool,
-) {
+fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: bool) {
     let frame = match result {
         Ok(Value::Null) if !keep_null => json!({ "id": id, "ok": true }),
         Ok(result) => json!({ "id": id, "ok": true, "result": result }),
@@ -632,7 +753,7 @@ fn subscribe(
     seat: Seat,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
-    sender: &mpsc::UnboundedSender<String>,
+    sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
     id: i64,
 ) -> Result<(), String> {
@@ -646,6 +767,9 @@ fn subscribe(
     // would otherwise be "already open" for a subscription that will never
     // deliver.
     subscriptions.retain(|_, handle| !handle.is_finished());
+    if seat == Seat::Phone && subscriptions.len() >= 8 {
+        return Err("A phone can open at most eight subscriptions.".into());
+    }
     if subscriptions.contains_key(&id) {
         return Err(format!("Subscription {id} is already open."));
     }
@@ -677,7 +801,15 @@ fn subscribe(
         StreamId::Tape(_) => Some(room.subscribe_deltas()),
         _ => None,
     };
-    let forward = stream_events(id, stream, log.clone(), events, deltas, sender.clone());
+    let forward = stream_events(
+        id,
+        stream,
+        log.clone(),
+        events,
+        deltas,
+        sender.clone(),
+        seat,
+    );
     subscriptions.insert(id, tokio::spawn(forward));
     Ok(())
 }
@@ -696,13 +828,56 @@ fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
     }
 }
 
+// The phone shows a bounded recent window; full history remains on desktop.
+fn phone_event(mut event: Value) -> Value {
+    let mut truncated = false;
+    if let Some(text) = event.get("text").and_then(Value::as_str)
+        && text.len() > 8192
+    {
+        let short: String = text.chars().take(2000).collect();
+        event["text"] = json!(format!("{short}\n[Continue reading on desktop]"));
+        truncated = true;
+    }
+    if event.get("dataUrl").is_some() {
+        event.as_object_mut().unwrap().remove("dataUrl");
+        truncated = true;
+    }
+    if event.get("output").is_some() {
+        event.as_object_mut().unwrap().remove("output");
+        truncated = true;
+    }
+    if truncated {
+        event["mobileTruncated"] = json!(true);
+    }
+    event
+}
+fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
+    let events = public_snapshot(log, stream);
+    if seat == Seat::Desk {
+        return events;
+    }
+    let mut used = 0;
+    let mut recent = Vec::new();
+    for event in events.into_iter().rev().take(200) {
+        let event = phone_event(event);
+        used += event.to_string().len();
+        if used > 524_288 {
+            break;
+        }
+        recent.push(event);
+    }
+    recent.reverse();
+    recent
+}
+
 async fn stream_events(
     id: i64,
     stream: StreamId,
     log: Log,
     mut events: broadcast::Receiver<Value>,
     mut deltas: Option<broadcast::Receiver<StreamDelta>>,
-    sender: mpsc::UnboundedSender<String>,
+    sender: Outbox,
+    seat: Seat,
 ) {
     let persona_id = match &stream {
         StreamId::Tape(persona_id) => persona_id.clone(),
@@ -710,7 +885,7 @@ async fn stream_events(
     };
     if !send(
         &sender,
-        json!({ "sub": id, "snapshot": public_snapshot(&log, &stream) }),
+        json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat) }),
     ) {
         return;
     }
@@ -726,7 +901,7 @@ async fn stream_events(
             event = events.recv() => match event {
                 Ok(event) => {
                     let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { event };
-                    if !send(&sender, json!({ "sub": id, "event": event })) {
+                    if !send(&sender, json!({ "sub": id, "event": if seat == Seat::Phone { phone_event(event) } else { event } })) {
                         return;
                     }
                 }
@@ -734,7 +909,7 @@ async fn stream_events(
                 // everything instead: a second snapshot, which a client that
                 // folds by id absorbs the same way it absorbed the first.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    if !send(&sender, json!({ "sub": id, "snapshot": public_snapshot(&log, &stream) })) {
+                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat) })) {
                         return;
                     }
                 }
@@ -763,7 +938,7 @@ fn delta_persona(delta: &StreamDelta) -> &str {
 }
 
 /// One frame onto the socket's queue. False means the socket is gone.
-fn send(sender: &mpsc::UnboundedSender<String>, frame: Value) -> bool {
+fn send(sender: &Outbox, frame: Value) -> bool {
     sender.send(frame.to_string()).is_ok()
 }
 

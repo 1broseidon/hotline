@@ -1026,7 +1026,7 @@ mod receipts {
         TranscriptEvent::Chapter {
             id: "ch".to_string(),
             ts: 7,
-            backend_id: "pi".to_string(),
+            backend_id: "toad".to_string(),
             session_id: None,
             ended_at: None,
             title: None,

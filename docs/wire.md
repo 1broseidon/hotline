@@ -130,7 +130,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.remove` | `{personaId}` | none |
 
 `backends.list` is every harness this machine can start, and the ones it
-knows of but cannot, with the reason. Toad Agent (`id` `"pi"`) is always
+knows of but cannot, with the reason. Toad Agent (`id` `"toad"`) is always
 first. `unavailable` is absent when the row can be started here and a
 sentence naming what is missing when it cannot.
 
@@ -158,7 +158,7 @@ decline, which is the previous Toad's word for that afterlife.
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
 modelId?, effortId?, computer?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
-`defaultBackendId` or `"pi"`, a workspace under the data directory,
+`defaultBackendId` or `"toad"`, a workspace under the data directory,
 `mcpPolicy` `{mode: "none", serverIds: []}`, and no `reach` unless the
 draft asked for `"machine"`. Background work defaults off, and
 `allowedSenders` defaults to an empty list. The whole teammate is written as one room

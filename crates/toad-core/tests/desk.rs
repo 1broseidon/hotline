@@ -303,7 +303,7 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
         .await;
     assert_eq!(created["ok"], true, "{created}");
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
-    assert_eq!(created["result"]["backendId"], "pi");
+    assert_eq!(created["result"]["backendId"], "toad");
 
     let row = client
         .next_where(Duration::from_secs(5), |frame| {
@@ -368,7 +368,7 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
             is_sub(frame, tape, "event") && frame["event"]["kind"] == "chapter"
         })
         .await;
-    assert_eq!(marker["event"]["backendId"], "pi");
+    assert_eq!(marker["event"]["backendId"], "toad");
     assert_eq!(marker["event"].get("endedAt"), None);
 
     let closed = client
@@ -470,7 +470,7 @@ async fn a_peer_thread_is_listed_streamed_and_marked_read_over_the_wire() {
     let root = scratch("peers");
     let teammate = |id: &str, name: &str| {
         json!({
-            "kind": "persona", "id": id, "name": name, "goal": "", "backendId": "pi",
+            "kind": "persona", "id": id, "name": name, "goal": "", "backendId": "toad",
             "cwd": root.to_string_lossy(), "mcpPolicy": { "mode": "all", "serverIds": [] },
             "sessionCheckpoints": [], "createdAt": 1, "updatedAt": 1,
         })

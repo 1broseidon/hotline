@@ -943,7 +943,7 @@ fn result_of(content: &[ToolResultContent]) -> (String, Vec<ToolImage>) {
 pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connections) {
     let mut ledger = ToolLedger::new(
         persona.id.clone(),
-        AgentKind::Pi,
+        AgentKind::Toad,
         persona.backend_id.clone(),
     );
     let reach = persona.reach.unwrap_or_default();
@@ -952,7 +952,7 @@ pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &
             ledger.all(
                 crate::contract::ToolState::Verified,
                 ToolSourceKind::Builtin,
-                "pi",
+                "toad",
                 tools::BUILTIN,
                 "Toad handed them to the agent",
             );
@@ -966,18 +966,18 @@ pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &
             ledger.all(
                 crate::contract::ToolState::Verified,
                 ToolSourceKind::Builtin,
-                "pi",
+                "toad",
                 &without_shell,
                 "Toad handed them to the agent",
             );
-            ledger.absent(ToolSourceKind::Builtin, "pi", "shell", reason);
+            ledger.absent(ToolSourceKind::Builtin, "toad", "shell", reason);
         }
     }
     if tools::shell_available(reach).is_ok() {
         ledger.all(
             crate::contract::ToolState::Verified,
             ToolSourceKind::Builtin,
-            "pi",
+            "toad",
             crate::session::jobs::CONTROL_TOOLS,
             "Toad supervises shell jobs independently of model requests",
         );

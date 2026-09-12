@@ -694,7 +694,7 @@ mod tests {
             goal: "Keep the harbour running.".to_string(),
             face: None,
             team: None,
-            backend_id: "pi".to_string(),
+            backend_id: "toad".to_string(),
             cwd: std::env::temp_dir().to_string_lossy().to_string(),
             reach: None,
             model_id: None,
@@ -729,7 +729,7 @@ mod tests {
         let now = chrono::Utc::now().timestamp_millis();
         log.append(
             &tape,
-            &json!({ "kind": "chapter", "id": "c1", "ts": now, "backendId": "pi" }),
+            &json!({ "kind": "chapter", "id": "c1", "ts": now, "backendId": "toad" }),
         )
         .unwrap();
         for (id, kind, text) in [

@@ -586,7 +586,7 @@ mod tests {
 
     #[test]
     fn a_close_supersedes_the_marker_by_id_and_keeps_when_it_opened() {
-        let open = json!({"kind": "chapter", "id": "c1", "ts": 100, "backendId": "pi"});
+        let open = json!({"kind": "chapter", "id": "c1", "ts": 100, "backendId": "toad"});
         let note = Note {
             title: "Container stress test".to_string(),
             note: "Goal: see if it holds".to_string(),
@@ -610,7 +610,7 @@ mod tests {
                 "kind": "chapter",
                 "id": "c1",
                 "ts": 100,
-                "backendId": "pi",
+                "backendId": "toad",
                 "endedAt": 900,
                 "title": "Container stress test",
                 "note": "Goal: see if it holds",
@@ -625,7 +625,7 @@ mod tests {
     /// status — there was no work in it to be done or in progress.
     #[test]
     fn a_chapter_nobody_spoke_in_closes_untitled() {
-        let open = json!({"kind": "chapter", "id": "c1", "ts": 100, "backendId": "pi"});
+        let open = json!({"kind": "chapter", "id": "c1", "ts": 100, "backendId": "toad"});
         let closed = closed(&open, 900, Closing::Empty, ChapterClose::Idle).unwrap();
         assert_eq!(
             serde_json::to_value(&closed).unwrap(),
@@ -633,7 +633,7 @@ mod tests {
                 "kind": "chapter",
                 "id": "c1",
                 "ts": 100,
-                "backendId": "pi",
+                "backendId": "toad",
                 "endedAt": 900,
                 "closedBy": "idle",
             })
@@ -722,7 +722,7 @@ mod tests {
     fn the_wake_block_carries_the_note_the_gap_and_the_tone() {
         let events = [
             json!({
-                "kind": "chapter", "id": "c1", "ts": NOW - 100_000, "backendId": "pi",
+                "kind": "chapter", "id": "c1", "ts": NOW - 100_000, "backendId": "toad",
                 "endedAt": NOW - 7_200_000, "title": "Container stress test",
                 "note": "Goal: see if it holds", "status": "in-progress"
             }),
@@ -762,7 +762,7 @@ mod tests {
         assert_eq!(
             wake_block(
                 &[
-                    json!({"kind": "chapter", "id": "c1", "ts": NOW, "backendId": "pi"}),
+                    json!({"kind": "chapter", "id": "c1", "ts": NOW, "backendId": "toad"}),
                     user("u1", NOW, "hello"),
                 ],
                 NOW
@@ -784,16 +784,16 @@ mod tests {
     #[test]
     fn a_reopened_marker_carries_the_previous_chapters_note_and_id() {
         let previous = json!({
-            "kind": "chapter", "id": "c1", "ts": 100, "backendId": "pi",
+            "kind": "chapter", "id": "c1", "ts": 100, "backendId": "toad",
             "sessionId": "s-old", "endedAt": 200, "title": "Crane jam",
             "note": "Goal: Get the crane moving", "status": "in-progress",
             "tags": ["crane"], "closedBy": "idle",
         });
-        let opened = reopened("pi", "c3".to_string(), NOW, &previous).unwrap();
+        let opened = reopened("toad", "c3".to_string(), NOW, &previous).unwrap();
         assert_eq!(
             serde_json::to_value(&opened).unwrap(),
             json!({
-                "kind": "chapter", "id": "c3", "ts": NOW, "backendId": "pi",
+                "kind": "chapter", "id": "c3", "ts": NOW, "backendId": "toad",
                 "sessionId": "s-old", "title": "Crane jam",
                 "note": "Goal: Get the crane moving", "status": "in-progress",
                 "tags": ["crane"], "resumedFrom": "c1",
@@ -822,20 +822,20 @@ mod tests {
     fn a_resumed_chapter_wakes_on_the_note_it_carries() {
         let events = [
             json!({
-                "kind": "chapter", "id": "c1", "ts": NOW - 100_000, "backendId": "pi",
+                "kind": "chapter", "id": "c1", "ts": NOW - 100_000, "backendId": "toad",
                 "endedAt": NOW - 7_200_000, "title": "Crane jam",
                 "note": "Goal: see if it holds", "status": "in-progress",
                 "closedBy": "idle",
             }),
             user("u1", NOW - 7_300_000, "did it hold?"),
             json!({
-                "kind": "chapter", "id": "c2", "ts": NOW - 1_000, "backendId": "pi",
+                "kind": "chapter", "id": "c2", "ts": NOW - 1_000, "backendId": "toad",
                 "endedAt": NOW, "title": "Back to: Crane jam", "status": "done",
                 "closedBy": "resume",
             }),
             user("u2", NOW - 500, "and now?"),
             json!({
-                "kind": "chapter", "id": "c3", "ts": NOW, "backendId": "pi",
+                "kind": "chapter", "id": "c3", "ts": NOW, "backendId": "toad",
                 "title": "Crane jam", "note": "Goal: see if it holds",
                 "status": "in-progress", "resumedFrom": "c1",
             }),

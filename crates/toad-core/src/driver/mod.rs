@@ -26,11 +26,11 @@ use tokio::sync::{mpsc, watch};
 
 /// The backend id of Toad Agent, which runs in this process.
 ///
-/// It stays `pi` because it is written into every teammate's record and into
+/// It is `toad` because it is written into every teammate's record and into
 /// the checkpoints kept per backend: an identifier, not a label. Any other id
 /// names an ACP child, which is what makes this the one place the two kinds
 /// of agent are told apart.
-pub const PI_BACKEND_ID: &str = "pi";
+pub const TOAD_BACKEND_ID: &str = "toad";
 
 /// The authority shared by every handle a session hands to a driver.
 ///

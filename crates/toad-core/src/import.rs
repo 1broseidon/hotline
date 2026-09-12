@@ -73,8 +73,8 @@ const IMPORTED_PROVIDERS: [&str; 3] = ["anthropic", "openai", "openrouter"];
 /// An id already equal to its counterpart passes through; an id absent
 /// here is imported as written.
 ///
-/// `pi` → `pi`. Toad Agent. The previous Toad's `PI_BACKEND_ID` /
-/// `DEFAULT_BACKEND_ID`; this tree's `driver::PI_BACKEND_ID`. Not in the
+/// `pi` → `toad`. Toad Agent. The previous Toad's `PI_BACKEND_ID` /
+/// `DEFAULT_BACKEND_ID`; this tree's `driver::TOAD_BACKEND_ID`. Not in the
 /// ACP registry: there is no child to launch.
 ///
 /// `cursor` → `cursor`. Cursor. Old `NATIVE_BACKENDS.cursor` launches
@@ -95,7 +95,7 @@ const IMPORTED_PROVIDERS: [&str; 3] = ["anthropic", "openai", "openrouter"];
 /// the Codex ACP adapter (`npx @agentclientprotocol/codex-acp`, client
 /// `codex`). This tree's `ADAPTED` row uses the same id, name, and package.
 const BACKEND_COUNTERPARTS: &[(&str, &str)] = &[
-    ("pi", "pi"),
+    ("pi", "toad"),
     ("cursor", "cursor"),
     ("opencode", "opencode"),
     ("gemini", "gemini"),
@@ -303,10 +303,25 @@ fn import_settings(from: &Path, log: &Log, report: &mut Report) -> io::Result<()
 }
 
 /// The value this tree will store for one imported setting, or `None` when
-/// the whole key is left behind. `mcpServers` is filtered entry by entry:
+/// the whole key is left behind. `defaultBackendId` is translated like a
+/// teammate's backend. `mcpServers` is filtered entry by entry:
 /// a server this tree cannot read costs that server, named on `notes`, and
 /// not the rest of the list.
 fn setting_value_to_import(key: &str, value: Value, report: &mut Report) -> Option<Value> {
+    if key == "defaultBackendId" {
+        // The old tree's default names a backend by its old id, like a
+        // teammate's record does; both go through the same table.
+        return match value.as_str().and_then(counterpart) {
+            Some(mapped) => Some(Value::from(mapped)),
+            None => {
+                report.skipped.push(Skipped {
+                    item: "setting defaultBackendId".into(),
+                    reason: "not a backend this Toad has".into(),
+                });
+                None
+            }
+        };
+    }
     if key != "mcpServers" {
         return Some(value);
     }
@@ -1073,7 +1088,7 @@ mod tests {
 
         let settings = room::settings(&log);
         assert_eq!(settings["chapterIdleHours"], 4);
-        assert_eq!(settings["defaultBackendId"], "pi");
+        assert_eq!(settings["defaultBackendId"], "toad");
         assert!(settings.get("theme").is_none());
 
         let keys = vault.provider_auth();

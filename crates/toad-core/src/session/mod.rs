@@ -56,7 +56,8 @@ use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
 use crate::driver::rig::{InProcess, Said};
 use crate::driver::{
-    CapabilityEpoch, CapabilityLease, Driver, DriverInfo, MessageKind, PI_BACKEND_ID, Update, clip,
+    CapabilityEpoch, CapabilityLease, Driver, DriverInfo, MessageKind, TOAD_BACKEND_ID, Update,
+    clip,
 };
 use crate::log::{Log, StreamId, thread};
 use crate::mcp;
@@ -228,7 +229,7 @@ impl Agents for DeskAgents {
         // machine gets it even on a policy of none.
         grant.servers.extend(extra_mcp);
         let capability = tools.capability();
-        if persona.backend_id == PI_BACKEND_ID {
+        if persona.backend_id == TOAD_BACKEND_ID {
             let driver = InProcess::new(
                 self.keys.clone(),
                 preamble,
@@ -692,7 +693,7 @@ impl Room {
         capability.check()?;
         let persona = self.persona(persona_id)?;
         capability.check()?;
-        let in_process = persona.backend_id == PI_BACKEND_ID;
+        let in_process = persona.backend_id == TOAD_BACKEND_ID;
         // The directory exists from the moment the teammate can be spoken to.
         // A workspace under the data directory is made here; one the user
         // typed is made too, because a path they chose is a path they meant.
@@ -1723,7 +1724,7 @@ impl Room {
                         persona.name
                     );
                 }
-            } else if persona.backend_id != PI_BACKEND_ID
+            } else if persona.backend_id != TOAD_BACKEND_ID
                 && let Err(error) =
                     room::clear_checkpoint(&self.log, persona_id, &persona.backend_id)
             {
@@ -1738,7 +1739,7 @@ impl Room {
 
         match self.start(persona_id).await {
             Ok(info) => {
-                if persona.backend_id != PI_BACKEND_ID && !info.context_restored {
+                if persona.backend_id != TOAD_BACKEND_ID && !info.context_restored {
                     self.write(
                         persona_id,
                         &TranscriptEvent::Notice {

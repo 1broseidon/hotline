@@ -72,7 +72,7 @@ export function Teammate({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [harnessName, setHarnessName] = useState<string | null>(session.agentName ?? null);
 	const goalField = useRef<HTMLTextAreaElement>(null);
-	const toad = persona.backendId === "pi";
+	const toad = persona.backendId === "toad";
 
 	useEffect(() => {
 		setName(persona.name);
@@ -1044,7 +1044,7 @@ function ToolLedger({
 
 /** The supplier as a person knows it: Toad Agent, or the server's name from Settings → Tools. */
 function originName(origin: string, servers: McpServer[]): string {
-	if (origin === "pi") return "Toad Agent";
+	if (origin === "toad") return "Toad Agent";
 	return servers.find((server) => server.id === origin)?.name ?? origin;
 }
 

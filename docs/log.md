@@ -109,7 +109,7 @@ folds are `room::roster`, `room::settings` and `room::schedules` in
 the field a fold discriminates on and the one a reader of the raw file
 looks for first.
 
-A setting nobody has set is the default: `defaultBackendId` is `"pi"`
+A setting nobody has set is the default: `defaultBackendId` is `"toad"`
 (Toad Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
 list.
 

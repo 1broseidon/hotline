@@ -3,12 +3,12 @@
 /**
  * Which kind of agent produced a tool ledger.
  *
- * `pi` is Toad Agent's stored backend id, not a second name: that agent
+ * `toad` is Toad Agent's stored backend id, not a second name: that agent
  * builds its own tool array, so a verified row is a fact. An ACP backend is
  * handed descriptors and does not report what it loaded, so its honest
  * state is declared.
  */
-export type AgentKind = "pi" | "acp";
+export type AgentKind = "toad" | "acp";
 
 /**
  * Something handed to a teammate alongside a message.
@@ -773,7 +773,7 @@ export type TokenUsage = { inputTokens?: number, outputTokens?: number, totalTok
  */
 export type ToolLedgerRow = { name: string, source: ToolSourceKind, 
 /**
- * The particular supplier, named: a server id, or `pi`.
+ * The particular supplier, named: a server id, or `toad`.
  */
 origin: string, state: ToolState, 
 /**
@@ -798,7 +798,7 @@ oldText?: string | null, newText: string, };
  *
  * Coarse on purpose: this names the mechanism that supplies the tool,
  * because that is what decides how an absence is fixed. `origin` beside it
- * names the particular supplier — an MCP server's id, `pi`.
+ * names the particular supplier — an MCP server's id, `toad`.
  */
 export type ToolSourceKind = "builtin" | "mcp";
 

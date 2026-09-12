@@ -4,7 +4,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "../icons";
 
 /** Toad Agent's stored backend id. The picker puts this row first even if
  *  the caller hands the array in another order. */
-const TOAD_AGENT = "pi";
+const TOAD_AGENT = "toad";
 
 /**
  * The harnesses shown above the fold, beside Toad Agent: the ones with a

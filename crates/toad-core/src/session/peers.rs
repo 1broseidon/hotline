@@ -36,7 +36,7 @@ use crate::contract::{
     Reach, Receipt, ToolStatus, TranscriptEvent,
 };
 use crate::driver::rig::Said;
-use crate::driver::{CapabilityLease, Driver, PI_BACKEND_ID, Update, acp};
+use crate::driver::{CapabilityLease, Driver, TOAD_BACKEND_ID, Update, acp};
 use crate::log::{StreamId, thread};
 use crate::mcp::server::TeammateTools;
 use crate::paths::{thread_key, thread_participants};
@@ -690,7 +690,7 @@ impl Room {
         caller_capability.check()?;
         target_capability.check()?;
         let scope = self.peers.scope(&caller.id, &target.id);
-        let implicit = caller.backend_id == PI_BACKEND_ID
+        let implicit = caller.backend_id == TOAD_BACKEND_ID
             && caller.reach.unwrap_or_default() == Reach::Machine;
         if implicit
             || target
@@ -1021,7 +1021,7 @@ impl Room {
         let mut view = target.clone();
         view.session_checkpoints = Vec::new();
         view.last_session_id = None;
-        let in_process = view.backend_id == PI_BACKEND_ID;
+        let in_process = view.backend_id == TOAD_BACKEND_ID;
         let peer_caller_capability = caller_capability.scoped();
         let target_capability = target_capability.with_dependency(&peer_caller_capability);
         peer_caller_capability.check()?;

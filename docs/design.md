@@ -120,6 +120,49 @@ everything; a phone seat may command its own device's things and subscribe
 to what it is shown; later seats (peer, client) are the same mechanism with
 smaller sets. There is no per-method routing table; a seat is a set.
 
+Settings → Remote owns an opt-in TLS listener, separate from the desk's loopback
+door. Its default is all host IPs, with a live option to restrict it to one local
+IPv4 or IPv6 address. Loopback, wildcard address literals, and scoped link-local
+addresses are not choices; old loopback settings migrate to all host IPs. The
+all-address listener accepts IPv4 and IPv6, falling back to IPv4 on hosts without
+IPv6 support. The active route is preferred for the pairing QR.
+
+A two-minute QR invitation carries the certificate fingerprint; its claim grants
+one phone a bearer credential. The TLS key lives in the OS credential store, and
+only credential hashes and device metadata live on disk. A new certificate covers
+all advertised host IPs. The certificate, port, and grants are reused when the
+selected addresses are already covered, including toggling Remote off and on.
+Enabling an address absent from that certificate replaces it and requires pairing
+again. A phone using an address excluded by a new restriction also needs a fresh
+pairing QR. Disable and revoke close the affected sockets immediately.
+
+Manual pairing is the same two-minute session for a phone that cannot scan: the
+panel shows the address, port, and a six-digit code next to the QR. Six digits
+cannot carry a certificate fingerprint, so the code is never a bearer secret; it
+is the password of a CPace-shaped PAKE over ristretto255 (`remote/pake.rs`
+spells every byte). `POST /pair/manual/start` carries the phone's share and
+returns the desktop's; `POST /pair/manual/finish` carries a confirmation whose
+key binds the certificate the phone actually connected to, so a relay with its
+own certificate fails on both sides. A wrong guess is one online guess, the
+fifth kills the code, and the first phone through either path closes the other.
+A fresh install listens on 8788 so a typed address can be a bare host; a busy
+port falls back to an ephemeral one that is saved and reused.
+
+The first phone seat reads the roster and a bounded recent tape window, sends
+text and uploaded attachments through `mobile.prompt`, and cancels a response.
+It cannot administer the room or answer approvals. A mobile prompt starts the teammate's session
+when needed and uses the same core prompt path as the window. Its device-scoped
+operation UUID has a durable receipt before execution: an identical retry returns
+the recorded result, and an interrupted acceptance returns unknown rather than
+executing twice. The companion is a separate Expo repository, `../toad-mobile`.
+It reconnects by subscribing to fresh snapshots; commands never replay
+automatically. Attachments upload in repeatable 32 KiB chunks over the same socket,
+with at most four 10 MiB files per prompt. Only completed device-scoped upload IDs
+resolve to paths in the core; a phone never supplies a desktop path. Declared sizes
+reserve space within a 256 MiB / 1,024-file limit per device, including abandoned
+uploads. Files remain because tape attachments refer to their paths; retention
+cleanup, push, offline history, and mobile approval actions are later work.
+
 Types are defined once in Rust with serde and the TypeScript is generated
 (ts-rs), so the window and the core cannot drift. `toad_core::contract`
 already holds the room's types from the migration and moves over as is.

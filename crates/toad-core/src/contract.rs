@@ -1492,6 +1492,19 @@ pub struct BackendChoice {
 // The wire
 // ---------------------------------------------------------------------------
 
+/// A bounded, repeatable upload chunk. The phone never supplies a desktop path.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub struct MobileAttachmentChunk {
+    pub id: String,
+    pub name: String,
+    pub mime_type: Option<String>,
+    pub size: u32,
+    pub offset: u32,
+    pub data: String,
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -1507,6 +1520,17 @@ pub struct BackendChoice {
 )]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
+    /// A paired phone supplies a stable operation id; retries never run twice.
+    #[serde(rename = "mobile.prompt")]
+    MobilePrompt {
+        operation_id: String,
+        persona_id: String,
+        text: String,
+        #[serde(default)]
+        attachment_ids: Vec<String>,
+    },
+    #[serde(rename = "mobile.attachment")]
+    MobileAttachment { upload: MobileAttachmentChunk },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is

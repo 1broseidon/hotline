@@ -16,17 +16,19 @@ import { PathField } from "./PathField";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 import { UpdatesSection } from "./UpdatesSection";
+import { RemoteSection } from "./RemoteSection";
 
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "providers" | "tools" | "computer" | "updates" | "import";
+export type SettingsSection = "general" | "providers" | "tools" | "computer" | "remote" | "updates" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
 	{ id: "providers", title: "Providers" },
 	{ id: "tools", title: "Tools" },
 	{ id: "computer", title: "Computer" },
+	{ id: "remote", title: "Remote" },
 	{ id: "updates", title: "Updates" },
 	{ id: "import", title: "Import" },
 ];
@@ -124,6 +126,7 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 						/>
 					)}
 					{section === "updates" && <UpdatesSection />}
+					{section === "remote" && <RemoteSection />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>

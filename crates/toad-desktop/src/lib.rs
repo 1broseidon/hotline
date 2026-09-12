@@ -19,6 +19,7 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod remote;
 mod updater;
 
 #[cfg(target_os = "macos")]
@@ -243,6 +244,9 @@ pub fn run() {
         tauri::async_runtime::block_on(async { Desk::open(&root) }).expect("the desk did not open"),
     );
     let token = random_token();
+    let remote = toad_core::remote::Remote::open(&root, desk.log.clone(), desk.clone())
+        .expect("remote access settings did not open");
+    tauri::async_runtime::block_on(remote.restore());
     let door = Door::bind(desk.log.clone(), token.clone(), desk.clone())
         .expect("the room's door did not bind");
     let port = door.port();
@@ -264,6 +268,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(desk)
+        .manage(remote)
         .manage(updater::Updates::new(
             &root,
             env!("CARGO_PKG_VERSION").to_string(),
@@ -286,14 +291,22 @@ pub fn run() {
         updater::get_update_status,
         updater::check_update,
         updater::install_update,
-        updater::cancel_update
+        updater::cancel_update,
+        remote::remote_status,
+        remote::remote_configure,
+        remote::remote_pairing,
+        remote::remote_revoke
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         updater::get_update_status,
         updater::check_update,
         updater::install_update,
-        updater::cancel_update
+        updater::cancel_update,
+        remote::remote_status,
+        remote::remote_configure,
+        remote::remote_pairing,
+        remote::remote_revoke
     ]);
     builder
         .setup(move |app| {
@@ -308,7 +321,11 @@ pub fn run() {
             // while the window is hidden in the tray must not raise it.
             let shown = std::sync::Once::new();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("Toad")
+                .title(if tauri::is_dev() {
+                    "Toad · Development"
+                } else {
+                    "Toad"
+                })
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(520.0, 420.0)
                 .center()

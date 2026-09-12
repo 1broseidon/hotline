@@ -24,6 +24,9 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::MobilePrompt { .. } | Command::MobileAttachment { .. } => {
+            Err("This command requires a paired phone.".into())
+        }
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => {
             let gate = room.policy_update_lock();

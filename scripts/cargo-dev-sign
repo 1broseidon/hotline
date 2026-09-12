@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""A cargo runner for `cargo tauri dev` on macOS: build, sign, then launch.
+
+Why: the login keychain recognises an app by its code-signing designated
+requirement. An unsigned debug binary's requirement is its content hash, which
+changes with every rebuild, so "Always Allow" on the keychain prompt never
+sticks and every dev reload asks again. Signed with a developer certificate
+and a fixed identifier, the requirement survives rebuilds and one "Always
+Allow" per stored credential is the last one.
+
+Tauri's dev loop calls the runner as `cargo run <flags> -- <app args>`, and
+cargo would launch the binary before anyone could sign it. So `run` becomes
+`cargo build <flags>`, a codesign of the artifact, then an exec of that
+artifact with the app args, which keeps the PID Tauri watches. Everything else
+passes through to cargo unchanged.
+
+Set TOAD_DEV_SIGN_IDENTITY to choose the certificate; otherwise the first
+"Apple Development" identity in the keychain is used, and with none at all
+the binary stays unsigned as before.
+"""
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+
+IDENTIFIER = "team.toad.desktop.dev"
+
+
+def identity():
+    chosen = os.environ.get("TOAD_DEV_SIGN_IDENTITY")
+    if chosen:
+        return chosen
+    listing = subprocess.run(
+        ["security", "find-identity", "-v", "-p", "codesigning"],
+        capture_output=True, text=True,
+    ).stdout
+    found = re.search(r'"(Apple Development: [^"]*)"', listing)
+    return found.group(1) if found else None
+
+
+def build(flags):
+    """Runs cargo build and returns the executable it produced, if any."""
+    process = subprocess.run(
+        ["cargo", "build", *flags, "--message-format=json-render-diagnostics"],
+        stdout=subprocess.PIPE, text=True,
+    )
+    if process.returncode != 0:
+        sys.exit(process.returncode)
+    executable = None
+    for line in process.stdout.splitlines():
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if message.get("reason") == "compiler-artifact" and message.get("executable"):
+            executable = message["executable"]
+    return executable
+
+
+def sign(executable):
+    who = identity()
+    if not who:
+        print("cargo-dev-sign: no Apple Development identity; the binary stays unsigned", file=sys.stderr)
+        return
+    subprocess.run(
+        ["codesign", "--force", "--sign", who, "--identifier", IDENTIFIER, executable],
+        check=True, stderr=subprocess.DEVNULL,
+    )
+
+
+def main(argv):
+    if platform.system() != "Darwin" or not argv or argv[0] not in ("run", "build"):
+        os.execvp("cargo", ["cargo", *argv])
+    command, rest = argv[0], argv[1:]
+    flags, app_args = rest, []
+    if "--" in rest:
+        split = rest.index("--")
+        flags, app_args = rest[:split], rest[split + 1:]
+    executable = build(flags)
+    if executable:
+        sign(executable)
+    if command == "run":
+        if not executable:
+            sys.exit("cargo-dev-sign: cargo build produced no executable to run")
+        os.execv(executable, [executable, *app_args])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

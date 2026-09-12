@@ -7,6 +7,33 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-12
+
+### Added
+- Remote access for the mobile app: Settings → Remote runs an opt-in TLS
+  listener, separate from the desk's loopback door, and a two-minute QR
+  invitation pairs a phone. The phone reads the roster and a bounded recent
+  window of a conversation, sends messages and attachments, replies to a
+  message with a quote, and cancels a response.
+- Manual pairing for a phone that cannot scan: the desktop's address and a
+  six-digit code, used as the password of a PAKE whose confirmation is bound
+  to the certificate the phone actually connected to. A fresh install
+  listens on port 8788.
+- A phone sees a teammate's computer: frames arrive as small JPEGs, and the
+  phone can ask the computer's status and stop it. Removing a computer stays
+  a desktop action.
+- Attached images reach the model as pixels beside the file path, on every
+  provider; large photos are shrunk to a 2000-pixel JPEG first.
+
+### Changed
+- The built-in Toad Agent's stored backend id is `toad`; it was `pi`.
+  Existing data directories are rewritten once when the desk opens, and
+  imports from the previous Toad still translate.
+
+### Fixed
+- A reply item whose id the provider refuses on replay no longer breaks
+  every later request of a session.
+
 ## [0.7.0] - 2026-09-10
 
 ### Added

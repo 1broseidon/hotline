@@ -666,11 +666,18 @@ async fn answer(
                             persona_id,
                             text,
                             attachment_ids,
+                            reply_to,
                         },
                         Some(phone),
                     ) => {
                         phone
-                            .prompt(operation_id, persona_id, text, attachment_ids)
+                            .prompt(
+                                operation_id,
+                                persona_id,
+                                text,
+                                attachment_ids,
+                                reply_to.as_deref(),
+                            )
                             .await
                     }
                     (Command::MobileAttachment { upload }, Some(phone)) => {

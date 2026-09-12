@@ -211,9 +211,17 @@ impl Phone {
         persona_id: &str,
         text: &str,
         attachment_ids: &[String],
+        reply_to: Option<&str>,
     ) -> Result<Value, String> {
         self.remote
-            .prompt(self, operation_id, persona_id, text, attachment_ids)
+            .prompt(
+                self,
+                operation_id,
+                persona_id,
+                text,
+                attachment_ids,
+                reply_to,
+            )
             .await
     }
 
@@ -681,11 +689,13 @@ impl Remote {
         persona: &str,
         text: &str,
         attachment_ids: &[String],
+        reply_to: Option<&str>,
     ) -> Result<Value, String> {
         if Uuid::parse_str(operation).is_err()
             || (text.trim().is_empty() && attachment_ids.is_empty())
             || text.len() > 32_768
             || attachment_ids.len() > 4
+            || reply_to.is_some_and(|id| id.is_empty() || id.len() > 128)
         {
             return Err("Supply a message and a valid operation id (maximum 32 KiB).".into());
         }
@@ -698,12 +708,13 @@ impl Remote {
             "{}.json",
             Uuid::parse_str(operation).map_err(message)?
         ));
-        // Keep text-only receipts compatible with phones already paired.
+        // Keep text-only receipts compatible with phones already paired: a
+        // field joins the digest only when the message carries it.
         let digest = hash(
-            &if attachment_ids.is_empty() {
-                json!([persona, text])
-            } else {
-                json!([persona, text, attachment_ids])
+            &match (attachment_ids.is_empty(), reply_to) {
+                (true, None) => json!([persona, text]),
+                (false, None) => json!([persona, text, attachment_ids]),
+                (_, Some(answered)) => json!([persona, text, attachment_ids, answered]),
             }
             .to_string(),
         );
@@ -737,7 +748,12 @@ impl Remote {
                 return Err("This phone has been disconnected.".into());
             }
             self.room
-                .prompt(persona, text, None, Some(attachments))
+                .prompt(
+                    persona,
+                    text,
+                    reply_to.map(str::to_owned),
+                    Some(attachments),
+                )
                 .await
         }
         .await;

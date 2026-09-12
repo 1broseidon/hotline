@@ -297,7 +297,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
         }
     }
     let operation = Uuid::new_v4();
-    send(&mut phone, json!({"id":4,"cmd":"mobile.prompt","params":{"operationId":operation,"personaId":persona,"text":"","attachmentIds":[attachment]}})).await;
+    send(&mut phone, json!({"id":4,"cmd":"mobile.prompt","params":{"operationId":operation,"personaId":persona,"text":"","attachmentIds":[attachment],"replyTo":"answered-1"}})).await;
     let mut accepted = false;
     let mut answered = false;
     while !accepted || !answered {
@@ -313,7 +313,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
             answered = true;
         }
     }
-    send(&mut phone, json!({"id":5,"cmd":"mobile.prompt","params":{"operationId":operation,"personaId":persona,"text":"","attachmentIds":[attachment]}})).await;
+    send(&mut phone, json!({"id":5,"cmd":"mobile.prompt","params":{"operationId":operation,"personaId":persona,"text":"","attachmentIds":[attachment],"replyTo":"answered-1"}})).await;
     loop {
         let frame = read(&mut phone).await;
         if frame["id"] == 5 {
@@ -330,6 +330,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0]["text"], "");
     assert_eq!(users[0]["attachments"][0]["name"], "brief.txt");
+    assert_eq!(users[0]["replyTo"], "answered-1");
     let path = users[0]["attachments"][0]["path"].as_str().unwrap();
     assert_eq!(fs::read(path).unwrap(), b"hello");
     // The request is JSON, where a Windows path's backslashes are escaped.
@@ -371,14 +372,14 @@ async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_m
     atomic_write(&path, &serde_json::to_vec(&receipt).unwrap()).unwrap();
     assert_eq!(
         phone
-            .prompt(&operation, "persona", "hello", &[])
+            .prompt(&operation, "persona", "hello", &[], None)
             .await
             .unwrap()["state"],
         "unknown"
     );
     assert!(
         phone
-            .prompt(&operation, "persona", "changed", &[])
+            .prompt(&operation, "persona", "changed", &[], None)
             .await
             .is_err()
     );
@@ -389,7 +390,7 @@ async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_m
     atomic_write(&path, &serde_json::to_vec(&receipt).unwrap()).unwrap();
     assert_eq!(
         phone
-            .prompt(&operation, "persona", "hello", &[])
+            .prompt(&operation, "persona", "hello", &[], None)
             .await
             .unwrap()["state"],
         "accepted"

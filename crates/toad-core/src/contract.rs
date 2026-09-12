@@ -1521,6 +1521,8 @@ pub struct MobileAttachmentChunk {
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
     /// A paired phone supplies a stable operation id; retries never run twice.
+    /// `replyTo` is the id of the message this one answers, as on
+    /// `session.prompt`.
     #[serde(rename = "mobile.prompt")]
     MobilePrompt {
         operation_id: String,
@@ -1528,6 +1530,8 @@ pub enum Command {
         text: String,
         #[serde(default)]
         attachment_ids: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },

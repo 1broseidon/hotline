@@ -75,6 +75,10 @@ curve25519-dalek = "5"
 getrandom = "0.3"
 hmac = "0.12"
 hex = "0.4"
+# A phone photo is 5 to 10 MB and a 12-megapixel frame; every provider has
+# a ceiling below that, so an attached picture is decoded and shrunk before
+# it is inlined. Only the formats a phone or a screenshot produces.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

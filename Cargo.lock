@@ -9472,6 +9472,7 @@ dependencies = [
  "hyper-util",
  "if-addrs",
  "ignore",
+ "image",
  "keyring",
  "libc",
  "oauth2",

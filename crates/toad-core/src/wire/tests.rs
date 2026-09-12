@@ -1329,6 +1329,54 @@ fn the_desk_seat_may_do_everything_the_room_can_do() {
 }
 
 #[test]
+fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
+    let persona_id = "ada".to_string();
+    assert!(Seat::Phone.permits(&Command::ComputerStatus {
+        persona_id: persona_id.clone()
+    }));
+    assert!(Seat::Phone.permits(&Command::ComputerStop {
+        persona_id: persona_id.clone()
+    }));
+    assert!(!Seat::Phone.permits(&Command::ComputerRemove {
+        persona_id: persona_id.clone()
+    }));
+    assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
+    assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
+}
+
+/// A frame the phone can afford travels as a small JPEG; one it cannot
+/// decode is stripped as before, and text is untouched either way.
+#[test]
+fn a_computer_frame_reaches_the_phone_as_a_small_jpeg_or_not_at_all() {
+    use base64::{Engine, prelude::BASE64_STANDARD};
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_fn(1600, 900, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])
+    })
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let frame = json!({
+        "kind": "computer_frame", "id": "f1", "ts": 1,
+        "dataUrl": format!("data:image/png;base64,{}", BASE64_STANDARD.encode(png.into_inner())),
+    });
+    let small = phone_event(frame);
+    let data_url = small["dataUrl"].as_str().unwrap();
+    assert!(data_url.starts_with("data:image/jpeg;base64,"));
+    let jpeg = BASE64_STANDARD
+        .decode(&data_url["data:image/jpeg;base64,".len()..])
+        .unwrap();
+    assert!(jpeg.len() <= 96 * 1024);
+    let decoded = image::load_from_memory(&jpeg).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (720, 405));
+    assert!(small.get("mobileTruncated").is_none());
+
+    let junk = json!({"kind": "computer_frame", "id": "f2", "ts": 2, "dataUrl": "data:image/png;base64,AAAA"});
+    let stripped = phone_event(junk);
+    assert!(stripped.get("dataUrl").is_none());
+    assert_eq!(stripped["mobileTruncated"], true);
+}
+
+#[test]
 fn a_hung_up_client_and_an_interrupted_accept_are_waited_out() {
     assert_eq!(
         accept_again(&std::io::Error::from(std::io::ErrorKind::ConnectionAborted)),

@@ -312,11 +312,15 @@ impl Seat {
     pub fn permits(&self, command: &Command) -> bool {
         match self {
             Seat::Desk => true,
+            // A phone may look at a teammate's computer and stop it; removing
+            // one destroys its state and stays a desk decision.
             Seat::Phone => matches!(
                 command,
                 Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
                     | Command::SessionCancel { .. }
+                    | Command::ComputerStatus { .. }
+                    | Command::ComputerStop { .. }
             ),
         }
     }
@@ -683,6 +687,16 @@ async fn answer(
                     (Command::MobileAttachment { upload }, Some(phone)) => {
                         phone.upload(upload).await
                     }
+                    // The viewer is a loopback URL with the computer's bearer
+                    // in its fragment; it never leaves this machine.
+                    (Command::ComputerStatus { .. }, Some(_)) => {
+                        commands::run(command, log, room).await.map(|mut status| {
+                            if let Some(fields) = status.as_object_mut() {
+                                fields.remove("viewer");
+                            }
+                            status
+                        })
+                    }
                     _ => commands::run(command, log, room).await,
                 };
                 reply_to(sender, id, result, keep_null);
@@ -835,6 +849,41 @@ fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
     }
 }
 
+/// A computer frame the phone can afford: no wider than this, a JPEG at
+/// this quality, and only when that comes out under this many bytes.
+/// Otherwise the frame is stripped as before and the desktop keeps the
+/// full picture.
+const PHONE_FRAME_WIDTH: u32 = 720;
+const PHONE_FRAME_QUALITY: u8 = 60;
+const PHONE_FRAME_BYTES: usize = 96 * 1024;
+
+/// The phone-sized copy of a frame's data URL, when one fits the budget.
+fn phone_frame(data_url: &str) -> Option<String> {
+    use base64::{Engine, prelude::BASE64_STANDARD};
+    let (_, encoded) = data_url.split_once(";base64,")?;
+    let decoded = image::load_from_memory(&BASE64_STANDARD.decode(encoded).ok()?).ok()?;
+    let sized = if decoded.width() > PHONE_FRAME_WIDTH {
+        decoded.resize(
+            PHONE_FRAME_WIDTH,
+            u32::MAX,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        decoded
+    };
+    let mut out = std::io::Cursor::new(Vec::new());
+    sized
+        .to_rgb8()
+        .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+            &mut out,
+            PHONE_FRAME_QUALITY,
+        ))
+        .ok()?;
+    let jpeg = out.into_inner();
+    (jpeg.len() <= PHONE_FRAME_BYTES)
+        .then(|| format!("data:image/jpeg;base64,{}", BASE64_STANDARD.encode(jpeg)))
+}
+
 // The phone shows a bounded recent window; full history remains on desktop.
 fn phone_event(mut event: Value) -> Value {
     let mut truncated = false;
@@ -845,9 +894,14 @@ fn phone_event(mut event: Value) -> Value {
         event["text"] = json!(format!("{short}\n[Continue reading on desktop]"));
         truncated = true;
     }
-    if event.get("dataUrl").is_some() {
-        event.as_object_mut().unwrap().remove("dataUrl");
-        truncated = true;
+    if let Some(data_url) = event.get("dataUrl").and_then(Value::as_str) {
+        match phone_frame(data_url) {
+            Some(small) => event["dataUrl"] = json!(small),
+            None => {
+                event.as_object_mut().unwrap().remove("dataUrl");
+                truncated = true;
+            }
+        }
     }
     if event.get("output").is_some() {
         event.as_object_mut().unwrap().remove("output");

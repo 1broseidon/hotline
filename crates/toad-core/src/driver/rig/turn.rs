@@ -146,6 +146,9 @@ async fn run_inner(
     let mut open = None;
     let mut stopped = false;
     let mut job_results = Vec::new();
+    // Whether this activity has already run a tool: a reply that is only a
+    // reaction, or only a tool call, ends with a completion that says nothing.
+    let mut answered_calls = false;
 
     'attempt: for _ in 0..MAX_TURNS {
         for job in jobs.ready()? {
@@ -237,7 +240,7 @@ async fn run_inner(
         if interrupted || turn.steering.superseded(revision) {
             continue;
         }
-        if stream.response.is_none() || stream.choice.is_empty() {
+        if stream.response.is_none() || (stream.choice.is_empty() && !answered_calls) {
             return Err("The model stream ended without a complete response.".into());
         }
         if matches!(
@@ -263,10 +266,15 @@ async fn run_inner(
                 _ => None,
             })
             .collect();
-        history.push(Message::Assistant {
-            id: stream.identity().message_id.filter(|id| replayable_id(id)),
-            content: stream.choice.into_iter().map(replayable).collect(),
-        });
+        // An empty completion after a tool round is the model done; a message
+        // with nothing in it is not something a provider will take back.
+        if !stream.choice.is_empty() {
+            history.push(Message::Assistant {
+                id: stream.identity().message_id.filter(|id| replayable_id(id)),
+                content: stream.choice.into_iter().map(replayable).collect(),
+            });
+        }
+        answered_calls |= !calls.is_empty();
 
         for call in &calls {
             let call_id = uuid::Uuid::new_v4().to_string();
@@ -810,6 +818,66 @@ mod tests {
         );
         answer(new).await;
         task.await.unwrap().unwrap();
+    }
+
+    /// A reply that is only a reaction: the model calls the tool, hears the
+    /// result, and has nothing to add. That is a finished turn, not a stream
+    /// that died.
+    #[tokio::test]
+    async fn a_turn_that_ends_after_a_tool_with_nothing_to_say_is_complete() {
+        let (turn, request) = fixture();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, stream_one) = mpsc::channel(8);
+        let (second, stream_two) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(stream_one), Some(stream_two)])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        first
+            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+                "react-1",
+                "react".into(),
+                serde_json::json!({ "emoji": "👍" }),
+            ))))
+            .await
+            .unwrap();
+        first
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage::default(),
+            ))))
+            .await
+            .unwrap();
+        drop(first);
+        receive(&mut requests).await;
+        second
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage::default(),
+            ))))
+            .await
+            .unwrap();
+        drop(second);
+        task.await.unwrap().unwrap();
+        let mut called = false;
+        let mut ended = None;
+        while let Some(update) = receiver.recv().await {
+            called |= matches!(update, Update::ToolCall { .. });
+            assert!(
+                !matches!(update, Update::Notice { .. }),
+                "no failure notice"
+            );
+            if let Update::Turn { stop_reason, .. } = update {
+                ended = Some(stop_reason);
+            }
+        }
+        assert!(called, "the reaction was dispatched");
+        assert_eq!(ended.as_deref(), Some("end_turn"));
     }
 
     #[tokio::test]

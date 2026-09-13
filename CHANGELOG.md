@@ -12,7 +12,8 @@ repository is what builds and publishes a release.
 ### Fixed
 - A reply that is only a reaction no longer ends with "Turn failed: The
   model stream ended without a complete response." The model's empty
-  completion after a tool round is the turn finishing.
+  completion after a tool round is the turn finishing. When that round's
+  step failed and the agent said nothing, one quiet line says so.
 
 ## [0.9.0] - 2026-09-12
 

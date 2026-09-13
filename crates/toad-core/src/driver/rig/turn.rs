@@ -149,6 +149,9 @@ async fn run_inner(
     // Whether this activity has already run a tool: a reply that is only a
     // reaction, or only a tool call, ends with a completion that says nothing.
     let mut answered_calls = false;
+    // Whether the last round's tools failed. Silence after success is the
+    // model done; silence after failure is the model giving up unsaid.
+    let mut last_round_failed = false;
 
     'attempt: for _ in 0..MAX_TURNS {
         for job in jobs.ready()? {
@@ -243,6 +246,16 @@ async fn run_inner(
         if stream.response.is_none() || (stream.choice.is_empty() && !answered_calls) {
             return Err("The model stream ended without a complete response.".into());
         }
+        if stream.choice.is_empty() && last_round_failed {
+            send(
+                sender,
+                Update::Notice {
+                    level: NoticeLevel::Info,
+                    text: "Stopped after a failed step and said nothing.".into(),
+                },
+            )
+            .await;
+        }
         if matches!(
             stream
                 .response
@@ -275,6 +288,7 @@ async fn run_inner(
             });
         }
         answered_calls |= !calls.is_empty();
+        let mut round_failed = false;
 
         for call in &calls {
             let call_id = uuid::Uuid::new_v4().to_string();
@@ -349,6 +363,7 @@ async fn run_inner(
                     }
                 }
             };
+            round_failed |= !result.is_success();
             let (shown, images) = result_of(result.output().as_content());
             // The model gets its one launch receipt now. The transcript's
             // shell card stays running until the owned job produces a result.
@@ -373,6 +388,9 @@ async fn run_inner(
                     content: output.into_content(),
                 })],
             });
+        }
+        if !calls.is_empty() {
+            last_round_failed = round_failed;
         }
         // Job notifications are ordinary execution data, after every call in
         // the completed response has its one reply. They never reopen a call.
@@ -820,11 +838,40 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
-    /// A reply that is only a reaction: the model calls the tool, hears the
-    /// result, and has nothing to add. That is a finished turn, not a stream
-    /// that died.
-    #[tokio::test]
-    async fn a_turn_that_ends_after_a_tool_with_nothing_to_say_is_complete() {
+    /// A tool that does what it is asked, for turns whose shape is what is
+    /// under test rather than the tool.
+    struct Nod;
+
+    impl rig::tool::Tool for Nod {
+        const NAME: &'static str = "react";
+        type Error = crate::tools::ToolError;
+        type Args = serde_json::Value;
+        type Output = String;
+
+        fn description(&self) -> String {
+            "nods".into()
+        }
+
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({ "type": "object" })
+        }
+
+        fn map_error(&self, error: Self::Error) -> rig::tool::ToolExecutionError {
+            error.into_execution_error()
+        }
+
+        async fn call(
+            &self,
+            _context: &mut ToolContext,
+            _args: Self::Args,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok("Reacted.".into())
+        }
+    }
+
+    /// One tool round, then a completion with nothing in it. `tools` decides
+    /// whether the round succeeded; the updates say how the turn read it.
+    async fn tool_then_silence(tools: ToolSet) -> Vec<Update> {
         let (turn, request) = fixture();
         let (seen, mut requests) = mpsc::unbounded_channel();
         let (first, stream_one) = mpsc::channel(8);
@@ -834,9 +881,8 @@ mod tests {
             streams: Mutex::new(VecDeque::from([Some(stream_one), Some(stream_two)])),
         };
         let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
+        let task =
+            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
         receive(&mut requests).await;
         first
             .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
@@ -864,20 +910,58 @@ mod tests {
             .unwrap();
         drop(second);
         task.await.unwrap().unwrap();
-        let mut called = false;
-        let mut ended = None;
+        let mut seen = Vec::new();
         while let Some(update) = receiver.recv().await {
-            called |= matches!(update, Update::ToolCall { .. });
-            assert!(
-                !matches!(update, Update::Notice { .. }),
-                "no failure notice"
-            );
-            if let Update::Turn { stop_reason, .. } = update {
-                ended = Some(stop_reason);
-            }
+            seen.push(update);
         }
-        assert!(called, "the reaction was dispatched");
-        assert_eq!(ended.as_deref(), Some("end_turn"));
+        seen
+    }
+
+    fn ended_with(updates: &[Update]) -> Option<&str> {
+        updates.iter().find_map(|update| match update {
+            Update::Turn { stop_reason, .. } => Some(stop_reason.as_str()),
+            _ => None,
+        })
+    }
+
+    fn notices(updates: &[Update]) -> Vec<&str> {
+        updates
+            .iter()
+            .filter_map(|update| match update {
+                Update::Notice { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A reply that is only a reaction: the model calls the tool, hears the
+    /// result, and has nothing to add. That is a finished turn, not a stream
+    /// that died, and nothing is said about it.
+    #[tokio::test]
+    async fn a_turn_that_ends_after_a_tool_with_nothing_to_say_is_complete() {
+        let mut tools = ToolSet::default();
+        tools.add_tool(Nod);
+        let updates = tool_then_silence(tools).await;
+        assert!(updates.iter().any(|u| matches!(u, Update::ToolCall { .. })));
+        assert_eq!(notices(&updates), Vec::<&str>::new());
+        assert_eq!(ended_with(&updates), Some("end_turn"));
+    }
+
+    /// The tool failed and the model gave up without a word: the turn still
+    /// ends, and one quiet line says so, pointing at the step.
+    #[tokio::test]
+    async fn silence_after_a_failed_step_is_said_out_loud() {
+        let updates = tool_then_silence(ToolSet::default()).await;
+        assert!(
+            updates
+                .iter()
+                .any(|u| matches!(u, Update::ToolResult { ok: false, .. }))
+        );
+        assert_eq!(
+            notices(&updates),
+            ["Stopped after a failed step and said nothing."]
+        );
+        assert_eq!(ended_with(&updates), Some("end_turn"));
     }
 
     #[tokio::test]

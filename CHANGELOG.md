@@ -7,6 +7,8 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-12
+
 ### Fixed
 - A Windows desk can update again. Checking for updates refused every
   release with "This release does not include a matching update package"

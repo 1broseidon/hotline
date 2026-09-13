@@ -49,14 +49,15 @@ const WORDS: Record<ActivityPhase, string> = {
 };
 
 /** What the tape says is happening in a turn that is running. */
-export function activityOf(events: TranscriptEvent[], streaming: Streaming[]): Activity {
+export function activityOf(events: TranscriptEvent[], streaming: Streaming[], queued = false): Activity {
 	const latest = scan(events);
 	// Blocked outranks everything: it is the one state where nothing is
 	// happening and nothing will until you answer.
 	if (latest.blocked) return activity("blocked");
 	// Writing outranks the tool that produced it: once words are on their
 	// way, what produced them is no longer the headline.
-	if (streaming.some((one) => one.kind === "agent")) return activity("writing");
+	// Bubbles still landing to the beat read as writing, whatever produced them.
+	if (queued || streaming.some((one) => one.kind === "agent")) return activity("writing");
 	// `running` rather than a truthy kind: plenty of agents send a tool call
 	// with no kind at all, and those are still work.
 	if (latest.running) return activity(KINDS[latest.kind ?? ""] ?? "doing");

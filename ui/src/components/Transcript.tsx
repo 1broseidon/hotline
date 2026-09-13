@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import type {
 	HumanActionStatus,
 	HumanAnswer,
@@ -9,6 +9,7 @@ import type {
 	TranscriptEvent,
 } from "../generated/contract";
 import { chordKeys } from "../chords";
+import { REST, step, type Bubble, type Cadence } from "../cadence";
 import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
@@ -147,8 +148,10 @@ export function Transcript({
 		);
 	}
 
-	const blocks = toBlocks(events, streaming);
-	const activity = live ? activityOf(events, streaming) : null;
+	const arrived = toBlocks(events, streaming);
+	const hidden = useCadence(personaId, arrived);
+	const blocks = hidden.size === 0 ? arrived : arrived.filter((block) => !(block.kind === "event" && hidden.has(block.event.id)));
+	const activity = live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null;
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -236,6 +239,33 @@ export function Transcript({
 		)}
 		</div>
 	);
+}
+
+/**
+ * The agent's bubbles land to a beat. The ids still waiting their turn, and a
+ * re-render when the next is due. Everything else on the tape shows at once.
+ */
+function useCadence(personaId: string, blocks: Block[]): ReadonlySet<string> {
+	const cadence = useRef<Cadence>(REST);
+	const [, wake] = useReducer((n: number) => n + 1, 0);
+	useEffect(() => {
+		cadence.current = REST;
+	}, [personaId]);
+	const bubbles: Bubble[] = [];
+	for (const block of blocks) {
+		if (block.kind === "event" && block.event.kind === "agent") {
+			bubbles.push({ id: block.event.id, text: block.event.text, ts: block.event.ts });
+		}
+	}
+	const next = step(cadence.current, bubbles, Date.now());
+	cadence.current = next.cadence;
+	const dueIn = next.dueIn;
+	useEffect(() => {
+		if (dueIn === null) return;
+		const timer = window.setTimeout(wake, dueIn);
+		return () => window.clearTimeout(timer);
+	}, [dueIn, next.hidden.length]);
+	return new Set(next.hidden);
 }
 
 /**

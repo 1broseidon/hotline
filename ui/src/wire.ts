@@ -104,6 +104,7 @@ type Results = {
 	"session.prompt": null;
 	"mobile.prompt": { state: "accepted" | "unknown" };
 	"mobile.attachment": { offset: number; complete: boolean };
+	"mobile.push_register": null;
 	"session.cancel": null;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;

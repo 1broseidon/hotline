@@ -482,6 +482,7 @@ function AgentSay({
 				}}
 			>
 				<Markdown text={event.text} />
+				<Reactions emoji={event.reactions} />
 				{onReply !== undefined && (
 					<button
 						type="button"
@@ -558,8 +559,35 @@ function UserBubble({
 						))}
 					</ul>
 				)}
+				{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
+				<Reactions emoji={event.reactions} />
 			</div>
 		</div>
+	);
+}
+
+/**
+ * How far the line got: one tick once it is on the tape, two once the agent
+ * has it in context. Nothing un-reads, so the ticks only ever climb.
+ */
+function Ticks({ read }: { read: boolean }) {
+	return (
+		<span className={`ticks ${read ? "ticks-read" : ""}`} role="img" aria-label={read ? "Read" : "Sent"} title={read ? "Read" : "Sent"}>
+			<CheckIcon />
+			{read && <CheckIcon />}
+		</span>
+	);
+}
+
+/** What the other side said with an emoji, tucked under the bubble's corner. */
+function Reactions({ emoji }: { emoji: string[] | undefined }) {
+	if (emoji === undefined || emoji.length === 0) return null;
+	return (
+		<span className="reactions" aria-label={`Reactions: ${emoji.join(" ")}`}>
+			{emoji.map((one, index) => (
+				<span key={`${one}-${index}`}>{one}</span>
+			))}
+		</span>
 	);
 }
 

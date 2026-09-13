@@ -836,6 +836,43 @@
 	.said-me.said-run-bottom {
 		border-bottom-right-radius: var(--radius-chip);
 	}
+	/* Sent is one tick, read is two, at the corner where a phone puts them. */
+	.ticks {
+		display: inline-flex;
+		align-items: center;
+		float: right;
+		margin: 6px 0 0 8px;
+		color: var(--ink-4);
+	}
+	.ticks svg {
+		width: 12px;
+		height: 12px;
+	}
+	.ticks svg + svg {
+		margin-left: -7px;
+	}
+	.ticks-read {
+		color: var(--accent);
+	}
+	/* An emoji the other side put on this bubble, hung off its lower corner. */
+	.reactions {
+		position: absolute;
+		bottom: -10px;
+		right: 8px;
+		display: inline-flex;
+		gap: 2px;
+		padding: 1px 6px;
+		border-radius: var(--radius-chip);
+		background: var(--said-them);
+		box-shadow: 0 0 0 2px var(--canvas);
+		font-size: var(--text-xs);
+		line-height: 16px;
+	}
+	.said-them .reactions {
+		right: auto;
+		left: 8px;
+		background: var(--said-me);
+	}
 	/* A peer thread names both sides. The tape with the person does not. */
 	.said-name {
 		margin-bottom: 4px;

@@ -459,6 +459,109 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
     );
 }
 
+/// The person's line is `sent` the moment it is written and `read` once the
+/// agent has produced anything with it in context — not when the driver took
+/// it, because a prompt the model never got to would then wear a read tick.
+#[tokio::test]
+async fn a_line_is_sent_when_written_and_read_once_the_agent_answers_to_it() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    }]);
+    driver.gate = Some(gate.clone());
+    let room = room("receipts", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt("ada", "first", None, None).await.unwrap();
+    room.prompt("ada", "second", None, None).await.unwrap();
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(kinds(&events), ["user", "user"]);
+    assert_eq!(events[0]["receipt"], "sent", "taken, not yet proven read");
+    assert_eq!(
+        events[1]["receipt"], "sent",
+        "still waiting behind the turn"
+    );
+
+    gate.add_permits(1);
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "user", "turn"]);
+    assert_eq!(events[0]["receipt"], "read", "the turn is proof");
+    assert_eq!(events[1]["receipt"], "sent", "its own turn has not begun");
+
+    gate.add_permits(1);
+    let events = settled(&room, "ada", 4).await;
+    assert_eq!(events[1]["receipt"], "read");
+    assert_eq!(events[0]["receipt"], "read", "nothing un-reads");
+}
+
+/// A cancelled line was taken but never answered; it stays sent.
+#[tokio::test]
+async fn a_cancelled_turn_leaves_its_line_sent() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    }]);
+    driver.gate = Some(gate.clone());
+    driver.on_cancel = vec![Update::Turn {
+        stop_reason: "cancelled".to_string(),
+        usage: None,
+    }];
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let room = room("receipts-cancel", agents);
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "first", None, None).await.unwrap();
+    // The driver has the line and is mid-turn when the person stops it.
+    for _ in 0..200 {
+        if !lock(&prompts).is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(*lock(&prompts), ["first"]);
+    room.cancel("ada").unwrap();
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(kinds(&events), ["user", "turn"]);
+    assert_eq!(events[0]["receipt"], "sent");
+}
+
+/// The agent's reaction lands on the person's last message and nowhere else.
+#[tokio::test]
+async fn a_reaction_lands_on_the_last_thing_the_person_said() {
+    let room = room("react", Fake::new(Scripted::new(spoken_turn())));
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "ship it", None, None).await.unwrap();
+    settled(&room, "ada", 5).await;
+    let tools = TeammateTools::new(&room, "ada");
+    assert_eq!(
+        tools
+            .call("react", &json!({ "emoji": "👍" }))
+            .await
+            .unwrap(),
+        "Reacted."
+    );
+    tools
+        .call("react", &json!({ "emoji": "👍" }))
+        .await
+        .unwrap();
+    tools
+        .call("react", &json!({ "emoji": "🙏" }))
+        .await
+        .unwrap();
+    assert!(
+        tools
+            .call("react", &json!({ "emoji": "ok" }))
+            .await
+            .is_err()
+    );
+    let events = settled(&room, "ada", 5).await;
+    assert_eq!(kinds(&events), ["user", "thought", "tool", "agent", "turn"]);
+    assert_eq!(events[0]["reactions"], json!(["👍", "🙏"]));
+    assert_eq!(events[0]["receipt"], "read", "a reaction keeps the receipt");
+}
+
 #[tokio::test]
 async fn a_computer_tool_image_lands_a_frame_on_the_tape() {
     let png = "AAAA";

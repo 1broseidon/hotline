@@ -54,6 +54,7 @@ const LIST_CHAPTERS: &str = "list_chapters";
 const RESUME_CHAPTER: &str = "resume_chapter";
 const NEW_CHAPTER: &str = "new_chapter";
 const REQUEST_HUMAN: &str = "request_human";
+const REACT: &str = "react";
 const LIST_TEAMMATES: &str = "list_teammates";
 const MESSAGE_TEAMMATE: &str = "message_teammate";
 const SCHEDULE: &str = "schedule";
@@ -62,12 +63,13 @@ const LIST_SCHEDULES: &str = "list_schedules";
 const CANCEL_SCHEDULE: &str = "cancel_schedule";
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 11] = [
+pub const TOOL_NAMES: [&str; 12] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
     NEW_CHAPTER,
     REQUEST_HUMAN,
+    REACT,
     LIST_TEAMMATES,
     MESSAGE_TEAMMATE,
     SCHEDULE,
@@ -89,7 +91,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` asks one of them something and waits for their answer. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Toad Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` asks one of them something and waits for their answer. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Toad Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -148,6 +150,23 @@ fn descriptors() -> Vec<Tool> {
                     },
                 },
                 "required": ["reason"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            REACT,
+            "Put one emoji on the person's last message, the way a colleague reacts in chat instead of replying. Use it when a reaction says everything a reply would: a thumbs up to a decision, a nod to a correction you are about to act on. Do not react to questions, do not react to every message, and do not react when you are also replying — then the words are enough.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "emoji": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "description": "One emoji, e.g. '👍'",
+                    },
+                },
+                "required": ["emoji"],
                 "additionalProperties": false,
             })),
         ),
@@ -350,6 +369,14 @@ impl TeammateTools {
                     })?;
                 room.request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
                     .await
+            }
+            REACT => {
+                let emoji = arguments
+                    .get("emoji")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "react needs an `emoji`.".to_string())?;
+                room.react(&self.persona_id, emoji)?;
+                Ok("Reacted.".to_string())
             }
             SCHEDULE => {
                 let when = arguments

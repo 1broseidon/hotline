@@ -48,7 +48,7 @@ pub use schedule::{parse_duration, parse_when};
 use crate::computer::Computer;
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, HumanActionStatus,
-    HumanAnswer, NoticeLevel, Persona, Reach, RuntimeReport, ScheduleKind, ScheduledRun,
+    HumanAnswer, NoticeLevel, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
     SessionCapabilities, SessionInfo, SessionState, StreamDelta, TeammateToolLedger, ToolOutput,
     ToolStatus, TranscriptEvent,
 };
@@ -335,6 +335,13 @@ struct Session {
     pending_reply: Mutex<Option<Mark<String>>>,
     /// The firing the next user line belongs to.
     pending_scheduled: Mutex<Option<Mark<ScheduledRun>>>,
+    /// The user lines the driver has taken and not yet shown it read.
+    ///
+    /// A line is `sent` when it is written and `read` once the agent has
+    /// produced anything with it in context — a thought, a tool call, a
+    /// word. Taking the wire is not enough: a prompt the model errored on
+    /// before it read it is the one case a read tick would lie about.
+    unread: Mutex<Vec<String>>,
     /// The window a quiet schedule is holding this teammate's voice with.
     quiet: Mutex<Option<QuietWindow>>,
     /// The agent's own id for this conversation, waiting for the turn that
@@ -399,6 +406,9 @@ struct Wired {
     scheduled: Option<ScheduledRun>,
     /// Operator input can steer. Internal nudges and scheduled runs queue.
     steer: bool,
+    /// The user event this line was written as, so the tape can be told when
+    /// the agent has read it. A nudge is never written and has none.
+    said: Option<String>,
 }
 
 impl Wired {
@@ -408,6 +418,7 @@ impl Wired {
             attachments: Vec::new(),
             scheduled: None,
             steer: false,
+            said: None,
         }
     }
 }
@@ -774,6 +785,7 @@ impl Room {
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
+            unread: Mutex::new(Vec::new()),
             quiet: Mutex::new(None),
             pending_checkpoint: Mutex::new(
                 reported.session_id.filter(|_| !reported.context_restored),
@@ -1086,6 +1098,7 @@ impl Room {
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,
                     steer: true,
+                    said: None,
                 },
                 attachments,
             },
@@ -1141,10 +1154,11 @@ impl Room {
     /// the invariant: what was said is a fact the moment somebody said it, and
     /// a turn that fails must not lose the message that started it.
     fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
+        let id = new_id();
         self.append(
             session,
             TranscriptEvent::User {
-                id: new_id(),
+                id: id.clone(),
                 ts: now_ms(),
                 text: sending.shown,
                 attachments: sending.attachments,
@@ -1152,10 +1166,84 @@ impl Room {
                 reply_to: None,
                 scheduled: None,
                 ring: None,
-                receipt: None,
+                receipt: Some(Receipt::Sent),
             },
         );
-        self.dispatch(session.clone(), sending.wire);
+        let mut wire = sending.wire;
+        wire.said = Some(id);
+        self.dispatch(session.clone(), wire);
+    }
+
+    /// Stamps every line the driver has taken as read, now that the agent has
+    /// produced something with it in context. Nothing un-reads.
+    fn mark_read(&self, session: &Session) {
+        let taken: Vec<String> = std::mem::take(&mut *lock(&session.unread));
+        if taken.is_empty() {
+            return;
+        }
+        let tape = self.tape(&session.persona_id);
+        for id in taken {
+            let Some(line) = tape.iter().rev().find(|event| event["id"] == id.as_str()) else {
+                continue;
+            };
+            let Ok(event) = serde_json::from_value::<TranscriptEvent>(line.clone()) else {
+                continue;
+            };
+            self.write(&session.persona_id, &peers::stamped(event, Receipt::Read));
+        }
+    }
+
+    /// The agent's reaction to what the person last said: one emoji on that
+    /// message, never a message of its own. A reaction the message already
+    /// carries is left as it is.
+    pub fn react(&self, persona_id: &str, emoji: &str) -> Result<(), String> {
+        let emoji = emoji.trim();
+        if emoji.is_empty() || emoji.chars().count() > 4 || emoji.chars().any(char::is_alphanumeric)
+        {
+            return Err("react needs one emoji.".to_string());
+        }
+        let session = self.session(persona_id)?;
+        let tape = self.tape(&session.persona_id);
+        let line = tape
+            .iter()
+            .rev()
+            .find(|event| event["kind"] == "user" && event.get("scheduled").is_none())
+            .ok_or_else(|| "There is no message from the person to react to.".to_string())?;
+        let TranscriptEvent::User {
+            id,
+            ts,
+            text,
+            attachments,
+            reactions,
+            reply_to,
+            scheduled,
+            ring,
+            receipt,
+        } = serde_json::from_value::<TranscriptEvent>(line.clone())
+            .map_err(|error| format!("The last message could not be read: {error}"))?
+        else {
+            return Err("There is no message from the person to react to.".to_string());
+        };
+        let mut reactions = reactions.unwrap_or_default();
+        if reactions.iter().any(|had| had == emoji) {
+            return Ok(());
+        }
+        reactions.push(emoji.to_string());
+        self.write(
+            &session.persona_id,
+            &TranscriptEvent::User {
+                id,
+                ts,
+                text,
+                attachments,
+                reactions: Some(reactions),
+                reply_to,
+                scheduled,
+                ring,
+                receipt,
+            },
+        );
+        Ok(())
     }
 
     /// Hands the driver a line: on the turn in flight if there is one, on a
@@ -1186,6 +1274,7 @@ impl Room {
     pub fn cancel(&self, persona_id: &str) -> Result<(), String> {
         let session = self.session(persona_id)?;
         lock(&session.turns).waiting.clear();
+        lock(&session.unread).clear();
         session.driver.cancel();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
@@ -2017,6 +2106,9 @@ impl Room {
                 next = lock(&session.turns).next_line();
                 continue;
             }
+            if let Some(said) = wired.said.clone() {
+                lock(&session.unread).push(said);
+            }
             let mut updates = session
                 .driver
                 .prompt(wired.text, wired.attachments, reach)
@@ -2075,6 +2167,9 @@ impl Room {
             {
                 break;
             }
+            if let Some(said) = wire.said.clone() {
+                lock(&session.unread).push(said);
+            }
             turns.waiting.remove(index);
             steered = true;
         }
@@ -2093,6 +2188,11 @@ impl Room {
         update: Update,
         in_flight: &mut HashMap<String, PendingTool>,
     ) {
+        // Anything the agent produces proves it has what it was handed; a
+        // notice can be an error raised before the prompt reached the model.
+        if !matches!(update, Update::Notice { .. }) {
+            self.mark_read(session);
+        }
         if let Update::Delta {
             kind,
             message_id,

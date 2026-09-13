@@ -1306,7 +1306,7 @@ fn envelope(caller: &Persona, message: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// A receipt only ever climbs: nothing un-reads a message.
-fn higher(current: Option<Receipt>, next: Receipt) -> Receipt {
+pub(super) fn higher(current: Option<Receipt>, next: Receipt) -> Receipt {
     match (current, next) {
         (Some(Receipt::Read), _) => Receipt::Read,
         (_, next) => next,
@@ -1325,7 +1325,7 @@ fn receipt_of(event: &TranscriptEvent) -> Option<Option<Receipt>> {
 
 /// The same message, at this rung or the one it already had, whichever is
 /// higher.
-fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent {
+pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent {
     match event {
         TranscriptEvent::User {
             id,

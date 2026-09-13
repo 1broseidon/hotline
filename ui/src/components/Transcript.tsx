@@ -9,6 +9,8 @@ import type {
 	TranscriptEvent,
 } from "../generated/contract";
 import { chordKeys } from "../chords";
+import { bubbleId, pacedLive } from "../pacing";
+import { revealed } from "../reveal";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
 import { activityOf } from "../activity";
@@ -37,7 +39,7 @@ type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" }>;
  * tool calls still reads as a conversation.
  */
 type Block =
-	| { kind: "event"; event: Exclude<TranscriptEvent, Step> }
+	| { kind: "event"; event: Exclude<TranscriptEvent, Step>; live?: boolean }
 	| { kind: "steps"; id: string; ts: number; items: Step[] };
 
 /**
@@ -186,6 +188,7 @@ export function Transcript({
 								<Row
 									personaId={personaId}
 									event={block.event}
+									live={block.live === true}
 									said={said}
 									run={run}
 									speakers={speakers}
@@ -259,7 +262,12 @@ function runClass(run: Run): string {
 	return `${run.top ? "said-run-top" : ""} ${run.bottom ? "said-run-bottom" : ""}`;
 }
 
-/** Fold runs of thoughts and tools into one block; a streaming thought joins the tail. */
+/**
+ * Fold runs of thoughts and tools into one block; a streaming thought joins
+ * the tail. A streaming reply is shown one finished line at a time, cut into
+ * the bubbles the desk will write, under the ids it will use, so the written
+ * lines replace them in place.
+ */
 function toBlocks(events: TranscriptEvent[], streaming: Streaming[]): Block[] {
 	const blocks: Block[] = [];
 	for (const event of events) {
@@ -272,7 +280,18 @@ function toBlocks(events: TranscriptEvent[], streaming: Streaming[]): Block[] {
 		}
 	}
 	for (const one of streaming) {
-		if (one.kind !== "thought") continue;
+		if (one.kind === "agent") {
+			const base = one.bubbleOf?.base ?? one.messageId;
+			const start = one.bubbleOf?.index ?? 0;
+			pacedLive(revealed(one.text)).forEach((text, index) => {
+				blocks.push({
+					kind: "event",
+					event: { kind: "agent", id: bubbleId(base, start + index), ts: Date.now(), text },
+					live: true,
+				});
+			});
+			continue;
+		}
 		const thought: Step = { kind: "thought", id: one.messageId, ts: Date.now(), text: one.text };
 		const tail = blocks[blocks.length - 1];
 		if (tail?.kind === "steps") tail.items.push(thought);
@@ -323,6 +342,7 @@ function useScrollToEvent(
 function Row({
 	personaId,
 	event,
+	live,
 	said,
 	run,
 	speakers,
@@ -333,6 +353,8 @@ function Row({
 }: {
 	personaId: string;
 	event: Exclude<TranscriptEvent, Step>;
+	/** Still being written: the lines it has are finished, more may follow. */
+	live: boolean;
 	said: Map<string, string>;
 	run: Run;
 	speakers: Speakers | undefined;
@@ -359,7 +381,7 @@ function Row({
 					text={event.text}
 				/>
 			) : (
-				<AgentSay event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
+				<AgentSay event={event} run={run} live={live} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		/* Where the turn stopped. Drawn only when the stop was not the agent's
@@ -457,20 +479,42 @@ function Steps({ items, live, shown }: { items: Step[]; live: boolean; shown: bo
 }
 
 /** An agent's line, focusable so R can answer it without a pointer. */
+/** True for a moment after a message's time, so the line that finished it can settle in too. */
+function useFresh(ts: number, ms = 2500): boolean {
+	const [fresh, setFresh] = useState(() => Date.now() - ts < ms);
+	useEffect(() => {
+		const left = ts + ms - Date.now();
+		if (left <= 0) {
+			setFresh(false);
+			return;
+		}
+		setFresh(true);
+		const timer = setTimeout(() => setFresh(false), left);
+		return () => clearTimeout(timer);
+	}, [ts, ms]);
+	return fresh;
+}
+
 function AgentSay({
 	event,
 	run,
+	live = false,
 	onReply,
 }: {
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
 	run: Run;
+	live?: boolean;
 	onReply?(target: ReplyTarget): void;
 }) {
 	const reply = () => onReply?.({ eventId: event.id, text: firstLine(event.text) });
+	// While a reply is being written, and for a moment after it lands, each
+	// finished line settles down into place as it arrives.
+	const fresh = useFresh(event.ts);
+	const settling = live || fresh;
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			<div
-				className={`speech said-them ${runClass(run)}`}
+				className={`speech said-them ${settling ? "said-live" : ""} ${runClass(run)}`}
 				tabIndex={onReply === undefined ? undefined : 0}
 				onKeyDown={(key) => {
 					if (onReply === undefined) return;

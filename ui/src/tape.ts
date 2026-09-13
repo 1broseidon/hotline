@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { StreamDelta, TranscriptEvent } from "./generated/contract";
+import { bubbleId, pacedLive } from "./pacing";
 import { wire, type Connection, type Target } from "./wire";
 
 /**
@@ -7,7 +8,17 @@ import { wire, type Connection, type Target } from "./wire";
  * been written down. Keyed by the id the real event will carry, which is how
  * the in-progress bubble knows when it has been superseded.
  */
-export type Streaming = { messageId: string; kind: "agent" | "thought"; text: string };
+export type Streaming = {
+	messageId: string;
+	kind: "agent" | "thought";
+	text: string;
+	/**
+	 * The rest of a streamed reply whose first bubbles the desk has already
+	 * written: it draws as bubbles `index`, `index + 1`, … of `base` until
+	 * their durable twins land, so the screen never loses them in between.
+	 */
+	bubbleOf?: { base: string; index: number };
+};
 
 /**
  * One teammate's conversation, folded by event id.
@@ -29,8 +40,9 @@ export function useTape(personaId: string): { events: TranscriptEvent[]; streami
 			event: (item) => {
 				setEvents((known) => merge(known, item));
 				// The durable line has landed, so the bubble Toad was drawing
-				// for it is no longer the best thing it has.
-				setStreaming((live) => live.filter((one) => one.messageId !== item.id));
+				// for it is no longer the best thing it has; what it was
+				// drawing after that bubble stays until its own line lands.
+				setStreaming((live) => settle(live, item));
 			},
 			ephemeral: (delta) => setStreaming((live) => append(live, delta)),
 		});
@@ -98,6 +110,35 @@ function merge(known: TranscriptEvent[], item: TranscriptEvent): TranscriptEvent
 	if (at === -1) return [...known, item];
 	const next = known.slice();
 	next[at] = item;
+	return next;
+}
+
+/**
+ * A written line replaces the streamed bubble it covers. The desk writes one
+ * reply as bubbles `m`, `m-2`, `m-3`, each its own frame, so the streamed text
+ * after the covered bubble is kept as a remainder under the ids the siblings
+ * will carry; each sibling then replaces exactly its own piece.
+ */
+function settle(live: Streaming[], item: TranscriptEvent): Streaming[] {
+	const at = live.findIndex((one) => one.messageId === item.id);
+	if (at === -1) return live;
+	const streamed = live[at]!;
+	const next = live.slice();
+	next.splice(at, 1);
+	if (streamed.kind !== "agent" || item.kind !== "agent") return next;
+	const base = streamed.bubbleOf?.base ?? streamed.messageId;
+	const index = streamed.bubbleOf?.index ?? 0;
+	const cut = pacedLive(streamed.text);
+	for (let k = 1; k < cut.length; k++) {
+		if (cut.slice(0, k).join("\n\n") !== item.text) continue;
+		next.splice(at, 0, {
+			messageId: bubbleId(base, index + k),
+			kind: "agent",
+			text: cut.slice(k).join("\n\n"),
+			bubbleOf: { base, index: index + k },
+		});
+		break;
+	}
 	return next;
 }
 

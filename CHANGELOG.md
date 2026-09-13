@@ -7,9 +7,17 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
-## [0.8.2] - 2026-09-12
+## [0.9.0] - 2026-09-12
 
 ### Added
+- Notifications on the phone: the phone registers where to notify it when
+  it connects, and the desk sends a glance when a reply lands or a card
+  needs you, through Expo's push service. A tap opens that conversation.
+  The phone stays quiet for the conversation it is already showing.
+- Bubbles land to a beat, on the desk and the phone: a reply being written
+  shows each bubble once it is whole, one per reading beat, and the mark
+  above the composer stays up until the last has landed. What was written
+  before you were looking lands at once.
 - Your messages carry a receipt on the desk and the phone: one tick once
   a message is on the tape, two once the agent has produced anything with
   it in context. A message queued behind a turn, or cancelled, stays at
@@ -17,11 +25,8 @@ repository is what builds and publishes a release.
   agent picks it up.
 - The agent can react to your last message with one emoji, in place of a
   reply, when a reaction says everything a reply would.
-- A reply being written arrives one finished line at a time, each settling
-  into place, on the desk as it already did on the phone. Nothing
-  half-typed is drawn, and the column no longer shifts when the turn is
-  written down. The rule that cuts a reply into bubbles lives in one file
-  the phone copies with its contract.
+- The rule that cuts a reply into bubbles, and the beat they land to, live
+  in one file the phone copies with its contract.
 
 ### Removed
 - The "Your update is now in the agent's context" notice after a steer;

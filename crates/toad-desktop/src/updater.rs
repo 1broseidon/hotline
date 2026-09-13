@@ -301,24 +301,30 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
     result
 }
 
+/// The package each installer target downloads, as the release names it
+/// (scripts/updater_manifest.py). An unknown target matches nothing.
+fn package_suffix(target: &str) -> Option<&'static str> {
+    Some(match target.rsplit_once('-')?.1 {
+        "deb" => ".deb",
+        "rpm" => ".rpm",
+        "appimage" => ".AppImage",
+        "app" => ".app.tar.gz",
+        "nsis" => "-setup.exe",
+        _ => return None,
+    })
+}
+
 fn validate_update(update: &Update, target: &str) -> Result<(), String> {
-    let extension = if target.ends_with("-deb") {
-        ".deb"
-    } else if target.ends_with("-rpm") {
-        ".rpm"
-    } else if target.ends_with("-appimage") {
-        ".AppImage"
-    } else {
-        ".app.tar.gz"
-    };
-    if update.download_url.scheme() != "https"
-        || !update.download_url.path().ends_with(extension)
-        || update
-            .raw_json
-            .get("platforms")
-            .and_then(|p| p.get(target))
-            .is_none()
-    {
+    let matching = package_suffix(target).is_some_and(|suffix| {
+        update.download_url.scheme() == "https"
+            && update.download_url.path().ends_with(suffix)
+            && update
+                .raw_json
+                .get("platforms")
+                .and_then(|p| p.get(target))
+                .is_some()
+    });
+    if !matching {
         return Err("This release does not include a matching update package. Open the release page instead.".into());
     }
     Ok(())
@@ -514,10 +520,19 @@ mod tests {
     }
 
     fn release(version: &str, target: &str) -> Vec<u8> {
+        release_at(
+            version,
+            target,
+            "https://github.com/1Broseidon/toad/releases/download/desktop-v0.2.0/toad.deb",
+        )
+    }
+
+    fn release_at(version: &str, target: &str, url: &str) -> Vec<u8> {
         serde_json::to_vec(&json!({
             "version": version, "notes": "A fixture release.",
-            "platforms": { target: {"url":"https://github.com/1Broseidon/toad/releases/download/desktop-v0.2.0/toad.deb", "signature": SIGNATURE.trim()} }
-        })).unwrap()
+            "platforms": { target: {"url": url, "signature": SIGNATURE.trim()} }
+        }))
+        .unwrap()
     }
 
     #[test]
@@ -579,6 +594,72 @@ mod tests {
         assert!(target_for("windows", "aarch64", Some(Nsis)).is_none());
         assert!(target_for("windows", "x86_64", Some(Msi)).is_none());
         assert!(target_for("linux", "x86_64", None).is_none());
+    }
+
+    #[test]
+    fn every_installable_target_names_the_package_the_release_ships() {
+        use tauri::utils::config::BundleType::*;
+        for (os, arch, bundle, suffix) in [
+            ("linux", "x86_64", Deb, ".deb"),
+            ("linux", "x86_64", Rpm, ".rpm"),
+            ("linux", "x86_64", AppImage, ".AppImage"),
+            ("macos", "aarch64", App, ".app.tar.gz"),
+            ("macos", "x86_64", Dmg, ".app.tar.gz"),
+            ("windows", "x86_64", Nsis, "-setup.exe"),
+        ] {
+            let target = target_for(os, arch, Some(bundle)).unwrap();
+            assert_eq!(package_suffix(&target), Some(suffix), "{target}");
+        }
+        assert_eq!(package_suffix("windows-x86_64-msi"), None);
+        assert_eq!(package_suffix("nonsense"), None);
+    }
+
+    /// A Windows desk once required an `.app.tar.gz` and so refused every release.
+    #[tokio::test]
+    async fn each_installer_accepts_only_its_own_package() {
+        let base = "https://github.com/1Broseidon/toad/releases/download/desktop-v0.2.0";
+        for (target, file, accepted) in [
+            (
+                "windows-x86_64-nsis",
+                "toad_0.2.0_windows_x86_64-setup.exe",
+                true,
+            ),
+            (
+                "windows-x86_64-nsis",
+                "toad_0.2.0_macos_aarch64.app.tar.gz",
+                false,
+            ),
+            (
+                "darwin-aarch64-app",
+                "toad_0.2.0_macos_aarch64.app.tar.gz",
+                true,
+            ),
+            (
+                "darwin-aarch64-app",
+                "toad_0.2.0_windows_x86_64-setup.exe",
+                false,
+            ),
+            ("linux-x86_64-deb", "toad_0.2.0_linux_x86_64.deb", true),
+            (
+                "linux-x86_64-deb",
+                "toad_0.2.0_linux_x86_64.AppImage",
+                false,
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let body = release_at("0.2.0", target, &format!("{base}/{file}"));
+            let app = app(&serve(body, 200));
+            let state = Updates {
+                target: Some(target.into()),
+                ..state(root.path())
+            };
+            let result = check(app.handle(), &state).await;
+            assert_eq!(result.is_ok(), accepted, "{target} {file}");
+            assert_eq!(state.status().available.is_some(), accepted);
+            if let Err(error) = result {
+                assert!(error.contains("matching update package"));
+            }
+        }
     }
 
     #[tokio::test]

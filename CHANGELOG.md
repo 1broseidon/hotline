@@ -7,6 +7,12 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+### Fixed
+- A Windows desk can update again. Checking for updates refused every
+  release with "This release does not include a matching update package"
+  because the desk verified the Windows package against the Mac package
+  name; each installer now verifies the name its own release ships.
+
 ## [0.8.0] - 2026-09-12
 
 ### Added

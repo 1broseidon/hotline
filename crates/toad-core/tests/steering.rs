@@ -130,16 +130,17 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
             }],
             "call_read"
         );
+        // The steer is read once the agent produces anything with it in
+        // context: the tape says so with a receipt, not a notice.
         let updated = client
             .next_where(Duration::from_secs(15), |frame| {
                 frame["sub"] == tape
-                    && frame["event"]["kind"] == "notice"
-                    && frame["event"]["text"]
-                        .as_str()
-                        .is_some_and(|text| text.contains("now in the agent's context"))
+                    && frame["event"]["kind"] == "user"
+                    && frame["event"]["text"] == "Actually focus on login"
+                    && frame["event"]["receipt"] == "read"
             })
             .await;
-        assert_ne!(updated["event"]["level"], "error");
+        assert_eq!(updated["event"]["receipt"], "read");
         let completed = client
             .next_where(Duration::from_secs(15), |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"

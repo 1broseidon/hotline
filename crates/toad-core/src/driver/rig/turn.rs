@@ -143,7 +143,6 @@ async fn run_inner(
     let mut history = turn.history.lock().await.clone();
     let mut usage = rig::completion::Usage::default();
     let mut usage_complete = true;
-    let mut announce_update = false;
     let mut open = None;
     let mut stopped = false;
     let mut job_results = Vec::new();
@@ -154,7 +153,6 @@ async fn run_inner(
         }
         history.append(&mut job_results);
         let (revision, pending) = turn.steering.take();
-        announce_update |= !pending.is_empty();
         history.extend(pending);
         *turn.history.lock().await = history.clone();
         if let Some(capability) = &turn.capability {
@@ -209,17 +207,6 @@ async fn run_inner(
                     return Err(text(error));
                 }
             };
-            if announce_update {
-                send(
-                    sender,
-                    Update::Notice {
-                        level: NoticeLevel::Info,
-                        text: "Your update is now in the agent's context.".into(),
-                    },
-                )
-                .await;
-                announce_update = false;
-            }
             match item {
                 StreamedAssistantContent::Text(chunk) => {
                     chunk_into(sender, &mut open, MessageKind::Agent, &chunk.text).await;

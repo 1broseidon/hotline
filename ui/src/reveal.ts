@@ -9,6 +9,32 @@ export function revealed(text: string): string {
 	return text.slice(0, text.lastIndexOf("\n") + 1);
 }
 
+/**
+ * The part of a streaming reply whose bubbles are whole: everything up to the
+ * last blank line, less a code block that is still open. A bubble drawn from
+ * this never gains a line later; the one being written is not drawn at all.
+ */
+export function wholeBubbles(text: string): string {
+	const cut = text.lastIndexOf("\n\n");
+	if (cut === -1) return "";
+	const lines = text.slice(0, cut + 2).split("\n");
+	let fenceOpenedAt = -1;
+	let marker = "";
+	lines.forEach((line, index) => {
+		const trimmed = line.trim();
+		if (fenceOpenedAt === -1) {
+			if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+				fenceOpenedAt = index;
+				marker = trimmed.slice(0, 3);
+			}
+		} else if (trimmed.startsWith(marker)) {
+			fenceOpenedAt = -1;
+		}
+	});
+	const kept = fenceOpenedAt === -1 ? lines : lines.slice(0, fenceOpenedAt);
+	return kept.join("\n");
+}
+
 export type Segment = { kind: "line" | "code" | "gap"; text: string };
 
 /**

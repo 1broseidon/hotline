@@ -1535,6 +1535,10 @@ pub enum Command {
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },
+    /// Where to notify this phone: the token its push service issued, and
+    /// which platform it is for. Sent by the phone after it connects.
+    #[serde(rename = "mobile.push_register")]
+    MobilePushRegister { token: String, platform: String },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is

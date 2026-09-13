@@ -23,6 +23,7 @@ pub mod paths;
 #[cfg(windows)]
 mod process_windows;
 mod providers;
+pub mod push;
 pub mod remote;
 pub mod room;
 pub mod session;

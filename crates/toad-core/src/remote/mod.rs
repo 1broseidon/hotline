@@ -63,6 +63,35 @@ pub struct RemoteDevice {
 struct Grant {
     device: RemoteDevice,
     token_hash: String,
+    /// Where a notification for this phone goes, once it has said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    push: Option<PushTarget>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushTarget {
+    token: String,
+    platform: String,
+}
+/// The phones a notification goes to, read off the saved grants so the room
+/// never has to hold the remote.
+pub struct PushTargets {
+    pub desktop_id: String,
+    pub tokens: Vec<String>,
+}
+pub fn push_targets(root: &Path) -> PushTargets {
+    let saved: Saved = fs::read(root.join("remote.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    PushTargets {
+        desktop_id: saved.desktop_id,
+        tokens: saved
+            .grants
+            .iter()
+            .filter_map(|grant| grant.push.as_ref().map(|push| push.token.clone()))
+            .collect(),
+    }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -225,6 +254,32 @@ impl Phone {
             .await
     }
 
+    /// Remembers where to notify this phone. An Expo push token, which is
+    /// what the phone's push service issues on every platform it runs on.
+    pub(crate) fn register_push(&self, token: String, platform: String) -> Result<Value, String> {
+        let token = token.trim().to_string();
+        let expo = (token.starts_with("ExponentPushToken[") || token.starts_with("ExpoPushToken["))
+            && token.ends_with(']')
+            && token.len() <= 200;
+        if !expo || !matches!(platform.as_str(), "ios" | "android") {
+            return Err("register a push token Expo issued, for ios or android.".into());
+        }
+        let mut s = self.remote.state.lock().unwrap();
+        if self.cancel.is_cancelled() {
+            return Err("This phone has been disconnected.".into());
+        }
+        let mut saved = s.saved.clone();
+        let grant = saved
+            .grants
+            .iter_mut()
+            .find(|g| g.device.id == self.id)
+            .ok_or_else(|| "This phone is no longer paired.".to_string())?;
+        grant.push = Some(PushTarget { token, platform });
+        self.remote.save(&saved)?;
+        s.saved = saved;
+        Ok(Value::Null)
+    }
+
     pub(crate) async fn upload(&self, upload: &MobileAttachmentChunk) -> Result<Value, String> {
         let _held = self.remote.prompts.lock().await;
         if self.cancel.is_cancelled() {
@@ -298,6 +353,10 @@ impl Remote {
     }
     pub fn addresses() -> Vec<String> {
         network::addresses()
+    }
+    #[cfg(test)]
+    pub(crate) fn status_desktop_id(&self) -> String {
+        self.state.lock().unwrap().saved.desktop_id.clone()
     }
     pub fn status(&self) -> RemoteStatus {
         let s = self.state.lock().unwrap();
@@ -525,6 +584,7 @@ impl Remote {
                 paired_at: now(),
             },
             token_hash: hash(&token),
+            push: None,
         };
         s.saved.grants.push(grant);
         if self.save(&s.saved).is_err() {

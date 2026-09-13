@@ -628,3 +628,42 @@ async fn a_typed_code_pairs_through_a_pake_bound_to_the_certificate() {
     assert_eq!(junk.status(), 400);
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+/// A phone says where to notify it; the desk keeps that on the grant, and the
+/// room reads it back without holding the remote.
+#[tokio::test]
+async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
+    let h = Harness::new().await;
+    let grant = h.pair().await;
+    let phone = h
+        .remote
+        .authenticate(grant["token"].as_str().unwrap())
+        .unwrap();
+    assert!(super::push_targets(h.root.path()).tokens.is_empty());
+    assert!(
+        phone
+            .register_push("not a token".into(), "ios".into())
+            .is_err()
+    );
+    assert!(
+        phone
+            .register_push("ExponentPushToken[abc]".into(), "watch".into())
+            .is_err()
+    );
+    phone
+        .register_push("ExponentPushToken[abc]".into(), "ios".into())
+        .unwrap();
+    let targets = super::push_targets(h.root.path());
+    assert_eq!(targets.tokens, ["ExponentPushToken[abc]"]);
+    assert_eq!(targets.desktop_id, h.remote.status_desktop_id());
+    // A fresh token replaces the old one; revoking the phone drops it.
+    phone
+        .register_push("ExponentPushToken[def]".into(), "ios".into())
+        .unwrap();
+    assert_eq!(
+        super::push_targets(h.root.path()).tokens,
+        ["ExponentPushToken[def]"]
+    );
+    h.remote.revoke(&phone.id).unwrap();
+    assert!(super::push_targets(h.root.path()).tokens.is_empty());
+}

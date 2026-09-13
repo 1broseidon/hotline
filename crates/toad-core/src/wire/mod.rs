@@ -318,6 +318,7 @@ impl Seat {
                 command,
                 Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
+                    | Command::MobilePushRegister { .. }
                     | Command::SessionCancel { .. }
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
@@ -686,6 +687,9 @@ async fn answer(
                     }
                     (Command::MobileAttachment { upload }, Some(phone)) => {
                         phone.upload(upload).await
+                    }
+                    (Command::MobilePushRegister { token, platform }, Some(phone)) => {
+                        phone.register_push(token.clone(), platform.clone())
                     }
                     // The viewer is a loopback URL with the computer's bearer
                     // in its fragment; it never leaves this machine.

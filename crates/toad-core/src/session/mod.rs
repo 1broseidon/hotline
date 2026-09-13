@@ -499,6 +499,9 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
+    /// The phones paired with this desk, told when a reply lands or a card
+    /// needs the person.
+    push: crate::push::Push,
     /// One container per teammate, tokens in process state.
     computers: Computer,
     /// Serializes policy changes across sockets, including the interval from
@@ -542,6 +545,7 @@ impl Room {
         keys: Arc<dyn ProviderKeys>,
         agents: Arc<dyn Agents>,
     ) -> Arc<Self> {
+        let push = crate::push::Push::new(log.root());
         let indexer = match Indexer::open(&log) {
             Ok(indexer) => Some(indexer),
             Err(error) => {
@@ -564,6 +568,7 @@ impl Room {
             schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
+            push,
             computers: Computer::new(),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
@@ -1503,6 +1508,8 @@ impl Room {
                 note: None,
             },
         );
+        self.push
+            .notify(&self.needs_you(persona_id), &reason, persona_id);
         let answer = tokio::select! {
             answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
             _ = tokio::time::sleep(deadline) => {
@@ -2226,8 +2233,38 @@ impl Room {
             self.fail_in_flight(session, in_flight);
             self.checkpoint(session);
         }
+        // A phone hears a reply the moment it lands, and a question the
+        // agent cannot go on without. A quiet schedule's reply is demoted to
+        // a thought and says nothing anywhere.
+        let glance = match &update {
+            Update::Message {
+                kind: MessageKind::Agent,
+                text,
+                ..
+            } if !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()) => Some((
+                self.persona(&session.persona_id)
+                    .map(|persona| persona.name)
+                    .unwrap_or_else(|_| "Toad".to_string()),
+                text.clone(),
+            )),
+            Update::Permission { title, .. } => {
+                Some((self.needs_you(&session.persona_id), title.clone()))
+            }
+            _ => None,
+        };
         for event in event_of(update, in_flight) {
             self.append(session, event);
+        }
+        if let Some((title, body)) = glance {
+            self.push.notify(&title, &body, &session.persona_id);
+        }
+    }
+
+    /// The title of a notification about a card: the teammate needs you.
+    fn needs_you(&self, persona_id: &str) -> String {
+        match self.persona(persona_id) {
+            Ok(persona) => format!("{} needs you", persona.name),
+            Err(_) => "Toad needs you".to_string(),
         }
     }
 

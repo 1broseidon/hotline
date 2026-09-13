@@ -138,6 +138,10 @@ export function Transcript({
 		// The scroll listener above is enough while the events are the same.
 	}, [empty]);
 
+	// Hooks before the empty-state return, so their order never changes.
+	const arrived = toBlocks(events, streaming);
+	const hidden = useCadence(personaId, arrived);
+
 	if (empty) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
@@ -148,8 +152,6 @@ export function Transcript({
 		);
 	}
 
-	const arrived = toBlocks(events, streaming);
-	const hidden = useCadence(personaId, arrived);
 	const blocks = hidden.size === 0 ? arrived : arrived.filter((block) => !(block.kind === "event" && hidden.has(block.event.id)));
 	const activity = live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null;
 	// Which side each block speaks from, with the machinery between two

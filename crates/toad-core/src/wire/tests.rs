@@ -1344,11 +1344,10 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
 }
 
-/// What a phone may decide is what the person would decide anywhere: that
-/// they did the thing they were asked to do, and how the teammate thinks.
-/// What a teammate is allowed to do stays at the desk.
+/// A phone answers what a teammate is waiting on and sets how it thinks.
+/// What it may reach, and any standing posture, stay at the desk.
 #[test]
-fn the_phone_seat_answers_for_the_person_but_never_for_the_policy() {
+fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
     let persona_id = "ada".to_string();
     assert!(Seat::Phone.permits(&Command::HumanAnswer {
         persona_id: persona_id.clone(),
@@ -1365,13 +1364,13 @@ fn the_phone_seat_answers_for_the_person_but_never_for_the_policy() {
         config_id: "effort".to_string(),
         value: "high".to_string(),
     }));
-    // A permission card is a decision about what the teammate may do, and a
-    // harness mode is the same decision by another name.
-    assert!(!Seat::Phone.permits(&Command::SessionAnswerPermission {
+    // One answer to one request, wherever the person is standing.
+    assert!(Seat::Phone.permits(&Command::SessionAnswerPermission {
         persona_id: persona_id.clone(),
         request_id: "req".to_string(),
         option_id: "allow".to_string(),
     }));
+    // A standing grant is a different thing, and a harness mode is one.
     assert!(!Seat::Phone.permits(&Command::SessionSetMode {
         persona_id: persona_id.clone(),
         mode_id: "bypassPermissions".to_string(),

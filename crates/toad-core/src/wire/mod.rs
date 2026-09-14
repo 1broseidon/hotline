@@ -312,15 +312,19 @@ impl Seat {
     pub fn permits(&self, command: &Command) -> bool {
         match self {
             Seat::Desk => true,
-            // A phone may look at a teammate's computer and stop it; removing
-            // one destroys its state and stays a desk decision. So does every
-            // decision about what a teammate is allowed to do: a permission
-            // card, a teammate's reach and tools, and a harness mode, which
-            // for some harnesses is the permission posture wearing a config's
-            // clothes. Answering `request_human` is not one of those — it is
-            // the person saying they did the thing they were asked to do.
-            // Which model and how hard it thinks are settings, not policy;
-            // `session.set_config` is narrowed to effort where it is served.
+            // A phone answers for the person: a permission card and a
+            // `request_human` card are both a teammate waiting on someone,
+            // and waiting until they are back at a desk is the whole problem.
+            // Which model and how hard it thinks are settings the person
+            // owns anywhere.
+            //
+            // What stays at the desk is the standing grant rather than the
+            // single answer: how far a teammate reaches, which tools and
+            // servers it has, whether it keeps a computer — all of that is
+            // `persona.update`. A harness mode goes with them, because for
+            // some harnesses the mode is the standing permission posture
+            // under another name, and `session.set_config` is narrowed to
+            // effort for the same reason.
             Seat::Phone => matches!(
                 command,
                 Command::MobilePrompt { .. }
@@ -328,6 +332,7 @@ impl Seat {
                     | Command::MobilePushRegister { .. }
                     | Command::SessionCancel { .. }
                     | Command::HumanAnswer { .. }
+                    | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }
                     | Command::SessionSetConfig { .. }
                     | Command::ComputerStatus { .. }

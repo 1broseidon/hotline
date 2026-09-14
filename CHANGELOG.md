@@ -7,6 +7,44 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-14
+
+### Added
+- On macOS, a teammate on workspace reach now has a confined shell too.
+  The shell runs under a default-deny Seatbelt policy with a private home,
+  scratch and caches, no host environment, and the installed toolchains
+  read-only; it is only offered once a probe has shown the policy is
+  really enforced. Network stays on, as on Linux.
+- A failed turn shows a short card saying what went wrong, with the
+  provider's own details a click away instead of a wall of JSON.
+- `docs/security.md` is the standing method for any change to what a
+  teammate can reach, and the index of the tests that prove each boundary.
+
+### Changed
+- A model request that fails for a passing reason (a dropped connection,
+  throttling, a provider outage) is retried with backoff, and Stop still
+  works while it waits. What the turn had already done is kept: completed
+  tool calls and their results stay, and a message you sent while it was
+  failing is not lost. A request the provider refuses, or a switch of
+  model or provider mid-conversation, starts a fresh continuation from
+  the facts instead of replaying history the new model cannot read.
+- A chapter closes before the model's context limit, including between
+  tool rounds, so a long turn no longer dies on context length.
+- A teammate on an external harness whose child died or forgot its
+  session gets a fresh one on your next message, after the old child is
+  shut down, with a fresh briefing.
+- Photos attached to a message are checked and resized off the runtime
+  thread to at most 2000 px and 1 MiB each, within one budget for the
+  whole request. A photo that cannot be read, including HEIC, goes to the
+  model as a path with a note saying why.
+
+### Fixed
+- On Linux, a Rust toolchain installed through rustup works in the
+  confined shell again: its metadata is written to the private home
+  instead of the read-only host installation.
+- A background runner that vanishes is reported as an unknown outcome,
+  not as still running, and its result is written down once.
+
 ## [0.10.2] - 2026-09-14
 
 ### Changed

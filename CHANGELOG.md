@@ -7,6 +7,18 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-09-14
+
+### Changed
+- A message appears the moment you send it. The core writes the line only
+  once a session is up, and starting one is a second or two in which the
+  composer has already emptied and nothing has appeared. The window draws
+  the line itself until the core's own replaces it.
+
+### Fixed
+- A refused message no longer disappears. Its words and files go back to
+  the composer, the reply it answered is restored, and the band says why.
+
 ## [0.10.1] - 2026-09-14
 
 ### Fixed

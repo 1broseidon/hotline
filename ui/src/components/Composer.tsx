@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
+import type { Refill } from "./Conversation";
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
 import { pickFiles } from "../native";
 
@@ -37,6 +38,7 @@ export function Composer({
 	state,
 	replyQuote,
 	onSend,
+	refill,
 	onStart,
 	onCancel,
 	onClearReply,
@@ -46,6 +48,8 @@ export function Composer({
 	state: SessionState;
 	replyQuote: string | null;
 	onSend(text: string, attachments: Attachment[]): void;
+	/** Words a refused send handed back; a new nonce fills the field again. */
+	refill?: Refill;
 	onStart(): void;
 	onCancel(): void;
 	onClearReply(): void;
@@ -128,6 +132,17 @@ export function Composer({
 		setAttachments([]);
 		onSend(trimmed, sending);
 	};
+
+	// A refused send hands its words back. Keyed by the moment they were sent,
+	// so the same words can come back twice and still fill the field.
+	const filled = useRef(0);
+	useEffect(() => {
+		if (refill === undefined || refill.nonce === filled.current) return;
+		filled.current = refill.nonce;
+		setText(refill.text);
+		setAttachments(refill.attachments);
+		area.current?.focus();
+	}, [refill]);
 
 	const attach = async () => {
 		const paths = await pickFiles();

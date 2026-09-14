@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -29,6 +29,12 @@ import { Transcript, type ReplyTarget } from "./Transcript";
  * while they work, and a message to a resting teammate starts the session
  * on its way. Stopping is the one deliberate act, under More.
  */
+/** A message on screen before the core has written it down. */
+type Saying = { text: string; at: number; replyTo?: string };
+
+/** The words and files a refused send hands back to the composer. */
+export type Refill = { text: string; attachments: Attachment[]; nonce: number };
+
 export function Conversation({
 	entry,
 	roster,
@@ -66,40 +72,81 @@ export function Conversation({
 	const personaId = persona.id;
 	const { events, streaming } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
-	const [chapterSaid, setChapterSaid] = useState<string | null>(null);
+	/* What was said, from the moment it was said. The core writes the line
+	 * only once a session is up, and starting one is a second or two in which
+	 * a composer that has already emptied looks like it did nothing. */
+	const [saying, setSaying] = useState<Saying | null>(null);
+	const [refill, setRefill] = useState<Refill | null>(null);
+	/* A refusal the core handed up: a chapter that would not open, a message
+	 * that would not send. The band is the one place with room for a sentence. */
+	const [refused, setRefused] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
-			void wire.command("session.prompt", {
-				personaId,
-				text,
-				...(replying ? { replyTo: replying.eventId } : {}),
-				...(attachments.length > 0 ? { attachments } : {}),
-			});
+			const answered = replying;
+			const at = Date.now();
+			setSaying({ text, at, ...(answered ? { replyTo: answered.eventId } : {}) });
 			setReplying(null);
+			void wire
+				.command("session.prompt", {
+					personaId,
+					text,
+					...(answered ? { replyTo: answered.eventId } : {}),
+					...(attachments.length > 0 ? { attachments } : {}),
+				})
+				.then(
+					() => setSaying(null),
+					(error: unknown) => {
+						// Nothing was said after all: the words go back where
+						// they came from, with what was attached to them.
+						setSaying(null);
+						setRefill({ text, attachments, nonce: at });
+						if (answered) setReplying(answered);
+						setRefused(error instanceof Error ? error.message : String(error));
+					},
+				);
 		},
 		[personaId, replying],
 	);
+	/* The line the core will write, standing in until it does: the same words
+	 * at or after the moment they were sent. */
+	const shown = useMemo(() => {
+		if (!saying) return events;
+		const landed = events.some(
+			(event) => event.kind === "user" && event.ts >= saying.at - 1000 && event.text === saying.text,
+		);
+		if (landed) return events;
+		return [
+			...events,
+			{
+				kind: "user" as const,
+				id: `saying:${saying.at}`,
+				ts: saying.at,
+				text: saying.text,
+				...(saying.replyTo !== undefined ? { replyTo: saying.replyTo } : {}),
+			},
+		];
+	}, [events, saying]);
 	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
 	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
 	/* Success is the tape: the marker is superseded in place and the title
 	 * lands on its line. Only a refusal needs a sentence here. */
 	const startChapter = useCallback(() => {
-		setChapterSaid(null);
+		setRefused(null);
 		setChapterBusy(true);
 		void wire
 			.command("chapter.start_fresh", { personaId })
-			.catch((error: Error) => setChapterSaid(error.message))
+			.catch((error: Error) => setRefused(error.message))
 			.finally(() => setChapterBusy(false));
 	}, [personaId]);
 	const resumeChapter = useCallback(() => {
-		setChapterSaid(null);
+		setRefused(null);
 		setChapterBusy(true);
 		void wire
 			.command("chapter.resume", { personaId })
-			.catch((error: Error) => setChapterSaid(error.message))
+			.catch((error: Error) => setRefused(error.message))
 			.finally(() => setChapterBusy(false));
 	}, [personaId]);
 	const resumeBlocked = resumeRefusal(events, persona.backendId);
@@ -163,7 +210,7 @@ export function Conversation({
 		session.error !== undefined && session.error !== ""
 			? session.error
 			: (said ??
-				chapterSaid ??
+				refused ??
 				(resumeBlocked !== null && resumeBlocked !== "There is no previous chapter to reopen."
 					? resumeBlocked
 					: null));
@@ -235,7 +282,7 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
-					events={events}
+					events={shown}
 					streaming={streaming}
 					live={session.state === "thinking"}
 					focus={focus}
@@ -254,6 +301,7 @@ export function Conversation({
 					state={session.state}
 					replyQuote={replying?.text ?? null}
 					onSend={send}
+					{...(refill !== null ? { refill } : {})}
 					onStart={start}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}

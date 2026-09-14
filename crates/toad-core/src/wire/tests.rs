@@ -1370,6 +1370,11 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
         request_id: "req".to_string(),
         option_id: "allow".to_string(),
     }));
+    // What a resting teammate could be set to is a list, not a grant.
+    assert!(Seat::Phone.permits(&Command::ModelsList {}));
+    assert!(Seat::Phone.permits(&Command::ModelsEfforts {
+        model_id: "anthropic/claude".to_string(),
+    }));
     // A standing grant is a different thing, and a harness mode is one.
     assert!(!Seat::Phone.permits(&Command::SessionSetMode {
         persona_id: persona_id.clone(),

@@ -7,6 +7,13 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-14
+
+### Fixed
+- A phone can choose a model and effort for a teammate whose session is
+  resting. A resting session reports neither, so the phone now reads what
+  this desk can reach the way the window does.
+
 ## [0.10.0] - 2026-09-14
 
 ### Added

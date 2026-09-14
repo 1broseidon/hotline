@@ -325,6 +325,10 @@ impl Seat {
             // some harnesses the mode is the standing permission posture
             // under another name, and `session.set_config` is narrowed to
             // effort for the same reason.
+            //
+            // A resting teammate's session reports no models and no configs,
+            // so a phone reads what this desk can reach the way the window
+            // does. Both are lists of what exists, not grants of anything.
             Seat::Phone => matches!(
                 command,
                 Command::MobilePrompt { .. }
@@ -335,6 +339,8 @@ impl Seat {
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }
                     | Command::SessionSetConfig { .. }
+                    | Command::ModelsList { .. }
+                    | Command::ModelsEfforts { .. }
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
             ),

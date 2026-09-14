@@ -17,6 +17,8 @@
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 
 use super::{ToolError, Workspace};
 use crate::contract::Reach;
@@ -28,6 +30,23 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
+
+// Rustup writes update hashes even when using an installed toolchain. Keep
+// that metadata private while linking the read-only installed toolchains.
+// Both launchers execute this only after the filesystem boundary is active.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const RUSTUP_SETUP: &str = r#"
+if [ -n "${TOAD_INSTALLED_RUSTUP:-}" ]; then
+    mkdir -p -- "$RUSTUP_HOME" || exit
+    if [ ! -e "$RUSTUP_HOME/settings.toml" ]; then
+        cp "$TOAD_INSTALLED_RUSTUP/settings.toml" "$RUSTUP_HOME/settings.toml" || exit
+    fi
+    if [ ! -e "$RUSTUP_HOME/toolchains" ]; then
+        ln -s "$TOAD_INSTALLED_RUSTUP/toolchains" "$RUSTUP_HOME/toolchains" || exit
+    fi
+fi
+unset TOAD_INSTALLED_RUSTUP
+"#;
 
 /// Why the ledger omits `shell` when Linux cannot confine it.
 #[cfg(target_os = "linux")]
@@ -133,7 +152,7 @@ impl RunCommand {
                 "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .toad-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available."
             }
             Reach::Workspace => {
-                "Writes stay in the working directory and temporary directories; the rest of the machine is readable."
+                "The shell is isolated from unrelated host files and other workspaces, with read-only access to supported installed runtimes. HOME is .toad-home inside the workspace. Use TMPDIR for private scratch; hardcoded /tmp is not writable. Host credentials and environment variables are not inherited. Network access remains available. macOS helper services and host control sockets are unavailable."
             }
             Reach::Machine => "The command runs with the teammate's whole-machine reach.",
         }
@@ -259,7 +278,7 @@ fn workspace_shell_on_path(path: Option<&std::ffi::OsStr>) -> Result<(), String>
     #[cfg(target_os = "macos")]
     {
         let _ = path;
-        Ok(())
+        macos::available()
     }
     #[cfg(target_os = "windows")]
     {
@@ -306,21 +325,7 @@ fn confined(command: &str, workspace: &Path) -> Result<Command, String> {
 
 #[cfg(target_os = "macos")]
 fn confined(command: &str, workspace: &Path) -> Result<Command, String> {
-    let workspace = workspace.canonicalize().map_err(|error| {
-        format!(
-            "The workspace {} could not be canonicalized: {error}",
-            workspace.display()
-        )
-    })?;
-    let tmpdir = std::env::var_os("TMPDIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-    let tmpdir = tmpdir.canonicalize().unwrap_or(tmpdir);
-    let profile = macos_sandbox_profile(&workspace, &tmpdir);
-    let mut process = Command::new("sandbox-exec");
-    process.args(["-p", &profile, "sh", "-c", command]);
-    process.current_dir(&workspace);
-    Ok(process)
+    macos::command(command, workspace)
 }
 
 #[cfg(target_os = "windows")]
@@ -336,28 +341,7 @@ fn confined(_command: &str, _workspace: &Path) -> Result<Command, String> {
     )
 }
 
-/// Seatbelt profile for workspace reach. Paths are the caller's: Seatbelt
-/// matches subpaths literally, and on a Mac `/var` is `/private/var`, so
-/// `confined` canonicalizes before it asks. Compiled everywhere so the string
-/// can be tested on Linux.
-#[cfg(any(test, target_os = "macos"))]
-fn macos_sandbox_profile(workspace: &Path, tmpdir: &Path) -> String {
-    let workspace = seatbelt_path(workspace);
-    let tmpdir = seatbelt_path(tmpdir);
-    format!(
-        "(version 1) (allow default) (deny file-write*) (allow file-write* (subpath \"{workspace}\") (subpath \"/private/tmp\") (subpath \"/tmp\") (subpath \"/dev\") (subpath \"{tmpdir}\"))"
-    )
-}
-
-#[cfg(any(test, target_os = "macos"))]
-fn seatbelt_path(path: &Path) -> String {
-    path.display()
-        .to_string()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-}
-
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
 fn path_has_command(name: &str, path: Option<&std::ffi::OsStr>) -> bool {
     let Some(paths) = path else {
         return false;
@@ -487,6 +471,12 @@ mod tests {
         false
     }
 
+    #[cfg(target_os = "macos")]
+    fn skip_without_sandbox() -> bool {
+        shell_available(Reach::Workspace).expect("macOS must enforce the protected shell policy");
+        false
+    }
+
     /// A command's own children die with it. Without the group, `sleep` here
     /// outlives the shell that started it and keeps running after the agent
     /// has been told the command is over. The grandchild writes a heartbeat
@@ -528,10 +518,10 @@ mod tests {
         );
     }
 
-    /// Killing bwrap tears down its PID namespace, including a new-session child.
+    /// Linux tears down the PID namespace; macOS signals the owned process group.
     /// Wait for the child to start so a slow sandbox setup cannot turn this
     /// into a test that merely cancels the launcher before it ran anything.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
     async fn cancellation_reaches_a_started_sandbox_and_its_children() {
         if skip_without_sandbox() {
@@ -606,18 +596,6 @@ mod tests {
         };
         let output = run(workspace, command).await.unwrap();
         assert_eq!(output, body);
-    }
-
-    #[test]
-    fn macos_profile_string_is_the_seatbelt_wall() {
-        let profile = macos_sandbox_profile(
-            Path::new("/Users/me/proj"),
-            Path::new("/private/var/folders/xx/T"),
-        );
-        assert_eq!(
-            profile,
-            "(version 1) (allow default) (deny file-write*) (allow file-write* (subpath \"/Users/me/proj\") (subpath \"/private/tmp\") (subpath \"/tmp\") (subpath \"/dev\") (subpath \"/private/var/folders/xx/T\"))"
-        );
     }
 
     #[cfg(target_os = "linux")]
@@ -720,7 +698,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
     async fn workspace_reach_refuses_reads_outside_even_from_child_processes() {
         if skip_without_sandbox() {
@@ -777,7 +755,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
     async fn workspace_shell_has_a_private_persistent_home_and_no_host_environment() {
         if skip_without_sandbox() {
@@ -814,7 +792,7 @@ mod tests {
         assert!(finished_ok(&output), "{output}");
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
     async fn a_private_home_symlink_cannot_create_files_outside() {
         if skip_without_sandbox() {
@@ -834,7 +812,7 @@ mod tests {
         assert!(!target.exists());
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
     async fn workspace_shell_runs_installed_toolchains() {
         if skip_without_sandbox() {
@@ -863,6 +841,11 @@ mod tests {
             ("rustc", "rustc main.rs -o app && ./app", "rust-ok"),
         ] {
             if !path_has_command(tool, std::env::var_os("PATH").as_deref()) {
+                continue;
+            }
+            #[cfg(target_os = "macos")]
+            if !macos::supported_tool_on_path(tool) {
+                eprintln!("{tool} is not installed in a supported macOS runtime layout");
                 continue;
             }
             let output = RunCommand::new(workspace(root.path(), Reach::Workspace))

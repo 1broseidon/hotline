@@ -243,7 +243,7 @@ export function Teammate({
 							{toad ? (
 								<SwitchRow
 									title="Whole machine"
-									about="Tools may read, change and run anything this account can, not just the working directory. It may also hand work to other teammates without asking."
+									about="On gives built-in tools this account's full access and lets it delegate without asking. Off isolates supported built-in tools from unrelated host files and other workspaces, except installed runtimes. Network and granted MCP access remain available."
 									checked={persona.reach === "machine"}
 									disabled={busy}
 									onChange={(on) => save({ reach: on ? "machine" : "workspace" })}

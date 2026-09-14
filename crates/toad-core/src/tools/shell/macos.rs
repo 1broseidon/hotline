@@ -24,6 +24,10 @@ pub(super) fn command(command: &str, workspace: &Path) -> Result<Command, String
         ("HOME", home.clone().into_os_string()),
         ("TMPDIR", home.join(".tmp").into_os_string()),
         ("LANG", "en_US.UTF-8".into()),
+        // Homebrew OpenSSL otherwise reads prefix/etc, which can hold secrets.
+        // Built-in providers and the public system CA bundle are sufficient.
+        ("OPENSSL_CONF", "/dev/null".into()),
+        ("SSL_CERT_FILE", "/private/etc/ssl/cert.pem".into()),
     ];
     for (name, relative) in [
         ("XDG_CACHE_HOME", ".cache"),
@@ -285,7 +289,9 @@ fn profile(workspace: &Path, runtimes: &[PathBuf]) -> String {
     (global-name "com.apple.system.logger")
     (global-name "com.apple.system.opendirectoryd.libinfo")
     (global-name "com.apple.SystemConfiguration.configd")
-    (global-name "com.apple.mDNSResponder"))
+    (global-name "com.apple.mDNSResponder")
+    ; Go uses SecTrustEvaluate for HTTPS. This is not the securityd keychain service.
+    (global-name "com.apple.trustd.agent"))
 ; dyld reads / itself; this does not grant its descendants.
 (allow file-read* (literal "/"))
 (allow file-read-metadata (literal "/var") (literal "/tmp") (literal "/etc"))
@@ -371,6 +377,23 @@ mod tests {
             std::fs::remove_file(workspace.join("absolute")).unwrap();
             std::fs::remove_file(workspace.join("relative")).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn host_process_environment_and_signals_are_not_available() {
+        let root = tempfile::tempdir().unwrap();
+        let mut host = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .env("TOAD_HOST_CANARY", "host-process-secret")
+            .spawn()
+            .unwrap();
+        let pid = host.id();
+        let read = output(root.path(), &format!("/bin/ps eww -p {pid}")).await;
+        let signal = output(root.path(), &format!("kill -0 {pid}")).await;
+        let _ = host.kill();
+        let _ = host.wait();
+        assert!(!String::from_utf8_lossy(&read.stdout).contains("host-process-secret"));
+        assert!(!signal.status.success(), "{signal:?}");
     }
 
     #[tokio::test]
@@ -463,8 +486,33 @@ mod tests {
     #[ignore = "requires public DNS and HTTPS"]
     async fn public_dns_and_https_remain_available() {
         let root = tempfile::tempdir().unwrap();
-        let result = output(root.path(), "/usr/bin/curl --max-time 15 --cacert /private/etc/ssl/cert.pem -fsS https://example.com").await;
+        let result = output(
+            root.path(),
+            "/usr/bin/curl --max-time 15 -fsS https://example.com",
+        )
+        .await;
         assert!(result.status.success(), "{result:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires public package registries"]
+    async fn package_downloads_use_private_caches() {
+        let root = tempfile::tempdir().unwrap();
+        for (tool, script, cache) in [
+            ("npm", "npm view is-number version", ".cache/npm"),
+            (
+                "go",
+                "go mod init example.com/smoke && go get golang.org/x/text@v0.3.8",
+                "go/pkg/mod",
+            ),
+        ] {
+            if !supported_tool_on_path(tool) {
+                continue;
+            }
+            let result = output(root.path(), script).await;
+            assert!(result.status.success(), "{tool}: {result:?}");
+            assert!(root.path().join(".toad-home").join(cache).exists());
+        }
     }
 
     #[tokio::test]

@@ -35,7 +35,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            patchelf build-essential libssl-dev libdbus-1-dev bubblewrap
+            patchelf build-essential libssl-dev libdbus-1-dev bubblewrap golang-go
           # Ubuntu restricts user namespaces unless the executable has an
           # AppArmor profile. This grant is confined to the disposable runner.
           sudo tee /etc/apparmor.d/toad-ci-bwrap >/dev/null <<'PROFILE'
@@ -47,6 +47,8 @@ jobs:
           PROFILE
           sudo apparmor_parser -r /etc/apparmor.d/toad-ci-bwrap
           bwrap --ro-bind / / --unshare-pid /bin/true
+          # Test the supported system layout, not the runner's tool-cache Go.
+          dirname "$(readlink -f /usr/bin/go)" >> "$GITHUB_PATH"
       - name: Install supported macOS runtimes
         if: runner.os == 'macOS'
         run: |

@@ -271,6 +271,8 @@ outside the allowlist. Canonical installation roots are required: redirecting
 one to another project does not expose that project. Arbitrary PATH entries do
 not grant access on macOS; unsupported tools should be installed inside the
 workspace. Installations are trusted code locations, not places for secrets.
+OpenSSL uses its built-in providers with an empty configuration and the public
+system CA bundle; host Homebrew `etc` is not exposed for TLS configuration.
 Rustup metadata is copied to the private home on first use; installed toolchains
 are linked read-only. Cargo, npm, Go and XDG caches use the private home.
 
@@ -279,7 +281,7 @@ macOS scratch is `.toad-home/.tmp`, available as `TMPDIR`. Programs that hardcod
 Seatbelt, including home and scratch creation, so hostile symlinks cannot make
 the core write outside. Descendants inherit the policy. AppleEvents,
 LaunchServices, launchd control, arbitrary Mach services, and Unix control sockets
-are denied; only named logging, directory and network configuration services and
+are denied; only named logging, directory, certificate trust and network configuration services and
 the system DNS socket are permitted. IP networking remains enabled. There is no Linux mount or PID
 namespace: root directory names and required ancestor metadata can remain
 visible, and cancellation uses the existing process group, not a PID namespace.
@@ -306,7 +308,10 @@ another project's `.env` and checks the live session's tool ledger. Linux tests
 require working bubblewrap; macOS isolation tests fail rather than skip if
 Seatbelt cannot enforce the policy. Mac-specific tests exercise hostile home
 and scratch symlinks, shared temporary files, helper services, Unix sockets,
-and missing or ineffective launchers.
+and missing or ineffective launchers. The explicit network smoke tests
+(`cargo test --workspace tools::shell::macos::tests -- --ignored`) additionally
+check public DNS/HTTPS and npm/Go downloads into private caches; they require
+access to public package registries.
 
 On Ubuntu 24.04 and later, `bwrap: setting up uid map: Permission denied`
 means the kernel's `apparmor_restrict_unprivileged_userns` is on. Ubuntu's

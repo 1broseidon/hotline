@@ -7,7 +7,23 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
-## [0.9.1] - 2026-09-14
+## [0.10.0] - 2026-09-14
+
+### Added
+- A phone can answer what a teammate is waiting on. Both kinds of card —
+  a permission request and a `request_human` — are answered from the
+  phone, with the options the desk worded and a place to type whatever
+  goes back to the teammate. Which model answers and how hard it thinks
+  can be set from the phone too, and the choice is kept on the teammate's
+  record as it is at the desk.
+- The agent can react to your last message with one emoji instead of
+  replying, when a reaction says everything a reply would.
+
+### Unchanged on purpose
+- What a teammate is allowed to do is still decided at the desk: how far
+  it reaches, which tools and servers it has, whether it keeps a
+  computer, and a harness mode, which for some harnesses is that standing
+  posture under another name.
 
 ### Fixed
 - A reply that is only a reaction no longer ends with "Turn failed: The

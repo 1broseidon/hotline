@@ -33,10 +33,13 @@ These come over as ideas and, where the code was already Rust, as code.
   conversation; *Fresh* means it is reading saved history. Never pretend.
 - **Reach, not approval cards, for the built-in agent.** A teammate's one
   policy is binary: its working directory is a wall, or the whole machine is
-  open. An agent is there to go and do things. On Linux the built-in shell
+  open. An agent is there to go and do things. On Linux and macOS the built-in shell
   exposes selected host toolchains read-only, without exposing other host data;
   its persistent home lives inside the workspace. Network access and granted
   integrations remain separate capabilities (see [sessions](sessions.md)).
+  macOS uses default-deny Seatbelt with an enforcement probe and private TMPDIR,
+  without claiming Linux mount/PID namespace parity. Its deprecated launcher
+  and undocumented policy language require platform regression testing.
 - **Collaboration crosses a capability boundary by explicit direction.** A
   Whole machine Toad Agent may ask a colleague without another card. A
   workspace caller first asks the operator for a recipient-specific session

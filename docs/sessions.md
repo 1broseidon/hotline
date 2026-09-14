@@ -229,7 +229,7 @@ puts in that workspace.
 | OS | workspace reach |
 | --- | --- |
 | Linux | System `bwrap` starts from an empty filesystem. System binary, library, header, and shared-runtime directories are mounted read-only, including their `/usr/local` counterparts and Go/Swift installations. Other system trees such as `/usr/local/src` stay hidden. Selected toolchain installations and public configuration are added, then the writable workspace. `/tmp`, `/dev`, and `/proc` are private; PID and IPC namespaces isolate host processes. A missing or unusable sandbox omits the tool and the ledger says why. |
-| macOS | The existing `sandbox-exec` profile confines writes but still permits host reads. It does **not** provide Linux's read isolation. Built, unproven on a Mac until George runs it. |
+| macOS | System `/usr/bin/sandbox-exec` applies a default-deny Seatbelt policy. The workspace is writable; selected runtimes are read-only. Other host files and workspaces are inaccessible. HOME and TMPDIR are private workspace directories. An enforcement probe must demonstrate allowed workspace access and denied outside reads/writes before the ledger offers the shell. |
 | Windows | No confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
 
 On Windows, shell commands, ACP agents and stdio MCP servers start suspended,
@@ -238,7 +238,7 @@ the job cleans up descendants as well as the direct child. A job controls
 process lifetime; it does not provide workspace confinement.
 
 
-On Linux, `.toad-home/` inside the workspace is the shell's persistent `HOME`,
+On Linux and macOS, `.toad-home/` inside the workspace is the shell's persistent `HOME`,
 with private XDG and Cargo directories. It is created inside the sandbox so a
 project-controlled symlink cannot make Toad write outside. Workspaces do not
 share these caches; teammates deliberately using the same workspace do.
@@ -249,18 +249,53 @@ Supported runtime layouts include Linuxbrew's `Cellar`, `opt`, binary, library,
 and share directories; Cargo binaries and Rustup toolchains/settings; nvm's
 Node versions; pyenv's versions, shims and runtime; mise installs/shims; uv's
 Python installations; and Bun binaries. Home toolchain roots redirected by
-symlink are not automatically mounted. Rustup uses the installed toolchains
-read-only while Cargo writes into the private home. The system configuration
+symlink are not automatically mounted. Rustup copies its initial settings to
+the private home and links installed toolchains read-only; update hashes and
+Cargo caches remain private. The system configuration
 mounts are the loader cache, alternatives, public CA certificates, DNS/hosts,
 NSS configuration, and timezone file, not all of `/etc`.
 
-For other absolute `PATH` entries, standalone executable ELF files and scripts
+On Linux, for other absolute `PATH` entries, standalone executable ELF files and scripts
 with a shebang are mounted individually. This exposes executable code, not the
 parent directory: a neighboring `.env` stays hidden. A tool with additional
 resources in an unsupported location may fail; Toad never exposes its entire
 parent directory to make it work. Install that tool and its dependencies inside
 the workspace when its layout is unsupported. Runtime installations are trusted
 code locations and should not contain project secrets.
+
+On macOS, runtime exceptions cover system executables, libraries and frameworks,
+Command Line Tools, `/Applications/Xcode.app` and versioned `Xcode_<version>.app`
+bundles in `/Applications`, Homebrew runtime directories under
+`/opt/homebrew` and `/usr/local`, and the home toolchain layouts listed above.
+Homebrew `etc` and `var`, host Cargo credentials, and neighboring projects stay
+outside the allowlist. Canonical installation roots are required: redirecting
+one to another project does not expose that project. Arbitrary PATH entries do
+not grant access on macOS; unsupported tools should be installed inside the
+workspace. Installations are trusted code locations, not places for secrets.
+OpenSSL uses its built-in providers with an empty configuration and the public
+system CA bundle; host Homebrew `etc` is not exposed for TLS configuration.
+Rustup metadata is copied to the private home on first use; installed toolchains
+are linked read-only. Cargo, npm, Go and XDG caches use the private home.
+
+macOS scratch is `.toad-home/.tmp`, available as `TMPDIR`. Programs that hardcode
+`/tmp` instead of respecting `TMPDIR` cannot write there. Setup runs inside
+Seatbelt, including home and scratch creation, so hostile symlinks cannot make
+the core write outside. Descendants inherit the policy. AppleEvents,
+LaunchServices, launchd control, arbitrary Mach services, and Unix control sockets
+are denied; only named logging, directory, certificate trust and network configuration services and
+the system DNS socket are permitted. IP networking remains enabled. There is no Linux mount or PID
+namespace: root directory names and required ancestor metadata can remain
+visible, and cancellation uses the existing process group, not a PID namespace.
+
+Seatbelt's command-line interface is deprecated and its SBPL language is
+undocumented for third-party use; see [Apple's support guidance](https://developer.apple.com/forums/thread/661939).
+The probe fails closed if the system launcher disappears or stops enforcing the
+policy. This reduces failure risk but is not an Apple compatibility guarantee.
+Release validation must run the isolation and toolchain tests on each supported
+macOS version and architecture. BRO-14 is validated locally on macOS 26.4.1
+(25E253), Apple Silicon, and by `make check` in macOS 15 CI on both architectures.
+The PR records each runner's exact version and outcome. macOS 13/14 remain
+untested; the app's macOS 13 minimum is not proof of this policy's compatibility.
 
 Network access still uses the host network, including localhost. This is
 filesystem isolation, not network isolation: local services can expose files or
@@ -271,9 +306,14 @@ The shell tests exercise outside reads through direct paths, symlinks, child
 processes and `/proc`, clean environment, persistent private home, standalone
 PATH tools, installed Python/Node/Go/Rust, and cancellation. The desk harness
 switches reach over the wire and checks the real shell and read tool against
-another project's `.env`. Sandbox tests require Linux with working bubblewrap;
-the prerequisite probe is independent of the policy so a broken policy fails
-instead of silently skipping its tests.
+another project's `.env` and checks the live session's tool ledger. Linux tests
+require working bubblewrap; macOS isolation tests fail rather than skip if
+Seatbelt cannot enforce the policy. Mac-specific tests exercise hostile home
+and scratch symlinks, shared temporary files, helper services, Unix sockets,
+and missing or ineffective launchers. The explicit network smoke tests
+(`cargo test --workspace tools::shell::macos::tests -- --ignored`) additionally
+check public DNS/HTTPS and npm/Go downloads into private caches; they require
+access to public package registries.
 
 On Ubuntu 24.04 and later, `bwrap: setting up uid map: Permission denied`
 means the kernel's `apparmor_restrict_unprivileged_userns` is on. Ubuntu's

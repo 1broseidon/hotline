@@ -16,13 +16,11 @@ pub(super) fn command(command: &str, workspace: &Path) -> Result<Command, String
     let mut process = launcher(Some(&workspace))?;
     // Create the home *inside* the sandbox: a project-controlled symlink here
     // must never cause Toad to create directories elsewhere on the host.
-    process.args([
-        "/bin/sh",
-        "-c",
-        "mkdir -p -- \"$HOME\" && exec /bin/sh -c \"$1\"",
-        "toad-shell",
-        command,
-    ]);
+    let setup = format!(
+        "mkdir -p -- \"$HOME\" || exit; {} exec /bin/sh -c \"$1\"",
+        super::RUSTUP_SETUP
+    );
+    process.args(["/bin/sh", "-c", &setup, "toad-shell", command]);
     Ok(process)
 }
 
@@ -119,13 +117,19 @@ fn launcher_with(
         ("XDG_CONFIG_HOME", ".config"),
         ("XDG_DATA_HOME", ".local/share"),
         ("CARGO_HOME", ".cargo"),
+        ("RUSTUP_HOME", ".rustup"),
     ] {
         process.arg("--setenv").arg(name).arg(home.join(relative));
     }
     if let Some(host_home) = host_home {
         let rustup = host_home.join(".rustup");
-        if mounts.contains(&rustup.join("toolchains")) {
-            process.arg("--setenv").arg("RUSTUP_HOME").arg(rustup);
+        if mounts.contains(&rustup.join("toolchains"))
+            && mounts.contains(&rustup.join("settings.toml"))
+        {
+            process
+                .arg("--setenv")
+                .arg("TOAD_INSTALLED_RUSTUP")
+                .arg(rustup);
         }
     }
     Ok(process)

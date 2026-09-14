@@ -1344,6 +1344,80 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
 }
 
+/// What a phone may decide is what the person would decide anywhere: that
+/// they did the thing they were asked to do, and how the teammate thinks.
+/// What a teammate is allowed to do stays at the desk.
+#[test]
+fn the_phone_seat_answers_for_the_person_but_never_for_the_policy() {
+    let persona_id = "ada".to_string();
+    assert!(Seat::Phone.permits(&Command::HumanAnswer {
+        persona_id: persona_id.clone(),
+        action_id: "act".to_string(),
+        status: crate::contract::HumanAnswer::Done,
+        note: None,
+    }));
+    assert!(Seat::Phone.permits(&Command::SessionSetModel {
+        persona_id: persona_id.clone(),
+        model_id: "anthropic/claude".to_string(),
+    }));
+    assert!(Seat::Phone.permits(&Command::SessionSetConfig {
+        persona_id: persona_id.clone(),
+        config_id: "effort".to_string(),
+        value: "high".to_string(),
+    }));
+    // A permission card is a decision about what the teammate may do, and a
+    // harness mode is the same decision by another name.
+    assert!(!Seat::Phone.permits(&Command::SessionAnswerPermission {
+        persona_id: persona_id.clone(),
+        request_id: "req".to_string(),
+        option_id: "allow".to_string(),
+    }));
+    assert!(!Seat::Phone.permits(&Command::SessionSetMode {
+        persona_id: persona_id.clone(),
+        mode_id: "bypassPermissions".to_string(),
+    }));
+    assert!(!Seat::Phone.permits(&Command::PersonaUpdate {
+        id: persona_id,
+        patch: Default::default(),
+    }));
+}
+
+/// The seat lets `session.set_config` through, so the narrowing happens where
+/// the categories are known: effort is the one a phone may set, whatever a
+/// harness happens to call it, and anything else a harness serves is not.
+#[test]
+fn only_a_config_the_session_calls_effort_is_a_phones_to_set() {
+    use crate::contract::{SessionConfig, SessionConfigCategory};
+    let room = Arc::new(Quiet::new());
+    let mut info = idle("ada");
+    info.configs = vec![
+        SessionConfig {
+            id: "reasoning".to_string(),
+            name: "Reasoning".to_string(),
+            category: Some(SessionConfigCategory::Effort),
+            current_id: Some("high".to_string()),
+            options: Vec::new(),
+        },
+        SessionConfig {
+            id: "approval".to_string(),
+            name: "Approvals".to_string(),
+            category: None,
+            current_id: Some("ask".to_string()),
+            options: Vec::new(),
+        },
+    ];
+    room.set_info(info);
+    let handle: Arc<dyn RoomHandle> = room;
+    assert!(super::effort_config(&handle, "ada", "reasoning"));
+    assert!(!super::effort_config(&handle, "ada", "approval"));
+    assert!(!super::effort_config(
+        &handle,
+        "ada",
+        "nothing-by-that-name"
+    ));
+    assert!(!super::effort_config(&handle, "bob", "reasoning"));
+}
+
 /// A frame the phone can afford travels as a small JPEG; one it cannot
 /// decode is stripped as before, and text is untouched either way.
 #[test]

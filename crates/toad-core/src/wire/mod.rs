@@ -25,8 +25,8 @@
 //! teammate and then subscribes must see it.
 
 use crate::contract::{
-    Command, Preview, RosterEntry, SessionInfo, SessionState, StreamDelta, Target, ToolStatus,
-    TranscriptEvent, ViewName,
+    Command, Preview, RosterEntry, SessionConfigCategory, SessionInfo, SessionState, StreamDelta,
+    Target, ToolStatus, TranscriptEvent, ViewName,
 };
 use crate::log::{Log, StreamId};
 use crate::store::previews;
@@ -313,13 +313,23 @@ impl Seat {
         match self {
             Seat::Desk => true,
             // A phone may look at a teammate's computer and stop it; removing
-            // one destroys its state and stays a desk decision.
+            // one destroys its state and stays a desk decision. So does every
+            // decision about what a teammate is allowed to do: a permission
+            // card, a teammate's reach and tools, and a harness mode, which
+            // for some harnesses is the permission posture wearing a config's
+            // clothes. Answering `request_human` is not one of those — it is
+            // the person saying they did the thing they were asked to do.
+            // Which model and how hard it thinks are settings, not policy;
+            // `session.set_config` is narrowed to effort where it is served.
             Seat::Phone => matches!(
                 command,
                 Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
                     | Command::MobilePushRegister { .. }
                     | Command::SessionCancel { .. }
+                    | Command::HumanAnswer { .. }
+                    | Command::SessionSetModel { .. }
+                    | Command::SessionSetConfig { .. }
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
             ),
@@ -691,6 +701,19 @@ async fn answer(
                     (Command::MobilePushRegister { token, platform }, Some(phone)) => {
                         phone.register_push(token.clone(), platform.clone())
                     }
+                    // A harness may serve anything it likes as a config, and a
+                    // phone cannot know which of them decide what a teammate
+                    // may do. Only the one the contract names is allowed.
+                    (
+                        Command::SessionSetConfig {
+                            persona_id,
+                            config_id,
+                            ..
+                        },
+                        Some(_),
+                    ) if !effort_config(room, persona_id, config_id) => {
+                        Err("Change that on your desktop.".to_string())
+                    }
                     // The viewer is a loopback URL with the computer's bearer
                     // in its fragment; it never leaves this machine.
                     (Command::ComputerStatus { .. }, Some(_)) => {
@@ -889,6 +912,14 @@ fn phone_frame(data_url: &str) -> Option<String> {
 }
 
 // The phone shows a bounded recent window; full history remains on desktop.
+/// Whether this config is the one a phone may set: a model's effort, by the
+/// category the session reports rather than by the name a harness gave it.
+fn effort_config(room: &Arc<dyn RoomHandle>, persona_id: &str, config_id: &str) -> bool {
+    room.info(persona_id).configs.iter().any(|config| {
+        config.id == config_id && config.category == Some(SessionConfigCategory::Effort)
+    })
+}
+
 fn phone_event(mut event: Value) -> Value {
     let mut truncated = false;
     if let Some(text) = event.get("text").and_then(Value::as_str)

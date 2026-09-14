@@ -31,6 +31,23 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
+// Rustup writes update hashes even when using an installed toolchain. Keep
+// that metadata private while linking the read-only installed toolchains.
+// Both launchers execute this only after the filesystem boundary is active.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const RUSTUP_SETUP: &str = r#"
+if [ -n "${TOAD_INSTALLED_RUSTUP:-}" ]; then
+    mkdir -p -- "$RUSTUP_HOME" || exit
+    if [ ! -e "$RUSTUP_HOME/settings.toml" ]; then
+        cp "$TOAD_INSTALLED_RUSTUP/settings.toml" "$RUSTUP_HOME/settings.toml" || exit
+    fi
+    if [ ! -e "$RUSTUP_HOME/toolchains" ]; then
+        ln -s "$TOAD_INSTALLED_RUSTUP/toolchains" "$RUSTUP_HOME/toolchains" || exit
+    fi
+fi
+unset TOAD_INSTALLED_RUSTUP
+"#;
+
 /// Why the ledger omits `shell` when Linux cannot confine it.
 #[cfg(target_os = "linux")]
 const BWRAP_MISSING: &str = "The shell needs bubblewrap (`bwrap`) to stay inside the workspace; install it or give the teammate machine reach.";

@@ -51,12 +51,6 @@ pub(super) fn command(command: &str, workspace: &Path) -> Result<Command, String
                 "TOAD_INSTALLED_RUSTUP",
                 host_home.join(".rustup").into_os_string(),
             ));
-            setup.push_str("mkdir -p -- \"$RUSTUP_HOME\" || exit; \
-                if [ ! -e \"$RUSTUP_HOME/settings.toml\" ]; then \
-                    cp \"$TOAD_INSTALLED_RUSTUP/settings.toml\" \"$RUSTUP_HOME/settings.toml\" || exit; fi; \
-                if [ ! -e \"$RUSTUP_HOME/toolchains\" ]; then \
-                    ln -s \"$TOAD_INSTALLED_RUSTUP/toolchains\" \"$RUSTUP_HOME/toolchains\" || exit; fi; \
-                unset TOAD_INSTALLED_RUSTUP; ");
         }
         if runtimes.contains(&host_home.join(".pyenv/versions")) {
             env.push(("PYENV_ROOT", host_home.join(".pyenv").into_os_string()));
@@ -85,6 +79,7 @@ pub(super) fn command(command: &str, workspace: &Path) -> Result<Command, String
     }
     // All setup writes happen after confinement. A hostile HOME or scratch
     // symlink cannot make the unsandboxed core create a host directory.
+    setup.push_str(super::RUSTUP_SETUP);
     setup.push_str("exec /bin/sh -c \"$1\"");
     process.args(["/bin/sh", "-c", &setup, "toad-shell", command]);
     Ok(process)

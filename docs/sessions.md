@@ -249,8 +249,9 @@ Supported runtime layouts include Linuxbrew's `Cellar`, `opt`, binary, library,
 and share directories; Cargo binaries and Rustup toolchains/settings; nvm's
 Node versions; pyenv's versions, shims and runtime; mise installs/shims; uv's
 Python installations; and Bun binaries. Home toolchain roots redirected by
-symlink are not automatically mounted. Rustup uses the installed toolchains
-read-only while Cargo writes into the private home. The system configuration
+symlink are not automatically mounted. Rustup copies its initial settings to
+the private home and links installed toolchains read-only; update hashes and
+Cargo caches remain private. The system configuration
 mounts are the loader cache, alternatives, public CA certificates, DNS/hosts,
 NSS configuration, and timezone file, not all of `/etc`.
 
@@ -291,9 +292,10 @@ undocumented for third-party use; see [Apple's support guidance](https://develop
 The probe fails closed if the system launcher disappears or stops enforcing the
 policy. This reduces failure risk but is not an Apple compatibility guarantee.
 Release validation must run the isolation and toolchain tests on each supported
-macOS version and architecture. Local validation for BRO-14 uses macOS 26.4.1
-(25E253), Apple Silicon. Older macOS releases and Intel require separate runs;
-the app's existing macOS 13 minimum is not proof of this policy's compatibility.
+macOS version and architecture. BRO-14 is validated locally on macOS 26.4.1
+(25E253), Apple Silicon, and by `make check` in macOS 15 CI on both architectures.
+The PR records each runner's exact version and outcome. macOS 13/14 remain
+untested; the app's macOS 13 minimum is not proof of this policy's compatibility.
 
 Network access still uses the host network, including localhost. This is
 filesystem isolation, not network isolation: local services can expose files or

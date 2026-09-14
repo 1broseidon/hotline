@@ -4,7 +4,13 @@
 //! Steering replaces an inference attempt while preserving completed context;
 //! Stop ends the activity. Provider construction and wire formats remain Rig's.
 
+mod images;
+mod recovery;
 mod turn;
+use super::failure::{Failure, Kind};
+use images::Input;
+#[cfg(test)]
+use images::user_message;
 
 use super::{
     CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
@@ -93,6 +99,8 @@ pub enum Said {
     Agent(String),
 }
 
+type UnconsumedInputs = Vec<(String, Vec<Attachment>)>;
+
 /// Toad Agent for one teammate.
 pub struct InProcess {
     keys: Arc<dyn ProviderKeys>,
@@ -104,10 +112,12 @@ pub struct InProcess {
     /// The effort the next request will send, when the current model lists it.
     effort: Mutex<Option<String>>,
     history: Arc<AsyncMutex<Vec<Message>>>,
+    history_origin: Arc<Mutex<Option<recovery::Origin>>>,
     /// The stop for the turn in flight. A fresh one per prompt, so a stop
     /// nobody was running is not still standing over the next turn.
     stop: Mutex<Arc<Stop>>,
     steering: Mutex<Option<Arc<turn::Steering>>>,
+    unconsumed: Arc<Mutex<UnconsumedInputs>>,
     /// Directory oversized tool results are written into, one `{call id}.txt`
     /// each. Created on first use so a teammate that never overflows never
     /// gets a folder.
@@ -151,8 +161,10 @@ impl InProcess {
             model: Mutex::new(String::new()),
             effort: Mutex::new(None),
             history: Arc::new(AsyncMutex::new(history)),
+            history_origin: Arc::new(Mutex::new(None)),
             stop: Mutex::new(Arc::new(Stop::default())),
             steering: Mutex::new(None),
+            unconsumed: Arc::new(Mutex::new(Vec::new())),
             output_dir,
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
@@ -258,7 +270,7 @@ impl Driver for InProcess {
         attachments: Vec<Attachment>,
         reach: Reach,
     ) -> mpsc::Receiver<Update> {
-        let message = user_message(&text, &attachments);
+        let message = Input::Attachments(text, attachments);
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
         if let Some(capability) = &self.capability
             && let Err(error) = capability.check()
@@ -297,8 +309,13 @@ impl Driver for InProcess {
             .and_then(|model| model.output_limit);
         let turn = Turn {
             keys: self.keys.provider_auth(),
-            model,
+            model: model.clone(),
             output_limit,
+            context_limit: self
+                .keys
+                .model_metadata()
+                .get(&model)
+                .and_then(|m| m.context_limit),
             effort: lock(&self.effort).clone(),
             preamble: self.preamble.clone(),
             cwd: lock(&self.cwd).clone(),
@@ -310,19 +327,53 @@ impl Driver for InProcess {
             mcp_tools,
             capability: self.capability.clone(),
         };
+        let history_origin = self.history_origin.clone();
+        let unconsumed = self.unconsumed.clone();
         tokio::spawn(async move {
+            let origin = recovery::Origin::of(&turn.model, &turn.keys);
+            let changed = lock(&history_origin)
+                .as_ref()
+                .is_some_and(|previous| previous != &origin);
+            if changed {
+                let mut history = turn.history.lock().await;
+                *history = recovery::fresh(&history, &turn.output_dir);
+                send(&sender, Update::Notice { level: NoticeLevel::Info, text: "The model or provider connection changed. Continuing fresh from conversation and execution facts; provider-specific replay state was reset.".into() }).await;
+            }
+            *lock(&history_origin) = Some(origin);
+            let message = message.prepare(&turn.stop).await;
             let result = turn.run(&sender, message).await;
             let pending = turn.steering.close();
-            if !pending.is_empty() {
-                turn.history.lock().await.extend(pending);
+            if !turn.stop.raised.load(Ordering::SeqCst) {
+                for input in pending {
+                    if let Input::Attachments(text, attachments) = input {
+                        lock(&unconsumed).push((text, attachments));
+                    }
+                }
             }
-            if let Err(error) = result {
+            if let Err(mut error) = result {
+                for auth in turn.keys.values() {
+                    match auth {
+                        ProviderAuth::ApiKey(key)
+                        | ProviderAuth::Custom {
+                            api_key: Some(key), ..
+                        } => error.redact_value(key),
+                        _ => {}
+                    }
+                }
                 let _ = sender
                     .send(Update::Notice {
                         level: NoticeLevel::Error,
-                        text: format!("Turn failed: {error}"),
+                        text: error.notice(),
                     })
                     .await;
+                send(
+                    &sender,
+                    Update::Turn {
+                        stop_reason: "failed".into(),
+                        usage: None,
+                    },
+                )
+                .await;
             }
         });
         receiver
@@ -331,7 +382,11 @@ impl Driver for InProcess {
     fn steer(&self, text: String, attachments: Vec<Attachment>) -> bool {
         lock(&self.steering)
             .as_ref()
-            .is_some_and(|steering| steering.admit(user_message(&text, &attachments)))
+            .is_some_and(|steering| steering.admit(Input::Attachments(text, attachments)))
+    }
+
+    fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
+        std::mem::take(&mut *lock(&self.unconsumed))
     }
 
     fn cancel(&self) {
@@ -452,6 +507,7 @@ struct Turn {
     keys: HashMap<String, ProviderAuth>,
     model: String,
     output_limit: Option<u64>,
+    context_limit: Option<u64>,
     effort: Option<String>,
     preamble: String,
     cwd: PathBuf,
@@ -465,9 +521,20 @@ struct Turn {
 }
 
 impl Turn {
-    async fn run(&self, sender: &mpsc::Sender<Update>, message: Message) -> Result<(), String> {
+    async fn run(&self, sender: &mpsc::Sender<Update>, message: Message) -> Result<(), Failure> {
         // Keep admitted input even if workspace or provider construction fails.
         self.history.lock().await.push(message);
+        if self.stop.raised.load(Ordering::SeqCst) {
+            send(
+                sender,
+                Update::Turn {
+                    stop_reason: "aborted".into(),
+                    usage: None,
+                },
+            )
+            .await;
+            return Ok(());
+        }
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
@@ -840,111 +907,6 @@ fn lock<T>(held: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     held.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A picture this small, and no wider than [`MAX_IMAGE_EDGE`], goes to the
-/// model as the bytes on disk. Anything bigger is shrunk first: every
-/// provider has a ceiling (Anthropic's is 5 MB and 8000 pixels), a phone
-/// photo is past it, and the model reads a 2000-pixel frame as well as a
-/// 4000-pixel one.
-const MAX_PASSTHROUGH_IMAGE_BYTES: u64 = 1024 * 1024;
-const MAX_IMAGE_EDGE: u32 = 2000;
-/// A picture that cannot be decoded is sent as it is up to this size and
-/// otherwise stays a path; over this, no provider would take it anyway.
-const MAX_UNDECODED_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
-const SHRUNK_JPEG_QUALITY: u8 = 85;
-
-/// The message with the attached paths under it, because this agent opens a
-/// file with its read tool rather than being handed its bytes.
-fn with_paths(text: &str, attachments: &[Attachment]) -> String {
-    if attachments.is_empty() {
-        return text.to_string();
-    }
-    let paths: Vec<String> = attachments
-        .iter()
-        .map(|attachment| match inline_image(attachment) {
-            Some(Err(reason)) => format!("{} ({reason})", attachment.path),
-            _ => attachment.path.clone(),
-        })
-        .collect();
-    format!("{text}\n\nAttached files:\n{}", paths.join("\n"))
-}
-
-/// What the model is handed: the text with its paths, and every attached
-/// image as pixels. The path stays because the agent can still open the
-/// file; the pixels come along because no read tool returns them. This is
-/// the same on every provider — each takes an image block in a user
-/// message — and a model without eyes says so itself.
-fn user_message(text: &str, attachments: &[Attachment]) -> Message {
-    let mut content = vec![UserContent::text(with_paths(text, attachments))];
-    content.extend(attachments.iter().filter_map(|attachment| {
-        let (data, media_type) = inline_image(attachment)?.ok()?;
-        Some(UserContent::Image(Image {
-            data: DocumentSourceKind::Base64(data),
-            media_type,
-            detail: None,
-            additional_params: None,
-        }))
-    }));
-    Message::User { content }
-}
-
-/// The base64 of an image attachment as the model should get it, or why it
-/// stays on disk. A file that is not an image is `None`.
-fn inline_image(
-    attachment: &Attachment,
-) -> Option<Result<(String, Option<ImageMediaType>), &'static str>> {
-    if attachment.kind != AttachmentKind::Image {
-        return None;
-    }
-    let Ok(bytes) = fs::read(&attachment.path) else {
-        return Some(Err("not readable"));
-    };
-    use base64::{Engine, prelude::BASE64_STANDARD};
-    let (bytes, media_type) = match sized_for_model(&bytes) {
-        Ok(Some(shrunk)) => (shrunk, Some(ImageMediaType::JPEG)),
-        Ok(None) => (
-            bytes,
-            attachment
-                .mime_type
-                .as_deref()
-                .and_then(ImageMediaType::from_mime_type),
-        ),
-        Err(reason) => return Some(Err(reason)),
-    };
-    Some(Ok((BASE64_STANDARD.encode(bytes), media_type)))
-}
-
-/// A JPEG no wider than [`MAX_IMAGE_EDGE`] when the picture needs shrinking,
-/// `None` when the bytes can go as they are.
-fn sized_for_model(bytes: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
-    let decoded = match image::load_from_memory(bytes) {
-        Ok(decoded) => decoded,
-        Err(_) if bytes.len() as u64 <= MAX_UNDECODED_IMAGE_BYTES => return Ok(None),
-        Err(_) => return Err("too large to show, on disk only"),
-    };
-    let (width, height) = (decoded.width(), decoded.height());
-    if bytes.len() as u64 <= MAX_PASSTHROUGH_IMAGE_BYTES && width.max(height) <= MAX_IMAGE_EDGE {
-        return Ok(None);
-    }
-    let shrunk = if width.max(height) > MAX_IMAGE_EDGE {
-        decoded.resize(
-            MAX_IMAGE_EDGE,
-            MAX_IMAGE_EDGE,
-            image::imageops::FilterType::Triangle,
-        )
-    } else {
-        decoded
-    };
-    let mut out = std::io::Cursor::new(Vec::new());
-    shrunk
-        .to_rgb8()
-        .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut out,
-            SHRUNK_JPEG_QUALITY,
-        ))
-        .map_err(|_| "could not be re-encoded, on disk only")?;
-    Ok(Some(out.into_inner()))
-}
-
 /// The Rig adapter for one granted MCP tool. A transport death is already
 /// on the ledger; the notice rides this turn's update channel so the
 /// session writes it on the tape, once, without the tool knowing what a
@@ -1217,11 +1179,6 @@ mod tests {
             mime_type: None,
             size: None,
         };
-        assert_eq!(with_paths("look", &[]), "look");
-        assert_eq!(
-            with_paths("look", std::slice::from_ref(&attachment)),
-            "look\n\nAttached files:\n/tmp/note.txt"
-        );
         assert_eq!(
             user_message("look", std::slice::from_ref(&attachment)),
             Message::user("look\n\nAttached files:\n/tmp/note.txt")
@@ -1236,7 +1193,7 @@ mod tests {
         use crate::contract::AttachmentKind;
         let dir = tempfile::tempdir().unwrap();
         let png = dir.path().join("shot.png");
-        fs::write(&png, b"\x89PNG\r\n\x1a\n").unwrap();
+        image::RgbImage::new(8, 8).save(&png).unwrap();
         let image = |path: &Path| Attachment {
             kind: AttachmentKind::Image,
             name: "shot.png".to_string(),
@@ -1255,11 +1212,7 @@ mod tests {
         let UserContent::Image(sent) = &content[1] else {
             panic!("an image block");
         };
-        assert_eq!(sent.media_type, Some(ImageMediaType::PNG));
-        assert_eq!(
-            sent.data,
-            DocumentSourceKind::Base64("iVBORw0KGgo=".to_string())
-        );
+        assert_eq!(sent.media_type, Some(ImageMediaType::JPEG));
 
         // A photo-sized picture arrives as a JPEG no wider than the edge cap.
         let wide = dir.path().join("wide.png");
@@ -1288,7 +1241,7 @@ mod tests {
         assert_eq!(
             content[0],
             UserContent::text(format!(
-                "see\n\nAttached files:\n{} (not readable)",
+                "see\n\nAttached files:\n{} (not readable; on disk only)",
                 missing.path
             ))
         );
@@ -1423,6 +1376,7 @@ mod tests {
         let history = Arc::new(AsyncMutex::new(Vec::new()));
         let turn = Turn {
             output_limit: None,
+            context_limit: None,
             keys: HashMap::new(),
             model: "nope/none".to_string(),
             effort: None,

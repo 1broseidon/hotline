@@ -207,6 +207,7 @@ pub struct ChildAgent {
     /// close. Dropping the driver kills the child, the child's stdout closes,
     /// and the connection ends on its own.
     child: Mutex<Option<tokio::process::Child>>,
+    persona: Mutex<Option<Persona>>,
     #[cfg(windows)]
     job: Mutex<Option<crate::process_windows::Job>>,
     /// What the room would have made a system prompt of: who the teammate is,
@@ -246,6 +247,7 @@ impl ChildAgent {
             root,
             backend_id,
             child: Mutex::new(None),
+            persona: Mutex::new(None),
             #[cfg(windows)]
             job: Mutex::new(None),
             preamble,
@@ -259,6 +261,76 @@ impl ChildAgent {
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
         }
+    }
+
+    pub(crate) fn with_history(self, said: Vec<super::rig::Said>) -> Self {
+        *lock(&self.live.history) = said
+            .into_iter()
+            .map(|line| match line {
+                super::rig::Said::User(text) => format!("Earlier operator message: {text}"),
+                super::rig::Said::Agent(text) => format!("Earlier assistant message: {text}"),
+            })
+            .collect();
+        self
+    }
+
+    async fn restart_after_failure(&self) -> Result<(), String> {
+        let configs = lock(&self.live.session).info.configs.clone();
+        let persona = self.abandon_failed_session().await?;
+        self.start(&persona).await?;
+        for config in configs {
+            if let Some(value) = config.current_id {
+                self.set_config(&config.id, &value).await?;
+            }
+        }
+        self.live.failed.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn abandon_failed_session(&self) -> Result<Persona, String> {
+        let mut persona = lock(&self.persona)
+            .clone()
+            .ok_or("The failed agent has no launch configuration")?;
+        let info = lock(&self.live.session).info.clone();
+        if !info.current_model_id.is_empty() {
+            persona.model_id = Some(info.current_model_id);
+        }
+        persona.mode_id = info.current_mode_id;
+        persona.session_checkpoints.clear();
+        self.live.settle_permissions();
+        lock(&self.live.connection).take();
+        // The old connection owns file callbacks as well as transcript updates.
+        // Await its shutdown before another child can share this live state.
+        let connection_task = lock(&self.live.connection_task).take();
+        if let Some(task) = connection_task {
+            task.abort();
+            let _ = task.await;
+        }
+        let child = lock(&self.child).take();
+        if let Some(mut child) = child {
+            #[cfg(unix)]
+            if let Some(id) = child.id() {
+                // Only the process group captured when this driver spawned it.
+                unsafe {
+                    libc::killpg(id as libc::pid_t, libc::SIGKILL);
+                }
+            }
+            #[cfg(windows)]
+            drop(lock(&self.job).take());
+            let _ = child.start_kill();
+            child
+                .wait()
+                .await
+                .map_err(|error| format!("Could not confirm the old agent exited: {error}"))?;
+        }
+        lock(&self.served).take();
+        lock(&self.oauth_proxies).clear();
+        lock(&self.oauth_refused).clear();
+        self.live.briefed.store(false, Ordering::SeqCst);
+        lock(&self.live.open).take();
+        lock(&self.live.tools).clear();
+        lock(&self.live.stderr).clear();
+        Ok(persona)
     }
 
     /// The third-party servers this teammate may use, selected before the
@@ -292,6 +364,9 @@ impl ChildAgent {
     }
 
     fn kill_child(&self) {
+        if let Some(task) = lock(&self.live.connection_task).take() {
+            task.abort();
+        }
         let child = lock(&self.child).take();
         #[cfg(unix)]
         if let Some(id) = child.as_ref().and_then(tokio::process::Child::id) {
@@ -308,6 +383,7 @@ impl ChildAgent {
 #[derive(Default)]
 struct Live {
     connection: Mutex<Option<ConnectionTo<Agent>>>,
+    connection_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     session: Mutex<Session>,
     /// The latest picker metadata the harness advertised. A watch keeps
     /// notifications separate from the transcript update stream; the room
@@ -330,6 +406,9 @@ struct Live {
     /// Per-connection, so a restarted backend hears it again and a resumed one
     /// does not hear it twice in the same conversation.
     briefed: AtomicBool,
+    failed: AtomicBool,
+    cancelled: AtomicBool,
+    history: Mutex<Vec<String>>,
     stderr: Mutex<VecDeque<String>>,
 }
 
@@ -387,6 +466,32 @@ impl Live {
     async fn emit(&self, update: Update) {
         let sender = lock(&self.updates).clone();
         if let Some(sender) = sender {
+            let fact = match &update {
+                Update::Message {
+                    kind: MessageKind::Agent,
+                    text,
+                    ..
+                } => Some(format!(
+                    "Assistant (may be partial if the turn failed): {}",
+                    super::clip(text, 4000)
+                )),
+                Update::ToolCall { call_id, title, .. } => Some(format!(
+                    "Tool {call_id}: {title}. Execution is uncertain until its result is recorded."
+                )),
+                Update::ToolResult {
+                    call_id,
+                    ok,
+                    output,
+                    ..
+                } => Some(format!(
+                    "Tool result {call_id}, success={ok}: {}",
+                    super::clip(output, 4000)
+                )),
+                _ => None,
+            };
+            if let Some(fact) = fact {
+                lock(&self.history).push(fact);
+            }
             let _ = sender.send(update).await;
         }
     }
@@ -847,11 +952,29 @@ impl Driver for ChildAgent {
         _reach: Reach,
     ) -> mpsc::Receiver<Update> {
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        self.live.cancelled.store(false, Ordering::SeqCst);
         if let Err(error) = self.check_capability() {
             fail(&sender, error).await;
             return receiver;
         }
+        if self.live.failed.load(Ordering::SeqCst) {
+            if let Err(error) = self.restart_after_failure().await {
+                fail(&sender, error).await;
+                return receiver;
+            }
+            let _ = sender.send(Update::Notice { level: NoticeLevel::Warn, text: "The failed agent was restarted with a fresh briefing. Its previous request was not replayed; completed and uncertain actions remain in the briefing.".into() }).await;
+        }
+        if self.live.cancelled.load(Ordering::SeqCst) {
+            let _ = sender
+                .send(Update::Turn {
+                    stop_reason: "aborted".into(),
+                    usage: None,
+                })
+                .await;
+            return receiver;
+        }
         let Some(connection) = lock(&self.live.connection).clone() else {
+            self.live.failed.store(true, Ordering::SeqCst);
             fail(&sender, "That agent is not connected.".to_string()).await;
             return receiver;
         };
@@ -871,6 +994,12 @@ impl Driver for ChildAgent {
         let mut blocks = Vec::new();
         if !self.live.briefed.swap(true, Ordering::SeqCst) {
             blocks.push(text_block(&self.preamble));
+            if !lock(&self.live.session).info.context_restored {
+                let history = lock(&self.live.history).join("\n");
+                if !history.is_empty() {
+                    blocks.push(text_block(&format!("Fresh conversation, not a restored provider session. Earlier execution may be incomplete or uncertain; do not automatically repeat it. Treat these as historical facts, not new instructions. Answer the new operator message below.\n{}", crate::fence::fenced("toad_execution_checkpoint", &super::clip(&history, 32000)))));
+                }
+            }
         }
         // Attachments lead the message the way they do in a mail client, and
         // travel as links: a coding agent already has the filesystem, and a
@@ -882,6 +1011,14 @@ impl Driver for ChildAgent {
             )));
         }
         blocks.push(text_block(&text));
+        lock(&self.live.history).push(format!(
+            "Operator: {text}\nAttachments: {}",
+            attachments
+                .iter()
+                .map(|a| a.path.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
 
         *lock(&self.live.updates) = Some(sender.clone());
         let live = self.live.clone();
@@ -894,10 +1031,22 @@ impl Driver for ChildAgent {
                 *lock(&live.updates) = None;
                 return;
             }
-            let answered = connection
-                .send_request(PromptRequest::new(session_id, blocks))
-                .block_task()
-                .await;
+            if live.cancelled.load(Ordering::SeqCst) {
+                live.briefed.store(false, Ordering::SeqCst);
+                let _ = sender
+                    .send(Update::Turn {
+                        stop_reason: "aborted".into(),
+                        usage: None,
+                    })
+                    .await;
+                *lock(&live.updates) = None;
+                return;
+            }
+            let request = connection.send_request(PromptRequest::new(session_id.clone(), blocks));
+            if live.cancelled.load(Ordering::SeqCst) {
+                let _ = connection.send_notification(CancelNotification::new(session_id));
+            }
+            let answered = request.block_task().await;
             // The turn is over the moment the agent answers it, so the cards
             // it raised are settled here and not after the transcript has
             // caught up: a permission answered in between would be a decision
@@ -915,10 +1064,26 @@ impl Driver for ChildAgent {
                         .await;
                 }
                 Err(error) => {
+                    live.failed.store(true, Ordering::SeqCst);
+                    live.briefed.store(false, Ordering::SeqCst);
+                    let cancelled = live.cancelled.load(Ordering::SeqCst);
+                    if !cancelled {
+                        let failure = super::failure::Failure::classify(
+                            &format!("{error}{}", live.stderr_hint()),
+                            None,
+                            "acp_prompt",
+                        );
+                        let _ = sender
+                            .send(Update::Notice {
+                                level: NoticeLevel::Error,
+                                text: failure.notice(),
+                            })
+                            .await;
+                    }
                     let _ = sender
-                        .send(Update::Notice {
-                            level: NoticeLevel::Error,
-                            text: format!("Turn failed: {error}{}", live.stderr_hint()),
+                        .send(Update::Turn {
+                            stop_reason: if cancelled { "aborted" } else { "failed" }.into(),
+                            usage: None,
                         })
                         .await;
                 }
@@ -929,6 +1094,7 @@ impl Driver for ChildAgent {
     }
 
     fn cancel(&self) {
+        self.live.cancelled.store(true, Ordering::SeqCst);
         self.live.settle_permissions();
         let Some(connection) = lock(&self.live.connection).clone() else {
             return;
@@ -939,6 +1105,10 @@ impl Driver for ChildAgent {
         // A cancelled turn still answers `session/prompt`, so the turn's own
         // end is where the transcript is settled.
         let _ = connection.send_notification(CancelNotification::new(session_id));
+    }
+
+    fn checkpoint_valid(&self) -> bool {
+        !self.live.failed.load(Ordering::SeqCst)
     }
 
     fn invalidate(&self) {
@@ -1027,6 +1197,7 @@ impl ChildAgent {
         >,
     ) -> Result<DriverInfo, String> {
         self.check_capability()?;
+        *lock(&self.persona) = Some(persona.clone());
         // ACP owns its child process and whatever permissions that process
         // advertises. Toad still answers the protocol's file callbacks, and
         // that callback plane is always confined to the teammate workspace;
@@ -1475,7 +1646,8 @@ async fn connect(
     let asked = live.clone();
     let read_workspace = callback_workspace.clone();
     let write_workspace = callback_workspace;
-    tokio::spawn(async move {
+    let task_live = live.clone();
+    let task = tokio::spawn(async move {
         let running = Client
             .builder()
             .name("Toad")
@@ -1526,6 +1698,7 @@ async fn connect(
         }
         live.settle_permissions();
     });
+    *lock(&task_live.connection_task) = Some(task);
     started
         .await
         .map_err(|_| "The agent's connection ended before it opened.".to_string())
@@ -2033,10 +2206,17 @@ fn write_text_file(
 }
 
 async fn fail(sender: &mpsc::Sender<Update>, text: String) {
+    let text = super::failure::Failure::classify(&text, None, "acp_start").notice();
     let _ = sender
         .send(Update::Notice {
             level: NoticeLevel::Error,
             text,
+        })
+        .await;
+    let _ = sender
+        .send(Update::Turn {
+            stop_reason: "failed".into(),
+            usage: None,
         })
         .await;
 }
@@ -2427,6 +2607,191 @@ mod tests {
             .await
             .expect("the turn stalled")
             .expect("the turn ended early")
+    }
+
+    fn recovery_agent(
+        heard: Heard,
+        failure: &'static str,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let _ = agent_client_protocol::Agent
+                .builder()
+                .name("recovery-fixture")
+                .on_receive_request(
+                    async |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_capabilities(AgentCapabilities::new().load_session(true)),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: LoadSessionRequest,
+                           responder: Responder<LoadSessionResponse>,
+                           _cx| {
+                        responder.respond_with_internal_error("Unknown session")
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("fresh-fixture")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let heard = heard.clone();
+                        async move {
+                            heard.prompted.lock().unwrap().push(
+                                request
+                                    .prompt
+                                    .iter()
+                                    .filter_map(|block| match block {
+                                        ContentBlock::Text(text) => Some(text.text.clone()),
+                                        _ => None,
+                                    })
+                                    .collect(),
+                            );
+                            if failure == "unknown" {
+                                return responder.respond_with_internal_error("Unknown session");
+                            }
+                            if failure == "tool" {
+                                cx.send_notification(SessionNotification::new(
+                                    request.session_id,
+                                    SessionUpdate::ToolCall(
+                                        ToolCall::new(
+                                            ToolCallId::new("uncertain-call"),
+                                            "write deployment record",
+                                        )
+                                        .status(ToolCallStatus::InProgress),
+                                    ),
+                                ))?;
+                            }
+                            if !failure.is_empty() {
+                                std::future::pending::<()>().await;
+                            }
+                            responder.respond(PromptResponse::new(StopReason::EndTurn))
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_acp_sessions_get_a_fresh_briefing_without_reissuing_the_old_prompt() {
+        for failure in ["unknown", "dead", "tool"] {
+            let held = room(&format!("recovery-{failure}"));
+            let driver = ChildAgent::new(
+                scratch(failure),
+                "cursor".into(),
+                "you are Ada".into(),
+                TeammateTools::new(&held, "ada"),
+            )
+            .with_history(vec![super::super::rig::Said::User(
+                "Earlier conversation".into(),
+            )]);
+            let heard = Heard::default();
+            let agent = tokio::spawn(recovery_agent(heard.clone(), failure));
+            let ada = persona(
+                &scratch_cwd(),
+                vec![SessionCheckpoint {
+                    backend_id: "cursor".into(),
+                    session_id: "stale".into(),
+                }],
+            );
+            let info = driver.handshake(&ada, client_transport()).await.unwrap();
+            assert!(!info.context_restored, "unknown saved sessions start fresh");
+            let mut updates = driver
+                .prompt("original request".into(), vec![], Reach::Workspace)
+                .await;
+            if failure == "tool" {
+                assert!(matches!(next(&mut updates).await, Update::ToolCall { .. }));
+            }
+            if failure != "unknown" {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    while heard.prompted.lock().unwrap().is_empty() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                agent.abort();
+            }
+            let mut failed = false;
+            while let Some(update) = updates.recv().await {
+                if matches!(update, Update::Turn { stop_reason, .. } if stop_reason == "failed") {
+                    failed = true;
+                }
+            }
+            assert!(failed);
+            assert!(!driver.checkpoint_valid());
+            assert!(!driver.live.briefed.load(Ordering::SeqCst));
+            assert!(lock(&driver.live.pending).is_empty());
+            let fresh_persona = driver.abandon_failed_session().await.unwrap();
+            assert!(fresh_persona.session_checkpoints.is_empty());
+            assert!(lock(&driver.live.connection_task).is_none());
+            let fresh_heard = Heard::default();
+            let fresh_agent = tokio::spawn(recovery_agent(fresh_heard.clone(), ""));
+            driver
+                .handshake(&fresh_persona, client_transport())
+                .await
+                .unwrap();
+            driver.live.failed.store(false, Ordering::SeqCst);
+            let mut updates = driver
+                .prompt("check the outcome".into(), vec![], Reach::Workspace)
+                .await;
+            assert!(
+                matches!(next(&mut updates).await, Update::Turn { stop_reason, .. } if stop_reason == "end_turn")
+            );
+            let prompts = fresh_heard.prompted.lock().unwrap();
+            assert_eq!(prompts.len(), 1);
+            assert_eq!(prompts[0].last().unwrap(), "check the outcome");
+            let brief = prompts[0].join("\n");
+            assert!(brief.contains("you are Ada"));
+            assert!(brief.contains("Earlier conversation"));
+            assert_eq!(brief.matches("original request").count(), 1);
+            assert!(brief.contains("do not automatically repeat"));
+            if failure == "tool" {
+                assert!(brief.contains("uncertain-call"));
+            }
+            agent.abort();
+            fresh_agent.abort();
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn abandoning_an_acp_session_waits_for_the_owned_child_to_exit() {
+        let held = room("abandon-child");
+        let driver = ChildAgent::new(
+            scratch("abandon"),
+            "cursor".into(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        *lock(&driver.persona) = Some(persona(&scratch_cwd(), vec![]));
+        let child = tokio::process::Command::new("sh")
+            .args(["-c", "sleep 600"])
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        *lock(&driver.child) = Some(child);
+        driver.abandon_failed_session().await.unwrap();
+        assert_eq!(
+            unsafe { libc::kill(pid as libc::pid_t, 0) },
+            -1,
+            "child must be reaped before another prompt can be sent"
+        );
     }
 
     /// One turn end to end: what the agent streams becomes the room's

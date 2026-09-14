@@ -257,6 +257,7 @@ impl Agents for DeskAgents {
             preamble,
             tools,
         )
+        .with_history(said)
         .with_mcp(grant.servers, grant.missing);
         let driver = match &self.mcp_vault {
             Some(vault) => driver.with_mcp_vault(vault.clone()),
@@ -1333,6 +1334,11 @@ impl Room {
         }
         let info = {
             let mut info = lock(&session.info);
+            if info.session_id != reported.session_id {
+                *lock(&session.pending_checkpoint) = reported.session_id.clone();
+                info.session_id = reported.session_id.clone();
+                info.context_restored = reported.context_restored;
+            }
             info.models = reported.models.clone();
             info.current_model_id = Some(reported.current_model_id.clone());
             info.model_label = reported.model_label.clone();
@@ -2130,6 +2136,20 @@ impl Room {
                     update = updates.recv() => update,
                 };
                 let Some(update) = update else { break };
+                if let Update::Chapter { boundary } = update {
+                    let gate = self.start_gate(&session.persona_id);
+                    let _held = gate.lock().await;
+                    if session.capability.is_current() && self.current_session(&session) {
+                        self.close_chapter(&session.persona_id, ChapterClose::Agent)
+                            .await;
+                        let note = chapters::wake_block(&self.tape(&session.persona_id), now_ms());
+                        self.begin_chapter(&session.persona_id, &session.backend_id);
+                        boundary.finish(note);
+                    } else {
+                        boundary.finish(None);
+                    }
+                    continue;
+                }
                 asked |= matches!(update, Update::Permission { .. });
                 self.record(&session, update, &mut in_flight);
             }
@@ -2150,6 +2170,11 @@ impl Room {
                         self.write_value(&session.persona_id, &expired);
                     }
                 }
+            }
+            for (text, attachments) in session.driver.take_unconsumed().into_iter().rev() {
+                let mut wire = Wired::words(text);
+                wire.attachments = attachments;
+                lock(&session.turns).waiting.push_front(wire);
             }
             next = lock(&session.turns).next_line();
         }
@@ -2231,7 +2256,14 @@ impl Room {
             // the turn is closed, so the transcript never shows a finished
             // turn above a tool still in progress.
             self.fail_in_flight(session, in_flight);
-            self.checkpoint(session);
+            if !session.driver.checkpoint_valid()
+                || matches!(&update, Update::Turn { stop_reason, .. } if stop_reason == "failed")
+            {
+                lock(&session.pending_checkpoint).take();
+                let _ = room::clear_checkpoint(&self.log, &session.persona_id, &session.backend_id);
+            } else {
+                self.checkpoint(session);
+            }
         }
         // A phone hears a reply the moment it lands, and a question the
         // agent cannot go on without. A quiet schedule's reply is demoted to
@@ -2562,6 +2594,10 @@ fn fold_said(lines: impl IntoIterator<Item = Said>) -> Vec<Said> {
 /// ones.
 fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec<TranscriptEvent> {
     match update {
+        Update::Chapter { boundary } => {
+            boundary.finish(None);
+            Vec::new()
+        }
         Update::Delta { .. } => Vec::new(),
         Update::Message { kind, id, text } => match kind {
             MessageKind::Agent => {

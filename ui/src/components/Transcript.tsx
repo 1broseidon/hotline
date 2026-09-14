@@ -1,3 +1,4 @@
+import { ErrorCard } from "./ErrorCard";
 import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import type {
 	HumanActionStatus,
@@ -419,6 +420,7 @@ function Row({
 			return <p className="instrument mt-1 text-right text-ink-4">{event.stopReason.replace(/_/g, " ")}</p>;
 
 		case "notice":
+			if (event.level === "error") return <ErrorCard text={event.text} />;
 			return (
 				<p
 					className="rule-line rule-line-plain gap-1.5"

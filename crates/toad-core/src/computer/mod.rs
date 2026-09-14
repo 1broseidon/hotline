@@ -23,7 +23,7 @@ use tokio::process::Command;
 /// The toad.computer release this desktop is built against. Bumped here
 /// deliberately when the desktop is ready for a new image — never derived
 /// from the desktop version, and never `latest`.
-pub const COMPUTER_VERSION: &str = "0.3.0";
+pub const COMPUTER_VERSION: &str = "0.4.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
 pub const SERVER_ID: &str = "computer";
@@ -47,9 +47,10 @@ const SCRATCH_MOUNT: &str = "/home/agent/src";
 /// use. Only `nix-collect-garbage` is a hazard across containers, since a
 /// path in use by a process one container cannot see looks unused.
 const NIX_MOUNT: &str = "/nix";
-const NIX_VOLUME: &str = "toad-nix";
-const DEFAULT_MEMORY: &str = "2g";
-const DEFAULT_PIDS: u32 = 512;
+/// The glibc image seeds a writable store; old Alpine volumes remain available.
+const NIX_VOLUME: &str = "toad-nix-glibc";
+const DEFAULT_MEMORY: &str = "4g";
+const DEFAULT_PIDS: u32 = 1024;
 const PULL_NOTICE: &str = "Pulling the computer image …";
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1009,13 +1010,13 @@ esac
                 "--security-opt",
                 "no-new-privileges",
                 "--pids-limit",
-                "512",
+                "1024",
                 "--memory",
-                "2g",
+                "4g",
                 "--shm-size",
                 "1g",
                 "-v",
-                "toad-nix:/nix",
+                "toad-nix-glibc:/nix",
                 "-v",
                 "toad-src-ada:/home/agent/src",
                 "-p",
@@ -1037,8 +1038,8 @@ esac
     #[test]
     fn limits_are_the_teammates_else_the_defaults() {
         let mut ada = persona("ada", "/tmp");
-        assert_eq!(memory_of(&ada).unwrap(), "2g");
-        assert_eq!(pids_of(&ada), "512");
+        assert_eq!(memory_of(&ada).unwrap(), "4g");
+        assert_eq!(pids_of(&ada), "1024");
         let computer = ada.computer.as_mut().unwrap();
         computer.memory = Some(" 8G ".into());
         computer.pids = Some(0);

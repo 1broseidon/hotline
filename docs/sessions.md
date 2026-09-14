@@ -579,9 +579,9 @@ settings. A container left behind by a previous run of Toad has a token
 this process no longer knows, so it is removed and recreated.
 
 The container's limits are the teammate's: `persona.computer.memory` is the
-runtime's own spelling of a size (`"8g"`, `"512m"`; absent is `2g`) and
+runtime's own spelling of a size (`"8g"`, `"512m"`; absent is `4g`) and
 `persona.computer.pids` is the process limit, threads included (absent is
-512, zero is unlimited). A teammate that compiles asks for more of both,
+1024, zero is unlimited). A teammate that compiles asks for more of both,
 because a parallel build spawns more threads than the default allows and a
 linker wants more memory than a browser does. A size that is not digits
 and one unit letter is a start failure, not a guess.
@@ -591,11 +591,11 @@ the person's folder. A named volume `toad-src-<persona id>` is bound at
 `/home/agent/src`, the teammate's own scratch: a checkout or a build it
 starts there outlives the container the hibernate cycle removes.
 `computer.remove` leaves both volumes; only the runtime's own volume commands
-delete them. A named volume `toad-nix` is bound at `/nix`, one Nix store
+delete them. A named volume `toad-nix-glibc` is bound at `/nix`, one Nix store
 shared by every teammate. The image ships single-user Nix with a seeded
 store, so an empty volume is populated on first use and a `nix develop`
 against a flake is a download the first time and a cache hit after, for
-every teammate. Store paths are immutable, so sharing is safe; the one
+every teammate. The glibc image uses a new volume name so an old Alpine store cannot supply an unwritable layout; the old volume remains untouched. Store paths are immutable, so sharing is safe; the one
 hazard is `nix-collect-garbage` from inside a container, which cannot see
 the processes of another. Apple `container` gets neither named volume; its
 rw layer is what it has.

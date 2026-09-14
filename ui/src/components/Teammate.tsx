@@ -475,7 +475,7 @@ const STATE_WORDS: Record<ComputerStatus["state"], { value: string; action: stri
 };
 
 const LIMITS_ABOUT =
-	"Blank is 2g of memory and 512 processes; 0 processes is unlimited. A parallel build spawns more threads than 512, and a linker wants more memory than a browser.";
+	"Blank is 4g of memory and 1024 processes; 0 processes is unlimited. Larger builds can request more memory or processes.";
 
 /** The settings without one of them, so blank means absent on the wire rather than an empty string. */
 function without(computer: PersonaComputer, key: "image" | "memory" | "pids" | "mounts"): PersonaComputer {
@@ -623,8 +623,8 @@ function ComputerRows({
 									onKeyDown={onEnter(() => commitText("image", image, setImage))}
 								/>
 							</div>
-							<LimitRow id="edit-computer-memory" title="Memory" about={LIMITS_ABOUT} placeholder="2g" disabled={disabled} value={memory} onChange={setMemory} onCommit={() => commitText("memory", memory, setMemory)} />
-							<LimitRow id="edit-computer-pids" title="Processes" placeholder="512" numeric disabled={disabled} value={pids} onChange={setPids} onCommit={commitPids} />
+							<LimitRow id="edit-computer-memory" title="Memory" about={LIMITS_ABOUT} placeholder="4g" disabled={disabled} value={memory} onChange={setMemory} onCommit={() => commitText("memory", memory, setMemory)} />
+							<LimitRow id="edit-computer-pids" title="Processes" placeholder="1024" numeric disabled={disabled} value={pids} onChange={setPids} onCommit={commitPids} />
 							{mounts.map((mount, index) => (
 								<div key={`${mount.host}:${mount.path}`} className={NESTED}>
 									<span className="group-row-text">

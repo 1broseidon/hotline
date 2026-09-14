@@ -2813,7 +2813,7 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
         .as_ref()
         .is_some_and(|computer| computer.enabled)
     {
-        "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. The person can see its screen and take it over at any time. When a page wants credentials, a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+        "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page wants credentials, a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
     } else {
         ""
     };

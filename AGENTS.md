@@ -4,7 +4,9 @@ Toad is a local-first room for a **team** of coding agents. This tree is the
 ground-up build of it, in Rust, started 2026-09-01. This file is the contract
 for the agent changing Toad; the [README](README.md) is the product story;
 [docs/design.md](docs/design.md) is the decision record every change is
-checked against. Read the design first. Treat everything here as good
+checked against; [docs/security.md](docs/security.md) is the method for any
+change to what a teammate can reach, and the index of the tests that prove
+it. Read the design first. Treat everything here as good
 defaults, not hard rules: George's explicit request outranks any line in this
 file, and if a rule fights the task in front of you, say so before breaking it.
 
@@ -94,3 +96,8 @@ everything.
   ship the plain one.
 - **Rust that needs Tauri lives in `crates/toad-desktop`.** `toad-core` never
   depends on Tauri.
+- **A capability change follows `docs/security.md`.** Anything that alters
+  what a teammate can reach — a tool, a tool origin, a grant, a driver path —
+  is enforced in the core outside the model, revocable through the session's
+  lease, proved allowed and denied through the real handler, and stated in
+  the PR as default, grant source, enforcement points, tests, residual risk.

@@ -4,7 +4,9 @@ Written 2026-09-01, the day George chose a fresh tree over the strangler-fig
 migration of `../toad`. This is the decision record: what is kept from Toad
 as it exists, what is built differently, and why. It is the document every
 phase is checked against. The product story is the README; the contract for
-agents changing this tree is `AGENTS.md`.
+agents changing this tree is `AGENTS.md`; the method for changing what a
+teammate can reach, and the index of the tests that prove each boundary, is
+[security.md](security.md).
 
 George's reasons, in his words: the proof that the thing works is in the
 core of the Bun edition; Rust is for sheer speed and far more control, with
@@ -40,6 +42,9 @@ These come over as ideas and, where the code was already Rust, as code.
   macOS uses default-deny Seatbelt with an enforcement probe and private TMPDIR,
   without claiming Linux mount/PID namespace parity. Its deprecated launcher
   and undocumented policy language require platform regression testing.
+  Reach, the gateway, collaboration, background work and the computer are
+  independent standing grants, revoked through one capability lease; the
+  method and the regression matrix are [security.md](security.md).
 - **Collaboration crosses a capability boundary by explicit direction.** A
   Whole machine Toad Agent may ask a colleague without another card. A
   workspace caller first asks the operator for a recipient-specific session

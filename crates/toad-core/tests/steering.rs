@@ -490,3 +490,135 @@ impl Client {
         }
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
+    use axum::response::IntoResponse;
+    for api in ["responses", "chat_completions"] {
+        let (seen, mut requests) = tokio::sync::mpsc::channel(16);
+        let step = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let app = Router::new().route(if api == "responses" { "/v1/responses" } else { "/v1/chat/completions" }, post(move |body: Bytes| {
+            let seen = seen.clone(); let step = step.clone();
+            async move {
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                if request["stream"] != true {
+                    // Exercise the honest no-note fallback without another live service.
+                    return (axum::http::StatusCode::SERVICE_UNAVAILABLE, json_response(json!({"error":{"message":"summary unavailable"}}))).into_response();
+                }
+                let index = step.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                seen.send(request).await.unwrap();
+                match index {
+                    1 => return (axum::http::StatusCode::SERVICE_UNAVAILABLE, json_response(json!({"error":{"code":"overloaded","message":"busy"}}))).into_response(),
+                    3 => return (axum::http::StatusCode::TOO_MANY_REQUESTS, json_response(json!({"error":{"code":"insufficient_quota","message":"balance exhausted","api_key":"do-not-store-this"}}))).into_response(),
+                    4 => return (axum::http::StatusCode::BAD_REQUEST, json_response(json!({"error":{"code":"context_length_exceeded","message":"context window exceeded"}}))).into_response(),
+                    _ => {}
+                }
+                let body = events(api, index != 0).into_iter().map(|event| format!("data: {event}\n\n")).collect::<String>();
+                ([("Content-Type", "text/event-stream")], format!("{body}data: [DONE]\n\n")).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::write(workspace.join("note.txt"), "a confirmed fact").unwrap();
+        let corrupt = workspace.join("bad.png");
+        std::fs::write(&corrupt, b"not an image").unwrap();
+        let desk = common::open_desk(root.path()).unwrap();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+        let port = door.port();
+        let door_task = tokio::spawn(door.run());
+        let mut client = Client::connect(port).await;
+        assert_eq!(
+            client
+                .call(
+                    "credential.custom_save",
+                    json!({"draft":{"name":api,"baseUrl":base,"api":api,"models":["vendor/coder"]}})
+                )
+                .await["ok"],
+            true
+        );
+        let made = client.call("persona.create", json!({"draft":{"name":"Recovery tester","goal":"Follow the operator","cwd":workspace}})).await;
+        let persona = made["result"]["id"].as_str().unwrap().to_owned();
+        let tape = client.subscribe(json!({"tape":persona})).await;
+        assert_eq!(
+            client
+                .call("session.start", json!({"personaId":persona}))
+                .await["ok"],
+            true
+        );
+        let sent = client.call("session.prompt", json!({"personaId":persona,"text":"Read note.txt", "attachments":[{"kind":"image","name":"bad.png","path":corrupt,"mimeType":"image/png"}]})).await;
+        assert_eq!(sent["ok"], true, "{sent}");
+        let initial = next_request(&mut requests).await;
+        assert!(initial.to_string().contains("on disk only"));
+        assert!(!initial.to_string().contains("data:image"));
+        let failed = next_request(&mut requests).await;
+        let retried = next_request(&mut requests).await;
+        assert_eq!(failed, retried);
+        assert!(retried.to_string().contains("a confirmed fact"));
+        client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape && frame["event"]["kind"] == "turn"
+            })
+            .await;
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"hit quota"}),
+            )
+            .await;
+        next_request(&mut requests).await;
+        let failure = client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape
+                    && frame["event"]["kind"] == "notice"
+                    && frame["event"]["level"] == "error"
+            })
+            .await;
+        let text = failure["event"]["text"].as_str().unwrap();
+        assert!(text.contains("Provider quota exhausted"), "{text}");
+        assert!(text.contains("toadFailure"));
+        assert!(!text.contains("do-not-store-this"));
+        client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape
+                    && frame["event"]["kind"] == "turn"
+                    && frame["event"]["stopReason"] == "failed"
+            })
+            .await;
+        assert!(requests.try_recv().is_err(), "quota must not retry");
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"hit context"}),
+            )
+            .await;
+        next_request(&mut requests).await;
+        let continuation = next_request(&mut requests).await;
+        assert!(continuation.to_string().contains("Fresh continuation"));
+        assert!(continuation.to_string().contains("a confirmed fact"));
+        client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape
+                    && frame["event"]["kind"] == "chapter"
+                    && frame["event"].get("endedAt").is_some()
+            })
+            .await;
+        client
+            .next_where(Duration::from_secs(15), |frame| {
+                frame["sub"] == tape && frame["event"]["kind"] == "turn"
+            })
+            .await;
+        client
+            .call("session.stop", json!({"personaId":persona}))
+            .await;
+        door_task.abort();
+        server.abort();
+    }
+}
+
+fn json_response(value: Value) -> ([(&'static str, &'static str); 1], String) {
+    ([("Content-Type", "application/json")], value.to_string())
+}

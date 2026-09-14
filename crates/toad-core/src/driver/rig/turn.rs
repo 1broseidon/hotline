@@ -18,22 +18,22 @@ pub(super) struct Steering {
 struct InputState {
     closed: bool,
     revision: u64,
-    pending: Vec<Message>,
+    pending: Vec<Input>,
 }
 
 impl Steering {
-    pub(super) fn admit(&self, message: Message) -> bool {
+    pub(super) fn admit(&self, message: impl Into<Input>) -> bool {
         let mut state = lock(&self.state);
         if state.closed {
             return false;
         }
-        state.pending.push(message);
+        state.pending.push(message.into());
         state.revision += 1;
         self.changed.notify_waiters();
         true
     }
 
-    fn take(&self) -> (u64, Vec<Message>) {
+    fn take(&self) -> (u64, Vec<Input>) {
         let mut state = lock(&self.state);
         (state.revision, std::mem::take(&mut state.pending))
     }
@@ -68,7 +68,7 @@ impl Steering {
         lock(&self.state).closed = true;
     }
 
-    pub(super) fn close(&self) -> Vec<Message> {
+    pub(super) fn close(&self) -> Vec<Input> {
         let mut state = lock(&self.state);
         state.closed = true;
         std::mem::take(&mut state.pending)
@@ -82,7 +82,7 @@ pub(super) async fn run(
     turn: &Turn,
     sender: &mpsc::Sender<Update>,
     shell: Option<RunCommand>,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let mut jobs = Jobs::new(shell);
     if jobs.enabled() {
         template.tools.extend(jobs.definitions());
@@ -100,8 +100,7 @@ pub(super) async fn run(
     while jobs.active() {
         match jobs.next().await {
             Ok(job) => {
-                let message = publish_job(turn, sender, job).await;
-                turn.history.lock().await.push(message);
+                publish_job(turn, sender, job).await;
             }
             Err(error) => {
                 send(
@@ -120,15 +119,7 @@ pub(super) async fn run(
             finish(sender, reason, usage, complete).await;
             Ok(())
         }
-        Err(error) => {
-            // Results may have arrived during the failed inference attempt.
-            // Preserve the settled facts even if that attempt never checkpointed.
-            turn.history
-                .lock()
-                .await
-                .extend(jobs.snapshots().map(|job| job_message(turn, job)));
-            Err(error)
-        }
+        Err(error) => Err(error),
     }
 }
 
@@ -139,7 +130,7 @@ async fn run_inner(
     turn: &Turn,
     sender: &mpsc::Sender<Update>,
     jobs: &mut Jobs,
-) -> Result<(&'static str, rig::completion::Usage, bool), String> {
+) -> Result<(&'static str, rig::completion::Usage, bool), Failure> {
     let mut history = turn.history.lock().await.clone();
     let mut usage = rig::completion::Usage::default();
     let mut usage_complete = true;
@@ -152,6 +143,11 @@ async fn run_inner(
     // Whether the last round's tools failed. Silence after success is the
     // model done; silence after failure is the model giving up unsaid.
     let mut last_round_failed = false;
+    let mut retries = 0;
+    let mut repaired = false;
+    let mut recovery_noticed = false;
+    let mut context_tokens = 0;
+    let mut rotated = false;
 
     'attempt: for _ in 0..MAX_TURNS {
         for job in jobs.ready()? {
@@ -159,10 +155,43 @@ async fn run_inner(
         }
         history.append(&mut job_results);
         let (revision, pending) = turn.steering.take();
-        history.extend(pending);
+        for input in pending {
+            history.push(input.prepare(&turn.stop).await);
+        }
         *turn.history.lock().await = history.clone();
         if let Some(capability) = &turn.capability {
             capability.check()?;
+        }
+        images::limit_history(&mut history, &turn.model);
+        if let Some(threshold) = recovery::context_threshold(turn.context_limit, turn.output_limit)
+            && context_tokens.max(recovery::estimated_tokens(&history, &template)) >= threshold
+        {
+            if rotated {
+                return Err(Failure::classify(
+                    "context window is too small for the continuation",
+                    None,
+                    "preparation",
+                ));
+            }
+            rotated = true;
+            history = recovery::fresh(&history, &turn.output_dir);
+            *turn.history.lock().await = history.clone();
+            context_tokens = 0;
+            if recovery::estimated_tokens(&history, &template) >= threshold {
+                return Err(Failure::classify(
+                    "context window is too small for the continuation and tools",
+                    None,
+                    "preparation",
+                ));
+            }
+            let (boundary, ready) = super::super::ChapterBoundary::new();
+            send(sender, Update::Chapter { boundary }).await;
+            tokio::select! {
+                biased;
+                () = turn.stop.raised() => { stopped = true; break; }
+                note = ready => if let Ok(Some(note)) = note { history.insert(0, Message::user(note)); },
+            }
+            *turn.history.lock().await = history.clone();
         }
         let mut request = template.clone();
         request.chat_history = history.clone();
@@ -182,7 +211,33 @@ async fn run_inner(
                 response = &mut response => break response,
             }
         };
-        let mut stream = response.map_err(text)?;
+        let mut stream = match response {
+            Ok(stream) => stream,
+            Err(error) => {
+                usage_complete = false;
+                let failure = Failure::provider(error, "request").after_tools(answered_calls);
+                if recover(
+                    &failure,
+                    &mut retries,
+                    &mut repaired,
+                    &mut recovery_noticed,
+                    &mut history,
+                    turn,
+                    sender,
+                    jobs,
+                    &mut job_results,
+                    revision,
+                )
+                .await?
+                {
+                    if matches!(failure.kind, Kind::Context | Kind::Replay) {
+                        context_tokens = 0;
+                    }
+                    continue;
+                }
+                return Err(failure);
+            }
+        };
         let mut interrupted = false;
         let mut reasoning_deltas = std::collections::HashSet::new();
         loop {
@@ -209,8 +264,30 @@ async fn run_inner(
             let item = match item {
                 Ok(item) => item,
                 Err(error) => {
+                    usage_complete = false;
                     flush(sender, &mut open).await;
-                    return Err(text(error));
+                    let failure = Failure::provider(error, "stream").after_tools(answered_calls);
+                    stream.cancel();
+                    if recover(
+                        &failure,
+                        &mut retries,
+                        &mut repaired,
+                        &mut recovery_noticed,
+                        &mut history,
+                        turn,
+                        sender,
+                        jobs,
+                        &mut job_results,
+                        revision,
+                    )
+                    .await?
+                    {
+                        if matches!(failure.kind, Kind::Context | Kind::Replay) {
+                            context_tokens = 0;
+                        }
+                        continue 'attempt;
+                    }
+                    return Err(failure);
                 }
             };
             match item {
@@ -235,6 +312,7 @@ async fn run_inner(
         }
         let reported = stream.usage();
         usage_complete &= stream.response.is_some() && reported.has_values();
+        context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
         usage += reported;
         flush(sender, &mut open).await;
         if stopped {
@@ -244,7 +322,29 @@ async fn run_inner(
             continue;
         }
         if stream.response.is_none() || (stream.choice.is_empty() && !answered_calls) {
-            return Err("The model stream ended without a complete response.".into());
+            let failure = Failure::classify(
+                "The model stream ended without a complete response.",
+                Some(502),
+                "stream",
+            )
+            .after_tools(answered_calls);
+            if recover(
+                &failure,
+                &mut retries,
+                &mut repaired,
+                &mut recovery_noticed,
+                &mut history,
+                turn,
+                sender,
+                jobs,
+                &mut job_results,
+                revision,
+            )
+            .await?
+            {
+                continue;
+            }
+            return Err(failure);
         }
         if stream.choice.is_empty() && last_round_failed {
             send(
@@ -271,6 +371,8 @@ async fn run_inner(
                     .into(),
             );
         }
+        retries = 0;
+        rotated = false;
         let calls: Vec<ToolCall> = stream
             .choice
             .iter()
@@ -283,8 +385,8 @@ async fn run_inner(
         // with nothing in it is not something a provider will take back.
         if !stream.choice.is_empty() {
             history.push(Message::Assistant {
-                id: stream.identity().message_id.filter(|id| replayable_id(id)),
-                content: stream.choice.into_iter().map(replayable).collect(),
+                id: stream.identity().message_id,
+                content: stream.choice,
             });
         }
         answered_calls |= !calls.is_empty();
@@ -309,10 +411,15 @@ async fn run_inner(
                 ToolResult::skipped(
                     "Not executed: a newer operator message superseded this request.",
                 )
+            } else if turn
+                .capability
+                .as_ref()
+                .is_some_and(|capability| !capability.is_current())
+            {
+                turn.stop.raise();
+                stopped = true;
+                ToolResult::skipped("Not executed: this activity's tool access was revoked.")
             } else {
-                if let Some(capability) = &turn.capability {
-                    capability.check()?;
-                }
                 match call.function.name.as_str() {
                     "shell" if jobs.enabled() => {
                         job_result(jobs.launch(call_id.clone(), call.function.arguments.clone()))
@@ -379,7 +486,7 @@ async fn run_inner(
                 )
                 .await;
             }
-            let output = model_output(turn, &call_id, result.output(), &shown, &images);
+            let output = model_output(turn, &call_id, result.output(), &shown, &images).await;
             history.push(Message::User {
                 content: vec![UserContent::ToolResult(rig::message::ToolResult {
                     call: call.id.clone(),
@@ -428,6 +535,70 @@ async fn run_inner(
     }
 }
 
+// Retrying happens before accepting another response, so no tool dispatch is replayed.
+#[allow(clippy::too_many_arguments)]
+async fn recover(
+    failure: &Failure,
+    retries: &mut u32,
+    repaired: &mut bool,
+    noticed: &mut bool,
+    history: &mut Vec<Message>,
+    turn: &Turn,
+    sender: &mpsc::Sender<Update>,
+    jobs: &mut Jobs,
+    results: &mut Vec<Message>,
+    revision: u64,
+) -> Result<bool, Failure> {
+    if turn.stop.raised.load(Ordering::SeqCst) {
+        return Ok(true);
+    }
+    if let Some(capability) = &turn.capability {
+        capability.check()?;
+    }
+    if matches!(failure.kind, Kind::Replay | Kind::Context) && !*repaired {
+        history.append(results);
+        *history = recovery::fresh(history, &turn.output_dir);
+        *turn.history.lock().await = history.clone();
+        *repaired = true;
+        if failure.kind == Kind::Context {
+            let (boundary, ready) = super::super::ChapterBoundary::new();
+            send(sender, Update::Chapter { boundary }).await;
+            tokio::select! {
+                biased;
+                () = turn.stop.raised() => return Ok(true),
+                note = ready => if let Ok(Some(note)) = note { history.insert(0, Message::user(note)); },
+            }
+            *turn.history.lock().await = history.clone();
+        }
+        let reason = if failure.kind == Kind::Context {
+            "The provider's context limit was reached."
+        } else {
+            "The provider refused its saved response state."
+        };
+        send(sender, Update::Notice { level: NoticeLevel::Warn, text: format!("{reason} Continuing fresh from committed execution facts; opaque reasoning and image pixels were dropped. Attachment paths and completed actions remain recorded.") }).await;
+        return Ok(true);
+    }
+    let Some(delay) = failure.retry_delay(*retries) else {
+        return Ok(false);
+    };
+    *retries += 1;
+    if !*noticed {
+        send(sender, Update::Notice { level: NoticeLevel::Info, text: "The provider request failed. Retrying inference from the last committed state; completed actions will not be repeated.".into() }).await;
+        *noticed = true;
+    }
+    let deadline = tokio::time::sleep(delay);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            biased;
+            () = turn.stop.raised() => return Ok(true),
+            () = turn.steering.changed(revision) => return Ok(true),
+            job = jobs.next(), if jobs.active() => results.push(publish_job(turn, sender, job?).await),
+            () = &mut deadline => return Ok(true),
+        }
+    }
+}
+
 fn job_result(result: Result<Value, String>) -> ToolResult {
     match result {
         Ok(value) => ToolResult::success(ToolOutput::text(value.to_string())),
@@ -437,6 +608,7 @@ fn job_result(result: Result<Value, String>) -> ToolResult {
 
 async fn publish_job(turn: &Turn, sender: &mpsc::Sender<Update>, job: JobSnapshot) -> Message {
     let message = job_message(turn, &job);
+    turn.history.lock().await.push(message.clone());
     send(
         sender,
         Update::ToolResult {
@@ -497,7 +669,7 @@ async fn wait_jobs(
     Ok(job_result(jobs.selected(&args.job_ids, status)))
 }
 
-fn model_output(
+async fn model_output(
     turn: &Turn,
     call_id: &str,
     output: &ToolOutput,
@@ -507,7 +679,7 @@ fn model_output(
     let provider = turn.model.split('/').next().unwrap_or("");
     if !images.is_empty() {
         return if images_to_model(provider) {
-            output.clone()
+            images::tool_output(output, &turn.stop).await
         } else {
             ToolOutput::text(shown)
         };
@@ -538,32 +710,6 @@ async fn finish(
         },
     )
     .await;
-}
-
-/// What a provider accepts back as an item id: letters, digits, underscores
-/// and dashes. Some backends name an item with more than that and then refuse
-/// the same name as input, which killed the next request of the turn.
-fn replayable_id(id: &str) -> bool {
-    !id.is_empty()
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
-}
-
-/// A reply item as it can go back to the provider. A reasoning item under an
-/// id the provider would refuse goes back without one, which Rig leaves out
-/// of the replay: the turn loses that one item's hidden reasoning and keeps
-/// going, on any provider.
-fn replayable(item: AssistantContent) -> AssistantContent {
-    match item {
-        AssistantContent::Reasoning(mut reasoning)
-            if reasoning.id.as_deref().is_some_and(|id| !replayable_id(id)) =>
-        {
-            reasoning.id = None;
-            AssistantContent::Reasoning(reasoning)
-        }
-        other => other,
-    }
 }
 
 #[cfg(test)]
@@ -617,6 +763,7 @@ mod tests {
             keys: HashMap::new(),
             model: "test/model".into(),
             output_limit: None,
+            context_limit: None,
             effort: None,
             preamble: "Follow the operator".into(),
             cwd: PathBuf::new(),
@@ -733,7 +880,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(3), receiver.recv())
             .await
             .unwrap();
-        assert!(steering.admit("change direction".into()));
+        assert!(steering.admit(Message::user("change direction")));
         let next = receive(&mut requests).await;
         assert!(old.is_closed(), "the old provider stream is dropped");
         assert_eq!(
@@ -800,7 +947,7 @@ mod tests {
         .unwrap();
         drop(old);
         receive(&mut starts).await;
-        assert!(steering.admit("change direction".into()));
+        assert!(steering.admit(Message::user("change direction")));
         assert!(requests.try_recv().is_err());
         release.notify_one();
         let next = receive(&mut requests).await;
@@ -994,7 +1141,13 @@ mod tests {
             .await
             .unwrap();
         drop(chunks);
-        assert!(task.await.unwrap().unwrap_err().contains("truncated"));
+        assert!(
+            task.await
+                .unwrap()
+                .unwrap_err()
+                .details
+                .contains("truncated")
+        );
         assert_eq!(*history.lock().await, [Message::user("first request")]);
         while let Some(update) = receiver.recv().await {
             assert!(!matches!(update, Update::ToolCall { .. }));
@@ -1076,6 +1229,15 @@ mod tests {
         .unwrap();
         let mut observed = Vec::new();
         if fail_inference {
+            second
+                .send(Err(CompletionError::ProviderResponse(
+                    rig::ProviderResponseError::new(
+                        http::StatusCode::TOO_MANY_REQUESTS,
+                        r#"{"error":{"code":"insufficient_quota"}}"#,
+                    ),
+                )))
+                .await
+                .unwrap();
             drop(second);
         } else {
             answer(second).await;
@@ -1100,7 +1262,9 @@ mod tests {
                 !task.is_finished(),
                 "a text answer cannot end an activity with a running job"
             );
-            assert!(steering.admit("what is the status? Keep the command running".into()));
+            assert!(steering.admit(Message::user(
+                "what is the status? Keep the command running"
+            )));
             let request = receive(&mut requests).await;
             assert!(
                 serde_json::to_string(&request.chat_history)
@@ -1161,7 +1325,10 @@ mod tests {
         assert!(steering.admit(Message::user("already admitted")));
         steering.close_admission();
         assert!(!steering.admit(Message::user("must queue after shutdown")));
-        assert_eq!(steering.close(), [Message::user("already admitted")]);
+        assert_eq!(
+            steering.close(),
+            [Input::Prepared(Message::user("already admitted"))]
+        );
     }
 
     #[test]
@@ -1169,35 +1336,266 @@ mod tests {
         let steering = Steering::default();
         assert!(steering.admit(Message::user("before completion")));
         assert!(!steering.finish_if_empty());
-        assert_eq!(steering.take().1, [Message::user("before completion")]);
+        assert_eq!(
+            steering.take().1,
+            [Input::Prepared(Message::user("before completion"))]
+        );
         assert!(steering.finish_if_empty());
         assert!(!steering.admit(Message::user("must stay in the session queue")));
     }
-    #[test]
-    fn a_reasoning_id_the_provider_would_refuse_is_not_replayed() {
-        let refused = rig::message::Reasoning {
-            id: Some("rs_6aa4a9c9d86a275b60a343d4:rs_01a09337382371529914c1d1c48d6230".into()),
-            content: vec![rig::message::ReasoningContent::Summary("thinking".into())],
+    #[tokio::test]
+    async fn a_transient_failure_after_tools_retries_only_the_inference() {
+        let (turn, request) = fixture();
+        let history = turn.history.clone();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, a) = mpsc::channel(8);
+        let (second, b) = mpsc::channel(8);
+        let (third, c) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(a), Some(b), Some(c)])),
         };
-        let AssistantContent::Reasoning(back) = replayable(AssistantContent::Reasoning(refused))
-        else {
-            panic!("still a reasoning item");
-        };
-        assert_eq!(back.id, None);
-        assert_eq!(back.content.len(), 1);
-        let kept = rig::message::Reasoning {
-            id: Some("rs_01a09337382371529914c1d1c48d6230".into()),
-            content: vec![],
-        };
-        let AssistantContent::Reasoning(back) = replayable(AssistantContent::Reasoning(kept))
-        else {
-            panic!("still a reasoning item");
-        };
-        assert_eq!(
-            back.id.as_deref(),
-            Some("rs_01a09337382371529914c1d1c48d6230")
+        let mut tools = ToolSet::default();
+        tools.add_tool(Nod);
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task =
+            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
+        receive(&mut requests).await;
+        first
+            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+                "done-once",
+                "react".into(),
+                serde_json::json!({"emoji":"👍"}),
+            ))))
+            .await
+            .unwrap();
+        first
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                Default::default(),
+            ))))
+            .await
+            .unwrap();
+        drop(first);
+        let before = receive(&mut requests).await;
+        second
+            .send(Ok(RawStreamingChoice::Message("partial response".into())))
+            .await
+            .unwrap();
+        second
+            .send(Err(CompletionError::ProviderResponse(
+                rig::ProviderResponseError::new(http::StatusCode::SERVICE_UNAVAILABLE, "busy"),
+            )))
+            .await
+            .unwrap();
+        drop(second);
+        let retry = receive(&mut requests).await;
+        assert_eq!(before.chat_history, retry.chat_history);
+        assert!(
+            !serde_json::to_string(&retry.chat_history)
+                .unwrap()
+                .contains("partial response")
         );
-        assert!(!replayable_id(""));
-        assert!(replayable_id("msg_ab-12_Z"));
+        answer(third).await;
+        task.await.unwrap().unwrap();
+        let mut calls = 0;
+        while let Some(update) = receiver.recv().await {
+            if matches!(update, Update::ToolCall { .. }) {
+                calls += 1;
+            }
+        }
+        assert_eq!(calls, 1);
+        assert_eq!(history.lock().await.iter().filter(|m| matches!(m, Message::User { content } if content.iter().any(|c| matches!(c, UserContent::ToolResult(_))))).count(), 1);
+    }
+
+    #[tokio::test]
+    async fn stop_during_backoff_is_terminal() {
+        let (turn, request) = fixture();
+        let stop = turn.stop.clone();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, stream) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(stream)])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        first
+            .send(Err(CompletionError::ProviderResponse(
+                rig::ProviderResponseError::new(http::StatusCode::TOO_MANY_REQUESTS, "rate limit"),
+            )))
+            .await
+            .unwrap();
+        drop(first);
+        while let Some(update) = receiver.recv().await {
+            if matches!(update, Update::Notice { .. }) {
+                break;
+            }
+        }
+        stop.raise();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
+        let (turn, request) = fixture();
+        let history = turn.history.clone();
+        history.lock().await.push(Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::Reasoning(rig::message::Reasoning {
+                id: Some("bad:reasoning:item".into()),
+                content: vec![rig::message::ReasoningContent::Encrypted(
+                    "opaque-state".into(),
+                )],
+            })],
+        });
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, a) = mpsc::channel(8);
+        let (second, b) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        first
+            .send(Err(CompletionError::ProviderResponse(
+                rig::ProviderResponseError::new(
+                    http::StatusCode::BAD_REQUEST,
+                    "Invalid encrypted reasoning item",
+                ),
+            )))
+            .await
+            .unwrap();
+        drop(first);
+        let repaired = receive(&mut requests).await;
+        let text = serde_json::to_string(&repaired.chat_history).unwrap();
+        assert!(!text.contains("opaque-state"));
+        assert!(!text.contains("bad:reasoning:item"));
+        assert_eq!(text.matches("first request").count(), 1);
+        second
+            .send(Err(CompletionError::ProviderResponse(
+                rig::ProviderResponseError::new(
+                    http::StatusCode::BAD_REQUEST,
+                    "invalid effort setting",
+                ),
+            )))
+            .await
+            .unwrap();
+        drop(second);
+        assert_eq!(task.await.unwrap().unwrap_err().kind, Kind::Configuration);
+        assert_eq!(*history.lock().await, repaired.chat_history);
+        let mut notices = 0;
+        while let Some(update) = receiver.recv().await {
+            if matches!(update, Update::Notice { .. }) {
+                notices += 1;
+            }
+        }
+        assert_eq!(notices, 1, "one explicit recovery boundary");
+    }
+
+    #[tokio::test]
+    async fn steering_during_backoff_is_consumed_once_without_waiting_for_the_delay() {
+        let (turn, request) = fixture();
+        let steering = turn.steering.clone();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, a) = mpsc::channel(8);
+        let (second, b) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        first
+            .send(Err(CompletionError::ProviderResponse(
+                rig::ProviderResponseError::new(
+                    http::StatusCode::TOO_MANY_REQUESTS,
+                    r#"{"retry_after_seconds":30}"#,
+                ),
+            )))
+            .await
+            .unwrap();
+        drop(first);
+        while let Some(update) = receiver.recv().await {
+            if matches!(update, Update::Notice { .. }) {
+                break;
+            }
+        }
+        assert!(steering.admit(Message::user("new direction")));
+        let request = receive(&mut requests).await;
+        let text = serde_json::to_string(&request.chat_history).unwrap();
+        assert_eq!(text.matches("new direction").count(), 1);
+        assert_eq!(text.matches("first request").count(), 1);
+        answer(second).await;
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn context_rotation_waits_for_the_session_handoff_before_requesting_again() {
+        let (mut turn, request) = fixture();
+        turn.context_limit = Some(20_000);
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, a) = mpsc::channel(8);
+        let (second, b) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let mut tools = ToolSet::default();
+        tools.add_tool(Nod);
+        let task =
+            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
+        receive(&mut requests).await;
+        first
+            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+                "done-once",
+                "react".into(),
+                serde_json::json!({"emoji":"👍"}),
+            ))))
+            .await
+            .unwrap();
+        first
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage {
+                    input_tokens: 17_000,
+                    output_tokens: 100,
+                    total_tokens: 17_100,
+                    ..Default::default()
+                },
+            ))))
+            .await
+            .unwrap();
+        drop(first);
+        loop {
+            if let Update::Chapter { boundary } = receiver.recv().await.unwrap() {
+                assert!(requests.try_recv().is_err());
+                boundary.finish(Some("Chapter handoff: reaction completed.".into()));
+                break;
+            }
+        }
+        let next = receive(&mut requests).await;
+        let rendered = serde_json::to_string(&next.chat_history).unwrap();
+        assert!(rendered.contains("reaction completed"));
+        assert!(rendered.contains("done-once"));
+        assert!(rendered.contains("Fresh continuation"));
+        answer(second).await;
+        task.await.unwrap().unwrap();
     }
 }

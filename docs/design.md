@@ -186,6 +186,43 @@ notices, the quiet window, chapters' gate, receipts, the ledger — and a
 - `Driver::Child`: an external harness over the Agent Client Protocol on
   Zed's `agent-client-protocol` crate, a child on tokio.
 
+The built-in loop classifies provider failures before rendering them. Transient
+failures retry only inference from committed in-memory history, up to three
+retries with backoff, jitter and bounded provider retry hints. Completed tool
+calls are not dispatched again. Stop and revocation remain terminal; input
+admitted but not consumed when a failure closes admission returns to the session
+queue. Quota, authentication and configuration failures require intervention.
+Explicit replay failures get one fresh continuation from execution facts;
+model switches also reset opaque provider state. Neither path rebuilds an
+automatic retry from the tape's text-only history. Oversized execution records
+remain in local tool-output files, with a bounded excerpt and path in context.
+The earlier global colon-ID filter is removed. Native reasoning IDs, encrypted
+Responses data, Anthropic signatures and Gemini signatures survive normal
+continuations unchanged. A backend rejection of a Responses input ID or explicit
+signature/replay error instead enters the fresh boundary. This deliberately
+drops opaque state as a unit, with a notice; clearing a Responses reasoning ID
+alone would silently make Rig omit its encrypted content too.
+
+Known model context limits trigger chapter rotation at a conservative threshold
+before the next inference, including within a long tool turn. The session drains
+prior updates before closing the chapter and returning its wake note. Unknown
+limits remain unknown; a provider context-limit refusal can request the same
+boundary once. A continuation that still cannot fit fails explicitly. ACP owns
+its own internal request loop and context management; Toad does not interrupt an
+opaque child turn using a guessed token count.
+
+An ACP prompt failure never automatically reissues that prompt. The next operator
+message replaces the failed child only after the old process exits, opens a fresh
+session with the same granted servers and disposition, and supplies a briefing
+that distinguishes uncertain execution from completed work. Failed checkpoints
+are withdrawn. A failed first briefing is not treated as a successful restoration.
+
+Error cards use sanitized structured details carried inside the existing notice
+text, after a plain-language title and summary. The JSONL event shape, segment
+layout and importer remain byte-compatible; older clients can still read the
+notice. The desktop expands details on demand, including plain-text legacy
+errors. Image normalization and provider research are in [image input](image-input.md).
+
 The session vocabulary is ACP's: a prompt is content blocks, an update is a
 session update, a permission is a request with options. The in-process
 driver produces the same updates from Rig's stream. A driver has no idea

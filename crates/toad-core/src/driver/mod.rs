@@ -13,6 +13,7 @@
 //! reason.
 
 pub mod acp;
+pub(crate) mod failure;
 pub mod rig;
 
 use crate::contract::{
@@ -204,6 +205,10 @@ pub enum MessageKind {
 /// One thing that happened during a turn.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Update {
+    /// The session drains earlier updates before writing a chapter boundary.
+    Chapter {
+        boundary: ChapterBoundary,
+    },
     /// Text as it arrives. Ephemeral: the durable line is the [`Update::Message`]
     /// that lands when the message is whole.
     Delta {
@@ -250,6 +255,27 @@ pub enum Update {
         level: NoticeLevel,
         text: String,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct ChapterBoundary(Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>);
+
+impl PartialEq for ChapterBoundary {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl ChapterBoundary {
+    pub(crate) fn new() -> (Self, tokio::sync::oneshot::Receiver<Option<String>>) {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        (Self(Arc::new(Mutex::new(Some(send)))), receive)
+    }
+    pub(crate) fn finish(&self, note: Option<String>) {
+        if let Some(sender) = self.0.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            let _ = sender.send(note);
+        }
+    }
 }
 
 /// One image a tool returned, as base64 and the mime type the server named.
@@ -312,6 +338,16 @@ pub trait Driver: Send + Sync {
     /// the message in its queue. This never means Stop.
     fn steer(&self, _text: String, _attachments: Vec<Attachment>) -> bool {
         false
+    }
+
+    /// Input admitted just before a failed activity closed, but never used in a request.
+    fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
+        Vec::new()
+    }
+
+    /// A broken child session must not be restored, even when Stop hid its error.
+    fn checkpoint_valid(&self) -> bool {
+        true
     }
 
     /// Stops the turn in flight. A driver with no turn running does nothing.

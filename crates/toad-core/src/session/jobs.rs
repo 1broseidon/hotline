@@ -28,6 +28,7 @@ pub(crate) enum JobState {
     Cancelled,
     TimedOut,
     Interrupted,
+    Unknown,
 }
 
 impl JobState {
@@ -48,6 +49,7 @@ pub(crate) struct JobSnapshot {
 struct Job {
     snapshot: JobSnapshot,
     cancel: CancellationToken,
+    task_id: tokio::task::Id,
 }
 
 pub(crate) struct Jobs {
@@ -140,16 +142,21 @@ impl Jobs {
             state: JobState::Running,
             output: None,
         };
+        let runner = shell.clone();
+        let job_id = id.clone();
+        let job_cancel = cancel.clone();
+        let task_id = self
+            .tasks
+            .spawn(async move { (job_id, runner.run(args, job_cancel).await) })
+            .id();
         self.entries.insert(
             id.clone(),
             Job {
                 snapshot: snapshot.clone(),
-                cancel: cancel.clone(),
+                cancel,
+                task_id,
             },
         );
-        let shell = shell.clone();
-        self.tasks
-            .spawn(async move { (id, shell.run(args, cancel).await) });
         Ok(json!({"status":"accepted", "job":snapshot}))
     }
 
@@ -207,10 +214,6 @@ impl Jobs {
         })
     }
 
-    pub fn snapshots(&self) -> impl Iterator<Item = &JobSnapshot> {
-        self.entries.values().map(|job| &job.snapshot)
-    }
-
     pub fn cancel_all(&self) {
         for job in self.entries.values() {
             if !job.snapshot.state.terminal() {
@@ -223,8 +226,22 @@ impl Jobs {
         &mut self,
         result: Result<(String, Result<CommandOutcome, ToolError>), tokio::task::JoinError>,
     ) -> Result<JobSnapshot, String> {
-        let (id, outcome) =
-            result.map_err(|error| format!("The managed command runner failed: {error}"))?;
+        let (id, outcome) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                let job = self
+                    .entries
+                    .values_mut()
+                    .find(|job| job.task_id == error.id())
+                    .ok_or("Managed runner lost its registry entry")?;
+                job.cancel.cancel();
+                job.snapshot.state = JobState::Unknown;
+                job.snapshot.output = Some(format!(
+                    "The managed command runner failed; execution outcome is unknown: {error}"
+                ));
+                return Ok(job.snapshot.clone());
+            }
+        };
         let job = self
             .entries
             .get_mut(&id)
@@ -269,6 +286,35 @@ impl Jobs {
 mod tests {
     use super::*;
     use crate::{contract::Reach, tools::Workspace};
+
+    #[tokio::test]
+    async fn a_lost_runner_is_unknown_and_is_reported_once() {
+        let mut jobs = Jobs::new(None);
+        let task = jobs.tasks.spawn(async {
+            panic!("simulated runner failure");
+        });
+        let cancel = CancellationToken::new();
+        jobs.entries.insert(
+            "lost".into(),
+            Job {
+                snapshot: JobSnapshot {
+                    job_id: "lost".into(),
+                    command: "external operation".into(),
+                    state: JobState::Running,
+                    output: None,
+                },
+                cancel: cancel.clone(),
+                task_id: task.id(),
+            },
+        );
+        let result = jobs.next().await.unwrap();
+        assert_eq!(result.state, JobState::Unknown);
+        assert!(result.output.unwrap().contains("outcome is unknown"));
+        assert!(cancel.is_cancelled());
+        assert!(jobs.all_finished(&["lost".into()]));
+        assert!(!jobs.active());
+        assert!(jobs.ready().unwrap().is_empty());
+    }
 
     #[tokio::test]
     async fn finished_jobs_keep_their_outcome_and_other_activities_cannot_cancel_them() {

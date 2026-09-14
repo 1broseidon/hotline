@@ -824,7 +824,6 @@ mod tests {
     use super::*;
     use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     fn scratch(name: &str) -> PathBuf {
@@ -838,10 +837,31 @@ mod tests {
         root
     }
 
+    /// A child writes the script, not this process. A file one thread holds
+    /// open for writing is inherited by every fork another thread makes in
+    /// that moment, and until that child has exec'd, running the file fails
+    /// with "Text file busy"; under a full parallel test run that is one
+    /// run in three. `sh` holds the file instead, and has exited before
+    /// this returns.
     fn write_script(dir: &Path, name: &str, body: &str) {
+        use std::io::Write;
         let path = dir.join(name);
-        fs::write(&path, body).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#"cat > "$1" && chmod 755 "$1""#)
+            .arg("sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(body.as_bytes())
+            .unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success(), "writing {}", path.display());
     }
 
     /// The fake runtime belongs to one test: each writes it into its own

@@ -824,7 +824,6 @@ mod tests {
     use super::*;
     use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     fn scratch(name: &str) -> PathBuf {
@@ -838,20 +837,46 @@ mod tests {
         root
     }
 
+    /// A child writes the script, not this process. A file one thread holds
+    /// open for writing is inherited by every fork another thread makes in
+    /// that moment, and until that child has exec'd, running the file fails
+    /// with "Text file busy"; under a full parallel test run that is one
+    /// run in three. `sh` holds the file instead, and has exited before
+    /// this returns.
     fn write_script(dir: &Path, name: &str, body: &str) {
+        use std::io::Write;
         let path = dir.join(name);
-        fs::write(&path, body).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#"cat > "$1" && chmod 755 "$1""#)
+            .arg("sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(body.as_bytes())
+            .unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success(), "writing {}", path.display());
     }
 
-    fn fake_runtime(dir: &Path) {
-        write_script(
-            dir,
-            "docker",
-            r#"#!/bin/sh
-LOG="${TOAD_FAKE_LOG:?}"
-STATE="${TOAD_FAKE_STATE:?}"
-{
+    /// The fake runtime belongs to one test: each writes it into its own
+    /// directory with the log it appends to, the state file it reads and the
+    /// port it reports baked in. Nothing about it is process-wide, so these
+    /// tests run beside each other instead of queueing behind a lock on the
+    /// environment. The paths are single quoted and a scratch path holds no
+    /// quote to close them with.
+    fn fake_runtime(dir: &Path, mcp_port: u16) {
+        let head = format!(
+            "#!/bin/sh\nLOG='{}'\nSTATE='{}'\nMCP={mcp_port}\n",
+            dir.join("argv.log").display(),
+            dir.join("state").display(),
+        );
+        let body = r#"{
   printf '%s' "$1"
   i=1
   for a in "$@"; do
@@ -875,8 +900,7 @@ case "$cmd" in
     fi
     running=false
     [ "$state" = running ] && running=true
-    mcp=${TOAD_FAKE_MCP_PORT:-18787}
-    printf '[{"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$running" "$mcp"
+    printf '[{"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$running" "$MCP"
     exit 0
     ;;
   create) echo stopped > "$STATE"; exit 0 ;;
@@ -885,8 +909,8 @@ case "$cmd" in
   rm) echo absent > "$STATE"; exit 0 ;;
   *) echo "unknown: $cmd" >&2; exit 1 ;;
 esac
-"#,
-        );
+"#;
+        write_script(dir, "docker", &format!("{head}{body}"));
     }
 
     fn persona(id: &str, cwd: &str) -> Persona {
@@ -962,18 +986,11 @@ esac
         let root = scratch("create");
         let cwd = root.join("work");
         fs::create_dir_all(&cwd).unwrap();
-        fake_runtime(&root);
+        let port = health_on().await;
+        fake_runtime(&root, port);
         let log = root.join("argv.log");
         let state = root.join("state");
         fs::write(&state, "absent").unwrap();
-        let port = health_on().await;
-        // SAFETY: tests that share process env serialize on this lock.
-        let _guard = env_lock().await;
-        unsafe {
-            std::env::set_var("TOAD_FAKE_LOG", &log);
-            std::env::set_var("TOAD_FAKE_STATE", &state);
-            std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-        }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         let ready = computers
@@ -1084,17 +1101,11 @@ esac
         let root = scratch("start");
         let cwd = root.join("work");
         fs::create_dir_all(&cwd).unwrap();
-        fake_runtime(&root);
+        let port = health_on().await;
+        fake_runtime(&root, port);
         let log = root.join("argv.log");
         let state = root.join("state");
         fs::write(&state, "absent").unwrap();
-        let port = health_on().await;
-        let _guard = env_lock().await;
-        unsafe {
-            std::env::set_var("TOAD_FAKE_LOG", &log);
-            std::env::set_var("TOAD_FAKE_STATE", &state);
-            std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-        }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
@@ -1123,17 +1134,11 @@ esac
         let root = scratch("unknown");
         let cwd = root.join("work");
         fs::create_dir_all(&cwd).unwrap();
-        fake_runtime(&root);
+        let port = health_on().await;
+        fake_runtime(&root, port);
         let log = root.join("argv.log");
         let state = root.join("state");
         fs::write(&state, "running").unwrap();
-        let port = health_on().await;
-        let _guard = env_lock().await;
-        unsafe {
-            std::env::set_var("TOAD_FAKE_LOG", &log);
-            std::env::set_var("TOAD_FAKE_STATE", &state);
-            std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-        }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
@@ -1156,17 +1161,11 @@ esac
         let root = scratch("stop-rm");
         let cwd = root.join("work");
         fs::create_dir_all(&cwd).unwrap();
-        fake_runtime(&root);
+        let port = health_on().await;
+        fake_runtime(&root, port);
         let log = root.join("argv.log");
         let state = root.join("state");
         fs::write(&state, "absent").unwrap();
-        let port = health_on().await;
-        let _guard = env_lock().await;
-        unsafe {
-            std::env::set_var("TOAD_FAKE_LOG", &log);
-            std::env::set_var("TOAD_FAKE_STATE", &state);
-            std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-        }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
@@ -1196,17 +1195,11 @@ esac
         let root = scratch("sweep");
         let cwd = root.join("work");
         fs::create_dir_all(&cwd).unwrap();
-        fake_runtime(&root);
+        let port = health_on().await;
+        fake_runtime(&root, port);
         let log = root.join("argv.log");
         let state = root.join("state");
         fs::write(&state, "absent").unwrap();
-        let port = health_on().await;
-        let _guard = env_lock().await;
-        unsafe {
-            std::env::set_var("TOAD_FAKE_LOG", &log);
-            std::env::set_var("TOAD_FAKE_STATE", &state);
-            std::env::set_var("TOAD_FAKE_MCP_PORT", port.to_string());
-        }
         let computers = Computer::with_path(root.as_os_str());
         let ada = persona("ada", cwd.to_str().unwrap());
         computers
@@ -1281,11 +1274,5 @@ esac
             error,
             "No container runtime was found; install Docker or Podman."
         );
-    }
-
-    static ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
-        ENV.lock().await
     }
 }

@@ -767,20 +767,24 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
 
 /// The reach selected over the real wire governs the real tools. No model is
 /// needed to choose an attack command, and a provider cannot skip the probe.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
     use rig::tool::{Tool, ToolContext};
     use toad_core::contract::Persona;
     use toad_core::tools::{ReadFile, RunCommand, Workspace};
 
-    let probe = std::process::Command::new("bwrap")
-        .args(["--ro-bind", "/", "/", "--unshare-pid", "/bin/true"])
-        .output();
-    if !probe.is_ok_and(|output| output.status.success()) {
-        eprintln!("skipped: this machine cannot run bubblewrap");
-        return;
+    #[cfg(target_os = "linux")]
+    {
+        let probe = std::process::Command::new("bwrap")
+            .args(["--ro-bind", "/", "/", "--unshare-pid", "/bin/true"])
+            .output();
+        if !probe.is_ok_and(|output| output.status.success()) {
+            eprintln!("skipped: this machine cannot run bubblewrap");
+            return;
+        }
     }
+    toad_core::tools::shell_available(toad_core::contract::Reach::Workspace).unwrap();
     let (root, port) = open("workspace-reach").await;
     let workspace = root.join("project");
     let other = root.join("other-project");
@@ -790,6 +794,16 @@ async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
     std::fs::write(&secret, "OTHER_PROJECT_TOKEN=outside-canary").unwrap();
     std::os::unix::fs::symlink("../other-project/.env", workspace.join("escape")).unwrap();
     let mut client = Client::connect(port).await;
+    let credential = client
+        .call(
+            "credential.custom_save",
+            json!({"draft": {
+                "name": "Isolation test", "baseUrl": "http://127.0.0.1:9/v1",
+                "api": "chat_completions", "secret": "", "models": ["test"]
+            }}),
+        )
+        .await;
+    assert_eq!(credential["ok"], true, "{credential}");
     let created = client
         .call(
             "persona.create",
@@ -816,6 +830,20 @@ async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
             .await;
         assert_eq!(updated["ok"], true, "{updated}");
         persona = serde_json::from_value(updated["result"].clone()).unwrap();
+        let started = client
+            .call("session.start", json!({"personaId": persona.id}))
+            .await;
+        assert_eq!(started["ok"], true, "{started}");
+        let ledger = client
+            .call("teammate.tools", json!({"personaId": persona.id}))
+            .await;
+        let shell = ledger["result"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["source"] == "builtin" && row["name"] == "shell")
+            .unwrap();
+        assert_eq!(shell["state"], "verified", "{ledger}");
         let tools = Workspace::open(
             PathBuf::from(&persona.cwd),
             persona.reach.unwrap_or_default(),

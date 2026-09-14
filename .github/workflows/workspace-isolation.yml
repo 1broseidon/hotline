@@ -1,0 +1,62 @@
+name: workspace-isolation
+
+on:
+  pull_request:
+    paths:
+      - 'crates/toad-core/src/tools/**'
+      - 'crates/toad-core/tests/desk.rs'
+      - '.github/workflows/workspace-isolation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: workspace-isolation-${{ matrix.runner }}
+          cache-on-failure: true
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf build-essential libssl-dev libdbus-1-dev bubblewrap
+          # Ubuntu restricts user namespaces unless the executable has an
+          # AppArmor profile. This grant is confined to the disposable runner.
+          sudo tee /etc/apparmor.d/toad-ci-bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/toad-ci-bwrap
+          bwrap --ro-bind / / --unshare-pid /bin/true
+      - name: Install supported macOS runtimes
+        if: runner.os == 'macOS'
+        run: |
+          brew install python node go
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Record platform and installed toolchains
+        shell: bash
+        run: |
+          uname -a
+          if [ "$(uname)" = Darwin ]; then sw_vers; fi
+          for tool in python3 node npm go rustc; do command -v "$tool" || true; done
+      - name: Check core, desktop, window and isolation
+        run: make check

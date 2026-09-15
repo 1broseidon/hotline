@@ -29,8 +29,10 @@ their own schedule. Toad pins one published tag, `COMPUTER_VERSION` in
 
 Wake is on session start: `ensure_running` pulls the image when absent, creates
 the container with a token generated for it, starts it, and waits for
-`/health`. The token is process state, never a setting, so a container left by
-a previous run of Toad is removed and recreated. Idle uses the room's sweep:
+`/health`. The token lives in the container's private process environment, never
+in room settings. Toad recovers it from runtime inspection after an app restart,
+so an existing computer keeps its jobs and viewer. A container without a
+recoverable token is recreated. Idle uses the room's sweep:
 thirty minutes after a session stops the container is stopped and its rw layer
 kept; seven days and it is removed.
 

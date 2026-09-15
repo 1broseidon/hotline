@@ -9,11 +9,16 @@ use toad_core::{computer, mcp};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
-    if args.len() == 4 && args[1] == "--provision" {
-        return provision(&args[2], std::path::Path::new(&args[3])).await;
+    if matches!(args.len(), 4 | 5) && args[1] == "--provision" {
+        return provision(
+            &args[2],
+            std::path::Path::new(&args[3]),
+            args.get(4).map(String::as_str),
+        )
+        .await;
     }
     if args.len() != 3 {
-        return Err("usage: computer_acceptance URL TOKEN_FILE | --provision IMAGE OUTPUT".into());
+        return Err("usage: computer_acceptance URL TOKEN_FILE | --provision IMAGE OUTPUT [PASSIVE_QA_PERSONA_ID]".into());
     }
     let ready = computer::Ready {
         url: format!("{}/mcp", args[1].trim_end_matches('/')),
@@ -52,10 +57,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Exercise the same creation, stop and wake path as a teammate's Computer button.
+/// Exercise computer creation, stop and wake without starting an agent session.
+#[cfg(unix)]
 async fn provision(
     image: &str,
     output: &std::path::Path,
+    passive_persona_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::OpenOptionsExt;
     let workspace = output.join("workspace");
@@ -64,7 +71,9 @@ async fn provision(
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis();
-    let id = format!("acceptance-{}-{nonce}", std::process::id());
+    let id = passive_persona_id
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("acceptance-{}-{nonce}", std::process::id()));
     let persona: Persona = serde_json::from_value(json!({
         "id": id, "name": "Release acceptance", "goal": "", "backendId": "toad",
         "cwd": workspace, "mcpPolicy": {"mode":"all", "serverIds":[]},
@@ -121,6 +130,7 @@ async fn provision(
 async fn provision(
     _image: &str,
     _output: &std::path::Path,
+    _passive_persona_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Err("local provisioning acceptance requires a Unix host".into())
 }

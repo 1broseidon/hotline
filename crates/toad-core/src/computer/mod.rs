@@ -37,6 +37,14 @@ pub const COMPUTER_HIBERNATE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 const MCP_PORT: u16 = 8787;
 const WORKSPACE_MOUNT: &str = "/home/agent/workspace";
+/// A named volume per teammate for the home itself, so what the teammate
+/// prepared there outlives the container the hibernate cycle removes: the
+/// environments it built for a workspace, its jobs and their output, its
+/// shell history and its browser profile. The image keeps nothing of its
+/// own in the home, so an empty volume is what a fresh container would
+/// have had anyway. An extra mount may sit inside it; only one that would
+/// cover it is refused, and that one already covers the workspace.
+const HOME_MOUNT: &str = "/home/agent";
 /// A named volume per teammate, so a checkout or a build it starts outlives
 /// the container the hibernate cycle removes. The workspace is the person's
 /// folder; this one is the teammate's.
@@ -510,6 +518,8 @@ fn create_args(
     if runtime != Runtime::AppleContainer {
         args.extend([
             "-v".into(),
+            format!("{}:{HOME_MOUNT}", home_volume(&persona.id)),
+            "-v".into(),
             format!("{NIX_VOLUME}:{NIX_MOUNT}"),
             "-v".into(),
             format!("{}:{SCRATCH_MOUNT}", scratch_volume(&persona.id)),
@@ -547,6 +557,10 @@ fn host_time_zone() -> String {
         .filter(|zone| !zone.is_empty())
         .or_else(|| iana_time_zone::get_timezone().ok())
         .unwrap_or_else(|| "UTC".to_owned())
+}
+
+fn home_volume(persona_id: &str) -> String {
+    format!("toad-home-{persona_id}")
 }
 
 fn scratch_volume(persona_id: &str) -> String {
@@ -1054,6 +1068,8 @@ esac
                 "--shm-size",
                 "1g",
                 "-v",
+                "toad-home-ada:/home/agent",
+                "-v",
                 "toad-nix-glibc:/nix",
                 "-v",
                 "toad-src-ada:/home/agent/src",
@@ -1078,7 +1094,10 @@ esac
     #[test]
     fn the_computers_clock_is_set_to_the_hosts_zone() {
         let zone = host_time_zone();
-        assert!(!zone.is_empty() && !zone.contains(char::is_whitespace), "{zone}");
+        assert!(
+            !zone.is_empty() && !zone.contains(char::is_whitespace),
+            "{zone}"
+        );
     }
 
     #[test]

@@ -587,18 +587,24 @@ because a parallel build spawns more threads than the default allows and a
 linker wants more memory than a browser does. A size that is not digits
 and one unit letter is a start failure, not a guess.
 
-Three mounts are Toad's. The room's cwd is bound at `/home/agent/workspace`,
-the person's folder. A named volume `toad-src-<persona id>` is bound at
+Four mounts are Toad's. The room's cwd is bound at `/home/agent/workspace`,
+the person's folder. A named volume `toad-home-<persona id>` is bound at
+`/home/agent`, the teammate's home: the environments it prepared for a
+workspace, its jobs and their output, its shell history and its browser
+profile outlive the container the hibernate cycle removes, so a woken
+computer picks up where the last one stopped. The image keeps nothing of
+its own in the home, so an empty volume is what a fresh container would
+have had. A named volume `toad-src-<persona id>` is bound at
 `/home/agent/src`, the teammate's own scratch: a checkout or a build it
-starts there outlives the container the hibernate cycle removes.
-`computer.remove` leaves both volumes; only the runtime's own volume commands
-delete them. A named volume `toad-nix-glibc` is bound at `/nix`, one Nix store
+starts there outlives the container too. `computer.remove` leaves every
+volume; only the runtime's own volume commands delete them. A named volume
+`toad-nix-glibc` is bound at `/nix`, one Nix store
 shared by every teammate. The image ships single-user Nix with a seeded
 store, so an empty volume is populated on first use and a `nix develop`
 against a flake is a download the first time and a cache hit after, for
 every teammate. The glibc image uses a new volume name so an old Alpine store cannot supply an unwritable layout; the old volume remains untouched. Store paths are immutable, so sharing is safe; the one
 hazard is `nix-collect-garbage` from inside a container, which cannot see
-the processes of another. Apple `container` gets neither named volume; its
+the processes of another. Apple `container` gets no named volume; its
 rw layer is what it has.
 
 `persona.computer.mounts` binds host folders the teammate needs besides
@@ -607,7 +613,8 @@ through a remote it cannot sign in to. Each is `{ host, path, readonly }`:
 an absolute host path (`~` expands) that must be a folder that exists,
 because a runtime creates a missing one as root; an absolute container
 path that may not equal, contain, or sit inside `/home/agent/workspace`,
-`/home/agent/src` or `/nix`; and `readonly`, which defaults to false in the JSON and to true in the window,
+`/home/agent/src` or `/nix` (a path inside `/home/agent` is fine, one that
+covers it is not); and `readonly`, which defaults to false in the JSON and to true in the window,
 where a teammate tests a checkout rather than edits it in place.
 
 In the window, Settings › Computer writes `computerRuntime` (blank is

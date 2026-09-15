@@ -287,18 +287,20 @@ and `~/.local/bin`, because a packaged Mac app's GUI PATH is the bare
 system one. The user's pick is the room setting `computerRuntime`; absent
 means the first available. The image is `persona.computer.image` or the
 pin `COMPUTER_VERSION` in `crates/toad-core/src/computer/mod.rs`, currently
-`0.4.0`, at `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>`. Never
+`0.5.0`, at `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>`. Never
 `latest`. Tests use a fake runtime script in a temp dir; they do not talk
 to a real daemon.
 
 The create line is `--cap-drop=ALL`, `--security-opt no-new-privileges`,
 `--pids-limit` and `--memory` from `persona.computer` (1024 and 4g when
 absent), `--shm-size 1g`, the loopback port for 8787, the token in the
-environment, then the mounts: the named volumes `toad-nix-glibc:/nix` and
+environment and the host's `TZ`, then the mounts: the named volumes
+`toad-home-<persona id>:/home/agent`, `toad-nix-glibc:/nix` and
 `toad-src-<persona id>:/home/agent/src` (Docker and Podman only), the
 teammate's `persona.computer.mounts` as `host:path[:ro]`, and the room's
 cwd at `/home/agent/workspace`. `mount_args` refuses a host folder that
-does not exist and a container path that overlaps one of those three.
+does not exist and a container path that overlaps the workspace, the
+scratch or the store.
 
 ## The generated contract
 

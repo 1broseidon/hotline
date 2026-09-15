@@ -528,11 +528,25 @@ fn create_args(
         mcp_bind,
         "-e".into(),
         format!("TOAD_COMPUTER_TOKEN={token}"),
+        "-e".into(),
+        format!("TZ={}", host_time_zone()),
         "-v".into(),
         format!("{cwd}:{WORKSPACE_MOUNT}"),
         image.into(),
     ]);
     Ok(args)
+}
+
+/// The zone the computer's clock shows: the host's, so the bar reads the
+/// same as the person's own clock. `TZ` in the desk's environment wins;
+/// a host whose zone cannot be read gets UTC rather than an empty `TZ`.
+fn host_time_zone() -> String {
+    std::env::var("TZ")
+        .ok()
+        .map(|zone| zone.trim().to_owned())
+        .filter(|zone| !zone.is_empty())
+        .or_else(|| iana_time_zone::get_timezone().ok())
+        .unwrap_or_else(|| "UTC".to_owned())
 }
 
 fn scratch_volume(persona_id: &str) -> String {
@@ -1047,6 +1061,8 @@ esac
                 "127.0.0.1:0:8787",
                 "-e",
                 "TOAD_COMPUTER_TOKEN=",
+                "-e",
+                "TZ=",
                 "-v",
                 &format!(
                     "{}:{WORKSPACE_MOUNT}",
@@ -1057,6 +1073,12 @@ esac
         );
         assert!(create.contains("--name toad-computer-ada"), "{create}");
         assert!(recorded.contains("start toad-computer-ada"), "{recorded}");
+    }
+
+    #[test]
+    fn the_computers_clock_is_set_to_the_hosts_zone() {
+        let zone = host_time_zone();
+        assert!(!zone.is_empty() && !zone.contains(char::is_whitespace), "{zone}");
     }
 
     #[test]

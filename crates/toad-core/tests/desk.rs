@@ -428,6 +428,52 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
     );
     assert!(folder.join("toad-room/SKILL.md").exists());
     assert!(folder.join("mine/SKILL.md").exists());
+
+    // The gateway is filled from the window by picking a folder: a skill is
+    // copied in under its own name, a folder that is not one is refused with
+    // the reason, a name already there is refused, and removal is by name.
+    let picked = root.join("picked").join("triage");
+    std::fs::create_dir_all(picked.join("scripts")).unwrap();
+    std::fs::write(picked.join("SKILL.md"), skill("triage")).unwrap();
+    std::fs::write(picked.join("scripts/run.sh"), "#!/bin/sh\n").unwrap();
+    let added = client
+        .call("skills.add", json!({ "path": picked.to_string_lossy() }))
+        .await;
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["result"]["source"], "gateway");
+    assert_eq!(added["result"]["name"], "triage");
+    assert!(gateway.join("triage/scripts/run.sh").exists());
+    let again = client
+        .call("skills.add", json!({ "path": picked.to_string_lossy() }))
+        .await;
+    assert_eq!(again["ok"], false, "{again}");
+    assert!(
+        again["error"]
+            .as_str()
+            .unwrap()
+            .contains("already has a skill named triage")
+    );
+    let not_one = root.join("picked").join("notes");
+    std::fs::create_dir_all(&not_one).unwrap();
+    let refused = client
+        .call("skills.add", json!({ "path": not_one.to_string_lossy() }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"], "notes has no SKILL.md.");
+    let gone = client
+        .call("skills.remove", json!({ "name": "triage" }))
+        .await;
+    assert_eq!(gone["ok"], true, "{gone}");
+    assert!(!gateway.join("triage").exists());
+    let listed = client.call("skills.list", json!({})).await;
+    assert!(
+        !listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|one| one["name"] == "triage"),
+        "{listed}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

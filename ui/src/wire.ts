@@ -96,6 +96,8 @@ type Results = {
 	"mcp.secret_set": null;
 	"backends.list": BackendChoice[];
 	"skills.list": SkillEntry[];
+	"skills.add": SkillEntry;
+	"skills.remove": null;
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
 	"models.catalog": CatalogModel[];

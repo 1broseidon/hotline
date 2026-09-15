@@ -1671,6 +1671,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         persona_id: Option<String>,
     },
+    /// Copies a skill folder the person picked into the gateway, under its
+    /// own name. Refused when the folder is not a skill or the gateway already
+    /// has one of that name; the answer is the entry as `skills.list` lists it.
+    #[serde(rename = "skills.add")]
+    SkillsAdd { path: String },
+    /// Removes a gateway skill by name. Teammates granted it lose it at
+    /// their next start.
+    #[serde(rename = "skills.remove")]
+    SkillsRemove { name: String },
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},

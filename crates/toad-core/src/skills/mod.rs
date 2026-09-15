@@ -357,18 +357,26 @@ pub fn materialize(cwd: &Path, gateway: &Path, policy: &SkillPolicy) -> Result<(
         let name = existing.file_name().to_string_lossy().into_owned();
         let path = existing.path();
         if path.join(MANAGED_MARKER).exists() && !wanted.iter().any(|(wanted, _)| *wanted == name) {
-            std::fs::remove_dir_all(&path).map_err(|error| removed(&path, error))?;
+            remove_tree(&path)?;
         }
     }
 
+    // Two sessions can share a working directory and start at once, so this
+    // is written to be run twice at the same time with the same answer: a
+    // built-in is overwritten in place rather than removed and remade, a
+    // removal that finds nothing is not an error, and every directory is
+    // made with create_dir_all.
     for (name, source) in wanted {
         let entry = target.join(&name);
         refuse_link(&entry)?;
-        if entry.exists() {
-            if !entry.join(MANAGED_MARKER).exists() {
-                continue;
-            }
-            std::fs::remove_dir_all(&entry).map_err(|error| removed(&entry, error))?;
+        let ours = entry.join(MANAGED_MARKER).exists();
+        if entry.exists() && !ours {
+            continue;
+        }
+        if ours && matches!(source, Source::Tree(_)) {
+            // A gateway skill may have lost a file since it was copied; the
+            // copy is remade whole so nothing stale is read.
+            remove_tree(&entry)?;
         }
         std::fs::create_dir_all(&entry).map_err(|error| made(&entry, error))?;
         match source {
@@ -380,6 +388,46 @@ pub fn materialize(cwd: &Path, gateway: &Path, policy: &SkillPolicy) -> Result<(
         std::fs::write(entry.join(MANAGED_MARKER), "").map_err(|error| made(&entry, error))?;
     }
     Ok(())
+}
+
+fn remove_tree(path: &Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(removed(path, error)),
+    }
+}
+
+/// Copies a folder the person picked into the gateway under its own name.
+/// The folder has to be a skill already — the name is its directory's, so a
+/// renamed copy would be invalid on arrival — and the gateway may not have
+/// one of that name yet, because replacing a skill somebody's teammate is
+/// granted is a decision, not a side effect of adding.
+pub fn add_to_gateway(gateway: &Path, from: &Path) -> Result<SkillEntry, String> {
+    let name = from
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("{} is not a folder.", from.display()))?;
+    let picked = entry(&name, from, SkillSource::Gateway);
+    if let Some(reason) = picked.invalid {
+        return Err(reason);
+    }
+    let destination = gateway.join(&name);
+    if destination.exists() {
+        return Err(format!("The gateway already has a skill named {name}."));
+    }
+    std::fs::create_dir_all(&destination).map_err(|error| made(&destination, error))?;
+    copy_tree(from, &destination)?;
+    Ok(entry(&name, &destination, SkillSource::Gateway))
+}
+
+/// Removes a gateway skill. A name that is not there is not an error: the
+/// person wanted it gone, and it is.
+pub fn remove_from_gateway(gateway: &Path, name: &str) -> Result<(), String> {
+    valid_name(name)?;
+    let path = gateway.join(name);
+    refuse_link(&path)?;
+    remove_tree(&path)
 }
 
 fn refuse_link(path: &Path) -> Result<(), String> {

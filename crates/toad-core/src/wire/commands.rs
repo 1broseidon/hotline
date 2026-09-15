@@ -136,6 +136,19 @@ pub(crate) async fn run(
         Command::SkillsList { persona_id } => room
             .skills(persona_id.as_deref())
             .map(|skills| json!(skills)),
+        // The gateway is a folder in the data directory, which the log owns;
+        // no session is touched, so the room is not asked.
+        Command::SkillsAdd { path } => {
+            let gateway = paths::skills_path(log.root());
+            std::fs::create_dir_all(&gateway)
+                .map_err(|error| format!("{} could not be made: {error}", gateway.display()))?;
+            crate::skills::add_to_gateway(&gateway, std::path::Path::new(&path))
+                .map(|entry| json!(entry))
+        }
+        Command::SkillsRemove { name } => {
+            crate::skills::remove_from_gateway(&paths::skills_path(log.root()), &name)
+                .map(|()| Value::Null)
+        }
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),
         Command::ModelsCatalog { provider_id } => room

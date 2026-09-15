@@ -1489,6 +1489,41 @@ pub struct BackendChoice {
 }
 
 // ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+
+/// Where a skill came from. `builtin` is bundled with Toad and always on;
+/// `gateway` is the operator's folder in the data directory, granted per
+/// teammate; `workspace` is the teammate's own `.agents/skills`, written by
+/// the person or the teammate; `computer` is the guide the running computer
+/// serves, at its release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SkillSource {
+    Builtin,
+    Gateway,
+    Workspace,
+    Computer,
+}
+
+/// One skill as the catalog lists it. `invalid` is absent when the folder is
+/// a skill and a sentence saying what is wrong when it is not; an invalid
+/// entry is listed so the person can fix it, never silently skipped. `path`
+/// is where the folder is: inside the workspace for what a teammate sees,
+/// on disk for the gateway.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SkillEntry {
+    pub source: SkillSource,
+    pub name: String,
+    pub description: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // The wire
 // ---------------------------------------------------------------------------
 
@@ -1603,6 +1638,13 @@ pub enum Command {
     /// but cannot, with the reason.
     #[serde(rename = "backends.list")]
     BackendsList {},
+    /// The skills catalog: the built-ins, the gateway folder's entries valid
+    /// or not, and — given a teammate — the skills in its own workspace.
+    #[serde(rename = "skills.list")]
+    SkillsList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        persona_id: Option<String>,
+    },
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},

@@ -1056,6 +1056,14 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(walled.contains("Your working directory is /tmp/harbour."));
     assert!(walled.contains("a path that leaves it is refused"));
     assert!(walled.contains(&Local::now().format("%A %-d %B %Y").to_string()));
+    // Skills are an index, not a body: the name, when to use it, and the
+    // file to read, after the tool sentence and before the house style.
+    assert!(walled.contains("\n- toad-room: "));
+    assert!(walled.contains(".agents/skills/toad-room/SKILL.md"));
+    let tools_at = walled.find("`search_thread`").unwrap();
+    let skills_at = walled.find("You have skills").unwrap();
+    let style_at = walled.find("Toad shows your reply as chat").unwrap();
+    assert!(tools_at < skills_at && skills_at < style_at, "{walled}");
     assert!(
         walled.contains("Toad shows your reply as chat"),
         "both kinds of agent are told the house style: {walled}"

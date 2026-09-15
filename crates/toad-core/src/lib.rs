@@ -27,6 +27,7 @@ pub mod push;
 pub mod remote;
 pub mod room;
 pub mod session;
+pub mod skills;
 pub mod store;
 pub mod tools;
 pub mod vault;

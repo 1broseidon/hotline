@@ -130,6 +130,12 @@ pub fn acp_registry_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-registry.json")
 }
 
+/// The skills gateway: the operator's folder of skills, one directory each,
+/// granted per teammate. Made on first use; empty until a skill is added.
+pub fn skills_path(root: &Path) -> PathBuf {
+    root.join("skills")
+}
+
 /// The absolute path of a command, looking on `PATH` and the directories a
 /// packaged Mac app's GUI environment does not include.
 ///

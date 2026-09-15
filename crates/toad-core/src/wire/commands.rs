@@ -133,6 +133,9 @@ pub(crate) async fn run(
             .mcp_secret_set(&server_id, &url, &secret)
             .map(|()| Value::Null),
         Command::BackendsList {} => Ok(json!(room.backends().await)),
+        Command::SkillsList { persona_id } => room
+            .skills(persona_id.as_deref())
+            .map(|skills| json!(skills)),
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),
         Command::ModelsCatalog { provider_id } => room

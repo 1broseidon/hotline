@@ -2830,8 +2830,12 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     // the room — on either driver, so the sentence about them is
     // unconditional: a tool an agent was never told about is a tool it does
     // not have.
+    // Skills are the one thing here the agent is told about rather than told:
+    // a line each, and the body is read when a task calls for it. The
+    // built-ins are always on, so the index is never empty.
+    let skills = crate::skills::index(&crate::skills::builtin());
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,
         Local::now().format("%A %-d %B %Y"),
         crate::mcp::server::HOW_TO_USE,

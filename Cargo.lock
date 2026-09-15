@@ -9460,6 +9460,7 @@ dependencies = [
  "chrono",
  "curve25519-dalek",
  "futures-util",
+ "gethostname",
  "getrandom 0.3.4",
  "globset",
  "grep-regex",

@@ -502,7 +502,7 @@ impl Remote {
             kind: "toad-pairing".into(),
             version: 1,
             desktop_id: s.saved.desktop_id.clone(),
-            name: "Toad desktop".into(),
+            name: desktop_name(),
             endpoint,
             certificate_sha256: s.fingerprint.clone(),
             invitation_id: Uuid::new_v4().to_string(),
@@ -662,7 +662,7 @@ impl Remote {
         );
         Ok(json!({
             "desktopId": desktop_id,
-            "name": "Toad desktop",
+            "name": desktop_name(),
             "desktopPublic": desktop_public,
             "expiresAt": manual.expires_at,
         }))
@@ -824,6 +824,19 @@ impl Remote {
             return Ok(json!({"state":"unknown"}));
         }
         result.map(|()| json!({"state":"accepted"}))
+    }
+}
+
+/// What this desk calls itself to a phone: the machine's name, as the person
+/// named it, with the local-network suffix taken off. Two desks paired to one
+/// phone were both "Toad desktop" before, which told the person nothing.
+pub(crate) fn desktop_name() -> String {
+    let host = gethostname::gethostname().to_string_lossy().into_owned();
+    let name = host.trim_end_matches(".local").trim();
+    if name.is_empty() {
+        "Toad desktop".to_string()
+    } else {
+        name.to_string()
     }
 }
 

@@ -1,0 +1,16 @@
+cd crates/toad-desktop && cargo tauri dev --runner /Users/george/Projects/personal/toad/scripts/cargo-dev-sign
+     Running BeforeDevCommand (`bun run --cwd ../ui dev`)
+$ vite
+1:43:14 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+
+  VITE v8.2.2  ready in 524 ms
+
+  ➜  Local:   http://localhost:5174/
+  ➜  Network: use --host to expose
+     Running DevCommand (`/Users/george/Projects/personal/toad/scripts/cargo-dev-sign  run --no-default-features --color always --`)
+        Info Watching /Users/george/Projects/personal/toad/crates/toad-desktop for changes...
+        Info Watching /Users/george/Projects/personal/toad/crates/toad-core for changes...
+[1m[92m    Blocking[0m waiting for file lock on build directory
+[1m[92m   Compiling[0m toad-desktop v0.10.2 (/Users/george/Projects/personal/toad/crates/toad-desktop)
+[1m[92m   Compiling[0m toad-core v0.10.2 (/Users/george/Projects/personal/toad/crates/toad-core)
+[1m[96m    Building[0m [=======================> ] 649/653: toad-core, toad-desktop(bui…[K[1m[96m    Building[0m [=======================> ] 649/653: toad-core, toad-desktop(bui…[1m[96m    Building[0m [=======================> ] 650/653: toad-core                   [K[1m[96m    Building[0m [=======================> ] 650/653: toad-core                   [1m[96m    Building[0m [=======================> ] 651/653: toad-desktop                [K[1m[96m    Building[0m [=======================> ] 651/653: toad-desktop                [1m[96m    Building[0m [=======================> ] 652/653: toad-desktop(bin)           [K[1m[96m    Building[0m [=======================> ] 652/653: toad-desktop(bin)           [K[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 1m 08s

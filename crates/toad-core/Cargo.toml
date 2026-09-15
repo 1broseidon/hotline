@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 rig.workspace = true
+gethostname = "1.1"
 async-trait = "0.1.92"
 serde.workspace = true
 serde_json.workspace = true

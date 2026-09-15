@@ -7,6 +7,12 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-14
+
+### Changed
+- A desk introduces itself to a phone by the machine's name instead of
+  "Toad desktop", so two desks on one phone can be told apart.
+
 ## [0.11.0] - 2026-09-14
 
 ### Added

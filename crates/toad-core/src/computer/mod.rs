@@ -23,7 +23,7 @@ use tokio::process::Command;
 /// The toad.computer release this desktop is built against. Bumped here
 /// deliberately when the desktop is ready for a new image — never derived
 /// from the desktop version, and never `latest`.
-pub const COMPUTER_VERSION: &str = "0.4.0";
+pub const COMPUTER_VERSION: &str = "0.5.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
 pub const SERVER_ID: &str = "computer";

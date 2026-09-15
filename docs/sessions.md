@@ -574,9 +574,10 @@ endpoint in-process with the bearer token. An ACP child is named the
 server in `session/new` with `Authorization: Bearer <token>`. The ledger
 row for its tools follows the normal MCP path, origin `computer`.
 
-The token is generated once per container and kept in process state, never
-settings. A container left behind by a previous run of Toad has a token
-this process no longer knows, so it is removed and recreated.
+The token is generated once per container and never stored in room settings.
+After Toad restarts, runtime inspection recovers the token from the existing
+container's environment so its jobs and viewer remain available. A container
+without a recoverable token is recreated.
 
 The container's limits are the teammate's: `persona.computer.memory` is the
 runtime's own spelling of a size (`"8g"`, `"512m"`; absent is `4g`) and

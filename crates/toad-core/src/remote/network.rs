@@ -16,10 +16,22 @@ pub(super) fn reachable(ip: IpAddr) -> bool {
     }
 }
 
+// Some macOS virtual bridges expose the subnet address itself as an interface.
+// It is enumerable but cannot receive a TCP connection from this machine.
+fn usable_v4(ip: Ipv4Addr, netmask: Ipv4Addr) -> bool {
+    let host_mask = !u32::from(netmask);
+    let host = u32::from(ip) & host_mask;
+    host_mask <= 1 || (host != 0 && host != host_mask)
+}
+
 pub(super) fn addresses() -> Vec<String> {
     let mut ips: Vec<_> = if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
+        .filter(|interface| match &interface.addr {
+            if_addrs::IfAddr::V4(address) => usable_v4(address.ip, address.netmask),
+            if_addrs::IfAddr::V6(_) => true,
+        })
         .map(|interface| interface.ip())
         .filter(|ip| reachable(*ip))
         .collect();
@@ -97,6 +109,22 @@ async fn bind_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subnet_identifiers_are_not_advertised_as_hosts() {
+        let mask = Ipv4Addr::new(255, 255, 255, 0);
+        assert!(!usable_v4(Ipv4Addr::new(192, 168, 215, 0), mask));
+        assert!(!usable_v4(Ipv4Addr::new(192, 168, 215, 255), mask));
+        assert!(usable_v4(Ipv4Addr::new(192, 168, 215, 1), mask));
+        assert!(usable_v4(
+            Ipv4Addr::new(192, 168, 215, 0),
+            Ipv4Addr::new(255, 255, 255, 254)
+        ));
+        assert!(usable_v4(
+            Ipv4Addr::new(192, 168, 215, 0),
+            Ipv4Addr::BROADCAST
+        ));
+    }
 
     #[test]
     fn advertised_addresses_are_routable_and_ipv6_urls_have_brackets() {

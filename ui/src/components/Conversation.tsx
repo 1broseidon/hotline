@@ -165,7 +165,7 @@ export function Conversation({
 	}, [replying]);
 
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
-	const screen = useComputerViewer(personaId, running && (persona.computer?.enabled ?? false));
+	const screen = useComputerViewer(personaId, persona.computer?.enabled ?? false);
 	const openScreen = screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen);
 	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),

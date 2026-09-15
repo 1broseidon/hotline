@@ -1096,6 +1096,8 @@ fn the_preamble_says_who_where_how_far_and_when() {
     let desk = preamble(&ada, Some(Reach::Workspace), None);
     assert!(desk.contains("You have a computer"));
     assert!(desk.contains("take it over"));
+    assert!(desk.contains("action `guide`"));
+    assert!(desk.contains("from that running computer"));
     assert!(desk.contains("`request_human`"));
     assert!(
         walled.contains("`request_human`"),

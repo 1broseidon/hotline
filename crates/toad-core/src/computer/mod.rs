@@ -23,7 +23,7 @@ use tokio::process::Command;
 /// The toad.computer release this desktop is built against. Bumped here
 /// deliberately when the desktop is ready for a new image — never derived
 /// from the desktop version, and never `latest`.
-pub const COMPUTER_VERSION: &str = "0.3.0";
+pub const COMPUTER_VERSION: &str = "0.4.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
 pub const SERVER_ID: &str = "computer";
@@ -47,9 +47,10 @@ const SCRATCH_MOUNT: &str = "/home/agent/src";
 /// use. Only `nix-collect-garbage` is a hazard across containers, since a
 /// path in use by a process one container cannot see looks unused.
 const NIX_MOUNT: &str = "/nix";
-const NIX_VOLUME: &str = "toad-nix";
-const DEFAULT_MEMORY: &str = "2g";
-const DEFAULT_PIDS: u32 = 512;
+/// The glibc image seeds a writable store; old Alpine volumes remain available.
+const NIX_VOLUME: &str = "toad-nix-glibc";
+const DEFAULT_MEMORY: &str = "4g";
+const DEFAULT_PIDS: u32 = 1024;
 const PULL_NOTICE: &str = "Pulling the computer image …";
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -185,11 +186,10 @@ impl Computer {
             .map(|live| live.token.clone());
 
         let mut inspection = inspect(&cmd, runtime, &name).await?;
+        let known_token = inspection.token.clone().or(known_token);
         if inspection.exists && known_token.is_none() {
-            // A container that exists without a token in this process came
-            // from a previous run of Toad: the bearer was never written
-            // down, so starting it would hand the agent a machine it cannot
-            // authenticate to. Remove and recreate.
+            // Older or foreign containers may not expose the expected bearer.
+            // A desktop with no recoverable token cannot be authenticated.
             run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await?;
             inspection.exists = false;
             inspection.running = false;
@@ -358,10 +358,11 @@ struct Inspection {
     exists: bool,
     running: bool,
     mcp_port: Option<u16>,
+    token: Option<String>,
 }
 
-/// The viewer needs the bearer, which only this process knows, so a
-/// container this process did not wake reports a URL and no viewer.
+/// The private runtime metadata preserves the bearer across app restarts.
+/// It is returned only in the authenticated viewer URL, never in diagnostics.
 fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStatus {
     if !inspection.exists {
         return ComputerStatus {
@@ -381,8 +382,14 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
     ComputerStatus {
         state: ComputerState::Running,
         url: mcp.map(mcp_url),
-        viewer: match (mcp, known) {
-            (Some(port), Some((_, token))) => Some(viewer_url(port, token)),
+        viewer: match (
+            mcp,
+            inspection
+                .token
+                .as_deref()
+                .or(known.map(|(_, token)| token)),
+        ) {
+            (Some(port), Some(token)) => Some(viewer_url(port, token)),
             _ => None,
         },
     }
@@ -658,6 +665,7 @@ async fn inspect(cmd: &Path, runtime: Runtime, name: &str) -> Result<Inspection,
             exists: false,
             running: false,
             mcp_port: None,
+            token: None,
         }),
         Err(error) => Err(error),
     }
@@ -687,7 +695,21 @@ fn parse_docker(object: &Value) -> Result<Inspection, String> {
         exists: true,
         running,
         mcp_port: docker_host_port(object, MCP_PORT),
+        token: token_from_environment(object.pointer("/Config/Env")),
     })
+}
+
+fn token_from_environment(environment: Option<&Value>) -> Option<String> {
+    environment?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .find_map(|entry| {
+            entry
+                .strip_prefix("TOAD_COMPUTER_TOKEN=")
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned)
+        })
 }
 
 fn docker_host_port(object: &Value, container_port: u16) -> Option<u16> {
@@ -747,6 +769,7 @@ fn parse_apple(object: &Value) -> Result<Inspection, String> {
         exists: true,
         running,
         mcp_port,
+        token: token_from_environment(object.pointer("/configuration/initProcess/environment")),
     })
 }
 
@@ -900,7 +923,9 @@ case "$cmd" in
     fi
     running=false
     [ "$state" = running ] && running=true
-    printf '[{"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$running" "$MCP"
+    environment='[]'
+    if [ -f "${STATE}.token" ]; then environment='["TOAD_COMPUTER_TOKEN=fixture-persisted-token"]'; fi
+    printf '[{"Config":{"Env":%s},"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$environment" "$running" "$MCP"
     exit 0
     ;;
   create) echo stopped > "$STATE"; exit 0 ;;
@@ -1009,13 +1034,13 @@ esac
                 "--security-opt",
                 "no-new-privileges",
                 "--pids-limit",
-                "512",
+                "1024",
                 "--memory",
-                "2g",
+                "4g",
                 "--shm-size",
                 "1g",
                 "-v",
-                "toad-nix:/nix",
+                "toad-nix-glibc:/nix",
                 "-v",
                 "toad-src-ada:/home/agent/src",
                 "-p",
@@ -1037,8 +1062,8 @@ esac
     #[test]
     fn limits_are_the_teammates_else_the_defaults() {
         let mut ada = persona("ada", "/tmp");
-        assert_eq!(memory_of(&ada).unwrap(), "2g");
-        assert_eq!(pids_of(&ada), "512");
+        assert_eq!(memory_of(&ada).unwrap(), "4g");
+        assert_eq!(pids_of(&ada), "1024");
         let computer = ada.computer.as_mut().unwrap();
         computer.memory = Some(" 8G ".into());
         computer.pids = Some(0);
@@ -1126,6 +1151,61 @@ esac
         assert!(
             !recorded.lines().any(|line| line.starts_with("create ")),
             "a known stopped container must not be recreated: {recorded}"
+        );
+    }
+
+    #[test]
+    fn apple_inspection_recovers_only_the_computer_environment_token() {
+        let seen = parse_apple(&serde_json::json!({
+            "status":{"state":"running"},
+            "configuration":{
+                "initProcess":{"environment":["PATH=/usr/bin", "TOAD_COMPUTER_TOKEN=fixture-apple-token"]},
+                "publishedPorts":[{"containerPort":8787,"hostPort":12345,"proto":"tcp"}]
+            }
+        })).unwrap();
+        assert!(
+            status_of(seen, None)
+                .viewer
+                .is_some_and(|viewer| viewer == "http://127.0.0.1:12345/#fixture-apple-token")
+        );
+        assert!(
+            token_from_environment(Some(&serde_json::json!(["TOAD_COMPUTER_TOKEN="]))).is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_existing_desktop_remains_viewable_and_is_not_recreated_after_restart() {
+        let root = scratch("recover-token");
+        let cwd = root.join("work");
+        fs::create_dir_all(&cwd).unwrap();
+        let port = health_on().await;
+        fake_runtime(&root, port);
+        fs::write(root.join("state"), "running").unwrap();
+        fs::write(root.join("state.token"), "present").unwrap();
+        let computers = Computer::with_path(root.as_os_str());
+        let status = computers.status("ada", None).await.unwrap();
+        assert!(
+            status
+                .viewer
+                .is_some_and(|url| url.ends_with("/#fixture-persisted-token"))
+        );
+        let ready = computers
+            .ensure_running(
+                &persona("ada", cwd.to_str().unwrap()),
+                cwd.to_str().unwrap(),
+                None,
+                None,
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert!(ready.token == "fixture-persisted-token");
+        let recorded = log_text(&root.join("argv.log"));
+        assert!(
+            !recorded.lines().any(|line| line.starts_with("rm ")
+                || line.starts_with("create ")
+                || line.starts_with("start ")),
+            "a running desktop was mutated: {recorded}"
         );
     }
 

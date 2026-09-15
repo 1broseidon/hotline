@@ -382,10 +382,10 @@ pub struct PersonaComputer {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     /// Memory limit for the container as the runtime spells it — `"2g"`,
-    /// `"8g"`, `"512m"`. Absent is 2g. A teammate that compiles asks for more.
+    /// `"8g"`, `"512m"`. Absent is 4g. Larger builds can request more.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<String>,
-    /// Process limit for the container; threads count. Absent is 512, zero
+    /// Process limit for the container; threads count. Absent is 1024, zero
     /// is unlimited. A parallel build needs more than the default allows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pids: Option<u32>,

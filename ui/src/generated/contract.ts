@@ -403,6 +403,12 @@ hopNotice?: string,
  */
 mcpPolicy: McpPolicy, 
 /**
+ * Which of the gateway's skills this teammate is given. Built-ins are
+ * always on and not part of this. Absent means none, including for
+ * older records.
+ */
+skillPolicy: SkillPolicy, 
+/**
  * Whether this teammate may create and receive its own persistent
  * schedules. Operator-created jobs carry their own provenance and do not
  * depend on this grant. Absent means off, including for older records.
@@ -706,6 +712,14 @@ export type Side = "me" | "them";
  * on disk for the gateway.
  */
 export type SkillEntry = { source: SkillSource, name: string, description: string, path: string, invalid?: string, };
+
+/**
+ * Which skills from the gateway a teammate gets, the way [`McpPolicy`] says
+ * which servers: `none` for a new teammate, `some` by name, or `all`
+ * including skills added later. Built-in skills are not governed here; they
+ * are always in the workspace.
+ */
+export type SkillPolicy = { mode: PolicyMode, names: Array<string>, };
 
 /**
  * Where a skill came from. `builtin` is bundled with Toad and always on;

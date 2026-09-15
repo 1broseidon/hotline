@@ -62,6 +62,7 @@ use crate::driver::{
 use crate::log::{Log, StreamId, thread};
 use crate::mcp;
 use crate::mcp::server::TeammateTools;
+use crate::paths;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
@@ -71,7 +72,7 @@ use chrono::Local;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::{Mutex as TokioMutex, Notify, broadcast, oneshot, watch};
@@ -720,6 +721,17 @@ impl Room {
                 persona.name, persona.cwd
             )
         })?;
+        // The skills the teammate may read are files in its workspace, for
+        // either driver: the built-ins and whatever the gateway grants it,
+        // copied under Toad's marker so a revoked grant leaves nothing of
+        // Toad's behind and nothing of the teammate's is ever touched.
+        crate::skills::materialize(
+            Path::new(&persona.cwd),
+            &paths::skills_path(self.log.root()),
+            &persona.skill_policy,
+        )
+        .map_err(|error| format!("{}'s skills could not be written: {error}", persona.name))?;
+        capability.check()?;
         if !in_process {
             // An ACP session takes no system prompt, so who the teammate is
             // has to be on disk before the child is started.
@@ -2831,9 +2843,11 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     // unconditional: a tool an agent was never told about is a tool it does
     // not have.
     // Skills are the one thing here the agent is told about rather than told:
-    // a line each, and the body is read when a task calls for it. The
-    // built-ins are always on, so the index is never empty.
-    let skills = crate::skills::index(&crate::skills::builtin());
+    // a line each, and the body is read when a task calls for it. The index
+    // is what is in the workspace — the built-ins are always there, so it is
+    // never empty — and a skill the teammate wrote over a built-in's name is
+    // the one listed, because it is the one on disk.
+    let skills = crate::skills::index(&crate::skills::visible(Path::new(&persona.cwd)));
     let standing = format!(
         "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,

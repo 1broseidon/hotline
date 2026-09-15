@@ -520,6 +520,16 @@ elsewhere:
   real repository is left alone, including one that merely mentions the
   marker. Materialization uses the same workspace boundary; an `AGENTS.md`
   symlink cannot redirect a Toad write outside it.
+
+Skills reach both drivers the same way. At every session start Toad writes
+the built-in skills and the gateway skills the teammate's `skillPolicy`
+grants into `.agents/skills/<name>/` in the working directory, each entry
+carrying a `.managed-by-toad` file. Only an entry with that file is ever
+replaced or removed, so a skill the person or the teammate put there stays,
+and shadows a grant of the same name; a revoked grant's entry is removed at
+the next start. A `.agents` or `.agents/skills` that is a symlink refuses the
+start rather than following it. Changing `skillPolicy` reattaches the
+session, like `mcpPolicy`, so the preamble's index matches the folder.
 - **What kind of room this is** — the preamble (identity, standing, the
   house style, the wake block) — rides as a content block ahead of the first
   prompt on this connection. It is not written to the tape: Toad explaining

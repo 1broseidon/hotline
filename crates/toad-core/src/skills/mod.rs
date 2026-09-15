@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::contract::{SkillEntry, SkillSource};
+use crate::contract::{PolicyMode, SkillEntry, SkillPolicy, SkillSource};
 
 /// Where skills live inside a workspace, relative to the working directory.
 pub const DIRECTORY: &str = ".agents/skills";
@@ -270,10 +270,30 @@ pub fn workspace_path(name: &str) -> String {
     format!("{DIRECTORY}/{name}/{FILE}")
 }
 
+/// What a teammate can read in its workspace: the built-ins, and every valid
+/// entry in its `.agents/skills`, one per name. An entry on disk wins over a
+/// built-in of the same name, because it is the file that will be read.
+pub fn visible(cwd: &Path) -> Vec<SkillEntry> {
+    let mut out = builtin_entries();
+    for found in read_folder(&cwd.join(DIRECTORY), SkillSource::Workspace, false) {
+        if found.invalid.is_some() {
+            continue;
+        }
+        match out.iter_mut().find(|one| one.name == found.name) {
+            Some(known) => known.description = found.description,
+            None => out.push(SkillEntry {
+                path: workspace_path(&found.name),
+                ..found
+            }),
+        }
+    }
+    out
+}
+
 /// What the preamble says about skills: one line each, name, description and
 /// the path to read. Nothing else, so the body is read only when the task
 /// calls for it. Empty when there are none, so the preamble says nothing.
-pub fn index(skills: &[Skill]) -> String {
+pub fn index(skills: &[SkillEntry]) -> String {
     if skills.is_empty() {
         return String::new();
     }
@@ -289,6 +309,119 @@ pub fn index(skills: &[Skill]) -> String {
         ));
     }
     out
+}
+
+/// Writes the skills a teammate may read into its workspace: the built-ins,
+/// and the valid gateway skills its policy grants. Every entry Toad writes
+/// carries [`MANAGED_MARKER`]; an entry without one is the teammate's or the
+/// person's, is left alone, and shadows a grant of the same name. A marked
+/// entry the grant no longer covers is removed, so a revoked grant leaves
+/// nothing of Toad's behind.
+///
+/// This is a write into a workspace without the confined handle the tools
+/// use, because it copies whole directories the operator put in the gateway.
+/// It is kept safe the plain way: `.agents`, `.agents/skills` and each entry
+/// are refused if they are symbolic links, and links inside a gateway skill
+/// are not copied.
+pub fn materialize(cwd: &Path, gateway: &Path, policy: &SkillPolicy) -> Result<(), String> {
+    let target = cwd.join(DIRECTORY);
+    for dir in [cwd.join(".agents"), target.clone()] {
+        refuse_link(&dir)?;
+    }
+    std::fs::create_dir_all(&target).map_err(|error| made(&target, error))?;
+
+    enum Source<'a> {
+        Text(&'a str),
+        Tree(PathBuf),
+    }
+    let mut wanted: Vec<(String, Source)> = BUILTIN
+        .iter()
+        .map(|(name, text)| (name.to_string(), Source::Text(text)))
+        .collect();
+    for entry in read_folder(gateway, SkillSource::Gateway, false) {
+        let granted = match policy.mode {
+            PolicyMode::All => true,
+            PolicyMode::Some => policy.names.contains(&entry.name),
+            PolicyMode::None => false,
+        };
+        if granted && entry.invalid.is_none() && !wanted.iter().any(|(name, _)| *name == entry.name)
+        {
+            wanted.push((entry.name, Source::Tree(PathBuf::from(entry.path))));
+        }
+    }
+
+    for existing in std::fs::read_dir(&target)
+        .map_err(|error| made(&target, error))?
+        .flatten()
+    {
+        let name = existing.file_name().to_string_lossy().into_owned();
+        let path = existing.path();
+        if path.join(MANAGED_MARKER).exists() && !wanted.iter().any(|(wanted, _)| *wanted == name) {
+            std::fs::remove_dir_all(&path).map_err(|error| removed(&path, error))?;
+        }
+    }
+
+    for (name, source) in wanted {
+        let entry = target.join(&name);
+        refuse_link(&entry)?;
+        if entry.exists() {
+            if !entry.join(MANAGED_MARKER).exists() {
+                continue;
+            }
+            std::fs::remove_dir_all(&entry).map_err(|error| removed(&entry, error))?;
+        }
+        std::fs::create_dir_all(&entry).map_err(|error| made(&entry, error))?;
+        match source {
+            Source::Text(text) => {
+                std::fs::write(entry.join(FILE), text).map_err(|error| made(&entry, error))?;
+            }
+            Source::Tree(from) => copy_tree(&from, &entry)?,
+        }
+        std::fs::write(entry.join(MANAGED_MARKER), "").map_err(|error| made(&entry, error))?;
+    }
+    Ok(())
+}
+
+fn refuse_link(path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(format!("{} is a symbolic link.", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn made(path: &Path, error: std::io::Error) -> String {
+    format!("{} could not be written: {error}", path.display())
+}
+
+fn removed(path: &Path, error: std::io::Error) -> String {
+    format!("{} could not be removed: {error}", path.display())
+}
+
+/// Copies a gateway skill's files into the workspace entry. Links are
+/// skipped, and so is a marker the operator happened to leave in the gateway.
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    for item in std::fs::read_dir(from)
+        .map_err(|error| made(from, error))?
+        .flatten()
+    {
+        let kind = item
+            .file_type()
+            .map_err(|error| made(&item.path(), error))?;
+        let name = item.file_name();
+        if kind.is_symlink() || name == MANAGED_MARKER {
+            continue;
+        }
+        let destination = to.join(&name);
+        if kind.is_dir() {
+            std::fs::create_dir_all(&destination).map_err(|error| made(&destination, error))?;
+            copy_tree(&item.path(), &destination)?;
+        } else {
+            std::fs::copy(item.path(), &destination).map_err(|error| made(&destination, error))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -423,9 +556,127 @@ mod tests {
     #[test]
     fn the_index_is_one_line_per_skill_with_the_path_to_read() {
         assert_eq!(index(&[]), "");
-        let lines = index(&builtin());
+        let lines = index(&builtin_entries());
         assert!(lines.starts_with("You have skills:"));
         assert!(lines.contains("\n- toad-room: How to work inside a Toad room"));
         assert!(lines.contains("(.agents/skills/toad-room/SKILL.md)"));
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("toad-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn put(folder: &Path, name: &str, marked: bool) {
+        std::fs::create_dir_all(folder.join(name)).unwrap();
+        std::fs::write(
+            folder.join(name).join(FILE),
+            GOOD.replace("cut-release", name),
+        )
+        .unwrap();
+        if marked {
+            std::fs::write(folder.join(name).join(MANAGED_MARKER), "").unwrap();
+        }
+    }
+
+    fn names(folder: &Path) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(folder)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn a_grant_is_copied_under_the_marker_and_a_revoked_one_leaves_nothing_of_toads() {
+        let root = scratch("materialize");
+        let gateway = root.join("gateway");
+        put(&gateway, "cut-release", false);
+        std::fs::create_dir_all(gateway.join("cut-release").join("scripts")).unwrap();
+        std::fs::write(gateway.join("cut-release/scripts/bump.sh"), "#!/bin/sh\n").unwrap();
+        put(&gateway, "other", false);
+        put(&gateway, "broken", false);
+        std::fs::write(gateway.join("broken").join(FILE), "no frontmatter").unwrap();
+        let cwd = root.join("ws");
+        let target = cwd.join(DIRECTORY);
+        put(&target, "mine", false);
+        put(&target, "stale", true);
+
+        let some = SkillPolicy {
+            mode: PolicyMode::Some,
+            names: vec!["cut-release".into(), "broken".into()],
+        };
+        materialize(&cwd, &gateway, &some).unwrap();
+        assert_eq!(names(&target), ["cut-release", "mine", "toad-room"]);
+        assert!(target.join("cut-release").join(MANAGED_MARKER).exists());
+        assert!(target.join("cut-release/scripts/bump.sh").exists());
+        assert!(target.join("toad-room").join(MANAGED_MARKER).exists());
+        assert!(!target.join("mine").join(MANAGED_MARKER).exists());
+        assert_eq!(
+            std::fs::read_to_string(target.join("toad-room").join(FILE)).unwrap(),
+            BUILTIN[0].1
+        );
+
+        // All includes a skill added later; a broken one is never copied.
+        put(&gateway, "later", false);
+        let all = SkillPolicy {
+            mode: PolicyMode::All,
+            names: Vec::new(),
+        };
+        materialize(&cwd, &gateway, &all).unwrap();
+        assert_eq!(
+            names(&target),
+            ["cut-release", "later", "mine", "other", "toad-room"]
+        );
+
+        // Revoking leaves the built-ins and the teammate's own, nothing else.
+        materialize(&cwd, &gateway, &SkillPolicy::default()).unwrap();
+        assert_eq!(names(&target), ["mine", "toad-room"]);
+
+        // A skill of the teammate's own shadows a grant, and a built-in, by
+        // name: what is on disk is what is listed.
+        put(&target, "cut-release", false);
+        std::fs::write(
+            target.join("toad-room").join(FILE),
+            GOOD.replace("cut-release", "toad-room")
+                .replace("Cut a desktop release.", "My own room rules."),
+        )
+        .unwrap();
+        std::fs::remove_file(target.join("toad-room").join(MANAGED_MARKER)).unwrap();
+        materialize(&cwd, &gateway, &all).unwrap();
+        assert!(!target.join("cut-release").join(MANAGED_MARKER).exists());
+        let seen = visible(&cwd);
+        let room = seen.iter().find(|one| one.name == "toad-room").unwrap();
+        assert!(room.description.starts_with("My own room rules."));
+        assert_eq!(room.path, workspace_path("toad-room"));
+        assert!(seen.iter().any(|one| one.name == "cut-release"));
+        assert_eq!(seen[0].name, "toad-room", "built-ins are listed first");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_skills_folder_is_refused_not_followed() {
+        let root = scratch("linked");
+        let cwd = root.join("ws");
+        std::fs::create_dir_all(cwd.join(".agents")).unwrap();
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, cwd.join(DIRECTORY)).unwrap();
+        let refusal =
+            materialize(&cwd, &root.join("gateway"), &SkillPolicy::default()).unwrap_err();
+        assert!(refusal.ends_with("is a symbolic link."), "{refusal}");
+        assert!(
+            names(&elsewhere).is_empty(),
+            "nothing was written through the link"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

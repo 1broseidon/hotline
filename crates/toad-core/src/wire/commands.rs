@@ -336,6 +336,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
+        skill_policy: Default::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,
@@ -387,11 +388,12 @@ fn update_persona(
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
 /// switch live.
 fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 9] = [
+    const KEYS: [&str; 10] = [
         "cwd",
         "reach",
         "goal",
         "mcpPolicy",
+        "skillPolicy",
         "computer",
         "backendId",
         "harnessOverride",

@@ -1,5 +1,6 @@
 import type {
 	BackendChoice,
+	SkillEntry,
 	CatalogModel,
 	ChapterSummary,
 	Command,
@@ -94,6 +95,7 @@ type Results = {
 	"mcp.auth_sign_out": null;
 	"mcp.secret_set": null;
 	"backends.list": BackendChoice[];
+	"skills.list": SkillEntry[];
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
 	"models.catalog": CatalogModel[];

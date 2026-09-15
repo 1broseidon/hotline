@@ -374,6 +374,60 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
         .call("skills.list", json!({ "personaId": "nobody" }))
         .await;
     assert_eq!(nobody["ok"], false, "{nobody}");
+
+    // A grant is files in the workspace from the moment the teammate is
+    // started, whichever driver runs it and even when the start is refused
+    // for want of a key: the folder is part of the workspace, like AGENTS.md.
+    let granted = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "skillPolicy": { "mode": "some", "names": ["cut-release"] } } }),
+        )
+        .await;
+    assert_eq!(granted["ok"], true, "{granted}");
+    assert_eq!(
+        granted["result"]["skillPolicy"]["names"],
+        json!(["cut-release"])
+    );
+    let refused = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let folder = workspace.join(".agents/skills");
+    assert!(folder.join("toad-room/SKILL.md").exists());
+    assert!(folder.join("toad-room/.managed-by-toad").exists());
+    assert!(folder.join("cut-release/SKILL.md").exists());
+    assert!(folder.join("cut-release/.managed-by-toad").exists());
+    assert!(
+        !folder.join("copied").exists(),
+        "a stale copy Toad made is removed"
+    );
+    assert!(
+        folder.join("mine/SKILL.md").exists(),
+        "the teammate's own is untouched"
+    );
+    assert!(
+        !folder.join("Broken").exists(),
+        "an invalid gateway skill is never copied"
+    );
+
+    let revoked = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "skillPolicy": { "mode": "none", "names": [] } } }),
+        )
+        .await;
+    assert_eq!(revoked["ok"], true, "{revoked}");
+    let refused = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(
+        !folder.join("cut-release").exists(),
+        "a revoked grant leaves nothing of Toad's"
+    );
+    assert!(folder.join("toad-room/SKILL.md").exists());
+    assert!(folder.join("mine/SKILL.md").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -559,6 +559,7 @@ mod tests {
                 mode: PolicyMode::None,
                 server_ids: Vec::new(),
             },
+            skill_policy: Default::default(),
             background_work,
             allowed_senders: Vec::new(),
             web_search_policy: None,

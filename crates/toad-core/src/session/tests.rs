@@ -284,6 +284,7 @@ pub(super) fn persona(id: &str) -> Persona {
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
+        skill_policy: Default::default(),
         // Existing scheduler fixtures represent a teammate that has been
         // granted persistent work; revocation tests turn this off explicitly.
         background_work: true,

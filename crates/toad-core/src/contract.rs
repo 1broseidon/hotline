@@ -182,6 +182,11 @@ pub struct Persona {
     pub hop_notice: Option<String>,
     /// Which of the app's MCP servers this teammate is given.
     pub mcp_policy: McpPolicy,
+    /// Which of the gateway's skills this teammate is given. Built-ins are
+    /// always on and not part of this. Absent means none, including for
+    /// older records.
+    #[serde(default)]
+    pub skill_policy: SkillPolicy,
     /// Whether this teammate may create and receive its own persistent
     /// schedules. Operator-created jobs carry their own provenance and do not
     /// depend on this grant. Absent means off, including for older records.
@@ -1505,6 +1510,27 @@ pub enum SkillSource {
     Gateway,
     Workspace,
     Computer,
+}
+
+/// Which skills from the gateway a teammate gets, the way [`McpPolicy`] says
+/// which servers: `none` for a new teammate, `some` by name, or `all`
+/// including skills added later. Built-in skills are not governed here; they
+/// are always in the workspace.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SkillPolicy {
+    pub mode: PolicyMode,
+    pub names: Vec<String>,
+}
+
+impl Default for SkillPolicy {
+    fn default() -> Self {
+        SkillPolicy {
+            mode: PolicyMode::None,
+            names: Vec::new(),
+        }
+    }
 }
 
 /// One skill as the catalog lists it. `invalid` is absent when the folder is

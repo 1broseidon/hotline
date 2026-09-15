@@ -332,6 +332,62 @@ and leaves due schedules durable; dropping it after failure resumes the room.
 User data stays outside replaced application assets. Development builds never
 check or install updates.
 
+### 7. Skills, as files every harness reads
+
+A skill is a procedure a teammate reads when the task calls for it: how to
+work a computer, how to cut a release, the thing the person asked for twice
+last week. It is the Agent Skills format: a directory named for the skill,
+holding `SKILL.md` with `name` and `description` frontmatter and a Markdown
+body, and whatever `scripts/`, `references/` and `assets/` the body points
+at. The directory is `.agents/skills/<name>/`, the convention Codex already
+scans; Toad invents no harness directory of its own until one earns its
+place. `name` matches its directory, is lowercase with hyphens and at most
+64 characters; `description` is at most 1024 and says *when* to use the
+skill, because it is all an agent sees before deciding to read the body. A
+folder that breaks those rules is listed as invalid with the reason, never
+silently skipped.
+
+A skill has three sources and one channel. **Built-in** skills are bundled
+in `toad-core` under `skills/` and are always on: Toad's own procedures for
+its room and, when a teammate has one, its computer. The **gateway** is the
+operator's folder, `skills/` in the data directory, granted per teammate
+with the same none / some / all policy MCP servers use; a new teammate gets
+none, and all includes skills added later. **Workspace** skills are whatever
+is in the teammate's own `.agents/skills`, put there by the person or by the
+teammate itself. The channel is the workspace: on session start and on a
+grant change, Toad copies the built-ins and the granted gateway skills into
+`<cwd>/.agents/skills/`, so Toad Agent reads them with its workspace tools
+inside its reach and an ACP child reads them with its own. Copies, not
+links, because a workspace mounted into a computer has to carry them. What
+Toad copied it marks, and the `AGENTS.md` rule applies: Toad replaces and
+removes only an entry carrying its marker, so a skill the person or the
+teammate wrote is never touched, and revoking a grant leaves nothing of
+Toad's behind.
+
+The preamble carries the index — each skill's name, description and path —
+and nothing else about skills. That is the progressive disclosure the format
+asks for, and it rides the block both drivers already hear, so a harness that
+does not scan `.agents/skills` itself still knows what is there and reads the
+file it is pointed at; Codex scans the directory natively and hears it twice,
+which is harmless. A skill is something the agent decides to read, so nothing
+a teammate must know before its first word is a skill: identity, reach, the
+date, the names of Toad's own tools and the house style stay in the preamble
+as sentences. Built-in skills hold procedure, not standing. The first ones
+are the room's workflows — chapters, schedules, asking a colleague, asking
+the person — and the habit of keeping a skill for anything the teammate will
+be asked for again, offering to write one before repeating work.
+
+The computer's guide is a skill with a fourth provenance and no folder of its
+own. The running container serves it with its release and checksum; Toad
+lists it under the teammate as `toad-computer` at that version, copies it into
+the workspace like a grant, and refreshes it when the container's checksum
+changes. It is never in the gateway, because the right guide is the one the
+running release ships, not one the operator keeps.
+
+Not yet: gateway sources from git or a registry, promoting a workspace skill
+to the gateway from the pane, and honouring `allowed-tools` — a skill runs
+with the teammate's reach and grants, no more.
+
 ## Module map
 
 ```
@@ -345,6 +401,7 @@ crates/toad-core/src/
   session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
   driver/                InProcess (Rig) and the ACP child, with its agent registry
   mcp/                   the client of granted servers, and Toad's own teammate tools
+  skills/                the catalog: built-in, gateway and workspace skills, copied into a workspace
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
   import.rs              copies an existing Toad data directory

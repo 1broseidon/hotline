@@ -151,7 +151,9 @@ unknown.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, today's date, how to use Toad's
-own tools, and the house style ([Pacing](#pacing)). When it
+own tools, the index of the skills in its workspace (name, description and
+path; the body is read when the task calls for it), and the house style
+([Pacing](#pacing)). When it
 is joining a conversation that already has chapters behind it, the
 [wake block](#the-wake-block) follows. It is seeded with what
 was said in the chapter it is joining — user and agent lines only; tool

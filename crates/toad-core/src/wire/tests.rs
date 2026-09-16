@@ -1165,6 +1165,7 @@ async fn a_draft_that_names_things_keeps_them() {
         model_id: Some("gpt-5".to_string()),
         effort_id: None,
         computer: None,
+        background_work: Some(true),
     };
     ask(
         &mut socket,
@@ -1178,6 +1179,7 @@ async fn a_draft_that_names_things_keeps_them() {
     assert_eq!(created["cwd"], "/tmp/harbour");
     assert_eq!(created["reach"], "machine");
     assert_eq!(created["modelId"], "gpt-5");
+    assert_eq!(created["backgroundWork"], true);
 }
 
 #[tokio::test]
@@ -1779,6 +1781,7 @@ async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
         model_id: None,
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,
@@ -1879,6 +1882,7 @@ async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
         model_id: Some(model.clone()),
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,
@@ -1921,6 +1925,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
         model_id: None,
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,
@@ -2027,6 +2032,7 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         model_id: None,
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,

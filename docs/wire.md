@@ -166,12 +166,12 @@ or somebody else answered first. The tape still writes `dismissed` for a
 decline, which is the previous Toad's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
-modelId?, effortId?, computer?}`. Create fills what the draft leaves blank: a fresh
+modelId?, effortId?, computer?, backgroundWork?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"toad"`, a workspace under the data directory,
 `mcpPolicy` `{mode: "none", serverIds: []}`, and no `reach` unless the
-draft asked for `"machine"`. Background work defaults off, and
-`allowedSenders` defaults to an empty list. The whole teammate is written as one room
+draft asked for `"machine"`. Background work is off unless the draft turned
+it on, and `allowedSenders` defaults to an empty list. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,

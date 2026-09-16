@@ -11,6 +11,7 @@ repository is what builds and publishes a release.
 
 - A welcome pane in place of the empty room: connect a provider or pick a harness on this machine, add the first teammate with a suggested goal, then say hello. Each step is read from what the room already knows — its credentials, the harnesses it can start, its roster — so the pane is there exactly while there is no teammate and never needs dismissing. The provider forms are the ones Settings renders.
 - A teammate's first conversation opens with a few things to try, fitted to whether their folder is a project or one Toad made for them, and one sentence on chapters. A prompt fills the composer and does not send. The card is gone once anything has been said.
+- The new-teammate form asks the access choices most people decide at the start: Whole machine, Background work and, where a container runtime is ready, Computer, in the same words as the teammate's pane. They can always be changed later on the pane, which keeps the MCP and skill grants.
 
 ### Fixed
 

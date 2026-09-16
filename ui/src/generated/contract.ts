@@ -502,7 +502,12 @@ export type PersonaDraft = { name: string, goal?: string,
 /**
  * Initial roster section. Empty and omitted both mean the default team.
  */
-team?: string, backendId?: string, cwd?: string, reach?: Reach, modelId?: string, effortId?: string, computer?: PersonaComputer, };
+team?: string, backendId?: string, cwd?: string, reach?: Reach, modelId?: string, effortId?: string, computer?: PersonaComputer, 
+/**
+ * Whether the teammate may keep its own schedules from the start. Absent
+ * is off, as on the pane.
+ */
+backgroundWork?: boolean, };
 
 /**
  * The linked desktop a teammate lives on.

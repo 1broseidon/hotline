@@ -369,7 +369,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
             server_ids: Vec::new(),
         },
         skill_policy: Default::default(),
-        background_work: false,
+        background_work: draft.background_work.unwrap_or(false),
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: draft.computer,

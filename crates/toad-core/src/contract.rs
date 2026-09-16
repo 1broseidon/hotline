@@ -583,6 +583,10 @@ pub struct PersonaDraft {
     pub effort_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
+    /// Whether the teammate may keep its own schedules from the start. Absent
+    /// is off, as on the pane.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_work: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------

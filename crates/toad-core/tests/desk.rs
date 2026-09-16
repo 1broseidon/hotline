@@ -2163,3 +2163,48 @@ async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() 
     let reopened = common::open_desk(&root).unwrap();
     assert_eq!(reopened.log.load(&toad_core::log::StreamId::Room), saved);
 }
+
+/// The new-teammate form asks the access choices most people decide up
+/// front — the whole machine, background work, a computer — so a draft that
+/// carries them lands on the teammate as created, not as a later patch, and
+/// the record on disk says so from its first line.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_draft_carrying_access_choices_lands_them_on_the_teammate() {
+    let (root, port) = open("access-draft").await;
+    let mut client = Client::connect(port).await;
+
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": {
+                "name": "Ada",
+                "reach": "machine",
+                "backgroundWork": true,
+                "computer": { "enabled": true }
+            } }),
+        )
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona = &created["result"];
+    assert_eq!(persona["reach"], "machine");
+    assert_eq!(persona["backgroundWork"], true);
+    assert_eq!(persona["computer"], json!({ "enabled": true }));
+
+    // Left blank, the same choices are off, and the workspace reach is not
+    // written down at all.
+    let plain = client
+        .call("persona.create", json!({ "draft": { "name": "Bob" } }))
+        .await;
+    assert_eq!(plain["ok"], true, "{plain}");
+    assert_eq!(plain["result"]["backgroundWork"], false);
+    assert!(plain["result"].get("reach").is_none(), "{plain}");
+    assert!(plain["result"].get("computer").is_none(), "{plain}");
+
+    let room = std::fs::read_to_string(root.join("room.jsonl")).unwrap();
+    let ada = room
+        .lines()
+        .find(|line| line.contains("\"name\":\"Ada\""))
+        .expect("Ada's record is on the room stream");
+    assert!(ada.contains("\"backgroundWork\":true"), "{ada}");
+    assert!(ada.contains("\"reach\":\"machine\""), "{ada}");
+}

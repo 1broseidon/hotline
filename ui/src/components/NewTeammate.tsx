@@ -9,6 +9,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
+import { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./Teammate";
 
 /** Toad Agent's stored backend id. Any other id is an ACP harness. */
 const TOAD_AGENT = "toad";
@@ -20,7 +21,9 @@ const TOAD_AGENT = "toad";
  * (`backendId`) and — for Toad Agent only — a disposition (`modelId`) under
  * a name. The harness defaults to the room's `defaultBackendId`. An ACP
  * harness brings its own models once the session is up, so that field is
- * not asked here.
+ * not asked here. The access choices people most often decide up front —
+ * the whole machine, background work, a computer — are asked too, with the
+ * pane's own words; MCP and skill grants stay on the pane.
  *
  * Created, the teammate is started at once and opened — nobody adds a
  * colleague in order to look at them in a list.
@@ -78,6 +81,11 @@ export function NewTeammateForm({
 	const [picked, setPicked] = useState<string | null>(null);
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
 	const [pickedModel, setPickedModel] = useState<string | null>(null);
+	const [machine, setMachine] = useState(false);
+	const [backgroundWork, setBackgroundWork] = useState(false);
+	const [computer, setComputer] = useState(false);
+	// A computer is offered only where one can start.
+	const [computerReady, setComputerReady] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
@@ -89,6 +97,10 @@ export function NewTeammateForm({
 			.command("backends.list", {})
 			.then(setBackends)
 			.catch((error: Error) => setRefusal(error.message));
+		void wire
+			.command("computer.runtimes", {})
+			.then((reports) => setComputerReady(reports.some((one) => one.state === "ready")))
+			.catch(() => setComputerReady(false));
 	}, []);
 
 	const available = (id: string) => backends.some((one) => one.id === id && one.unavailable === undefined);
@@ -109,6 +121,9 @@ export function NewTeammateForm({
 		if (cwd.trim()) draft.cwd = cwd.trim();
 		if (backendId) draft.backendId = backendId;
 		if (onToad && modelId) draft.modelId = modelId;
+		if (onToad && machine) draft.reach = "machine";
+		if (backgroundWork) draft.backgroundWork = true;
+		if (computerReady && computer) draft.computer = { enabled: true };
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			await wire.command("session.start", { personaId: persona.id });
@@ -196,6 +211,32 @@ export function NewTeammateForm({
 					/>
 				</div>
 			)}
+
+			<div>
+				<p className="label">Access</p>
+				<div className="grouped">
+					{onToad && (
+						<SwitchRow
+							title="Whole machine"
+							about={MACHINE_ABOUT}
+							checked={machine}
+							disabled={busy}
+							onChange={setMachine}
+						/>
+					)}
+					<SwitchRow
+						title="Background work"
+						about={BACKGROUND_ABOUT}
+						checked={backgroundWork}
+						disabled={busy}
+						onChange={setBackgroundWork}
+					/>
+					{computerReady && (
+						<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={computer} disabled={busy} onChange={setComputer} />
+					)}
+				</div>
+				<p className="hint">These can always be changed later on the teammate's pane.</p>
+			</div>
 
 			{refusal !== null && (
 				<p role="status" className="selectable text-sm text-danger">

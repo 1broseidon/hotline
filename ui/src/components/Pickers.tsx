@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ConfigChoice, SessionConfig } from "../generated/contract";
+import type { ConfigChoice, EffortChoices, SessionConfig } from "../generated/contract";
 import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
@@ -30,7 +30,7 @@ export function SessionPickers({
 	const { persona, session } = entry;
 	const personaId = persona.id;
 	const { defaultModelId, lastModelId } = useRoomSettings();
-	const [idleEfforts, setIdleEfforts] = useState<ConfigChoice[]>([]);
+	const [idleEfforts, setIdleEfforts] = useState<EffortChoices>({ choices: [] });
 
 	const toad = persona.backendId === TOAD_AGENT;
 	const modelChoices = session.models.length > 0 ? session.models : toad ? models : [];
@@ -66,16 +66,16 @@ export function SessionPickers({
 	// for the model a turn would run on.
 	useEffect(() => {
 		if (!toad || currentModel === "") {
-			setIdleEfforts([]);
+			setIdleEfforts({ choices: [] });
 			return;
 		}
 		let cancelled = false;
 		void wire.command("models.efforts", { modelId: currentModel }).then(
-			(choices) => {
-				if (!cancelled) setIdleEfforts(choices);
+			(efforts) => {
+				if (!cancelled) setIdleEfforts(efforts);
 			},
 			() => {
-				if (!cancelled) setIdleEfforts([]);
+				if (!cancelled) setIdleEfforts({ choices: [] });
 			},
 		);
 		return () => {
@@ -85,8 +85,17 @@ export function SessionPickers({
 	const configs: SessionConfig[] =
 		session.configs.length > 0
 			? session.configs
-			: toad && idleEfforts.length > 0
-				? [{ id: "effort", name: "Effort", category: "effort", currentId: persona.effortId ?? "", options: idleEfforts }]
+			: toad && idleEfforts.choices.length > 0
+				? [
+						{
+							id: "effort",
+							name: "Effort",
+							category: "effort",
+							// The stored effort, else the one the session will run at.
+							currentId: persona.effortId ?? idleEfforts.defaultId ?? "",
+							options: idleEfforts.choices,
+						},
+					]
 				: [];
 	const visibleConfigs = toad ? configs : configs.filter((config) => config.category === "effort");
 

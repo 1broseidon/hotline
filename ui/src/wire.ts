@@ -1,6 +1,5 @@
 import type {
 	BackendChoice,
-	SkillEntry,
 	CatalogModel,
 	ChapterSummary,
 	Command,
@@ -8,6 +7,7 @@ import type {
 	ComputerStatus,
 	ConfigChoice,
 	Credential,
+	EffortChoices,
 	GlobalSearchHit,
 	LoginPrompt,
 	LoginStatus,
@@ -19,6 +19,7 @@ import type {
 	RuntimeReport,
 	ScheduledJob,
 	SessionInfo,
+	SkillEntry,
 	StreamDelta,
 	Target,
 	TeammateToolLedger,
@@ -104,7 +105,7 @@ type Results = {
 	"models.list": ConfigChoice[];
 	"models.catalog": CatalogModel[];
 	"models.manual_set": CatalogModel[];
-	"models.efforts": ConfigChoice[];
+	"models.efforts": EffortChoices;
 	"session.start": SessionInfo;
 	"session.stop": null;
 	"session.prompt": null;

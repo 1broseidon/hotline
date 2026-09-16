@@ -12,7 +12,7 @@
 //! `openai-codex` is synthesized from listed OpenAI models with prices removed:
 //! models.dev has no ChatGPT subscription provider.
 
-use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, Provider};
+use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, EffortChoices, Provider};
 use crate::session::ProviderAuth;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -605,6 +605,28 @@ pub fn efforts(model_id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The effort a teammate runs at when it has none stored: `high`, which
+/// every provider that offers levels lists, so a fresh teammate thinks
+/// properly rather than at whatever the provider picks when nothing is sent.
+/// A stored effort always wins; this is only the blank. None when the model
+/// has no such level, including the models with no effort list at all.
+pub const DEFAULT_EFFORT: &str = "high";
+
+pub fn default_effort(model_id: &str) -> Option<String> {
+    efforts(model_id)
+        .into_iter()
+        .find(|offered| offered == DEFAULT_EFFORT)
+}
+
+/// The idle picker's reply for a model: its efforts, and which one a
+/// teammate with none stored runs at.
+pub fn effort_choices_with_default(model_id: &str) -> EffortChoices {
+    EffortChoices {
+        choices: effort_choices(model_id),
+        default_id: default_effort(model_id),
+    }
+}
+
 /// The picker's label for an effort id. One function, so the driver and the
 /// idle picker cannot drift.
 pub fn effort_label(id: &str) -> String {
@@ -982,6 +1004,29 @@ mod tests {
         assert_eq!(efforts(&known.0), known.1);
         assert!(efforts("nope/nope").is_empty());
         assert!(efforts("bare").is_empty());
+    }
+
+    #[test]
+    fn the_default_effort_is_high_where_it_is_offered_and_absent_elsewhere() {
+        let with_high = catalog()
+            .providers
+            .iter()
+            .find_map(|(provider, entry)| {
+                entry.models.iter().find_map(|(id, model)| {
+                    model
+                        .efforts
+                        .iter()
+                        .any(|one| one == "high")
+                        .then(|| format!("{provider}/{id}"))
+                })
+            })
+            .expect("the snapshot has a model that offers high");
+        assert_eq!(default_effort(&with_high).as_deref(), Some("high"));
+        let reply = effort_choices_with_default(&with_high);
+        assert_eq!(reply.default_id.as_deref(), Some("high"));
+        assert!(reply.choices.iter().any(|one| one.id == "high"));
+        assert_eq!(default_effort("nope/nope"), None);
+        assert!(effort_choices_with_default("nope/nope").choices.is_empty());
     }
 
     #[test]

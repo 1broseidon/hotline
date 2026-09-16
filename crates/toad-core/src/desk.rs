@@ -236,8 +236,8 @@ impl RoomHandle for Desk {
         self.room.set_config(persona_id, config_id, value).await
     }
 
-    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
-        crate::models::effort_choices(model_id)
+    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
+        crate::models::effort_choices_with_default(model_id)
     }
 
     async fn answer_permission(

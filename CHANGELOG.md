@@ -15,6 +15,7 @@ repository is what builds and publishes a release.
 
 ### Fixed
 
+- A fresh Toad Agent teammate runs at high effort when its model offers levels, and the strip says so before the first session instead of showing an empty picker. An effort you chose always wins; a switch to a model that does not list it falls back to that model's high.
 - A Linux desk launched from the desktop session now recovers the login shell's PATH, as the Mac one did, so a tool source or harness named by a bare command (`ketch mcp serve`, anything from Linuxbrew or a language's own bin) starts instead of failing with "could not be started". The Tools list also says when a stdio source's arguments are stored securely rather than showing the bare command as if the rest had been dropped.
 
 ### Changed

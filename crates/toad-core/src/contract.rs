@@ -774,6 +774,18 @@ pub enum SessionConfigCategory {
     Effort,
 }
 
+/// The idle effort picker's reply for one catalogue model: the levels it
+/// offers and the one a teammate with none stored runs at, so the strip
+/// shows before a session what the session will do.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct EffortChoices {
+    pub choices: Vec<ConfigChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_id: Option<String>,
+}
+
 /// One picker the agent offers beyond the model and the mode.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

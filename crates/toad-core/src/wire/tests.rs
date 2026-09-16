@@ -202,8 +202,8 @@ impl RoomHandle for CoreHandle {
         self.room.set_config(persona_id, config_id, value).await
     }
 
-    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
-        crate::models::effort_choices(model_id)
+    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
+        crate::models::effort_choices_with_default(model_id)
     }
 
     async fn answer_permission(
@@ -493,8 +493,8 @@ impl RoomHandle for Quiet {
         Ok(info)
     }
 
-    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
-        crate::models::effort_choices(model_id)
+    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
+        crate::models::effort_choices_with_default(model_id)
     }
 
     async fn answer_permission(
@@ -1823,6 +1823,31 @@ fn a_model_with_efforts() -> (String, Vec<String>) {
             })
         })
         .expect("the snapshot has a model with an effort list")
+}
+
+/// The idle picker's reply names the effort a teammate with none stored
+/// runs at, so the strip shows `high` before any session has said so.
+#[tokio::test]
+async fn models_efforts_names_the_default_a_blank_teammate_runs_at() {
+    let (_root, _log, port) = door("efforts-default");
+    let mut socket = desk(port).await;
+    let (model, offered) = a_model_with_efforts();
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "models.efforts", "params": { "modelId": model } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 1).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    let ids: Vec<&str> = answer["result"]["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|one| one["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, offered.iter().map(String::as_str).collect::<Vec<_>>());
+    let expected = offered.iter().any(|one| one == "high").then_some("high");
+    assert_eq!(answer["result"]["defaultId"].as_str(), expected, "{answer}");
 }
 
 /// Setting effort on an idle Toad Agent teammate writes it on the persona

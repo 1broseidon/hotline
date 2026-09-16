@@ -195,6 +195,13 @@ export type CustomProviderDraft = { name: string, baseUrl: string, api: OpenAiAp
 secret?: string, };
 
 /**
+ * The idle effort picker's reply for one catalogue model: the levels it
+ * offers and the one a teammate with none stored runs at, so the strip
+ * shows before a session what the session will do.
+ */
+export type EffortChoices = { choices: Array<ConfigChoice>, defaultId?: string, };
+
+/**
  * A teammate's face: the activity mark, wearing something it chose.
  *
  * The parts are closed vocabularies rather than free drawing, so that every

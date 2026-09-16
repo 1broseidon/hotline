@@ -106,8 +106,9 @@ pub trait RoomHandle: Send + Sync + 'static {
         value: &str,
     ) -> Result<SessionInfo, String>;
 
-    /// The effort levels a catalogue model offers, as picker choices.
-    fn models_efforts(&self, model_id: &str) -> Vec<crate::contract::ConfigChoice>;
+    /// The effort levels a catalogue model offers, as picker choices, and
+    /// the one a teammate with none stored runs at.
+    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices;
 
     /// Answers a permission the agent is waiting behind, refusing when there
     /// is nothing left to answer.

@@ -245,10 +245,14 @@ impl Driver for InProcess {
         })?;
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
         *lock(&self.model) = model.clone();
+        // The stored effort when the model lists it, else the blank's
+        // default, so a fresh teammate is never sent without a level the
+        // model offers.
         *lock(&self.effort) = persona
             .effort_id
             .clone()
-            .filter(|id| models::efforts(&model).iter().any(|offered| offered == id));
+            .filter(|id| models::efforts(&model).iter().any(|offered| offered == id))
+            .or_else(|| models::default_effort(&model));
         let connected = mcp::connect_with_capability_and_vault(
             &persona.id,
             &self.mcp_servers,
@@ -416,13 +420,15 @@ impl Driver for InProcess {
             ));
         }
         *lock(&self.model) = model_id.to_string();
-        // A model switch keeps the effort only when the new model lists it.
+        // A model switch keeps the effort only when the new model lists it;
+        // otherwise the new model's blank default stands.
         {
             let mut effort = lock(&self.effort);
-            if let Some(current) = effort.as_ref()
-                && !models::efforts(model_id).iter().any(|id| id == current)
-            {
-                *effort = None;
+            let kept = effort
+                .as_ref()
+                .is_some_and(|current| models::efforts(model_id).iter().any(|id| id == current));
+            if !kept {
+                *effort = models::default_effort(model_id);
             }
         }
         Ok(self.info(&keys))
@@ -435,7 +441,7 @@ impl Driver for InProcess {
         let keys = self.keys.provider_auth();
         let model = lock(&self.model).clone();
         if value.is_empty() {
-            *lock(&self.effort) = None;
+            *lock(&self.effort) = models::default_effort(&model);
             return Ok(self.info(&keys));
         }
         if !models::efforts(&model).iter().any(|id| id == value) {

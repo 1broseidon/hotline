@@ -102,7 +102,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
-| `models.efforts` | `{modelId}` | `ConfigChoice[]` that model's effort levels, empty when it has none |
+| `models.efforts` | `{modelId}` | `EffortChoices` — `choices` that model's effort levels, empty when it has none, and `defaultId` the one a teammate with none stored runs at |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
@@ -228,7 +228,13 @@ does not list is refused; when no model is known yet, the value is
 accepted. An ACP teammate goes only to the live session — idle is "That
 teammate is not running." `models.efforts` is the idle picker's list for
 one catalogue id, each choice labelled (`low` → "Low", `xhigh` →
-"Extra high"). A new teammate starts on the model's default effort.
+"Extra high"), with `defaultId` naming the level a teammate with no
+stored effort runs at. That is `high` whenever the model lists it, so a
+fresh Toad Agent teammate thinks properly instead of at whatever the
+provider picks when nothing is sent; a model with no such level runs with
+nothing sent. The stored `effortId` always wins over the default, and a
+model switch to one that does not list the stored level falls back to the
+new model's default.
 
 `effortId` on the persona is the stored effort, optional like `modeId`.
 An ACP teammate does not store one: the harness owns its config ids.

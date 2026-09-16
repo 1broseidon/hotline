@@ -36,5 +36,16 @@ recoverable token is recreated. Idle uses the room's sweep:
 thirty minutes after a session stops the container is stopped and its rw layer
 kept; seven days and it is removed.
 
+The image a computer runs is chosen when its container is created: the
+teammate's override, else the room's, else the release this desk pins. An
+existing container, running or stopped, is reused as it is, and nothing
+compares its image to the current choice or polls for a newer one, so a
+computer made on an older release keeps running that release after Toad is
+updated. To move it, remove the computer from the teammate's pane; the next
+start creates one on the current choice, and the workspace, scratch and home
+volumes survive the container, so prepared environments, jobs and the browser
+profile come back with it. The running release is always the one the guide
+reports, never the configured tag.
+
 The runtimes, how they are found, and the fake runtime the tests drive are in
 [development.md](development.md).

@@ -482,6 +482,9 @@ const STATE_WORDS: Record<ComputerStatus["state"], { value: string; action: stri
 	absent: { value: "no container yet", action: "Built the first time this teammate starts." },
 };
 
+const UPDATE_ABOUT =
+	"Updating recreates the computer on the newer release. The workspace, prepared environments, job history and browser profile live on volumes and come back with it; anything installed into the container itself outside them is gone, and running jobs stop.";
+
 const LIMITS_ABOUT =
 	"Blank is 4g of memory and 1024 processes; 0 processes is unlimited. Larger builds can request more memory or processes.";
 
@@ -526,6 +529,7 @@ function ComputerRows({
 	const [adding, setAdding] = useState(false);
 	const [acting, setActing] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const [updateTold, setUpdateTold] = useState(false);
 
 	useEffect(() => {
 		setImage(current.image ?? "");
@@ -584,7 +588,7 @@ function ComputerRows({
 
 	const setMounts = (next: ComputerMount[]) => onChange(next.length === 0 ? without(current, "mounts") : { ...current, mounts: next });
 
-	const act = async (cmd: "computer.stop" | "computer.remove") => {
+	const act = async (cmd: "computer.stop" | "computer.remove" | "computer.update") => {
 		if (acting) return;
 		setActing(true);
 		setRefusal(null);
@@ -670,6 +674,28 @@ function ComputerRows({
 									<PlusIcon />
 									Mount a folder
 								</button>
+							)}
+							{status?.available !== undefined && (
+								<>
+									<div className={NESTED}>
+										<RowText title={`Running ${status.release ?? "an older release"}`} value={`${status.available} is available`} />
+										<span className="-my-1 flex">
+											<InfoKey about={UPDATE_ABOUT} label="About updating" open={updateTold} onToggle={() => setUpdateTold((was) => !was)} />
+										</span>
+										<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.update")}>
+											Update
+										</button>
+									</div>
+									{updateTold && (
+										<div className={NESTED}>
+											<span className="group-row-text">
+												<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+													{UPDATE_ABOUT}
+												</span>
+											</span>
+										</div>
+									)}
+								</>
 							)}
 							<div className={NESTED}>
 								<span className="group-row-text">
@@ -1001,6 +1027,7 @@ function SkillRows({
 
 	const gateway = entries.filter((one) => one.source === "gateway" && one.invalid === undefined);
 	const own = entries.filter((one) => one.source === "workspace");
+	const computer = entries.find((one) => one.source === "computer");
 	const toggle = (name: string) => {
 		const names = policy.names.includes(name) ? policy.names.filter((item) => item !== name) : [...policy.names, name];
 		onChange({ ...policy, names });
@@ -1049,6 +1076,11 @@ function SkillRows({
 					{own.length > 0 && (
 						<div className={NESTED}>
 							<RowText title="Its own" value={own.map((entry) => entry.name).join(", ")} />
+						</div>
+					)}
+					{computer !== undefined && (
+						<div className={NESTED}>
+							<RowText title="Its computer" value={`${computer.name}, release ${computer.version ?? "unknown"}`} />
 						</div>
 					)}
 				</>

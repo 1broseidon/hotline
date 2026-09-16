@@ -376,6 +376,9 @@ impl RoomHandle for CoreHandle {
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
         self.room.computer_remove(persona_id).await
     }
+    async fn computer_update(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_update(persona_id).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -694,6 +697,8 @@ impl RoomHandle for Quiet {
             state: crate::contract::ComputerState::Running,
             url: Some("http://127.0.0.1:18787/mcp".into()),
             viewer: Some("http://127.0.0.1:15800".into()),
+            release: None,
+            available: None,
         })
     }
 
@@ -702,6 +707,10 @@ impl RoomHandle for Quiet {
     }
 
     async fn computer_remove(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn computer_update(&self, _persona_id: &str) -> Result<(), String> {
         Ok(())
     }
 }

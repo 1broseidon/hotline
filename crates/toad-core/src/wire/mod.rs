@@ -269,6 +269,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::ComputerStatus, String>;
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
+    async fn computer_update(&self, persona_id: &str) -> Result<(), String>;
 
     /// Starts OAuth discovery and a native browser callback for one HTTP MCP
     /// server. The result contains only a login id, URL and status.

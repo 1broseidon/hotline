@@ -378,11 +378,17 @@ the person — and the habit of keeping a skill for anything the teammate will
 be asked for again, offering to write one before repeating work.
 
 The computer's guide is a skill with a fourth provenance and no folder of its
-own. The running container serves it with its release and checksum; Toad
-lists it under the teammate as `toad-computer` at that version, copies it into
-the workspace like a grant, and refreshes it when the container's checksum
-changes. It is never in the gateway, because the right guide is the one the
-running release ships, not one the operator keeps.
+own. The running container serves it with its release and checksum; at every
+start Toad asks the computer it just woke, writes the answer into the
+workspace as `toad-computer` under the marker with that release recorded in
+it, and lists it under the teammate at that version. Freshness is by
+construction, not by comparison: the marked folder is removed with the other
+stale grants at the next start and written again from whatever is running,
+so a container recreated on another release is read correctly the next time
+the teammate starts, and a computer too old to serve a guide leaves no skill
+and a preamble that tells the teammate to ask it directly. It is never in the
+gateway, because the right guide is the one the running release ships, not
+one the operator keeps.
 
 Not yet: gateway sources from git or a registry, promoting a workspace skill
 to the gateway from the pane, and honouring `allowed-tools` — a skill runs

@@ -606,27 +606,40 @@ impl Room {
             )
             .await;
         let mut in_flight = HashMap::new();
+        // The same funnel as a tape: what the peer says between its tool
+        // calls is thinking, and the asker hears the report.
+        let mut voice = super::narration::Voice::new();
         let mut replies: Vec<String> = Vec::new();
         let mut failure: Option<String> = None;
         let mut asked_once = false;
-        while let Some(update) = updates.recv().await {
-            let asked = matches!(update, Update::Permission { .. });
-            asked_once |= asked;
-            for event in event_of(update, &mut in_flight) {
-                match &event {
-                    TranscriptEvent::Agent { text, .. } => {
-                        replies.push(text.clone());
-                    }
-                    TranscriptEvent::Notice {
-                        level: NoticeLevel::Error,
-                        text,
-                        ..
-                    } => failure = Some(text.clone()),
-                    _ => {}
+        let mut done = false;
+        while !done {
+            let batch = match updates.recv().await {
+                Some(update) => voice.step(update),
+                None => {
+                    done = true;
+                    voice.finish()
                 }
-                self.append_thread(&session, event);
-                if asked {
-                    self.mark(&session, &caller, &target, PeerStatus::Waiting);
+            };
+            for update in batch {
+                let asked = matches!(update, Update::Permission { .. });
+                asked_once |= asked;
+                for event in event_of(update, &mut in_flight) {
+                    match &event {
+                        TranscriptEvent::Agent { text, .. } => {
+                            replies.push(text.clone());
+                        }
+                        TranscriptEvent::Notice {
+                            level: NoticeLevel::Error,
+                            text,
+                            ..
+                        } => failure = Some(text.clone()),
+                        _ => {}
+                    }
+                    self.append_thread(&session, event);
+                    if asked {
+                        self.mark(&session, &caller, &target, PeerStatus::Waiting);
+                    }
                 }
             }
         }

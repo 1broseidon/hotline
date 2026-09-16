@@ -438,7 +438,10 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
         ]
     );
 
-    // The deltas went out and were never written down.
+    // The deltas went out and were never written down. The answer came
+    // after a tool call, so it streamed as thinking and landed whole: a
+    // message after the work may turn out to be narration, and the window
+    // must never type a bubble that then vanishes.
     let mut streamed = Vec::new();
     while let Ok(delta) = deltas.try_recv() {
         streamed.push(delta);
@@ -451,7 +454,7 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
                 message_id: "m1".to_string(),
                 text: "let me look".to_string(),
             },
-            StreamDelta::AgentDelta {
+            StreamDelta::ThoughtDelta {
                 persona_id: "ada".to_string(),
                 message_id: "m2".to_string(),
                 text: "one file".to_string(),
@@ -1225,6 +1228,241 @@ async fn a_reply_is_paced_as_chat() {
             Said::User("five bubbles".to_string()),
             Said::Agent(five),
         ]
+    );
+}
+
+/// A teammate that narrates its work is heard once before it and once after.
+/// What it said between its tool calls is on the tape as thinking, its
+/// deltas after the acknowledgement stream as thinking, and the phone is
+/// told about the two lines that were said and nothing else.
+#[tokio::test]
+async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
+    fn says(id: &str, text: &str) -> [Update; 2] {
+        [
+            Update::Delta {
+                kind: MessageKind::Agent,
+                message_id: id.to_string(),
+                text: text.to_string(),
+            },
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: id.to_string(),
+                text: text.to_string(),
+            },
+        ]
+    }
+    fn calls(id: &str) -> [Update; 2] {
+        [
+            Update::ToolCall {
+                call_id: id.to_string(),
+                title: format!("cargo {id}"),
+                kind: "bash".to_string(),
+            },
+            Update::ToolResult {
+                call_id: id.to_string(),
+                ok: true,
+                output: "ok".to_string(),
+                images: Vec::new(),
+            },
+        ]
+    }
+    let mut turn = Vec::new();
+    turn.extend(says("m-ack", "on it"));
+    turn.extend(calls("c1"));
+    turn.extend(says("m-mid", "Found the failing test, fixing it now."));
+    turn.extend(calls("c2"));
+    turn.extend(says("m-again", "Running the suite again."));
+    turn.extend(calls("c3"));
+    turn.extend(says("m-done", "Done, all green."));
+    turn.push(Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    });
+
+    let room = room("narration", Fake::new(Scripted::turns(vec![turn])));
+    room.start("ada").await.unwrap();
+    let mut deltas = room.subscribe_deltas();
+    room.prompt("ada", "fix the build", None, None)
+        .await
+        .unwrap();
+    let chat = settled(&room, "ada", 9).await;
+    assert_eq!(
+        kinds(&chat),
+        [
+            "user", "agent", "tool", "thought", "tool", "thought", "tool", "agent", "turn"
+        ],
+        "{}",
+        kinds(&chat).join(", ")
+    );
+    assert_eq!(chat[1]["text"], "on it");
+    assert_eq!(chat[3]["text"], "Found the failing test, fixing it now.");
+    assert_eq!(chat[3]["id"], "m-mid", "the words are demoted, not lost");
+    assert_eq!(chat[5]["text"], "Running the suite again.");
+    assert_eq!(chat[7]["text"], "Done, all green.");
+    assert_eq!(
+        said(&tape(&room, "ada")),
+        [
+            Said::User("fix the build".to_string()),
+            Said::Agent("on it\n\nDone, all green.".to_string()),
+        ],
+        "the model's own history keeps what was said, not what was thought"
+    );
+
+    let mut streamed = Vec::new();
+    while let Ok(delta) = deltas.try_recv() {
+        streamed.push(match delta {
+            StreamDelta::AgentDelta { message_id, .. } => format!("agent:{message_id}"),
+            StreamDelta::ThoughtDelta { message_id, .. } => format!("thought:{message_id}"),
+        });
+    }
+    assert_eq!(
+        streamed,
+        [
+            "agent:m-ack",
+            "thought:m-mid",
+            "thought:m-again",
+            "thought:m-done"
+        ],
+        "after the acknowledgement the window shows thinking, never a bubble that vanishes"
+    );
+}
+
+/// A teammate on a computer, the way one is started in a test: a scripted
+/// runtime that plays `docker` and reports the port a fake computer serves
+/// on. Answers the room, the fake agents (whose preambles say what the
+/// teammate heard) and the workspace.
+#[cfg(unix)]
+async fn computer_room(
+    name: &str,
+    release: Option<&str>,
+) -> (Arc<Room>, Arc<Fake>, std::path::PathBuf, std::path::PathBuf) {
+    use crate::computer::{Computer, fixtures, guide};
+    let root = fixtures::scratch(name);
+    let cwd = root.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let port = guide::fake::serve(release).await;
+    fixtures::fake_runtime(&root, port);
+    std::fs::write(root.join("state"), "absent").unwrap();
+    let log = scratch(name);
+    let mut ada = persona("ada");
+    ada.cwd = cwd.to_string_lossy().into_owned();
+    ada.computer = Some(PersonaComputer {
+        enabled: true,
+        image: Some("toad-computer:test".into()),
+        memory: None,
+        pids: None,
+        mounts: None,
+    });
+    enrol(&log, &ada);
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let room = Room::with_agents_and_computers(
+        log,
+        Arc::new(DeskKeys),
+        agents.clone(),
+        Computer::with_path(root.as_os_str()),
+    );
+    (room, agents, root, cwd)
+}
+
+/// A teammate's computer hands over the guide of the release it is actually
+/// running, and that guide is the `toad-computer` skill in the workspace:
+/// on disk under Toad's marker, in the catalog with its release, and in the
+/// preamble as the file to read.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_computers_guide_is_the_toad_computer_skill_of_the_release_it_runs() {
+    let (room, agents, _root, cwd) = computer_room("computer-skill", Some("0.9.1")).await;
+    room.start("ada").await.unwrap();
+
+    let folder = cwd.join(".agents/skills/toad-computer");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("SKILL.md")).unwrap(),
+        crate::computer::guide::fake::skill_of("0.9.1")
+    );
+    let marker = std::fs::read_to_string(folder.join(".managed-by-toad")).unwrap();
+    assert!(marker.starts_with("computer 0.9.1 "), "{marker}");
+
+    let entry = crate::skills::computer_entry(&cwd).expect("listed");
+    assert_eq!(entry.source, crate::contract::SkillSource::Computer);
+    assert_eq!(entry.name, "toad-computer");
+    assert_eq!(entry.version.as_deref(), Some("0.9.1"));
+    assert_eq!(entry.path, ".agents/skills/toad-computer/SKILL.md");
+    assert_eq!(entry.invalid, None);
+
+    let heard = lock(&agents.preambles)[0].clone();
+    assert!(heard.contains("your `toad-computer` skill"), "{heard}");
+    assert!(heard.contains("\n- toad-computer: "), "{heard}");
+    assert!(!heard.contains("action `guide`"), "{heard}");
+
+    // The pane sees the release running against the one it would be made
+    // on now, which is the image tag the teammate asked for.
+    let status = room.computer_status("ada").await.unwrap();
+    assert_eq!(status.release.as_deref(), Some("0.9.1"));
+    assert_eq!(status.available.as_deref(), Some("test"));
+}
+
+/// An image too old to serve a guide leaves no skill and no stale one: the
+/// teammate is told to ask the computer itself, and the tape says why.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask_it() {
+    let (room, agents, _root, cwd) = computer_room("computer-no-guide", None).await;
+    // A guide from an earlier start, marked as the computer's, must not
+    // outlive the computer that served it.
+    crate::skills::write_computer(&cwd, "0.1.0", "stale", "stale guide").unwrap();
+    room.start("ada").await.unwrap();
+
+    assert!(!cwd.join(".agents/skills/toad-computer").exists());
+    assert!(crate::skills::computer_entry(&cwd).is_none());
+    let heard = lock(&agents.preambles)[0].clone();
+    assert!(heard.contains("action `guide`"), "{heard}");
+    assert!(!heard.contains("- toad-computer:"), "{heard}");
+    let notices: Vec<String> = tape(&room, "ada")
+        .iter()
+        .filter(|event| event["kind"] == "notice")
+        .map(|event| event["text"].as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        notices
+            .iter()
+            .any(|text| text.contains("did not hand over its guide")),
+        "{notices:?}"
+    );
+    let status = room.computer_status("ada").await.unwrap();
+    assert_eq!(status.release, None);
+    assert_eq!(status.available, None);
+}
+
+/// Updating a computer recreates it on the release it would be created on
+/// now and starts the teammate again; the runtime sees a remove and a create.
+#[cfg(unix)]
+#[tokio::test]
+async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
+    let (room, _agents, root, _cwd) = computer_room("computer-update", Some("0.9.1")).await;
+    room.start("ada").await.unwrap();
+    room.computer_update("ada").await.unwrap();
+
+    let commands: Vec<String> = std::fs::read_to_string(root.join("argv.log"))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            line.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    let first_create = commands.iter().position(|cmd| cmd == "create").unwrap();
+    let removed = commands.iter().position(|cmd| cmd == "rm").unwrap();
+    let second_create = commands.iter().rposition(|cmd| cmd == "create").unwrap();
+    assert!(
+        first_create < removed && removed < second_create,
+        "{commands:?}"
+    );
+    assert_eq!(
+        room.info("ada").state,
+        SessionState::Ready,
+        "the teammate is running again on the new computer"
     );
 }
 

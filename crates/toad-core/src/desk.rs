@@ -489,6 +489,7 @@ impl RoomHandle for Desk {
                 SkillSource::Workspace,
                 true,
             ));
+            entries.extend(skills::computer_entry(Path::new(&persona.cwd)));
         }
         Ok(entries)
     }
@@ -718,6 +719,9 @@ impl RoomHandle for Desk {
 
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
         self.room.computer_remove(persona_id).await
+    }
+    async fn computer_update(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_update(persona_id).await
     }
 }
 

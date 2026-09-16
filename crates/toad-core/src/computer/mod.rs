@@ -74,6 +74,8 @@ pub struct Ready {
     pub token: String,
 }
 
+pub mod guide;
+
 pub fn default_image() -> String {
     format!("ghcr.io/1broseidon/toad-computer:{COMPUTER_VERSION}")
 }
@@ -145,6 +147,8 @@ struct Live {
     token: String,
     mcp_port: u16,
     last_activity_ms: i64,
+    /// The release the computer reported with its guide, once it has.
+    release: Option<String>,
 }
 
 impl Computer {
@@ -229,6 +233,7 @@ impl Computer {
                 token: token.clone(),
                 mcp_port,
                 last_activity_ms: now_ms(),
+                release: None,
             },
         );
         wait_healthy(mcp_port).await?;
@@ -236,6 +241,14 @@ impl Computer {
             url: mcp_url(mcp_port),
             token,
         })
+    }
+
+    /// Remembers the release a computer said it was, for the status the pane
+    /// shows against the release it would be created on now.
+    pub fn learned_release(&self, persona_id: &str, release: &str) {
+        if let Some(live) = self.lock().containers.get_mut(persona_id) {
+            live.release = Some(release.to_string());
+        }
     }
 
     pub fn mark_idle(&self, persona_id: &str, at_ms: i64) {
@@ -296,16 +309,22 @@ impl Computer {
                         state: ComputerState::Absent,
                         url: None,
                         viewer: None,
+                        release: None,
+                        available: None,
                     });
                 }
             };
-            return Ok(status_of(inspection, Some((live.mcp_port, &live.token))));
+            let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
+            status.release = live.release.clone();
+            return Ok(status);
         }
         let Ok((runtime, cmd)) = pick_runtime(prefer, &self.bins).await else {
             return Ok(ComputerStatus {
                 state: ComputerState::Absent,
                 url: None,
                 viewer: None,
+                release: None,
+                available: None,
             });
         };
         let inspection = match inspect(&cmd, runtime, &name).await {
@@ -315,6 +334,8 @@ impl Computer {
                     state: ComputerState::Absent,
                     url: None,
                     viewer: None,
+                    release: None,
+                    available: None,
                 });
             }
         };
@@ -377,6 +398,8 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             state: ComputerState::Absent,
             url: None,
             viewer: None,
+            release: None,
+            available: None,
         };
     }
     if !inspection.running {
@@ -384,11 +407,15 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             state: ComputerState::Stopped,
             url: None,
             viewer: None,
+            release: None,
+            available: None,
         };
     }
     let mcp = inspection.mcp_port.or(known.map(|known| known.0));
     ComputerStatus {
         state: ComputerState::Running,
+        release: None,
+        available: None,
         url: mcp.map(mcp_url),
         viewer: match (
             mcp,
@@ -414,7 +441,9 @@ fn viewer_url(port: u16, token: &str) -> String {
 }
 
 /// The teammate's own image, else the room's, else the pin.
-fn image_of(persona: &Persona, room_image: Option<&str>) -> String {
+/// The image a computer for this teammate is created on now: the teammate's
+/// override, else the room's, else the release this desk pins.
+pub fn image_of(persona: &Persona, room_image: Option<&str>) -> String {
     persona
         .computer
         .as_ref()
@@ -424,6 +453,16 @@ fn image_of(persona: &Persona, room_image: Option<&str>) -> String {
         .or(room_image)
         .map(str::to_string)
         .unwrap_or_else(default_image)
+}
+
+/// The release an image reference names: its tag, or `latest` when it has
+/// none. The registry's own port is not a tag.
+pub fn release_of(image: &str) -> String {
+    let name = image.rsplit('/').next().unwrap_or(image);
+    match name.split_once(':') {
+        Some((_, tag)) if !tag.is_empty() => tag.to_string(),
+        _ => "latest".to_string(),
+    }
 }
 
 fn abs_cwd(cwd: &str) -> String {
@@ -869,15 +908,15 @@ async fn wait_healthy(port: u16) -> Result<(), String> {
     }
 }
 
-// These fixtures execute POSIX shell scripts; native process jobs have Windows coverage.
+/// A runtime a test can drive: a shell script that plays `docker`, and the
+/// scratch directory it keeps its state in. Shared with the session tests,
+/// which start a teammate on a computer this script reports.
 #[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-    use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
+pub(crate) mod fixtures {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    fn scratch(name: &str) -> PathBuf {
+    pub(crate) fn scratch(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "toad-core-computer-{name}-{}-{}",
             std::process::id(),
@@ -894,7 +933,7 @@ mod tests {
     /// with "Text file busy"; under a full parallel test run that is one
     /// run in three. `sh` holds the file instead, and has exited before
     /// this returns.
-    fn write_script(dir: &Path, name: &str, body: &str) {
+    pub(crate) fn write_script(dir: &Path, name: &str, body: &str) {
         use std::io::Write;
         let path = dir.join(name);
         let mut child = std::process::Command::new("sh")
@@ -921,7 +960,7 @@ mod tests {
     /// tests run beside each other instead of queueing behind a lock on the
     /// environment. The paths are single quoted and a scratch path holds no
     /// quote to close them with.
-    fn fake_runtime(dir: &Path, mcp_port: u16) {
+    pub(crate) fn fake_runtime(dir: &Path, mcp_port: u16) {
         let head = format!(
             "#!/bin/sh\nLOG='{}'\nSTATE='{}'\nMCP={mcp_port}\n",
             dir.join("argv.log").display(),
@@ -965,6 +1004,16 @@ esac
 "#;
         write_script(dir, "docker", &format!("{head}{body}"));
     }
+}
+
+// These fixtures execute POSIX shell scripts; native process jobs have Windows coverage.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::fixtures::*;
+    use super::*;
+    use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
+    use std::fs;
+    use std::path::Path;
 
     fn persona(id: &str, cwd: &str) -> Persona {
         Persona {

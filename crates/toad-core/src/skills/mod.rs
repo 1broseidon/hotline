@@ -239,6 +239,7 @@ fn entry(directory: &str, path: &Path, source: SkillSource) -> SkillEntry {
             description: skill.description,
             path: path.to_string_lossy().into_owned(),
             invalid: None,
+            version: None,
         },
         Err(reason) => SkillEntry {
             source,
@@ -246,6 +247,7 @@ fn entry(directory: &str, path: &Path, source: SkillSource) -> SkillEntry {
             description: String::new(),
             path: path.to_string_lossy().into_owned(),
             invalid: Some(reason),
+            version: None,
         },
     }
 }
@@ -261,8 +263,56 @@ pub fn builtin_entries() -> Vec<SkillEntry> {
             name: skill.name,
             description: skill.description,
             invalid: None,
+            version: None,
         })
         .collect()
+}
+
+/// The name of the skill a running computer serves as its guide.
+pub const COMPUTER: &str = "toad-computer";
+
+/// Writes the running computer's guide into the workspace as the
+/// `toad-computer` skill, under Toad's marker, so the catalog entry is the
+/// release actually running and never a bundled copy that can drift. The
+/// marker records the release and checksum it came from, which is how the
+/// entry is told apart from a gateway folder of the same name.
+pub fn write_computer(cwd: &Path, version: &str, sha256: &str, skill: &str) -> Result<(), String> {
+    let target = cwd.join(DIRECTORY);
+    for dir in [cwd.join(".agents"), target.clone()] {
+        refuse_link(&dir)?;
+    }
+    let entry = target.join(COMPUTER);
+    refuse_link(&entry)?;
+    if entry.exists() && !entry.join(MANAGED_MARKER).exists() {
+        // A folder the teammate or the person wrote with this name shadows
+        // the computer's, exactly as it shadows a grant.
+        return Ok(());
+    }
+    std::fs::create_dir_all(&entry).map_err(|error| made(&entry, error))?;
+    std::fs::write(entry.join(FILE), skill).map_err(|error| made(&entry, error))?;
+    std::fs::write(
+        entry.join(MANAGED_MARKER),
+        format!("computer {version} {sha256}\n"),
+    )
+    .map_err(|error| made(&entry, error))?;
+    Ok(())
+}
+
+/// The computer's guide as the catalog lists it, when a running computer
+/// wrote one into this workspace: source `computer`, with the release it
+/// came from. Nothing when there is no such entry or the marker is not the
+/// computer's.
+pub fn computer_entry(cwd: &Path) -> Option<SkillEntry> {
+    let folder = cwd.join(DIRECTORY).join(COMPUTER);
+    let marker = std::fs::read_to_string(folder.join(MANAGED_MARKER)).ok()?;
+    let version = marker
+        .strip_prefix("computer ")?
+        .split_whitespace()
+        .next()?;
+    let mut found = entry(COMPUTER, &folder, SkillSource::Computer);
+    found.path = workspace_path(COMPUTER);
+    found.version = Some(version.to_string());
+    Some(found)
 }
 
 /// Where a skill sits inside a workspace, as the agent is told it.

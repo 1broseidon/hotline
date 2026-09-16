@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { BackendChoice, CatalogModel, ComputerRuntime, ConfigChoice, Credential, CredentialKind, LoginPrompt, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
+import type { BackendChoice, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, CredentialKind, LoginPrompt, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
@@ -301,6 +301,7 @@ function ComputerSection({
 	onImage(image: string | null): void;
 }) {
 	const [reports, setReports] = useState<RuntimeReport[] | undefined>(undefined);
+	const [releases, setReleases] = useState<ComputerReleases | null>(null);
 	const [draft, setDraft] = useState(image ?? "");
 	const [shown, setShown] = useState<ComputerRuntime | null>(null);
 
@@ -313,6 +314,10 @@ function ComputerSection({
 			.command("computer.runtimes", {})
 			.then(setReports)
 			.catch(() => setReports([]));
+		void wire
+			.command("computer.releases", {})
+			.then(setReleases)
+			.catch(() => setReleases(null));
 	}, []);
 
 	const commitImage = () => {
@@ -416,7 +421,7 @@ function ComputerSection({
 						<input
 							id="setting-computer-image"
 							className="field w-72 min-w-0 font-mono text-sm"
-							placeholder={pinnedComputerImage() || "Pinned default"}
+							placeholder={releases?.newest !== undefined ? `Newest release, ${releases.newest}` : pinnedComputerImage() || "Newest release"}
 							autoComplete="off"
 							spellCheck={false}
 							value={draft}
@@ -430,6 +435,10 @@ function ComputerSection({
 						/>
 					</div>
 				</div>
+				<p className="group-hint">
+					Blank creates new computers on the newest toad-computer release, checked every six hours
+					{releases !== null ? ` (never below ${releases.floor})` : ""}. Set an image to pin one; a pinned computer is never offered an update.
+				</p>
 			</section>
 		</>
 	);

@@ -362,6 +362,10 @@ impl RoomHandle for CoreHandle {
         self.room.computer_runtimes().await
     }
 
+    fn computer_releases(&self) -> crate::contract::ComputerReleases {
+        self.room.computer_releases()
+    }
+
     async fn computer_status(
         &self,
         persona_id: &str,
@@ -671,6 +675,13 @@ impl RoomHandle for Quiet {
     }
 
     fn forget(&self, _persona_id: &str) {}
+
+    fn computer_releases(&self) -> crate::contract::ComputerReleases {
+        crate::contract::ComputerReleases {
+            floor: "0.0.0".into(),
+            newest: None,
+        }
+    }
 
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
         vec![

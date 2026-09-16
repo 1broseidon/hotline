@@ -706,6 +706,10 @@ impl RoomHandle for Desk {
         self.room.computer_runtimes().await
     }
 
+    fn computer_releases(&self) -> crate::contract::ComputerReleases {
+        self.room.computer_releases()
+    }
+
     async fn computer_status(
         &self,
         persona_id: &str,

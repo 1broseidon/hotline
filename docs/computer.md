@@ -8,8 +8,17 @@ machine serves.
 
 The agent and the image live in their own repository,
 [toad.computer](https://github.com/1broseidon/toad-computer), and release on
-their own schedule. Toad pins one published tag, `COMPUTER_VERSION` in
-`crates/toad-core/src/computer/mod.rs`, and never `latest`.
+their own schedule. A new computer is created on the newest published release
+on the desk's major line: Toad asks the repository's releases endpoint when
+the room opens, every six hours after, and once more when a computer is about
+to be created with nothing known yet. `COMPUTER_VERSION` in
+`crates/toad-core/src/computer/mod.rs` is the floor — the release this desk
+was tested with, what a computer is created on offline, and the line under
+which nothing is offered — and never `latest`. A pinned image, the
+teammate's or the room's, is used as written and never looked up. The desk
+learns the release a running computer actually is from the guide it serves
+(below), and when that is behind the newest, the teammate's pane offers the
+update.
 
 ## The contract Toad relies on
 

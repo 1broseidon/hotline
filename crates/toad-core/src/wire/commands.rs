@@ -271,6 +271,9 @@ pub(crate) async fn run(
         }
 
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),
+        Command::ComputerReleases {} => {
+            Ok(serde_json::to_value(room.computer_releases()).unwrap_or(Value::Null))
+        }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;
             room.computer_status(&persona_id)

@@ -531,6 +531,20 @@ and shadows a grant of the same name; a revoked grant's entry is removed at
 the next start. A `.agents` or `.agents/skills` that is a symlink refuses the
 start rather than following it. Changing `skillPolicy` reattaches the
 session, like `mcpPolicy`, so the preamble's index matches the folder.
+
+That one channel is enough was checked against real harnesses (the ACP
+harness test in `crates/toad-core/tests/desk.rs`, run with `TOAD_HARNESS_ACP`
+set to each backend on 2026-09-16): a gateway skill whose body alone holds a
+sentinel word is granted, the child is asked for the word with nothing in the
+prompt naming the folder, and it answers. Codex scans `.agents/skills` on its
+own — its adapter says so, warning about its skills context budget — and
+Claude Code and Cursor reached the file through the index in the preamble
+block that rides ahead of the first turn (Claude Code's own skills folder is
+`.claude/skills`, which Toad does not write). No harness needed a line in
+`AGENTS.md`, so none is written. Gemini CLI could not be tried: its client for
+individuals is retired. The same run has each child write a skill of its own,
+which `skills.list` reports under the workspace source with the description
+the child gave it.
 - **What kind of room this is** — the preamble (identity, standing, the
   house style, the wake block) — rides as a content block ahead of the first
   prompt on this connection. It is not written to the tape: Toad explaining

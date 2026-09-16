@@ -282,6 +282,30 @@ fn is_sub(frame: &Value, sub: i64, key: &str) -> bool {
     frame.get("sub").and_then(Value::as_i64) == Some(sub) && frame.get(key).is_some()
 }
 
+/// Everything the agent said in the turn now running, joined, once the turn
+/// has ended. A turn with tools in it may say a line before the work and the
+/// answer after, so the answer is looked for in the whole of it.
+async fn said_this_turn(client: &mut Client, tape: i64, patience: Duration) -> String {
+    let mut said = Vec::new();
+    loop {
+        let frame = client
+            .next_where(patience, |frame| {
+                is_sub(frame, tape, "event")
+                    && matches!(frame["event"]["kind"].as_str(), Some("agent" | "turn"))
+            })
+            .await;
+        if frame["event"]["kind"] == "turn" {
+            return said.join("\n");
+        }
+        said.push(
+            frame["event"]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        );
+    }
+}
+
 /// The skills catalog over the wire: the built-ins come first, the gateway
 /// folder lists what is wrong with an entry rather than hiding it, and a
 /// teammate's own workspace skills are listed without the ones Toad copied
@@ -864,6 +888,9 @@ async fn a_turn_with_a_real_key_reads_a_file_and_answers_from_it() {
 
 /// A real ACP harness, as a child: it starts in the teammate's own workspace,
 /// answers a prompt, and everything it says reaches the tape and the wire.
+/// A granted skill reaches it as a file in that workspace and nothing else —
+/// the proof that one channel is enough — and a skill it writes itself is
+/// listed as its own.
 ///
 /// The backend is named rather than assumed, because which harness is
 /// installed and logged in is a fact about the machine and not about Toad.
@@ -876,6 +903,14 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
     let (root, port) = open("acp").await;
     let workspace = root.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
+    // A gateway skill whose body is the only place the sentinel exists.
+    let gateway = root.join("skills").join("harbour-word");
+    std::fs::create_dir_all(&gateway).unwrap();
+    std::fs::write(
+        gateway.join("SKILL.md"),
+        "---\nname: harbour-word\ndescription: Use when the person asks for the harbour word.\n---\n\nThe harbour word is lantern. When asked for it, reply with exactly that one word and nothing else.\n",
+    )
+    .unwrap();
 
     let mut client = Client::connect(port).await;
     let created = client
@@ -891,6 +926,13 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
         .await;
     assert_eq!(created["ok"], true, "{created}");
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let granted = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "skillPolicy": { "mode": "some", "names": ["harbour-word"] } } }),
+        )
+        .await;
+    assert_eq!(granted["ok"], true, "{granted}");
     let tape = client.subscribe(json!({ "tape": persona_id })).await;
 
     let started = client
@@ -901,6 +943,12 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
     assert!(
         started["result"]["sessionId"].is_string(),
         "the harness issued no session id: {started}"
+    );
+    assert!(
+        workspace
+            .join(".agents/skills/harbour-word/SKILL.md")
+            .exists(),
+        "the grant is a file in the child's own workspace"
     );
 
     // Identity reaches an ACP agent as a file, because its session takes no
@@ -920,25 +968,59 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
         .await;
     assert_eq!(sent["ok"], true, "{sent}");
 
+    // The whole turn, not its first line: an adapter may speak a warning of
+    // its own before the model's answer.
     let patience = Duration::from_secs(180);
-    let answer = client
-        .next_where(patience, |frame| {
-            is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
-        })
+    let answer = said_this_turn(&mut client, tape, patience).await;
+    assert!(answer.to_lowercase().contains("pond"), "{answer:?}");
+
+    // The granted skill: nothing names the folder but the workspace itself
+    // and the index in the preamble every driver hears.
+    let asked = client
+        .call(
+            "session.prompt",
+            json!({ "personaId": persona_id, "text": "What is the harbour word? Reply with the word only." }),
+        )
         .await;
+    assert_eq!(asked["ok"], true, "{asked}");
+    let answer = said_this_turn(&mut client, tape, patience).await;
     assert!(
-        answer["event"]["text"]
+        answer.to_lowercase().contains("lantern"),
+        "{backend_id} did not read its granted skill: {answer:?}"
+    );
+
+    // A skill of its own: written with its own tools, listed as the
+    // workspace's with the description it gave.
+    let told = client
+        .call(
+            "session.prompt",
+            json!({ "personaId": persona_id, "text": "Save a skill named tide-table in your workspace, with the description \"Use when the person asks for the tide table.\" and a body of one line: Print the tide table. Reply with done once the file is written." }),
+        )
+        .await;
+    assert_eq!(told["ok"], true, "{told}");
+    let wrote = said_this_turn(&mut client, tape, patience).await;
+    let listed = client
+        .call("skills.list", json!({ "personaId": persona_id }))
+        .await;
+    let own: Vec<&Value> = listed["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["source"] == "workspace")
+        .collect();
+    let tide = own
+        .iter()
+        .find(|entry| entry["name"] == "tide-table")
+        .unwrap_or_else(|| panic!("{backend_id} wrote no tide-table skill ({wrote:?}): {own:?}"));
+    assert!(tide["invalid"].is_null(), "{tide}");
+    assert!(
+        tide["description"]
             .as_str()
             .unwrap()
             .to_lowercase()
-            .contains("pond"),
-        "{answer}"
+            .contains("tide table"),
+        "{tide}"
     );
-    client
-        .next_where(patience, |frame| {
-            is_sub(frame, tape, "event") && frame["event"]["kind"] == "turn"
-        })
-        .await;
 
     // A turn completed on a fresh session, so the agent's own id for this
     // conversation is now on the teammate's record.

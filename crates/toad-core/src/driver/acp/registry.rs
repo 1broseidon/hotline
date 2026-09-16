@@ -116,14 +116,14 @@ const ADAPTED: &[Adapted] = &[
         id: "claude-acp",
         name: "Claude Code",
         description: "Anthropic's coding agent. Uses your Claude Code login or ANTHROPIC_API_KEY.",
-        package: "@agentclientprotocol/claude-agent-acp@0.69.0",
+        package: "@agentclientprotocol/claude-agent-acp@0.78.0",
         client: "claude",
     },
     Adapted {
         id: "codex-acp",
         name: "Codex",
         description: "OpenAI's coding agent. Uses your Codex login or OPENAI_API_KEY.",
-        package: "@agentclientprotocol/codex-acp@1.4.0",
+        package: "@agentclientprotocol/codex-acp@1.12.0",
         client: "codex",
     },
 ];

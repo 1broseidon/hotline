@@ -1073,11 +1073,18 @@ function SkillRows({
 								</label>
 							))
 						))}
-					{own.length > 0 && (
-						<div className={NESTED}>
-							<RowText title="Its own" value={own.map((entry) => entry.name).join(", ")} />
+					{own.map((entry) => (
+						<div key={entry.name} className={NESTED}>
+							<span className="group-row-text">
+								<span className="group-row-title">
+									Its own<span className="text-ink-3"> · {entry.name}</span>
+								</span>
+								<span className={`group-row-detail${entry.invalid !== undefined ? " text-danger" : ""}`} style={{ whiteSpace: "normal" }}>
+									{entry.invalid ?? entry.description}
+								</span>
+							</span>
 						</div>
-					)}
+					))}
 					{computer !== undefined && (
 						<div className={NESTED}>
 							<RowText title="Its computer" value={`${computer.name}, release ${computer.version ?? "unknown"}`} />

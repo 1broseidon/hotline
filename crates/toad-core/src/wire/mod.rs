@@ -195,6 +195,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Every harness a teammate could run on here, the built-in one first.
     async fn backends(&self) -> Vec<crate::contract::BackendChoice>;
 
+    /// The skills catalog: built-ins, then the gateway folder, then — for a
+    /// named teammate — what is in its own workspace.
+    fn skills(&self, persona_id: Option<&str>) -> Result<Vec<crate::contract::SkillEntry>, String>;
+
     /// Every model the desk's keys can reach, for the model picker.
     fn models(&self) -> Vec<crate::contract::ConfigChoice>;
 

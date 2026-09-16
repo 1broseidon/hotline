@@ -14,6 +14,7 @@ import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { CustomProviderForm } from "./CustomProviderForm";
+import { SkillsSection } from "./Skills";
 
 import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
@@ -21,12 +22,13 @@ import { RemoteSection } from "./RemoteSection";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "providers" | "tools" | "computer" | "remote" | "updates" | "import";
+export type SettingsSection = "general" | "providers" | "tools" | "skills" | "computer" | "remote" | "updates" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
 	{ id: "providers", title: "Providers" },
 	{ id: "tools", title: "Tools" },
+	{ id: "skills", title: "Skills" },
 	{ id: "computer", title: "Computer" },
 	{ id: "remote", title: "Remote" },
 	{ id: "updates", title: "Updates" },
@@ -93,9 +95,10 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
-	// Providers and Tools have a page under them, so their bands are their own.
+	// Providers, Tools and Skills have a page under them, so their bands are their own.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
+	if (section === "skills") return <SkillsSection onBack={onBack} />;
 
 	return (
 		<div className="pane">

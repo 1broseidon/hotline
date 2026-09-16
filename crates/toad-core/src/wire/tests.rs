@@ -288,6 +288,13 @@ impl RoomHandle for CoreHandle {
         Vec::new()
     }
 
+    fn skills(
+        &self,
+        _persona_id: Option<&str>,
+    ) -> Result<Vec<crate::contract::SkillEntry>, String> {
+        Ok(Vec::new())
+    }
+
     fn models(&self) -> Vec<ConfigChoice> {
         self.room.models_for_desk()
     }
@@ -559,6 +566,13 @@ impl RoomHandle for Quiet {
 
     async fn backends(&self) -> Vec<crate::contract::BackendChoice> {
         Vec::new()
+    }
+
+    fn skills(
+        &self,
+        _persona_id: Option<&str>,
+    ) -> Result<Vec<crate::contract::SkillEntry>, String> {
+        Ok(Vec::new())
     }
 
     fn credentials(&self) -> Vec<Credential> {

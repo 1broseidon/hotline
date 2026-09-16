@@ -182,6 +182,11 @@ pub struct Persona {
     pub hop_notice: Option<String>,
     /// Which of the app's MCP servers this teammate is given.
     pub mcp_policy: McpPolicy,
+    /// Which of the gateway's skills this teammate is given. Built-ins are
+    /// always on and not part of this. Absent means none, including for
+    /// older records.
+    #[serde(default)]
+    pub skill_policy: SkillPolicy,
     /// Whether this teammate may create and receive its own persistent
     /// schedules. Operator-created jobs carry their own provenance and do not
     /// depend on this grant. Absent means off, including for older records.
@@ -1489,6 +1494,62 @@ pub struct BackendChoice {
 }
 
 // ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+
+/// Where a skill came from. `builtin` is bundled with Toad and always on;
+/// `gateway` is the operator's folder in the data directory, granted per
+/// teammate; `workspace` is the teammate's own `.agents/skills`, written by
+/// the person or the teammate; `computer` is the guide the running computer
+/// serves, at its release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SkillSource {
+    Builtin,
+    Gateway,
+    Workspace,
+    Computer,
+}
+
+/// Which skills from the gateway a teammate gets, the way [`McpPolicy`] says
+/// which servers: `none` for a new teammate, `some` by name, or `all`
+/// including skills added later. Built-in skills are not governed here; they
+/// are always in the workspace.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SkillPolicy {
+    pub mode: PolicyMode,
+    pub names: Vec<String>,
+}
+
+impl Default for SkillPolicy {
+    fn default() -> Self {
+        SkillPolicy {
+            mode: PolicyMode::None,
+            names: Vec::new(),
+        }
+    }
+}
+
+/// One skill as the catalog lists it. `invalid` is absent when the folder is
+/// a skill and a sentence saying what is wrong when it is not; an invalid
+/// entry is listed so the person can fix it, never silently skipped. `path`
+/// is where the folder is: inside the workspace for what a teammate sees,
+/// on disk for the gateway.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SkillEntry {
+    pub source: SkillSource,
+    pub name: String,
+    pub description: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // The wire
 // ---------------------------------------------------------------------------
 
@@ -1603,6 +1664,22 @@ pub enum Command {
     /// but cannot, with the reason.
     #[serde(rename = "backends.list")]
     BackendsList {},
+    /// The skills catalog: the built-ins, the gateway folder's entries valid
+    /// or not, and — given a teammate — the skills in its own workspace.
+    #[serde(rename = "skills.list")]
+    SkillsList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        persona_id: Option<String>,
+    },
+    /// Copies a skill folder the person picked into the gateway, under its
+    /// own name. Refused when the folder is not a skill or the gateway already
+    /// has one of that name; the answer is the entry as `skills.list` lists it.
+    #[serde(rename = "skills.add")]
+    SkillsAdd { path: String },
+    /// Removes a gateway skill by name. Teammates granted it lose it at
+    /// their next start.
+    #[serde(rename = "skills.remove")]
+    SkillsRemove { name: String },
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},

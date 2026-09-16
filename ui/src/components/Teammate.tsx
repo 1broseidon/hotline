@@ -10,6 +10,8 @@ import type {
 	ScheduledJob,
 	SessionInfo,
 	SessionState,
+	SkillEntry,
+	SkillPolicy,
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
@@ -281,6 +283,12 @@ export function Teammate({
 								servers={servers}
 								disabled={busy}
 								onChange={(mcpPolicy) => save({ mcpPolicy })}
+							/>
+							<SkillRows
+								personaId={persona.id}
+								policy={persona.skillPolicy}
+								disabled={busy}
+								onChange={(skillPolicy) => save({ skillPolicy })}
 							/>
 							<ToolLedger personaId={persona.id} sessionState={session.state} servers={servers} />
 						</div>
@@ -944,6 +952,105 @@ function McpRows({
 								</label>
 							))
 						))}
+				</>
+			)}
+		</>
+	);
+}
+
+const SKILL_GRANT_MODES: { id: PolicyMode; name: string; detail: string }[] = [
+	{ id: "none", name: "None", detail: "Default for new teammates" },
+	{ id: "some", name: "Selected", detail: "Only the skills ticked below" },
+	{ id: "all", name: "All", detail: "Every gateway skill, including ones added later" },
+];
+
+/**
+ * Which of the gateway's skills this teammate is given, drawn like the MCP
+ * rows: the row's value is the answer, the fold holds the grant and the
+ * ticks. Under them, what the teammate has of its own: the built-ins every
+ * teammate carries and the skills it wrote itself, read from its workspace
+ * when the fold opens, so a skill it saved during the last turn is there.
+ */
+function SkillRows({
+	personaId,
+	policy,
+	disabled,
+	onChange,
+}: {
+	personaId: string;
+	policy: SkillPolicy;
+	disabled: boolean;
+	onChange(policy: SkillPolicy): void;
+}) {
+	const [open, setOpen] = useState(false);
+	const [entries, setEntries] = useState<SkillEntry[]>([]);
+
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		void wire
+			.command("skills.list", { personaId })
+			.then((listed) => {
+				if (!cancelled) setEntries(listed);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [open, personaId]);
+
+	const gateway = entries.filter((one) => one.source === "gateway" && one.invalid === undefined);
+	const own = entries.filter((one) => one.source === "workspace");
+	const toggle = (name: string) => {
+		const names = policy.names.includes(name) ? policy.names.filter((item) => item !== name) : [...policy.names, name];
+		onChange({ ...policy, names });
+	};
+
+	const value =
+		policy.mode === "all" ? "all" : policy.mode === "none" ? "none" : policy.names.length === 0 ? "none picked" : policy.names.join(", ");
+
+	return (
+		<>
+			<FoldRow title="Skills" value={value} open={open} onToggle={() => setOpen((was) => !was)} />
+			{open && (
+				<>
+					<div className={NESTED}>
+						<RowText title="Grant" />
+						<Picker
+							value={policy.mode}
+							choices={SKILL_GRANT_MODES}
+							placeholder="Grant"
+							label="Which gateway skills this teammate gets"
+							disabled={disabled}
+							onChange={(mode) => {
+								if (mode !== policy.mode) onChange({ ...policy, mode: mode as PolicyMode });
+							}}
+						/>
+					</div>
+					{policy.mode === "some" &&
+						(gateway.length === 0 ? (
+							<div className={NESTED}>
+								<RowText title="No skills yet" value="add one under Settings → Skills" />
+							</div>
+						) : (
+							gateway.map((entry) => (
+								<label key={entry.name} className={`${NESTED} group-row-choice`}>
+									<input
+										type="checkbox"
+										className="check"
+										checked={policy.names.includes(entry.name)}
+										disabled={disabled}
+										onChange={() => toggle(entry.name)}
+									/>
+									<RowText title={entry.name} />
+								</label>
+							))
+						))}
+					{own.length > 0 && (
+						<div className={NESTED}>
+							<RowText title="Its own" value={own.map((entry) => entry.name).join(", ")} />
+						</div>
+					)}
 				</>
 			)}
 		</>

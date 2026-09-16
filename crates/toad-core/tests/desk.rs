@@ -282,6 +282,200 @@ fn is_sub(frame: &Value, sub: i64, key: &str) -> bool {
     frame.get("sub").and_then(Value::as_i64) == Some(sub) && frame.get(key).is_some()
 }
 
+/// The skills catalog over the wire: the built-ins come first, the gateway
+/// folder lists what is wrong with an entry rather than hiding it, and a
+/// teammate's own workspace skills are listed without the ones Toad copied
+/// there, which are the grant and not the teammate's.
+#[tokio::test]
+async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
+    let (root, port) = open("skills").await;
+    let skill = |name: &str| {
+        format!("---\nname: {name}\ndescription: Use when testing {name}.\n---\n\nDo the thing.\n")
+    };
+    let gateway = root.join("skills");
+    std::fs::create_dir_all(gateway.join("cut-release")).unwrap();
+    std::fs::write(gateway.join("cut-release/SKILL.md"), skill("cut-release")).unwrap();
+    std::fs::create_dir_all(gateway.join("Broken")).unwrap();
+    std::fs::write(gateway.join("Broken/SKILL.md"), skill("Broken")).unwrap();
+    let workspace = root.join("ws");
+    std::fs::create_dir_all(workspace.join(".agents/skills/mine")).unwrap();
+    std::fs::write(
+        workspace.join(".agents/skills/mine/SKILL.md"),
+        skill("mine"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(workspace.join(".agents/skills/copied")).unwrap();
+    std::fs::write(
+        workspace.join(".agents/skills/copied/SKILL.md"),
+        skill("copied"),
+    )
+    .unwrap();
+    std::fs::write(workspace.join(".agents/skills/copied/.managed-by-toad"), "").unwrap();
+
+    let mut client = Client::connect(port).await;
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "cwd": workspace.to_string_lossy() } }),
+        )
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+
+    let listed = client.call("skills.list", json!({})).await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    let entries = listed["result"].as_array().unwrap();
+    let summary: Vec<(String, String, Option<String>)> = entries
+        .iter()
+        .map(|one| {
+            (
+                one["source"].as_str().unwrap().to_string(),
+                one["name"].as_str().unwrap().to_string(),
+                one["invalid"].as_str().map(str::to_string),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("builtin".to_string(), "toad-room".to_string(), None),
+            (
+                "gateway".to_string(),
+                "Broken".to_string(),
+                Some(
+                    "The name Broken may only have lowercase letters, digits and hyphens."
+                        .to_string()
+                )
+            ),
+            ("gateway".to_string(), "cut-release".to_string(), None),
+        ]
+    );
+    assert_eq!(entries[0]["path"], ".agents/skills/toad-room/SKILL.md");
+    assert_eq!(entries[2]["description"], "Use when testing cut-release.");
+
+    let with_own = client
+        .call("skills.list", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(with_own["ok"], true, "{with_own}");
+    let own: Vec<&str> = with_own["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|one| one["source"] == "workspace")
+        .map(|one| one["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        own,
+        ["mine"],
+        "a copied entry is the grant, not the teammate's own"
+    );
+
+    let nobody = client
+        .call("skills.list", json!({ "personaId": "nobody" }))
+        .await;
+    assert_eq!(nobody["ok"], false, "{nobody}");
+
+    // A grant is files in the workspace from the moment the teammate is
+    // started, whichever driver runs it and even when the start is refused
+    // for want of a key: the folder is part of the workspace, like AGENTS.md.
+    let granted = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "skillPolicy": { "mode": "some", "names": ["cut-release"] } } }),
+        )
+        .await;
+    assert_eq!(granted["ok"], true, "{granted}");
+    assert_eq!(
+        granted["result"]["skillPolicy"]["names"],
+        json!(["cut-release"])
+    );
+    let refused = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let folder = workspace.join(".agents/skills");
+    assert!(folder.join("toad-room/SKILL.md").exists());
+    assert!(folder.join("toad-room/.managed-by-toad").exists());
+    assert!(folder.join("cut-release/SKILL.md").exists());
+    assert!(folder.join("cut-release/.managed-by-toad").exists());
+    assert!(
+        !folder.join("copied").exists(),
+        "a stale copy Toad made is removed"
+    );
+    assert!(
+        folder.join("mine/SKILL.md").exists(),
+        "the teammate's own is untouched"
+    );
+    assert!(
+        !folder.join("Broken").exists(),
+        "an invalid gateway skill is never copied"
+    );
+
+    let revoked = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "skillPolicy": { "mode": "none", "names": [] } } }),
+        )
+        .await;
+    assert_eq!(revoked["ok"], true, "{revoked}");
+    let refused = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(
+        !folder.join("cut-release").exists(),
+        "a revoked grant leaves nothing of Toad's"
+    );
+    assert!(folder.join("toad-room/SKILL.md").exists());
+    assert!(folder.join("mine/SKILL.md").exists());
+
+    // The gateway is filled from the window by picking a folder: a skill is
+    // copied in under its own name, a folder that is not one is refused with
+    // the reason, a name already there is refused, and removal is by name.
+    let picked = root.join("picked").join("triage");
+    std::fs::create_dir_all(picked.join("scripts")).unwrap();
+    std::fs::write(picked.join("SKILL.md"), skill("triage")).unwrap();
+    std::fs::write(picked.join("scripts/run.sh"), "#!/bin/sh\n").unwrap();
+    let added = client
+        .call("skills.add", json!({ "path": picked.to_string_lossy() }))
+        .await;
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["result"]["source"], "gateway");
+    assert_eq!(added["result"]["name"], "triage");
+    assert!(gateway.join("triage/scripts/run.sh").exists());
+    let again = client
+        .call("skills.add", json!({ "path": picked.to_string_lossy() }))
+        .await;
+    assert_eq!(again["ok"], false, "{again}");
+    assert!(
+        again["error"]
+            .as_str()
+            .unwrap()
+            .contains("already has a skill named triage")
+    );
+    let not_one = root.join("picked").join("notes");
+    std::fs::create_dir_all(&not_one).unwrap();
+    let refused = client
+        .call("skills.add", json!({ "path": not_one.to_string_lossy() }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"], "notes has no SKILL.md.");
+    let gone = client
+        .call("skills.remove", json!({ "name": "triage" }))
+        .await;
+    assert_eq!(gone["ok"], true, "{gone}");
+    assert!(!gateway.join("triage").exists());
+    let listed = client.call("skills.list", json!({})).await;
+    assert!(
+        !listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|one| one["name"] == "triage"),
+        "{listed}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() {
     let (_root, port) = open("dry").await;

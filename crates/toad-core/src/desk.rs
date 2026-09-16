@@ -8,7 +8,8 @@
 
 use crate::contract::{
     Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
-    Credential, CredentialKind, LoginPrompt, LoginState, LoginStatus, SessionInfo, StreamDelta,
+    Credential, CredentialKind, LoginPrompt, LoginState, LoginStatus, SessionInfo, SkillEntry,
+    SkillSource, StreamDelta,
 };
 use crate::driver::{TOAD_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
@@ -17,6 +18,7 @@ use crate::models::Client;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
+use crate::{paths, room, skills};
 use async_trait::async_trait;
 use rig::providers::{chatgpt, copilot};
 use serde_json::json;
@@ -467,6 +469,30 @@ impl RoomHandle for Desk {
         }
     }
 
+    /// Built-ins first, then the gateway with its invalid entries named, then
+    /// the teammate's own — the ones Toad copied there are the grant, so
+    /// they are not listed twice.
+    fn skills(&self, persona_id: Option<&str>) -> Result<Vec<SkillEntry>, String> {
+        let mut entries = skills::builtin_entries();
+        entries.extend(skills::read_folder(
+            &paths::skills_path(self.log.root()),
+            SkillSource::Gateway,
+            false,
+        ));
+        if let Some(persona_id) = persona_id {
+            let persona = room::roster(&self.log)
+                .into_iter()
+                .find(|persona| persona.id == persona_id)
+                .ok_or_else(|| "There is no such teammate in this room.".to_string())?;
+            entries.extend(skills::read_folder(
+                &Path::new(&persona.cwd).join(skills::DIRECTORY),
+                SkillSource::Workspace,
+                true,
+            ));
+        }
+        Ok(entries)
+    }
+
     /// Toad Agent first, then whatever the ACP catalogue and the PATH say.
     async fn backends(&self) -> Vec<BackendChoice> {
         let mut choices = vec![BackendChoice {
@@ -891,6 +917,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
+            skill_policy: Default::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,

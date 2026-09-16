@@ -133,6 +133,22 @@ pub(crate) async fn run(
             .mcp_secret_set(&server_id, &url, &secret)
             .map(|()| Value::Null),
         Command::BackendsList {} => Ok(json!(room.backends().await)),
+        Command::SkillsList { persona_id } => room
+            .skills(persona_id.as_deref())
+            .map(|skills| json!(skills)),
+        // The gateway is a folder in the data directory, which the log owns;
+        // no session is touched, so the room is not asked.
+        Command::SkillsAdd { path } => {
+            let gateway = paths::skills_path(log.root());
+            std::fs::create_dir_all(&gateway)
+                .map_err(|error| format!("{} could not be made: {error}", gateway.display()))?;
+            crate::skills::add_to_gateway(&gateway, std::path::Path::new(&path))
+                .map(|entry| json!(entry))
+        }
+        Command::SkillsRemove { name } => {
+            crate::skills::remove_from_gateway(&paths::skills_path(log.root()), &name)
+                .map(|()| Value::Null)
+        }
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),
         Command::ModelsCatalog { provider_id } => room
@@ -333,6 +349,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
+        skill_policy: Default::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,
@@ -384,11 +401,12 @@ fn update_persona(
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
 /// switch live.
 fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 9] = [
+    const KEYS: [&str; 10] = [
         "cwd",
         "reach",
         "goal",
         "mcpPolicy",
+        "skillPolicy",
         "computer",
         "backendId",
         "harnessOverride",

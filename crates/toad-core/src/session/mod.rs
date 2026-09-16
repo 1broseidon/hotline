@@ -2940,7 +2940,19 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     // is what is in the workspace — the built-ins are always there, so it is
     // never empty — and a skill the teammate wrote over a built-in's name is
     // the one listed, because it is the one on disk.
-    let skills = crate::skills::index(&crate::skills::visible(Path::new(&persona.cwd)));
+    // The computer's guide is listed only for a teammate that has the
+    // computer: it is written by that teammate's grant, and a colleague
+    // sharing the working directory has no use for a line about a machine it
+    // cannot drive.
+    let has_computer = persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled);
+    let listed: Vec<_> = crate::skills::visible(Path::new(&persona.cwd))
+        .into_iter()
+        .filter(|skill| has_computer || skill.name != crate::skills::COMPUTER)
+        .collect();
+    let skills = crate::skills::index(&listed);
     let standing = format!(
         "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,

@@ -1394,6 +1394,15 @@ async fn a_computers_guide_is_the_toad_computer_skill_of_the_release_it_runs() {
     assert!(heard.contains("\n- toad-computer: "), "{heard}");
     assert!(!heard.contains("action `guide`"), "{heard}");
 
+    // A colleague sharing the working directory without a computer of its
+    // own is not told about the guide: the line costs context and names a
+    // machine it cannot drive.
+    let mut bob = persona("bob");
+    bob.cwd = cwd.to_string_lossy().into_owned();
+    let unheard = preamble(&bob, Some(Reach::Workspace), None);
+    assert!(!unheard.contains("toad-computer"), "{unheard}");
+    assert!(unheard.contains("\n- toad-room: "), "{unheard}");
+
     // The pane sees the release running against the one it would be made
     // on now, which is the image tag the teammate asked for.
     let status = room.computer_status("ada").await.unwrap();

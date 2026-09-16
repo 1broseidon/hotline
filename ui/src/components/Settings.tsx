@@ -489,14 +489,16 @@ function ComputerSection({
 						<span className="group-row-text" id="setting-computer-release">
 							<span className="group-row-title">Release</span>
 						</span>
-						<Picker
-							field
-							value={pickedRelease}
-							choices={releaseChoices}
-							placeholder="Release"
-							label="Release"
-							onChange={pickRelease}
-						/>
+						<div className="w-72 min-w-0">
+							<Picker
+								field
+								value={pickedRelease}
+								choices={releaseChoices}
+								placeholder="Release"
+								label="Release"
+								onChange={pickRelease}
+							/>
+						</div>
 					</div>
 					{pickedRelease === CUSTOM_IMAGE && (
 						<div className="group-row">

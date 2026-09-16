@@ -325,8 +325,10 @@ export function App() {
 
 	/* Narrow: the rail alone when it is what you are looking at, or when
 	 * there is nothing else to look at; otherwise the pane alone, with a
-	 * back key in its band. Wide: both, and no back key. */
-	const railOnly = narrow && (railShown || (pane === null && selected === null));
+	 * back key in its band. An empty room's welcome pane counts as something
+	 * to look at. Wide: both, and no back key. */
+	const welcome = rosterLoaded && roster.length === 0;
+	const railOnly = narrow && (railShown || (pane === null && selected === null && !welcome));
 	const back = narrow ? () => setRailShown(true) : undefined;
 
 	return (
@@ -380,7 +382,7 @@ export function App() {
 					<About onClose={closePane} />
 				) : pane === "new-teammate" ? (
 					<NewTeammate models={models} onCreated={select} onClose={closePane} />
-				) : rosterLoaded && roster.length === 0 ? (
+				) : welcome ? (
 					<Welcome models={models} onCreated={select} />
 				) : selected ? (
 					<>

@@ -115,7 +115,11 @@ export function Welcome({ models, onCreated }: { models: ConfigChoice[]; onCreat
 									setConnecting(null);
 									read();
 								}}
-								onCancel={() => setConnecting(null)}
+								onCancel={() => {
+									// A sign-in that completed just before Cancel is already recorded.
+									setConnecting(null);
+									read();
+								}}
 							/>
 						) : (
 							<>

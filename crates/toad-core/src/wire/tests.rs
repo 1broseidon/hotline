@@ -366,6 +366,10 @@ impl RoomHandle for CoreHandle {
         self.room.computer_releases()
     }
 
+    async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
+        self.room.computer_releases_check().await
+    }
+
     async fn computer_status(
         &self,
         persona_id: &str,
@@ -679,8 +683,16 @@ impl RoomHandle for Quiet {
     fn computer_releases(&self) -> crate::contract::ComputerReleases {
         crate::contract::ComputerReleases {
             floor: "0.0.0".into(),
+            repository: "example/computer".into(),
             newest: None,
+            releases: Vec::new(),
+            checked_at: None,
+            error: None,
         }
+    }
+
+    async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
+        self.computer_releases()
     }
 
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {

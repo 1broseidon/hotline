@@ -274,6 +274,9 @@ pub(crate) async fn run(
         Command::ComputerReleases {} => {
             Ok(serde_json::to_value(room.computer_releases()).unwrap_or(Value::Null))
         }
+        Command::ComputerReleasesCheck {} => {
+            Ok(serde_json::to_value(room.computer_releases_check().await).unwrap_or(Value::Null))
+        }
         Command::Welcome {} => {
             let settings = room::settings(log);
             let welcome = welcome(

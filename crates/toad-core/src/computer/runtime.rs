@@ -69,8 +69,17 @@ impl Runtime {
         }
     }
 
-    fn all() -> [Self; 3] {
-        [Self::Docker, Self::Podman, Self::AppleContainer]
+    /// Every runtime this build can drive. Apple's container exists only
+    /// on macOS, so a Linux or Windows desk never lists it, not even as
+    /// unsupported: a row for a runtime the machine cannot have is noise.
+    #[cfg(target_os = "macos")]
+    fn all() -> &'static [Self] {
+        &[Self::Docker, Self::Podman, Self::AppleContainer]
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn all() -> &'static [Self] {
+        &[Self::Docker, Self::Podman]
     }
 }
 
@@ -112,7 +121,7 @@ pub async fn detect() -> Vec<RuntimeReport> {
 pub async fn detect_with(bins: &BinSearch) -> Vec<RuntimeReport> {
     let mut reports = Vec::with_capacity(3);
     for runtime in Runtime::all() {
-        reports.push(probe(runtime, bins).await);
+        reports.push(probe(*runtime, bins).await);
     }
     reports.sort_by(|left, right| {
         right
@@ -312,6 +321,22 @@ mod tests {
         let path = dir.join(name);
         fs::write(&path, body).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// A Linux or Windows desk never lists Apple's container, not even as
+    /// unsupported: the row would be for a runtime this machine cannot have.
+    #[cfg(not(target_os = "macos"))]
+    #[tokio::test]
+    async fn only_runtimes_this_build_can_drive_are_listed() {
+        let path = scratch("gate");
+        let reports = detect_settled(&BinSearch::only(path.into_os_string())).await;
+        let listed: Vec<ComputerRuntime> = reports.iter().map(|report| report.runtime).collect();
+        assert_eq!(listed, [ComputerRuntime::Docker, ComputerRuntime::Podman]);
+        assert!(
+            reports
+                .iter()
+                .all(|report| report.state == RuntimeState::NotInstalled)
+        );
     }
 
     #[tokio::test]

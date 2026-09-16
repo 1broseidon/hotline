@@ -134,6 +134,7 @@ type Results = {
 	"peers.mark_read": number;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;
+	"computer.releases.check": ComputerReleases;
 	"computer.status": ComputerStatus;
 	"computer.stop": null;
 	"computer.remove": null;

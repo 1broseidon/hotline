@@ -125,7 +125,9 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first |
+| `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
+| `computer.releases` | `{}` | `ComputerReleases`: `floor`, `repository`, `newest?`, `releases` (floor up, newest first), `checkedAt?`, `error?` |
+| `computer.releases.check` | `{}` | the same, after asking the releases endpoint now |
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |

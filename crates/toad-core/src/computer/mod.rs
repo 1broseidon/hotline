@@ -9,7 +9,9 @@
 
 pub mod runtime;
 
-use crate::contract::{ComputerState, ComputerStatus, Persona, RuntimeReport, RuntimeState};
+use crate::contract::{
+    ComputerReleases, ComputerState, ComputerStatus, Persona, RuntimeReport, RuntimeState,
+};
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 use runtime::{BinSearch, Runtime};
 use serde_json::Value;
@@ -81,7 +83,7 @@ pub mod releases;
 
 /// The image the desk's own release line is published as, at `release`.
 pub fn image_at(release: &str) -> String {
-    format!("ghcr.io/1broseidon/toad-computer:{release}")
+    format!("{COMPUTER_REPOSITORY}:{release}")
 }
 
 /// The floor's image: what a computer is created on when nothing newer is
@@ -212,9 +214,23 @@ impl Computer {
         inner.known.newest.clone()
     }
 
+    /// Asks the endpoint now, whatever the clock says — the Settings
+    /// button — and answers what is known after.
+    pub async fn check_releases(&self, now_ms: i64) -> ComputerReleases {
+        let answer = releases::lookup(&self.releases_url, COMPUTER_VERSION).await;
+        let mut inner = self.lock();
+        inner.known.record(answer, now_ms);
+        known_releases(&inner.known)
+    }
+
     /// The newest release the desk knows of, without asking.
     pub fn newest_known(&self) -> Option<String> {
         self.lock().known.newest.clone()
+    }
+
+    /// What the desk knows about releases, without asking.
+    pub fn releases_known(&self) -> ComputerReleases {
+        known_releases(&self.lock().known)
     }
 
     /// The image a computer for `persona` is created on now: the teammate's
@@ -518,6 +534,21 @@ pub fn pinned_image(persona: &Persona, room_image: Option<&str>) -> Option<Strin
         .filter(|image| !image.is_empty())
         .or(room_image)
         .map(str::to_string)
+}
+
+/// The repository every release's image is under; a tag on it is a pin.
+pub const COMPUTER_REPOSITORY: &str = "ghcr.io/1broseidon/toad-computer";
+
+/// The wire's view of what is known about releases.
+fn known_releases(known: &releases::Known) -> ComputerReleases {
+    ComputerReleases {
+        floor: COMPUTER_VERSION.to_string(),
+        repository: COMPUTER_REPOSITORY.to_string(),
+        newest: known.newest.clone(),
+        releases: known.releases.clone(),
+        checked_at: known.checked_ms,
+        error: known.error.clone(),
+    }
 }
 
 /// The image a computer for this teammate is created on now: the pin when

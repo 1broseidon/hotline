@@ -1541,13 +1541,13 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
     let status = fresh.room.computer_status("ada").await.unwrap();
     assert_eq!(status.release.as_deref(), Some("0.5.3"));
     assert_eq!(status.available, None);
-    assert_eq!(
-        fresh.room.computer_releases(),
-        crate::contract::ComputerReleases {
-            floor: crate::computer::COMPUTER_VERSION.to_string(),
-            newest: Some("0.5.3".to_string()),
-        }
-    );
+    let known = fresh.room.computer_releases();
+    assert_eq!(known.floor, crate::computer::COMPUTER_VERSION);
+    assert_eq!(known.repository, crate::computer::COMPUTER_REPOSITORY);
+    assert_eq!(known.newest.as_deref(), Some("0.5.3"));
+    assert_eq!(known.releases, ["0.5.3", "0.5.0"]);
+    assert!(known.checked_at.is_some(), "{known:?}");
+    assert_eq!(known.error, None);
 
     let pinned = computer_room("computer-pinned", Some("0.5.3"), TWO_RELEASES, true).await;
     pinned.room.start("ada").await.unwrap();
@@ -1583,6 +1583,38 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
     assert_eq!(
         status.available, None,
         "nothing newer is known, so nothing is offered"
+    );
+}
+
+/// The Settings button asks the endpoint at once, whatever the clock says,
+/// and a refused lookup keeps what was known and says why.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
+    use std::sync::atomic::Ordering;
+    let desk = computer_room("computer-check-now", Some("0.5.0"), TWO_RELEASES, false).await;
+    desk.room.start("ada").await.unwrap();
+    assert_eq!(desk.asked.load(Ordering::SeqCst), 1);
+    let checked = desk.room.computer_releases_check().await;
+    assert_eq!(
+        desk.asked.load(Ordering::SeqCst),
+        2,
+        "the button does not wait six hours"
+    );
+    assert_eq!(checked.releases, ["0.5.3", "0.5.0"]);
+    assert_eq!(checked.error, None);
+
+    let offline = computer_room("computer-check-offline", Some("0.5.0"), "not a list", false).await;
+    let refused = offline.room.computer_releases_check().await;
+    assert_eq!(refused.newest, None);
+    assert!(refused.releases.is_empty());
+    assert!(refused.checked_at.is_some());
+    assert!(
+        refused
+            .error
+            .as_deref()
+            .is_some_and(|why| why.contains("names no release")),
+        "{refused:?}"
     );
 }
 

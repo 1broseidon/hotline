@@ -265,6 +265,7 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport>;
     fn computer_releases(&self) -> crate::contract::ComputerReleases;
+    async fn computer_releases_check(&self) -> crate::contract::ComputerReleases;
     async fn computer_status(
         &self,
         persona_id: &str,

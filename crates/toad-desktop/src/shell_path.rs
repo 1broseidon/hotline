@@ -1,6 +1,11 @@
-//! Finder does not inherit the user's terminal PATH. Restore it before any
-//! runtime threads start so discovery and grandchildren (notably Docker's
-//! credential helpers and npx's Node interpreter) see the same directories.
+//! Finder does not inherit the user's terminal PATH, and neither does a
+//! Linux desktop session: what `.zshrc` adds — Homebrew, Linuxbrew, a
+//! language's own bin — is there in a terminal and missing from an app
+//! launched by a click. A stdio MCP server or an ACP harness named by a bare
+//! command then "could not be started" for no reason the person can see.
+//! Restore it before any runtime threads start so discovery and
+//! grandchildren (notably Docker's credential helpers and npx's Node
+//! interpreter) see the same directories a terminal would.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Seek, SeekFrom};
@@ -33,6 +38,7 @@ pub fn restore() {
         [
             "/usr/local/bin",
             "/opt/homebrew/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
             "/usr/bin",
             "/bin",
             "/usr/sbin",

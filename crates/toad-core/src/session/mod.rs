@@ -1758,7 +1758,7 @@ impl Room {
                 .into_iter()
                 .find(|persona| persona.id == persona_id)
         {
-            let image = crate::computer::image_of(
+            let image = self.computers.image_for(
                 &persona,
                 crate::computer::preferred_image(&settings).as_deref(),
             );
@@ -1775,6 +1775,7 @@ impl Room {
     /// and a teammate that was running is started again on the new one.
     pub async fn computer_update(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let was_live = lock(&self.sessions).contains_key(persona_id);
+        let old = self.computer_status(persona_id).await?.release;
         if was_live {
             self.stop(persona_id)?;
         }
@@ -1782,7 +1783,25 @@ impl Room {
         if was_live {
             self.start(persona_id).await?;
         }
+        // The release that was running is not coming back; its image is
+        // removed unless another container is still on it.
+        if let Some(old) = old {
+            self.computers
+                .forget_image(
+                    &crate::computer::image_at(&old),
+                    crate::computer::preferred_runtime(&room::settings(&self.log)),
+                )
+                .await;
+        }
         Ok(())
+    }
+
+    /// The release a new computer is created on, as the desk knows it now.
+    pub fn computer_releases(&self) -> crate::contract::ComputerReleases {
+        crate::contract::ComputerReleases {
+            floor: crate::computer::COMPUTER_VERSION.to_string(),
+            newest: self.computers.newest_known(),
+        }
     }
 
     pub async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
@@ -1806,6 +1825,9 @@ impl Room {
     async fn sweep_computers(&self) {
         let live: HashSet<String> = lock(&self.sessions).keys().cloned().collect();
         self.computers.sweep(now_ms(), &live).await;
+        // The newest release is looked up on this clock too: once when the
+        // room opens, then every six hours.
+        self.computers.refresh_releases(now_ms()).await;
     }
 
     /// The room's streams, for the teammate tools that read a tape.

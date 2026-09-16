@@ -7,6 +7,10 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+### Changed
+
+- A new computer is created on the newest published toad-computer release rather than the one this desk was built against, which is now the floor and the offline fallback. Toad checks for releases when the room opens and every six hours after, and a computer running an older release than the newest is offered the update on its teammate's pane. A pinned image, the teammate's or the room's, is never asked about.
+
 ### Added
 
 - A teammate's computer hands over the guide of the release it is actually running, and Toad writes it into the workspace as the `toad-computer` skill. The catalog lists it as the computer's, with that release, so what the agent reads is never a bundled copy that could drift from the container it drives.

@@ -490,6 +490,18 @@ pub struct ComputerStatus {
     pub available: Option<String>,
 }
 
+/// Which toad.computer release a new computer is created on: the newest
+/// published one the desk has heard of, else the floor it was built
+/// against. A pinned image, the teammate's or the room's, overrides both.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ComputerReleases {
+    pub floor: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub newest: Option<String>,
+}
+
 /// Operator-configured extras plus an optional pin on the built-in task
 /// runner.
 ///
@@ -1860,6 +1872,9 @@ pub enum Command {
     /// Every runtime this machine knows how to drive, rootless-available first.
     #[serde(rename = "computer.runtimes")]
     ComputerRuntimes {},
+    /// The release a new computer is created on, as the desk knows it now.
+    #[serde(rename = "computer.releases")]
+    ComputerReleases {},
     /// A peek: never wakes the container.
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },

@@ -4,6 +4,7 @@ import type {
 	CatalogModel,
 	ChapterSummary,
 	Command,
+	ComputerReleases,
 	ComputerStatus,
 	ConfigChoice,
 	Credential,
@@ -130,6 +131,7 @@ type Results = {
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
 	"computer.runtimes": RuntimeReport[];
+	"computer.releases": ComputerReleases;
 	"computer.status": ComputerStatus;
 	"computer.stop": null;
 	"computer.remove": null;

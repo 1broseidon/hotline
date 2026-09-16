@@ -20,9 +20,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tokio::process::Command;
 
-/// The toad.computer release this desktop is built against. Bumped here
-/// deliberately when the desktop is ready for a new image — never derived
-/// from the desktop version, and never `latest`.
+/// The toad.computer release this desktop is built against: the floor. A
+/// new computer is created on the newest published release at or above it
+/// on the same major (see [`releases`]), and on this one when nothing newer
+/// is known. Bumped here deliberately — never derived from the desktop
+/// version, and never `latest`.
 pub const COMPUTER_VERSION: &str = "0.5.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
@@ -75,9 +77,17 @@ pub struct Ready {
 }
 
 pub mod guide;
+pub mod releases;
 
+/// The image the desk's own release line is published as, at `release`.
+pub fn image_at(release: &str) -> String {
+    format!("ghcr.io/1broseidon/toad-computer:{release}")
+}
+
+/// The floor's image: what a computer is created on when nothing newer is
+/// known.
 pub fn default_image() -> String {
-    format!("ghcr.io/1broseidon/toad-computer:{COMPUTER_VERSION}")
+    image_at(COMPUTER_VERSION)
 }
 
 pub fn container_name(persona_id: &str) -> String {
@@ -134,10 +144,14 @@ pub fn preferred_image(settings: &serde_json::Map<String, Value>) -> Option<Stri
 pub struct Computer {
     inner: Arc<Mutex<Inner>>,
     bins: BinSearch,
+    /// Where published releases are listed; a test points this at its own.
+    releases_url: String,
 }
 
 struct Inner {
     containers: HashMap<String, Live>,
+    /// The newest release the desk has heard of, and when to ask again.
+    known: releases::Known,
 }
 
 #[derive(Clone)]
@@ -156,18 +170,65 @@ impl Computer {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 containers: HashMap::new(),
+                known: releases::Known::default(),
             })),
             bins: BinSearch::from_env(),
+            releases_url: releases::RELEASES_URL.to_string(),
         }
     }
 
+    /// A runtime found only at `path`, and a releases endpoint nobody
+    /// answers on, so a test that does not care about releases gets the
+    /// floor without waiting on the network.
     #[cfg(test)]
     pub fn with_path(path: impl Into<std::ffi::OsString>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 containers: HashMap::new(),
+                known: releases::Known::default(),
             })),
             bins: BinSearch::only(path),
+            releases_url: "http://127.0.0.1:1/releases".to_string(),
+        }
+    }
+
+    /// The same desk, asking `url` for releases.
+    #[cfg(test)]
+    pub fn with_releases(mut self, url: &str) -> Self {
+        self.releases_url = url.to_string();
+        self
+    }
+
+    /// Looks up the newest release when it is due — once at desk start,
+    /// every [`releases::CHECK_EVERY_MS`] after, sooner after a failure —
+    /// and answers what is known.
+    pub async fn refresh_releases(&self, now_ms: i64) -> Option<String> {
+        if !self.lock().known.due(now_ms) {
+            return self.lock().known.newest.clone();
+        }
+        let answer = releases::lookup(&self.releases_url, COMPUTER_VERSION).await;
+        let mut inner = self.lock();
+        inner.known.record(answer, now_ms);
+        inner.known.newest.clone()
+    }
+
+    /// The newest release the desk knows of, without asking.
+    pub fn newest_known(&self) -> Option<String> {
+        self.lock().known.newest.clone()
+    }
+
+    /// The image a computer for `persona` is created on now: the teammate's
+    /// pin, else the room's, else the newest release known, else the floor.
+    pub fn image_for(&self, persona: &Persona, room_image: Option<&str>) -> String {
+        image_of(persona, room_image, self.newest_known().as_deref())
+    }
+
+    /// Removes an image the desk pulled, once no container is on it. A
+    /// runtime that still has a container on the image refuses, and that
+    /// refusal is the right answer.
+    pub async fn forget_image(&self, image: &str, prefer: Option<Runtime>) {
+        if let Ok((_, cmd)) = pick_runtime(prefer, &self.bins).await {
+            let _ = run(&cmd, &["image", "rm", image], COMMAND_TIMEOUT).await;
         }
     }
 
@@ -189,7 +250,6 @@ impl Computer {
     ) -> Result<Ready, String> {
         let (runtime, cmd) = pick_runtime(prefer, &self.bins).await?;
         let name = container_name(&persona.id);
-        let image = image_of(persona, room_image);
         let cwd = abs_cwd(workspace_cwd);
         let known_token = self
             .lock()
@@ -209,6 +269,12 @@ impl Computer {
 
         let token = known_token.clone().unwrap_or_else(new_token);
         if !inspection.exists {
+            // A computer made now is made on the newest release, so a desk
+            // that has not asked yet asks first. A pinned image never asks.
+            if pinned_image(persona, room_image).is_none() {
+                self.refresh_releases(now_ms()).await;
+            }
+            let image = self.image_for(persona, room_image);
             if !image_present(&cmd, runtime, &image).await {
                 notice(PULL_NOTICE);
                 pull(&cmd, runtime, &image).await?;
@@ -441,9 +507,9 @@ fn viewer_url(port: u16, token: &str) -> String {
 }
 
 /// The teammate's own image, else the room's, else the pin.
-/// The image a computer for this teammate is created on now: the teammate's
-/// override, else the room's, else the release this desk pins.
-pub fn image_of(persona: &Persona, room_image: Option<&str>) -> String {
+/// The image a person pinned for this teammate's computer: the teammate's
+/// own, else the room's. Nothing when the desk chooses the release.
+pub fn pinned_image(persona: &Persona, room_image: Option<&str>) -> Option<String> {
     persona
         .computer
         .as_ref()
@@ -452,7 +518,13 @@ pub fn image_of(persona: &Persona, room_image: Option<&str>) -> String {
         .filter(|image| !image.is_empty())
         .or(room_image)
         .map(str::to_string)
-        .unwrap_or_else(default_image)
+}
+
+/// The image a computer for this teammate is created on now: the pin when
+/// there is one, else the newest release known, else the floor.
+pub fn image_of(persona: &Persona, room_image: Option<&str>, newest: Option<&str>) -> String {
+    pinned_image(persona, room_image)
+        .unwrap_or_else(|| image_at(newest.unwrap_or(COMPUTER_VERSION)))
 }
 
 /// The release an image reference names: its tag, or `latest` when it has
@@ -1420,8 +1492,12 @@ mod tests {
             pids: None,
             mounts: None,
         });
-        assert_eq!(image_of(&ada, None), default_image());
-        assert_eq!(image_of(&ada, Some("room/image:1")), "room/image:1");
+        assert_eq!(image_of(&ada, None, None), default_image());
+        assert_eq!(image_of(&ada, None, Some("0.5.3")), image_at("0.5.3"));
+        assert_eq!(
+            image_of(&ada, Some("room/image:1"), Some("0.5.3")),
+            "room/image:1"
+        );
         ada.computer = Some(PersonaComputer {
             enabled: true,
             image: Some("  own/image:2  ".into()),
@@ -1429,7 +1505,7 @@ mod tests {
             pids: None,
             mounts: None,
         });
-        assert_eq!(image_of(&ada, Some("room/image:1")), "own/image:2");
+        assert_eq!(image_of(&ada, Some("room/image:1"), None), "own/image:2");
     }
 
     #[tokio::test]

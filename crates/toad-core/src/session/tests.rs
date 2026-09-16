@@ -312,7 +312,13 @@ pub(super) fn enrol(log: &Log, persona: &Persona) {
 fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     let log = scratch(name);
     enrol(&log, &persona("ada"));
-    Room::with_agents(log, Arc::new(DeskKeys), agents)
+    // No runtime and no releases endpoint: nothing here reaches the network.
+    Room::with_agents_and_computers(
+        log,
+        Arc::new(DeskKeys),
+        agents,
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    )
 }
 
 fn tape(room: &Room, persona_id: &str) -> Vec<Value> {
@@ -1332,23 +1338,39 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
 /// on. Answers the room, the fake agents (whose preambles say what the
 /// teammate heard) and the workspace.
 #[cfg(unix)]
+struct ComputerRoom {
+    room: Arc<Room>,
+    agents: Arc<Fake>,
+    root: std::path::PathBuf,
+    cwd: std::path::PathBuf,
+    /// How often the releases endpoint was asked.
+    asked: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// `release` is what the fake computer claims to be (`None`: too old to
+/// say); `releases` is the body the releases endpoint answers; `pinned`
+/// gives the teammate its own image instead of the desk's choice.
+#[cfg(unix)]
 async fn computer_room(
     name: &str,
     release: Option<&str>,
-) -> (Arc<Room>, Arc<Fake>, std::path::PathBuf, std::path::PathBuf) {
-    use crate::computer::{Computer, fixtures, guide};
+    releases: &'static str,
+    pinned: bool,
+) -> ComputerRoom {
+    use crate::computer::{Computer, fixtures, guide, releases as published};
     let root = fixtures::scratch(name);
     let cwd = root.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let port = guide::fake::serve(release).await;
     fixtures::fake_runtime(&root, port);
     std::fs::write(root.join("state"), "absent").unwrap();
+    let (url, asked) = published::fake::serve(releases).await;
     let log = scratch(name);
     let mut ada = persona("ada");
     ada.cwd = cwd.to_string_lossy().into_owned();
     ada.computer = Some(PersonaComputer {
         enabled: true,
-        image: Some("toad-computer:test".into()),
+        image: pinned.then(|| "toad-computer:test".to_string()),
         memory: None,
         pids: None,
         mounts: None,
@@ -1359,9 +1381,28 @@ async fn computer_room(
         log,
         Arc::new(DeskKeys),
         agents.clone(),
-        Computer::with_path(root.as_os_str()),
+        Computer::with_path(root.as_os_str()).with_releases(&url),
     );
-    (room, agents, root, cwd)
+    ComputerRoom {
+        room,
+        agents,
+        root,
+        cwd,
+        asked,
+    }
+}
+
+#[cfg(unix)]
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.5.3"},{"tag_name":"v0.5.0"}]"#;
+
+/// The command names the scripted runtime was given, in order.
+#[cfg(unix)]
+fn runtime_commands(root: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(root.join("argv.log"))
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect()
 }
 
 /// A teammate's computer hands over the guide of the release it is actually
@@ -1371,7 +1412,9 @@ async fn computer_room(
 #[cfg(unix)]
 #[tokio::test]
 async fn a_computers_guide_is_the_toad_computer_skill_of_the_release_it_runs() {
-    let (room, agents, _root, cwd) = computer_room("computer-skill", Some("0.9.1")).await;
+    let ComputerRoom {
+        room, agents, cwd, ..
+    } = computer_room("computer-skill", Some("0.9.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
 
     let folder = cwd.join(".agents/skills/toad-computer");
@@ -1415,7 +1458,9 @@ async fn a_computers_guide_is_the_toad_computer_skill_of_the_release_it_runs() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask_it() {
-    let (room, agents, _root, cwd) = computer_room("computer-no-guide", None).await;
+    let ComputerRoom {
+        room, agents, cwd, ..
+    } = computer_room("computer-no-guide", None, TWO_RELEASES, true).await;
     // A guide from an earlier start, marked as the computer's, must not
     // outlive the computer that served it.
     crate::skills::write_computer(&cwd, "0.1.0", "stale", "stale guide").unwrap();
@@ -1447,13 +1492,13 @@ async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask
 #[cfg(unix)]
 #[tokio::test]
 async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
-    let (room, _agents, root, _cwd) = computer_room("computer-update", Some("0.9.1")).await;
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-update", Some("0.9.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     room.computer_update("ada").await.unwrap();
 
-    let commands: Vec<String> = std::fs::read_to_string(root.join("argv.log"))
-        .unwrap()
-        .lines()
+    let commands: Vec<String> = runtime_commands(&root)
+        .iter()
         .map(|line| {
             line.split_whitespace()
                 .next()
@@ -1473,6 +1518,101 @@ async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
         SessionState::Ready,
         "the teammate is running again on the new computer"
     );
+}
+
+/// A fresh computer is created on the newest published release: the desk
+/// asks once before creating, and a computer already on it is offered
+/// nothing. A pinned image is used as written and the endpoint never hears
+/// about it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks() {
+    let fresh = computer_room("computer-newest", Some("0.5.3"), TWO_RELEASES, false).await;
+    fresh.room.start("ada").await.unwrap();
+    let created = runtime_commands(&fresh.root)
+        .into_iter()
+        .find(|line| line.starts_with("create "))
+        .unwrap();
+    assert!(
+        created.contains("ghcr.io/1broseidon/toad-computer:0.5.3"),
+        "{created}"
+    );
+    assert_eq!(fresh.asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let status = fresh.room.computer_status("ada").await.unwrap();
+    assert_eq!(status.release.as_deref(), Some("0.5.3"));
+    assert_eq!(status.available, None);
+    assert_eq!(
+        fresh.room.computer_releases(),
+        crate::contract::ComputerReleases {
+            floor: crate::computer::COMPUTER_VERSION.to_string(),
+            newest: Some("0.5.3".to_string()),
+        }
+    );
+
+    let pinned = computer_room("computer-pinned", Some("0.5.3"), TWO_RELEASES, true).await;
+    pinned.room.start("ada").await.unwrap();
+    let created = runtime_commands(&pinned.root)
+        .into_iter()
+        .find(|line| line.starts_with("create "))
+        .unwrap();
+    assert!(created.contains(" toad-computer:test"), "{created}");
+    assert_eq!(
+        pinned.asked.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a pin is exactly what it says"
+    );
+}
+
+/// Offline, a fresh computer is created on the floor, and nothing is
+/// offered until something newer is actually known.
+#[cfg(unix)]
+#[tokio::test]
+async fn offline_a_fresh_computer_is_created_on_the_floor() {
+    let offline = computer_room("computer-offline", Some("0.5.0"), "not a list", false).await;
+    offline.room.start("ada").await.unwrap();
+    let created = runtime_commands(&offline.root)
+        .into_iter()
+        .find(|line| line.starts_with("create "))
+        .unwrap();
+    assert!(
+        created.contains(&crate::computer::default_image()),
+        "{created}"
+    );
+    assert_eq!(offline.room.computer_releases().newest, None);
+    let status = offline.room.computer_status("ada").await.unwrap();
+    assert_eq!(
+        status.available, None,
+        "nothing newer is known, so nothing is offered"
+    );
+}
+
+/// A computer on an older release is offered the newest one, and the desk
+/// asks the endpoint again only when six hours have passed.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_older_computer_is_offered_the_newest_release_on_the_six_hour_clock() {
+    use crate::computer::releases::CHECK_EVERY_MS;
+    use std::sync::atomic::Ordering;
+    let older = computer_room("computer-older", Some("0.5.0"), TWO_RELEASES, false).await;
+    older.room.start("ada").await.unwrap();
+    let status = older.room.computer_status("ada").await.unwrap();
+    assert_eq!(status.release.as_deref(), Some("0.5.0"));
+    assert_eq!(status.available.as_deref(), Some("0.5.3"));
+
+    let asked_at_start = older.asked.load(Ordering::SeqCst);
+    let now = now_ms();
+    older
+        .room
+        .computers
+        .refresh_releases(now + CHECK_EVERY_MS / 2)
+        .await;
+    assert_eq!(older.asked.load(Ordering::SeqCst), asked_at_start);
+    older
+        .room
+        .computers
+        .refresh_releases(now + CHECK_EVERY_MS)
+        .await;
+    assert_eq!(older.asked.load(Ordering::SeqCst), asked_at_start + 1);
 }
 
 /// The index is written as the tape is, and a search finds the turn without

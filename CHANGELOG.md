@@ -7,6 +7,11 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+### Changed
+
+- A teammate's own skills are listed on its pane one per row, with the description it gave each.
+- Claude Code and Codex teammates start on current adapter packages. The pinned ones were a month old and refused the newer models those accounts now default to.
+
 ## [0.12.1] - 2026-09-16
 
 ### Added

@@ -7,7 +7,24 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-15
+
 ### Added
+- Skills. A skill is a procedure a teammate reads when the task calls for
+  it, in the Agent Skills format: a folder holding `SKILL.md` with a name
+  and a description, under `.agents/skills/` in the teammate's working
+  directory. Settings → Skills is the gateway: add a skill by picking its
+  folder, open one to read what it is for, remove it at the foot; a folder
+  that is not a skill stays in the list with the reason. Each teammate is
+  granted none, selected, or all of the gateway's skills from its pane,
+  the way MCP servers are, and the grant is copied into its workspace at
+  every start so a Toad Agent and an ACP teammate read the same files.
+  Skills the teammate writes for itself are listed under the grant.
+- The first built-in skill, `toad-room`, is in every workspace: when to
+  close a chapter and what to write in its note, how to shape a schedule,
+  when to ask a colleague or the person, and the habit of saving a task it
+  will be asked for again as a skill. The teammate's preamble names its
+  skills and where each is; the body is read when the task calls for it.
 - A teammate's computer keeps its home on a named volume,
   `toad-home-<persona id>`, so the environments it prepared, its jobs and
   their output, its shell history and its browser profile survive the

@@ -7,6 +7,15 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+### Added
+
+- A welcome pane in place of the empty room: connect a provider or pick a harness on this machine, add the first teammate with a suggested goal, then say hello. Each step is read from what the room already knows — its credentials, the harnesses it can start, its roster — so the pane is there exactly while there is no teammate and never needs dismissing. The provider forms are the ones Settings renders.
+- A teammate's first conversation opens with a few things to try, fitted to whether their folder is a project or one Toad made for them, and one sentence on chapters. A prompt fills the composer and does not send. The card is gone once anything has been said.
+
+### Fixed
+
+- A Linux desk launched from the desktop session now recovers the login shell's PATH, as the Mac one did, so a tool source or harness named by a bare command (`ketch mcp serve`, anything from Linuxbrew or a language's own bin) starts instead of failing with "could not be started". The Tools list also says when a stdio source's arguments are stored securely rather than showing the bare command as if the rest had been dropped.
+
 ### Changed
 
 - A teammate's own skills are listed on its pane one per row, with the description it gave each.

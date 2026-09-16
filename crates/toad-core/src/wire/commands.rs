@@ -274,6 +274,16 @@ pub(crate) async fn run(
         Command::ComputerReleases {} => {
             Ok(serde_json::to_value(room.computer_releases()).unwrap_or(Value::Null))
         }
+        Command::Welcome {} => {
+            let settings = room::settings(log);
+            let welcome = welcome(
+                &settings,
+                room::roster(log).len(),
+                &room.credentials(),
+                room.backends().await,
+            );
+            Ok(serde_json::to_value(welcome).unwrap_or(Value::Null))
+        }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;
             room.computer_status(&persona_id)
@@ -469,6 +479,54 @@ fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Value, String
     Ok(Value::Object(settings))
 }
 
+/// Where a fresh room stands, from what it already knows. A live credential
+/// is a way to run Toad Agent; a startable harness is a way to run only once
+/// it is the room's default, because that is what the first teammate lands
+/// on. Toad Agent is not a harness here: it is what the providers are for.
+pub(crate) fn welcome(
+    settings: &Map<String, Value>,
+    teammates: usize,
+    credentials: &[crate::contract::Credential],
+    backends: Vec<crate::contract::BackendChoice>,
+) -> crate::contract::Welcome {
+    let known = crate::models::providers();
+    let mut providers: Vec<String> = credentials
+        .iter()
+        .filter(|credential| !credential.revoked)
+        .map(|credential| {
+            known
+                .iter()
+                .find(|provider| provider.id == credential.provider_id)
+                .map_or_else(
+                    || credential.label.clone(),
+                    |provider| provider.name.clone(),
+                )
+        })
+        .collect();
+    providers.sort();
+    providers.dedup();
+    let harnesses: Vec<crate::contract::BackendChoice> = backends
+        .into_iter()
+        .filter(|backend| backend.id != TOAD_BACKEND_ID && backend.unavailable.is_none())
+        .collect();
+    let default_backend_id = settings
+        .get("defaultBackendId")
+        .and_then(Value::as_str)
+        .unwrap_or(TOAD_BACKEND_ID)
+        .to_string();
+    let can_run = !providers.is_empty()
+        || harnesses
+            .iter()
+            .any(|backend| backend.id == default_backend_id);
+    crate::contract::Welcome {
+        providers,
+        harnesses,
+        default_backend_id,
+        can_run,
+        teammates,
+    }
+}
+
 fn living(log: &Log, id: &str) -> Result<Persona, String> {
     room::roster(log)
         .into_iter()
@@ -645,5 +703,103 @@ mod path_tests {
             std::path::PathBuf::from("/var/toad")
         );
         assert_eq!(home_expanded("~toad"), std::path::PathBuf::from("~toad"));
+    }
+}
+
+#[cfg(test)]
+mod welcome_tests {
+    use super::welcome;
+    use crate::contract::{BackendChoice, Credential, CredentialKind};
+    use serde_json::{Map, Value};
+
+    fn credential(provider_id: &str, revoked: bool) -> Credential {
+        Credential {
+            id: format!("{provider_id}-key"),
+            provider_id: provider_id.to_string(),
+            credential_kind: CredentialKind::ApiKey,
+            base_url: None,
+            custom: None,
+            label: provider_id.to_string(),
+            revoked,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    fn backend(id: &str, unavailable: Option<&str>) -> BackendChoice {
+        BackendChoice {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            unavailable: unavailable.map(str::to_string),
+        }
+    }
+
+    fn settings(default_backend_id: &str) -> Map<String, Value> {
+        let mut settings = Map::new();
+        settings.insert("defaultBackendId".into(), Value::from(default_backend_id));
+        settings
+    }
+
+    #[test]
+    fn a_fresh_room_cannot_run_and_a_live_key_is_the_way_in() {
+        let fresh = welcome(&settings("toad"), 0, &[], vec![backend("toad", None)]);
+        assert!(!fresh.can_run);
+        assert!(fresh.providers.is_empty());
+        assert!(fresh.harnesses.is_empty(), "Toad Agent is not a harness");
+        assert_eq!(fresh.teammates, 0);
+
+        let revoked = welcome(
+            &settings("toad"),
+            0,
+            &[credential("anthropic", true)],
+            vec![backend("toad", None)],
+        );
+        assert!(!revoked.can_run, "a revoked key runs nothing");
+
+        let keyed = welcome(
+            &settings("toad"),
+            0,
+            &[
+                credential("anthropic", false),
+                credential("anthropic", false),
+            ],
+            vec![backend("toad", None)],
+        );
+        assert!(keyed.can_run);
+        assert_eq!(
+            keyed.providers,
+            vec!["Anthropic".to_string()],
+            "named once, by its catalogue name"
+        );
+    }
+
+    #[test]
+    fn a_harness_is_a_way_in_only_as_the_rooms_default() {
+        let backends = || {
+            vec![
+                backend("toad", None),
+                backend("cursor", None),
+                backend("gemini", Some("Not installed")),
+            ]
+        };
+        let installed = welcome(&settings("toad"), 0, &[], backends());
+        assert!(
+            !installed.can_run,
+            "a harness on the machine is not yet the room's"
+        );
+        assert_eq!(installed.harnesses.len(), 1);
+        assert_eq!(installed.harnesses[0].id, "cursor");
+
+        let chosen = welcome(&settings("cursor"), 0, &[], backends());
+        assert!(chosen.can_run);
+        assert_eq!(chosen.default_backend_id, "cursor");
+
+        let missing = welcome(&settings("gemini"), 2, &[], backends());
+        assert!(
+            !missing.can_run,
+            "a default this machine cannot start is no way in"
+        );
+        assert_eq!(missing.teammates, 2);
     }
 }

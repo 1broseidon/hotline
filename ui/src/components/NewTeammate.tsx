@@ -34,9 +34,46 @@ export function NewTeammate({
 	onCreated(personaId: string): void;
 	onClose(): void;
 }) {
+	return (
+		<div className="pane">
+			<Band>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">New teammate</h2>
+				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
+					<CloseIcon />
+				</button>
+			</Band>
+			<Scroll>
+				<NewTeammateForm className="pane-column" models={models} onCreated={onCreated} onCancel={onClose} />
+			</Scroll>
+		</div>
+	);
+}
+
+/**
+ * The form itself, without the pane around it: the new-teammate pane and
+ * the welcome pane's second step both render this one, so the first
+ * teammate is made the way every later one is. `goal` is a starting point
+ * the person can keep or replace; the welcome pane suggests one, the pane
+ * from the plus suggests nothing.
+ */
+export function NewTeammateForm({
+	models,
+	goal: suggestedGoal = "",
+	submitLabel = "Add teammate",
+	className,
+	onCreated,
+	onCancel,
+}: {
+	models: ConfigChoice[];
+	goal?: string;
+	submitLabel?: string;
+	className?: string;
+	onCreated(personaId: string): void;
+	onCancel?: () => void;
+}) {
 	const { defaultBackendId, defaultModelId, lastModelId } = useRoomSettings();
 	const [name, setName] = useState("");
-	const [goal, setGoal] = useState("");
+	const [goal, setGoal] = useState(suggestedGoal);
 	const [cwd, setCwd] = useState("");
 	const [picked, setPicked] = useState<string | null>(null);
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
@@ -83,107 +120,99 @@ export function NewTeammate({
 	};
 
 	return (
-		<div className="pane">
-			<Band>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">New teammate</h2>
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
+		<form
+			className={`${className ?? ""} flex flex-col gap-5`}
+			onSubmit={(event) => {
+				event.preventDefault();
+				void submit();
+			}}
+		>
+			<div>
+				<label className="label" htmlFor="new-name">
+					Name
+				</label>
+				<input
+					id="new-name"
+					className="field"
+					value={name}
+					autoFocus
+					autoComplete="off"
+					onChange={(event) => setName(event.target.value)}
+				/>
+			</div>
+
+			<div>
+				<label className="label" htmlFor="new-goal">
+					Goal
+				</label>
+				<textarea
+					id="new-goal"
+					className="field"
+					rows={3}
+					placeholder="What this teammate is for."
+					value={goal}
+					onChange={(event) => setGoal(event.target.value)}
+				/>
+				<p className="hint">Written into the working directory as AGENTS.md, so the agent reads it on every start.</p>
+			</div>
+
+			<div>
+				<label className="label" htmlFor="new-cwd">
+					Working directory
+				</label>
+				<PathField id="new-cwd" value={cwd} placeholder="A folder under the data directory, unless you pick one" onChange={setCwd} />
+			</div>
+
+			{backends.length > 0 && (
+				<div>
+					<p className="label" id="new-backend">
+						Runs on
+					</p>
+					<BackendPicker
+						backends={backends}
+						selected={backendId}
+						name="new-backend"
+						labelledBy="new-backend"
+						onSelect={setPicked}
+					/>
+					{!onToad && (
+						<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Toad's shell sandbox does not confine it.</p>
+					)}
+				</div>
+			)}
+
+			{onToad && (
+				<div>
+					<p className="label" id="new-model">
+						Model
+					</p>
+					<Picker
+						field
+						value={modelId}
+						choices={[{ id: "", name: fallback === undefined ? "Whichever a key unlocks" : `${fallback.name} — the default` }, ...models]}
+						placeholder="Model"
+						label="Model"
+						onChange={setPickedModel}
+					/>
+				</div>
+			)}
+
+			{refusal !== null && (
+				<p role="status" className="selectable text-sm text-danger">
+					{refusal}
+				</p>
+			)}
+
+			<div className="mt-1 flex justify-end gap-2">
+				{onCancel !== undefined && (
+					<button type="button" className="control btn" onClick={onCancel}>
+						Cancel
+					</button>
+				)}
+				<button type="submit" className="control btn-primary" disabled={busy || name.trim() === ""}>
+					{busy ? "Setting up…" : submitLabel}
 				</button>
-			</Band>
-			<Scroll>
-				<form
-					className="pane-column flex flex-col gap-5"
-					onSubmit={(event) => {
-						event.preventDefault();
-						void submit();
-					}}
-				>
-					<div>
-						<label className="label" htmlFor="new-name">
-							Name
-						</label>
-						<input
-							id="new-name"
-							className="field"
-							value={name}
-							autoFocus
-							autoComplete="off"
-							onChange={(event) => setName(event.target.value)}
-						/>
-					</div>
-
-					<div>
-						<label className="label" htmlFor="new-goal">
-							Goal
-						</label>
-						<textarea
-							id="new-goal"
-							className="field"
-							rows={3}
-							placeholder="What this teammate is for."
-							value={goal}
-							onChange={(event) => setGoal(event.target.value)}
-						/>
-						<p className="hint">Written into the working directory as AGENTS.md, so the agent reads it on every start.</p>
-					</div>
-
-					<div>
-						<label className="label" htmlFor="new-cwd">
-							Working directory
-						</label>
-						<PathField id="new-cwd" value={cwd} placeholder="A folder under the data directory, unless you pick one" onChange={setCwd} />
-					</div>
-
-					{backends.length > 0 && (
-						<div>
-							<p className="label" id="new-backend">
-								Runs on
-							</p>
-							<BackendPicker
-								backends={backends}
-								selected={backendId}
-								name="new-backend"
-								labelledBy="new-backend"
-								onSelect={setPicked}
-							/>
-							{!onToad && (
-								<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Toad's shell sandbox does not confine it.</p>
-							)}
-						</div>
-					)}
-
-					{onToad && (
-						<div>
-							<p className="label" id="new-model">
-								Model
-							</p>
-							<Picker
-								field
-								value={modelId}
-								choices={[{ id: "", name: fallback === undefined ? "Whichever a key unlocks" : `${fallback.name} — the default` }, ...models]}
-								placeholder="Model"
-								label="Model"
-								onChange={setPickedModel}
-							/>
-						</div>
-					)}
-
-					{refusal !== null && (
-						<p role="status" className="selectable text-sm text-danger">
-							{refusal}
-						</p>
-					)}
-
-					<div className="mt-1 flex justify-end gap-2">
-						<button type="button" className="control btn" onClick={onClose}>
-							Cancel
-						</button>
-						<button type="submit" className="control btn-primary" disabled={busy || name.trim() === ""}>
-							{busy ? "Setting up…" : "Add teammate"}
-						</button>
-					</div>
-				</form>
-			</Scroll>
-		</div>
+			</div>
+		</form>
 	);
 }

@@ -1513,6 +1513,29 @@ pub struct BackendChoice {
     pub unavailable: Option<String>,
 }
 
+/// Where a fresh room stands on its way to a first turn, as the welcome
+/// pane reads it. Derived from what the room already knows — its credentials,
+/// the harnesses this machine can start, its default backend and its roster —
+/// never from a stored "seen" flag: the pane is on screen exactly as long as
+/// there is nothing else to show.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct Welcome {
+    /// The providers with a live credential, by name. A revoked one is not
+    /// a way to run anything.
+    pub providers: Vec<String>,
+    /// The ACP harnesses this machine can start right now, Toad Agent aside.
+    pub harnesses: Vec<BackendChoice>,
+    /// The room's default backend, which the first teammate form lands on.
+    pub default_backend_id: String,
+    /// Step one is done: a teammate could run, on a provider or on a harness
+    /// that is the room's default.
+    pub can_run: bool,
+    /// How many teammates the room has. Past zero the pane is gone.
+    pub teammates: usize,
+}
+
 // ---------------------------------------------------------------------------
 // Skills
 // ---------------------------------------------------------------------------
@@ -1875,6 +1898,9 @@ pub enum Command {
     /// The release a new computer is created on, as the desk knows it now.
     #[serde(rename = "computer.releases")]
     ComputerReleases {},
+    /// Where a fresh room stands on its way to a first turn.
+    #[serde(rename = "welcome")]
+    Welcome {},
     /// A peek: never wakes the container.
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },

@@ -24,6 +24,7 @@ import type {
 	TeammateToolLedger,
 	ThreadSearchHit,
 	TranscriptEvent,
+	Welcome,
 } from "./generated/contract";
 
 export type { RosterEntry, Target };
@@ -136,6 +137,7 @@ type Results = {
 	"computer.stop": null;
 	"computer.remove": null;
 	"computer.update": null;
+	welcome: Welcome;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

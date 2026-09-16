@@ -10,8 +10,8 @@ import { Settings, SettingsRail, type SettingsSection } from "./components/Setti
 import { Shortcuts } from "./components/Shortcuts";
 import { Teammate } from "./components/Teammate";
 import { Thread, type OpenThread } from "./components/Thread";
+import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
-import { PlusIcon } from "./icons";
 import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
 import { noticeRoster, setWindowTitle } from "./notify";
 import { useRoomJobs, useRoomSettings } from "./room";
@@ -24,6 +24,9 @@ type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
 	const [roster, setRoster] = useState<RosterEntry[]>([]);
+	/* Whether the roster snapshot has landed. Before it, an empty roster is
+	 * not an empty room, and the welcome pane would flash on every open. */
+	const [rosterLoaded, setRosterLoaded] = useState(false);
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
@@ -61,7 +64,10 @@ export function App() {
 		return wire.subscribe<RosterEntry>(
 			{ view: "roster" },
 			{
-				snapshot: setRoster,
+				snapshot: (entries) => {
+					setRoster(entries);
+					setRosterLoaded(true);
+				},
 				event: (entry) =>
 					setRoster((known) => {
 						const at = known.findIndex((one) => one.persona.id === entry.persona.id);
@@ -319,8 +325,10 @@ export function App() {
 
 	/* Narrow: the rail alone when it is what you are looking at, or when
 	 * there is nothing else to look at; otherwise the pane alone, with a
-	 * back key in its band. Wide: both, and no back key. */
-	const railOnly = narrow && (railShown || (pane === null && selected === null));
+	 * back key in its band. An empty room's welcome pane counts as something
+	 * to look at. Wide: both, and no back key. */
+	const welcome = rosterLoaded && roster.length === 0;
+	const railOnly = narrow && (railShown || (pane === null && selected === null && !welcome));
 	const back = narrow ? () => setRailShown(true) : undefined;
 
 	return (
@@ -374,6 +382,8 @@ export function App() {
 					<About onClose={closePane} />
 				) : pane === "new-teammate" ? (
 					<NewTeammate models={models} onCreated={select} onClose={closePane} />
+				) : welcome ? (
+					<Welcome models={models} onCreated={select} />
 				) : selected ? (
 					<>
 						<Conversation
@@ -430,17 +440,7 @@ export function App() {
 							<span />
 						</Band>
 						<div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 pb-10">
-							<p className="text-center text-ink-3">
-								{roster.length === 0
-									? "Add a teammate to open the room."
-									: "Pick a teammate on the left."}
-							</p>
-							{roster.length === 0 && (
-								<button type="button" className="control btn" onClick={() => togglePane("new-teammate")}>
-									<PlusIcon />
-									New teammate
-								</button>
-							)}
+							<p className="text-center text-ink-3">{rosterLoaded ? "Pick a teammate on the left." : ""}</p>
 						</div>
 					</div>
 				)}

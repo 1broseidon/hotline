@@ -92,6 +92,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.delete` | `{id}` | none |
 | `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
+| `welcome` | `{}` | `Welcome`: where a fresh room stands on its way to a first turn |
 | `mcp.auth_start` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
 | `mcp.auth_callback` | `{loginId, callbackUrl}` | secret free OAuth status |
 | `mcp.auth_status` | `{serverId}` | secret free OAuth status |
@@ -133,6 +134,15 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 knows of but cannot, with the reason. Toad Agent (`id` `"toad"`) is always
 first. `unavailable` is absent when the row can be started here and a
 sentence naming what is missing when it cannot.
+
+`welcome` is what the window's welcome pane reads in place of an empty
+room: the providers with a live credential, by name; the ACP harnesses this
+machine can start; the room's default backend; `canRun`, true once a
+teammate could run on a provider or on a harness that is the default; and
+the number of teammates. It is derived from the credentials, `backends.list`
+and the roster every time it is asked, never stored, so there is no "seen"
+flag to reset: the pane is on screen exactly while the room has no teammate,
+and opens on the step that is still to do.
 
 `session.answer_permission` is refused when nothing is waiting behind that
 request any more — the turn ended, the session stopped, or somebody else

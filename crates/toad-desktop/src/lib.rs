@@ -22,7 +22,7 @@ mod notify;
 mod remote;
 mod updater;
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 mod shell_path;
 
 use rand::RngCore;
@@ -233,7 +233,7 @@ fn window_state_flags() -> StateFlags {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     shell_path::restore();
 
     // Opened inside the async runtime because the room it stands up owns

@@ -609,6 +609,120 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
     assert_eq!(removed["removed"], persona_id);
 }
 
+/// The welcome pane's state, walked over the wire from a fresh data
+/// directory: nothing to run on, then a key, then a harness made the room's
+/// default, then a teammate. Each step is derived from what the room knows,
+/// so there is no flag to reset and nothing to have seen. The first turn
+/// itself needs a real key and is proved by the keyed harness below; here the
+/// tape is empty after the start, which is what the starter card reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_welcome_state_derives_from_a_fresh_room_to_a_first_teammate() {
+    let (_root, port) = open("welcome").await;
+    let mut client = Client::connect(port).await;
+
+    let fresh = client.call("welcome", json!({})).await;
+    assert_eq!(fresh["ok"], true, "{fresh}");
+    assert_eq!(fresh["result"]["canRun"], false);
+    assert_eq!(fresh["result"]["providers"], json!([]));
+    assert_eq!(fresh["result"]["teammates"], 0);
+    assert_eq!(fresh["result"]["defaultBackendId"], "toad");
+    let harnesses = fresh["result"]["harnesses"].as_array().unwrap().clone();
+    assert!(
+        harnesses
+            .iter()
+            .all(|one| one["id"] != "toad" && one.get("unavailable").is_none()),
+        "only startable ACP harnesses are offered: {harnesses:?}"
+    );
+
+    // A harness this machine can start is a way in once it is the room's
+    // default, and only then. Which harnesses there are depends on the
+    // machine, so the step is walked with whatever is installed.
+    if let Some(harness) = harnesses.first() {
+        let chosen = client
+            .call(
+                "settings.update",
+                json!({ "patch": { "defaultBackendId": harness["id"] } }),
+            )
+            .await;
+        assert_eq!(chosen["ok"], true, "{chosen}");
+        let on_harness = client.call("welcome", json!({})).await;
+        assert_eq!(on_harness["result"]["canRun"], true, "{on_harness}");
+        assert_eq!(on_harness["result"]["defaultBackendId"], harness["id"]);
+        let back = client
+            .call(
+                "settings.update",
+                json!({ "patch": { "defaultBackendId": "toad" } }),
+            )
+            .await;
+        assert_eq!(back["ok"], true, "{back}");
+        let off_harness = client.call("welcome", json!({})).await;
+        assert_eq!(off_harness["result"]["canRun"], false, "{off_harness}");
+    }
+
+    let keyed = client
+        .call(
+            "credential.create",
+            json!({ "providerId": "anthropic", "label": "harness", "secret": "sk-ant-harness" }),
+        )
+        .await;
+    assert_eq!(keyed["ok"], true, "{keyed}");
+    let with_key = client.call("welcome", json!({})).await;
+    assert_eq!(with_key["result"]["canRun"], true, "{with_key}");
+    assert_eq!(with_key["result"]["providers"], json!(["Anthropic"]));
+    assert_eq!(
+        with_key["result"]["teammates"], 0,
+        "step two is still to do"
+    );
+
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "goal": "Help with whatever I bring you." } }),
+        )
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let with_teammate = client.call("welcome", json!({})).await;
+    assert_eq!(with_teammate["result"]["teammates"], 1, "{with_teammate}");
+    assert_eq!(with_teammate["result"]["canRun"], true);
+
+    // Started, the tape carries the chapter marker and nothing said: the
+    // composer's starter card reads exactly that, a tape with no user line.
+    let tape = client.subscribe(json!({ "tape": persona_id })).await;
+    let blank = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, tape, "snapshot")
+        })
+        .await;
+    assert_eq!(blank["snapshot"], json!([]));
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let marker = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "chapter"
+        })
+        .await;
+    assert_eq!(marker["event"].get("endedAt"), None);
+    assert!(
+        client
+            .inbox
+            .iter()
+            .all(|frame| frame["event"]["kind"] != "user")
+    );
+
+    // A revoked key is no way to run: the state reads the credentials, not
+    // their history.
+    let revoked = client
+        .call("credential.revoke", json!({ "id": keyed["result"]["id"] }))
+        .await;
+    assert_eq!(revoked["ok"], true, "{revoked}");
+    let after = client.call("welcome", json!({})).await;
+    assert_eq!(after["result"]["canRun"], false, "{after}");
+    assert_eq!(after["result"]["providers"], json!([]));
+}
+
 /// A subscription's account list cannot be refreshed without a login. The
 /// fake room is allowed to stub this; the desk is the one that knows.
 #[tokio::test(flavor = "multi_thread")]

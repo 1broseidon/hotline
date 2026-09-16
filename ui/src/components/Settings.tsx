@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { BackendChoice, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, CredentialKind, LoginPrompt, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
+import type { BackendChoice, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
@@ -13,7 +13,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
-import { CustomProviderForm } from "./CustomProviderForm";
+import { ConnectProvider, ProviderRow } from "./ConnectProvider";
 import { SkillsSection } from "./Skills";
 
 import { UpdatesSection } from "./UpdatesSection";
@@ -471,21 +471,13 @@ function ProvidersSection({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [held, setHeld] = useState<Credential[] | null>(null);
 	const [providers, setProviders] = useState<Provider[]>([]);
-	/* Adding: the provider chosen from the plus, and for a login provider
-	 * the prompt once the core has one. */
+	/* Adding: the provider chosen from the plus, and the connection it
+	 * replaces when it was opened from a page's "Sign in again". */
 	const [choosing, setChoosing] = useState(false);
-	const [adding, setAdding] = useState<Provider | null>(null);
-	const [method, setMethod] = useState<CredentialKind | null>(null);
-	const replacing = useRef<string | null>(null);
-	const loginAttempt = useRef(0);
-	useEffect(() => () => {
-		loginAttempt.current += 1;
-	}, []);
-	const [login, setLogin] = useState<{ providerId: string; prompt: LoginPrompt } | null>(null);
-	const [busy, setBusy] = useState(false);
+	const [adding, setAdding] = useState<{ provider: Provider; replacing: Credential | undefined } | null>(null);
 	const [open, setOpen] = useState<string | null>(null);
 
-	useEffect(() => {
+	const reload = () =>
 		wire
 			.command("credential.list", {})
 			.then(setHeld)
@@ -493,55 +485,14 @@ function ProvidersSection({
 				setHeld([]);
 				setRefusal(error.message);
 			});
+
+	useEffect(() => {
+		void reload();
 		wire
 			.command("providers.list", {})
 			.then(setProviders)
 			.catch((error: Error) => setRefusal(error.message));
 	}, []);
-
-	useEffect(() => {
-		if (login === null) return;
-		let cancelled = false;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const tick = () => {
-			void wire
-				.command("credential.login_status", { loginId: login.prompt.loginId })
-				.then((status) => {
-					if (cancelled) return;
-					if (status.state === "done") {
-						setLogin(null);
-						if (status.credential) {
-							void accept(status.credential);
-						} else {
-							setAdding(null);
-							setBusy(false);
-						}
-						return;
-					}
-					if (status.state === "failed") {
-						setRefusal(status.error ?? "Sign-in failed.");
-						setLogin(null);
-						setAdding(null);
-						setBusy(false);
-						return;
-					}
-					timer = setTimeout(tick, 2000);
-				})
-				.catch((error: Error) => {
-					if (cancelled) return;
-					setRefusal(error.message);
-					setLogin(null);
-					setAdding(null);
-					setBusy(false);
-				});
-		};
-		timer = setTimeout(tick, 2000);
-		return () => {
-			cancelled = true;
-			if (timer !== undefined) clearTimeout(timer);
-			void wire.command("credential.login_cancel", { loginId: login.prompt.loginId }).catch(() => {});
-		};
-	}, [login]);
 
 	/* Connected: one row per credential, live ones first. A revoked login
 	 * stays listed so it can be signed in again or removed. */
@@ -551,93 +502,23 @@ function ProvidersSection({
 	const live = new Set(connected.filter((one) => !one.credential.revoked).map((one) => one.credential.providerId));
 	const addable = providers.filter((one) => !live.has(one.id)).slice().sort(byName);
 
-	const begin = (provider: Provider, replaceId: string | null = null) => {
+	const begin = (provider: Provider, replacing: Credential | undefined = undefined) => {
 		setRefusal(null);
 		setChoosing(false);
-		setAdding(provider);
-		replacing.current = replaceId;
-		const initial = provider.credentialKinds.length === 1 ? provider.credentialKinds[0] ?? null : null;
-		setMethod(initial);
-		if (initial === "oauth") void signIn(provider.id);
-	};
-
-	const signIn = async (id: string) => {
-		if (busy) return;
-		setBusy(true);
-		setMethod("oauth");
-		const attempt = ++loginAttempt.current;
-		try {
-			const prompt = await wire.command("credential.login", { providerId: id });
-			if (attempt !== loginAttempt.current) {
-				await wire.command("credential.login_cancel", { loginId: prompt.loginId });
-				return;
-			}
-			setLogin({ providerId: id, prompt });
-		} catch (error) {
-			if (attempt !== loginAttempt.current) return;
-			setRefusal(error instanceof Error ? error.message : String(error));
-			setAdding(null);
-			setBusy(false);
-		}
-	};
-
-	const cancelLogin = async () => {
-		loginAttempt.current += 1;
-		try {
-			if (login) await wire.command("credential.login_cancel", { loginId: login.prompt.loginId });
-			setHeld(await wire.command("credential.list", {}));
-		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
-		} finally {
-			setLogin(null);
-			setAdding(null);
-			setBusy(false);
-		}
+		setAdding({ provider, replacing });
 	};
 
 	// Keep the existing connection usable until its replacement has succeeded.
 	const accept = async (made: Credential) => {
-		const previous = replacing.current;
-		replacing.current = null;
+		const previous = adding?.replacing?.id ?? null;
+		setAdding(null);
 		try {
 			if (previous !== null && previous !== made.id) await wire.command("credential.delete", { id: previous });
 			setHeld((known) => [...(known ?? []).filter((one) => one.id !== previous && one.id !== made.id), made]);
-			setAdding(null);
-			const provider = providers.find((one) => one.id === made.providerId);
-			if (provider?.modelDiscovery && made.providerId !== "ollama" && made.providerId !== "github-copilot") {
-				await wire.command("credential.refresh_models", { providerId: made.providerId });
-			}
 			setOpen(made.id);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
-			setAdding(null);
-			await wire.command("credential.list", {}).then(setHeld).catch(() => {});
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const saveKey = async (secret: string) => {
-		if (adding === null || busy) return;
-		setBusy(true);
-		setRefusal(null);
-		try {
-			await accept(await wire.command("credential.create", { providerId: adding.id, label: adding.name, secret }));
-		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
-			setBusy(false);
-		}
-	};
-
-	const connectLocal = async (baseUrl: string) => {
-		if (busy) return;
-		setBusy(true);
-		setRefusal(null);
-		try {
-			await accept(await wire.command("credential.connect_local", { baseUrl }));
-		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
-			setBusy(false);
+			await reload();
 		}
 	};
 
@@ -653,7 +534,7 @@ function ProvidersSection({
 				onSignIn={() => {
 					setOpen(null);
 					const provider = opened.credential.custom ? providers.find((one) => one.id === "openai-compatible") : opened.provider;
-					if (provider) begin(provider, opened.credential.custom && opened.credential.revoked ? null : opened.credential.id);
+					if (provider) begin(provider, opened.credential.custom && opened.credential.revoked ? undefined : opened.credential);
 				}}
 				onRemoved={() => {
 					setHeld((known) => (known ?? []).filter((one) => one.id !== opened.credential.id));
@@ -679,19 +560,7 @@ function ProvidersSection({
 									<p className="group-row text-sm text-ink-3">Every provider Toad knows is already here.</p>
 								) : (
 									addable.map((provider) => (
-										<button
-											key={provider.id}
-											type="button"
-											className="group-row group-row-choice w-full text-left"
-											disabled={busy}
-											onClick={() => begin(provider)}
-										>
-											<span className="group-row-text">
-												<span className="group-row-title">{provider.name}</span>
-											</span>
-											<span className="text-sm text-ink-3">{provider.credentialKinds.map(connectionMethod).join(" or ")}</span>
-											<ChevronRightIcon className="shrink-0 text-ink-3" />
-										</button>
+										<ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />
 									))
 								)}
 								<div className="group-row justify-end">
@@ -702,74 +571,18 @@ function ProvidersSection({
 							</div>
 						</section>
 					)}
-					{adding?.id === "openai-compatible" && (
-						<CustomProviderForm key={replacing.current ?? "new"} credential={held?.find((one) => one.id === replacing.current)} onSaved={(made) => void accept(made)} onCancel={() => setAdding(null)} />
-					)}
-					{adding !== null && adding.id !== "openai-compatible" && method === null && (
-						<section>
-							<h3 className="group-title">Connect {adding.name}</h3>
-							<div className="grouped">
-								{adding.credentialKinds.map((kind) => (
-									<button
-										key={kind}
-										type="button"
-										className="group-row group-row-choice w-full text-left"
-										disabled={busy}
-										onClick={() => kind === "oauth" ? void signIn(adding.id) : setMethod(kind)}
-									>
-										<span className="group-row-text">{adding.id === "xai" && kind === "oauth" ? "Sign in with SuperGrok or X Premium+" : connectionMethod(kind)}</span>
-										<ChevronRightIcon />
-									</button>
-								))}
-								<div className="group-row justify-end">
-									<button type="button" className="control btn-quiet" onClick={() => setAdding(null)}>Cancel</button>
-								</div>
-							</div>
-						</section>
-					)}
-					{adding !== null && method === "local" && (
-						<LocalProviderForm busy={busy} onSave={(url) => void connectLocal(url)} onCancel={() => setAdding(null)} />
-					)}
-					{adding !== null && method === "api_key" && (
-						<KeyForm provider={adding} busy={busy} onSave={(secret) => void saveKey(secret)} onCancel={() => setAdding(null)} />
-					)}
-					{adding !== null && method === "oauth" && (
-						<section>
-							<h3 className="group-title">Sign in to {adding.name}</h3>
-							<div className="grouped">
-								{login === null ? (
-									<p className="group-row text-sm text-ink-3">Preparing sign-in…</p>
-								) : (
-									<>
-										{login.prompt.userCode !== "" && (
-											<div className="group-row">
-												<span className="selectable font-mono text-xl tracking-wide">{login.prompt.userCode}</span>
-											</div>
-										)}
-										<div className="group-row">
-											<button
-												type="button"
-												className="text-sm text-ink-2 underline"
-												onClick={() => void openLink(login.prompt.verificationUri)}
-											>
-												Open {adding.name} sign-in
-											</button>
-										</div>
-										<p className="group-row text-sm text-ink-3">Waiting for you to sign in…</p>
-									</>
-								)}
-								<div className="group-row justify-end">
-									<button
-										type="button"
-										className="control btn-quiet"
-										onClick={() => void cancelLogin()}
-									>
-										Cancel
-									</button>
-								</div>
-							</div>
-							<p className="group-hint">{login?.prompt.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
-						</section>
+					{adding !== null && (
+						<ConnectProvider
+							key={adding.provider.id}
+							provider={adding.provider}
+							replacing={adding.replacing}
+							onConnected={(made) => void accept(made)}
+							onCancel={() => {
+								setAdding(null);
+								// A sign-in cancelled late may still have landed.
+								void reload();
+							}}
+						/>
 					)}
 					<section>
 						<div className="grouped">
@@ -813,42 +626,6 @@ function ProvidersSection({
 	);
 }
 
-function connectionMethod(kind: CredentialKind): string {
-	return kind === "oauth" ? "Sign in" : kind === "local" ? "Server URL" : "API key";
-}
-
-function LocalProviderForm({ busy, onSave, onCancel }: { busy: boolean; onSave(url: string): void; onCancel(): void }) {
-	const [url, setUrl] = useState("http://localhost:11434");
-	return (
-		<form onSubmit={(event) => {
-			event.preventDefault();
-			if (url.trim()) onSave(url.trim());
-		}}>
-			<h3 className="group-title">Connect Ollama Local</h3>
-			<div className="grouped">
-				<div className="group-row">
-					<label htmlFor="ollama-url" className="w-24 shrink-0 text-sm text-ink-2">Server URL</label>
-					<input
-						id="ollama-url"
-						type="url"
-						className="field flex-1 font-mono text-sm"
-						value={url}
-						onChange={(event) => setUrl(event.target.value)}
-						disabled={busy}
-						spellCheck={false}
-						autoComplete="off"
-					/>
-				</div>
-				<div className="group-row justify-end">
-					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>Cancel</button>
-					<button type="submit" className="control btn-primary" disabled={busy || !url.trim()}>{busy ? "Connecting…" : "Connect"}</button>
-				</div>
-			</div>
-			<p className="group-hint">Start Ollama first. Toad discovers the models installed on this server. Cloud models available through your Ollama sign-in work here too.</p>
-		</form>
-	);
-}
-
 function nameOf(one: { credential: Credential; provider: Provider | undefined }): string {
 	return one.provider?.name ?? one.credential.label;
 }
@@ -857,65 +634,6 @@ function nameOf(one: { credential: Credential; provider: Provider | undefined })
 function modelsShownText(enabled: string[] | undefined): string {
 	if (enabled === undefined) return "All models";
 	return enabled.length === 1 ? "1 model" : `${enabled.length} models`;
-}
-
-/** The key field, in place, for the provider just chosen from the plus. */
-function KeyForm({
-	provider,
-	busy,
-	onSave,
-	onCancel,
-}: {
-	provider: Provider;
-	busy: boolean;
-	onSave(secret: string): void;
-	onCancel(): void;
-}) {
-	const [secret, setSecret] = useState("");
-	const field = useRef<HTMLInputElement>(null);
-	useEffect(() => field.current?.focus(), []);
-	return (
-		<form
-			onSubmit={(event) => {
-				event.preventDefault();
-				if (secret.trim() !== "") onSave(secret.trim());
-			}}
-		>
-			<h3 className="group-title">Add {provider.name}</h3>
-			<div className="grouped">
-				<div className="group-row">
-					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="key-secret">
-						API key
-					</label>
-					<input
-						ref={field}
-						id="key-secret"
-						type="password"
-						className="field flex-1 font-mono text-sm"
-						spellCheck={false}
-						autoComplete="off"
-						value={secret}
-						onChange={(event) => setSecret(event.target.value)}
-					/>
-				</div>
-				<div className="group-row justify-end">
-					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
-						Cancel
-					</button>
-					<button type="submit" className="control btn-primary" disabled={busy || secret.trim() === ""}>
-						{busy ? "Saving…" : "Save key"}
-					</button>
-				</div>
-			</div>
-			{provider.doc !== undefined && (
-				<p className="group-hint">
-					<button type="button" className="underline" onClick={() => void openLink(provider.doc ?? "")}>
-						Where to get one
-					</button>
-				</p>
-			)}
-		</form>
-	);
 }
 
 /**

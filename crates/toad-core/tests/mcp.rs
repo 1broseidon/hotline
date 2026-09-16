@@ -278,6 +278,85 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
     assert_eq!(shouted.text, "HARBOUR");
 }
 
+/// A command with arguments, saved the way the Tools form saves it: the
+/// arguments leave the room stream for the vault and come back at start,
+/// so a server that is nothing without them still connects. The command
+/// here is the shell, which without its `-c …` would sit reading stdin and
+/// never answer the handshake.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stdio_servers_arguments_come_back_from_the_vault_at_start() {
+    let (root, port) = open("args").await;
+    let mut client = Client::connect(port).await;
+    keyed(&mut client).await;
+
+    let settings = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "mcpServers": [{
+                "id": "shelled",
+                "type": "stdio",
+                "name": "Shelled",
+                "command": "sh",
+                "args": ["-c", format!("exec '{}'", echo_command())],
+            }] } }),
+        )
+        .await;
+    assert_eq!(settings["ok"], true, "{settings}");
+    let public = &settings["result"]["mcpServers"][0];
+    assert_eq!(public["command"], "sh");
+    assert_eq!(
+        public["args"],
+        json!([]),
+        "the arguments are not on the stream"
+    );
+    assert!(public["credentialRef"].is_string(), "{public}");
+    let disk = std::fs::read_to_string(root.join("room.jsonl")).unwrap();
+    assert!(
+        !disk.contains("exec '"),
+        "the arguments are not on disk either"
+    );
+
+    // Saved again unchanged, as the form does when another server is added
+    // or this one is renamed, the reference stands and nothing is lost.
+    let renamed = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "mcpServers": [{
+                "id": "shelled",
+                "type": "stdio",
+                "name": "Shelled again",
+                "command": "sh",
+                "args": [],
+                "credentialRef": public["credentialRef"],
+            }] } }),
+        )
+        .await;
+    assert_eq!(renamed["ok"], true, "{renamed}");
+
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "goal": "Shout through a shell." } }),
+        )
+        .await;
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    set_policy(&mut client, &persona_id, "some", &["shelled"]).await;
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let tools = client
+        .call("teammate.tools", json!({ "personaId": persona_id }))
+        .await;
+    let rows = tools["result"]["rows"].as_array().unwrap();
+    let shout = rows
+        .iter()
+        .find(|row| row["origin"] == "shelled")
+        .expect("the shelled server is on the ledger");
+    assert_eq!(shout["state"], "verified", "{shout}");
+    assert_eq!(shout["name"], "shelled_again__shout");
+}
+
 /// Toad's own tools are the teammate's whether or not anything else is:
 /// built in this process for Toad Agent, and verified because Toad built them.
 #[tokio::test(flavor = "multi_thread")]

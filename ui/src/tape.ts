@@ -28,15 +28,22 @@ export type Streaming = {
  * every reader agrees on what the tape says, and it is also what makes a
  * reconnect's second snapshot harmless.
  */
-export function useTape(personaId: string): { events: TranscriptEvent[]; streaming: Streaming[] } {
+export function useTape(personaId: string): { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean } {
 	const [events, setEvents] = useState<TranscriptEvent[]>([]);
 	const [streaming, setStreaming] = useState<Streaming[]>([]);
+	/* Whether the snapshot has landed: an empty tape and a tape not yet read
+	 * look the same, and the starter card must not show on the second. */
+	const [loaded, setLoaded] = useState(false);
 
 	useEffect(() => {
 		setEvents([]);
 		setStreaming([]);
+		setLoaded(false);
 		return watchWhenOpen<TranscriptEvent, StreamDelta>({ tape: personaId }, {
-			snapshot: (items) => setEvents(fold(items)),
+			snapshot: (items) => {
+				setEvents(fold(items));
+				setLoaded(true);
+			},
 			event: (item) => {
 				setEvents((known) => merge(known, item));
 				// The durable line has landed, so the bubble Toad was drawing
@@ -48,7 +55,7 @@ export function useTape(personaId: string): { events: TranscriptEvent[]; streami
 		});
 	}, [personaId]);
 
-	return { events, streaming };
+	return { events, streaming, loaded };
 }
 
 /**

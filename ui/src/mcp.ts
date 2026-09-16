@@ -67,9 +67,16 @@ export function useMcpServers(): McpServer[] {
 	return servers;
 }
 
-/** The command line, or the URL — whichever the list and the grant show. */
+/**
+ * The command line, or the URL — whichever the list and the grant show.
+ * A stdio server's arguments and environment leave the room stream for the
+ * vault once saved, so the public entry carries the command alone; the line
+ * says so rather than reading as if the rest had been dropped.
+ */
 export function mcpServerDetail(server: McpServer): string {
-	return server.type === "stdio" ? [server.command, ...server.args].join(" ") : server.urlNeedsRepair ? "Re-enter this source’s URL" : server.url;
+	if (server.type !== "stdio") return server.urlNeedsRepair ? "Re-enter this source’s URL" : server.url;
+	const line = [server.command, ...server.args].join(" ");
+	return server.credentialRef || server.launchValuesPending ? `${line} … (arguments and environment stored securely)` : line;
 }
 
 /**

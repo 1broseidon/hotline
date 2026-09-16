@@ -13,6 +13,7 @@ import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
 import { Composer } from "./Composer";
 import { Search } from "./Search";
+import { Starters } from "./Starters";
 import type { OpenThread } from "./Thread";
 import { Transcript, type ReplyTarget } from "./Transcript";
 
@@ -70,7 +71,7 @@ export function Conversation({
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const { events, streaming } = useTape(personaId);
+	const { events, streaming, loaded } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 	/* What was said, from the moment it was said. The core writes the line
 	 * only once a session is up, and starting one is a second or two in which
@@ -150,6 +151,9 @@ export function Conversation({
 			.finally(() => setChapterBusy(false));
 	}, [personaId]);
 	const resumeBlocked = resumeRefusal(events, persona.backendId);
+	/* The first conversation, before a word: what the starter card reads.
+	 * A line on its way (`saying`) already ends it. */
+	const untouched = loaded && saying === null && !events.some((event) => event.kind === "user");
 
 	// Escape clears a quote that is up even when the field is not focused.
 	// Chips are put down first, on the window in capture, so this listener
@@ -295,6 +299,11 @@ export function Conversation({
 						})
 					}
 				/>
+				{untouched && (
+					<div className="relative shrink-0 px-6">
+						<Starters persona={persona} onPick={(text) => setRefill({ text, attachments: [], nonce: Date.now() })} />
+					</div>
+				)}
 				<Composer
 					personaId={personaId}
 					name={persona.name}

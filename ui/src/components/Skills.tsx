@@ -172,7 +172,10 @@ function SkillPage({
 						<div className="grouped">
 							<div className="group-row">
 								<span className="group-row-text">
-									<span className="group-row-title">{skillSourceName(entry)}</span>
+									<span className="group-row-title">
+										{skillSourceName(entry)}
+										{entry.version !== undefined && <span className="text-ink-3"> · release {entry.version}</span>}
+									</span>
 									{entry.invalid !== undefined ? (
 										<span className="group-row-detail text-danger">{entry.invalid}</span>
 									) : (

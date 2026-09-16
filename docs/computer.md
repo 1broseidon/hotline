@@ -47,5 +47,16 @@ volumes survive the container, so prepared environments, jobs and the browser
 profile come back with it. The running release is always the one the guide
 reports, never the configured tag.
 
+The desk learns that release at every start: once the container is healthy,
+Toad calls its `state` tool with action `guide`, which answers the release's
+own skill with its version and checksum, and writes it into the teammate's
+workspace as the `toad-computer` skill (see [design.md](design.md), section
+7). `computer.status` reports that release, and when it differs from the one
+the teammate's computer would be created on now, the release it would get
+as `available`. `computer.update` is the pane's answer to that: stop the
+teammate if it is running, remove the container, start the teammate again on
+the current choice. What survives an update is what survives a removal — the
+volumes — and nothing else; the pane says so next to the button.
+
 The runtimes, how they are found, and the fake runtime the tests drive are in
 [development.md](development.md).

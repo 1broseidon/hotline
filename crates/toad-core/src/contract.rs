@@ -480,6 +480,14 @@ pub struct ComputerStatus {
     /// the viewer page the computer serves, with its bearer in the fragment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viewer: Option<String>,
+    /// The release the running computer reported with its guide. Absent
+    /// until it has, and for an image too old to say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<String>,
+    /// The release this teammate's computer would be created on now, when
+    /// that differs from the one running: the pane's offer to update.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available: Option<String>,
 }
 
 /// Operator-configured extras plus an optional pin on the built-in task
@@ -1547,6 +1555,11 @@ pub struct SkillEntry {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invalid: Option<String>,
+    /// The release a computer's guide came from. Only a `computer` entry has
+    /// one: the desk's own skills are the desk's version, a gateway folder is
+    /// whatever the person put there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1854,6 +1867,10 @@ pub enum Command {
     ComputerStop { persona_id: String },
     #[serde(rename = "computer.remove")]
     ComputerRemove { persona_id: String },
+    /// Recreates the computer on the release it would be created on now,
+    /// and starts the teammate again if it was running. The volumes survive.
+    #[serde(rename = "computer.update")]
+    ComputerUpdate { persona_id: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

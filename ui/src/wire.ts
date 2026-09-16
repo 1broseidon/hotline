@@ -133,6 +133,7 @@ type Results = {
 	"computer.status": ComputerStatus;
 	"computer.stop": null;
 	"computer.remove": null;
+	"computer.update": null;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

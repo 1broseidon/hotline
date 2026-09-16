@@ -7,6 +7,15 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+### Added
+
+- A teammate's computer hands over the guide of the release it is actually running, and Toad writes it into the workspace as the `toad-computer` skill. The catalog lists it as the computer's, with that release, so what the agent reads is never a bundled copy that could drift from the container it drives.
+- A computer running an older release than the one it would be created on now says so on the teammate's pane, with an Update button and a note on what recreating the container keeps and what it does not.
+
+### Changed
+
+- Teammates work quietly. What an agent says between its tool calls is shown as thinking, not as chat, so an exchange is an acknowledgement, the work, and the result: two or three messages unless the answer genuinely needs more. The house style asks for the same.
+
 ## [0.12.0] - 2026-09-15
 
 ### Added

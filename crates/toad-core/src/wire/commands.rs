@@ -287,6 +287,12 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
+        Command::ComputerUpdate { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_update(&persona_id)
+                .await
+                .map(|()| Value::Null)
+        }
     }
 }
 

@@ -37,6 +37,7 @@
 mod chapters;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
+mod narration;
 mod pacing;
 mod peers;
 mod quiet;
@@ -547,6 +548,16 @@ impl Room {
         keys: Arc<dyn ProviderKeys>,
         agents: Arc<dyn Agents>,
     ) -> Arc<Self> {
+        Self::with_agents_and_computers(log, keys, agents, Computer::new())
+    }
+
+    /// The room on a computer runtime a test can script as well.
+    pub(crate) fn with_agents_and_computers(
+        log: Log,
+        keys: Arc<dyn ProviderKeys>,
+        agents: Arc<dyn Agents>,
+        computers: Computer,
+    ) -> Arc<Self> {
         let push = crate::push::Push::new(log.root());
         let indexer = match Indexer::open(&log) {
             Ok(indexer) => Some(indexer),
@@ -571,7 +582,7 @@ impl Room {
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
             push,
-            computers: Computer::new(),
+            computers,
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
         });
@@ -876,6 +887,38 @@ impl Room {
                 },
             )
             .await?;
+        // The guide the running release serves is the teammate's
+        // `toad-computer` skill: written here, after the container is up and
+        // before the preamble is built, so the index lists it and the file it
+        // names is the release actually running. A computer that will not
+        // hand one over leaves no skill, and the preamble tells the teammate
+        // to ask it directly.
+        match crate::computer::guide::fetch(&ready).await {
+            Ok(guide) => {
+                crate::skills::write_computer(
+                    Path::new(&persona.cwd),
+                    &guide.version,
+                    &guide.sha256,
+                    &guide.skill,
+                )
+                .map_err(|error| {
+                    format!("{}'s computer guide could not be written: {error}", persona.name)
+                })?;
+                self.computers.learned_release(&persona.id, &guide.version);
+            }
+            Err(reason) => self.write(
+                &persona.id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Info,
+                    text: format!(
+                        "The computer did not hand over its guide, so {} will ask it directly. {reason}",
+                        persona.name
+                    ),
+                },
+            ),
+        }
         Ok(vec![crate::computer::mcp_server(&ready)])
     }
 
@@ -1703,12 +1746,43 @@ impl Room {
     }
 
     pub async fn computer_status(&self, persona_id: &str) -> Result<ComputerStatus, String> {
-        self.computers
-            .status(
-                persona_id,
-                crate::computer::preferred_runtime(&room::settings(&self.log)),
-            )
-            .await
+        let settings = room::settings(&self.log);
+        let mut status = self
+            .computers
+            .status(persona_id, crate::computer::preferred_runtime(&settings))
+            .await?;
+        // An existing container keeps the release it was made on, so the
+        // pane is told when the one it would be made on now is different.
+        if let Some(release) = &status.release
+            && let Some(persona) = room::roster(&self.log)
+                .into_iter()
+                .find(|persona| persona.id == persona_id)
+        {
+            let image = crate::computer::image_of(
+                &persona,
+                crate::computer::preferred_image(&settings).as_deref(),
+            );
+            let wanted = crate::computer::release_of(&image);
+            if wanted != *release {
+                status.available = Some(wanted);
+            }
+        }
+        Ok(status)
+    }
+
+    /// Recreates a teammate's computer on the release it would be created on
+    /// now. The container goes; the workspace, scratch and home volumes stay,
+    /// and a teammate that was running is started again on the new one.
+    pub async fn computer_update(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let was_live = lock(&self.sessions).contains_key(persona_id);
+        if was_live {
+            self.stop(persona_id)?;
+        }
+        self.computer_remove(persona_id).await?;
+        if was_live {
+            self.start(persona_id).await?;
+        }
+        Ok(())
     }
 
     pub async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
@@ -2139,6 +2213,9 @@ impl Room {
                 .prompt(wired.text, wired.attachments, reach)
                 .await;
             let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
+            // What the agent says between its tool calls is held here until
+            // the next update says whether it was narration or the report.
+            let mut voice = narration::Voice::new();
             let mut asked = false;
             loop {
                 self.steer_waiting(&session);
@@ -2148,26 +2225,33 @@ impl Room {
                     update = updates.recv() => update,
                 };
                 let Some(update) = update else { break };
-                if let Update::Chapter { boundary } = update {
-                    let gate = self.start_gate(&session.persona_id);
-                    let _held = gate.lock().await;
-                    if session.capability.is_current() && self.current_session(&session) {
-                        self.close_chapter(&session.persona_id, ChapterClose::Agent)
-                            .await;
-                        let note = chapters::wake_block(&self.tape(&session.persona_id), now_ms());
-                        self.begin_chapter(&session.persona_id, &session.backend_id);
-                        boundary.finish(note);
-                    } else {
-                        boundary.finish(None);
+                for update in voice.step(update) {
+                    if let Update::Chapter { boundary } = update {
+                        let gate = self.start_gate(&session.persona_id);
+                        let _held = gate.lock().await;
+                        if session.capability.is_current() && self.current_session(&session) {
+                            self.close_chapter(&session.persona_id, ChapterClose::Agent)
+                                .await;
+                            let note =
+                                chapters::wake_block(&self.tape(&session.persona_id), now_ms());
+                            self.begin_chapter(&session.persona_id, &session.backend_id);
+                            boundary.finish(note);
+                        } else {
+                            boundary.finish(None);
+                        }
+                        continue;
                     }
-                    continue;
+                    asked |= matches!(update, Update::Permission { .. });
+                    self.record(&session, update, &mut in_flight, &voice);
                 }
-                asked |= matches!(update, Update::Permission { .. });
-                self.record(&session, update, &mut in_flight);
             }
             // A driver that stopped without a turn — its model errored, its
             // child died — leaves a tool spinning in the transcript forever,
-            // and a card nobody is behind.
+            // and a card nobody is behind. A line it was still holding is the
+            // last thing it said.
+            for update in voice.finish() {
+                self.record(&session, update, &mut in_flight, &voice);
+            }
             self.fail_in_flight(&session, &mut in_flight);
             if asked {
                 // A permission the turn left open is a button nobody is
@@ -2231,6 +2315,7 @@ impl Room {
         session: &Session,
         update: Update,
         in_flight: &mut HashMap<String, PendingTool>,
+        voice: &narration::Voice,
     ) {
         // Anything the agent produces proves it has what it was handed; a
         // notice can be an error raised before the prompt reached the model.
@@ -2245,9 +2330,11 @@ impl Room {
         {
             // A muted turn must not run the writing indicator for a message
             // that will never land, so the delta is demoted with the event it
-            // is building.
+            // is building; and after the acknowledgement a message may turn
+            // out to be narration, so it streams as thinking too.
             let muted = kind == MessageKind::Agent
-                && quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms());
+                && (quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
+                    || voice.mutes_deltas());
             let persona_id = session.persona_id.clone();
             let _ = self.deltas.send(match kind {
                 MessageKind::Agent if !muted => StreamDelta::AgentDelta {
@@ -2825,7 +2912,13 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
         .as_ref()
         .is_some_and(|computer| computer.enabled)
     {
-        "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page wants credentials, a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+        if crate::skills::computer_entry(Path::new(&persona.cwd))
+            .is_some_and(|entry| entry.invalid.is_none())
+        {
+            "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. Its guide for the release it is running is your `toad-computer` skill; read it before your first call on the computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. The person can see its screen and take it over at any time. When a page wants credentials, a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+        } else {
+            "\n\nYou have a computer: a Linux desktop of your own, with a browser, driven with the `computer__` tools. On connection, read `computer__state` with action `info` and action `guide` to load the skill and environment catalog from that running computer. Use its managed shell jobs and prepared workspaces for installs, builds, and app launches. If an older image does not offer those actions, use its advertised tool schemas. The person can see its screen and take it over at any time. When a page wants credentials, a 2FA tap or a CAPTCHA, get that page on screen first, then call `request_human` and say exactly what to do; they act on your desktop directly, and whatever they type never passes through you. When the call returns, look at the screen again before going on."
+        }
     } else {
         ""
     };
@@ -2847,7 +2940,19 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     // is what is in the workspace — the built-ins are always there, so it is
     // never empty — and a skill the teammate wrote over a built-in's name is
     // the one listed, because it is the one on disk.
-    let skills = crate::skills::index(&crate::skills::visible(Path::new(&persona.cwd)));
+    // The computer's guide is listed only for a teammate that has the
+    // computer: it is written by that teammate's grant, and a colleague
+    // sharing the working directory has no use for a line about a machine it
+    // cannot drive.
+    let has_computer = persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled);
+    let listed: Vec<_> = crate::skills::visible(Path::new(&persona.cwd))
+        .into_iter()
+        .filter(|skill| has_computer || skill.name != crate::skills::COMPUTER)
+        .collect();
+    let skills = crate::skills::index(&listed);
     let standing = format!(
         "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,

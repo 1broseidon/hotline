@@ -23,7 +23,7 @@ use tokio::process::Command;
 /// The toad.computer release this desktop is built against. Bumped here
 /// deliberately when the desktop is ready for a new image — never derived
 /// from the desktop version, and never `latest`.
-pub const COMPUTER_VERSION: &str = "0.4.0";
+pub const COMPUTER_VERSION: &str = "0.5.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
 pub const SERVER_ID: &str = "computer";
@@ -37,6 +37,14 @@ pub const COMPUTER_HIBERNATE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 const MCP_PORT: u16 = 8787;
 const WORKSPACE_MOUNT: &str = "/home/agent/workspace";
+/// A named volume per teammate for the home itself, so what the teammate
+/// prepared there outlives the container the hibernate cycle removes: the
+/// environments it built for a workspace, its jobs and their output, its
+/// shell history and its browser profile. The image keeps nothing of its
+/// own in the home, so an empty volume is what a fresh container would
+/// have had anyway. An extra mount may sit inside it; only one that would
+/// cover it is refused, and that one already covers the workspace.
+const HOME_MOUNT: &str = "/home/agent";
 /// A named volume per teammate, so a checkout or a build it starts outlives
 /// the container the hibernate cycle removes. The workspace is the person's
 /// folder; this one is the teammate's.
@@ -510,6 +518,8 @@ fn create_args(
     if runtime != Runtime::AppleContainer {
         args.extend([
             "-v".into(),
+            format!("{}:{HOME_MOUNT}", home_volume(&persona.id)),
+            "-v".into(),
             format!("{NIX_VOLUME}:{NIX_MOUNT}"),
             "-v".into(),
             format!("{}:{SCRATCH_MOUNT}", scratch_volume(&persona.id)),
@@ -528,11 +538,29 @@ fn create_args(
         mcp_bind,
         "-e".into(),
         format!("TOAD_COMPUTER_TOKEN={token}"),
+        "-e".into(),
+        format!("TZ={}", host_time_zone()),
         "-v".into(),
         format!("{cwd}:{WORKSPACE_MOUNT}"),
         image.into(),
     ]);
     Ok(args)
+}
+
+/// The zone the computer's clock shows: the host's, so the bar reads the
+/// same as the person's own clock. `TZ` in the desk's environment wins;
+/// a host whose zone cannot be read gets UTC rather than an empty `TZ`.
+fn host_time_zone() -> String {
+    std::env::var("TZ")
+        .ok()
+        .map(|zone| zone.trim().to_owned())
+        .filter(|zone| !zone.is_empty())
+        .or_else(|| iana_time_zone::get_timezone().ok())
+        .unwrap_or_else(|| "UTC".to_owned())
+}
+
+fn home_volume(persona_id: &str) -> String {
+    format!("toad-home-{persona_id}")
 }
 
 fn scratch_volume(persona_id: &str) -> String {
@@ -1040,6 +1068,8 @@ esac
                 "--shm-size",
                 "1g",
                 "-v",
+                "toad-home-ada:/home/agent",
+                "-v",
                 "toad-nix-glibc:/nix",
                 "-v",
                 "toad-src-ada:/home/agent/src",
@@ -1047,6 +1077,8 @@ esac
                 "127.0.0.1:0:8787",
                 "-e",
                 "TOAD_COMPUTER_TOKEN=",
+                "-e",
+                "TZ=",
                 "-v",
                 &format!(
                     "{}:{WORKSPACE_MOUNT}",
@@ -1057,6 +1089,15 @@ esac
         );
         assert!(create.contains("--name toad-computer-ada"), "{create}");
         assert!(recorded.contains("start toad-computer-ada"), "{recorded}");
+    }
+
+    #[test]
+    fn the_computers_clock_is_set_to_the_hosts_zone() {
+        let zone = host_time_zone();
+        assert!(
+            !zone.is_empty() && !zone.contains(char::is_whitespace),
+            "{zone}"
+        );
     }
 
     #[test]

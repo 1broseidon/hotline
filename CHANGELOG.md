@@ -7,6 +7,19 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+### Added
+- A teammate's computer keeps its home on a named volume,
+  `toad-home-<persona id>`, so the environments it prepared, its jobs and
+  their output, its shell history and its browser profile survive the
+  container the hibernate cycle removes.
+
+### Changed
+- New computers run Computer 0.5.0: a desktop bar with menus, an observer
+  that names each job, a terminal for the person, a viewer that shows the
+  teammate's pointer and pastes from the person's own computer, and
+  generic Nix environments prepared from package names or a flake.
+- A computer's clock shows the host's time zone.
+
 ## [0.11.1] - 2026-09-14
 
 ### Changed

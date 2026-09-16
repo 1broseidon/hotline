@@ -129,7 +129,22 @@ mod tests {
         for file in [&shell, &helper] {
             std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let path = read_shell_path(shell.as_os_str(), Duration::from_secs(1)).unwrap();
+        // The other test in this module forks its own shell on another
+        // thread; a fork that lands while this file is still open for
+        // writing leaves the child holding the descriptor until it execs,
+        // and an exec of this script in that window is "Text file busy".
+        // Waiting the window out is the fix; the script is not.
+        let mut attempts = 0;
+        let path = loop {
+            match read_shell_path(shell.as_os_str(), Duration::from_secs(1)) {
+                Ok(path) => break path,
+                Err(busy) if busy.contains("Text file busy") && attempts < 50 => {
+                    attempts += 1;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(other) => panic!("{other}"),
+            }
+        };
         let result = Command::new("/bin/sh")
             .args(["-c", "docker-credential-test"])
             .env("PATH", path)

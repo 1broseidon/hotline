@@ -32,14 +32,19 @@ pub const RETRY_AFTER_MS: i64 = 15 * 60_000;
 /// is not held for longer.
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The newest published release at or above `floor` on the same major, from
-/// the JSON the releases endpoint answers: an array of releases with a
-/// `tag_name`, skipping drafts and pre-releases and any tag that is not a
-/// version.
-pub fn newest_in(body: &str, floor: &str) -> Option<String> {
-    let releases: Vec<Value> = serde_json::from_str(body).ok()?;
-    let floor = version_of(floor)?;
-    releases
+/// Every published release at or above `floor` on the same major, newest
+/// first, from the JSON the releases endpoint answers: an array of releases
+/// with a `tag_name`, skipping drafts and pre-releases and any tag that is
+/// not a version. The floor itself is the last entry when it was published,
+/// so the list is exactly what a room may be set to.
+pub fn releases_in(body: &str, floor: &str) -> Vec<String> {
+    let Ok(releases) = serde_json::from_str::<Vec<Value>>(body) else {
+        return Vec::new();
+    };
+    let Some(floor) = version_of(floor) else {
+        return Vec::new();
+    };
+    let mut versions: Vec<(u64, u64, u64)> = releases
         .iter()
         .filter(|release| {
             release.get("draft") != Some(&Value::Bool(true))
@@ -48,8 +53,18 @@ pub fn newest_in(body: &str, floor: &str) -> Option<String> {
         .filter_map(|release| release.get("tag_name").and_then(Value::as_str))
         .filter_map(version_of)
         .filter(|version| version.0 == floor.0 && *version >= floor)
-        .max()
+        .collect();
+    versions.sort_unstable_by(|left, right| right.cmp(left));
+    versions.dedup();
+    versions
+        .into_iter()
         .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"))
+        .collect()
+}
+
+/// The newest of [`releases_in`].
+pub fn newest_in(body: &str, floor: &str) -> Option<String> {
+    releases_in(body, floor).into_iter().next()
 }
 
 /// `1.2.3` or `v1.2.3` as numbers; anything else is not a release.
@@ -64,8 +79,10 @@ fn version_of(tag: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-/// Asks `url` for the newest release at or above `floor`.
-pub async fn lookup(url: &str, floor: &str) -> Result<String, String> {
+/// Asks `url` for the releases at or above `floor`, newest first; an empty
+/// answer is a sentence, since nothing at the floor means the list is not
+/// the one expected.
+pub async fn lookup(url: &str, floor: &str) -> Result<Vec<String>, String> {
     let client = reqwest::Client::builder()
         .timeout(LOOKUP_TIMEOUT)
         .user_agent(format!("toad-desk/{}", env!("CARGO_PKG_VERSION")))
@@ -82,9 +99,13 @@ pub async fn lookup(url: &str, floor: &str) -> Result<String, String> {
         .text()
         .await
         .map_err(|error| error.to_string())?;
-    newest_in(&body, floor).ok_or_else(|| {
-        format!("The releases list names no release at or above {floor} on its major.")
-    })
+    let releases = releases_in(&body, floor);
+    if releases.is_empty() {
+        return Err(format!(
+            "The releases list names no release at or above {floor} on its major."
+        ));
+    }
+    Ok(releases)
 }
 
 /// What the desk knows about releases, and when it last asked.
@@ -92,6 +113,12 @@ pub async fn lookup(url: &str, floor: &str) -> Result<String, String> {
 pub struct Known {
     /// The newest release seen, once a lookup has answered.
     pub newest: Option<String>,
+    /// Every release seen at or above the floor, newest first.
+    pub releases: Vec<String>,
+    /// When a lookup last answered, well or badly.
+    pub checked_ms: Option<i64>,
+    /// What the last lookup refused with, until one answers well.
+    pub error: Option<String>,
     /// When the next lookup is due.
     pub due_ms: i64,
 }
@@ -102,14 +129,21 @@ impl Known {
         now_ms >= self.due_ms
     }
 
-    /// Records a lookup's answer and when to ask next.
-    pub fn record(&mut self, answer: Result<String, String>, now_ms: i64) {
+    /// Records a lookup's answer and when to ask next. A failure keeps
+    /// what was known and says why it did not change.
+    pub fn record(&mut self, answer: Result<Vec<String>, String>, now_ms: i64) {
+        self.checked_ms = Some(now_ms);
         match answer {
-            Ok(newest) => {
-                self.newest = Some(newest);
+            Ok(releases) => {
+                self.newest = releases.first().cloned();
+                self.releases = releases;
+                self.error = None;
                 self.due_ms = now_ms + CHECK_EVERY_MS;
             }
-            Err(_) => self.due_ms = now_ms + RETRY_AFTER_MS,
+            Err(why) => {
+                self.error = Some(why);
+                self.due_ms = now_ms + RETRY_AFTER_MS;
+            }
         }
     }
 }
@@ -132,6 +166,13 @@ mod tests {
         assert_eq!(newest_in(body, "0.5.0").as_deref(), Some("0.5.1"));
         assert_eq!(newest_in(body, "0.5.1").as_deref(), Some("0.5.1"));
         assert_eq!(
+            releases_in(body, "0.5.0"),
+            ["0.5.1", "0.5.0"],
+            "the list is newest first, down to the floor, published releases only"
+        );
+        assert_eq!(releases_in(body, "0.5.1"), ["0.5.1"]);
+        assert!(releases_in(body, "0.6.0").is_empty());
+        assert_eq!(
             newest_in(body, "0.6.0"),
             None,
             "nothing at or above the floor is nothing, never a lower release"
@@ -146,15 +187,22 @@ mod tests {
         assert!(known.due(0));
         known.record(Err("offline".into()), 1_000);
         assert_eq!(known.newest, None);
+        assert_eq!(known.checked_ms, Some(1_000));
+        assert_eq!(known.error.as_deref(), Some("offline"));
         assert!(!known.due(1_000 + RETRY_AFTER_MS - 1));
         assert!(known.due(1_000 + RETRY_AFTER_MS));
-        known.record(Ok("0.5.3".into()), 2_000);
+        known.record(Ok(vec!["0.5.3".into(), "0.5.0".into()]), 2_000);
         assert_eq!(known.newest.as_deref(), Some("0.5.3"));
+        assert_eq!(known.releases, ["0.5.3", "0.5.0"]);
+        assert_eq!(known.error, None);
         assert!(!known.due(2_000 + CHECK_EVERY_MS - 1));
         assert!(known.due(2_000 + CHECK_EVERY_MS));
-        // A later failure keeps what was known.
+        // A later failure keeps what was known and says why.
         known.record(Err("offline".into()), 3_000);
         assert_eq!(known.newest.as_deref(), Some("0.5.3"));
+        assert_eq!(known.releases, ["0.5.3", "0.5.0"]);
+        assert_eq!(known.checked_ms, Some(3_000));
+        assert_eq!(known.error.as_deref(), Some("offline"));
     }
 }
 
@@ -194,7 +242,7 @@ mod lookup_tests {
     #[tokio::test]
     async fn a_lookup_reads_the_endpoint_and_an_absent_one_is_a_sentence() {
         let (url, asked) = fake::serve(r#"[{"tag_name":"v0.5.3"},{"tag_name":"v0.5.0"}]"#).await;
-        assert_eq!(lookup(&url, "0.5.0").await.unwrap(), "0.5.3");
+        assert_eq!(lookup(&url, "0.5.0").await.unwrap(), ["0.5.3", "0.5.0"]);
         assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
         let refused = lookup("http://127.0.0.1:1/releases", "0.5.0")
             .await

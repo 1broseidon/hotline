@@ -202,8 +202,8 @@ impl RoomHandle for CoreHandle {
         self.room.set_config(persona_id, config_id, value).await
     }
 
-    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
-        crate::models::effort_choices(model_id)
+    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
+        crate::models::effort_choices_with_default(model_id)
     }
 
     async fn answer_permission(
@@ -366,6 +366,10 @@ impl RoomHandle for CoreHandle {
         self.room.computer_releases()
     }
 
+    async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
+        self.room.computer_releases_check().await
+    }
+
     async fn computer_status(
         &self,
         persona_id: &str,
@@ -493,8 +497,8 @@ impl RoomHandle for Quiet {
         Ok(info)
     }
 
-    fn models_efforts(&self, model_id: &str) -> Vec<ConfigChoice> {
-        crate::models::effort_choices(model_id)
+    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices {
+        crate::models::effort_choices_with_default(model_id)
     }
 
     async fn answer_permission(
@@ -679,8 +683,16 @@ impl RoomHandle for Quiet {
     fn computer_releases(&self) -> crate::contract::ComputerReleases {
         crate::contract::ComputerReleases {
             floor: "0.0.0".into(),
+            repository: "example/computer".into(),
             newest: None,
+            releases: Vec::new(),
+            checked_at: None,
+            error: None,
         }
+    }
+
+    async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
+        self.computer_releases()
     }
 
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
@@ -1165,6 +1177,7 @@ async fn a_draft_that_names_things_keeps_them() {
         model_id: Some("gpt-5".to_string()),
         effort_id: None,
         computer: None,
+        background_work: Some(true),
     };
     ask(
         &mut socket,
@@ -1178,6 +1191,7 @@ async fn a_draft_that_names_things_keeps_them() {
     assert_eq!(created["cwd"], "/tmp/harbour");
     assert_eq!(created["reach"], "machine");
     assert_eq!(created["modelId"], "gpt-5");
+    assert_eq!(created["backgroundWork"], true);
 }
 
 #[tokio::test]
@@ -1779,6 +1793,7 @@ async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
         model_id: None,
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,
@@ -1820,6 +1835,31 @@ fn a_model_with_efforts() -> (String, Vec<String>) {
             })
         })
         .expect("the snapshot has a model with an effort list")
+}
+
+/// The idle picker's reply names the effort a teammate with none stored
+/// runs at, so the strip shows `high` before any session has said so.
+#[tokio::test]
+async fn models_efforts_names_the_default_a_blank_teammate_runs_at() {
+    let (_root, _log, port) = door("efforts-default");
+    let mut socket = desk(port).await;
+    let (model, offered) = a_model_with_efforts();
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "models.efforts", "params": { "modelId": model } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 1).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    let ids: Vec<&str> = answer["result"]["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|one| one["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, offered.iter().map(String::as_str).collect::<Vec<_>>());
+    let expected = offered.iter().any(|one| one == "high").then_some("high");
+    assert_eq!(answer["result"]["defaultId"].as_str(), expected, "{answer}");
 }
 
 /// Setting effort on an idle Toad Agent teammate writes it on the persona
@@ -1879,6 +1919,7 @@ async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
         model_id: Some(model.clone()),
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,
@@ -1921,6 +1962,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
         model_id: None,
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,
@@ -2027,6 +2069,7 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         model_id: None,
         effort_id: None,
         computer: None,
+        background_work: None,
     };
     ask(
         &mut socket,

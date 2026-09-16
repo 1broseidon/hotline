@@ -102,7 +102,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
-| `models.efforts` | `{modelId}` | `ConfigChoice[]` that model's effort levels, empty when it has none |
+| `models.efforts` | `{modelId}` | `EffortChoices` — `choices` that model's effort levels, empty when it has none, and `defaultId` the one a teammate with none stored runs at |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
@@ -125,7 +125,9 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first |
+| `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
+| `computer.releases` | `{}` | `ComputerReleases`: `floor`, `repository`, `newest?`, `releases` (floor up, newest first), `checkedAt?`, `error?` |
+| `computer.releases.check` | `{}` | the same, after asking the releases endpoint now |
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |
@@ -166,12 +168,12 @@ or somebody else answered first. The tape still writes `dismissed` for a
 decline, which is the previous Toad's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
-modelId?, effortId?, computer?}`. Create fills what the draft leaves blank: a fresh
+modelId?, effortId?, computer?, backgroundWork?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"toad"`, a workspace under the data directory,
 `mcpPolicy` `{mode: "none", serverIds: []}`, and no `reach` unless the
-draft asked for `"machine"`. Background work defaults off, and
-`allowedSenders` defaults to an empty list. The whole teammate is written as one room
+draft asked for `"machine"`. Background work is off unless the draft turned
+it on, and `allowedSenders` defaults to an empty list. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
@@ -228,7 +230,13 @@ does not list is refused; when no model is known yet, the value is
 accepted. An ACP teammate goes only to the live session — idle is "That
 teammate is not running." `models.efforts` is the idle picker's list for
 one catalogue id, each choice labelled (`low` → "Low", `xhigh` →
-"Extra high"). A new teammate starts on the model's default effort.
+"Extra high"), with `defaultId` naming the level a teammate with no
+stored effort runs at. That is `high` whenever the model lists it, so a
+fresh Toad Agent teammate thinks properly instead of at whatever the
+provider picks when nothing is sent; a model with no such level runs with
+nothing sent. The stored `effortId` always wins over the default, and a
+model switch to one that does not list the stored level falls back to the
+new model's default.
 
 `effortId` on the persona is the stored effort, optional like `modeId`.
 An ACP teammate does not store one: the harness owns its config ids.

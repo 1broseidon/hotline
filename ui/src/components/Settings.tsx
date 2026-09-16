@@ -281,6 +281,14 @@ function runtimeAdvice(report: RuntimeReport): string | null {
 	}
 }
 
+/** The Release picker's entry that opens the free-text image field. */
+const CUSTOM_IMAGE = "custom";
+
+/** A wall-clock time for the strip, in the viewer's own locale. */
+function clock(ms: number): string {
+	return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 /**
  * Computer: which container runtime wakes a teammate's desktop, and which
  * image it wakes. Every runtime this machine could have is a row, the
@@ -304,10 +312,73 @@ function ComputerSection({
 	const [releases, setReleases] = useState<ComputerReleases | null>(null);
 	const [draft, setDraft] = useState(image ?? "");
 	const [shown, setShown] = useState<ComputerRuntime | null>(null);
+	// The Release picker: Newest, a published release, or a custom image
+	// typed in. Custom stays open while the field is being written in, even
+	// though the room still says Newest until it is committed.
+	const [custom, setCustom] = useState(false);
+	const [checking, setChecking] = useState(false);
 
 	useEffect(() => {
 		setDraft(image ?? "");
 	}, [image]);
+
+	const checkReleases = async () => {
+		if (checking) return;
+		setChecking(true);
+		try {
+			setReleases(await wire.command("computer.releases.check", {}));
+		} catch (error) {
+			setReleases((known) => ({
+				floor: known?.floor ?? "",
+				repository: known?.repository ?? "",
+				releases: known?.releases ?? [],
+				...(known?.newest !== undefined ? { newest: known.newest } : {}),
+				checkedAt: Date.now(),
+				error: error instanceof Error ? error.message : String(error),
+			}));
+		} finally {
+			setChecking(false);
+		}
+	};
+
+	// What the picker says the room is on: a release tag when the image is
+	// one of the repository's, Newest when blank, else the custom image.
+	const pickedRelease = (() => {
+		if (custom) return CUSTOM_IMAGE;
+		if (image === null) return "";
+		const prefix = releases !== null ? `${releases.repository}:` : null;
+		if (prefix !== null && image.startsWith(prefix) && releases?.releases.includes(image.slice(prefix.length))) {
+			return image.slice(prefix.length);
+		}
+		return CUSTOM_IMAGE;
+	})();
+	const releaseChoices = [
+		{ id: "", name: releases?.newest !== undefined ? `Newest · ${releases.newest}` : "Newest" },
+		...(releases?.releases ?? []).map((tag) => ({ id: tag, name: tag })),
+		{ id: CUSTOM_IMAGE, name: "Custom image…" },
+	];
+	const pickRelease = (id: string) => {
+		if (id === CUSTOM_IMAGE) {
+			setCustom(true);
+			return;
+		}
+		setCustom(false);
+		if (id === "") {
+			setDraft("");
+			if (image !== null) onImage(null);
+			return;
+		}
+		const next = `${releases?.repository ?? ""}:${id}`;
+		setDraft(next);
+		if (next !== image) onImage(next);
+	};
+	const checkedWords = (() => {
+		if (releases === null) return "";
+		if (checking) return "Checking…";
+		if (releases.error !== undefined) return releases.error;
+		const when = releases.checkedAt !== undefined ? ` · checked ${clock(releases.checkedAt)}` : "";
+		return `${releases.newest ?? "No release known"}${when}`;
+	})();
 
 	useEffect(() => {
 		void wire
@@ -415,29 +486,56 @@ function ComputerSection({
 				<h3 className="group-title">Image</h3>
 				<div className="grouped">
 					<div className="group-row">
-						<label className="group-row-text" htmlFor="setting-computer-image">
-							<span className="group-row-title">Desktop image</span>
-						</label>
-						<input
-							id="setting-computer-image"
-							className="field w-72 min-w-0 font-mono text-sm"
-							placeholder={releases?.newest !== undefined ? `Newest release, ${releases.newest}` : pinnedComputerImage() || "Newest release"}
-							autoComplete="off"
-							spellCheck={false}
-							value={draft}
-							onChange={(event) => setDraft(event.target.value)}
-							onBlur={commitImage}
-							onKeyDown={(event) => {
-								if (event.key !== "Enter") return;
-								event.preventDefault();
-								commitImage();
-							}}
-						/>
+						<span className="group-row-text" id="setting-computer-release">
+							<span className="group-row-title">Release</span>
+						</span>
+						<div className="w-72 min-w-0">
+							<Picker
+								field
+								value={pickedRelease}
+								choices={releaseChoices}
+								placeholder="Release"
+								label="Release"
+								onChange={pickRelease}
+							/>
+						</div>
+					</div>
+					{pickedRelease === CUSTOM_IMAGE && (
+						<div className="group-row">
+							<label className="group-row-text" htmlFor="setting-computer-image">
+								<span className="group-row-title">Desktop image</span>
+							</label>
+							<input
+								id="setting-computer-image"
+								className="field w-72 min-w-0 font-mono text-sm"
+								placeholder={pinnedComputerImage() || "registry/name:tag"}
+								autoComplete="off"
+								spellCheck={false}
+								autoFocus={custom}
+								value={draft}
+								onChange={(event) => setDraft(event.target.value)}
+								onBlur={commitImage}
+								onKeyDown={(event) => {
+									if (event.key !== "Enter") return;
+									event.preventDefault();
+									commitImage();
+								}}
+							/>
+						</div>
+					)}
+					<div className="group-row">
+						<span className="group-row-text">
+							<span className="group-row-title">Updates</span>
+							<span className="group-row-detail selectable">{checkedWords}</span>
+						</span>
+						<button type="button" className="control btn" disabled={checking} onClick={() => void checkReleases()}>
+							{checking ? "Checking…" : "Check now"}
+						</button>
 					</div>
 				</div>
 				<p className="group-hint">
-					Blank creates new computers on the newest toad-computer release, checked every six hours
-					{releases !== null ? ` (never below ${releases.floor})` : ""}. Set an image to pin one; a pinned computer is never offered an update.
+					Newest creates new computers on the latest toad-computer release, checked every six hours
+					{releases !== null ? ` (never below ${releases.floor})` : ""}. A picked release or a custom image pins one; a pinned computer is never offered an update.
 				</p>
 			</section>
 		</>

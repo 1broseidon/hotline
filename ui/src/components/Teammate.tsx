@@ -245,7 +245,7 @@ export function Teammate({
 							{toad ? (
 								<SwitchRow
 									title="Whole machine"
-									about="On gives built-in tools this account's full access and lets it delegate without asking. Off isolates supported built-in tools from unrelated host files and other workspaces, except installed runtimes. Network and granted MCP access remain available."
+									about={MACHINE_ABOUT}
 									checked={persona.reach === "machine"}
 									disabled={busy}
 									onChange={(on) => save({ reach: on ? "machine" : "workspace" })}
@@ -261,7 +261,7 @@ export function Teammate({
 							)}
 							<SwitchRow
 								title="Background work"
-								about="It may set its own schedules and wake itself, including after you stop a session. Off pauses the ones it made; jobs you add here run either way."
+								about={BACKGROUND_ABOUT}
 								checked={persona.backgroundWork}
 								disabled={busy}
 								onChange={(backgroundWork) => save({ backgroundWork })}
@@ -359,7 +359,15 @@ function folderName(path: string): string {
  * info key after its title; the sentence opens as a line under the row,
  * so the row itself stays one line.
  */
-function SwitchRow({
+/** The words for the access switches, shared with the new-teammate form so both say the same thing. */
+export const MACHINE_ABOUT =
+	"On gives built-in tools this account's full access and lets it delegate without asking. Off isolates supported built-in tools from unrelated host files and other workspaces, except installed runtimes. Network and granted MCP access remain available.";
+export const BACKGROUND_ABOUT =
+	"It may set its own schedules and wake itself, including after you stop a session. Off pauses the ones it made; jobs you add here run either way.";
+export const COMPUTER_ABOUT =
+	"A desktop of its own in a container, driven through its capture, input, browser and shell tools. Off keeps its work on this machine.";
+
+export function SwitchRow({
 	title,
 	value,
 	about,
@@ -612,7 +620,7 @@ function ComputerRows({
 
 	return (
 		<>
-			<SwitchRow title="Computer" checked={current.enabled} disabled={disabled} onChange={(on) => onChange({ ...current, enabled: on })} />
+			<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={current.enabled} disabled={disabled} onChange={(on) => onChange({ ...current, enabled: on })} />
 			{(current.enabled || state !== "absent") && (
 				<>
 					<FoldRow title="Desktop" value={words.value} open={open} onToggle={() => setOpen((was) => !was)} />

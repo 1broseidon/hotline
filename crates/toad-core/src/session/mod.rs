@@ -1798,10 +1798,12 @@ impl Room {
 
     /// The release a new computer is created on, as the desk knows it now.
     pub fn computer_releases(&self) -> crate::contract::ComputerReleases {
-        crate::contract::ComputerReleases {
-            floor: crate::computer::COMPUTER_VERSION.to_string(),
-            newest: self.computers.newest_known(),
-        }
+        self.computers.releases_known()
+    }
+
+    /// The same, after asking the endpoint now.
+    pub async fn computer_releases_check(&self) -> crate::contract::ComputerReleases {
+        self.computers.check_releases(now_ms()).await
     }
 
     pub async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {

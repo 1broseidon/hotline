@@ -10,8 +10,12 @@ The agent and the image live in their own repository,
 [toad.computer](https://github.com/1broseidon/toad-computer), and release on
 their own schedule. A new computer is created on the newest published release
 on the desk's major line: Toad asks the repository's releases endpoint when
-the room opens, every six hours after, and once more when a computer is about
-to be created with nothing known yet. `COMPUTER_VERSION` in
+the room opens, every six hours after, once more when a computer is about
+to be created with nothing known yet, and whenever the Check now button
+under Settings → Computer is pressed. That page also offers every published
+release from the floor up as the room's image, with Newest the default; a
+picked release is written as the full image reference and is a pin like any
+other. `COMPUTER_VERSION` in
 `crates/toad-core/src/computer/mod.rs` is the floor — the release this desk
 was tested with, what a computer is created on offline, and the line under
 which nothing is offered — and never `latest`. A pinned image, the

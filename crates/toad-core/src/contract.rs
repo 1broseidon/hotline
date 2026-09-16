@@ -498,8 +498,20 @@ pub struct ComputerStatus {
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct ComputerReleases {
     pub floor: String,
+    /// The repository every release's image is under; `<repository>:<tag>`
+    /// is the pin the Release picker writes.
+    pub repository: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub newest: Option<String>,
+    /// Every published release from the floor up, newest first: what a room
+    /// may be set to. Empty until a lookup has answered.
+    pub releases: Vec<String>,
+    /// When the desk last asked, ms since the epoch; absent before it has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<i64>,
+    /// Why the last lookup failed, until one succeeds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Operator-configured extras plus an optional pin on the built-in task
@@ -583,6 +595,10 @@ pub struct PersonaDraft {
     pub effort_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
+    /// Whether the teammate may keep its own schedules from the start. Absent
+    /// is off, as on the pane.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_work: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -768,6 +784,18 @@ pub enum SessionState {
 pub enum SessionConfigCategory {
     /// A model's reasoning or thought level.
     Effort,
+}
+
+/// The idle effort picker's reply for one catalogue model: the levels it
+/// offers and the one a teammate with none stored runs at, so the strip
+/// shows before a session what the session will do.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct EffortChoices {
+    pub choices: Vec<ConfigChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_id: Option<String>,
 }
 
 /// One picker the agent offers beyond the model and the mode.
@@ -1898,6 +1926,10 @@ pub enum Command {
     /// The release a new computer is created on, as the desk knows it now.
     #[serde(rename = "computer.releases")]
     ComputerReleases {},
+    /// Asks the releases endpoint now instead of on the six-hour clock —
+    /// the Settings button — and answers the same as `computer.releases`.
+    #[serde(rename = "computer.releases.check")]
+    ComputerReleasesCheck {},
     /// Where a fresh room stands on its way to a first turn.
     #[serde(rename = "welcome")]
     Welcome {},

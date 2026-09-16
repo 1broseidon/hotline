@@ -11,13 +11,17 @@ repository is what builds and publishes a release.
 
 - A welcome pane in place of the empty room: connect a provider or pick a harness on this machine, add the first teammate with a suggested goal, then say hello. Each step is read from what the room already knows — its credentials, the harnesses it can start, its roster — so the pane is there exactly while there is no teammate and never needs dismissing. The provider forms are the ones Settings renders.
 - A teammate's first conversation opens with a few things to try, fitted to whether their folder is a project or one Toad made for them, and one sentence on chapters. A prompt fills the composer and does not send. The card is gone once anything has been said.
+- Settings → Computer offers every published toad-computer release from the desk's floor up as the room's image, Newest by default with its version on the line, and a Check now button that asks the releases list at once instead of on the six-hour clock. Custom image stays for other registries.
+- The new-teammate form asks the access choices most people decide at the start: Whole machine, Background work and, where a container runtime is ready, Computer, in the same words as the teammate's pane. They can always be changed later on the pane, which keeps the MCP and skill grants.
 
 ### Fixed
 
+- A fresh Toad Agent teammate runs at high effort when its model offers levels, and the strip says so before the first session instead of showing an empty picker. An effort you chose always wins; a switch to a model that does not list it falls back to that model's high.
 - A Linux desk launched from the desktop session now recovers the login shell's PATH, as the Mac one did, so a tool source or harness named by a bare command (`ketch mcp serve`, anything from Linuxbrew or a language's own bin) starts instead of failing with "could not be started". The Tools list also says when a stdio source's arguments are stored securely rather than showing the bare command as if the rest had been dropped.
 
 ### Changed
 
+- Apple's container runtime is listed under Settings → Computer only in a macOS build. A Linux or Windows desk no longer shows it as unsupported.
 - A teammate's own skills are listed on its pane one per row, with the description it gave each.
 - Claude Code and Codex teammates start on current adapter packages. The pinned ones were a month old and refused the newer models those accounts now default to.
 

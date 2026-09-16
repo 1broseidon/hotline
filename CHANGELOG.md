@@ -7,6 +7,8 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-16
+
 ### Added
 
 - A welcome pane in place of the empty room: connect a provider or pick a harness on this machine, add the first teammate with a suggested goal, then say hello. Each step is read from what the room already knows — its credentials, the harnesses it can start, its roster — so the pane is there exactly while there is no teammate and never needs dismissing. The provider forms are the ones Settings renders.

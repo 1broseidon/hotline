@@ -75,7 +75,7 @@ export function useRoomSettings(): {
 
 	return {
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
-		defaultBackendId: stringSetting(events.get("defaultBackendId"), "toad"),
+		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),
 		lastModelId: optionalStringSetting(events.get("lastModelId")),
 		mcpServers: listSetting(events.get("mcpServers")),

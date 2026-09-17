@@ -153,7 +153,7 @@
 	 * drops it, since the pane's band already says the name. The title is
 	 * a reading, not a heading; the controls are marks on the chrome. On
 	 * macOS the traffic lights sit in the left corner, on this strip's
-	 * centre line (toad-desktop), and the strip leaves 80 for them; in
+	 * centre line (hotline-app), and the strip leaves 80 for them; in
 	 * fullscreen they leave with the menu bar and the room goes too. */
 	.titlebar {
 		position: relative;

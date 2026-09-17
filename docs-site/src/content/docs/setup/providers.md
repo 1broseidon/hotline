@@ -1,10 +1,10 @@
 ---
 title: Providers and keys
-description: The model providers Toad Agent can run on, and how each one connects.
+description: The model providers Hotline Agent can run on, and how each one connects.
 ---
 
-Toad Agent, the built-in agent, runs on a model from a provider you connect
-under **Settings → Providers**. Keys live in Toad's vault on this machine and
+Hotline Agent, the built-in agent, runs on a model from a provider you connect
+under **Settings → Providers**. Keys live in Hotline's vault on this machine and
 are never written into a conversation, a teammate's files or a log.
 
 ## Providers
@@ -31,25 +31,25 @@ connected the list says so.
 
 ## Models
 
-Each connection has a **Connection** and a **Models shown** section. Toad
+Each connection has a **Connection** and a **Models shown** section. Hotline
 ships a catalogue of the models each provider serves and refreshes the list
 from the provider itself when it can, so a newly released model is usable
-before Toad ships an update. Untick models you do not want in the picker;
+before Hotline ships an update. Untick models you do not want in the picker;
 every model checked is the same as no filter. **Manual model IDs** adds an
 ID the provider has not listed.
 
-For Ollama Local, Toad discovers whatever the server has installed. For an
-OpenAI-compatible endpoint you supply the model IDs, and Toad will list them
+For Ollama Local, Hotline discovers whatever the server has installed. For an
+OpenAI-compatible endpoint you supply the model IDs, and Hotline will list them
 from the server when it can.
 
 ## The default model
 
-**Settings → General → Default model** is what a new Toad Agent teammate
+**Settings → General → Default model** is what a new Hotline Agent teammate
 starts on. **Last used** picks up whatever you chose most recently. Each
 teammate's model can be changed any time from the picker in its title bar.
 
 ## Teammates that bring their own login
 
 Teammates that run Claude Code, Codex, Cursor, opencode, Gemini CLI or Grok
-Build sign in through that tool, not through Toad. Toad holds no key for
+Build sign in through that tool, not through Hotline. Hotline holds no key for
 them. See [Teammates and drivers](/docs/setup/teammates/).

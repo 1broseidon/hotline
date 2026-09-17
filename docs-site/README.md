@@ -1,4 +1,4 @@
-# toad.team/docs
+# hotline.dev/docs
 
 The user docs, on [Starlight](https://starlight.astro.build). Pages are
 Markdown under `src/content/docs/`; the sidebar is in `astro.config.mjs`.
@@ -12,5 +12,5 @@ base.
 ```bash
 bun install
 bun run dev                 # http://localhost:4321/docs/
-make -C .. site-deploy      # build, then deploy toad.team with the docs under it
+make -C .. site-deploy      # build, then deploy hotline.dev with the docs under it
 ```

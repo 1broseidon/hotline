@@ -1,0 +1,92 @@
+[package]
+name = "hotline-core"
+description = "Hotline's core: the log, the room, sessions and their drivers, tools, and the wire. No Tauri dependency by design."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rig.workspace = true
+gethostname = "1.1"
+async-trait = "0.1.92"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "macros", "rt-multi-thread", "process", "time", "sync"] }
+chrono.workspace = true
+# The host's IANA zone, passed to the computer so its clock matches the desk's.
+iana-time-zone = "0.1"
+rusqlite.workspace = true
+cap-std = "4.0.3"
+ignore = "0.4.33"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+globset = "0.4.20"
+futures-util = "0.3.34"
+tokio-tungstenite = "0.30"
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
+ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
+# Pinned: the two features below are the SDK's own "unstable", and a minor
+# release is allowed to change them. `unstable_end_turn_token_usage` is how a
+# turn's token count reaches the tape; `unstable_session_fork` is how the
+# session's fork capability is reported honestly rather than as a flat no.
+agent-client-protocol = { version = "=2.0.0", features = ["unstable_end_turn_token_usage", "unstable_session_fork"] }
+# `compat`: the ACP SDK speaks futures-io and the child speaks tokio-io.
+tokio-util = { version = "0.7", features = ["compat"] }
+# Only the day-cached fetch of the ACP registry's catalogue, so the smallest
+# client that can speak HTTPS and read JSON. `rustls` is named rather than
+# inherited from rig's copy, because a dependency that quietly loses TLS when
+# another crate stops asking for it is a fetch that fails and says nothing.
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+url = "2.5.8"
+# OpenRouter PKCE and xAI's device flow; inference remains on Rig.
+oauth2 = { version = "5", default-features = false }
+bytes = "1"
+base64 = "0.22"
+http = "1"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+sha2 = "0.10"
+rcgen = "0.14"
+tokio-rustls = "0.26"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+if-addrs = "0.14"
+socket2 = "0.6"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+tempfile = "3"
+# Both halves of MCP on one version: Hotline is a client of the servers a
+# teammate is granted and the server of its own teammate tools. Pinned exactly,
+# because the model types are `non_exhaustive` and a minor release is free to
+# grow a field the compiler then demands.
+rmcp = { version = "=3.2.0", features = [
+    "auth",
+    "client",
+    "server",
+    "transport-child-process",
+    "transport-io",
+    "transport-streamable-http-client-reqwest",
+    "transport-streamable-http-server",
+    "reqwest",
+] }
+# rmcp's server side is a tower service and nothing more, so something has to
+# hold the socket. axum is what rmcp's own examples serve it with, and the
+# bearer check in front of it is one layer.
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
+# Manual pairing: a six-digit code the operator types is a password, and a
+# password on a LAN needs a PAKE, not a bearer secret. ristretto255 is what the
+# phone's crypto library also speaks.
+curve25519-dalek = "5"
+getrandom = "0.3"
+hmac = "0.12"
+hex = "0.4"
+# A phone photo is 5 to 10 MB and a 12-megapixel frame; every provider has
+# a ceiling below that, so an attached picture is decoded and shrunk before
+# it is inlined. Only the formats a phone or a screenshot produces.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+
+# Killing a command's whole process group, which is the only way Stop reaches
+# what the command itself started.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory"] }

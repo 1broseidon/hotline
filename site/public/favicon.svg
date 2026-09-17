@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Toad">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Hotline">
 	<!--
-		The app tile: the Toad mark in the accent, on a dark rounded square that
+		The app tile: the Hotline mark in the accent, on a dark rounded square that
 		follows Apple's grid (the square is 82% of the canvas, its corner a little
 		over a fifth of its width). Drawn here rather than left to the OS, because
 		.icns art is used as-is. The colours are the window's tokens, spelled in

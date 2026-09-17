@@ -6,7 +6,7 @@ import { wire } from "./wire";
  *
  * The generated contract has the grant (`McpPolicy`) but not this list: the
  * core stores it as the setting key `mcpServers`, and another branch owns the
- * reader. The window writes the previous Toad's shape so that reader, and an
+ * reader. The window writes the previous edition's shape so that reader, and an
  * imported data directory, see the same entries.
  */
 

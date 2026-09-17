@@ -1,0 +1,56 @@
+[package]
+name = "hotline-app"
+description = "Hotline's desktop shell on Tauri 2: one window onto the core, which runs in this process."
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "hotline_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[test]]
+name = "shell_path"
+harness = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-clipboard-manager = "=2.3.3"
+tauri-plugin-dialog = "=2.7.3"
+tauri-plugin-opener = "=2.5.5"
+tauri-plugin-window-state = "=2.4.1"
+tauri-plugin-updater = "=2.11.0"
+serde.workspace = true
+semver = "1"
+tempfile = "3"
+tokio-util = "0.7"
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+rand = "0.9"
+hotline-core = { path = "../hotline-core" }
+
+# Toasts. On Linux and Windows the plugin posts them. On macOS the modern
+# notification center does: it is the one that routes a click back and
+# threads toasts per teammate, and the plugin's macOS path is the API Apple
+# retired.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-notification = "=2.4.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSDictionary", "NSError", "NSValue", "NSObject"] }
+objc2-user-notifications = { version = "0.3", features = [
+    "UNUserNotificationCenter",
+    "UNNotificationRequest",
+    "UNNotificationContent",
+    "UNNotificationResponse",
+    "UNNotification",
+    "UNNotificationSettings",
+    "block2",
+] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

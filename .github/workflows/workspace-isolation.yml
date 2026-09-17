@@ -3,8 +3,8 @@ name: workspace-isolation
 on:
   pull_request:
     paths:
-      - 'crates/toad-core/src/tools/**'
-      - 'crates/toad-core/tests/desk.rs'
+      - 'crates/hotline-core/src/tools/**'
+      - 'crates/hotline-core/tests/desk.rs'
       - '.github/workflows/workspace-isolation.yml'
   workflow_dispatch:
 
@@ -38,14 +38,14 @@ jobs:
             patchelf build-essential libssl-dev libdbus-1-dev bubblewrap golang-go
           # Ubuntu restricts user namespaces unless the executable has an
           # AppArmor profile. This grant is confined to the disposable runner.
-          sudo tee /etc/apparmor.d/toad-ci-bwrap >/dev/null <<'PROFILE'
+          sudo tee /etc/apparmor.d/hotline-ci-bwrap >/dev/null <<'PROFILE'
           abi <abi/4.0>,
           include <tunables/global>
           /usr/bin/bwrap flags=(unconfined) {
             userns,
           }
           PROFILE
-          sudo apparmor_parser -r /etc/apparmor.d/toad-ci-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/hotline-ci-bwrap
           bwrap --ro-bind / / --unshare-pid /bin/true
           # Test the supported system layout, not the runner's tool-cache Go.
           dirname "$(readlink -f /usr/bin/go)" >> "$GITHUB_PATH"

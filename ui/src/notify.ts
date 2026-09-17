@@ -42,7 +42,7 @@ export function noticeRoster(entries: RosterEntry[]): void {
 
 /** The chrome names who is open, so the task bar is the rail's selected row. */
 export function windowTitle(name: string | null): string {
-	return name === null ? "Toad" : `${name} — Toad`;
+	return name === null ? "Hotline" : `${name} — Hotline`;
 }
 
 export function setWindowTitle(name: string | null): void {

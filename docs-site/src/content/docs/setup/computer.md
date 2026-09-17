@@ -20,13 +20,13 @@ One container runtime:
 
 **Settings → Computer** lists every runtime, whether it is installed and
 running, and what to do if it is not. Leave the choice on automatic and
-Toad takes the first one that is ready, preferring one that runs rootless.
+Hotline takes the first one that is ready, preferring one that runs rootless.
 
-The desktop image is `ghcr.io/1broseidon/toad-computer`, pinned to one
-version per Toad release, never `latest`. **Settings → Computer → Desktop
+The desktop image is `ghcr.io/1broseidon/hotline-computer`, pinned to one
+version per Hotline release, never `latest`. **Settings → Computer → Desktop
 image** overrides the image for the room; a teammate can override it again
 in its pane. The image and its agent live in their own repository,
-[toad-computer](https://github.com/1broseidon/toad-computer).
+[hotline-computer](https://github.com/1broseidon/hotline-computer).
 
 ## Turn it on
 
@@ -50,7 +50,7 @@ card done and the desktop is the agent's again.
 
 ## What the container can do
 
-Nothing in the image runs as root. Toad creates the container with every
+Nothing in the image runs as root. Hotline creates the container with every
 capability dropped, no new privileges, memory and process limits, and its one
 port on loopback only. Two named volumes persist packages and source between
 starts.

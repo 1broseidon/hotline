@@ -280,7 +280,7 @@ function LocalProviderForm({ busy, onSave, onCancel }: { busy: boolean; onSave(u
 					</button>
 				</div>
 			</div>
-			<p className="group-hint">Start Ollama first. Toad discovers the models installed on this server. Cloud models available through your Ollama sign-in work here too.</p>
+			<p className="group-hint">Start Ollama first. Hotline discovers the models installed on this server. Cloud models available through your Ollama sign-in work here too.</p>
 		</form>
 	);
 }

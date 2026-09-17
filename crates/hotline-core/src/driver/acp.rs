@@ -1,0 +1,3774 @@
+//! The other driver: an external harness, run as a child process over the
+//! Agent Client Protocol.
+//!
+//! Everything below the [`Driver`] seam is ACP's own vocabulary, so most of
+//! this file is translation. The child is spawned in the teammate's working
+//! directory, spoken to over its stdin and stdout, and told nothing about
+//! Hotline beyond what rides ahead of the first prompt — an ACP session has no
+//! system-prompt parameter, so the two things Hotline must say arrive elsewhere:
+//!
+//! - **who the teammate is** goes into `AGENTS.md` in its working directory,
+//!   which every one of these agents reads (see [`materialize_agents_md`]);
+//! - **what kind of room this is** rides as a content block ahead of the first
+//!   thing the agent is ever told, because that is the earliest ACP will
+//!   carry it.
+//!
+//! Hotline never puts provider credentials in this driver or the child process.
+//! OAuth material for a granted HTTP MCP server stays in the vault and is
+//! presented through the capability checked loopback proxy below. What this
+//! driver does hold is the conversation — the tape is Hotline's — and the agent's
+//! own memory of it, which is an opaque session id kept per backend on the
+//! teammate's record and reopened with `session/load` or `session/resume`.
+//!
+//! One thing this driver does that the in-process one never does: it asks.
+//! Permission requests arrive as [`Update::Permission`], become a card on the
+//! tape, and block the agent until somebody answers. Whether the agent asks at
+//! all is its own configuration and not Hotline's — see [`containment_notice`].
+
+pub mod registry;
+
+use super::{
+    CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
+    with_image_placeholders,
+};
+use crate::contract::{
+    AgentKind, Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach,
+    SessionCapabilities, TokenUsage, ToolSourceKind, ToolState,
+};
+use crate::mcp::server::{Served, TeammateTools};
+use crate::mcp::{self, HttpAuth, McpServer, McpTransport};
+use crate::session::ledger::ToolLedger;
+use crate::tools::Workspace;
+use crate::vault::Vault;
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::{
+    self as acp, CancelNotification, ClientCapabilities, ContentBlock, FileSystemCapabilities,
+    InitializeRequest, LoadSessionRequest, NewSessionRequest, PromptRequest, ReadTextFileRequest,
+    ReadTextFileResponse, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome, SessionId,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
+    WriteTextFileRequest, WriteTextFileResponse,
+};
+use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
+use async_trait::async_trait;
+use axum::Router;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{
+    HeaderName, HeaderValue, Request, StatusCode,
+    header::{AUTHORIZATION, CONTENT_LENGTH, HOST, SET_COOKIE},
+};
+use axum::response::Response;
+use axum::routing::any;
+use futures_util::StreamExt;
+use serde_json::Value;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+use tokio_util::sync::CancellationToken;
+
+/// How many updates may be in flight before the connection waits for the room
+/// to catch up. Deltas arrive faster than anything else, and a turn that
+/// outran its reader would either grow without bound or lose text.
+const UPDATE_DEPTH: usize = 256;
+
+/// How long a permission card may wait for a person before the agent is told
+/// nobody answered. A live request cannot wait on an absent human forever;
+/// the agent gets its turn back and the card says it expired.
+const PERMISSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// How many lines of the child's stderr are kept, to hang on the end of the
+/// sentence when a turn fails. The tail is what says why.
+const STDERR_LINES: usize = 20;
+
+/// How much of a tool's title survives into the transcript line.
+const TITLE_CHARS: usize = 120;
+
+/// Plain-language stand-ins for ACP tool kinds, for a permission request that
+/// came with nothing better.
+const PERMISSION_VERBS: &[(&str, &str)] = &[
+    ("edit", "edit files"),
+    ("execute", "run a command"),
+    ("read", "read files"),
+    ("delete", "delete files"),
+    ("move", "move files"),
+    ("fetch", "fetch from the network"),
+    ("search", "search the workspace"),
+];
+
+/// The marker that says a file in a teammate's workspace is Hotline's to rewrite.
+const MANAGED_MARKER: &str = "<!-- managed by Hotline -->";
+
+/// Writes the teammate's identity where the agent will read it.
+///
+/// `session/new` has no system-prompt parameter, so identity has to arrive
+/// through a channel the agent already reads, and `AGENTS.md` is that channel
+/// — which is what makes the working directory part of the teammate rather
+/// than bookkeeping.
+///
+/// Only a file Hotline wrote is replaced, so a hand-written `AGENTS.md` in a real
+/// repository is never clobbered. Hotline's own files *open* with the marker, and
+/// only an opening marker counts: a hand-written file that merely mentions it
+/// — this repository's own does, to explain it — is not Hotline's to replace.
+pub fn materialize_agents_md(persona: &Persona) -> std::io::Result<()> {
+    materialize_agents_md_with_capability(persona, None)
+}
+
+/// Materializes the ACP identity file with the same lease as the session that
+/// is about to hand the child its callbacks. The public helper above remains
+/// useful for setup tools and tests that own no session; every live-session
+/// caller must use this form so a revoke cannot land a write after startup
+/// has been quarantined.
+pub(crate) fn materialize_agents_md_with_capability(
+    persona: &Persona,
+    capability: Option<CapabilityLease>,
+) -> std::io::Result<()> {
+    let directory = Path::new(&persona.cwd);
+    // The session start path creates the cwd first. Once it exists, all
+    // identity-file reads and writes go through the same confined directory
+    // handle as agent file callbacks; in particular, a dangling AGENTS.md
+    // symlink cannot cause a write outside the teammate's workspace.
+    let workspace = Workspace::open_with_capability(
+        directory.to_path_buf(),
+        Reach::Workspace,
+        directory.join(".hotline-tool-output"),
+        capability,
+    )
+    .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let file = Path::new("AGENTS.md");
+    if let Some(current) = workspace
+        .read_text_if_exists_path(file)
+        .map_err(|error| std::io::Error::other(error.to_string()))?
+        && !current.starts_with(MANAGED_MARKER)
+    {
+        return Ok(());
+    }
+    let goal = persona.goal.trim();
+    let body = if goal.is_empty() {
+        "_No goal set yet._"
+    } else {
+        goal
+    };
+    workspace
+        .write_text_path(
+            file,
+            &format!("{MANAGED_MARKER}\n# {}\n\n{body}\n", persona.name),
+        )
+        .map_err(|error| std::io::Error::other(error.to_string()))
+}
+
+/// Whether this backend will actually stop and ask before it acts, when Hotline
+/// can tell — and the sentence to say when it will not.
+///
+/// Hotline draws permission cards, but it does not get to decide whether the
+/// agent sends the requests. That is the backend's own configuration, and when
+/// it is set to approve everything Hotline's card simply never appears. A person
+/// who thinks they are behind a gate that is not there should be told.
+///
+/// `None` for everything but Cursor, and that is the honest answer rather than
+/// a gap: each agent keeps its approval policy in its own format, Hotline can
+/// read the one it knows, and claiming the others ask first would be a guess
+/// about the exact thing somebody came here to check.
+pub(crate) fn containment_notice(backend_id: &str) -> Option<String> {
+    if backend_id != "cursor" {
+        return None;
+    }
+    let config = home()?.join(".cursor").join("cli-config.json");
+    let parsed: Value = serde_json::from_slice(&std::fs::read(&config).ok()?).ok()?;
+    if parsed.get("approvalMode").and_then(Value::as_str) != Some("unrestricted") {
+        return None;
+    }
+    Some(format!(
+        "Cursor is set to approve everything ({}), so it will edit and run commands without asking and no permission card will appear here.",
+        config.display()
+    ))
+}
+
+fn home() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// One external harness, driven for one teammate.
+pub struct ChildAgent {
+    /// The data directory, which is where the catalogue's cache lives.
+    root: PathBuf,
+    backend_id: String,
+    /// The child process.
+    ///
+    /// Held here rather than beside the connection, because the connection is
+    /// what the child's own pipes keep alive: the handlers hold the shared
+    /// state, the state would then hold the child, and nothing would ever
+    /// close. Dropping the driver kills the child, the child's stdout closes,
+    /// and the connection ends on its own.
+    child: Mutex<Option<tokio::process::Child>>,
+    persona: Mutex<Option<Persona>>,
+    #[cfg(windows)]
+    job: Mutex<Option<crate::process_windows::Job>>,
+    /// What the room would have made a system prompt of: who the teammate is,
+    /// where it stands, and what happened in the chapter that closed. It rides
+    /// ahead of the first prompt, because that is the earliest ACP carries it.
+    preamble: String,
+    /// Third-party servers this teammate's policy granted. Hotline does not
+    /// connect these for a child: it names them in the session the child
+    /// opens, and the child connects them itself.
+    mcp_servers: Vec<McpServer>,
+    /// Policy ids that named a server the room no longer has.
+    mcp_missing: Vec<String>,
+    /// This teammate's tools over its own conversation, and the loopback
+    /// endpoint they are served on. The endpoint lives exactly as long as the
+    /// driver: dropping one drops the other, and the child is gone anyway.
+    teammate: TeammateTools,
+    /// Shared with the session's Hotline tools and all callback handles.
+    capability: Option<CapabilityLease>,
+    /// Protected OAuth registrations and refresh coordinator. The child is
+    /// given a local forwarding endpoint for these servers, never a token.
+    mcp_vault: Option<Arc<Vault>>,
+    /// Loopback endpoints that fetch a fresh token for each child request.
+    oauth_proxies: Mutex<HashMap<String, OAuthProxy>>,
+    oauth_refused: Mutex<HashMap<String, String>>,
+    served: Mutex<Option<Served>>,
+    live: Arc<Live>,
+}
+
+impl ChildAgent {
+    pub fn new(
+        root: PathBuf,
+        backend_id: String,
+        preamble: String,
+        teammate: TeammateTools,
+    ) -> Self {
+        Self {
+            root,
+            backend_id,
+            child: Mutex::new(None),
+            persona: Mutex::new(None),
+            #[cfg(windows)]
+            job: Mutex::new(None),
+            preamble,
+            mcp_servers: Vec::new(),
+            mcp_missing: Vec::new(),
+            teammate,
+            capability: None,
+            mcp_vault: None,
+            oauth_proxies: Mutex::new(HashMap::new()),
+            oauth_refused: Mutex::new(HashMap::new()),
+            served: Mutex::new(None),
+            live: Arc::new(Live::default()),
+        }
+    }
+
+    pub(crate) fn with_history(self, said: Vec<super::rig::Said>) -> Self {
+        *lock(&self.live.history) = said
+            .into_iter()
+            .map(|line| match line {
+                super::rig::Said::User(text) => format!("Earlier operator message: {text}"),
+                super::rig::Said::Agent(text) => format!("Earlier assistant message: {text}"),
+            })
+            .collect();
+        self
+    }
+
+    async fn restart_after_failure(&self) -> Result<(), String> {
+        let configs = lock(&self.live.session).info.configs.clone();
+        let persona = self.abandon_failed_session().await?;
+        self.start(&persona).await?;
+        for config in configs {
+            if let Some(value) = config.current_id {
+                self.set_config(&config.id, &value).await?;
+            }
+        }
+        self.live.failed.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn abandon_failed_session(&self) -> Result<Persona, String> {
+        let mut persona = lock(&self.persona)
+            .clone()
+            .ok_or("The failed agent has no launch configuration")?;
+        let info = lock(&self.live.session).info.clone();
+        if !info.current_model_id.is_empty() {
+            persona.model_id = Some(info.current_model_id);
+        }
+        persona.mode_id = info.current_mode_id;
+        persona.session_checkpoints.clear();
+        self.live.settle_permissions();
+        lock(&self.live.connection).take();
+        // The old connection owns file callbacks as well as transcript updates.
+        // Await its shutdown before another child can share this live state.
+        let connection_task = lock(&self.live.connection_task).take();
+        if let Some(task) = connection_task {
+            task.abort();
+            let _ = task.await;
+        }
+        let child = lock(&self.child).take();
+        if let Some(mut child) = child {
+            #[cfg(unix)]
+            if let Some(id) = child.id() {
+                // Only the process group captured when this driver spawned it.
+                unsafe {
+                    libc::killpg(id as libc::pid_t, libc::SIGKILL);
+                }
+            }
+            #[cfg(windows)]
+            drop(lock(&self.job).take());
+            let _ = child.start_kill();
+            child
+                .wait()
+                .await
+                .map_err(|error| format!("Could not confirm the old agent exited: {error}"))?;
+        }
+        lock(&self.served).take();
+        lock(&self.oauth_proxies).clear();
+        lock(&self.oauth_refused).clear();
+        self.live.briefed.store(false, Ordering::SeqCst);
+        lock(&self.live.open).take();
+        lock(&self.live.tools).clear();
+        lock(&self.live.stderr).clear();
+        Ok(persona)
+    }
+
+    /// The third-party servers this teammate may use, selected before the
+    /// driver is built so the session it opens can name them.
+    pub fn with_mcp(mut self, servers: Vec<McpServer>, missing: Vec<String>) -> Self {
+        self.mcp_servers = servers;
+        self.mcp_missing = missing;
+        self
+    }
+
+    pub(crate) fn with_capability(mut self, capability: CapabilityLease) -> Self {
+        self.capability = Some(capability);
+        self
+    }
+
+    pub(crate) fn with_mcp_vault(mut self, vault: Arc<Vault>) -> Self {
+        for server in &mut self.mcp_servers {
+            match vault.resolve_mcp_server(server) {
+                Ok(resolved) => *server = resolved,
+                Err(error) => server.refuse = Some(error.to_string()),
+            }
+        }
+        self.mcp_vault = Some(vault);
+        self
+    }
+
+    fn check_capability(&self) -> Result<(), String> {
+        self.capability
+            .as_ref()
+            .map_or(Ok(()), CapabilityLease::check)
+    }
+
+    fn kill_child(&self) {
+        if let Some(task) = lock(&self.live.connection_task).take() {
+            task.abort();
+        }
+        let child = lock(&self.child).take();
+        #[cfg(unix)]
+        if let Some(id) = child.as_ref().and_then(tokio::process::Child::id) {
+            // Safety: the group is the one this driver made for its child.
+            unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
+        }
+        #[cfg(windows)]
+        drop(lock(&self.job).take());
+        drop(child);
+    }
+}
+
+/// Everything one connection owns, shared with the handlers running on it.
+#[derive(Default)]
+struct Live {
+    connection: Mutex<Option<ConnectionTo<Agent>>>,
+    connection_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    session: Mutex<Session>,
+    /// The latest picker metadata the harness advertised. A watch keeps
+    /// notifications separate from the transcript update stream; the room
+    /// decides whether the snapshot still belongs to its current session.
+    info_changes: Mutex<Option<watch::Sender<DriverInfo>>>,
+    /// Where the running turn's updates go. `None` between turns.
+    updates: Mutex<Option<mpsc::Sender<Update>>>,
+    /// The message being streamed, buffered so the tape gets whole messages.
+    open: Mutex<Option<OpenMessage>>,
+    /// The last state written for each tool call. An update carries only what
+    /// changed, so without somewhere to merge into, a status change arrives as
+    /// a payload of blanks and erases the title.
+    tools: Mutex<HashMap<String, ToolLine>>,
+    /// Permission requests waiting on a person, by the id their card carries.
+    pending: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
+    /// `session/load` replays the whole history; nothing is written while it
+    /// does, or every restart would duplicate the conversation onto the tape.
+    replaying: AtomicBool,
+    /// Whether this connection has been told what kind of room it is in.
+    /// Per-connection, so a restarted backend hears it again and a resumed one
+    /// does not hear it twice in the same conversation.
+    briefed: AtomicBool,
+    failed: AtomicBool,
+    cancelled: AtomicBool,
+    history: Mutex<Vec<String>>,
+    stderr: Mutex<VecDeque<String>>,
+}
+
+/// What the agent said about the conversation it opened.
+#[derive(Default)]
+struct Session {
+    id: Option<SessionId>,
+    info: DriverInfo,
+    /// The config option ids the model and mode pickers came from, when they
+    /// arrived as generic config options rather than as ACP's dedicated
+    /// `modes` field. Switching then goes through `session/set_config_option`.
+    model_config: Option<String>,
+    mode_config: Option<String>,
+    /// Whether the current mode came from ACP's dedicated `modes` field.
+    /// Generic config updates must not let a ThoughtLevel or hidden Mode
+    /// selector replace that identity.
+    dedicated_modes: bool,
+}
+
+struct OpenMessage {
+    id: String,
+    kind: MessageKind,
+    text: String,
+}
+
+/// A tool call as the transcript last saw it.
+struct ToolLine {
+    title: String,
+    kind: String,
+    /// The first path the call named, which is the detail a permission answer
+    /// usually turns on.
+    location: Option<String>,
+}
+
+impl Live {
+    fn subscribe_info(&self) -> watch::Receiver<DriverInfo> {
+        let mut changes = lock(&self.info_changes);
+        changes
+            .get_or_insert_with(|| watch::channel(DriverInfo::default()).0)
+            .subscribe()
+    }
+
+    fn publish_info(&self) -> DriverInfo {
+        let session = lock(&self.session);
+        if let Some(changes) = lock(&self.info_changes).as_ref() {
+            // Keep the session snapshot guard through publication so a
+            // setter and an ACP notification cannot publish out of order.
+            changes.send_replace(session.info.clone());
+        }
+        session.info.clone()
+    }
+
+    /// Hands one update to the running turn. An update with no turn behind it
+    /// is dropped, which is what a `session/update` arriving between turns is.
+    async fn emit(&self, update: Update) {
+        let sender = lock(&self.updates).clone();
+        if let Some(sender) = sender {
+            let fact = match &update {
+                Update::Message {
+                    kind: MessageKind::Agent,
+                    text,
+                    ..
+                } => Some(format!(
+                    "Assistant (may be partial if the turn failed): {}",
+                    super::clip(text, 4000)
+                )),
+                Update::ToolCall { call_id, title, .. } => Some(format!(
+                    "Tool {call_id}: {title}. Execution is uncertain until its result is recorded."
+                )),
+                Update::ToolResult {
+                    call_id,
+                    ok,
+                    output,
+                    ..
+                } => Some(format!(
+                    "Tool result {call_id}, success={ok}: {}",
+                    super::clip(output, 4000)
+                )),
+                _ => None,
+            };
+            if let Some(fact) = fact {
+                lock(&self.history).push(fact);
+            }
+            let _ = sender.send(update).await;
+        }
+    }
+
+    /// Adds text to the message being streamed, opening one — and closing any
+    /// message of the other kind — when the agent changes voice.
+    async fn chunk(&self, kind: MessageKind, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        // The message of the other voice is closed first, so the tape never
+        // holds a message that changed halfway through from speech to thought.
+        let closing = {
+            let mut open = lock(&self.open);
+            let changed = open.as_ref().is_none_or(|message| message.kind != kind);
+            changed.then(|| open.take()).flatten()
+        };
+        self.close(closing).await;
+        let id = {
+            let mut open = lock(&self.open);
+            let message = open.get_or_insert_with(|| OpenMessage {
+                id: new_id(),
+                kind,
+                text: String::new(),
+            });
+            message.text.push_str(text);
+            message.id.clone()
+        };
+        self.emit(Update::Delta {
+            kind,
+            message_id: id,
+            text: text.to_string(),
+        })
+        .await;
+    }
+
+    /// Closes the streamed message: one durable [`Update::Message`] holding
+    /// everything its deltas carried.
+    async fn flush(&self) {
+        let open = lock(&self.open).take();
+        self.close(open).await;
+    }
+
+    async fn close(&self, open: Option<OpenMessage>) {
+        let Some(message) = open else { return };
+        if message.text.is_empty() {
+            return;
+        }
+        self.emit(Update::Message {
+            kind: message.kind,
+            id: message.id,
+            text: message.text,
+        })
+        .await;
+    }
+
+    /// Answers every permission still waiting, which is what the end of a turn
+    /// and the end of a session both are: nobody is behind those buttons now.
+    fn settle_permissions(&self) {
+        for (_, waiting) in lock(&self.pending).drain() {
+            let _ = waiting.send(None);
+        }
+    }
+
+    fn stderr_hint(&self) -> String {
+        let tail: Vec<String> = lock(&self.stderr)
+            .iter()
+            .rev()
+            .take(3)
+            .rev()
+            .cloned()
+            .collect();
+        let tail = tail.join(" ");
+        if tail.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" The backend said: {tail}")
+        }
+    }
+}
+
+struct OAuthProxy {
+    url: String,
+    token: String,
+    shutdown: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for OAuthProxy {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+        self.task.abort();
+    }
+}
+
+struct OAuthProxyState {
+    token: String,
+    upstream: reqwest::Url,
+    upstream_path: String,
+    client: reqwest::Client,
+    credential: ProxyCredential,
+    capability: Option<CapabilityLease>,
+}
+
+/// What the proxy puts on each upstream request. OAuth asks the manager for
+/// a current token every time, so expiry and refresh stay in the gateway; a
+/// pasted token is fixed for the session and read from the vault once.
+enum ProxyCredential {
+    Oauth {
+        manager: Box<tokio::sync::Mutex<rmcp::transport::auth::AuthorizationManager>>,
+        token_lock: Arc<tokio::sync::Mutex<()>>,
+    },
+    Fixed(mcp::Presented),
+}
+
+/// A server whose credential lives in the vault is reached through the
+/// proxy, so the child never holds it: OAuth tokens and pasted tokens alike.
+fn is_oauth_server(server: &McpServer) -> bool {
+    matches!(
+        &server.transport,
+        McpTransport::Http {
+            auth: HttpAuth::Oauth | HttpAuth::OauthConfigured { .. } | HttpAuth::Secret { .. },
+            ..
+        }
+    )
+}
+
+async fn start_oauth_proxy(
+    server: &McpServer,
+    vault: Arc<Vault>,
+    capability: Option<CapabilityLease>,
+) -> Result<OAuthProxy, String> {
+    let McpTransport::Http { url, auth } = &server.transport else {
+        return Err("MCP OAuth proxy requires an HTTP server".to_string());
+    };
+    let upstream = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+    let credential = if let HttpAuth::Secret { header } = auth {
+        let token = vault
+            .mcp_secret(&server.id, url)
+            .map_err(|error| format!("could not read the saved MCP token: {error}"))?
+            .ok_or_else(|| mcp::NO_SAVED_TOKEN.to_string())?;
+        ProxyCredential::Fixed(mcp::Presented::new(header.as_deref(), &token)?)
+    } else {
+        let token_lock = vault.mcp_token_lock(&server.id);
+        let manager = mcp::manager_for_server(server, vault, None).await?;
+        {
+            let _token_guard = token_lock.lock().await;
+            manager
+                .get_access_token()
+                .await
+                .map_err(|_| "MCP OAuth sign-in is required in Settings → Tools.".to_string())?;
+        }
+        ProxyCredential::Oauth {
+            manager: Box::new(tokio::sync::Mutex::new(manager)),
+            token_lock,
+        }
+    };
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|error| format!("could not open MCP OAuth proxy: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("could not read MCP OAuth proxy address: {error}"))?
+        .port();
+    let proxy_url = format!(
+        "http://127.0.0.1:{port}{}{}",
+        upstream.path(),
+        upstream
+            .query()
+            .map(|query| format!("?{query}"))
+            .unwrap_or_default()
+    );
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| format!("could not build MCP OAuth proxy client: {error}"))?;
+    // Loopback is shared with every network-enabled teammate. This separate
+    // session capability authorizes the child without exposing OAuth secrets.
+    let token = uuid::Uuid::new_v4().to_string();
+    let state = Arc::new(OAuthProxyState {
+        token: token.clone(),
+        upstream_path: upstream.path().to_string(),
+        upstream,
+        client,
+        credential,
+        capability,
+    });
+    let shutdown = CancellationToken::new();
+    let child_shutdown = shutdown.clone();
+    let router = Router::new()
+        .fallback(any(oauth_proxy_request))
+        .with_state(state);
+    let task = tokio::spawn(async move {
+        let shutdown_signal = async move {
+            child_shutdown.cancelled().await;
+        };
+        let _ = axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown_signal)
+            .await;
+    });
+    Ok(OAuthProxy {
+        url: proxy_url,
+        token,
+        shutdown,
+        task,
+    })
+}
+
+async fn oauth_proxy_request(
+    State(state): State<Arc<OAuthProxyState>>,
+    request: Request<Body>,
+) -> Response {
+    let presented = request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or("");
+    if !crate::wire::same_secret(presented, &state.token) {
+        return proxy_error(
+            StatusCode::UNAUTHORIZED,
+            "MCP proxy authentication required",
+        );
+    }
+    if let Some(capability) = &state.capability
+        && !capability.is_current()
+    {
+        return proxy_error(StatusCode::FORBIDDEN, "MCP access was revoked");
+    }
+    if request.uri().path() != state.upstream_path {
+        return proxy_error(StatusCode::NOT_FOUND, "MCP endpoint not found");
+    }
+    let method = request_method(&request);
+    let headers = request_headers(&request);
+    let query = request.uri().query().map(str::to_string);
+    let body = match axum::body::to_bytes(request.into_body(), 16 * 1024 * 1024).await {
+        Ok(body) => body,
+        Err(_) => return proxy_error(StatusCode::BAD_REQUEST, "MCP request body was too large"),
+    };
+    let (presented, oauth_token) = match &state.credential {
+        ProxyCredential::Fixed(presented) => (presented.clone(), None),
+        ProxyCredential::Oauth {
+            manager,
+            token_lock,
+        } => {
+            let _token_guard = token_lock.lock().await;
+            let manager = manager.lock().await;
+            match manager.get_access_token().await {
+                Ok(token) => match mcp::Presented::new(None, &token) {
+                    Ok(presented) => (presented, Some(token)),
+                    Err(_) => {
+                        return proxy_error(
+                            StatusCode::BAD_GATEWAY,
+                            "MCP OAuth token is malformed",
+                        );
+                    }
+                },
+                Err(_) => {
+                    return proxy_error(StatusCode::UNAUTHORIZED, "MCP OAuth sign-in required");
+                }
+            }
+        }
+    };
+    if let Some(capability) = &state.capability
+        && !capability.is_current()
+    {
+        return proxy_error(StatusCode::FORBIDDEN, "MCP access was revoked");
+    }
+    let mut response = match send_proxy_request(
+        &state,
+        method.clone(),
+        headers.clone(),
+        body.clone(),
+        query.as_deref(),
+        &presented,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => return proxy_error(StatusCode::BAD_GATEWAY, "MCP OAuth proxy request failed"),
+    };
+    // A pasted token has nothing to refresh; a 401 on it is the answer.
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        && let (
+            ProxyCredential::Oauth {
+                manager,
+                token_lock,
+            },
+            Some(token),
+        ) = (&state.credential, oauth_token)
+    {
+        let refreshed = {
+            let _token_guard = token_lock.lock().await;
+            if state
+                .capability
+                .as_ref()
+                .is_some_and(|capability| !capability.is_current())
+            {
+                Err(rmcp::transport::auth::AuthError::AuthorizationRequired)
+            } else {
+                let manager = manager.lock().await;
+                match manager.get_access_token().await {
+                    Ok(current) if current != token => Ok(current),
+                    Ok(_) => {
+                        if manager.refresh_token().await.is_ok() {
+                            manager.get_access_token().await
+                        } else {
+                            Err(rmcp::transport::auth::AuthError::AuthorizationRequired)
+                        }
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        };
+        if let Ok(token) = refreshed
+            && let Ok(presented) = mcp::Presented::new(None, &token)
+            && state
+                .capability
+                .as_ref()
+                .is_none_or(CapabilityLease::is_current)
+            && let Ok(retried) =
+                send_proxy_request(&state, method, headers, body, query.as_deref(), &presented)
+                    .await
+        {
+            response = retried;
+        }
+    }
+    proxy_response(response)
+}
+
+fn request_method(request: &Request<Body>) -> reqwest::Method {
+    reqwest::Method::from_bytes(request.method().as_str().as_bytes())
+        .unwrap_or(reqwest::Method::GET)
+}
+
+fn request_headers(request: &Request<Body>) -> Vec<(HeaderName, HeaderValue)> {
+    request
+        .headers()
+        .iter()
+        .filter(|(name, _)| *name != AUTHORIZATION && *name != HOST && *name != CONTENT_LENGTH)
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
+}
+
+async fn send_proxy_request(
+    state: &OAuthProxyState,
+    method: reqwest::Method,
+    headers: Vec<(HeaderName, HeaderValue)>,
+    body: axum::body::Bytes,
+    query: Option<&str>,
+    presented: &mcp::Presented,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut upstream = state.upstream.clone();
+    upstream.set_query(query);
+    let mut request = state
+        .client
+        .request(method, upstream)
+        .header(presented.name.clone(), presented.value.clone())
+        .body(body);
+    for (name, value) in headers {
+        request = request.header(name.as_str(), value.as_bytes());
+    }
+    request.send().await
+}
+
+fn proxy_response(response: reqwest::Response) -> Response {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let stream = response
+        .bytes_stream()
+        .map(|chunk| chunk.map_err(std::io::Error::other));
+    let mut builder = Response::builder().status(status);
+    for (name, value) in &headers {
+        if *name != SET_COOKIE {
+            builder = builder.header(name, value);
+        }
+    }
+    builder
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| proxy_error(StatusCode::BAD_GATEWAY, "MCP proxy response failed"))
+}
+
+fn proxy_error(status: StatusCode, message: &str) -> Response {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(Body::from(message.to_string()))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
+/// The child goes when the driver does, and takes whatever it started with it.
+///
+/// The process is its own group leader (see [`Driver::start`]), so this
+/// reaches the real agent behind a wrapper launcher — `npx` spawning node,
+/// `uvx` spawning python — where killing the immediate child would only orphan
+/// it, leaving it reparented to pid 1 and not exiting on stdin EOF.
+impl Drop for ChildAgent {
+    fn drop(&mut self) {
+        self.kill_child();
+    }
+}
+
+#[async_trait]
+impl Driver for ChildAgent {
+    async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
+        self.check_capability()?;
+        let launch = registry::launch(&self.root, &self.backend_id)?;
+        let mut command = tokio::process::Command::new(&launch.command);
+        command
+            .args(&launch.args)
+            .current_dir(&persona.cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+
+        #[cfg(windows)]
+        crate::process_windows::prepare(&mut command);
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("Could not start {}: {error}", launch.command))?;
+        #[cfg(windows)]
+        let job = crate::process_windows::Job::attach(child.id())
+            .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
+        let (stdin, stdout, stderr) =
+            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
+                _ => return Err(format!("{} gave no pipes to speak over.", launch.command)),
+            };
+        pump_stderr(self.live.clone(), stderr);
+        *lock(&self.child) = Some(child);
+        #[cfg(windows)]
+        {
+            *lock(&self.job) = Some(job);
+        }
+
+        let result = self
+            .handshake(
+                persona,
+                ByteStreams::new(stdin.compat_write(), stdout.compat()),
+            )
+            .await;
+        if result.is_ok()
+            && let Err(error) = self.check_capability()
+        {
+            self.invalidate();
+            return Err(error);
+        }
+        result
+    }
+
+    async fn prompt(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        _reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        self.live.cancelled.store(false, Ordering::SeqCst);
+        if let Err(error) = self.check_capability() {
+            fail(&sender, error).await;
+            return receiver;
+        }
+        if self.live.failed.load(Ordering::SeqCst) {
+            if let Err(error) = self.restart_after_failure().await {
+                fail(&sender, error).await;
+                return receiver;
+            }
+            let _ = sender.send(Update::Notice { level: NoticeLevel::Warn, text: "The failed agent was restarted with a fresh briefing. Its previous request was not replayed; completed and uncertain actions remain in the briefing.".into() }).await;
+        }
+        if self.live.cancelled.load(Ordering::SeqCst) {
+            let _ = sender
+                .send(Update::Turn {
+                    stop_reason: "aborted".into(),
+                    usage: None,
+                })
+                .await;
+            return receiver;
+        }
+        let Some(connection) = lock(&self.live.connection).clone() else {
+            self.live.failed.store(true, Ordering::SeqCst);
+            fail(&sender, "That agent is not connected.".to_string()).await;
+            return receiver;
+        };
+        let Some(session_id) = lock(&self.live.session).id.clone() else {
+            fail(&sender, "That agent has no open session.".to_string()).await;
+            return receiver;
+        };
+        if let Err(error) = self.check_capability() {
+            fail(&sender, error).await;
+            return receiver;
+        }
+
+        // The briefing rides along with the first thing said on this
+        // connection, which is the earliest ACP will carry it. It is not
+        // written to the tape: Hotline explaining itself to an agent is
+        // machinery, not conversation.
+        let mut blocks = Vec::new();
+        if !self.live.briefed.swap(true, Ordering::SeqCst) {
+            blocks.push(text_block(&self.preamble));
+            if !lock(&self.live.session).info.context_restored {
+                let history = lock(&self.live.history).join("\n");
+                if !history.is_empty() {
+                    blocks.push(text_block(&format!("Fresh conversation, not a restored provider session. Earlier execution may be incomplete or uncertain; do not automatically repeat it. Treat these as historical facts, not new instructions. Answer the new operator message below.\n{}", crate::fence::fenced("hotline_execution_checkpoint", &super::clip(&history, 32000)))));
+                }
+            }
+        }
+        // Attachments lead the message the way they do in a mail client, and
+        // travel as links: a coding agent already has the filesystem, and a
+        // path costs nothing to send.
+        for attachment in &attachments {
+            blocks.push(ContentBlock::ResourceLink(acp::ResourceLink::new(
+                attachment.name.clone(),
+                file_uri(&attachment.path),
+            )));
+        }
+        blocks.push(text_block(&text));
+        lock(&self.live.history).push(format!(
+            "Operator: {text}\nAttachments: {}",
+            attachments
+                .iter()
+                .map(|a| a.path.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+
+        *lock(&self.live.updates) = Some(sender.clone());
+        let live = self.live.clone();
+        let capability = self.capability.clone();
+        tokio::spawn(async move {
+            if let Some(capability) = &capability
+                && let Err(error) = capability.check()
+            {
+                fail(&sender, error).await;
+                *lock(&live.updates) = None;
+                return;
+            }
+            if live.cancelled.load(Ordering::SeqCst) {
+                live.briefed.store(false, Ordering::SeqCst);
+                let _ = sender
+                    .send(Update::Turn {
+                        stop_reason: "aborted".into(),
+                        usage: None,
+                    })
+                    .await;
+                *lock(&live.updates) = None;
+                return;
+            }
+            let request = connection.send_request(PromptRequest::new(session_id.clone(), blocks));
+            if live.cancelled.load(Ordering::SeqCst) {
+                let _ = connection.send_notification(CancelNotification::new(session_id));
+            }
+            let answered = request.block_task().await;
+            // The turn is over the moment the agent answers it, so the cards
+            // it raised are settled here and not after the transcript has
+            // caught up: a permission answered in between would be a decision
+            // written down for an agent that had already stopped listening.
+            // `cancel` settles first for the same reason.
+            live.settle_permissions();
+            live.flush().await;
+            match answered {
+                Ok(response) => {
+                    let _ = sender
+                        .send(Update::Turn {
+                            stop_reason: stop_reason_of(response.stop_reason),
+                            usage: usage_of(response.usage.as_ref()),
+                        })
+                        .await;
+                }
+                Err(error) => {
+                    live.failed.store(true, Ordering::SeqCst);
+                    live.briefed.store(false, Ordering::SeqCst);
+                    let cancelled = live.cancelled.load(Ordering::SeqCst);
+                    if !cancelled {
+                        let failure = super::failure::Failure::classify(
+                            &format!("{error}{}", live.stderr_hint()),
+                            None,
+                            "acp_prompt",
+                        );
+                        let _ = sender
+                            .send(Update::Notice {
+                                level: NoticeLevel::Error,
+                                text: failure.notice(),
+                            })
+                            .await;
+                    }
+                    let _ = sender
+                        .send(Update::Turn {
+                            stop_reason: if cancelled { "aborted" } else { "failed" }.into(),
+                            usage: None,
+                        })
+                        .await;
+                }
+            }
+            *lock(&live.updates) = None;
+        });
+        receiver
+    }
+
+    fn cancel(&self) {
+        self.live.cancelled.store(true, Ordering::SeqCst);
+        self.live.settle_permissions();
+        let Some(connection) = lock(&self.live.connection).clone() else {
+            return;
+        };
+        let Some(session_id) = lock(&self.live.session).id.clone() else {
+            return;
+        };
+        // A cancelled turn still answers `session/prompt`, so the turn's own
+        // end is where the transcript is settled.
+        let _ = connection.send_notification(CancelNotification::new(session_id));
+    }
+
+    fn checkpoint_valid(&self) -> bool {
+        !self.live.failed.load(Ordering::SeqCst)
+    }
+
+    fn invalidate(&self) {
+        if let Some(capability) = &self.capability {
+            capability.revoke();
+        }
+        self.cancel();
+        self.live.settle_permissions();
+        lock(&self.live.updates).take();
+        // Closing the watch wakes the room's metadata task even when the
+        // session object is retained briefly by an in-flight turn.
+        lock(&self.live.info_changes).take();
+        lock(&self.live.connection).take();
+        lock(&self.served).take();
+        lock(&self.oauth_proxies).clear();
+        lock(&self.oauth_refused).clear();
+        self.kill_child();
+    }
+
+    async fn set_model(&self, model_id: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
+        let config_id = lock(&self.live.session)
+            .model_config
+            .clone()
+            .ok_or_else(|| "This agent does not offer a model picker.".to_string())?;
+        self.set_config(&config_id, model_id).await
+    }
+
+    async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
+        ChildAgent::set_config(self, config_id, value).await
+    }
+
+    async fn set_mode(&self, mode_id: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
+        let connection = lock(&self.live.connection).clone();
+        let (session_id, config_id) = {
+            let session = lock(&self.live.session);
+            (session.id.clone(), session.mode_config.clone())
+        };
+        if let Some(config_id) = config_id {
+            return self.set_config(&config_id, mode_id).await;
+        }
+        let (Some(connection), Some(session_id)) = (connection, session_id) else {
+            return Err("That agent is not connected.".to_string());
+        };
+        let mode = acp::SessionModeId::new(mode_id);
+        connection
+            .send_request(SetSessionModeRequest::new(session_id, mode))
+            .block_task()
+            .await
+            .map_err(|error| format!("The mode could not be changed: {error}"))?;
+        self.check_capability()?;
+        lock(&self.live.session).info.current_mode_id = Some(mode_id.to_string());
+        Ok(self.live.publish_info())
+    }
+
+    fn answer_permission(&self, request_id: &str, option_id: &str) -> bool {
+        if self.check_capability().is_err() {
+            return false;
+        }
+        let Some(waiting) = lock(&self.live.pending).remove(request_id) else {
+            return false;
+        };
+        waiting.send(Some(option_id.to_string())).is_ok()
+    }
+
+    fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
+        Some(self.live.subscribe_info())
+    }
+}
+
+impl ChildAgent {
+    /// Everything after the child exists: the connection, the handshake, and
+    /// the conversation this teammate is joining.
+    ///
+    /// Split from spawning because a pipe is a pipe. A test drives a scripted
+    /// agent over an in-memory duplex through exactly this path, and what it
+    /// proves about the translation is true of a real harness on stdio.
+    pub(crate) async fn handshake(
+        &self,
+        persona: &Persona,
+        transport: ByteStreams<
+            impl futures_util::AsyncWrite + Send + 'static,
+            impl futures_util::AsyncRead + Send + 'static,
+        >,
+    ) -> Result<DriverInfo, String> {
+        self.check_capability()?;
+        *lock(&self.persona) = Some(persona.clone());
+        // ACP owns its child process and whatever permissions that process
+        // advertises. Hotline still answers the protocol's file callbacks, and
+        // that callback plane is always confined to the teammate workspace;
+        // an old stored machine reach and an ACP mode string cannot widen it.
+        let callback_workspace = Self::callback_workspace(persona, self.teammate.capability())?;
+        let connection = connect(self.live.clone(), callback_workspace, transport).await?;
+        self.check_capability()?;
+        *lock(&self.live.connection) = Some(connection.clone());
+
+        // Hotline's own tools go up before the session does, because the session
+        // is where the child is told where to find them.
+        let serving = self.open_hotline_endpoint().await;
+        self.check_capability()?;
+        self.prepare_oauth_proxies().await;
+        self.check_capability()?;
+
+        let initialized = connection
+            .send_request(
+                InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
+                    // Hotline answers file reads and writes on the agent's behalf
+                    // so an agent that expects an editor to own the files gets
+                    // one; nothing here is a terminal, so none is offered.
+                    ClientCapabilities::new().fs(FileSystemCapabilities::new()
+                        .read_text_file(true)
+                        .write_text_file(true)),
+                ),
+            )
+            .block_task()
+            .await;
+        let initialized = match initialized {
+            Ok(initialized) => initialized,
+            Err(error) => {
+                // A child that closes its pipe at the handshake has usually
+                // said why on stderr — npm, a missing binary, a crash — and
+                // the pump reads that a beat behind the close. The tail is
+                // what tells the person what happened; "transport closed"
+                // tells them nothing.
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                return Err(format!(
+                    "The agent refused to start: {error}.{}",
+                    self.live.stderr_hint()
+                ));
+            }
+        };
+        self.check_capability()?;
+
+        let capabilities = capabilities_of(&initialized.agent_capabilities);
+        {
+            let mut session = lock(&self.live.session);
+            session.info.agent_name = initialized
+                .agent_info
+                .as_ref()
+                .map_or_else(|| self.backend_id.clone(), |info| info.name.clone());
+            session.info.agent_version = initialized
+                .agent_info
+                .as_ref()
+                .map(|info| info.version.clone());
+            session.info.capabilities = capabilities;
+        }
+
+        // Written before the session, because the session is where the child
+        // is handed the endpoint: a child that lists Hotline's tools while
+        // `session/new` is still in flight promotes rows that have to exist by
+        // then, and a ledger published afterwards would overwrite what was
+        // watched with "declared". An agent that refused to initialize was
+        // given nothing and still gets no ledger at all; one that initialized
+        // and then refused `session/new` keeps the ledger it was handed,
+        // because the rows were declared to it whether or not it went on.
+        self.publish_ledger(persona, serving);
+        self.open_session(&connection, persona, capabilities)
+            .await?;
+        self.check_capability()?;
+        self.adopt_disposition(persona).await;
+        self.check_capability()?;
+        // Supersede notifications received during session restore with the
+        // final handshake state before the room attaches its watcher.
+        Ok(self.live.publish_info())
+    }
+
+    /// Builds the client side of ACP's file callback boundary. The harness is
+    /// externally trusted, but Hotline's own callbacks stay in the workspace for
+    /// every ACP persona, including records that still carry the old machine
+    /// reach value. Runtime ACP mode names never affect this choice.
+    fn callback_workspace(
+        persona: &Persona,
+        capability: Option<CapabilityLease>,
+    ) -> Result<Workspace, String> {
+        Workspace::open_with_capability(
+            PathBuf::from(&persona.cwd),
+            Reach::Workspace,
+            PathBuf::from(&persona.cwd).join(".hotline-tool-output"),
+            capability,
+        )
+        .map_err(|error| format!("The ACP callback workspace could not be opened: {error}"))
+    }
+
+    /// Reopens the agent's own memory of this conversation when it can, and
+    /// otherwise opens a new one.
+    ///
+    /// A failed restore is an implementation detail as long as a session opens
+    /// — what must never happen is claiming the agent remembers when it does
+    /// not, which is what `context_restored` is for.
+    async fn open_session(
+        &self,
+        connection: &ConnectionTo<Agent>,
+        persona: &Persona,
+        capabilities: SessionCapabilities,
+    ) -> Result<(), String> {
+        let cwd = PathBuf::from(&persona.cwd);
+        let previous = persona
+            .session_checkpoints
+            .iter()
+            .find(|checkpoint| checkpoint.backend_id == self.backend_id)
+            .map(|checkpoint| checkpoint.session_id.clone());
+
+        if let Some(previous) = previous {
+            let id = SessionId::new(previous.as_str());
+            if capabilities.resume {
+                let resumed = connection
+                    .send_request(
+                        ResumeSessionRequest::new(id.clone(), cwd.clone())
+                            .mcp_servers(self.declared_servers()),
+                    )
+                    .block_task()
+                    .await;
+                if let Ok(response) = resumed {
+                    self.adopt(id, response.modes, response.config_options, true);
+                    return Ok(());
+                }
+                // Some agents advertise both and can only resume particular
+                // sessions; `session/load` is still a valid fallback.
+            }
+            if capabilities.load_session {
+                self.live.replaying.store(true, Ordering::SeqCst);
+                let loaded = connection
+                    .send_request(
+                        LoadSessionRequest::new(id.clone(), cwd.clone())
+                            .mcp_servers(self.declared_servers()),
+                    )
+                    .block_task()
+                    .await;
+                self.live.replaying.store(false, Ordering::SeqCst);
+                if let Ok(response) = loaded {
+                    self.adopt(id, response.modes, response.config_options, true);
+                    return Ok(());
+                }
+                // A stale or backend-invalid checkpoint degrades to a new
+                // session, which is exactly what "Fresh" means.
+            }
+        }
+
+        let opened = connection
+            .send_request(NewSessionRequest::new(cwd).mcp_servers(self.declared_servers()))
+            .block_task()
+            .await
+            .map_err(|error| format!("The agent would not open a session: {error}"))?;
+        self.adopt(
+            opened.session_id,
+            opened.modes,
+            opened.config_options,
+            false,
+        );
+        Ok(())
+    }
+
+    /// Puts Hotline's own tools on a loopback port for this child, answering
+    /// with why it could not when it could not.
+    ///
+    /// A child is a separate process, so there is no way to hand it a
+    /// function: the same handler Hotline Agent calls directly is served over
+    /// HTTP, and the token is this session's alone.
+    async fn open_hotline_endpoint(&self) -> Result<(), String> {
+        match mcp::server::serve(self.teammate.clone()).await {
+            Ok(served) => {
+                *lock(&self.served) = Some(served);
+                Ok(())
+            }
+            Err(error) => Err(format!(
+                "Hotline could not open a loopback port for its own tools: {error}"
+            )),
+        }
+    }
+
+    /// ACP children own their MCP transports, so an OAuth descriptor cannot
+    /// carry a one-time bearer token. A per-session loopback proxy asks the
+    /// rmcp manager for a current token on every request and checks the live
+    /// capability before forwarding it.
+    async fn prepare_oauth_proxies(&self) {
+        let Some(vault) = self.mcp_vault.clone() else {
+            return;
+        };
+        for server in &self.mcp_servers {
+            if !is_oauth_server(server) {
+                continue;
+            }
+            let result = start_oauth_proxy(server, vault.clone(), self.capability.clone()).await;
+            match result {
+                Ok(proxy) => {
+                    lock(&self.oauth_proxies).insert(server.id.clone(), proxy);
+                }
+                Err(error) => {
+                    lock(&self.oauth_refused).insert(server.id.clone(), error);
+                }
+            }
+        }
+    }
+
+    /// The MCP servers this session is opened with: Hotline's own first, then
+    /// every third-party server the teammate's policy granted and this build
+    /// can describe.
+    ///
+    /// Hotline does not connect any of these for a child. It says where they are
+    /// and the child connects them, which is why a row about them can only
+    /// ever say "declared".
+    fn declared_servers(&self) -> Vec<acp::McpServer> {
+        let mut declared = Vec::new();
+        if let Some(served) = lock(&self.served).as_ref() {
+            declared.push(acp::McpServer::Http(
+                acp::McpServerHttp::new(mcp::server::SERVER_NAME, served.url()).headers(vec![
+                    acp::HttpHeader::new("Authorization", format!("Bearer {}", served.token())),
+                ]),
+            ));
+        }
+        for server in &self.mcp_servers {
+            if is_oauth_server(server) && !lock(&self.oauth_proxies).contains_key(&server.id) {
+                continue;
+            }
+            if mcp::unsupported(server).is_some() && !is_oauth_server(server) {
+                continue;
+            }
+            declared.push(match &server.transport {
+                McpTransport::Stdio { command, args, env } => {
+                    // Sorted, because a hash map's order is not a decision and
+                    // two runs of the same room should send the same bytes.
+                    let mut names: Vec<&String> = env.keys().collect();
+                    names.sort();
+                    acp::McpServer::Stdio(
+                        acp::McpServerStdio::new(&server.name, command)
+                            .args(args.clone())
+                            .env(
+                                names
+                                    .into_iter()
+                                    .map(|name| acp::EnvVariable::new(name, &env[name]))
+                                    .collect(),
+                            ),
+                    )
+                }
+                McpTransport::Http { url, auth } => {
+                    let proxies = lock(&self.oauth_proxies);
+                    let proxy = proxies.get(&server.id);
+                    let proxy_url = proxy.map(|proxy| proxy.url.as_str()).unwrap_or(url);
+                    let http = acp::McpServerHttp::new(&server.name, proxy_url);
+                    acp::McpServer::Http(match auth {
+                        HttpAuth::Oauth
+                        | HttpAuth::OauthConfigured { .. }
+                        | HttpAuth::Secret { .. } => {
+                            let proxy = proxy.expect("only connected proxies are declared");
+                            http.headers(vec![acp::HttpHeader::new(
+                                "Authorization",
+                                format!("Bearer {}", proxy.token),
+                            )])
+                        }
+                        HttpAuth::Bearer { token } => http.headers(vec![acp::HttpHeader::new(
+                            "Authorization",
+                            format!("Bearer {token}"),
+                        )]),
+                        _ => http,
+                    })
+                }
+            });
+        }
+        declared
+    }
+
+    /// What this teammate was given, written down before the child has had a
+    /// chance to take any of it.
+    ///
+    /// Everything here is `declared`: Hotline hands a child a list and never
+    /// sees the tools it ends up with. The one exception is Hotline's own
+    /// server, which promotes its rows to `verified` the moment the child
+    /// lists tools on the endpoint — see [`crate::mcp::server`].
+    fn publish_ledger(&self, persona: &Persona, serving: Result<(), String>) {
+        let mut ledger = ToolLedger::new(
+            persona.id.clone(),
+            AgentKind::Acp,
+            persona.backend_id.clone(),
+        );
+        match &serving {
+            Ok(()) => ledger.all(
+                ToolState::Declared,
+                ToolSourceKind::Builtin,
+                mcp::server::SERVER_NAME,
+                &mcp::server::TOOL_NAMES,
+                "served on this teammate's own loopback endpoint and named in its session",
+            ),
+            Err(reason) => ledger.all(
+                ToolState::Absent,
+                ToolSourceKind::Builtin,
+                mcp::server::SERVER_NAME,
+                &mcp::server::TOOL_NAMES,
+                reason,
+            ),
+        };
+        for server in &self.mcp_servers {
+            if is_oauth_server(server) {
+                if let Some(reason) = lock(&self.oauth_refused).get(&server.id).cloned() {
+                    ledger.absent(ToolSourceKind::Mcp, &server.id, &server.name, reason);
+                } else if lock(&self.oauth_proxies).contains_key(&server.id) {
+                    ledger.declared(
+                        ToolSourceKind::Mcp,
+                        &server.id,
+                        &server.name,
+                        "authenticated through Hotline's per-session loopback OAuth proxy",
+                    );
+                } else {
+                    ledger.absent(
+                        ToolSourceKind::Mcp,
+                        &server.id,
+                        &server.name,
+                        "MCP OAuth sign-in is required in Settings → Tools",
+                    );
+                }
+                continue;
+            }
+            match mcp::unsupported(server) {
+                Some(reason) => {
+                    ledger.absent(ToolSourceKind::Mcp, &server.id, &server.name, reason)
+                }
+                None => ledger.declared(
+                    ToolSourceKind::Mcp,
+                    &server.id,
+                    &server.name,
+                    "named in the session this agent opened; Hotline does not connect it and cannot see the tools it supplied",
+                ),
+            };
+        }
+        for id in &self.mcp_missing {
+            ledger.absent(ToolSourceKind::Mcp, id, id, mcp::missing_reason(id));
+        }
+        ledger.publish();
+    }
+
+    fn adopt(
+        &self,
+        id: SessionId,
+        modes: Option<acp::SessionModeState>,
+        configs: Option<Vec<acp::SessionConfigOption>>,
+        restored: bool,
+    ) {
+        lock(&self.live.tools).clear();
+        let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
+        let mut session = lock(&self.live.session);
+        session.id = Some(id.clone());
+        session.model_config = disposition.model_config;
+        session.mode_config = disposition.mode_config;
+        session.dedicated_modes = disposition.dedicated_modes;
+        session.info.session_id = Some(id.0.to_string());
+        session.info.context_restored = restored;
+        session.info.models = disposition.models;
+        session.info.current_model_id = disposition.current_model_id.unwrap_or_default();
+        session.info.model_label = disposition.model_label;
+        session.info.modes = disposition.modes;
+        session.info.current_mode_id = disposition.current_mode_id;
+        session.info.mode_label = disposition.mode_label;
+        session.info.configs = disposition.configs;
+    }
+
+    /// Puts the teammate's own model and mode back on.
+    ///
+    /// These are session-scoped for every agent Hotline drives, so a teammate that
+    /// is not asked again arrives on whatever the harness defaults to — which
+    /// is a teammate quietly losing its disposition on every restart. A
+    /// refusal is not fatal: the session is up either way, and the picker will
+    /// show what the agent actually settled on.
+    async fn adopt_disposition(&self, persona: &Persona) {
+        let (mode, model) = {
+            let session = lock(&self.live.session);
+            (
+                persona
+                    .mode_id
+                    .clone()
+                    .filter(|id| Some(id) != session.info.current_mode_id.as_ref()),
+                persona
+                    .model_id
+                    .clone()
+                    .filter(|id| *id != session.info.current_model_id),
+            )
+        };
+        if let Some(mode) = mode {
+            let _ = self.set_mode(&mode).await;
+        }
+        if let Some(model) = model {
+            let _ = self.set_model(&model).await;
+        }
+    }
+
+    /// Sets one config option and takes the agent's whole answer back, since
+    /// a change to one picker can move another.
+    async fn set_config(&self, config_id: &str, value: &str) -> Result<DriverInfo, String> {
+        self.check_capability()?;
+        // One statement each: a tuple would keep the first guard alive while
+        // the second is taken, and `set_mode` reaches for the same two. Two
+        // callers holding one of these each is a wedge nothing recovers from.
+        let connection = lock(&self.live.connection).clone();
+        let session_id = lock(&self.live.session).id.clone();
+        let (Some(connection), Some(session_id)) = (connection, session_id) else {
+            return Err("That agent is not connected.".to_string());
+        };
+        let answered = connection
+            .send_request(SetSessionConfigOptionRequest::new(
+                session_id.clone(),
+                acp::SessionConfigId::new(config_id),
+                acp::SessionConfigValueId::new(value),
+            ))
+            .block_task()
+            .await
+            .map_err(|error| format!("The agent refused that setting: {error}"))?;
+        self.check_capability()?;
+        self.apply_configs(&answered.config_options);
+        Ok(self.live.publish_info())
+    }
+
+    fn apply_configs(&self, configs: &[acp::SessionConfigOption]) {
+        let mut session = lock(&self.live.session);
+        apply_configs_to_session(&mut session, configs);
+    }
+}
+
+/// Starts the JSON-RPC connection on its own task and hands back the handle
+/// every later call speaks through.
+///
+/// The SDK drives one connection from one future: handlers run on it, and the
+/// closure it is given is what keeps it alive. So the closure does nothing but
+/// pass the handle out and wait for the child's stdout to close, which is the
+/// child exiting.
+async fn connect(
+    live: Arc<Live>,
+    callback_workspace: Workspace,
+    transport: ByteStreams<
+        impl futures_util::AsyncWrite + Send + 'static,
+        impl futures_util::AsyncRead + Send + 'static,
+    >,
+) -> Result<ConnectionTo<Agent>, String> {
+    let (ready, started) = oneshot::channel();
+    let updates = live.clone();
+    let asked = live.clone();
+    let read_workspace = callback_workspace.clone();
+    let write_workspace = callback_workspace;
+    let task_live = live.clone();
+    let task = tokio::spawn(async move {
+        let running = Client
+            .builder()
+            .name("Hotline")
+            .on_receive_notification(
+                move |notification: SessionNotification, _cx| {
+                    let live = updates.clone();
+                    async move {
+                        translate(&live, notification.update).await;
+                        Ok(())
+                    }
+                },
+                agent_client_protocol::on_receive_notification!(),
+            )
+            .on_receive_request(
+                move |request: RequestPermissionRequest, responder, _cx| {
+                    let live = asked.clone();
+                    async move {
+                        ask_permission(live, request, responder).await;
+                        Ok(())
+                    }
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |request: ReadTextFileRequest, responder, _cx| {
+                    responder.respond(ReadTextFileResponse::new(read_text_file(
+                        &read_workspace,
+                        &request,
+                    )?))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |request: WriteTextFileRequest, responder, _cx| {
+                    write_text_file(&write_workspace, &request)?;
+                    responder.respond(WriteTextFileResponse::new())
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_with(transport, async |cx: ConnectionTo<Agent>| {
+                let _ = ready.send(cx.clone());
+                cx.incoming_closed().await;
+                Ok(())
+            })
+            .await;
+        if let Err(error) = running {
+            eprintln!("an ACP connection ended: {error}");
+        }
+        live.settle_permissions();
+    });
+    *lock(&task_live.connection_task) = Some(task);
+    started
+        .await
+        .map_err(|_| "The agent's connection ended before it opened.".to_string())
+}
+
+/// One `session/update`, as the room's vocabulary sees it.
+async fn translate(live: &Live, update: SessionUpdate) {
+    if live.replaying.load(Ordering::SeqCst) {
+        return;
+    }
+    match update {
+        SessionUpdate::AgentMessageChunk(chunk) => {
+            if let ContentBlock::Text(text) = chunk.content {
+                live.chunk(MessageKind::Agent, &text.text).await;
+            }
+        }
+        SessionUpdate::AgentThoughtChunk(chunk) => {
+            if let ContentBlock::Text(text) = chunk.content {
+                live.chunk(MessageKind::Thought, &text.text).await;
+            }
+        }
+        SessionUpdate::ToolCall(call) => {
+            live.flush().await;
+            let line = ToolLine {
+                title: clip(&call.title, TITLE_CHARS),
+                kind: kind_of(call.kind),
+                location: first_location(&call.locations),
+            };
+            live.emit(Update::ToolCall {
+                call_id: call.tool_call_id.0.to_string(),
+                title: line.title.clone(),
+                kind: line.kind.clone(),
+            })
+            .await;
+            let finished = finished(call.status, &call.content);
+            lock(&live.tools).insert(call.tool_call_id.0.to_string(), line);
+            if let Some((ok, output, images)) = finished {
+                live.emit(Update::ToolResult {
+                    call_id: call.tool_call_id.0.to_string(),
+                    ok,
+                    output,
+                    images,
+                })
+                .await;
+            }
+        }
+        SessionUpdate::ToolCallUpdate(update) => {
+            let call_id = update.tool_call_id.0.to_string();
+            let fields = update.fields;
+            // Absent means unchanged, so anything the update left out falls
+            // back to what the call was announced with.
+            let line = {
+                let mut tools = lock(&live.tools);
+                let previous = tools.get(&call_id);
+                let line = ToolLine {
+                    title: fields
+                        .title
+                        .as_deref()
+                        .map(|title| clip(title, TITLE_CHARS))
+                        .or_else(|| previous.map(|line| line.title.clone()))
+                        .unwrap_or_default(),
+                    kind: fields
+                        .kind
+                        .map(kind_of)
+                        .or_else(|| previous.map(|line| line.kind.clone()))
+                        .unwrap_or_default(),
+                    location: fields
+                        .locations
+                        .as_deref()
+                        .and_then(first_location)
+                        .or_else(|| previous.and_then(|line| line.location.clone())),
+                };
+                let announced = ToolLine {
+                    title: line.title.clone(),
+                    kind: line.kind.clone(),
+                    location: line.location.clone(),
+                };
+                tools.insert(call_id.clone(), line);
+                announced
+            };
+            let content = fields.content.unwrap_or_default();
+            match fields.status.and_then(|status| finished(status, &content)) {
+                Some((ok, output, images)) => {
+                    live.emit(Update::ToolResult {
+                        call_id,
+                        ok,
+                        output,
+                        images,
+                    })
+                    .await;
+                }
+                // Still running: the line is written again so a title or a
+                // path the agent only learned now reaches the transcript.
+                None => {
+                    live.emit(Update::ToolCall {
+                        call_id,
+                        title: line.title,
+                        kind: line.kind,
+                    })
+                    .await;
+                }
+            }
+        }
+        // TranscriptEvent::Plan exists and the window does not draw it yet, so
+        // the plan arrives as the one thing the window does draw. When the
+        // window grows a plan panel this becomes an Update of its own.
+        SessionUpdate::Plan(plan) => {
+            live.flush().await;
+            let lines: Vec<String> = plan
+                .entries
+                .iter()
+                .map(|entry| format!("- {} ({:?})", entry.content, entry.status))
+                .collect();
+            if lines.is_empty() {
+                return;
+            }
+            live.emit(Update::Notice {
+                level: NoticeLevel::Info,
+                text: format!("Plan:\n{}", lines.join("\n")),
+            })
+            .await;
+        }
+        SessionUpdate::CurrentModeUpdate(mode) => {
+            lock(&live.session).info.current_mode_id = Some(mode.current_mode_id.0.to_string());
+            live.publish_info();
+        }
+        SessionUpdate::ConfigOptionUpdate(update) => {
+            let mut session = lock(&live.session);
+            apply_configs_to_session(&mut session, &update.config_options);
+            drop(session);
+            live.publish_info();
+        }
+        _ => {}
+    }
+}
+
+/// The agent is asking to be allowed to do something. The card goes on the
+/// tape now; the answer arrives later, over the wire, as its own command.
+async fn ask_permission(
+    live: Arc<Live>,
+    request: RequestPermissionRequest,
+    responder: Responder<RequestPermissionResponse>,
+) {
+    let request_id = new_id();
+    let title = describe_request(&live, &request.tool_call);
+    let options: Vec<CardOption> = request
+        .options
+        .iter()
+        .map(|option| CardOption {
+            option_id: option.option_id.0.to_string(),
+            name: option.name.clone(),
+            kind: serde_json::to_value(option.kind)
+                .ok()
+                .and_then(|kind| kind.as_str().map(str::to_string)),
+        })
+        .collect();
+
+    let (answer, answered) = oneshot::channel();
+    lock(&live.pending).insert(request_id.clone(), answer);
+    live.flush().await;
+    live.emit(Update::Permission {
+        request_id,
+        title,
+        options,
+    })
+    .await;
+
+    tokio::spawn(async move {
+        let chosen = match tokio::time::timeout(PERMISSION_TIMEOUT, answered).await {
+            Ok(Ok(chosen)) => chosen,
+            _ => None,
+        };
+        let outcome = match chosen {
+            Some(option_id) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                acp::PermissionOptionId::new(option_id.as_str()),
+            )),
+            None => RequestPermissionOutcome::Cancelled,
+        };
+        let _ = responder.respond(RequestPermissionResponse::new(outcome));
+    });
+}
+
+/// What the agent is actually asking to be allowed to do.
+///
+/// The tool call on a permission request is a partial that points back at a
+/// call already announced, so on its own it can carry nothing but an id and a
+/// kind. "The agent is asking for permission" is not a question anyone can
+/// answer, so this recovers the detail: the command if there is one, otherwise
+/// the announced title, otherwise at least the kind of thing being attempted.
+fn describe_request(live: &Live, call: &acp::ToolCallUpdate) -> String {
+    let tools = lock(&live.tools);
+    let known = tools.get(call.tool_call_id.0.as_ref());
+
+    if let Some(command) = call
+        .fields
+        .raw_input
+        .as_ref()
+        .and_then(|input| input.get("command"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+    {
+        return format!("Run {}", clip(command, TITLE_CHARS));
+    }
+
+    // Agents title an edit "Editing files" and leave which file to the
+    // locations, which is the one detail the answer turns on.
+    let where_ = call
+        .fields
+        .locations
+        .as_deref()
+        .and_then(first_location)
+        .or_else(|| known.and_then(|line| line.location.clone()));
+    let named = |what: String| match &where_ {
+        Some(file) if !what.contains(file.as_str()) => format!("{what} — {file}"),
+        _ => what,
+    };
+
+    let title = call
+        .fields
+        .title
+        .clone()
+        .or_else(|| known.map(|line| line.title.clone()))
+        .filter(|title| !title.is_empty());
+    if let Some(title) = title {
+        return named(clip(&title, TITLE_CHARS));
+    }
+
+    let kind = call
+        .fields
+        .kind
+        .map(kind_of)
+        .or_else(|| known.map(|line| line.kind.clone()))
+        .filter(|kind| !kind.is_empty());
+    match kind {
+        None => "The agent is asking for permission".to_string(),
+        Some(kind) => named(format!(
+            "Allow the agent to {}",
+            PERMISSION_VERBS
+                .iter()
+                .find(|(name, _)| *name == kind)
+                .map_or_else(|| format!("use {kind}"), |(_, verb)| (*verb).to_string())
+        )),
+    }
+}
+
+// -- translation helpers ----------------------------------------------------
+
+/// The room's view of a tool call's disposition, or `None` while it is still
+/// running.
+fn finished(
+    status: acp::ToolCallStatus,
+    content: &[acp::ToolCallContent],
+) -> Option<(bool, String, Vec<ToolImage>)> {
+    let ok = match status {
+        acp::ToolCallStatus::Completed => true,
+        acp::ToolCallStatus::Failed => false,
+        _ => return None,
+    };
+    let (output, images) = result_of(content);
+    Some((ok, output, images))
+}
+
+/// A tool's output as the transcript keeps it: the text it produced, a
+/// placeholder for each image, and for an edit the file and what it now says.
+fn result_of(content: &[acp::ToolCallContent]) -> (String, Vec<ToolImage>) {
+    let mut texts = Vec::new();
+    let mut images = Vec::new();
+    for item in content {
+        match item {
+            acp::ToolCallContent::Content(inner) => match &inner.content {
+                ContentBlock::Text(text) => texts.push(text.text.clone()),
+                ContentBlock::Image(image) => images.push(ToolImage {
+                    data: image.data.clone(),
+                    mime_type: image.mime_type.clone(),
+                }),
+                _ => {}
+            },
+            acp::ToolCallContent::Diff(diff) => {
+                texts.push(format!("{}\n{}", diff.path.display(), diff.new_text));
+            }
+            _ => {}
+        }
+    }
+    let output = with_image_placeholders(&texts.join("\n"), &images);
+    (output, images)
+}
+
+fn first_location(locations: &[acp::ToolCallLocation]) -> Option<String> {
+    locations
+        .first()
+        .and_then(|location| location.path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+}
+
+/// An ACP enum as the string the wire spells it with, which is the string the
+/// window's icons and the tape are keyed by.
+fn kind_of(kind: acp::ToolKind) -> String {
+    word_of(&kind)
+}
+
+fn stop_reason_of(reason: acp::StopReason) -> String {
+    word_of(&reason)
+}
+
+fn word_of<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn usage_of(usage: Option<&acp::Usage>) -> Option<TokenUsage> {
+    usage.map(|usage| TokenUsage {
+        input_tokens: Some(usage.input_tokens as i64),
+        output_tokens: Some(usage.output_tokens as i64),
+        total_tokens: Some(usage.total_tokens as i64),
+    })
+}
+
+fn capabilities_of(capabilities: &acp::AgentCapabilities) -> SessionCapabilities {
+    SessionCapabilities {
+        active_input: false,
+        load_session: capabilities.load_session,
+        resume: capabilities.session_capabilities.resume.is_some(),
+        fork: capabilities.session_capabilities.fork.is_some(),
+        mcp_http: capabilities.mcp_capabilities.http,
+        image: capabilities.prompt_capabilities.image,
+    }
+}
+
+/// The model, runtime mode, and effort pickers Hotline draws, out of whichever
+/// shape the agent sent them in. Other ACP config selectors stay private to
+/// the harness until Hotline has a contract for them.
+///
+/// ACP has a dedicated `modes` field and a generic `configOptions` list, and
+/// agents differ over which they use — Cursor sends modes, Claude Code's
+/// adapter sends config options. Reading both here is what lets the header
+/// stop caring which agent it is talking to.
+#[derive(Default)]
+struct Disposition {
+    models: Vec<crate::contract::ConfigChoice>,
+    current_model_id: Option<String>,
+    model_config: Option<String>,
+    model_label: Option<String>,
+    modes: Vec<crate::contract::ConfigChoice>,
+    current_mode_id: Option<String>,
+    mode_config: Option<String>,
+    mode_label: Option<String>,
+    configs: Vec<crate::contract::SessionConfig>,
+    dedicated_modes: bool,
+}
+
+impl Disposition {
+    fn of(
+        modes: Option<&acp::SessionModeState>,
+        configs: Option<&[acp::SessionConfigOption]>,
+    ) -> Self {
+        let mut disposition = Self {
+            dedicated_modes: modes.is_some(),
+            ..Self::default()
+        };
+        if let Some(state) = modes {
+            disposition.modes = state
+                .available_modes
+                .iter()
+                .map(|mode| crate::contract::ConfigChoice {
+                    id: mode.id.0.to_string(),
+                    name: mode.name.clone(),
+                    description: mode.description.clone(),
+                    group: None,
+                })
+                .collect();
+            disposition.current_mode_id = Some(state.current_mode_id.0.to_string());
+        }
+        for option in configs.unwrap_or_default() {
+            let acp::SessionConfigKind::Select(select) = &option.kind else {
+                continue;
+            };
+            let picker = choices_of(select);
+            match option.category {
+                Some(acp::SessionConfigOptionCategory::Model) => {
+                    disposition.models = picker;
+                    disposition.current_model_id = Some(select.current_value.0.to_string());
+                    disposition.model_config = Some(option.id.0.to_string());
+                    disposition.model_label = Some(option.name.clone());
+                }
+                Some(acp::SessionConfigOptionCategory::Mode) if !disposition.dedicated_modes => {
+                    disposition.modes = picker;
+                    disposition.current_mode_id = Some(select.current_value.0.to_string());
+                    disposition.mode_config = Some(option.id.0.to_string());
+                    disposition.mode_label = Some(option.name.clone());
+                }
+                Some(acp::SessionConfigOptionCategory::ThoughtLevel) => {
+                    disposition.configs.push(crate::contract::SessionConfig {
+                        id: option.id.0.to_string(),
+                        name: option.name.clone(),
+                        category: Some(crate::contract::SessionConfigCategory::Effort),
+                        current_id: Some(select.current_value.0.to_string()),
+                        options: picker,
+                    });
+                }
+                // Hotline has no stable UI contract for model sub-options or
+                // arbitrary ACP settings. They remain harness-owned.
+                Some(acp::SessionConfigOptionCategory::Mode)
+                | Some(acp::SessionConfigOptionCategory::ModelConfig)
+                | None
+                | Some(acp::SessionConfigOptionCategory::Other(_))
+                | Some(_) => {}
+            }
+        }
+        disposition
+    }
+}
+
+/// Merges an ACP config notification into the live driver state. Config
+/// notifications carry the full set, so a ThoughtLevel change can be
+/// reflected without disturbing a dedicated runtime mode or model picker.
+fn apply_configs_to_session(session: &mut Session, configs: &[acp::SessionConfigOption]) {
+    let disposition = Disposition::of(None, Some(configs));
+    if disposition.model_config.is_some() {
+        session.model_config = disposition.model_config;
+        session.info.models = disposition.models;
+        session.info.model_label = disposition.model_label;
+        if let Some(current) = disposition.current_model_id {
+            session.info.current_model_id = current;
+        }
+    } else {
+        // ACP config notifications are the full set. A removed model option
+        // must not leave an old picker and id usable in the room.
+        session.model_config = None;
+        session.info.models.clear();
+        session.info.current_model_id.clear();
+        session.info.model_label = None;
+    }
+    if disposition.mode_config.is_some() && !session.dedicated_modes {
+        session.mode_config = disposition.mode_config;
+        session.info.modes = disposition.modes;
+        session.info.mode_label = disposition.mode_label;
+        session.info.current_mode_id = disposition.current_mode_id;
+    } else if !session.dedicated_modes {
+        session.mode_config = None;
+        session.info.modes.clear();
+        session.info.current_mode_id = None;
+        session.info.mode_label = None;
+    }
+    session.info.configs = disposition.configs;
+}
+
+fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigChoice> {
+    let options = match &select.options {
+        acp::SessionConfigSelectOptions::Ungrouped(options) => options.clone(),
+        acp::SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.clone())
+            .collect(),
+        _ => Vec::new(),
+    };
+    options
+        .into_iter()
+        .map(|option| crate::contract::ConfigChoice {
+            id: option.value.0.to_string(),
+            name: option.name,
+            description: option.description,
+            group: None,
+        })
+        .collect()
+}
+
+// -- process plumbing -------------------------------------------------------
+
+fn pump_stderr(live: Arc<Live>, stderr: tokio::process::ChildStderr) {
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let mut lines = tokio::io::BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let mut tail = lock(&live.stderr);
+            tail.push_back(line);
+            if tail.len() > STDERR_LINES {
+                tail.pop_front();
+            }
+        }
+    });
+}
+
+fn read_text_file(
+    workspace: &Workspace,
+    request: &ReadTextFileRequest,
+) -> Result<String, agent_client_protocol::Error> {
+    workspace
+        .read_text_path(&request.path, request.line, request.limit)
+        .map_err(agent_client_protocol::Error::into_internal_error)
+}
+
+fn write_text_file(
+    workspace: &Workspace,
+    request: &WriteTextFileRequest,
+) -> Result<(), agent_client_protocol::Error> {
+    workspace
+        .write_text_path(&request.path, &request.content)
+        .map_err(agent_client_protocol::Error::into_internal_error)
+}
+
+async fn fail(sender: &mpsc::Sender<Update>, text: String) {
+    let text = super::failure::Failure::classify(&text, None, "acp_start").notice();
+    let _ = sender
+        .send(Update::Notice {
+            level: NoticeLevel::Error,
+            text,
+        })
+        .await;
+    let _ = sender
+        .send(Update::Turn {
+            stop_reason: "failed".into(),
+            usage: None,
+        })
+        .await;
+}
+
+fn text_block(text: &str) -> ContentBlock {
+    ContentBlock::Text(acp::TextContent::new(text))
+}
+
+/// A path as the `file:` URI a resource link carries.
+fn file_uri(path: &str) -> String {
+    format!("file://{path}")
+}
+
+fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
+    held.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn new_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contract::{McpPolicy, PolicyMode, SessionCheckpoint};
+    use agent_client_protocol::schema::v1::{
+        AgentCapabilities, ContentChunk, Implementation, InitializeResponse, LoadSessionResponse,
+        NewSessionResponse, PermissionOptionKind, PromptResponse, SessionMode, SessionModeState,
+        StopReason, TextContent, ToolCall, ToolCallId, ToolCallStatus, ToolCallUpdate,
+        ToolCallUpdateFields, ToolKind,
+    };
+    use rmcp::ServiceExt;
+    use std::sync::atomic::AtomicUsize;
+
+    #[tokio::test]
+    async fn oauth_proxy_requires_its_own_bearer_and_a_live_grant() {
+        use rmcp::transport::auth::{
+            AuthorizationManager, CredentialStore, InMemoryCredentialStore, StoredCredentials,
+        };
+
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        let upstream = Router::new().fallback(any(move |request: Request<Body>| {
+            let seen = seen.clone();
+            async move {
+                assert_eq!(
+                    request.headers()[AUTHORIZATION],
+                    "Bearer upstream-oauth-token"
+                );
+                seen.fetch_add(1, Ordering::SeqCst);
+                "tool result"
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let serving = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let credentials: StoredCredentials = serde_json::from_value(serde_json::json!({
+            "client_id": "test-client",
+            "token_response": { "access_token": "upstream-oauth-token", "token_type": "Bearer" }
+        }))
+        .unwrap();
+        let store = InMemoryCredentialStore::new();
+        store.save(credentials).await.unwrap();
+        let mut manager = AuthorizationManager::new(&url).await.unwrap();
+        manager.set_credential_store(store);
+        let epoch = crate::driver::CapabilityEpoch::default();
+        let state = Arc::new(OAuthProxyState {
+            token: "session-capability".to_string(),
+            upstream: url.parse().unwrap(),
+            upstream_path: "/mcp".to_string(),
+            client: reqwest::Client::new(),
+            credential: ProxyCredential::Oauth {
+                manager: Box::new(tokio::sync::Mutex::new(manager)),
+                token_lock: Arc::new(tokio::sync::Mutex::new(())),
+            },
+            capability: Some(epoch.lease()),
+        });
+        let request = |token: Option<&str>| {
+            let mut builder = Request::builder().method("POST").uri("/mcp");
+            if let Some(token) = token {
+                builder = builder.header(AUTHORIZATION, format!("Bearer {token}"));
+            }
+            builder.body(Body::empty()).unwrap()
+        };
+        for token in [
+            None,
+            Some("another-session-capability"),
+            Some("upstream-oauth-token"),
+        ] {
+            let response = oauth_proxy_request(State(state.clone()), request(token)).await;
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        let response =
+            oauth_proxy_request(State(state.clone()), request(Some("session-capability"))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap(),
+            "tool result"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        epoch.invalidate();
+        let response = oauth_proxy_request(State(state), request(Some("session-capability"))).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        serving.abort();
+    }
+
+    /// A desk with no provider key: nothing in these tests reaches a model.
+    struct NoKeys;
+
+    impl crate::session::ProviderKeys for NoKeys {
+        fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
+            HashMap::new()
+        }
+    }
+
+    /// A room the driver's teammate tools point back at. Held by the test,
+    /// because the tools hold it weakly.
+    fn room(name: &str) -> Arc<crate::session::Room> {
+        crate::session::Room::new(crate::log::Log::open(scratch(name)), Arc::new(NoKeys))
+    }
+
+    /// A directory that exists on every platform; `/tmp` is not one on Windows.
+    fn scratch_cwd() -> String {
+        std::env::temp_dir().to_string_lossy().into_owned()
+    }
+
+    fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona {
+        Persona {
+            node: None,
+            id: "ada".to_string(),
+            name: "Ada".to_string(),
+            goal: "Keep the harbour running.".to_string(),
+            face: None,
+            team: None,
+            backend_id: "cursor".to_string(),
+            cwd: cwd.to_string(),
+            reach: None,
+            model_id: None,
+            mode_id: None,
+            effort_id: None,
+            harness_override: None,
+            hop_notice: None,
+            mcp_policy: McpPolicy {
+                mode: PolicyMode::All,
+                server_ids: Vec::new(),
+            },
+            skill_policy: Default::default(),
+            background_work: false,
+            allowed_senders: Vec::new(),
+            web_search_policy: None,
+            computer: None,
+            subagents: None,
+            session_checkpoints: checkpoints,
+            last_session_id: None,
+            created_at: 1_700_000_000_000,
+            updated_at: 1_700_000_000_000,
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "hotline-core-acp-{name}-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    /// What the scripted agent did, so a test can say what it was asked.
+    #[derive(Clone, Default)]
+    struct Heard {
+        opened: Arc<Mutex<Vec<String>>>,
+        prompted: Arc<Mutex<Vec<Vec<String>>>>,
+        /// The MCP servers the session was opened with, which is the only
+        /// place a child ever hears about them.
+        servers: Arc<Mutex<Vec<acp::McpServer>>>,
+    }
+
+    /// The agent half of an in-memory duplex, with the client half left where
+    /// [`client_transport`] will find it: a test only ever holds one thing.
+    ///
+    /// Every scripted agent below is the crate's own agent side over one of
+    /// these, so what runs is the same JSON on the same protocol a real
+    /// harness would send.
+    fn agent_pipes() -> ByteStreams<
+        impl futures_util::AsyncWrite + Send + 'static,
+        impl futures_util::AsyncRead + Send + 'static,
+    > {
+        let (client_writer, agent_reader) = tokio::io::duplex(64 * 1024);
+        let (agent_writer, client_reader) = tokio::io::duplex(64 * 1024);
+        CLIENT_PIPES.with(|pipes| {
+            *pipes.borrow_mut() = Some((client_writer, client_reader));
+        });
+        ByteStreams::new(agent_writer.compat_write(), agent_reader.compat())
+    }
+
+    /// An ACP agent that answers the handshake and then plays one turn: a
+    /// spoken chunk, a tool call, a permission request it waits on, the tool's
+    /// result, and the end of the turn.
+    fn scripted_agent(
+        heard: Heard,
+        loadable: bool,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let opened = heard.opened.clone();
+            let loaded = heard.opened.clone();
+            let prompted = heard.prompted.clone();
+            let servers = heard.servers.clone();
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("scripted")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_capabilities(AgentCapabilities::new().load_session(loadable))
+                                .agent_info(Implementation::new("scripted", "1.2.3")),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: NewSessionRequest,
+                          responder: Responder<NewSessionResponse>,
+                          _cx| {
+                        let opened = opened.clone();
+                        let servers = servers.clone();
+                        async move {
+                            opened.lock().unwrap().push("session/new".to_string());
+                            *servers.lock().unwrap() = request.mcp_servers.clone();
+                            responder.respond(
+                                NewSessionResponse::new(SessionId::new("fresh-session")).modes(
+                                    SessionModeState::new(
+                                        acp::SessionModeId::new("ask"),
+                                        vec![
+                                            SessionMode::new(acp::SessionModeId::new("ask"), "Ask"),
+                                            SessionMode::new(
+                                                acp::SessionModeId::new("agent"),
+                                                "Agent",
+                                            ),
+                                        ],
+                                    ),
+                                ),
+                            )
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: LoadSessionRequest,
+                          responder: Responder<LoadSessionResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let loaded = loaded.clone();
+                        async move {
+                            loaded
+                                .lock()
+                                .unwrap()
+                                .push(format!("session/load {}", request.session_id.0));
+                            // A load replays the conversation; nothing it says
+                            // may reach the tape a second time.
+                            cx.send_notification(SessionNotification::new(
+                                request.session_id.clone(),
+                                SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                    ContentBlock::Text(TextContent::new("replayed")),
+                                )),
+                            ))?;
+                            responder.respond(LoadSessionResponse::new())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let prompted = prompted.clone();
+                        async move {
+                            prompted.lock().unwrap().push(
+                                request
+                                    .prompt
+                                    .iter()
+                                    .map(|block| match block {
+                                        ContentBlock::Text(text) => text.text.clone(),
+                                        ContentBlock::ResourceLink(link) => link.uri.clone(),
+                                        _ => "?".to_string(),
+                                    })
+                                    .collect(),
+                            );
+                            let session = request.session_id.clone();
+                            let say = |update| {
+                                cx.send_notification(SessionNotification::new(
+                                    session.clone(),
+                                    update,
+                                ))
+                            };
+                            say(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                ContentBlock::Text(TextContent::new("on it")),
+                            )))?;
+                            say(SessionUpdate::ToolCall(
+                                ToolCall::new(ToolCallId::new("c1"), "read harbour.log")
+                                    .kind(ToolKind::Read)
+                                    .status(ToolCallStatus::InProgress),
+                            ))?;
+                            let asking = cx.clone();
+                            cx.spawn(async move {
+                                let answer = asking
+                                    .send_request(RequestPermissionRequest::new(
+                                        session.clone(),
+                                        ToolCallUpdate::new(
+                                            ToolCallId::new("c1"),
+                                            ToolCallUpdateFields::new(),
+                                        ),
+                                        vec![
+                                            acp::PermissionOption::new(
+                                                "once",
+                                                "Allow once",
+                                                PermissionOptionKind::AllowOnce,
+                                            ),
+                                            acp::PermissionOption::new(
+                                                "never",
+                                                "Deny",
+                                                PermissionOptionKind::RejectOnce,
+                                            ),
+                                        ],
+                                    ))
+                                    .block_task()
+                                    .await?;
+                                let allowed =
+                                    matches!(answer.outcome, RequestPermissionOutcome::Selected(_));
+                                asking.send_notification(SessionNotification::new(
+                                    session,
+                                    SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                                        ToolCallId::new("c1"),
+                                        ToolCallUpdateFields::new()
+                                            .status(if allowed {
+                                                ToolCallStatus::Completed
+                                            } else {
+                                                ToolCallStatus::Failed
+                                            })
+                                            .content(vec![acp::ToolCallContent::Content(
+                                                acp::Content::new(ContentBlock::Text(
+                                                    TextContent::new("all clear"),
+                                                )),
+                                            )]),
+                                    )),
+                                ))?;
+                                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the scripted agent ended: {error}");
+            }
+        }
+    }
+
+    thread_local! {
+        static CLIENT_PIPES: std::cell::RefCell<Option<(tokio::io::DuplexStream, tokio::io::DuplexStream)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    fn client_transport() -> ByteStreams<
+        impl futures_util::AsyncWrite + Send + 'static,
+        impl futures_util::AsyncRead + Send + 'static,
+    > {
+        let (writer, reader) = CLIENT_PIPES
+            .with(|pipes| pipes.borrow_mut().take())
+            .expect("the scripted agent was built first");
+        ByteStreams::new(writer.compat_write(), reader.compat())
+    }
+
+    async fn next(updates: &mut mpsc::Receiver<Update>) -> Update {
+        tokio::time::timeout(Duration::from_secs(5), updates.recv())
+            .await
+            .expect("the turn stalled")
+            .expect("the turn ended early")
+    }
+
+    fn recovery_agent(
+        heard: Heard,
+        failure: &'static str,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let _ = agent_client_protocol::Agent
+                .builder()
+                .name("recovery-fixture")
+                .on_receive_request(
+                    async |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_capabilities(AgentCapabilities::new().load_session(true)),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: LoadSessionRequest,
+                           responder: Responder<LoadSessionResponse>,
+                           _cx| {
+                        responder.respond_with_internal_error("Unknown session")
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("fresh-fixture")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let heard = heard.clone();
+                        async move {
+                            heard.prompted.lock().unwrap().push(
+                                request
+                                    .prompt
+                                    .iter()
+                                    .filter_map(|block| match block {
+                                        ContentBlock::Text(text) => Some(text.text.clone()),
+                                        _ => None,
+                                    })
+                                    .collect(),
+                            );
+                            if failure == "unknown" {
+                                return responder.respond_with_internal_error("Unknown session");
+                            }
+                            if failure == "tool" {
+                                cx.send_notification(SessionNotification::new(
+                                    request.session_id,
+                                    SessionUpdate::ToolCall(
+                                        ToolCall::new(
+                                            ToolCallId::new("uncertain-call"),
+                                            "write deployment record",
+                                        )
+                                        .status(ToolCallStatus::InProgress),
+                                    ),
+                                ))?;
+                            }
+                            if !failure.is_empty() {
+                                std::future::pending::<()>().await;
+                            }
+                            responder.respond(PromptResponse::new(StopReason::EndTurn))
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_acp_sessions_get_a_fresh_briefing_without_reissuing_the_old_prompt() {
+        for failure in ["unknown", "dead", "tool"] {
+            let held = room(&format!("recovery-{failure}"));
+            let driver = ChildAgent::new(
+                scratch(failure),
+                "cursor".into(),
+                "you are Ada".into(),
+                TeammateTools::new(&held, "ada"),
+            )
+            .with_history(vec![super::super::rig::Said::User(
+                "Earlier conversation".into(),
+            )]);
+            let heard = Heard::default();
+            let agent = tokio::spawn(recovery_agent(heard.clone(), failure));
+            let ada = persona(
+                &scratch_cwd(),
+                vec![SessionCheckpoint {
+                    backend_id: "cursor".into(),
+                    session_id: "stale".into(),
+                }],
+            );
+            let info = driver.handshake(&ada, client_transport()).await.unwrap();
+            assert!(!info.context_restored, "unknown saved sessions start fresh");
+            let mut updates = driver
+                .prompt("original request".into(), vec![], Reach::Workspace)
+                .await;
+            if failure == "tool" {
+                assert!(matches!(next(&mut updates).await, Update::ToolCall { .. }));
+            }
+            if failure != "unknown" {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    while heard.prompted.lock().unwrap().is_empty() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                agent.abort();
+            }
+            let mut failed = false;
+            while let Some(update) = updates.recv().await {
+                if matches!(update, Update::Turn { stop_reason, .. } if stop_reason == "failed") {
+                    failed = true;
+                }
+            }
+            assert!(failed);
+            assert!(!driver.checkpoint_valid());
+            assert!(!driver.live.briefed.load(Ordering::SeqCst));
+            assert!(lock(&driver.live.pending).is_empty());
+            let fresh_persona = driver.abandon_failed_session().await.unwrap();
+            assert!(fresh_persona.session_checkpoints.is_empty());
+            assert!(lock(&driver.live.connection_task).is_none());
+            let fresh_heard = Heard::default();
+            let fresh_agent = tokio::spawn(recovery_agent(fresh_heard.clone(), ""));
+            driver
+                .handshake(&fresh_persona, client_transport())
+                .await
+                .unwrap();
+            driver.live.failed.store(false, Ordering::SeqCst);
+            let mut updates = driver
+                .prompt("check the outcome".into(), vec![], Reach::Workspace)
+                .await;
+            assert!(
+                matches!(next(&mut updates).await, Update::Turn { stop_reason, .. } if stop_reason == "end_turn")
+            );
+            let prompts = fresh_heard.prompted.lock().unwrap();
+            assert_eq!(prompts.len(), 1);
+            assert_eq!(prompts[0].last().unwrap(), "check the outcome");
+            let brief = prompts[0].join("\n");
+            assert!(brief.contains("you are Ada"));
+            assert!(brief.contains("Earlier conversation"));
+            assert_eq!(brief.matches("original request").count(), 1);
+            assert!(brief.contains("do not automatically repeat"));
+            if failure == "tool" {
+                assert!(brief.contains("uncertain-call"));
+            }
+            agent.abort();
+            fresh_agent.abort();
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn abandoning_an_acp_session_waits_for_the_owned_child_to_exit() {
+        let held = room("abandon-child");
+        let driver = ChildAgent::new(
+            scratch("abandon"),
+            "cursor".into(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        *lock(&driver.persona) = Some(persona(&scratch_cwd(), vec![]));
+        let child = tokio::process::Command::new("sh")
+            .args(["-c", "sleep 600"])
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        *lock(&driver.child) = Some(child);
+        driver.abandon_failed_session().await.unwrap();
+        assert_eq!(
+            unsafe { libc::kill(pid as libc::pid_t, 0) },
+            -1,
+            "child must be reaped before another prompt can be sent"
+        );
+    }
+
+    /// One turn end to end: what the agent streams becomes the room's
+    /// vocabulary, in the order it happened, and the permission in the middle
+    /// blocks the tool until it is answered.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_becomes_updates_in_the_order_the_agent_sent_them() {
+        let root = scratch("turn");
+        let heard = Heard::default();
+        let agent = scripted_agent(heard.clone(), false);
+        let held = room("turn-room");
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let briefing = crate::session::preamble(&ada, None, None);
+        let driver = ChildAgent::new(
+            root,
+            "cursor".to_string(),
+            briefing.clone(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+
+        let mut info_updates = driver.subscribe_info().unwrap();
+        let info = driver.handshake(&ada, client_transport()).await.unwrap();
+        assert_eq!(*info_updates.borrow_and_update(), info);
+        assert_eq!(info.agent_name, "scripted");
+        assert_eq!(info.agent_version.as_deref(), Some("1.2.3"));
+        assert_eq!(info.session_id.as_deref(), Some("fresh-session"));
+        assert!(!info.context_restored);
+        assert_eq!(
+            info.modes
+                .iter()
+                .map(|mode| mode.id.as_str())
+                .collect::<Vec<_>>(),
+            ["ask", "agent"]
+        );
+        assert_eq!(info.current_mode_id.as_deref(), Some("ask"));
+        assert_eq!(heard.opened.lock().unwrap().as_slice(), ["session/new"]);
+
+        let mut updates = driver
+            .prompt(
+                "how is the harbour".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+
+        assert!(matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "on it"));
+        assert!(
+            matches!(next(&mut updates).await, Update::Message { text, kind, .. }
+                if text == "on it" && kind == MessageKind::Agent)
+        );
+        let Update::ToolCall {
+            call_id,
+            title,
+            kind,
+        } = next(&mut updates).await
+        else {
+            panic!("the tool call did not arrive");
+        };
+        assert_eq!(
+            (call_id.as_str(), title.as_str(), kind.as_str()),
+            ("c1", "read harbour.log", "read")
+        );
+
+        let Update::Permission {
+            request_id,
+            options,
+            ..
+        } = next(&mut updates).await
+        else {
+            panic!("the permission did not arrive");
+        };
+        assert_eq!(
+            options
+                .iter()
+                .map(|option| option.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Allow once", "Deny"]
+        );
+        assert!(driver.answer_permission(&request_id, "once"));
+        // Answered once and only once: the second answer has nothing behind it.
+        assert!(!driver.answer_permission(&request_id, "once"));
+
+        assert!(matches!(
+            next(&mut updates).await,
+            Update::ToolResult { ok: true, output, .. } if output == "all clear"
+        ));
+        assert!(matches!(
+            next(&mut updates).await,
+            Update::Turn { stop_reason, .. } if stop_reason == "end_turn"
+        ));
+
+        // The briefing rides ahead of the first words and is never said again.
+        let prompted = heard.prompted.lock().unwrap().clone();
+        assert_eq!(prompted[0][0], briefing);
+        assert!(
+            prompted[0][0].contains("Hotline shows your reply as chat"),
+            "the first prompt carries the house style: {}",
+            prompted[0][0]
+        );
+        assert_eq!(prompted[0][1], "how is the harbour");
+        assert_eq!(
+            prompted[0].len(),
+            2,
+            "house style is in the preamble, not a second block"
+        );
+    }
+
+    /// A teammate with a checkpoint for this backend rejoins its own session,
+    /// and the history the load replays is not written down a second time.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_checkpoint_reopens_the_agents_own_session_without_replaying_it() {
+        let root = scratch("load");
+        let heard = Heard::default();
+        let agent = scripted_agent(heard.clone(), true);
+        let held = room("load-room");
+        let driver = ChildAgent::new(
+            root,
+            "cursor".to_string(),
+            "you are Ada".to_string(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+
+        let ada = persona(
+            &scratch_cwd(),
+            vec![SessionCheckpoint {
+                backend_id: "cursor".to_string(),
+                session_id: "old-session".to_string(),
+            }],
+        );
+        let info = driver.handshake(&ada, client_transport()).await.unwrap();
+        assert_eq!(info.session_id.as_deref(), Some("old-session"));
+        assert!(info.context_restored);
+        assert_eq!(
+            heard.opened.lock().unwrap().as_slice(),
+            ["session/load old-session"]
+        );
+
+        // Nothing the replay said reached a turn: the first update of the
+        // first turn is that turn's own first word.
+        let mut updates = driver
+            .prompt("carry on".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+        assert!(matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "on it"));
+    }
+
+    /// Ending a session ends the child, and everything the child started.
+    ///
+    /// The connection is kept alive by the child's own pipes, so nothing but
+    /// the driver going away can close it — which is why the handle lives on
+    /// the driver and not beside the connection.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_the_driver_takes_the_childs_whole_process_group() {
+        let held = room("kill-room");
+        let driver = ChildAgent::new(
+            scratch("kill"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        let mut command = tokio::process::Command::new("sh");
+        command
+            .args(["-c", "sleep 600"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0);
+        let child = command.spawn().unwrap();
+        let group = child.id().expect("the child has a pid") as libc::pid_t;
+        *lock(&driver.child) = Some(child);
+        // Safety: `kill` with signal 0 asks whether the group exists.
+        assert_eq!(unsafe { libc::killpg(group, 0) }, 0, "the group is running");
+
+        drop(driver);
+        for _ in 0..200 {
+            if unsafe { libc::killpg(group, 0) } != 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the child's process group outlived its driver");
+    }
+
+    /// What a child is told about tools: Hotline's own server on this session's
+    /// loopback endpoint behind this session's token, then every third-party
+    /// server the teammate was granted and this build can describe.
+    ///
+    /// And the ledger says the same thing in the same breath, because a row
+    /// that disagrees with what was sent is worse than no row.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn session_new_carries_hotlines_own_server_and_the_granted_ones() {
+        let held = room("declared-room");
+        let heard = Heard::default();
+        let agent = scripted_agent(heard.clone(), false);
+        let driver = ChildAgent::new(
+            scratch("declared"),
+            "cursor".to_string(),
+            "you are Ada".to_string(),
+            TeammateTools::new(&held, "declared"),
+        )
+        .with_mcp(
+            vec![
+                McpServer {
+                    id: "echo".to_string(),
+                    name: "Echo".to_string(),
+                    transport: McpTransport::Stdio {
+                        command: "/usr/bin/echo".to_string(),
+                        args: vec!["--mcp".to_string()],
+                        env: HashMap::from([("TOKEN".to_string(), "shh".to_string())]),
+                    },
+                    refuse: None,
+                },
+                McpServer {
+                    id: "remote".to_string(),
+                    name: "Remote".to_string(),
+                    transport: McpTransport::Http {
+                        url: "https://example.test/mcp".to_string(),
+                        auth: crate::mcp::HttpAuth::None,
+                    },
+                    refuse: None,
+                },
+                McpServer {
+                    id: "locked".to_string(),
+                    name: "Locked".to_string(),
+                    transport: McpTransport::Http {
+                        url: "https://example.test/oauth".to_string(),
+                        auth: crate::mcp::HttpAuth::Oauth,
+                    },
+                    refuse: None,
+                },
+                McpServer {
+                    id: "computer".to_string(),
+                    name: "Computer".to_string(),
+                    transport: McpTransport::Http {
+                        url: "http://127.0.0.1:8787/mcp".to_string(),
+                        auth: crate::mcp::HttpAuth::Bearer {
+                            token: "comp-token".to_string(),
+                        },
+                    },
+                    refuse: None,
+                },
+            ],
+            vec!["deleted".to_string()],
+        );
+        tokio::spawn(agent);
+
+        let mut ada = persona(&scratch_cwd(), Vec::new());
+        ada.id = "declared".to_string();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+
+        let declared = heard.servers.lock().unwrap().clone();
+        let names: Vec<&str> = declared
+            .iter()
+            .map(|server| match server {
+                acp::McpServer::Http(http) => http.name.as_str(),
+                acp::McpServer::Stdio(stdio) => stdio.name.as_str(),
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(
+            names,
+            ["hotline", "Echo", "Remote", "Computer"],
+            "the OAuth server this build cannot honour is not offered"
+        );
+
+        let acp::McpServer::Http(hotline) = &declared[0] else {
+            panic!("Hotline's own server is reached over HTTP");
+        };
+        assert!(
+            hotline.url.starts_with("http://127.0.0.1:"),
+            "{}",
+            hotline.url
+        );
+        assert_eq!(hotline.headers.len(), 1);
+        assert_eq!(hotline.headers[0].name, "Authorization");
+        assert!(
+            hotline.headers[0].value.starts_with("Bearer "),
+            "{}",
+            hotline.headers[0].value
+        );
+
+        let acp::McpServer::Stdio(echo) = &declared[1] else {
+            panic!("a stdio server is offered as stdio");
+        };
+        assert_eq!(echo.command, PathBuf::from("/usr/bin/echo"));
+        assert_eq!(echo.args, ["--mcp"]);
+        assert_eq!(echo.env[0].name, "TOKEN");
+
+        let acp::McpServer::Http(computer) = &declared[3] else {
+            panic!("the computer is reached over HTTP");
+        };
+        assert_eq!(computer.url, "http://127.0.0.1:8787/mcp");
+        assert_eq!(computer.headers.len(), 1);
+        assert_eq!(computer.headers[0].name, "Authorization");
+        assert_eq!(computer.headers[0].value, "Bearer comp-token");
+
+        let rows = crate::session::ledger::teammate_tools("declared")
+            .expect("the child's ledger was published at start")
+            .rows;
+        let row = |name: &str| {
+            rows.iter()
+                .find(|row| row.name == name)
+                .unwrap_or_else(|| panic!("{name} is on the ledger: {rows:?}"))
+                .clone()
+        };
+        for tool in crate::mcp::server::TOOL_NAMES {
+            let row = row(tool);
+            assert_eq!(row.source, ToolSourceKind::Builtin);
+            assert_eq!(row.origin, "hotline");
+            assert_eq!(row.state, ToolState::Declared);
+        }
+        assert_eq!(row("Echo").state, ToolState::Declared);
+        assert_eq!(row("Computer").state, ToolState::Declared);
+        assert_eq!(row("Locked").state, ToolState::Absent);
+        assert!(row("Locked").reason.contains("OAuth"));
+        assert_eq!(row("deleted").state, ToolState::Absent);
+        assert!(row("deleted").reason.contains("no longer exists"));
+
+        // Listing tools on the endpoint is the one thing Hotline can watch a
+        // child do, so it is the one thing that turns declared into verified.
+        let listing = rmcp::model::ClientInfo::new(
+            Default::default(),
+            rmcp::model::Implementation::new("test", "1"),
+        )
+        .serve(
+            rmcp::transport::streamable_http_client::StreamableHttpClientTransport::with_client(
+                reqwest::Client::default(),
+                rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
+                    hotline.url.clone(),
+                )
+                .auth_header(
+                    hotline.headers[0]
+                        .value
+                        .strip_prefix("Bearer ")
+                        .expect("the header is a bearer token")
+                        .to_string(),
+                ),
+            ),
+        )
+        .await
+        .expect("the token in session/new opens the endpoint");
+        assert_eq!(
+            listing.list_all_tools().await.expect("tools listed").len(),
+            crate::mcp::server::TOOL_NAMES.len()
+        );
+        listing.cancel().await.ok();
+
+        let seen = crate::session::ledger::teammate_tools("declared")
+            .unwrap()
+            .rows;
+        for tool in crate::mcp::server::TOOL_NAMES {
+            let row = seen.iter().find(|row| row.name == tool).unwrap();
+            assert_eq!(row.state, ToolState::Verified, "{row:?}");
+            assert!(row.reason.contains("own endpoint"), "{row:?}");
+        }
+    }
+
+    /// An ACP agent that raises a permission and then ends the turn without
+    /// waiting for the answer — every harness does this when it gives up on a
+    /// request — and does not end it until the test says so, so the card is up
+    /// and drawn before the turn is over.
+    fn agent_that_ends_the_turn_still_asking(
+        ends: Arc<tokio::sync::Notify>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("still-asking")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_info(Implementation::new("still-asking", "1")),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_request: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("asking")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let ends = ends.clone();
+                        async move {
+                            let session = request.session_id.clone();
+                            let asking = cx.clone();
+                            cx.spawn(async move {
+                                let _ = asking
+                                    .send_request(RequestPermissionRequest::new(
+                                        session,
+                                        ToolCallUpdate::new(
+                                            ToolCallId::new("c1"),
+                                            ToolCallUpdateFields::new(),
+                                        ),
+                                        vec![acp::PermissionOption::new(
+                                            "once",
+                                            "Allow once",
+                                            PermissionOptionKind::AllowOnce,
+                                        )],
+                                    ))
+                                    .block_task()
+                                    .await;
+                                Ok(())
+                            })?;
+                            cx.spawn(async move {
+                                ends.notified().await;
+                                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the still-asking agent ended: {error}");
+            }
+        }
+    }
+
+    /// A card is refused from the moment the agent ends the turn, not from the
+    /// moment the transcript catches up with it.
+    ///
+    /// `docs/sessions.md`: a stale card — the turn ended, the session stopped,
+    /// somebody else answered first — is refused, so the transcript never
+    /// shows a decision the agent never heard. The flush and the turn event
+    /// after `session/prompt` returns are Hotline writing down what already
+    /// happened; a permission answered while it does is answered into nothing.
+    /// Here the update channel is filled so that writing-down is wedged, which
+    /// leaves the end of the turn as the only thing that can settle the card.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_card_is_refused_from_the_moment_the_agent_ends_the_turn() {
+        let held = room("stale-card-room");
+        let ends = Arc::new(tokio::sync::Notify::new());
+        let agent = agent_that_ends_the_turn_still_asking(ends.clone());
+        let driver = ChildAgent::new(
+            scratch("stale-card"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        driver
+            .handshake(&persona(&scratch_cwd(), Vec::new()), client_transport())
+            .await
+            .unwrap();
+
+        let mut updates = driver
+            .prompt("go".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+        let Update::Permission { request_id, .. } = next(&mut updates).await else {
+            panic!("the card did not arrive");
+        };
+
+        // Every place in the update channel is taken, so nothing the driver
+        // writes down after the turn can leave it. What settles the card now
+        // is the end of the turn or nothing at all.
+        let sender = lock(&driver.live.updates)
+            .clone()
+            .expect("the turn is running");
+        for _ in 0..UPDATE_DEPTH {
+            sender
+                .try_send(Update::Notice {
+                    level: NoticeLevel::Info,
+                    text: "the channel is full".to_string(),
+                })
+                .expect("the channel takes its whole depth");
+        }
+        ends.notify_one();
+
+        // A bounded wait for the agent's answer to cross the pipe; the
+        // assertion below is what is being tested.
+        for _ in 0..200 {
+            if lock(&driver.live.pending).is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            !driver.answer_permission(&request_id, "once"),
+            "a card the turn left behind was still answerable after the turn ended"
+        );
+    }
+
+    /// An ACP agent that lists Hotline's own tools while `session/new` is still in
+    /// flight, which is the earliest a child can: the endpoint and its token
+    /// are in the request it is answering.
+    fn agent_that_lists_hotlines_tools_during_session_new(
+        listed: Arc<Mutex<usize>>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("eager")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(
+                            InitializeResponse::new(request.protocol_version)
+                                .agent_info(Implementation::new("eager", "1")),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: NewSessionRequest,
+                          responder: Responder<NewSessionResponse>,
+                          _cx| {
+                        let listed = listed.clone();
+                        async move {
+                            let hotline = request
+                                .mcp_servers
+                                .iter()
+                                .find_map(|server| match server {
+                                    acp::McpServer::Http(http)
+                                        if http.name == mcp::server::SERVER_NAME =>
+                                    {
+                                        Some(http.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .expect("Hotline names its own endpoint in session/new");
+                            let token = hotline.headers[0]
+                                .value
+                                .strip_prefix("Bearer ")
+                                .expect("a bearer token")
+                                .to_string();
+                            let client = rmcp::model::ClientInfo::new(
+                                Default::default(),
+                                rmcp::model::Implementation::new("eager", "1"),
+                            )
+                            .serve(
+                                rmcp::transport::streamable_http_client::StreamableHttpClientTransport::with_client(
+                                    reqwest::Client::default(),
+                                    rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(hotline.url.clone())
+                                        .auth_header(token),
+                                ),
+                            )
+                            .await
+                            .expect("the endpoint is open before the session is");
+                            *listed.lock().unwrap() =
+                                client.list_all_tools().await.expect("tools listed").len();
+                            client.cancel().await.ok();
+                            responder.respond(NewSessionResponse::new(SessionId::new("eager")))
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the eager agent ended: {error}");
+            }
+        }
+    }
+
+    /// A child that takes Hotline's tools during `session/new` is a child Hotline
+    /// watched take them.
+    ///
+    /// The endpoint is handed over inside that request, so the ledger has to
+    /// exist before it is sent. Published afterwards, the promotion the
+    /// listing makes lands on nothing, and the rows read `declared` for a
+    /// session whose agent was seen listing them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tools_listed_during_session_new_are_verified_on_the_ledger() {
+        let held = room("eager-room");
+        let listed = Arc::new(Mutex::new(0usize));
+        let agent = agent_that_lists_hotlines_tools_during_session_new(listed.clone());
+        let driver = ChildAgent::new(
+            scratch("eager"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "eager"),
+        );
+        tokio::spawn(agent);
+
+        let mut ada = persona(&scratch_cwd(), Vec::new());
+        ada.id = "eager".to_string();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+
+        assert_eq!(*listed.lock().unwrap(), mcp::server::TOOL_NAMES.len());
+        let rows = crate::session::ledger::teammate_tools("eager")
+            .expect("the ledger exists before the session does")
+            .rows;
+        for tool in mcp::server::TOOL_NAMES {
+            let row = rows
+                .iter()
+                .find(|row| row.name == tool)
+                .unwrap_or_else(|| panic!("{tool} is on the ledger: {rows:?}"));
+            assert_eq!(row.state, ToolState::Verified, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn an_image_content_block_becomes_a_placeholder_and_is_carried() {
+        let content = vec![
+            acp::ToolCallContent::Content(acp::Content::new(ContentBlock::Text(TextContent::new(
+                "the tree",
+            )))),
+            acp::ToolCallContent::Content(acp::Content::new(ContentBlock::Image(
+                acp::ImageContent::new("AAAA", "image/png"),
+            ))),
+        ];
+        let (ok, output, images) = finished(ToolCallStatus::Completed, &content).unwrap();
+        assert!(ok);
+        assert!(output.contains("the tree"), "{output}");
+        assert!(output.contains("[image image/png, 3 B]"), "{output}");
+        assert_eq!(
+            images,
+            [ToolImage {
+                data: "AAAA".into(),
+                mime_type: "image/png".into(),
+            }]
+        );
+    }
+
+    /// Hotline rewrites only the file it wrote. A hand-written AGENTS.md — even
+    /// one that merely mentions the marker, as this repository's own does — is
+    /// left exactly as it was.
+    #[test]
+    fn only_a_file_opening_with_the_marker_is_hotlines_to_replace() {
+        let root = scratch("agents-md");
+        let mut ada = persona(&root.to_string_lossy(), Vec::new());
+        let file = root.join("AGENTS.md");
+
+        materialize_agents_md(&ada).unwrap();
+        let written = std::fs::read_to_string(&file).unwrap();
+        assert!(written.starts_with(MANAGED_MARKER));
+        assert!(written.contains("# Ada"));
+        assert!(written.contains("Keep the harbour running."));
+
+        // Hotline's own file is rewritten when the goal moves.
+        ada.goal = "Count the boats.".to_string();
+        materialize_agents_md(&ada).unwrap();
+        assert!(
+            std::fs::read_to_string(&file)
+                .unwrap()
+                .contains("Count the boats.")
+        );
+
+        let by_hand =
+            format!("# A real repository\n\nIt explains {MANAGED_MARKER} in a sentence.\n");
+        std::fs::write(&file, &by_hand).unwrap();
+        ada.goal = "Something else entirely.".to_string();
+        materialize_agents_md(&ada).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), by_hand);
+    }
+
+    fn select_config(
+        id: &str,
+        name: &str,
+        category: acp::SessionConfigOptionCategory,
+        current: &str,
+        options: &[(&str, &str)],
+    ) -> acp::SessionConfigOption {
+        acp::SessionConfigOption::select(
+            id.to_string(),
+            name.to_string(),
+            current.to_string(),
+            options
+                .iter()
+                .map(|(value, label)| {
+                    acp::SessionConfigSelectOption::new((*value).to_string(), (*label).to_string())
+                })
+                .collect::<Vec<_>>(),
+        )
+        .category(Some(category))
+    }
+
+    #[test]
+    fn disposition_separates_runtime_mode_from_effort_and_hides_other_configs() {
+        let configs = vec![
+            select_config(
+                "model-choice",
+                "Model",
+                acp::SessionConfigOptionCategory::Model,
+                "model-2",
+                &[("model-1", "Model One"), ("model-2", "Model Two")],
+            ),
+            select_config(
+                "permission-mode",
+                "Permission mode",
+                acp::SessionConfigOptionCategory::Mode,
+                "agent",
+                &[("ask", "Ask"), ("agent", "Agent")],
+            ),
+            select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "high",
+                &[("low", "Low"), ("high", "High")],
+            ),
+            select_config(
+                "style",
+                "Style",
+                acp::SessionConfigOptionCategory::Other("style".to_string()),
+                "concise",
+                &[("concise", "Concise")],
+            ),
+        ];
+        let generic = Disposition::of(None, Some(&configs));
+        assert_eq!(generic.current_model_id.as_deref(), Some("model-2"));
+        assert_eq!(generic.model_config.as_deref(), Some("model-choice"));
+        assert_eq!(generic.current_mode_id.as_deref(), Some("agent"));
+        assert_eq!(generic.mode_config.as_deref(), Some("permission-mode"));
+        assert_eq!(generic.configs.len(), 1);
+        assert_eq!(generic.configs[0].id, "reasoning");
+        assert_eq!(
+            generic.configs[0].category,
+            Some(crate::contract::SessionConfigCategory::Effort)
+        );
+
+        let dedicated_modes = SessionModeState::new(
+            acp::SessionModeId::new("ask"),
+            vec![
+                SessionMode::new(acp::SessionModeId::new("ask"), "Ask"),
+                SessionMode::new(acp::SessionModeId::new("agent"), "Agent"),
+            ],
+        );
+        let dedicated = Disposition::of(Some(&dedicated_modes), Some(&configs));
+        assert_eq!(dedicated.current_mode_id.as_deref(), Some("ask"));
+        assert!(dedicated.mode_config.is_none());
+        assert_eq!(dedicated.configs.len(), 1);
+        assert_eq!(dedicated.configs[0].id, "reasoning");
+    }
+
+    #[tokio::test]
+    async fn config_notifications_update_model_and_effort_without_replacing_mode() {
+        let live = Live::default();
+        let dedicated_modes = SessionModeState::new(
+            acp::SessionModeId::new("ask"),
+            vec![
+                SessionMode::new(acp::SessionModeId::new("ask"), "Ask"),
+                SessionMode::new(acp::SessionModeId::new("agent"), "Agent"),
+            ],
+        );
+        {
+            let mut session = lock(&live.session);
+            let disposition = Disposition::of(Some(&dedicated_modes), None);
+            session.dedicated_modes = true;
+            session.info.modes = disposition.modes;
+            session.info.current_mode_id = disposition.current_mode_id;
+        }
+        let update = SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![
+            select_config(
+                "model-choice",
+                "Model",
+                acp::SessionConfigOptionCategory::Model,
+                "model-2",
+                &[("model-1", "Model One"), ("model-2", "Model Two")],
+            ),
+            select_config(
+                "permission-mode",
+                "Permission mode",
+                acp::SessionConfigOptionCategory::Mode,
+                "agent",
+                &[("ask", "Ask"), ("agent", "Agent")],
+            ),
+            select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "high",
+                &[("low", "Low"), ("high", "High")],
+            ),
+        ]));
+        translate(&live, update).await;
+
+        {
+            let session = lock(&live.session);
+            assert_eq!(session.info.current_model_id, "model-2");
+            assert_eq!(session.info.current_mode_id.as_deref(), Some("ask"));
+            assert_eq!(
+                session
+                    .info
+                    .modes
+                    .iter()
+                    .map(|mode| mode.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["ask", "agent"]
+            );
+            assert_eq!(session.info.configs.len(), 1);
+            assert_eq!(session.info.configs[0].current_id.as_deref(), Some("high"));
+        }
+
+        // A later full-set notification can remove model and config-based
+        // mode controls. Those old ids must disappear rather than remaining
+        // callable through a stale picker.
+        let removal =
+            SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "low",
+                &[("low", "Low"), ("high", "High")],
+            )]));
+        translate(&live, removal).await;
+        let session = lock(&live.session);
+        assert!(session.model_config.is_none());
+        assert!(session.info.models.is_empty());
+        assert_eq!(session.info.current_model_id, "");
+        assert_eq!(session.info.current_mode_id.as_deref(), Some("ask"));
+        assert_eq!(session.info.configs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn config_notifications_remove_config_mode_without_stale_picker() {
+        let live = Live::default();
+        let initial =
+            SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+                "runtime-mode",
+                "Runtime mode",
+                acp::SessionConfigOptionCategory::Mode,
+                "build",
+                [("plan", "Plan"), ("build", "Build")].as_slice(),
+            )]));
+        translate(&live, initial).await;
+
+        {
+            let session = lock(&live.session);
+            assert_eq!(session.mode_config.as_deref(), Some("runtime-mode"));
+            assert_eq!(session.info.current_mode_id.as_deref(), Some("build"));
+            assert_eq!(session.info.modes.len(), 2);
+        }
+
+        // The ACP notification is a full replacement. Removing the mode
+        // option must make the old wire command and UI picker unavailable.
+        let removal =
+            SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(vec![select_config(
+                "reasoning",
+                "Reasoning",
+                acp::SessionConfigOptionCategory::ThoughtLevel,
+                "high",
+                [("low", "Low"), ("high", "High")].as_slice(),
+            )]));
+        translate(&live, removal).await;
+
+        let session = lock(&live.session);
+        assert!(session.mode_config.is_none());
+        assert!(session.info.modes.is_empty());
+        assert!(session.info.current_mode_id.is_none());
+        assert!(session.info.mode_label.is_none());
+        assert_eq!(session.info.configs.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn acp_callbacks_stay_in_workspace_for_legacy_machine_personas() {
+        use std::os::unix::fs::symlink;
+
+        let root = scratch("callbacks-root");
+        let outside = scratch("callbacks-outside");
+        let inside_file = root.join("inside.txt");
+        let outside_file = outside.join("secret.txt");
+        std::fs::write(&inside_file, "inside\nsecond\n").unwrap();
+        std::fs::write(&outside_file, "secret\n").unwrap();
+        symlink(&outside_file, root.join("escape.txt")).unwrap();
+
+        let mut ada = persona(&root.to_string_lossy(), Vec::new());
+        ada.reach = Some(Reach::Machine);
+        let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+        let allowed = ReadTextFileRequest::new(SessionId::new("s"), inside_file.clone()).limit(1);
+        assert_eq!(read_text_file(&workspace, &allowed).unwrap(), "inside");
+
+        let outside_request = ReadTextFileRequest::new(SessionId::new("s"), outside_file.clone());
+        assert!(read_text_file(&workspace, &outside_request).is_err());
+        let symlink_request =
+            ReadTextFileRequest::new(SessionId::new("s"), root.join("escape.txt"));
+        assert!(read_text_file(&workspace, &symlink_request).is_err());
+
+        let nested = root.join("new").join("file.txt");
+        let write = WriteTextFileRequest::new(SessionId::new("s"), nested.clone(), "written\n");
+        write_text_file(&workspace, &write).unwrap();
+        assert_eq!(std::fs::read_to_string(&nested).unwrap(), "written\n");
+
+        let outside_write =
+            WriteTextFileRequest::new(SessionId::new("s"), outside_file.clone(), "nope\n");
+        assert!(write_text_file(&workspace, &outside_write).is_err());
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "secret\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn callback_workspace_accepts_the_selected_symlinked_root_alias() {
+        use std::os::unix::fs::symlink;
+
+        let parent = scratch("callbacks-alias");
+        let actual = parent.join("actual");
+        let alias = parent.join("alias");
+        std::fs::create_dir(&actual).unwrap();
+        symlink(&actual, &alias).unwrap();
+        let file = actual.join("inside.txt");
+        std::fs::write(&file, "through alias\n").unwrap();
+
+        let ada = persona(&alias.to_string_lossy(), Vec::new());
+        let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+        let request = ReadTextFileRequest::new(SessionId::new("s"), alias.join("inside.txt"));
+        assert_eq!(
+            read_text_file(&workspace, &request).unwrap(),
+            "through alias\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agents_md_refuses_external_and_dangling_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = scratch("agents-symlink");
+        let outside = scratch("agents-symlink-outside");
+        let outside_file = outside.join("AGENTS.md");
+        std::fs::write(&outside_file, "keep me\n").unwrap();
+        symlink(&outside_file, root.join("AGENTS.md")).unwrap();
+        let ada = persona(&root.to_string_lossy(), Vec::new());
+        assert!(materialize_agents_md(&ada).is_err());
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep me\n");
+
+        std::fs::remove_file(root.join("AGENTS.md")).unwrap();
+        let missing = outside.join("created-by-dangling-link.md");
+        symlink(&missing, root.join("AGENTS.md")).unwrap();
+        assert!(materialize_agents_md(&ada).is_err());
+        assert!(!missing.exists());
+    }
+
+    /// `session.set_model` and `session.set_mode` are two commands, and the
+    /// wire answers each socket's on its own task. Both read the connection
+    /// and the session; taking those two locks in opposite orders wedges both
+    /// threads for good — no timeout, no error, and every later call on this
+    /// driver queued behind them.
+    #[tokio::test]
+    async fn setting_a_config_and_a_mode_at_once_does_not_wedge_the_driver() {
+        let held = room("lock-order-room");
+        let driver = Arc::new(ChildAgent::new(
+            scratch("lock-order"),
+            "cursor".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        ));
+        let finished = Arc::new(AtomicUsize::new(0));
+        const ROUNDS: usize = 50_000;
+
+        for worker in 0..2 {
+            let driver = driver.clone();
+            let finished = finished.clone();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("a runtime for this worker");
+                runtime.block_on(async {
+                    for _ in 0..ROUNDS {
+                        let _ = match worker {
+                            0 => driver.set_config("config", "value").await,
+                            _ => driver.set_mode("mode").await,
+                        };
+                    }
+                });
+                finished.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        for _ in 0..600 {
+            if finished.load(Ordering::SeqCst) == 2 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the driver stopped answering: two callers are holding each other's lock");
+    }
+}

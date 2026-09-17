@@ -11,14 +11,14 @@ import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./Teammate";
 
-/** Toad Agent's stored backend id. Any other id is an ACP harness. */
-const TOAD_AGENT = "toad";
+/** Hotline Agent's stored backend id. Any other id is an ACP harness. */
+const HOTLINE_AGENT = "hotline";
 
 /**
  * Creating a teammate: the things the person decides, and nothing else.
  *
  * A teammate is an identity (`goal`), a workspace (`cwd`), a harness
- * (`backendId`) and — for Toad Agent only — a disposition (`modelId`) under
+ * (`backendId`) and — for Hotline Agent only — a disposition (`modelId`) under
  * a name. The harness defaults to the room's `defaultBackendId`. An ACP
  * harness brings its own models once the session is up, so that field is
  * not asked here. The access choices people most often decide up front —
@@ -109,7 +109,7 @@ export function NewTeammateForm({
 		(available(defaultBackendId)
 			? defaultBackendId
 			: (backends.find((one) => one.unavailable === undefined)?.id ?? ""));
-	const onToad = backendId === TOAD_AGENT || backendId === "";
+	const onHotline = backendId === HOTLINE_AGENT || backendId === "";
 
 	const submit = async () => {
 		const trimmed = name.trim();
@@ -120,8 +120,8 @@ export function NewTeammateForm({
 		if (goal.trim()) draft.goal = goal.trim();
 		if (cwd.trim()) draft.cwd = cwd.trim();
 		if (backendId) draft.backendId = backendId;
-		if (onToad && modelId) draft.modelId = modelId;
-		if (onToad && machine) draft.reach = "machine";
+		if (onHotline && modelId) draft.modelId = modelId;
+		if (onHotline && machine) draft.reach = "machine";
 		if (backgroundWork) draft.backgroundWork = true;
 		if (computerReady && computer) draft.computer = { enabled: true };
 		try {
@@ -190,13 +190,13 @@ export function NewTeammateForm({
 						labelledBy="new-backend"
 						onSelect={setPicked}
 					/>
-					{!onToad && (
-						<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Toad's shell sandbox does not confine it.</p>
+					{!onHotline && (
+						<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Hotline's shell sandbox does not confine it.</p>
 					)}
 				</div>
 			)}
 
-			{onToad && (
+			{onHotline && (
 				<div>
 					<p className="label" id="new-model">
 						Model
@@ -215,7 +215,7 @@ export function NewTeammateForm({
 			<div>
 				<p className="label">Access</p>
 				<div className="grouped">
-					{onToad && (
+					{onHotline && (
 						<SwitchRow
 							title="Whole machine"
 							about={MACHINE_ABOUT}

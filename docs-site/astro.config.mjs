@@ -3,18 +3,18 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-	site: 'https://toad.team',
+	site: 'https://hotline.dev',
 	base: '/docs',
 	outDir: '../site/public/docs',
 	integrations: [
 		starlight({
-			title: 'Toad',
+			title: 'Hotline',
 			description: 'A local-first room for your team of agents. Open source, self-hosted, on your machine.',
-			logo: { src: './src/assets/toad-mark.svg', alt: 'Toad' },
+			logo: { src: './src/assets/hotline-mark.svg', alt: 'Hotline' },
 			favicon: '/favicon.svg',
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/1Broseidon/toad' }],
-			editLink: { baseUrl: 'https://github.com/1Broseidon/toad/edit/main/docs-site/' },
-			customCss: ['./src/styles/toad.css'],
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/1Broseidon/hotline' }],
+			editLink: { baseUrl: 'https://github.com/1Broseidon/hotline/edit/main/docs-site/' },
+			customCss: ['./src/styles/hotline.css'],
 			head: [
 				{ tag: 'link', attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' } },
 				{ tag: 'link', attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true } },
@@ -51,7 +51,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Keyboard shortcuts', slug: 'reference/shortcuts' },
 						{ label: 'Data and privacy', slug: 'reference/data' },
-						{ label: 'Import a previous Toad', slug: 'reference/import' },
+						{ label: 'Import a previous edition', slug: 'reference/import' },
 					],
 				},
 			],

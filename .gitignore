@@ -1,13 +1,15 @@
 target/
 node_modules/
 dist/
-.toad-dev/
+.hotline-dev/
 .brainfile/
 .claude/
-crates/toad-desktop/gen/
+crates/hotline-app/gen/
 .hallmark/
 
-# Private updater signing backup; never a release asset.
+# Private updater signing backup; never a release asset. The Toad-era spelling
+# stays ignored too, so a checkout that still holds one cannot commit the key.
+.hotline-release-signing/
 .toad-release-signing/
 __pycache__/
 

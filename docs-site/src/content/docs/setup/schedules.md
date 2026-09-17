@@ -34,8 +34,8 @@ Turn on **Background work** in the teammate's pane. The teammate then has
 say "check the build again in 20 minutes" and mean it. Turning it off pauses
 the jobs it made without deleting them; turning it on wakes them.
 
-## While Toad is closed
+## While Hotline is closed
 
-Nothing fires while Toad is not running. A tick missed while Toad was closed
+Nothing fires while Hotline is not running. A tick missed while Hotline was closed
 fires once on reopen, not once per missed interval. Closing the window does
-not close Toad; quitting from the tray does.
+not close Hotline; quitting from the tray does.

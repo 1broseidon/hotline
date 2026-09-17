@@ -6,7 +6,7 @@ import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon, SearchIcon } from "
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { windowTitle } from "../notify";
 import type { RosterEntry } from "../wire";
-import { ToadMark } from "./ToadMark";
+import { HotlineMark } from "./HotlineMark";
 
 /**
  * The window's top strip, on every platform: the well itself, with the
@@ -49,7 +49,7 @@ export function Titlebar({
 	return (
 		<header className="titlebar">
 			<div data-tauri-drag-region className="titlebar-drag" onDoubleClick={() => void toggleMaximize()} />
-			<ToadMark className="titlebar-mark" width={18} />
+			<HotlineMark className="titlebar-mark" width={18} />
 			<p className="titlebar-title">{windowTitle(selected?.persona.name ?? null)}</p>
 			<div className="titlebar-tools">
 				{selected !== null && <SessionPickers key={selected.persona.id} entry={selected} models={models} onSaid={onSaid} />}

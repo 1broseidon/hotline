@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { appVersion, cancelUpdate, checkUpdate, installUpdate, openLink, updateStatus, watchUpdates, type UpdateStatus } from "../native";
 import { Refusal } from "../ui/Refusal";
 
-const RELEASES = "https://github.com/1Broseidon/toad/releases/latest";
+const RELEASES = "https://github.com/1Broseidon/hotline/releases/latest";
 const describe = (error: unknown) => error instanceof Error ? error.message : String(error);
 const mb = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
@@ -32,7 +32,7 @@ export function UpdatesSection() {
 
 	return (
 		<section aria-label="Application updates">
-			<h3 className="group-title">Toad {status?.current || appVersion()}</h3>
+			<h3 className="group-title">Hotline {status?.current || appVersion()}</h3>
 			<div className="grouped">
 				<div className="group-row">
 					<div className="group-row-text">
@@ -50,12 +50,12 @@ export function UpdatesSection() {
 				{available && (
 					<div className="flex flex-col gap-4 px-4 py-4">
 						{available.notes && <div className="whitespace-pre-wrap text-sm text-ink-2" aria-label="Release notes">{available.notes}</div>}
-						<button type="button" className="text-left text-sm text-accent hover:underline" onClick={() => void openLink(`https://github.com/1Broseidon/toad/releases/tag/desktop-v${encodeURIComponent(available.version)}`)}>Full release notes ↗</button>
+						<button type="button" className="text-left text-sm text-accent hover:underline" onClick={() => void openLink(`https://github.com/1Broseidon/hotline/releases/tag/desktop-v${encodeURIComponent(available.version)}`)}>Full release notes ↗</button>
 						{downloading && <div className="flex flex-col gap-2">
 							<progress className="w-full accent-[var(--accent)]" aria-label="Update download" max={status?.total ?? undefined} value={status?.total ? status.downloaded : undefined} />
 							<p className="text-sm text-ink-2" role="status">Downloading {mb(status?.downloaded ?? 0)}{status?.total ? ` of ${mb(status.total)}` : ""}…</p>
 						</div>}
-						{installing && <p className="text-sm text-ink-2" role="status">{phase === "restarting" ? "Restarting Toad…" : "Installing… Complete any system permission prompt to continue."}</p>}
+						{installing && <p className="text-sm text-ink-2" role="status">{phase === "restarting" ? "Restarting Hotline…" : "Installing… Complete any system permission prompt to continue."}</p>}
 						<p className="text-sm text-ink-3">Teammates must finish their work before updating. Conversations, settings, and providers are kept.</p>
 						<div className="flex items-center gap-2">
 							<button type="button" className="control btn-primary" disabled={busy || !!status?.disabledReason} onClick={() => void run(() => installUpdate(available.version))}>

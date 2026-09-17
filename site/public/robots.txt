@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
-Sitemap: https://toad.team/sitemap.xml
-Sitemap: https://toad.team/docs/sitemap-index.xml
+Sitemap: https://hotline.dev/sitemap.xml
+Sitemap: https://hotline.dev/docs/sitemap-index.xml

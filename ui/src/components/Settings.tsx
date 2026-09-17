@@ -228,7 +228,7 @@ function GeneralSection({
 				<div className="grouped">
 					<div className="group-row">
 						<span className="group-row-text">
-							<span className="group-row-title">Toad Agent starts on</span>
+							<span className="group-row-title">Hotline Agent starts on</span>
 						</span>
 						<Picker
 							value={defaultModelId ?? ""}
@@ -534,7 +534,7 @@ function ComputerSection({
 					</div>
 				</div>
 				<p className="group-hint">
-					Newest creates new computers on the latest toad-computer release, checked every six hours
+					Newest creates new computers on the latest hotline-computer release, checked every six hours
 					{releases !== null ? ` (never below ${releases.floor})` : ""}. A picked release or a custom image pins one; a pinned computer is never offered an update.
 				</p>
 			</section>
@@ -655,7 +655,7 @@ function ProvidersSection({
 							<h3 className="group-title">Add provider</h3>
 							<div className="grouped">
 								{addable.length === 0 ? (
-									<p className="group-row text-sm text-ink-3">Every provider Toad knows is already here.</p>
+									<p className="group-row text-sm text-ink-3">Every provider Hotline knows is already here.</p>
 								) : (
 									addable.map((provider) => (
 										<ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />
@@ -693,7 +693,7 @@ function ProvidersSection({
 							{held === null ? (
 								<p className="group-row text-sm text-ink-3">Reading…</p>
 							) : connected.length === 0 ? (
-								<p className="group-row text-sm text-ink-3">No providers yet. Toad Agent needs one to run a model.</p>
+								<p className="group-row text-sm text-ink-3">No providers yet. Hotline Agent needs one to run a model.</p>
 							) : (
 								connected.map((one) => (
 									<button
@@ -1605,7 +1605,7 @@ function httpFromDraft(name: string, url: string, draft: ServerDraft, previous?:
 }
 
 function ImportSection({ onRefuse }: { onRefuse(message: string | null): void }) {
-	const [from, setFrom] = useState(previousToadDir);
+	const [from, setFrom] = useState(previousEditionDir);
 	const [report, setReport] = useState<Report | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -1627,7 +1627,7 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 	return (
 		<>
 			<section>
-				<h3 className="group-title">Bring over a previous Toad</h3>
+				<h3 className="group-title">Bring over a previous edition</h3>
 				<div className="grouped">
 					<div className="group-row flex-col items-stretch gap-1.5">
 						<label className="label mb-0" htmlFor="import-from">
@@ -1642,7 +1642,7 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 					</div>
 				</div>
 				<p className="group-hint">
-					Copies teammates, conversations, schedules, settings and keys. The previous Toad is left as it is.
+					Copies teammates, conversations, schedules, settings and keys from an earlier edition of this app, which kept its data under the name Toad. The source is left as it is.
 				</p>
 			</section>
 			{report !== null && (
@@ -1690,12 +1690,12 @@ function count(n: number, noun: string): string {
 }
 
 /**
- * Where the previous Toad keeps its data. The window does not know `$HOME`,
+ * Where an earlier edition keeps its data, under the name Toad. The window does not know `$HOME`,
  * so this is the path that edition uses, written the way a person would type
  * it. The core receives the string as typed.
  */
-function previousToadDir(): string {
-	const here = window.__toadDesk?.platform ?? "linux";
+function previousEditionDir(): string {
+	const here = window.__hotlineDesk?.platform ?? "linux";
 	if (here === "macos") return "~/Library/Application Support/Toad";
 	if (here === "windows") return "~/AppData/Roaming/Toad";
 	return "~/.local/share/toad";

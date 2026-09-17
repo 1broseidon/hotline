@@ -50,8 +50,8 @@ export function Rail({
 	 * there is no menu bar, and a page nobody can reach is not a page. */
 	const help: MenuEntry[] = [
 		{ kind: "item", id: "shortcuts", text: "Keyboard shortcuts", onSelect: () => onHelp("shortcuts") },
-		{ kind: "item", id: "about", text: "About Toad", onSelect: () => onHelp("about") },
-		{ kind: "item", id: "github", text: "Toad on GitHub", onSelect: () => onHelp("github") },
+		{ kind: "item", id: "about", text: "About Hotline", onSelect: () => onHelp("about") },
+		{ kind: "item", id: "github", text: "Hotline on GitHub", onSelect: () => onHelp("github") },
 	];
 	return (
 		<nav aria-label="Team" className="rail flex flex-col">

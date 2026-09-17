@@ -2,21 +2,21 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import type { BackendChoice } from "../generated/contract";
 import { ChevronDownIcon, ChevronRightIcon } from "../icons";
 
-/** Toad Agent's stored backend id. The picker puts this row first even if
+/** Hotline Agent's stored backend id. The picker puts this row first even if
  *  the caller hands the array in another order. */
-const TOAD_AGENT = "toad";
+const HOTLINE_AGENT = "hotline";
 
 /**
- * The harnesses shown above the fold, beside Toad Agent: the ones with a
+ * The harnesses shown above the fold, beside Hotline Agent: the ones with a
  * flagship model of their own, so choosing one is choosing a lab. The
  * rest of the catalogue is mostly multi-provider harnesses, which would
- * only compete with Toad Agent for the same keys, so they wait behind
+ * only compete with Hotline Agent for the same keys, so they wait behind
  * the disclosure — still there, still startable.
  */
 const FEATURED = new Set(["claude-acp", "codex-acp", "cursor", "grok-build"]);
 
 /**
- * Toad Agent first, then the featured harnesses by name, each greyed with
+ * Hotline Agent first, then the featured harnesses by name, each greyed with
  * the sentence that names what is missing when this machine cannot start
  * it. Everything else sits behind a disclosure, the startable ones first.
  *
@@ -116,12 +116,12 @@ export function BackendPicker({
 
 function arrange(backends: BackendChoice[]): { ready: BackendChoice[]; more: BackendChoice[] } {
 	const byName = (a: BackendChoice, b: BackendChoice) => a.name.localeCompare(b.name);
-	const toad = backends.filter((one) => one.id === TOAD_AGENT);
+	const hotline = backends.filter((one) => one.id === HOTLINE_AGENT);
 	const featured = backends.filter((one) => FEATURED.has(one.id)).sort(byName);
-	const rest = backends.filter((one) => one.id !== TOAD_AGENT && !FEATURED.has(one.id));
+	const rest = backends.filter((one) => one.id !== HOTLINE_AGENT && !FEATURED.has(one.id));
 	const startable = rest.filter((one) => one.unavailable === undefined).sort(byName);
 	const missing = rest.filter((one) => one.unavailable !== undefined).sort(byName);
-	return { ready: [...toad, ...featured], more: [...startable, ...missing] };
+	return { ready: [...hotline, ...featured], more: [...startable, ...missing] };
 }
 
 function Choice({

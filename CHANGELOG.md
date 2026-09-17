@@ -1,11 +1,21 @@
 # Changelog
 
-All notable changes to the Toad desk are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/). A tag `desktop-vX.Y.Z` on this
-repository is what builds and publishes a release.
+All notable changes to the Hotline desk are recorded here. Entries before
+0.14.0 were written when the app was called Toad and are left as they were.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
+versions follow [Semantic Versioning](https://semver.org/). A tag
+`desktop-vX.Y.Z` on this repository is what builds and publishes a release.
 
 ## [Unreleased]
+
+### Changed
+
+- Toad is now Hotline. The crates are `hotline-core` and `hotline-app`, the app is `Hotline`, its bundle identifier `dev.hotline.app`, its data directory `Hotline` (`~/.local/share/hotline` on Linux), its keychain service `dev.hotline.credentials` and its environment `HOTLINE_*`. The agent-facing names move with it: the built-in agent is `hotline`, the tools are `hotline_*`, the skills `hotline-room` and `hotline-computer`, the marker `.managed-by-hotline`, the shell `hotline-shell`. Computers, their volumes and the image are `hotline-computer`, `hotline-home-*`, `hotline-src-*`, `hotline-nix-glibc` and `ghcr.io/1broseidon/hotline-computer`. Nothing carries over from a Toad install: the room, the keys and a paired phone are all addressed by names that changed, so 0.14.0 starts clean. A 0.13.x room is the same layout under a different directory name, so moving it is a rename — `~/.local/share/toad` to `~/.local/share/hotline` — with the provider keys entered again, because the keychain service moved too.
+- The manual-pairing domain string is `hotline-manual-pair-v1` and its vectors are repinned, so a phone still speaking the Toad string cannot pair until it is updated.
+
+### Fixed
+
+- The window's generated contract is whole again. It was written by a filtered test run in 0.13.1 and kept only the pairing types, which left every other type the window imports undeclared.
 
 ## [0.13.1] - 2026-09-17
 

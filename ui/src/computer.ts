@@ -5,7 +5,7 @@ import { wire } from "./wire";
 
 /**
  * A teammate's desktop, seen from the window. The container serves a
- * viewer on loopback while it runs; Toad shows it in a window of its own
+ * viewer on loopback while it runs; Hotline shows it in a window of its own
  * rather than the person's browser, so the screen sits beside the room
  * and a second press finds the window already open instead of opening
  * another. Asking after the desktop never wakes it — a pane that peeks

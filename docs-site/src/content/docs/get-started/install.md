@@ -1,9 +1,9 @@
 ---
 title: Install
-description: Download Toad for macOS, Windows or Linux, and what each platform needs.
+description: Download Hotline for macOS, Windows or Linux, and what each platform needs.
 ---
 
-Every build is on the [latest GitHub release](https://github.com/1Broseidon/toad/releases/latest).
+Every build is on the [latest GitHub release](https://github.com/1Broseidon/hotline/releases/latest).
 Pick the file for your machine:
 
 | Platform | File |
@@ -15,8 +15,8 @@ Pick the file for your machine:
 
 ## macOS
 
-Open the disk image and drag Toad to Applications. Builds are signed and
-notarized. The menu bar is Toad's own: **Toad → Settings**, **Help → Keyboard
+Open the disk image and drag Hotline to Applications. Builds are signed and
+notarized. The menu bar is Hotline's own: **Hotline → Settings**, **Help → Keyboard
 shortcuts**, and a Quit that actually quits.
 
 ## Windows
@@ -38,12 +38,12 @@ sudo apt install libayatana-appindicator3-1
 sudo dnf install libayatana-appindicator-gtk3
 ```
 
-Toad draws its own window frame on Linux and Windows.
+Hotline draws its own window frame on Linux and Windows.
 
 ## Closing the window does not quit
 
 Closing the window hides it. The process, the teammates and their schedules
-keep running. The tray icon brings the window back and is where **Quit Toad**
+keep running. The tray icon brings the window back and is where **Quit Hotline**
 lives. On macOS, clicking the Dock icon also brings the window back.
 
 This is deliberate: a teammate halfway through a build should not die because
@@ -51,7 +51,7 @@ somebody closed a window.
 
 ## Updating
 
-A packaged Toad checks GitHub for a new version every six hours and offers it
+A packaged Hotline checks GitHub for a new version every six hours and offers it
 under **Settings → Updates**. See [Updates](/docs/setup/updates/).
 
 ## Next

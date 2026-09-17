@@ -1,4 +1,4 @@
-# Design — the Toad window
+# Design — the Hotline window
 
 A locked design system for the window in `ui/`. Every screen reads this
 file before it is drawn; a screen that drifts from it is a bug, and the
@@ -29,11 +29,11 @@ One family, **Workbench**, for every screen:
   the window is one more pane on the desk; maximised, it is square. macOS
   keeps its traffic lights in the left corner, on the strip's centre
   line, and the strip leaves room for them.
-- The **mark** is one shape in one colour, `ui/src/ui/ToadMark.tsx`. In
+- The **mark** is one shape in one colour, `ui/src/ui/HotlineMark.tsx`. In
   chrome it is ink-3, the colour of a reading, never the accent: the
   accent is for what is happening, and the mark is furniture. The app
   tile is the same drawing in the accent on a dark rounded square
-  (`assets/toad-tile.svg`).
+  (`assets/hotline-tile.svg`).
 - The **well** is the window's ground. The rail stands directly in it.
 - A **pane** is a rounded canvas set 8px into the well with one hairline
   at its edge and a 1px light along its top: the conversation, the
@@ -233,4 +233,4 @@ there is one, and never in the row.
 ## Log
 
 - 2026-09-02 LOCKED. Hue lane 250, accent kept green, Plex bundled, dark
-  first with light re-valued. Ancestor: the previous Toad's `tokens.css`.
+  first with light re-valued. Ancestor: the previous edition's `tokens.css`.

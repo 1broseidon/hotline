@@ -1,10 +1,10 @@
 import { WarningIcon } from "../icons";
 
 function errorDetails(text: string): { title: string; summary: string; details: string; context?: string } {
-    const start = text.indexOf('{"toadFailure":');
+    const start = text.indexOf('{"hotlineFailure":');
     if (start !== -1) {
         try {
-            const { toadFailure: failure } = JSON.parse(text.slice(start));
+            const { hotlineFailure: failure } = JSON.parse(text.slice(start));
             if (typeof failure?.title === "string" && typeof failure?.summary === "string" && typeof failure?.details === "string") {
                 const context = [
                     typeof failure.status === "number" ? `HTTP ${failure.status}` : null,

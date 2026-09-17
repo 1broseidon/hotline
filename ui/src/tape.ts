@@ -46,7 +46,7 @@ export function useTape(personaId: string): { events: TranscriptEvent[]; streami
 			},
 			event: (item) => {
 				setEvents((known) => merge(known, item));
-				// The durable line has landed, so the bubble Toad was drawing
+				// The durable line has landed, so the bubble Hotline was drawing
 				// for it is no longer the best thing it has; what it was
 				// drawing after that bubble stays until its own line lands.
 				setStreaming((live) => settle(live, item));

@@ -2,7 +2,7 @@
 
 Everything the room remembers is an event on a stream. A stream is an
 append-only JSONL file — one event per line — folded by `id` when it is
-read. `Log` in `crates/toad-core/src/log/` is the only door to every
+read. `Log` in `crates/hotline-core/src/log/` is the only door to every
 stream, and the only writer. Append and compact share one lock for the
 whole log, because both are read-then-write: an append measures the file
 to say where its bytes landed, and two of those at once would be told an
@@ -57,10 +57,10 @@ A reader never moves a flat file. The first write relocates it into
 `1.jsonl` by rename and keeps its bytes. A writer that finds both the
 flat file and `1.jsonl` refuses rather than guessing which is the tape.
 
-This layout is the previous Toad's, spelled the same way on purpose. The
+This layout is the previous edition's, spelled the same way on purpose. The
 workspace enables `serde_json`'s `preserve_order` so a line read and
 written back keeps the key order it was written with. Tests pin a tape
-this writes as byte-for-byte the file that Toad's `transcript.ts` writer
+this writes as byte-for-byte the file that Hotline's `transcript.ts` writer
 produced for the same events, including after compact. Importing a data
 directory copies tapes unchanged, and copies every thread those tapes
 name whose key still has a teammate in this room.
@@ -82,7 +82,7 @@ spell itself the same way again — unsorted, three-sided, or an id holding
 
 Beside the stream sits a JSON sidecar, `threads/<key>.json`. It is not
 events: it is a record of who is in the room, rewritten in place through
-a temporary file. The bytes the tests pin against the previous Toad are
+a temporary file. The bytes the tests pin against the previous edition are
 `version` 1, the two ids (`a`, `b`), `sides`, `sessions`, `createdAt`,
 `updatedAt`, and optional `labels`. The file is read as free-form JSON so
 a field a newer build added is not dropped on the next label write. A
@@ -104,13 +104,13 @@ sidecar. No sidecar, no invented one.
 `room.jsonl` holds the roster, the settings, the jobs that will wake a
 teammate later, and the fact of each credential. One file, no epochs. The
 folds are `room::roster`, `room::settings` and `room::schedules` in
-`crates/toad-core/src/room.rs`; the vault writes the credential events.
+`crates/hotline-core/src/room.rs`; the vault writes the credential events.
 `kind` is the first key on every line this tree writes, because that is
 the field a fold discriminates on and the one a reader of the raw file
 looks for first.
 
-A setting nobody has set is the default: `defaultBackendId` is `"toad"`
-(Toad Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
+A setting nobody has set is the default: `defaultBackendId` is `"hotline"`
+(Hotline Agent), `chapterIdleHours` is `8`, and `mcpServers` is an empty
 list.
 
 ### `persona`
@@ -192,7 +192,7 @@ A loop carries `every` (milliseconds) instead of `when`. `quiet` is stored
 only when true. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
 The clock that fires these is [sessions.md](sessions.md).
 
-Import reads the previous Toad's `schedules.json` and appends each job
+Import reads the previous edition's `schedules.json` and appends each job
 for a teammate in this room as a `schedule` event, the same shape
 `schedule.create` writes. That file's `everyMs` is this event's `every`;
 a one-shot that never carried `when` uses `nextAt` for both. A job
@@ -208,13 +208,13 @@ superseded with `decision: "expired"`;
 a `human_action` card still `pending` is the same fact and is superseded
 with `status: "expired"`. Then the tape is compacted and the search index
 is synced, because the fold just rewrote files and a tape written by the
-importer or the previous Toad has never been indexed here at all. The idle
+importer or the previous edition has never been indexed here at all. The idle
 chapter sweep and the scheduler's clock start on the same open; those are
 [sessions.md](sessions.md).
 
 ## The vault
 
-Toad-owned provider keys, OpenRouter/Grok logins and MCP credentials use
+Hotline-owned provider keys, OpenRouter/Grok logins and MCP credentials use
 macOS Keychain, Windows Credential Manager or Linux Secret Service through
 `keyring`. Vault files hold versioned, opaque references and integrity digests,
 not their secret values. Each reference is bound to its exact data-root path
@@ -253,7 +253,7 @@ credential for each provider and surfaces unavailable storage as a connection
 error. Model lists and manual model IDs remain ordinary non-secret vault data.
 
 Linux needs a session D-Bus and an unlocked Secret Service, such as GNOME
-Keyring or KWallet. Copying the Toad data directory alone does not transfer
+Keyring or KWallet. Copying the Hotline data directory alone does not transfer
 native-store credentials: reconnect providers and tool sources on the new
 machine or data-root path. The store does not grant agents access to unrelated
 credentials; future credential-sharing grants remain a separate feature.

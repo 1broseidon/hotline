@@ -38,6 +38,16 @@ update.
   limits, a sized `/dev/shm`, and the one port published on loopback.
 - The workspace is mounted at `/home/agent/workspace`.
 
+A paired phone reaches the same viewer socket through a door on the Remote
+listener, `GET /computer/<personaId>/ws` with the phone's own bearer. The
+desk checks the grant and that the computer is running, then carries bytes
+between the phone and the container's `/ws` on loopback, presenting the
+bearer it holds. Frames pass to the phone as they are; what the phone sends
+passes to the computer as it is, text only. The phone never learns the
+port or the token, a phone can name a teammate and nothing else, and
+revoking the device drops the pipe. The route is refused while the
+computer is stopped; waking it stays the session's business.
+
 ## Lifecycle
 
 Wake is on session start: `ensure_running` pulls the image when absent, creates

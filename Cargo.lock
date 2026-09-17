@@ -3873,6 +3873,84 @@ dependencies = [
 ]
 
 [[package]]
+name = "hotline-app"
+version = "0.13.1"
+dependencies = [
+ "block2",
+ "hotline-core",
+ "objc2",
+ "objc2-foundation",
+ "objc2-user-notifications",
+ "rand 0.9.5",
+ "semver",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-updater",
+ "tauri-plugin-window-state",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "hotline-core"
+version = "0.13.1"
+dependencies = [
+ "agent-client-protocol",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "cap-std",
+ "chrono",
+ "curve25519-dalek",
+ "futures-util",
+ "gethostname",
+ "getrandom 0.3.4",
+ "globset",
+ "grep-regex",
+ "grep-searcher",
+ "hex",
+ "hmac",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "iana-time-zone",
+ "if-addrs",
+ "ignore",
+ "image",
+ "keyring",
+ "libc",
+ "oauth2",
+ "qrcode",
+ "rcgen",
+ "reqwest 0.13.4",
+ "rig",
+ "rmcp",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "socket2",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite 0.30.0",
+ "tokio-util",
+ "ts-rs",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9446,84 +9524,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "toad-core"
-version = "0.13.1"
-dependencies = [
- "agent-client-protocol",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "bytes",
- "cap-std",
- "chrono",
- "curve25519-dalek",
- "futures-util",
- "gethostname",
- "getrandom 0.3.4",
- "globset",
- "grep-regex",
- "grep-searcher",
- "hex",
- "hmac",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "iana-time-zone",
- "if-addrs",
- "ignore",
- "image",
- "keyring",
- "libc",
- "oauth2",
- "qrcode",
- "rcgen",
- "reqwest 0.13.4",
- "rig",
- "rmcp",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "socket2",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "tokio-tungstenite 0.30.0",
- "tokio-util",
- "ts-rs",
- "url",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "toad-desktop"
-version = "0.13.1"
-dependencies = [
- "block2",
- "objc2",
- "objc2-foundation",
- "objc2-user-notifications",
- "rand 0.9.5",
- "semver",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-updater",
- "tauri-plugin-window-state",
- "tempfile",
- "toad-core",
- "tokio",
- "tokio-util",
-]
 
 [[package]]
 name = "tokenizers"

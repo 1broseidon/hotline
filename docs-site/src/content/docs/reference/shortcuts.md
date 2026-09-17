@@ -1,6 +1,6 @@
 ---
 title: Keyboard shortcuts
-description: Every chord the Toad window hears.
+description: Every chord the Hotline window hears.
 ---
 
 The chord key is <kbd>⌘</kbd> on a Mac and <kbd>Ctrl</kbd> everywhere else.

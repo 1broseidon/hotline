@@ -134,7 +134,7 @@ export function Welcome({ models, onCreated }: { models: ConfigChoice[]; onCreat
 											))
 										)}
 									</div>
-									<p className="group-hint">Toad Agent runs on these. Keys stay in your OS credential store.</p>
+									<p className="group-hint">Hotline Agent runs on these. Keys stay in your OS credential store.</p>
 								</section>
 								{state !== null && state.harnesses.length > 0 && (
 									<section>

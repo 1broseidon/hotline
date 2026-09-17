@@ -1,4 +1,4 @@
-// Shared with Toad Mobile: the phone copies this file with `npm run sync:contract`.
+// Shared with Hotline Mobile: the phone copies this file with `npm run sync:contract`.
 /**
  * How streaming text is shown: not a growing blob, but complete lines, each
  * fading down into place as it finishes. A half-typed line is never drawn.

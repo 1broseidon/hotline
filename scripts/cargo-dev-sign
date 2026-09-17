@@ -14,7 +14,7 @@ cargo would launch the binary before anyone could sign it. So `run` becomes
 artifact with the app args, which keeps the PID Tauri watches. Everything else
 passes through to cargo unchanged.
 
-Set TOAD_DEV_SIGN_IDENTITY to choose the certificate; otherwise the first
+Set HOTLINE_DEV_SIGN_IDENTITY to choose the certificate; otherwise the first
 "Apple Development" identity in the keychain is used, and with none at all
 the binary stays unsigned as before.
 """
@@ -25,11 +25,11 @@ import re
 import subprocess
 import sys
 
-IDENTIFIER = "team.toad.desktop.dev"
+IDENTIFIER = "dev.hotline.app.dev"
 
 
 def identity():
-    chosen = os.environ.get("TOAD_DEV_SIGN_IDENTITY")
+    chosen = os.environ.get("HOTLINE_DEV_SIGN_IDENTITY")
     if chosen:
         return chosen
     listing = subprocess.run(

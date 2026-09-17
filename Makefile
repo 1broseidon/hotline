@@ -1,6 +1,6 @@
 # The development instance runs on a data directory inside the checkout, so
 # nothing done in it can reach real data.
-dev: export TOAD_DATA_DIR := $(CURDIR)/.toad-dev
+dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
 .PHONY: check ui-check dev build verify icons tray-icons
 
@@ -25,12 +25,12 @@ ifeq ($(shell uname -s),Darwin)
 dev: DEV_RUNNER := --runner $(CURDIR)/scripts/cargo-dev-sign
 endif
 dev:
-	cd crates/toad-desktop && cargo tauri dev $(DEV_RUNNER)
+	cd crates/hotline-app && cargo tauri dev $(DEV_RUNNER)
 
 # A release: the window built by Vite, the shell by cargo, bundled by the
 # Tauri CLI into target/release/bundle (AppImage, deb and rpm on Linux).
 build:
-	cd crates/toad-desktop && cargo tauri build
+	cd crates/hotline-app && cargo tauri build
 
 # The headless harnesses drive the real core over the wire; Phase 0 adds the first.
 verify:
@@ -43,11 +43,11 @@ verify:
 # accent is the tile's, spelled here because rsvg reads no currentColor from
 # the page.
 icons: tray-icons
-	cd crates/toad-desktop && cargo tauri icon ../../assets/toad-tile.svg -o icons && rm -rf icons/android icons/ios
+	cd crates/hotline-app && cargo tauri icon ../../assets/hotline-tile.svg -o icons && rm -rf icons/android icons/ios
 
 tray-icons:
-	sed 's/currentColor/#6bcb62/' assets/toad-mark.svg | rsvg-convert -w 32 -h 32 -o crates/toad-desktop/icons/tray.png -
-	sed 's/currentColor/#000000/' assets/toad-mark.svg | rsvg-convert -w 44 -h 44 -o crates/toad-desktop/icons/tray-template.png -
+	sed 's/currentColor/#6bcb62/' assets/hotline-mark.svg | rsvg-convert -w 32 -h 32 -o crates/hotline-app/icons/tray.png -
+	sed 's/currentColor/#000000/' assets/hotline-mark.svg | rsvg-convert -w 44 -h 44 -o crates/hotline-app/icons/tray-template.png -
 
 ## The website: the landing page in site/ with the docs built under it at /docs.
 .PHONY: site site-deploy

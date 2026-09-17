@@ -1,4 +1,4 @@
-# Where ts-rs writes the TypeScript it generates from `toad_core::contract`,
+# Where ts-rs writes the TypeScript it generates from `hotline_core::contract`,
 # and how it spells a 64-bit integer.
 #
 # The window reads `ui/src/generated`. And ts-rs spells `i64` as `bigint` by

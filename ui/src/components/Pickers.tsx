@@ -4,8 +4,8 @@ import { useRoomSettings } from "../room";
 import { Picker } from "../ui/Menu";
 import { wire, type RosterEntry } from "../wire";
 
-/** Toad Agent's stored backend id. Any other id is an ACP harness. */
-const TOAD_AGENT = "toad";
+/** Hotline Agent's stored backend id. Any other id is an ACP harness. */
+const HOTLINE_AGENT = "hotline";
 
 /**
  * The open teammate's model and effort, on the window's top strip. They
@@ -32,10 +32,10 @@ export function SessionPickers({
 	const { defaultModelId, lastModelId } = useRoomSettings();
 	const [idleEfforts, setIdleEfforts] = useState<EffortChoices>({ choices: [] });
 
-	const toad = persona.backendId === TOAD_AGENT;
-	const modelChoices = session.models.length > 0 ? session.models : toad ? models : [];
+	const hotline = persona.backendId === HOTLINE_AGENT;
+	const modelChoices = session.models.length > 0 ? session.models : hotline ? models : [];
 	// The strip names the model a turn would run on, whether or not a
-	// session is up. For Toad Agent that is the driver's own rule: the
+	// session is up. For Hotline Agent that is the driver's own rule: the
 	// teammate's choice when the list still has it, else the room default,
 	// else the last model used, else the first choice — newest only on a
 	// desk that has never run a model. For a harness it is the last model a
@@ -43,10 +43,10 @@ export function SessionPickers({
 	// the harness's own name stands where the model will.
 	const currentModel =
 		session.currentModelId ??
-		(toad ? toadModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
+		(hotline ? hotlineModel(persona.modelId, defaultModelId, lastModelId, modelChoices) : (persona.modelId ?? ""));
 	const [harnessName, setHarnessName] = useState<string | null>(null);
 	useEffect(() => {
-		if (toad || currentModel !== "") return;
+		if (hotline || currentModel !== "") return;
 		let cancelled = false;
 		void wire.command("backends.list", {}).then(
 			(list) => {
@@ -59,13 +59,13 @@ export function SessionPickers({
 		return () => {
 			cancelled = true;
 		};
-	}, [toad, currentModel, persona.backendId]);
+	}, [hotline, currentModel, persona.backendId]);
 	const restingModel = currentModel !== "" ? currentModel : harnessName;
-	// An idle Toad Agent session carries no configs. The strip derives the
+	// An idle Hotline Agent session carries no configs. The strip derives the
 	// effort picker the same way it derives currentModel: the catalogue
 	// for the model a turn would run on.
 	useEffect(() => {
-		if (!toad || currentModel === "") {
+		if (!hotline || currentModel === "") {
 			setIdleEfforts({ choices: [] });
 			return;
 		}
@@ -81,11 +81,11 @@ export function SessionPickers({
 		return () => {
 			cancelled = true;
 		};
-	}, [toad, currentModel]);
+	}, [hotline, currentModel]);
 	const configs: SessionConfig[] =
 		session.configs.length > 0
 			? session.configs
-			: toad && idleEfforts.choices.length > 0
+			: hotline && idleEfforts.choices.length > 0
 				? [
 						{
 							id: "effort",
@@ -97,7 +97,7 @@ export function SessionPickers({
 						},
 					]
 				: [];
-	const visibleConfigs = toad ? configs : configs.filter((config) => config.category === "effort");
+	const visibleConfigs = hotline ? configs : configs.filter((config) => config.category === "effort");
 
 	return (
 		<>
@@ -143,7 +143,7 @@ export function SessionPickers({
 	);
 }
 
-function toadModel(
+function hotlineModel(
 	chosen: string | undefined,
 	defaultModelId: string | null,
 	lastModelId: string | null,

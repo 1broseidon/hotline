@@ -1,4 +1,4 @@
-# Build the supported packages, sign them with Toad's updater key, then publish
+# Build the supported packages, sign them with Hotline's updater key, then publish
 # one complete GitHub release. Manual runs retain signed workflow artifacts
 # without creating a release or moving latest. Published versions are immutable.
 # The manifest uses explicit installer targets; a missing deb cannot select an AppImage.
@@ -60,7 +60,7 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#desktop-v}"
           cargo="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
-          tauri="$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' crates/toad-desktop/tauri.conf.json)"
+          tauri="$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' crates/hotline-app/tauri.conf.json)"
           if [ "$tag" != "$cargo" ] || [ "$tag" != "$tauri" ]; then
             echo "tag desktop-v$tag, Cargo.toml $cargo, tauri.conf.json $tauri" >&2
             exit 1
@@ -161,7 +161,7 @@ jobs:
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "Missing Toad updater signing key" >&2; exit 1; }
+        run: test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "Missing Hotline updater signing key" >&2; exit 1; }
 
       - uses: tauri-apps/tauri-action@v1
         env:
@@ -169,7 +169,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          projectPath: crates/toad-desktop
+          projectPath: crates/hotline-app
           args: --target ${{ matrix.target }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
           uploadUpdaterJson: false
 
@@ -179,19 +179,19 @@ jobs:
           TARGET: ${{ matrix.target }}
           SUFFIX: ${{ matrix.suffix }}
         run: |
-          version="$(node -p "require('./crates/toad-desktop/tauri.conf.json').version")"
+          version="$(node -p "require('./crates/hotline-app/tauri.conf.json').version")"
           bundle="target/$TARGET/release/bundle"
           mkdir -p out
           take() { cp "$1" "out/$2"; cp "$1.sig" "out/$2.sig"; }
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cp "$bundle"/dmg/*.dmg "out/toad_${version}_${SUFFIX}.dmg"
-            take "$bundle/macos/Toad.app.tar.gz" "toad_${version}_${SUFFIX}.app.tar.gz"
+            cp "$bundle"/dmg/*.dmg "out/hotline_${version}_${SUFFIX}.dmg"
+            take "$bundle/macos/Hotline.app.tar.gz" "hotline_${version}_${SUFFIX}.app.tar.gz"
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            take "$bundle"/nsis/*-setup.exe "toad_${version}_${SUFFIX}-setup.exe"
+            take "$bundle"/nsis/*-setup.exe "hotline_${version}_${SUFFIX}-setup.exe"
           else
-            take "$bundle"/appimage/*.AppImage "toad_${version}_${SUFFIX}.AppImage"
-            take "$bundle"/deb/*.deb "toad_${version}_${SUFFIX}.deb"
-            take "$bundle"/rpm/*.rpm "toad_${version}_${SUFFIX}.rpm"
+            take "$bundle"/appimage/*.AppImage "hotline_${version}_${SUFFIX}.AppImage"
+            take "$bundle"/deb/*.deb "hotline_${version}_${SUFFIX}.deb"
+            take "$bundle"/rpm/*.rpm "hotline_${version}_${SUFFIX}.rpm"
           fi
 
       - uses: actions/upload-artifact@v7
@@ -232,10 +232,10 @@ jobs:
         run: |
           python3 scripts/updater_manifest.py dist --version "${GITHUB_REF_NAME#desktop-v}" --repository "$GITHUB_REPOSITORY" --notes dist/notes.md
           cd dist
-          sha256sum toad_* > checksums.txt
+          sha256sum hotline_* > checksums.txt
       - name: Publish only after all packages and the manifest are uploaded
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber dist/toad_* dist/checksums.txt dist/updater-*.json dist/latest.json
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber dist/hotline_* dist/checksums.txt dist/updater-*.json dist/latest.json
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest --title "$GITHUB_REF_NAME"

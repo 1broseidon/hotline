@@ -299,7 +299,7 @@ export function App() {
 				return;
 			}
 			if (id === "github") {
-				void openLink("https://github.com/1broseidon/toad");
+				void openLink("https://github.com/1broseidon/hotline");
 				return;
 			}
 			if (id.startsWith("teammate-")) {
@@ -366,7 +366,7 @@ export function App() {
 				}}
 				onDelete={(id, name) => void removeTeammate(id, name)}
 				onHelp={(id) => {
-					if (id === "github") void openLink("https://github.com/1broseidon/toad");
+					if (id === "github") void openLink("https://github.com/1broseidon/hotline");
 					else togglePane(id);
 				}}
 			/>
@@ -463,7 +463,7 @@ function takeChord(): boolean {
 
 /** The open teammate survives a reload, which is what makes the tape
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
-const SELECTED_KEY = "toad.rail.selected";
+const SELECTED_KEY = "hotline.rail.selected";
 
 function loadSelected(): string | null {
 	try {
@@ -485,7 +485,7 @@ function saveSelected(id: string | null): void {
 
 /** Where this window last stood in each tape. Private mode or a full disk
  * just means every teammate looks unread until you open them again. */
-const SEEN_KEY = "toad.rail.seen";
+const SEEN_KEY = "hotline.rail.seen";
 
 function loadSeen(): Record<string, number> {
 	try {

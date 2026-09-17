@@ -14,12 +14,12 @@ of proofs.
 
 A teammate does ordinary assistant work on content it did not write: a
 cloned repository, a web page, an email, a tool result, a colleague's
-message. Any of that content can carry instructions. Toad's position is
+message. Any of that content can carry instructions. Hotline's position is
 that the model will sometimes follow them, so nothing the model says or
 decides is an enforcement point. The person's standing choices are enforced
 in the core, outside the model, at every entry a request can arrive
-through — Toad Agent's own tool closures, the in-process MCP server an ACP
-child calls, the file callbacks Toad performs for that child, the scheduler,
+through — Hotline Agent's own tool closures, the in-process MCP server an ACP
+child calls, the file callbacks Hotline performs for that child, the scheduler,
 and the wire.
 
 Two things are deliberately not defended against. The person: whoever holds
@@ -38,12 +38,12 @@ it.
 
 | Capability | Field | Default | What it authorizes |
 | --- | --- | --- | --- |
-| Reach | `reach` | `workspace` | Toad Agent's workspace tools and shell. `workspace`: the working directory is a wall; the shell runs confined (bubblewrap on Linux, Seatbelt on macOS, not offered on Windows) with selected host toolchains read-only, a private `HOME` and scratch, no host environment, and the host network. `machine`: the same tools with no wall. |
-| MCP gateway | `mcpPolicy` | `none` | Each selected server's own capabilities, wherever it reaches. Toad connects it as the client; it is not inside the shell sandbox. `all` includes servers added later. An imported or invalid policy grants nothing. |
-| Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Toad Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. |
+| Reach | `reach` | `workspace` | Hotline Agent's workspace tools and shell. `workspace`: the working directory is a wall; the shell runs confined (bubblewrap on Linux, Seatbelt on macOS, not offered on Windows) with selected host toolchains read-only, a private `HOME` and scratch, no host environment, and the host network. `machine`: the same tools with no wall. |
+| MCP gateway | `mcpPolicy` | `none` | Each selected server's own capabilities, wherever it reaches. Hotline connects it as the client; it is not inside the shell sandbox. `all` includes servers added later. An imported or invalid policy grants nothing. |
+| Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. |
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
 | Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. |
-| ACP harness | `backendId` other than `toad` | Toad Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Toad's sandbox. Toad's file callbacks for it stay in the workspace whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
+| ACP harness | `backendId` other than `hotline` | Hotline Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Hotline's sandbox. Hotline's file callbacks for it stay in the workspace whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
 
 Reach, gateway, collaboration, background work and the computer are
 independent axes. Changing one never changes another; in particular
@@ -61,9 +61,9 @@ decision for George, not a bug fix.
   own, and data the agent can legitimately read can leave.
 - **A grant authorizes the grantee's own permissions.** A granted stdio MCP
   server, a computer, and an ACP harness each run with whatever the host
-  gives them. Toad states this in the ledger and the Reach card and does
+  gives them. Hotline states this in the ledger and the Reach card and does
   not pretend otherwise.
-- **The workspace is the agent's**, along with `.toad-home/` inside it and
+- **The workspace is the agent's**, along with `.hotline-home/` inside it and
   the private caches there. Teammates sharing a working directory share
   those.
 - **Dispatched side effects survive revocation.** Revocation refuses the
@@ -76,11 +76,11 @@ decision for George, not a bug fix.
   visible, and programs that hardcode `/tmp` fail. Seatbelt's CLI is
   deprecated and its policy language undocumented; the probe fails closed
   if enforcement stops, which is protection against silent breakage, not a
-  compatibility guarantee. Windows has no confinement Toad can ship, so the
+  compatibility guarantee. Windows has no confinement Hotline can ship, so the
   confined shell is not offered there. No platform has resource limits or
   syscall filtering on the shell.
 - **The person is asked nothing at call time.** There are no approval cards
-  for Toad Agent's tools and no per-path ACLs. A capability is standing or
+  for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.
 
 ## The method for a new capability
@@ -90,7 +90,7 @@ path by which one teammate's work reaches another's. Each step is a
 question the change must answer in its PR description.
 
 1. **Inventory the paths.** List every way the new thing executes or
-   reads: Toad Agent tool closures, the in-process MCP server, ACP file
+   reads: Hotline Agent tool closures, the in-process MCP server, ACP file
    callbacks, the scheduler's queued turns, cached peer sessions, and the
    wire. If a path is missed, the boundary has a hole in exactly that
    place; the collaboration and background-work steps each found one in
@@ -117,7 +117,7 @@ question the change must answer in its PR description.
    sessions cached for a peer.
 6. **Tell the truth in three places.** The ledger row, the Reach or Tools
    card, and the preamble say what the code enforces, and distinguish what
-   Toad enforces from what a grantee enforces for itself.
+   Hotline enforces from what a grantee enforces for itself.
 7. **Prove it both ways.** A test that the allowed action works and a test
    that the denied action is refused, through the real handler (see the
    matrix). A denied path that only a model's good manners keeps closed
@@ -195,7 +195,7 @@ extend; when a change adds a boundary, it adds a row.
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`, `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
-| Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_toad_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
+| Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person but never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |

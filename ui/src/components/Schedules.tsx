@@ -22,7 +22,7 @@ const UNITS: { id: Unit; ms: number; name: string }[] = [
 ];
 
 /**
- * Work this teammate asked Toad to wake it for — or that you set here.
+ * Work this teammate asked Hotline to wake it for — or that you set here.
  *
  * A job is once (`when`, ms since epoch) or a loop (`every`, ms). Quiet
  * means the run's words go to the tape as thoughts, by event kind, not by

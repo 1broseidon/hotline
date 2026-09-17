@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ActivityPhase } from "../activity";
 
 /**
- * The Toad mark, moving because of something.
+ * The Hotline mark, moving because of something.
  *
  * Every pose is a pure function of (phase, seconds in that phase, stall).
  * That is the whole constraint: a movement that can also fire at random
@@ -16,7 +16,7 @@ import type { ActivityPhase } from "../activity";
  * messages app uses. The eyes already sit twelve units either side of
  * centre, so the row they fall into is the one they were always standing on.
  *
- * The drawing is assets/toad-mark.svg, the same one ToadMark draws still;
+ * The drawing is assets/hotline-mark.svg, the same one HotlineMark draws still;
  * here the pupils are painted in the ground's colour rather than masked,
  * because a mask cannot be animated part by part and a blink needs the eye
  * and its pupil to squash together.

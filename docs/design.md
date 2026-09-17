@@ -1,7 +1,7 @@
-# Toad, from the ground up — the design record
+# Hotline, from the ground up — the design record
 
 Written 2026-09-01, the day George chose a fresh tree over the strangler-fig
-migration of `../toad`. This is the decision record: what is kept from Toad
+migration of `../hotline`. This is the decision record: what is kept from Hotline
 as it exists, what is built differently, and why. It is the document every
 phase is checked against. The product story is the README; the contract for
 agents changing this tree is `AGENTS.md`; the method for changing what a
@@ -46,7 +46,7 @@ These come over as ideas and, where the code was already Rust, as code.
   independent standing grants, revoked through one capability lease; the
   method and the regression matrix are [security.md](security.md).
 - **Collaboration crosses a capability boundary by explicit direction.** A
-  Whole machine Toad Agent may ask a colleague without another card. A
+  Whole machine Hotline Agent may ask a colleague without another card. A
   workspace caller first asks the operator for a recipient-specific session
   grant or a standing sender grant; the latter is stored on the recipient by
   stable sender id. ACP mode and Computer access do not widen reach. Grants
@@ -64,7 +64,7 @@ These come over as ideas and, where the code was already Rust, as code.
   the built-in schedule listing cannot reveal another teammate's prompts.
 - **External harnesses own their permissions.** Choosing ACP is explicit
   trust in that harness. Its runtime mode lives in the Reach card, while
-  model and effort stay in the chat header. Toad-mediated file callbacks
+  model and effort stay in the chat header. Hotline-mediated file callbacks
   remain confined to the workspace; a harness mode does not widen them.
 - **The house discipline.** Headless harnesses drive the real thing end to
   end; commits are one line stating an invariant; delete, don't disable;
@@ -74,7 +74,7 @@ These come over as ideas and, where the code was already Rust, as code.
 
 ### 1. One log, not three stores
 
-Toad today keeps the roster in `store.sqlite` with an oplog beside it,
+Hotline today keeps the roster in `store.sqlite` with an oplog beside it,
 tapes as JSONL, settings as JSON, peer threads as more JSONL, and replicates
 records and tapes by two different mechanisms. Here everything the room
 remembers is an event on a **stream**, and a stream is an append-only JSONL
@@ -87,7 +87,7 @@ file folded by id, exactly the tape's model:
 | `thread/<a~b>` | a conversation between two teammates | pair |
 
 The roster is a fold over `room`. Settings are a fold over `room`. A delete
-is a tombstone event. Secrets are never events: Toad-owned provider and MCP values live in the
+is a tombstone event. Secrets are never events: Hotline-owned provider and MCP values live in the
 operating system credential store; the vault files hold opaque references.
 Rig-owned ChatGPT and Copilot OAuth caches remain permission-restricted files.
 The log holds only credential metadata. Replication, when it returns, is shipping a stream's
@@ -99,14 +99,14 @@ there is one writer per stream, one fold, one subscription and one shipping
 mechanism.
 
 Tapes keep today's event shape and file layout (`transcripts/<id>/<epoch>.jsonl`),
-so importing an existing Toad data directory copies them unchanged. The
-importer reads a data directory the shipping Toad is still using and never
+so importing an existing Hotline data directory copies them unchanged. The
+importer reads a data directory the shipping Hotline is still using and never
 writes into it: George runs the old app daily until Phase 1 replaces it, and
-this tree becomes the `toad` repository when it does.
+this tree becomes the `hotline` repository when it does.
 
 ### 2. A wire of commands and subscriptions
 
-Toad's contract is 135 request methods and 14 pushes, gated per method per
+Hotline's contract is 135 request methods and 14 pushes, gated per method per
 seat. Here the wire is one WebSocket carrying three things:
 
 - **Commands**: `{id, cmd, params}` answered by `{id, ok, result|error}`.
@@ -162,7 +162,7 @@ It cannot administer the room or answer approvals. A mobile prompt starts the te
 when needed and uses the same core prompt path as the window. Its device-scoped
 operation UUID has a durable receipt before execution: an identical retry returns
 the recorded result, and an interrupted acceptance returns unknown rather than
-executing twice. The companion is a separate Expo repository, `../toad-mobile`.
+executing twice. The companion is a separate Expo repository, `../hotline-mobile`.
 It reconnects by subscribing to fresh snapshots; commands never replay
 automatically. Attachments upload in repeatable 32 KiB chunks over the same socket,
 with at most four 10 MiB files per prompt. Only completed device-scoped upload IDs
@@ -172,18 +172,18 @@ uploads. Files remain because tape attachments refer to their paths; retention
 cleanup, push, offline history, and mobile approval actions are later work.
 
 Types are defined once in Rust with serde and the TypeScript is generated
-(ts-rs), so the window and the core cannot drift. `toad_core::contract`
+(ts-rs), so the window and the core cannot drift. `hotline_core::contract`
 already holds the room's types from the migration and moves over as is.
 
 ### 3. One session kind, two drivers
 
-Today Toad Agent and ACP backends are two implementations of a hundred-line
+Today Hotline Agent and ACP backends are two implementations of a hundred-line
 seam, and every feature is decided twice. Here there is one `Session` with
 the supervisor's rules in it once — reply stamping, reaction notes, hop
 notices, the quiet window, chapters' gate, receipts, the ledger — and a
 `Driver` beneath it that speaks ACP semantics:
 
-- `Driver::InProcess`: Toad Agent on Rig, in this process, owning its tools
+- `Driver::InProcess`: Hotline Agent on Rig, in this process, owning its tools
   and its loop. A shared loop makes ordinary Rig model requests and admits
   operator steering between them, independently of the selected provider.
   Owned shell jobs outlive individual model requests; waits yield to operator
@@ -213,7 +213,7 @@ before the next inference, including within a long tool turn. The session drains
 prior updates before closing the chapter and returning its wake note. Unknown
 limits remain unknown; a provider context-limit refusal can request the same
 boundary once. A continuation that still cannot fit fails explicitly. ACP owns
-its own internal request loop and context management; Toad does not interrupt an
+its own internal request loop and context management; Hotline does not interrupt an
 opaque child turn using a guessed token count.
 
 An ACP prompt failure never automatically reissues that prompt. The next operator
@@ -235,11 +235,11 @@ what a tape is.
 
 ### 4. Tools as MCP, served in-process
 
-Toad's own teammate tools (search the thread, chapters, message a teammate,
+Hotline's own teammate tools (search the thread, chapters, message a teammate,
 react, ring, schedule, ask the human) are one MCP server hosted in-process
-on `rmcp`. Toad Agent gets its workspace tools natively plus every MCP
-server the teammate's policy grants, connected by Toad as the client. A
-child driver is handed the same list, Toad's server included, in the form
+on `rmcp`. Hotline Agent gets its workspace tools natively plus every MCP
+server the teammate's policy grants, connected by Hotline as the client. A
+child driver is handed the same list, Hotline's server included, in the form
 ACP takes. One tool surface, one policy, one ledger.
 
 The global MCP configuration is the operator's gateway. New teammates get
@@ -251,7 +251,7 @@ server's own capabilities and permissions. The shell sandbox does not confine
 granted servers. These are standing choices, without per-call approval cards.
 
 Teammate collaboration uses the same capability boundary. A Whole machine
-Toad Agent has implicit authority to ask another teammate to work. A workspace
+Hotline Agent has implicit authority to ask another teammate to work. A workspace
 caller gets only public teammate names and ids from discovery, then
 needs a first-contact operator decision for each direction. The card names the
 caller and recipient and offers a session grant, a standing sender grant, or
@@ -261,11 +261,11 @@ capability leases and expires on session or chapter replacement. Revocation
 clears waits, queued work and cached peer sessions. An authorized reply does
 not grant the reverse direction or any third party.
 
-HTTP MCP servers may opt into OAuth 2.1 in the gateway. Toad follows
+HTTP MCP servers may opt into OAuth 2.1 in the gateway. Hotline follows
 protected-resource and authorization-server metadata, requires authorization
 code plus PKCE S256, and uses the advertised DCR endpoint when no saved or
 configured client exists. Credentials and registration secrets stay in the
-private vault, bound to the server URL and issuer. Toad Agent uses rmcp's
+private vault, bound to the server URL and issuer. Hotline Agent uses rmcp's
 refreshing client; ACP receives a capability checked loopback proxy so its
 child process never sees OAuth tokens. Operator sign-in does not alter a
 teammate's MCP grant, and sign-out invalidates live sessions before clearing
@@ -273,15 +273,15 @@ the vault record.
 
 ### 5. No fleet in the first version
 
-The mesh, admission, membership, replication and hop are a quarter of Toad
+The mesh, admission, membership, replication and hop are a quarter of Hotline
 and the least felt in daily use. They are not ported. When moving a
 teammate between machines earns its place, it is shipping its streams and
 starting the session elsewhere, designed then on the log.
 
 ### 6. One process, one language, a thin shell
 
-`toad-core` is a Rust library with no Tauri dependency and every behaviour
-in it. `toad-desktop` is the Tauri 2 shell: the window, the desk door, the
+`hotline-core` is a Rust library with no Tauri dependency and every behaviour
+in it. `hotline-app` is the Tauri 2 shell: the window, the desk door, the
 menus. The window remembers its size, place and maximised state, and posts
 a desktop toast when a teammate finishes or blocks while the window is not
 focused — the first through a plugin, the second through a plugin on Linux
@@ -289,19 +289,19 @@ and Windows and through the notification center on macOS, where a click
 comes back as an event and the toasts thread by teammate; the judgement is
 the page's either way. The window
 is built fresh in Phase 1 against the generated contract and the
-subscription wire; `../toad/src/mainview` is the reference for which
+subscription wire; `../hotline/src/mainview` is the reference for which
 screens exist and how they behave, and a component is lifted from it only
 where that is cheaper than writing it. Bun and Node exist only as the UI's
 build tools; nothing runs on them.
 
 Providers use Rig's native clients for inference. Rig also owns ChatGPT and
 Copilot login and refresh. OpenRouter offers pasted keys and browser PKCE
-sign-in; Toad exchanges the code for a private API key and hands that key to
+sign-in; Hotline exchanges the code for a private API key and hands that key to
 Rig's OpenRouter client. Ollama Local takes a server URL, while Ollama Cloud
 takes an API key for `https://ollama.com`. Both use Rig's Ollama client for
 native chat and model discovery. A discovered list belongs to its connection,
 so replacing a server or account cannot reuse another connection's list.
-Grok offers subscription device sign-in alongside xAI API keys. Toad uses
+Grok offers subscription device sign-in alongside xAI API keys. Hotline uses
 the OAuth device flow and a private token store; a shared refresh lock keeps
 teammates from spending the same rotated refresh token. Rig's xAI client
 still owns inference, with a bearer-refresh HTTP client that retries a 401
@@ -340,7 +340,7 @@ last week. It is the Agent Skills format: a directory named for the skill,
 holding `SKILL.md` with `name` and `description` frontmatter and a Markdown
 body, and whatever `scripts/`, `references/` and `assets/` the body points
 at. The directory is `.agents/skills/<name>/`, the convention Codex already
-scans; Toad invents no harness directory of its own until one earns its
+scans; Hotline invents no harness directory of its own until one earns its
 place. `name` matches its directory, is lowercase with hyphens and at most
 64 characters; `description` is at most 1024 and says *when* to use the
 skill, because it is all an agent sees before deciding to read the body. A
@@ -348,21 +348,21 @@ folder that breaks those rules is listed as invalid with the reason, never
 silently skipped.
 
 A skill has three sources and one channel. **Built-in** skills are bundled
-in `toad-core` under `skills/` and are always on: Toad's own procedures for
+in `hotline-core` under `skills/` and are always on: Hotline's own procedures for
 its room and, when a teammate has one, its computer. The **gateway** is the
 operator's folder, `skills/` in the data directory, granted per teammate
 with the same none / some / all policy MCP servers use; a new teammate gets
 none, and all includes skills added later. **Workspace** skills are whatever
 is in the teammate's own `.agents/skills`, put there by the person or by the
 teammate itself. The channel is the workspace: on session start and on a
-grant change, Toad copies the built-ins and the granted gateway skills into
-`<cwd>/.agents/skills/`, so Toad Agent reads them with its workspace tools
+grant change, Hotline copies the built-ins and the granted gateway skills into
+`<cwd>/.agents/skills/`, so Hotline Agent reads them with its workspace tools
 inside its reach and an ACP child reads them with its own. Copies, not
 links, because a workspace mounted into a computer has to carry them. What
-Toad copied it marks, and the `AGENTS.md` rule applies: Toad replaces and
+Hotline copied it marks, and the `AGENTS.md` rule applies: Hotline replaces and
 removes only an entry carrying its marker, so a skill the person or the
 teammate wrote is never touched, and revoking a grant leaves nothing of
-Toad's behind.
+Hotline's behind.
 
 The preamble carries the index — each skill's name, description and path —
 and nothing else about skills. That is the progressive disclosure the format
@@ -371,7 +371,7 @@ does not scan `.agents/skills` itself still knows what is there and reads the
 file it is pointed at; Codex scans the directory natively and hears it twice,
 which is harmless. A skill is something the agent decides to read, so nothing
 a teammate must know before its first word is a skill: identity, reach, the
-date, the names of Toad's own tools and the house style stay in the preamble
+date, the names of Hotline's own tools and the house style stay in the preamble
 as sentences. Built-in skills hold procedure, not standing. The first ones
 are the room's workflows — chapters, schedules, asking a colleague, asking
 the person — and the habit of keeping a skill for anything the teammate will
@@ -379,8 +379,8 @@ be asked for again, offering to write one before repeating work.
 
 The computer's guide is a skill with a fourth provenance and no folder of its
 own. The running container serves it with its release and checksum; at every
-start Toad asks the computer it just woke, writes the answer into the
-workspace as `toad-computer` under the marker with that release recorded in
+start Hotline asks the computer it just woke, writes the answer into the
+workspace as `hotline-computer` under the marker with that release recorded in
 it, and lists it under the teammate at that version. Freshness is by
 construction, not by comparison: the marked folder is removed with the other
 stale grants at the next start and written again from whatever is running,
@@ -397,7 +397,7 @@ with the teammate's reach and grants, no more.
 ## Module map
 
 ```
-crates/toad-core/src/
+crates/hotline-core/src/
   contract.rs            the wire's types (serde + ts-rs)
   paths.rs               the data directory's layout
   log/                   streams: append, fold, segments, subscribe
@@ -406,38 +406,38 @@ crates/toad-core/src/
   vault.rs               secrets beside the room stream
   session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
   driver/                InProcess (Rig) and the ACP child, with its agent registry
-  mcp/                   the client of granted servers, and Toad's own teammate tools
+  mcp/                   the client of granted servers, and Hotline's own teammate tools
   skills/                the catalog: built-in, gateway and workspace skills, copied into a workspace
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
-  import.rs              copies an existing Toad data directory
-  import/                the previous Toad's roster and records, read-only
+  import.rs              copies an existing Hotline data directory
+  import/                the previous edition's roster and records, read-only
   wire/                  the door: seats, commands, subscriptions
-  bin/toad-import.rs     the importer as a binary
-  bin/toad-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
-crates/toad-desktop/     the Tauri shell: plugins, the menu, the door
+  bin/hotline-import.rs     the importer as a binary
+  bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
+crates/hotline-app/     the Tauri shell: plugins, the menu, the door
 ui/                      the window (React, built against the generated contract; ui/src/ui is the design system)
-crates/toad-core/tests/  headless end-to-end proofs (integration tests driving the wire)
+crates/hotline-core/tests/  headless end-to-end proofs (integration tests driving the wire)
 ```
 
 ## Phases
 
 Each phase ends with the app usable for what it covers, `make check`
 green, and a harness proving the phase's behaviour over the wire. Nothing
-needs to be live between phases; `../toad` on `main` stays the daily driver
+needs to be live between phases; `../hotline` on `main` stays the daily driver
 until Phase 1 replaces it.
 
 - **Phase 0 — the core, headless.** The log with folds and subscriptions;
   the room stream with teammates and settings; the vault; the index; the
   moved contract, tools and Rig loop; the wire with the desk seat. Proof: a
-  harness creates a teammate, runs a Toad Agent turn with a real key, and
+  harness creates a teammate, runs a Hotline Agent turn with a real key, and
   watches the tape and the roster view over the wire.
 - **Phase 1 — the room you can live in.** Session funnel, chapters and the
   summariser, search, the Tauri shell, the React window on the new wire,
-  the importer for an existing Toad data directory. Exit: George daily-drives
-  it for Toad Agent teammates.
+  the importer for an existing Hotline data directory. Exit: George daily-drives
+  it for Hotline Agent teammates.
 - **Phase 2 — the other driver and the tools.** ACP child driver; rmcp
-  client and Toad's own MCP server; the ledger; MCP settings and OAuth.
+  client and Hotline's own MCP server; the ledger; MCP settings and OAuth.
   Exit: Cursor and Claude Code teammates work; the tool ledger reads true.
 - **Phase 3 — the room's edges.** Peer threads and receipts, the scheduler
   with quiet runs, attachments, notifications, the phone seat with pairing

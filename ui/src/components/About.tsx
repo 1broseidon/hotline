@@ -2,7 +2,7 @@ import { chordKeys } from "../chords";
 import { CloseIcon, RevealIcon } from "../icons";
 import { appVersion, dataDirectory, revealPath } from "../native";
 import { Band } from "../ui/Band";
-import { ToadMark } from "../ui/ToadMark";
+import { HotlineMark } from "../ui/HotlineMark";
 import { Scroll } from "../ui/Scroll";
 
 /** README.md's first sentence. The pane is not a reader of that file. */
@@ -19,7 +19,7 @@ export function About({ onClose }: { onClose(): void }) {
 	return (
 		<div className="pane">
 			<Band>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">About Toad</h2>
+				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">About Hotline</h2>
 				<button
 					type="button"
 					className="control btn-icon"
@@ -33,9 +33,9 @@ export function About({ onClose }: { onClose(): void }) {
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					<section className="flex items-start gap-4">
-						<ToadMark className="mt-1 shrink-0 text-ink-3" width={44} />
+						<HotlineMark className="mt-1 shrink-0 text-ink-3" width={44} />
 						<div>
-							<h3 className="text-xl font-semibold">Toad</h3>
+							<h3 className="text-xl font-semibold">Hotline</h3>
 							<p className="mt-1 text-ink-2">{WHAT}</p>
 						</div>
 					</section>

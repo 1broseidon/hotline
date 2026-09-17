@@ -1,8 +1,8 @@
 # Working in this repository
 
-Toad is a local-first room for a **team** of coding agents. This tree is the
+Hotline is a local-first room for a **team** of coding agents. This tree is the
 ground-up build of it, in Rust, started 2026-09-01. This file is the contract
-for the agent changing Toad; the [README](README.md) is the product story;
+for the agent changing Hotline; the [README](README.md) is the product story;
 [docs/design.md](docs/design.md) is the decision record every change is
 checked against; [docs/security.md](docs/security.md) is the method for any
 change to what a teammate can reach, and the index of the tests that prove
@@ -12,29 +12,29 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 
 ## Vocabulary
 
-- **you** — the agent reading this file and changing Toad.
+- **you** — the agent reading this file and changing Hotline.
 - **George** — the maintainer. Who you are talking to.
-- **user** — a person running Toad to direct a team of agents.
+- **user** — a person running Hotline to direct a team of agents.
 - **teammate** — one agent in the rail: a goal, a working directory, a reach,
   and a disposition. The code calls it a *persona* where the contract does.
 - **stream** — an append-only JSONL log folded by event id. The `room`
   stream holds the roster and settings; a `tape` is a teammate's conversation;
   a `thread` is a conversation between two teammates.
 - **session** — one live conversation with one agent, on behalf of one
-  teammate. Its **driver** is either Toad Agent in-process on Rig, or an ACP
+  teammate. Its **driver** is either Hotline Agent in-process on Rig, or an ACP
   child process. The session's rules exist once; a driver knows nothing of
   tapes.
 - **the wire** — one WebSocket per client: commands, stream subscriptions,
   view subscriptions. A **seat** is the set of things a socket may do.
-- **the reference tree** — `../toad`, the previous Toad. Read it for the rules
+- **the reference tree** — `../hotline`, the previous edition. Read it for the rules
   a behaviour must keep (its comments say why); never modify it from here.
 
 ## The ways to hurt yourself
 
-1. **Toad develops Toad.** You may be running inside a Toad while you change
+1. **Hotline develops Hotline.** You may be running inside a Hotline while you change
    this one. Never kill by matched name, path or port; only a PID you
-   captured at spawn. `TOAD_DATA_DIR` overrides the data directory, and
-   `make dev` sets it to `.toad-dev` in the checkout so nothing you do
+   captured at spawn. `HOTLINE_DATA_DIR` overrides the data directory, and
+   `make dev` sets it to `.hotline-dev` in the checkout so nothing you do
    reaches real data.
 2. **One writer per stream.** The core is the only process that appends to
    a stream. A harness that wants state in a stream asks the core over the
@@ -42,7 +42,7 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 3. **The generated contract is written by the whole test run.** ts-rs writes
    `ui/src/generated/contract.ts` from the export tests, and a filtered run
    (`cargo test session`) writes only the types it matched, leaving a file
-   the window cannot compile against. Run `cargo test -p toad-core` unfiltered
+   the window cannot compile against. Run `cargo test -p hotline-core` unfiltered
    before committing that file; `make check` catches it, so never skip it.
 4. **The reference tree is byte-compatible for tapes.** A tape here is
    the same file as a tape there. Do not change the event shapes or the
@@ -51,14 +51,14 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 ## Running it
 
 ```bash
-make dev        # the Tauri shell, Vite with hot reload, on .toad-dev
+make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the UI's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
 ```
 
 ## Verifying
 
-The house idiom is a headless harness in `crates/toad-core/tests/` that
+The house idiom is a headless harness in `crates/hotline-core/tests/` that
 starts the real core and drives it over the wire (`make verify`). Find the one covering your area and extend it;
 new behaviour ships with one. Unit tests live beside the code. `make check`
 before calling work done; the smallest proof that the change works, not
@@ -94,7 +94,7 @@ everything.
   explaining *how* it works, rewrite the line; reserve comments for constraints
   the code can't express. When a clever solution and a plain one both work,
   ship the plain one.
-- **Rust that needs Tauri lives in `crates/toad-desktop`.** `toad-core` never
+- **Rust that needs Tauri lives in `crates/hotline-app`.** `hotline-core` never
   depends on Tauri.
 - **A capability change follows `docs/security.md`.** Anything that alters
   what a teammate can reach — a tool, a tool origin, a grant, a driver path —

@@ -1,4 +1,4 @@
-// Shared with Toad Mobile: the phone copies this file with `npm run sync:contract`.
+// Shared with Hotline Mobile: the phone copies this file with `npm run sync:contract`.
 /**
  * The rhythm bubbles land in: a reading beat between one and the next, the
  * way a person sends a few messages rather than one burst. A display rule,

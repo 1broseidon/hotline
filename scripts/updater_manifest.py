@@ -25,7 +25,7 @@ def manifest(directory: Path, version: str, repository: str, notes: str) -> dict
         raise ValueError("Expected a GitHub owner/repository")
     platforms = {}
     for target, suffix in PACKAGES.items():
-        name = f"toad_{version}_{suffix}"
+        name = f"hotline_{version}_{suffix}"
         artifact = directory / name
         signature = directory / f"{name}.sig"
         if not artifact.is_file() or artifact.stat().st_size == 0:

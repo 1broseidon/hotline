@@ -6,7 +6,7 @@
  * The chord key is Cmd on a Mac and Ctrl everywhere else, the way each
  * platform's own apps are: a Mac hand reaches for Cmd+, without thinking,
  * and Ctrl+N in a Mac text field is "next line". The menu bar's
- * accelerators (toad-desktop) say the same.
+ * accelerators (hotline-app) say the same.
  */
 
 import { platform } from "./native";

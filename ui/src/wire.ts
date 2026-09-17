@@ -171,7 +171,7 @@ export type TapeHandlers = Handlers<TranscriptEvent, StreamDelta>;
 
 declare global {
 	interface Window {
-		__toadDesk?: {
+		__hotlineDesk?: {
 			platform: string;
 			origin: string;
 			token: string;
@@ -206,7 +206,7 @@ class Wire {
 
 	/** Opens the socket, and keeps it open for as long as the window lives. */
 	connect(): void {
-		const desk = window.__toadDesk;
+		const desk = window.__hotlineDesk;
 		if (!desk || this.socket) return;
 		this.setState("connecting");
 		const socket = new WebSocket(`${desk.origin}/ws?token=${encodeURIComponent(desk.token)}`);
@@ -240,7 +240,7 @@ class Wire {
 			this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
 			if (!this.send({ id, cmd, params })) {
 				this.pending.delete(id);
-				reject(new Error("Toad is not connected."));
+				reject(new Error("Hotline is not connected."));
 			}
 		});
 	}
@@ -305,7 +305,7 @@ class Wire {
 			// screen with no account of why.
 			const sub = this.live.get(frame["id"]);
 			if (sub && frame["ok"] === false) {
-				console.error(`Toad refused to watch ${JSON.stringify(sub.target)}: ${String(frame["error"])}`);
+				console.error(`Hotline refused to watch ${JSON.stringify(sub.target)}: ${String(frame["error"])}`);
 			}
 			return;
 		}
@@ -323,7 +323,7 @@ class Wire {
 		this.socket = null;
 		this.setState("closed");
 		for (const waiting of this.pending.values()) {
-			waiting.reject(new Error("The connection to Toad dropped."));
+			waiting.reject(new Error("The connection to Hotline dropped."));
 		}
 		this.pending.clear();
 		if (this.retry !== null) return;

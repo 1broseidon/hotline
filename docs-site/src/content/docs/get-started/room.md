@@ -8,11 +8,11 @@ description: Teammates, conversations, chapters, threads and what the person is 
 A teammate is a named agent with its own working directory, its own
 conversation, and its own settings. Nine seats are one keystroke away
 (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>). Removing a teammate
-removes its conversation too; Toad asks first.
+removes its conversation too; Hotline asks first.
 
 ## Conversations and chapters
 
-A conversation is one long tape. Toad closes a **chapter** after the
+A conversation is one long tape. Hotline closes a **chapter** after the
 teammate has been idle for a while (**Settings → General → Close a chapter
 after**, in hours; the default is 8) and opens a fresh one on the next message, carrying a
 short note of where things stood. Search (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> +
@@ -20,10 +20,10 @@ short note of where things stood. Search (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> +
 
 ## Access
 
-Each teammate works inside its **workspace**, the folder you gave it. Toad's
+Each teammate works inside its **workspace**, the folder you gave it. Hotline's
 own file and shell tools are confined to it. **Whole machine** access, in the
-teammate's pane, lifts that wall for Toad Agent. Teammates that run an outside
-harness bring that harness's own permission model; Toad shows it as
+teammate's pane, lifts that wall for Hotline Agent. Teammates that run an outside
+harness bring that harness's own permission model; Hotline shows it as
 **Externally managed**.
 
 ## When a teammate needs you

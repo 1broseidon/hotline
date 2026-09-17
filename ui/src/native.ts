@@ -16,11 +16,11 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 export function isDesktop(): boolean {
-	return window.__toadDesk !== undefined;
+	return window.__hotlineDesk !== undefined;
 }
 
 export function platform(): string {
-	return window.__toadDesk?.platform ?? "web";
+	return window.__hotlineDesk?.platform ?? "web";
 }
 
 /** Whether the page draws the window's frame. macOS keeps its traffic lights. */
@@ -30,16 +30,16 @@ export function drawsFrame(): boolean {
 }
 
 export function appVersion(): string {
-	return window.__toadDesk?.version ?? "";
+	return window.__hotlineDesk?.version ?? "";
 }
 
 export function dataDirectory(): string {
-	return window.__toadDesk?.dataDir ?? "";
+	return window.__hotlineDesk?.dataDir ?? "";
 }
 
-/** The computer image this build of Toad pins, so a blank field can show it. */
+/** The computer image this build of Hotline pins, so a blank field can show it. */
 export function pinnedComputerImage(): string {
-	return window.__toadDesk?.computerImage ?? "";
+	return window.__hotlineDesk?.computerImage ?? "";
 }
 
 export async function pickDirectory(): Promise<string | null> {
@@ -89,7 +89,7 @@ export async function writeClipboard(text: string): Promise<void> {
 export async function confirmRemove(name: string): Promise<boolean> {
 	try {
 		return await ask(`Remove ${name}? Their conversation goes too.`, {
-			title: "Toad",
+			title: "Hotline",
 			kind: "warning",
 		});
 	} catch {
@@ -167,7 +167,7 @@ export async function postToast(personaId: string, title: string, body: string):
 /** A toast was clicked: the shell has raised the window, and this is whose toast it was. */
 export function listenToastClicks(onPersona: (personaId: string) => void): () => void {
 	let stop: (() => void) | undefined;
-	void listen<string>("toad://notification", (event) => {
+	void listen<string>("hotline://notification", (event) => {
 		onPersona(event.payload);
 	})
 		.then((unlisten) => {
@@ -207,7 +207,7 @@ export function watchWindowShape(onChange: (shape: WindowShape) => void): () => 
 
 export function listenMenu(onAction: (id: string) => void): () => void {
 	let stop: (() => void) | undefined;
-	void listen<string>("toad://menu", (event) => {
+	void listen<string>("hotline://menu", (event) => {
 		onAction(event.payload);
 	})
 		.then((unlisten) => {
@@ -263,7 +263,7 @@ export function watchUpdates(onChange: (status: UpdateStatus) => void, onError: 
 	void (async () => {
 		try {
 			if (isDesktop()) {
-				const unlisten = await listen<UpdateStatus>("toad://update", (event) => {
+				const unlisten = await listen<UpdateStatus>("hotline://update", (event) => {
 					if (!gone) onChange(event.payload);
 				});
 				if (gone) { unlisten(); return; }

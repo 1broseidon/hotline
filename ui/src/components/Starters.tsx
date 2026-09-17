@@ -4,7 +4,7 @@ import { dataDirectory } from "../native";
 /**
  * The first conversation's opening: two or three things to ask, fitted to
  * the folder the teammate works in, and one sentence on chapters. A folder
- * Toad made for them is empty, so the prompts make something; a folder the
+ * Hotline made for them is empty, so the prompts make something; a folder the
  * person picked is a project, so the prompts read it. A prompt fills the
  * composer and does not send: the words are theirs to change.
  *
@@ -44,7 +44,7 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 	);
 }
 
-/** A folder under the data directory is one Toad made for the teammate. */
+/** A folder under the data directory is one Hotline made for the teammate. */
 function isOwnFolder(cwd: string): boolean {
 	const data = dataDirectory();
 	return data !== "" && (cwd === data || cwd.startsWith(data.endsWith("/") || data.endsWith("\\") ? data : `${data}/`) || cwd.startsWith(`${data}\\`));

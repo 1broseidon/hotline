@@ -74,7 +74,7 @@ export function Teammate({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [harnessName, setHarnessName] = useState<string | null>(session.agentName ?? null);
 	const goalField = useRef<HTMLTextAreaElement>(null);
-	const toad = persona.backendId === "toad";
+	const hotline = persona.backendId === "hotline";
 
 	useEffect(() => {
 		setName(persona.name);
@@ -94,7 +94,7 @@ export function Teammate({
 	}, [goal]);
 
 	useEffect(() => {
-		if (toad) {
+		if (hotline) {
 			setHarnessName(null);
 			return;
 		}
@@ -114,7 +114,7 @@ export function Teammate({
 		return () => {
 			cancelled = true;
 		};
-	}, [persona.backendId, session.agentName, toad]);
+	}, [persona.backendId, session.agentName, hotline]);
 
 	const save = (patch: Partial<Persona>) => {
 		if (busy) return;
@@ -242,7 +242,7 @@ export function Teammate({
 					<section>
 						<h3 className="label">Access</h3>
 						<div className="grouped">
-							{toad ? (
+							{hotline ? (
 								<SwitchRow
 									title="Whole machine"
 									about={MACHINE_ABOUT}
@@ -440,7 +440,7 @@ function FoldRow({
 const NESTED = "group-row pl-7";
 
 /**
- * An ACP teammate's reach is the harness's own. What Toad can offer is
+ * An ACP teammate's reach is the harness's own. What Hotline can offer is
  * the runtime mode the harness advertised, if any.
  */
 function HarnessRows({
@@ -802,7 +802,7 @@ function LimitRow({
  * A new mount: a host folder, where it lands inside, and whether the
  * teammate may write to it. Read-only is the default because a teammate
  * tests a checkout, it does not edit it in place. The container path must
- * be absolute; whether it exists or collides with one of Toad's is the
+ * be absolute; whether it exists or collides with one of Hotline's is the
  * core's call, at the next start.
  */
 function AddMount({
@@ -1196,9 +1196,9 @@ function ToolLedger({
 	);
 }
 
-/** The supplier as a person knows it: Toad Agent, or the server's name from Settings → Tools. */
+/** The supplier as a person knows it: Hotline Agent, or the server's name from Settings → Tools. */
 function originName(origin: string, servers: McpServer[]): string {
-	if (origin === "toad") return "Toad Agent";
+	if (origin === "hotline") return "Hotline Agent";
 	return servers.find((server) => server.id === origin)?.name ?? origin;
 }
 
@@ -1215,7 +1215,7 @@ function groupedByOrigin(rows: ToolLedgerRow[]): [string, ToolLedgerRow[]][] {
 	]);
 }
 
-const THREAD_SEEN_KEY = "toad.threads.seen";
+const THREAD_SEEN_KEY = "hotline.threads.seen";
 
 /**
  * This teammate's side conversations, behind one row that counts them.

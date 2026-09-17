@@ -1,4 +1,4 @@
 # The updater fixtures are signed bytes. A checkout that rewrote their line
 # endings, as Windows does by default, would break the signature the tests
 # verify.
-crates/toad-desktop/tests/fixtures/updater/* -text
+crates/hotline-app/tests/fixtures/updater/* -text

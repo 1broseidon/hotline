@@ -1,15 +1,15 @@
 # Sessions
 
 A session is one live conversation with one agent, on behalf of one teammate.
-Its **driver** is either Toad Agent in-process on Rig, or an ACP child
+Its **driver** is either Hotline Agent in-process on Rig, or an ACP child
 process. The session's rules exist once; a driver knows nothing of tapes.
 
-Those rules live in `crates/toad-core/src/session/`. A driver in
-`crates/toad-core/src/driver/` runs a turn and hands back updates; the room
-turns each update into the tape events it is, in the shapes the previous Toad
+Those rules live in `crates/hotline-core/src/session/`. A driver in
+`crates/hotline-core/src/driver/` runs a turn and hands back updates; the room
+turns each update into the tape events it is, in the shapes the previous edition
 wrote, and offers the line to the search index. What was said is on the tape
 **before** the driver sees it, so a turn that fails cannot lose the message
-that started it. Toad Agent's live history keeps the user's line on failure
+that started it. Hotline Agent's live history keeps the user's line on failure
 too, the same as on cancel, so a retry still has the question.
 
 The wire that starts, prompts and stops a session is [wire.md](wire.md). The
@@ -32,7 +32,7 @@ is open, and only then may a scheduled firing open one of its own:
 | scheduled | a firing claims the user line, stamps `scheduled` on it, and may open a quiet window over the turn that follows |
 
 A prompt needs a live session; `session.start` is what brings one up. The
-command returns as soon as the turn is started. Toad Agent admits new operator
+command returns as soon as the turn is started. Hotline Agent admits new operator
 input into its running activity. An external driver without active-input
 support queues it. Scheduled runs and internal nudges remain queued. Joining
 the queue and claiming an idle driver are one decision under one lock, so a
@@ -65,18 +65,18 @@ quiet — see [Quiet](#quiet).
 
 ## Two drivers
 
-`backendId` on the teammate's record is the whole choice. `"toad"` is Toad
+`backendId` on the teammate's record is the whole choice. `"hotline"` is Hotline
 Agent, in this process, on the desk's provider keys. Any other id is an ACP
 child; the registry in `driver/acp/registry.rs` is what says whether this
 machine can start that harness, and with which command.
 
-`backends.list` answers the picker: Toad Agent first, then whatever the
+`backends.list` answers the picker: Hotline Agent first, then whatever the
 catalogue and the PATH say. A row the machine cannot start carries
 `unavailable` as a sentence naming what is missing (a CLI not on PATH, an
-archive Toad does not download). A missing login is not missing: that shows
+archive Hotline does not download). A missing login is not missing: that shows
 up when the session starts.
 
-The registry is data, not code. It is a table of agents Toad has been taught
+The registry is data, not code. It is a table of agents Hotline has been taught
 by hand (Cursor, opencode, Gemini CLI; Claude Code and Codex through their
 ACP adapters), the ACP registry's published catalogue fetched from
 `cdn.agentclientprotocol.com` and cached for a day at
@@ -98,15 +98,15 @@ persona the session started with, so a turn already running sees a new
 wall. A change to reach, or to anything else the driver is built from,
 also restarts the session; see [Reattaching](#reattaching).
 
-## Toad Agent
+## Hotline Agent
 
-Toad Agent (`driver/rig.rs`) runs the model in this process. Nothing asks
+Hotline Agent (`driver/rig.rs`) runs the model in this process. Nothing asks
 permission: the teammate's one policy is how far its tools reach, and the
 session says which with every prompt.
 
 `driver/rig/turn.rs` owns one loop over Rig's ordinary streaming completion
 requests and tool execution. Rig keeps provider construction, authentication,
-request encoding, and response parsing. Every Toad Agent provider uses that
+request encoding, and response parsing. Every Hotline Agent provider uses that
 loop; `capabilities.activeInput` is true without a provider steering endpoint.
 
 An operator update interrupts inference, including a request still waiting
@@ -150,10 +150,10 @@ answer or approval. Missing usage from an interrupted request is reported as
 unknown.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
-working directory, how far it can reach, today's date, how to use Toad's
+working directory, how far it can reach, today's date, how to use Hotline's
 own tools, the index of the skills in its workspace (name, description and
 path; the body is read when the task calls for it — a teammate with a
-computer finds that computer's own guide there as `toad-computer`), and the house style
+computer finds that computer's own guide there as `hotline-computer`), and the house style
 ([Pacing](#pacing)). When it
 is joining a conversation that already has chapters behind it, the
 [wake block](#the-wake-block) follows. It is seeded with what
@@ -166,8 +166,8 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Toad's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
-| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Toad connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
 
 Settings → Tools is the MCP gateway: configuring a server makes it available
 to grant, not automatically available to every teammate. New teammates start
@@ -184,7 +184,7 @@ saved registrations and configured preregistered client ids take precedence.
 Servers that publish only CIMD metadata, omit required discovery or PKCE
 metadata, or rely on legacy guessed endpoints are reported as unsupported.
 Token endpoint client authentication follows the methods advertised by the
-authorization server through rmcp; Toad does not invent another method or
+authorization server through rmcp; Hotline does not invent another method or
 persist a client secret in settings.
 Tokens, refresh tokens and DCR client secrets live in the private vault under
 the server URL and issuer binding. They are never settings, stream, tape,
@@ -198,7 +198,7 @@ header the person names. The token goes to the protected vault through
 whose token the vault does not hold is absent from the ledger with a sentence
 saying so. Forgetting it is the same sign-out as OAuth.
 
-Toad Agent uses rmcp's auth-aware Streamable HTTP client, so expiry and refresh
+Hotline Agent uses rmcp's auth-aware Streamable HTTP client, so expiry and refresh
 remain inside the gateway; a pasted token rides the same client as one header.
 ACP receives a per-session loopback URL and a separate proxy bearer token. The
 handler verifies that token and the capability lease, then puts the vault's
@@ -208,8 +208,8 @@ gateway connection and does not change any teammate's none, selected or all
 policy.
 
 A grant authorizes the server's own capabilities, including any access it has
-outside the teammate's workspace. Toad does not put granted servers inside the
-shell sandbox. Toad's own tools and a separately enabled computer remain
+outside the teammate's workspace. Hotline does not put granted servers inside the
+shell sandbox. Hotline's own tools and a separately enabled computer remain
 available independently of the gateway policy. Both drivers receive the
 selected gateway list; an ACP harness may also load its own configured tools.
 Grant changes revoke existing handles, cancel current execution, and clear
@@ -221,7 +221,7 @@ call may finish after its connection is closed.
 The Linux shell uses the host's installed tools without mounting the host's
 whole filesystem. The runtime is an explicit exception to workspace reach:
 executables, their libraries, and public configuration are readable. Other
-projects, host home contents, Toad's vault, and host control sockets are not
+projects, host home contents, Hotline's vault, and host control sockets are not
 mounted. The synthetic root and parent directories are read-only. Listing those
 directories shows the sandbox's mount layout, not the host's directory contents.
 The workspace and private `/tmp` remain writable separate mounts, so a workspace
@@ -233,7 +233,7 @@ puts in that workspace.
 | --- | --- |
 | Linux | System `bwrap` starts from an empty filesystem. System binary, library, header, and shared-runtime directories are mounted read-only, including their `/usr/local` counterparts and Go/Swift installations. Other system trees such as `/usr/local/src` stay hidden. Selected toolchain installations and public configuration are added, then the writable workspace. `/tmp`, `/dev`, and `/proc` are private; PID and IPC namespaces isolate host processes. A missing or unusable sandbox omits the tool and the ledger says why. |
 | macOS | System `/usr/bin/sandbox-exec` applies a default-deny Seatbelt policy. The workspace is writable; selected runtimes are read-only. Other host files and workspaces are inaccessible. HOME and TMPDIR are private workspace directories. An enforcement probe must demonstrate allowed workspace access and denied outside reads/writes before the ledger offers the shell. |
-| Windows | No confinement Toad can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
+| Windows | No confinement Hotline can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
 
 On Windows, shell commands, ACP agents and stdio MCP servers start suspended,
 enter a kill-on-close job, and resume only after assignment succeeds. Closing
@@ -241,9 +241,9 @@ the job cleans up descendants as well as the direct child. A job controls
 process lifetime; it does not provide workspace confinement.
 
 
-On Linux and macOS, `.toad-home/` inside the workspace is the shell's persistent `HOME`,
+On Linux and macOS, `.hotline-home/` inside the workspace is the shell's persistent `HOME`,
 with private XDG and Cargo directories. It is created inside the sandbox so a
-project-controlled symlink cannot make Toad write outside. Workspaces do not
+project-controlled symlink cannot make Hotline write outside. Workspaces do not
 share these caches; teammates deliberately using the same workspace do.
 The shell inherits no host environment, credential variables, or shell startup
 configuration. A command needing a credential must receive it deliberately.
@@ -261,7 +261,7 @@ NSS configuration, and timezone file, not all of `/etc`.
 On Linux, for other absolute `PATH` entries, standalone executable ELF files and scripts
 with a shebang are mounted individually. This exposes executable code, not the
 parent directory: a neighboring `.env` stays hidden. A tool with additional
-resources in an unsupported location may fail; Toad never exposes its entire
+resources in an unsupported location may fail; Hotline never exposes its entire
 parent directory to make it work. Install that tool and its dependencies inside
 the workspace when its layout is unsupported. Runtime installations are trusted
 code locations and should not contain project secrets.
@@ -280,7 +280,7 @@ system CA bundle; host Homebrew `etc` is not exposed for TLS configuration.
 Rustup metadata is copied to the private home on first use; installed toolchains
 are linked read-only. Cargo, npm, Go and XDG caches use the private home.
 
-macOS scratch is `.toad-home/.tmp`, available as `TMPDIR`. Programs that hardcode
+macOS scratch is `.hotline-home/.tmp`, available as `TMPDIR`. Programs that hardcode
 `/tmp` instead of respecting `TMPDIR` cannot write there. Setup runs inside
 Seatbelt, including home and scratch creation, so hostile symlinks cannot make
 the core write outside. Descendants inherit the policy. AppleEvents,
@@ -356,7 +356,7 @@ no character at all to anything scanning for a tag — so nothing quoted can
 close the fence early, whichever fence it is in.
 
 The bundled fallback and metadata for models come from the model catalogue
-(`crates/toad-core/models.json`, a filtered snapshot of models.dev — see
+(`crates/hotline-core/models.json`, a filtered snapshot of models.dev — see
 [development.md](development.md#the-model-catalogue)) for the providers
 `models.rs` wires: Anthropic, OpenAI, OpenRouter, Google, xAI, Groq,
 DeepSeek, Mistral, Ollama Cloud, Z.ai Standard and Z.ai Coding Plan as API keys, and GitHub Copilot and ChatGPT
@@ -368,7 +368,7 @@ OpenRouter models and billing as a pasted key. A saved
 teammate is on.
 
 xAI also offers **Sign in with SuperGrok or X Premium+**. It uses xAI's device
-authorization page and stores access and refresh tokens privately. Toad
+authorization page and stores access and refresh tokens privately. Hotline
 refreshes before expiry, serializes refresh across teammates, and retries a
 rejected bearer once. Sign-out or revocation removes these tokens. A failed
 subscription request never switches to API-key billing. The picker uses the
@@ -392,7 +392,7 @@ bundled cloud list; a failed refresh keeps the last successful list. Both
 connections offer Refresh in Settings → Providers. Pull local models with
 Ollama itself; cloud models exposed by a local server after `ollama signin`
 also work through the Local connection. Choose models that support tools
-for Toad Agent's workspace and teammate tools.
+for Hotline Agent's workspace and teammate tools.
 
 Custom servers use **Settings → Providers → OpenAI-compatible**. Give the
 connection a name, enter its API base URL (including `/v1` when required),
@@ -414,7 +414,7 @@ For LM Studio, load a tool-capable model and start its API server before
 connecting. See [supported endpoints](https://lmstudio.ai/docs/developer/openai-compat)
 and [optional authentication](https://lmstudio.ai/docs/developer/core/authentication).
 
-Multiple custom connections can offer the same model ID. Toad groups them by
+Multiple custom connections can offer the same model ID. Hotline groups them by
 your connection names and stores each selection as `custom-<connection-id>/<model-id>`.
 Editing preserves that identity; deleting the connection removes its key and
 models. Leaving an existing key blank preserves it, but changing the URL
@@ -430,7 +430,7 @@ through Rig) and stored as `models.json` beside the login. A fetch that
 fails leaves the login in place and no list, with a notice that Refresh
 on the provider's own page under Settings → Providers retries. Refresh re-reads the list, which is
 also how a login made before this file existed, or a model newly enabled
-on the account, lands in the picker. Toad does not POST
+on the account, lands in the picker. Hotline does not POST
 `/models/{id}/policy {state: "enabled"}` after login the way pi does, so
 a model the account lists as policy-disabled is simply not offered.
 
@@ -439,7 +439,7 @@ API, Anthropic API, OpenRouter, Gemini, Groq, DeepSeek, and Mistral. It uses
 the configured provider's Rig client. Supported connections also refresh
 when added in Settings; failure leaves the saved connection available for a
 later retry. A discovered ID does not need to wait
-for the next models.dev snapshot or Toad release. Listed models can still
+for the next models.dev snapshot or Hotline release. Listed models can still
 have account or capability restrictions; the provider decides whether a
 request is allowed. A failed refresh preserves the last successful list.
 
@@ -450,12 +450,12 @@ connection's existing credentials and endpoint. Copilot manual IDs must also
 appear in the account list; use Refresh first. Custom connections edit their
 model IDs in Edit connection. No advanced metadata form is required.
 
-Toad matches IDs against its bundled models.dev snapshot for effort options,
+Hotline matches IDs against its bundled models.dev snapshot for effort options,
 limits, capabilities, and pricing. Provider-reported names and limits take
 precedence where available. Missing metadata stays unspecified, with a notice
 when the model has no catalogue match. Unknown Anthropic models receive a
 conservative 4,096-token request ceiling because that API requires one; this
-is a request default, not a claim about the model's maximum output. Toad does not infer tool support from the fact
+is a request default, not a claim about the model's maximum output. Hotline does not infer tool support from the fact
 that a model appears in a provider list. Refresh and manual additions do not
 switch a teammate's selected model or replace its saved model filter.
 
@@ -490,42 +490,42 @@ what is sent:
 ## An ACP child
 
 An ACP teammate (`driver/acp.rs`) is another process. Selecting it trusts
-that harness's tools, configuration, and permission policy. Toad holds no
+that harness's tools, configuration, and permission policy. Hotline holds no
 credentials for it — these agents sign themselves in — and does not apply
 its shell sandbox to the harness's own tools.
 
 For ACP teammates, Settings → Reach shows the harness's advertised runtime
 mode and labels it **Externally managed**. The chat header shows only model
 and reasoning effort when the harness advertises them. Other ACP settings
-are hidden. Toad sends the actual mode and configuration ids supplied by
+are hidden. Hotline sends the actual mode and configuration ids supplied by
 the harness; it does not invent a shared set of permission levels. Without
 an advertised runtime selector, Reach reports that it is unavailable.
 Harness notifications refresh these controls even between turns, including
 removing choices the harness withdraws. These updates change the live
 session view without adding messages to the conversation.
 
-ACP file callbacks are different: Toad performs those reads and writes.
+ACP file callbacks are different: Hotline performs those reads and writes.
 They use the workspace directory handle, reject outside paths and symlink
 escapes, and carry the session's revocable authority. They stay confined
 even if an older ACP teammate has `reach: "machine"` saved, because there
-is no longer a Toad reach toggle for that harness. An ACP runtime mode
+is no longer a Hotline reach toggle for that harness. An ACP runtime mode
 does not widen these callbacks. The preamble distinguishes the two
 boundaries.
 
-ACP has no system-prompt parameter, so the two things Toad must say arrive
+ACP has no system-prompt parameter, so the two things Hotline must say arrive
 elsewhere:
 
 - **Who the teammate is** is written to `AGENTS.md` in the working directory
   before the child is started. Only a file that *opens* with
-  `<!-- managed by Toad -->` is replaced; a hand-written `AGENTS.md` in a
+  `<!-- managed by Hotline -->` is replaced; a hand-written `AGENTS.md` in a
   real repository is left alone, including one that merely mentions the
   marker. Materialization uses the same workspace boundary; an `AGENTS.md`
-  symlink cannot redirect a Toad write outside it.
+  symlink cannot redirect a Hotline write outside it.
 
-Skills reach both drivers the same way. At every session start Toad writes
+Skills reach both drivers the same way. At every session start Hotline writes
 the built-in skills and the gateway skills the teammate's `skillPolicy`
 grants into `.agents/skills/<name>/` in the working directory, each entry
-carrying a `.managed-by-toad` file. Only an entry with that file is ever
+carrying a `.managed-by-hotline` file. Only an entry with that file is ever
 replaced or removed, so a skill the person or the teammate put there stays,
 and shadows a grant of the same name; a revoked grant's entry is removed at
 the next start. A `.agents` or `.agents/skills` that is a symlink refuses the
@@ -533,49 +533,49 @@ start rather than following it. Changing `skillPolicy` reattaches the
 session, like `mcpPolicy`, so the preamble's index matches the folder.
 
 That one channel is enough was checked against real harnesses (the ACP
-harness test in `crates/toad-core/tests/desk.rs`, run with `TOAD_HARNESS_ACP`
+harness test in `crates/hotline-core/tests/desk.rs`, run with `HOTLINE_HARNESS_ACP`
 set to each backend on 2026-09-16): a gateway skill whose body alone holds a
 sentinel word is granted, the child is asked for the word with nothing in the
 prompt naming the folder, and it answers. Codex scans `.agents/skills` on its
 own — its adapter says so, warning about its skills context budget — and
 Claude Code and Cursor reached the file through the index in the preamble
 block that rides ahead of the first turn (Claude Code's own skills folder is
-`.claude/skills`, which Toad does not write). No harness needed a line in
+`.claude/skills`, which Hotline does not write). No harness needed a line in
 `AGENTS.md`, so none is written. Gemini CLI could not be tried: its client for
 individuals is retired. The same run has each child write a skill of its own,
 which `skills.list` reports under the workspace source with the description
 the child gave it.
 - **What kind of room this is** — the preamble (identity, standing, the
   house style, the wake block) — rides as a content block ahead of the first
-  prompt on this connection. It is not written to the tape: Toad explaining
+  prompt on this connection. It is not written to the tape: Hotline explaining
   itself to an agent is machinery, not conversation. A restarted backend
   hears it again; a second prompt on the same connection does not.
 
-Toad's own tools cannot be a function call into another process. The
-same handler Toad Agent calls directly is served over streamable HTTP on a
+Hotline's own tools cannot be a function call into another process. The
+same handler Hotline Agent calls directly is served over streamable HTTP on a
 loopback port (`mcp/server.rs`), behind a bearer token only that child is
 given, at a path of `/mcp`. The port is the operating system's choice and
-the token is fresh per session. The server is named `toad` in `session/new`,
+the token is fresh per session. The server is named `hotline` in `session/new`,
 with the token as an `Authorization` header. The ledger is published before
-that `session/new` is sent, because a child that lists Toad's tools during
+that `session/new` is sent, because a child that lists Hotline's tools during
 the handshake promotes rows that have to exist by then — a ledger written
 afterwards would overwrite what was watched with "declared". Dropping the
 driver stops the endpoint and kills the child — its whole process group on
 Unix, so a wrapper like `npx` cannot leave the real agent behind.
 
 Granted third-party servers are named in the same `session/new` (stdio
-command, or HTTP URL). Toad does not connect them for a child; the child
+command, or HTTP URL). Hotline does not connect them for a child; the child
 connects them itself. An authenticated HTTP server is represented by the
 per-session loopback proxy described above, whether its credential is an
 OAuth token or a pasted one. OAuth servers that are not signed in and token
 servers with no saved token are absent with a sentence saying why, and are
 never labelled connected.
 
-Toad draws permission cards, but it does not decide whether the agent sends
+Hotline draws permission cards, but it does not decide whether the agent sends
 the requests. For Cursor, if `~/.cursor/cli-config.json` has
 `approvalMode` `unrestricted`, a warning notice is written on the tape at
 start so a person who thinks they are behind a gate that is not there is
-told. Other backends: Toad does not guess.
+told. Other backends: Hotline does not guess.
 
 ## The computer
 
@@ -583,8 +583,8 @@ A teammate can have a computer: a containerized Linux desktop it drives
 through MCP tools. The container is the machine; the agent is the operator.
 `persona.computer.enabled` is the switch. The image is
 `persona.computer.image`, else the room setting `computerImage`, else the
-pin `ghcr.io/1broseidon/toad-computer:<COMPUTER_VERSION>` in
-`crates/toad-core/src/computer/mod.rs`. The computer is **not** part of
+pin `ghcr.io/1broseidon/hotline-computer:<COMPUTER_VERSION>` in
+`crates/hotline-core/src/computer/mod.rs`. The computer is **not** part of
 `mcpPolicy`: a teammate that asked for a machine gets it even on a policy
 of none.
 
@@ -596,13 +596,13 @@ runtime's sentence — `"No container runtime was found; install Docker or
 Podman."` and the like — not a silent absence. Pulling an image that is
 not present writes one notice on the tape: `"Pulling the computer image …"`.
 
-Both kinds of agent get the same grant. Toad Agent connects the HTTP
+Both kinds of agent get the same grant. Hotline Agent connects the HTTP
 endpoint in-process with the bearer token. An ACP child is named the
 server in `session/new` with `Authorization: Bearer <token>`. The ledger
 row for its tools follows the normal MCP path, origin `computer`.
 
 The token is generated once per container and never stored in room settings.
-After Toad restarts, runtime inspection recovers the token from the existing
+After Hotline restarts, runtime inspection recovers the token from the existing
 container's environment so its jobs and viewer remain available. A container
 without a recoverable token is recreated.
 
@@ -614,18 +614,18 @@ because a parallel build spawns more threads than the default allows and a
 linker wants more memory than a browser does. A size that is not digits
 and one unit letter is a start failure, not a guess.
 
-Four mounts are Toad's. The room's cwd is bound at `/home/agent/workspace`,
-the person's folder. A named volume `toad-home-<persona id>` is bound at
+Four mounts are Hotline's. The room's cwd is bound at `/home/agent/workspace`,
+the person's folder. A named volume `hotline-home-<persona id>` is bound at
 `/home/agent`, the teammate's home: the environments it prepared for a
 workspace, its jobs and their output, its shell history and its browser
 profile outlive the container the hibernate cycle removes, so a woken
 computer picks up where the last one stopped. The image keeps nothing of
 its own in the home, so an empty volume is what a fresh container would
-have had. A named volume `toad-src-<persona id>` is bound at
+have had. A named volume `hotline-src-<persona id>` is bound at
 `/home/agent/src`, the teammate's own scratch: a checkout or a build it
 starts there outlives the container too. `computer.remove` leaves every
 volume; only the runtime's own volume commands delete them. A named volume
-`toad-nix-glibc` is bound at `/nix`, one Nix store
+`hotline-nix-glibc` is bound at `/nix`, one Nix store
 shared by every teammate. The image ships single-user Nix with a seeded
 store, so an empty volume is populated on first use and a `nix develop`
 against a flake is a download the first time and a cache hit after, for
@@ -655,7 +655,7 @@ of `persona.computer`, so no field drops another. Opening the desktop is
 the conversation band's Screen key while the status says running. A
 `computer_frame` on the tape is drawn as a thumbnail card.
 
-Toad Agent writes that frame immediately after a `computer__*` tool's
+Hotline Agent writes that frame immediately after a `computer__*` tool's
 completed event, with `dataUrl` a `data:<mime>;base64,…` of the image the
 tool returned — the same picture the model was given as Rig image content —
 and the tool card itself keeps a one-line placeholder so it still has text.
@@ -664,7 +664,7 @@ Only a provider that takes a picture inside a tool result is given one
 other provider the model reads the placeholder line and the frame still
 lands on the tape.
 An ACP child can carry the image as a `ContentBlock::Image` on
-`session/update`; Toad writes a frame when that call's title or kind uses
+`session/update`; Hotline writes a frame when that call's title or kind uses
 the `computer__` prefix, and does not guess if the child titled the call
 something else.
 
@@ -696,13 +696,13 @@ fact: the agent is told the request was cancelled.
 
 ## Asking the person
 
-`request_human` is one of Toad's own tools, on both agent kinds. The agent
+`request_human` is one of Hotline's own tools, on both agent kinds. The agent
 says what it cannot do — credentials, a tap, a CAPTCHA, a question only
 the person can answer — and the call waits. A `human_action` event lands
 on the tape, id `human:<actionId>`, status `pending`. The room holds a
 oneshot by that id. `human.answer` resolves it with `done` or `declined`
 and an optional `note`, and supersedes the card with both; declined is
-written as `dismissed`, the previous Toad's word for that afterlife. The
+written as `dismissed`, the previous edition's word for that afterlife. The
 tool returns a sentence: "The person did it.", "The person declined.", or
 "Nobody answered in ten minutes.", and when the person typed a note it
 follows word for word: "They said: …". A card left pending when the turn
@@ -713,7 +713,7 @@ turn, so a turn that ended is an agent that has stopped listening.
 A teammate with a computer is told in its preamble that the person can see
 that desktop and take it over, and to get the page that needs them on
 screen before asking. The window's card for a pending `human_action` opens
-the desktop's viewer in a Toad window of its own (`computer-<personaId>`,
+the desktop's viewer in a Hotline window of its own (`computer-<personaId>`,
 the page the computer serves at `viewer`); the agent is inside the
 waiting tool call the whole time, so the person and the agent never drive
 the desktop at once, and what the person types goes to the desktop, never
@@ -727,7 +727,7 @@ a session; the band shows Screen on the same condition. Outside the desk
 
 `message_teammate` is authority to ask another teammate to use its own
 workspace and enabled tools, so the room checks collaboration before opening a
-thread or starting a peer session. A Toad Agent caller with explicit Whole
+thread or starting a peer session. A Hotline Agent caller with explicit Whole
 machine reach has that authority implicitly. A workspace caller needs a
 first-contact operator decision for each caller and recipient direction,
 regardless of whether the two teammates happen to have the same tools. ACP
@@ -816,7 +816,7 @@ agent genuinely recalls the conversation, never guessed. Closing a chapter
 withdraws the promise to reopen that backend's session; the session itself
 is not touched.
 
-Toad Agent's memory is the tape. It has no session id to checkpoint.
+Hotline Agent's memory is the tape. It has no session id to checkpoint.
 
 ## Chapters
 
@@ -852,10 +852,10 @@ the open one. A context from further back is not offered. The current
 chapter closes as `"Back to: <previous title>"` with `closedBy` `resume`,
 without asking a model for a note — it is a turning point, not a stretch
 of work — and a new marker opens carrying `resumedFrom` and the previous
-chapter's note. The session is stopped and started again: Toad Agent is
+chapter's note. The session is stopped and started again: Hotline Agent is
 seeded from that chapter's tape slice; an ACP child from the checkpoint
 the marker still names. User lines said in the meantime arrive as a nudge
-— Toad's words, never a line of the tape. If the restore fails, the new
+— Hotline's words, never a line of the tape. If the restore fails, the new
 session reads the note (the wake block already carries it) and a notice
 says the context could not be reopened. A second resume is refused when
 the chapter immediately before closed by resume, when nothing precedes, or
@@ -870,7 +870,7 @@ New starts cannot acquire usable authority during that interval. A driver
 still starting must validate its captured authority before publication.
 If persistence fails, affected sessions remain stopped and their old
 handles stay revoked. Retrying the settings change restores execution;
-Toad does not silently restore a grant the operator tried to remove.
+Hotline does not silently restore a grant the operator tried to remove.
 
 The room cancels the old driver, clears its queued turns, and rebuilds a
 live session behind the same start gate. It also drops cached peer sessions
@@ -893,7 +893,7 @@ stop emits `Stopped` and the start emits `Ready`, and the window's band
 follows those. A restart that fails to start leaves the teammate stopped
 with the start's error.
 
-Toad Agent is rebuilt in-process with the new grant and the new reach;
+Hotline Agent is rebuilt in-process with the new grant and the new reach;
 its context is the tape. An ACP child is a new process, handed the new
 servers in `session/new`; `context_restored` says whether the harness
 gave the context back. `start_now` writes `AGENTS.md` before that child
@@ -906,7 +906,7 @@ One task for the whole room, a few seconds after the desk opens and then
 every minute. A chapter that has gone quiet for longer than
 `chapterIdleHours` (default 8, clamped to 1–336) is closed as `idle`, dated
 from the last message, not from when the sweep noticed. A chapter that went
-stale while Toad was closed is closed before anyone comes back to read it.
+stale while Hotline was closed is closed before anyone comes back to read it.
 A turn still running is still adding to the chapter: the sweep looks again
 in ten minutes rather than cutting it off. The same clock stops peer
 sessions that have sat unused for ten minutes.
@@ -942,7 +942,7 @@ was said instead.
 
 Jobs live on the room stream as events of kind `schedule`. The clock in
 `session/schedule.rs` folds them, sleeps until the nearest `nextAt`, and
-fires through the same funnel as a person typing. A missed tick while Toad
+fires through the same funnel as a person typing. A missed tick while Hotline
 was closed fires once on reopen rather than catching up a pile of them.
 
 `schedule` is once; `loop` is every `every` milliseconds until cancelled.
@@ -965,7 +965,7 @@ the room stream; it does not delete them. Enabling it again permits a missed
 tick to run once, under the usual scheduler rule.
 
 A job created through the authenticated desk's `schedule.create` command is
-an explicit operator instruction. Toad records `operatorCreated: true` on
+an explicit operator instruction. Hotline records `operatorCreated: true` on
 that job, so it may run with Background work off. Agent tools cannot choose
 that provenance. Older jobs without it require Background work. Stopping a
 session ends its current execution; it does not revoke standing background
@@ -986,7 +986,7 @@ into a crowd or a busy-loop:
 an RFC3339 time) live with the scheduler; they are not on the wire.
 
 A teammate speaks those strings through four tools, the same handler on
-both kinds of agent — Toad Agent in-process, an ACP child over Toad's own
+both kinds of agent — Hotline Agent in-process, an ACP child over Hotline's own
 MCP server:
 
 | tool | strings | what it does |
@@ -1026,7 +1026,7 @@ cannot mute a teammate forever — the window expires after thirty minutes.
 Every tool a teammate was given, where it came from, and for anything
 absent, why. A row always carries a reason, in every state, because an
 optional explanation is the one nobody fills in. `teammate.tools` is that
-ledger; `null` when the teammate has never started under a Toad that keeps
+ledger; `null` when the teammate has never started under a Hotline that keeps
 one.
 
 It is built at session start from the same arrays the session hands the
@@ -1036,11 +1036,11 @@ the process. Deleting a teammate forgets it.
 
 | state | meaning |
 | --- | --- |
-| `verified` | Toad watched the agent take it |
-| `declared` | Toad handed it over and cannot see what happened next |
+| `verified` | Hotline watched the agent take it |
+| `declared` | Hotline handed it over and cannot see what happened next |
 | `absent` | it is not there, and `reason` says why |
 
-Toad Agent's built-ins and Toad's own tools are verified: they were
+Hotline Agent's built-ins and Hotline's own tools are verified: they were
 handed to the agent in this process. MCP tools are verified when the server
 listed them, and absent — with the error as the reason — when it did not.
 The row's `name` is the slugged tool name the agent sees; its `origin` is
@@ -1057,9 +1057,9 @@ the notice is for a server that died on its own. A tool-level
 error the server itself answered leaves the rows verified.
 
 A child is handed descriptors and does not report what it loaded, so its
-honest state is declared: Toad's own tools as named tools, each granted
+honest state is declared: Hotline's own tools as named tools, each granted
 server as one row under that server's name. Those rows are published
-before `session/new` names the endpoint. The one exception is Toad's own
+before `session/new` names the endpoint. The one exception is Hotline's own
 endpoint, which promotes its rows to verified the moment the child lists
 tools on it.
 

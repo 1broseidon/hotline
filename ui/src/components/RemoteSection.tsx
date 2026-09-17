@@ -86,9 +86,9 @@ export function RemoteSection() {
 		{status?.enabled && <section aria-label="Mobile pairing">
 			<h3 className="group-title">Link a phone</h3>
 			<div className="grouped p-5">
-				<p className="text-sm text-ink-2">Scan the code in Toad on your phone, or type the address and the six digits.</p>
+				<p className="text-sm text-ink-2">Scan the code in Hotline on your phone, or type the address and the six digits.</p>
 				{pairing && !expired && !linked && <div className="mt-5 flex flex-col items-center gap-3">
-					<img className="h-72 w-72 max-w-full rounded-lg bg-white" src={`data:image/svg+xml,${encodeURIComponent(pairing.qrSvg)}`} alt="Scan with Toad to pair this desktop" />
+					<img className="h-72 w-72 max-w-full rounded-lg bg-white" src={`data:image/svg+xml,${encodeURIComponent(pairing.qrSvg)}`} alt="Scan with Hotline to pair this desktop" />
 					<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" aria-label="Type this into your phone">
 						<dt className="text-ink-3">Address</dt>
 						<dd className="font-mono break-all">{manualAddress(pairing.manual.address, pairing.manual.port)}</dd>

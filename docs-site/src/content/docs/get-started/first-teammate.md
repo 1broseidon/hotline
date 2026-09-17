@@ -3,14 +3,14 @@ title: Your first teammate
 description: Add a provider, name a teammate, give it a folder, say hello.
 ---
 
-Toad opens on an empty room. Three steps put a teammate in it.
+Hotline opens on an empty room. Three steps put a teammate in it.
 
 ## 1. Connect a provider
 
-Toad's built-in agent, **Toad Agent**, runs on a model key you hold. Open
+Hotline's built-in agent, **Hotline Agent**, runs on a model key you hold. Open
 **Settings** (<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>,</kbd>), pick **Providers**,
 and choose **Add provider**. Paste an API key, or sign in where the provider
-offers it. The key is stored in Toad's vault on this machine and nowhere
+offers it. The key is stored in Hotline's vault on this machine and nowhere
 else. The full list is in [Providers and keys](/docs/setup/providers/).
 
 If you would rather drive a tool you already have, such as Claude Code or
@@ -25,10 +25,10 @@ rail. The form asks for:
 - **A name.** Teammates are people in the room; you will address them by it.
 - **What this teammate is for.** A sentence or two. It is written into the
   working directory as `AGENTS.md`, so the agent reads it on every start.
-- **A working directory.** Leave it blank and Toad makes a folder under its
+- **A working directory.** Leave it blank and Hotline makes a folder under its
   data directory; or pick a project of your own.
-- **Which agent runs it.** Toad Agent, or any harness this machine can start.
-- **A model**, for Toad Agent.
+- **Which agent runs it.** Hotline Agent, or any harness this machine can start.
+- **A model**, for Hotline Agent.
 
 ## 3. Say something
 

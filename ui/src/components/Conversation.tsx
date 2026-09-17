@@ -323,7 +323,7 @@ export function Conversation({
 	);
 }
 
-/** The model Toad Agent starts on: see `model_for` in the core. */
+/** The model Hotline Agent starts on: see `model_for` in the core. */
 /**
  * What `chapter.resume` would say without asking. The room refuses a
  * second hop and a missing predecessor; the window greys the item so

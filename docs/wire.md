@@ -1,8 +1,8 @@
 # The wire
 
 One WebSocket per client, carrying commands and subscriptions. Frames are
-JSON text. Types are defined in `crates/toad-core/src/contract.rs`; the
-door that reads them is `crates/toad-core/src/wire/`.
+JSON text. Types are defined in `crates/hotline-core/src/contract.rs`; the
+door that reads them is `crates/hotline-core/src/wire/`.
 
 The door binds `127.0.0.1` on an ephemeral port. `Door::run` serves until
 the listener itself is gone. A client that hung up before the handshake,
@@ -90,7 +90,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `credential.refresh_models` | `{providerId}` | `CatalogModel[]` that provider's catalogue after a re-fetch |
 | `credential.revoke` | `{id}` | none |
 | `credential.delete` | `{id}` | none |
-| `backends.list` | `{}` | `BackendChoice[]`: Toad Agent first, then the ACP catalogue |
+| `backends.list` | `{}` | `BackendChoice[]`: Hotline Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
 | `welcome` | `{}` | `Welcome`: where a fresh room stands on its way to a first turn |
 | `mcp.auth_start` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
@@ -99,7 +99,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `mcp.auth_reconnect` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
 | `mcp.auth_sign_out` | `{serverId}` | none; invalidates live sessions and clears the protected registration, and a pasted token with it |
 | `mcp.secret_set` | `{serverId, url, secret}` | none; saves a bearer or header server's token in the protected vault, bound to the URL |
-| `providers.list` | `{}` | `Provider[]` Toad Agent can hold a key for, whether or not the desk holds one |
+| `providers.list` | `{}` | `Provider[]` Hotline Agent can hold a key for, whether or not the desk holds one |
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
 | `models.efforts` | `{modelId}` | `EffortChoices` — `choices` that model's effort levels, empty when it has none, and `defaultId` the one a teammate with none stored runs at |
@@ -133,7 +133,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.remove` | `{personaId}` | none |
 
 `backends.list` is every harness this machine can start, and the ones it
-knows of but cannot, with the reason. Toad Agent (`id` `"toad"`) is always
+knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always
 first. `unavailable` is absent when the row can be started here and a
 sentence naming what is missing when it cannot.
 
@@ -157,7 +157,7 @@ enabled tools to fulfill the caller's requests and return results. A session
 choice is held against both live capability leases. An always choice appends
 the caller's stable id to the recipient's `allowedSenders` list. A workspace
 caller gets a card on first contact in each direction; an explicit Whole
-machine Toad Agent caller does not. ACP mode and Computer access do not imply
+machine Hotline Agent caller does not. ACP mode and Computer access do not imply
 Whole machine authority. `list_teammates` returns only each other teammate's
 `personaId` and `name`.
 
@@ -165,12 +165,12 @@ Whole machine authority. `list_teammates` returns only each other teammate's
 `declined`, with an optional `note` the agent receives word for word,
 refused when the deadline passed, the session stopped, the room restarted,
 or somebody else answered first. The tape still writes `dismissed` for a
-decline, which is the previous Toad's word for that afterlife.
+decline, which is the previous edition's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
 modelId?, effortId?, computer?, backgroundWork?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
-`defaultBackendId` or `"toad"`, a workspace under the data directory,
+`defaultBackendId` or `"hotline"`, a workspace under the data directory,
 `mcpPolicy` `{mode: "none", serverIds: []}`, and no `reach` unless the
 draft asked for `"machine"`. Background work is off unless the draft turned
 it on, and `allowedSenders` defaults to an empty list. The whole teammate is written as one room
@@ -194,7 +194,7 @@ is the room's default image, under a teammate's own. Neither reattaches
 anything: both are read when a computer wakes, as are the teammate's own
 `persona.computer.memory`, `pids` and `mounts` through `persona.update`.
 
-`computer.runtimes` is detection for the window: every CLI Toad knows,
+`computer.runtimes` is detection for the window: every CLI Hotline knows,
 whether it is on PATH, why not, and whether it is rootless. `computer.status`
 is a peek at one teammate's container (`running`, `stopped`, `absent`).
 `url` is the MCP endpoint and `viewer` is `http://127.0.0.1:<host port for
@@ -210,8 +210,8 @@ listed ids. A value that is not an object, or an entry that is not an
 array of strings, reads as absent — a bad setting costs its own filter,
 never the picker.
 
-`defaultModelId` is the person's standing model for Toad Agent, set in
-Settings, a `provider/model` string. `lastModelId` is the model a Toad
+`defaultModelId` is the person's standing model for Hotline Agent, set in
+Settings, a `provider/model` string. `lastModelId` is the model a Hotline
 Agent teammate most recently ran on or was set to, written by the wire.
 Both are absent until someone writes them. JSON `null` on
 `defaultModelId` puts the last-used fallback back.
@@ -219,11 +219,11 @@ Both are absent until someone writes them. JSON `null` on
 `session.set_model` writes the teammate's `modelId` first and switches a
 live session second. It works on an idle teammate: the persona is the
 truth, and the live switch is a courtesy to the turn already running. A
-Toad Agent id the desk's `models.list` does not name is refused; an ACP
+Hotline Agent id the desk's `models.list` does not name is refused; an ACP
 teammate accepts any non-empty id, and the harness validates when live.
 
 `session.set_config` is the same shape for a setting that is not the
-model or the mode. For a Toad Agent teammate with `configId` `"effort"`,
+model or the mode. For a Hotline Agent teammate with `configId` `"effort"`,
 it writes `effortId` (or `null` when `value` is empty) first and
 switches a live session second. A value the teammate's effective model
 does not list is refused; when no model is known yet, the value is
@@ -232,7 +232,7 @@ teammate is not running." `models.efforts` is the idle picker's list for
 one catalogue id, each choice labelled (`low` → "Low", `xhigh` →
 "Extra high"), with `defaultId` naming the level a teammate with no
 stored effort runs at. That is `high` whenever the model lists it, so a
-fresh Toad Agent teammate thinks properly instead of at whatever the
+fresh Hotline Agent teammate thinks properly instead of at whatever the
 provider picks when nothing is sent; a model with no such level runs with
 nothing sent. The stored `effortId` always wins over the default, and a
 model switch to one that does not list the stored level falls back to the
@@ -351,10 +351,10 @@ harmless. A message's `receipt` is `sent` when it enters the thread and
 `read` once the recipient's session has proved a turn on it; nothing ever
 un-reads a message.
 
-`room.import`'s `from` is a path to an existing Toad data directory. The
+`room.import`'s `from` is a path to an existing Hotline data directory. The
 source is never written. `Report` is `{teammates, tapes, threads,
 schedules, settings, keys, skipped: [{item, reason}], notes: [{item,
-reason}]}`. `skipped` is left behind (a setting this Toad does not have, a
+reason}]}`. `skipped` is left behind (a setting this Hotline does not have, a
 teammate already in the roster, a thread whose sides are both strangers, a
 job whose teammate is not here, a teammate that lives on another desk);
 `notes` is imported with a caveat (a backend this registry has no
@@ -366,7 +366,7 @@ of zeros.
 
 `teammate.tools` is what tools this teammate was given the last time it
 started, where they came from, and — for anything absent — why. JSON `null`
-when it has never started under a Toad that keeps a ledger, sent as
+when it has never started under a Hotline that keeps a ledger, sent as
 `result: null` rather than by omitting the field. The ledger itself is
 [sessions.md](sessions.md).
 
@@ -466,7 +466,7 @@ door serves the room's wire only."`). A token that does not match is 401
 different-length token is refused without leaking how much matched.
 
 The shell generates a 32-byte hex token per launch and injects it as
-`window.__toadDesk.token`. The harness in `crates/toad-core/tests/desk.rs`
+`window.__hotlineDesk.token`. The harness in `crates/hotline-core/tests/desk.rs`
 uses a token of its own. There is no other way through the door.
 
 The streams these subscriptions read are [log.md](log.md). What a session

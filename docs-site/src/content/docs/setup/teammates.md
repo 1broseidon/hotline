@@ -1,14 +1,14 @@
 ---
 title: Teammates and drivers
-description: Toad Agent, the harnesses Toad can run as teammates, and what each teammate's pane controls.
+description: Hotline Agent, the harnesses Hotline can run as teammates, and what each teammate's pane controls.
 ---
 
 Every teammate runs on one of two kinds of driver.
 
-## Toad Agent
+## Hotline Agent
 
-Toad's own agent, in-process, on a provider key you connected. It has
-workspace file tools, a shell, Toad's own tools (asking you for help,
+Hotline's own agent, in-process, on a provider key you connected. It has
+workspace file tools, a shell, Hotline's own tools (asking you for help,
 messaging a teammate, scheduling itself), and any MCP servers you grant. Its
 model and reasoning effort are picked from the title bar. Its shell and file
 tools are confined to the workspace unless you grant **Whole machine**.
@@ -27,17 +27,17 @@ and permission policy:
 | Gemini CLI | `gemini` |
 | Grok Build | `grok` |
 
-Toad also reads the [Agent Client Protocol](https://agentclientprotocol.com)
+Hotline also reads the [Agent Client Protocol](https://agentclientprotocol.com)
 registry of published agents once a day, so other agents that speak it show
 up in the picker as they appear. A row the machine cannot start says what is
-missing, usually a CLI that is not on your `PATH`. Toad never downloads an
+missing, usually a CLI that is not on your `PATH`. Hotline never downloads an
 agent for you; `npx` fetches the small adapter that Claude Code and Codex
 speak through.
 
 The chat header for these teammates shows the model and effort the harness
 advertises. Their own permission model shows in the pane as **Externally
-managed**; Toad passes on the modes the harness offers rather than inventing
-its own. File reads and writes the harness asks Toad to do stay inside the
+managed**; Hotline passes on the modes the harness offers rather than inventing
+its own. File reads and writes the harness asks Hotline to do stay inside the
 workspace.
 
 **Settings → General → New teammates run on** sets which driver a new
@@ -50,7 +50,7 @@ pane sits beside the conversation and controls:
 
 - **Purpose.** The sentence written into the workspace as `AGENTS.md`.
 - **Working directory.** Reveal it, or choose another folder.
-- **Access.** Workspace only, or **Whole machine** (Toad Agent).
+- **Access.** Workspace only, or **Whole machine** (Hotline Agent).
 - **Background work.** Whether the teammate may schedule its own wakes. Off
   by default. See [Schedules](/docs/setup/schedules/).
 - **Collaboration.** Which other teammates it may message, granted per

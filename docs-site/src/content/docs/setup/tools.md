@@ -10,11 +10,11 @@ Servers are added once, to the room, and granted per teammate.
 
 **Settings → Tools → MCP servers**. A server is either:
 
-- **Command**: a program Toad starts on this machine and speaks to over
+- **Command**: a program Hotline starts on this machine and speaks to over
   stdio. Give it the command, arguments and any **Environment** variables it
   needs.
 - **Reached at a URL**: a server that speaks streamable HTTP. **Auth** is
-  either **OAuth sign-in**, which Toad completes in your browser and keeps
+  either **OAuth sign-in**, which Hotline completes in your browser and keeps
   the tokens for, or a **Token** sent as a bearer header. Tokens are kept on
   this machine, bound to that server's URL.
 
@@ -31,9 +31,9 @@ In the teammate's pane, **Which MCP servers this teammate gets**:
 
 A grant takes effect on the teammate's next start. Teammates that run an
 outside harness (Claude Code, Cursor and the rest) receive the same grants
-through Toad, alongside whatever tools that harness configures itself.
+through Hotline, alongside whatever tools that harness configures itself.
 
-## Toad's own tools
+## Hotline's own tools
 
 Every teammate, whichever driver, also has tools that belong to the room:
 

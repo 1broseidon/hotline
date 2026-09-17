@@ -131,6 +131,13 @@ jobs:
       # Tauri reads its signing and notarization from the environment, and
       # treats a variable that is set as one that is meant: an empty value
       # would fail the build. So each is exported only when the secret exists.
+      #
+      # The ELECTROBUN_ prefix is the Electrobun edition's, kept because a
+      # GitHub secret cannot be renamed: the value is write-only, so a new
+      # name means entering the Developer ID export and the notary key again,
+      # and the App Store Connect .p8 can only be downloaded once. These are
+      # the Apple Developer ID certificate and the notarization API key; the
+      # name says nothing about what builds them.
       - name: Expose Apple signing
         if: runner.os == 'macOS'
         shell: bash

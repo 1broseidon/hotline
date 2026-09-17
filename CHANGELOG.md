@@ -7,6 +7,15 @@ repository is what builds and publishes a release.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-17
+
+### Added
+- A paired phone can reach a teammate's computer through the desk: one
+  door on the Remote listener carries the viewer's frames and input
+  between the phone and the container, with the desk presenting the
+  bearer it holds. The phone never learns the port or the token, and
+  revoking the device drops the connection.
+
 ## [0.13.0] - 2026-09-16
 
 ### Added

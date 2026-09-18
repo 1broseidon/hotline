@@ -1,0 +1,14 @@
+{
+	// The Toad domains, kept registered and pointed at hotline.dev. This is the
+	// worker that used to serve the Toad landing page; it keeps its name, because
+	// a name is how Cloudflare finds a worker, and answers with a redirect now.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "toad-team",
+	"main": "index.js",
+	"compatibility_date": "2026-09-01",
+	"routes": [
+		{ "pattern": "toad.team", "custom_domain": true },
+		{ "pattern": "toad.computer", "custom_domain": true }
+	],
+	"workers_dev": false
+}

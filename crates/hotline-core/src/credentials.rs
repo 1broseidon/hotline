@@ -140,10 +140,38 @@ fn corrupt() -> io::Error {
     )
 }
 
-fn reference(bytes: &[u8]) -> io::Result<Option<Reference>> {
+/// What the bytes on disk turned out to be.
+enum Record {
+    /// A reference this build can resolve.
+    Ours(Reference),
+    /// A reference an earlier edition wrote, whose entries this build has no
+    /// way to name: both the store's service and the key are its own.
+    Foreign,
+    /// A secret written before references existed, migrated on first read.
+    Plaintext,
+}
+
+fn foreign() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "This credential was stored by an earlier edition of the app and cannot be read here. Sign in again to replace it.",
+    )
+}
+
+fn record(bytes: &[u8]) -> io::Result<Record> {
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| corrupt())?;
     if value.get("hotlineCredential").is_none() {
-        return Ok(None);
+        // A reference names the edition that wrote it, and one this build
+        // cannot address is not a plaintext secret. Migrating it as one would
+        // store the pointer and overwrite the only copy of where it pointed.
+        let named = value
+            .as_object()
+            .is_some_and(|fields| fields.keys().any(|key| key.ends_with("Credential")));
+        return Ok(if named {
+            Record::Foreign
+        } else {
+            Record::Plaintext
+        });
     }
     let reference: Reference = serde_json::from_value(value).map_err(|_| corrupt())?;
     if reference.version != 1
@@ -153,7 +181,7 @@ fn reference(bytes: &[u8]) -> io::Result<Option<Reference>> {
     {
         return Err(corrupt());
     }
-    Ok(Some(reference))
+    Ok(Record::Ours(reference))
 }
 
 impl CredentialFile {
@@ -208,7 +236,9 @@ impl CredentialFile {
     }
 
     /// Migrate a legacy JSON secret on first use. A failed native write leaves
-    /// the original file intact and refuses to use it as a plaintext fallback.
+    /// the original file intact and refuses to use it as a plaintext fallback,
+    /// and so does a reference from an edition whose chunks are out of reach:
+    /// the file is the only record of where they are.
     pub(crate) fn read(&self) -> io::Result<Option<Vec<u8>>> {
         let _writer = self
             .files
@@ -218,11 +248,14 @@ impl CredentialFile {
         let Some(bytes) = self.bytes()? else {
             return Ok(None);
         };
-        if let Some(reference) = reference(&bytes)? {
-            return self.load(&reference).map(Some);
+        match record(&bytes)? {
+            Record::Ours(reference) => self.load(&reference).map(Some),
+            Record::Foreign => Err(foreign()),
+            Record::Plaintext => {
+                self.replace(&bytes, None)?;
+                Ok(Some(bytes))
+            }
         }
-        self.replace(&bytes, None)?;
-        Ok(Some(bytes))
     }
 
     pub(crate) fn write(&self, bytes: &[u8]) -> io::Result<()> {
@@ -231,11 +264,13 @@ impl CredentialFile {
             .writer
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let previous = self
-            .bytes()?
-            .map(|bytes| reference(&bytes))
-            .transpose()?
-            .flatten();
+        // A foreign reference leaves nothing here to clean up: its chunks are
+        // not ours to name. The write still goes through, which is what makes
+        // signing in again the way out of one.
+        let previous = match self.bytes()?.map(|bytes| record(&bytes)).transpose()? {
+            Some(Record::Ours(reference)) => Some(reference),
+            Some(Record::Foreign | Record::Plaintext) | None => None,
+        };
         self.replace(bytes, previous.as_ref())
     }
 
@@ -297,7 +332,7 @@ impl CredentialFile {
         let Some(bytes) = self.bytes()? else {
             return Ok(());
         };
-        if let Some(reference) = reference(&bytes)? {
+        if let Record::Ours(reference) = record(&bytes)? {
             self.remove_chunks(&reference)?;
         }
         fs::remove_file(&self.path)?;
@@ -487,6 +522,24 @@ pub(crate) mod tests {
         store.locked.store(false, SeqCst);
         store.memory.0.lock().unwrap().clear();
         assert_eq!(file.read().unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn a_reference_from_another_edition_is_refused_rather_than_stored_as_a_secret() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Arc::new(MemoryStore::default());
+        let file = CredentialFiles::new(root.path().into(), store.clone())
+            .file(root.path().join("auth.json"));
+        let earlier = br#"{"toadCredential":1,"generation":"6f1f9e16-6a0b-4a0e-9f3e-3f4b2f4a7a31","chunks":1,"digest":"7d8e4051a3d929fc56a545c5125a8589a4b4bfedd354466455403038d450144f"}"#;
+        fs::write(file.path(), earlier).unwrap();
+        assert_eq!(file.read().unwrap_err().kind(), io::ErrorKind::InvalidData);
+        // The pointer to the real chunks has to survive being read, or the
+        // secret it names can never be found again.
+        assert_eq!(fs::read(file.path()).unwrap(), earlier);
+        assert!(store.0.lock().unwrap().is_empty());
+        // Signing in again is the way out, so a write over one must work.
+        file.write(b"fresh-secret").unwrap();
+        assert_eq!(file.read().unwrap().unwrap(), b"fresh-secret");
     }
 
     #[test]

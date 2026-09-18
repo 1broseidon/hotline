@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-18
+
+### Fixed
+
+- A credential record written by an earlier edition is refused rather than read as though it were the secret itself. 0.14.0 treated a reference it did not recognise as plaintext to be migrated, so it stored the pointer under the new name and overwrote the file that said where the real chunks were, while the desk went on listing the provider as signed in. Such a record now says it cannot be read here and leaves itself intact; signing in again replaces it.
+- The conversation band no longer carries the reason the previous chapter cannot be reopened. That is a standing fact about a chapter rather than something that just happened, and it is already on the greyed menu item; on the band it was a sentence that never went away, which after the rename is what every chapter recorded under the old agent name produced.
+
 ## [0.14.0] - 2026-09-17
 
 ### Changed

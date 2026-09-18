@@ -12,6 +12,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 - Toad is now Hotline. The crates are `hotline-core` and `hotline-app`, the app is `Hotline`, its bundle identifier `dev.hotline.app`, its data directory `Hotline` (`~/.local/share/hotline` on Linux), its keychain service `dev.hotline.credentials` and its environment `HOTLINE_*`. The agent-facing names move with it: the built-in agent is `hotline`, the tools are `hotline_*`, the skills `hotline-room` and `hotline-computer`, the marker `.managed-by-hotline`, the shell `hotline-shell`. Computers, their volumes and the image are `hotline-computer`, `hotline-home-*`, `hotline-src-*`, `hotline-nix-glibc` and `ghcr.io/1broseidon/hotline-computer`. Nothing carries over from a Toad install: the room, the keys and a paired phone are all addressed by names that changed, so 0.14.0 starts clean. A 0.13.x room is the same layout under a different directory name, so moving it is a rename — `~/.local/share/toad` to `~/.local/share/hotline` — with the provider keys entered again, because the keychain service moved too.
 - The manual-pairing domain string is `hotline-manual-pair-v1` and its vectors are repinned, so a phone still speaking the Toad string cannot pair until it is updated.
+- New computers are created on Hotline Computer 0.6.0 or newer: the floor moved with the name, because a desk that passes `HOTLINE_COMPUTER_TOKEN` cannot drive a computer that reads the Toad one. An existing computer keeps the release it runs until it is removed.
 
 ### Fixed
 

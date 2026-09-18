@@ -210,14 +210,11 @@ export function Conversation({
 		{ kind: "item", id: "delete", text: "Remove teammate…", danger: true, onSelect: onDelete },
 	];
 
-	const notice =
-		session.error !== undefined && session.error !== ""
-			? session.error
-			: (said ??
-				refused ??
-				(resumeBlocked !== null && resumeBlocked !== "There is no previous chapter to reopen."
-					? resumeBlocked
-					: null));
+	/* The band says what just happened: a session error, or a refusal of
+	 * something that was asked for. Why the previous chapter cannot be
+	 * reopened is a standing fact rather than an event, so it stays on the
+	 * greyed menu item, read at the moment somebody goes looking for it. */
+	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>

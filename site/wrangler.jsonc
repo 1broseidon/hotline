@@ -9,6 +9,12 @@
 		"html_handling": "auto-trailing-slash",
 		"not_found_handling": "404-page"
 	},
-	"routes": [{ "pattern": "hotline.dev", "custom_domain": true }],
+	// A route on the zone, not a custom domain: hotline.dev already had its own
+	// proxied records when this worker arrived, and a custom domain refuses to
+	// take a hostname whose DNS it did not create.
+	"routes": [
+		{ "pattern": "hotline.dev/*", "zone_name": "hotline.dev" },
+		{ "pattern": "www.hotline.dev/*", "zone_name": "hotline.dev" }
+	],
 	"workers_dev": true
 }

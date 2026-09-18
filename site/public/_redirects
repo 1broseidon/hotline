@@ -1,0 +1,4 @@
+# toad.computer used to be the computer's own address. The redirect worker
+# sends it here, and here is where the computer is written about.
+/computer /docs/setup/computer/ 301
+/computer/* /docs/setup/computer/ 301

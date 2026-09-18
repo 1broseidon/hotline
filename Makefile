@@ -50,9 +50,14 @@ tray-icons:
 	sed 's/currentColor/#000000/' assets/hotline-mark.svg | rsvg-convert -w 44 -h 44 -o crates/hotline-app/icons/tray-template.png -
 
 ## The website: the landing page in site/ with the docs built under it at /docs.
-.PHONY: site site-deploy
+.PHONY: site site-deploy toad-redirect-deploy
 site:
 	cd docs-site && bun install --frozen-lockfile && bun run build
 
 site-deploy: site
 	cd site && npx wrangler@latest deploy
+
+## The old domains, answering 301 from hotline.dev. Deployed on its own: it
+## changes only when the redirect does.
+toad-redirect-deploy:
+	cd site/redirect && npx wrangler@latest deploy

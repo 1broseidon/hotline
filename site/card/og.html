@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Hotline social card</title>
+<!--
+  The source of site/public/og.png, which had none: the card was a committed
+  binary, so it still said Toad a day after everything else had stopped.
+
+  Everything here is measured off that original rather than guessed, and
+  render.py holds the result to the same measurements. Text sits in SVG
+  because an SVG baseline is a coordinate, and the card is a layout of four
+  baselines. Run `make og-card` from the app root.
+-->
+<link rel="stylesheet" href="fonts.css">
+<style>
+  * { margin: 0; padding: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  /* A cool halo hanging over the top centre, down to flat by a third of the
+     way in. Fitted to the original: centre #0d1218, 450 by 230, to #050608. */
+  body {
+    background: radial-gradient(450px 230px at 50% 0%, #0d1218 0%, #050608 100%) #050608;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg { display: block; }
+  .name  { font: 600 88px "IBM Plex Sans"; letter-spacing: -0.045em; fill: #eceff1; }
+  .about { font: 400 28px "IBM Plex Sans"; fill: #b4b8bb; }
+  .where { font: 400 21px "IBM Plex Mono"; fill: #83878b; }
+</style>
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <!-- The mark's own box is 56 by 28.5 at (4, 19.5); this lands it 150 wide
+       with its top-left on (96, 196). -->
+  <g transform="translate(85.2857 143.7679) scale(2.6785714)">
+    <mask id="pupils" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff" />
+      <rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000" />
+      <rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000" />
+    </mask>
+    <g mask="url(#pupils)" fill="#eceff1">
+      <rect x="4" y="30" width="56" height="18" rx="6" />
+      <circle cx="20" cy="30" r="10.5" />
+      <circle cx="44" cy="30" r="10.5" />
+    </g>
+  </g>
+  <!-- Four rows whose ink starts on 96, which is where the mark's does. The
+       x here is the glyph's origin, so each one is pulled back by its own
+       left side bearing: 7 for the H, 2 for the h in mono. -->
+  <text class="name"  x="89" y="381">Hotline</text>
+  <text class="about" x="96" y="438">A local-first room for your team of agents.</text>
+  <text class="where" x="94" y="569">hotline.dev</text>
+</svg>

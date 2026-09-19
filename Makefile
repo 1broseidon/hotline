@@ -50,12 +50,19 @@ tray-icons:
 	sed 's/currentColor/#000000/' assets/hotline-mark.svg | rsvg-convert -w 44 -h 44 -o crates/hotline-app/icons/tray-template.png -
 
 ## The website: the landing page in site/ with the docs built under it at /docs.
-.PHONY: site site-deploy toad-redirect-deploy
+.PHONY: site site-deploy og-card toad-redirect-deploy
 site:
 	cd docs-site && bun install --frozen-lockfile && bun run build
 
 site-deploy: site
 	cd site && npx wrangler@latest deploy
+
+## The social card every shared link shows, rendered from site/card/og.html.
+## It used to be a committed binary with no source, which is how it went on
+## saying Toad. The script embeds the fonts, renders headless, and checks the
+## result against the geometry it is meant to hold.
+og-card:
+	python3 site/card/render.py
 
 ## The old domains, answering 301 from hotline.dev. Deployed on its own: it
 ## changes only when the redirect does.

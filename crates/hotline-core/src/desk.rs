@@ -757,6 +757,41 @@ impl RoomHandle for Desk {
             .computer_cookies_import(persona_id, browser_id, profile_id, domains)
             .await
     }
+
+    fn secrets_list(&self) -> Result<Vec<crate::contract::SharedSecret>, String> {
+        self.vault
+            .shared_secrets()
+            .map_err(|error| error.to_string())
+    }
+
+    /// The vault write is the fact; a computer that cannot be handed the new
+    /// value says so on its teammate's tape, and the command still succeeds.
+    async fn secrets_set(
+        &self,
+        name: &str,
+        value: &str,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        self.vault
+            .set_shared_secret(name, value)
+            .map_err(|error| error.to_string())?;
+        let stored = self
+            .vault
+            .shared_secrets()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|secret| secret.name == name)
+            .ok_or_else(|| format!("{name} was stored but is not listed; check the vault."))?;
+        self.room.secrets_changed().await;
+        Ok(stored)
+    }
+
+    async fn secrets_delete(&self, name: &str) -> Result<(), String> {
+        self.vault
+            .delete_shared_secret(name)
+            .map_err(|error| error.to_string())?;
+        self.room.secrets_changed().await;
+        Ok(())
+    }
 }
 
 fn record_login(

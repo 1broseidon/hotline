@@ -134,6 +134,9 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}]}]` — the host browsers cookies could come from; names only |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
 | `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
+| `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt}` — names and dates, never a value |
+| `secrets.set` | `{name, value}` | the `SharedSecret` stored; the value is never answered back |
+| `secrets.delete` | `{name}` | none |
 
 `computer.browsers.list`, `computer.cookies.preview` and
 `computer.cookies.import` are the operator's cookie import: reading a browser
@@ -145,6 +148,18 @@ host to desk to container, and never enters the tape, the model, or a log.
 `browsers.list` and `cookies.preview` read the host and touch no teammate;
 `cookies.import` starts the teammate's computer if it is stopped, the same as
 opening its screen would.
+
+`secrets.list`, `secrets.set` and `secrets.delete` are the operator's store of
+keys and tokens for teammates to use without seeing them, kept in the OS
+credential store through the vault. A name is the environment variable a
+granted computer finds the value under — `[A-Z][A-Z0-9_]*`, not `HOTLINE_*`
+and not the shell's own — and a value is at least eight characters. The store
+is write-only from the window: `set` answers the record, `list` answers names
+and dates, and no command, subscription or room event ever carries a value.
+Desk seat only. Which teammate may use which secret is `persona.computer.secrets`
+through `persona.update`; `set` and `delete` also hand every running computer
+the set its teammate is granted now, so a rotation or a revocation lands
+without a restart (see [security.md](security.md)).
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always
@@ -206,7 +221,9 @@ does not prevent the remaining teammates from applying the change.
 `"container"`; absent means the first available runtime. `computerImage`
 is the room's default image, under a teammate's own. Neither reattaches
 anything: both are read when a computer wakes, as are the teammate's own
-`persona.computer.memory`, `pids` and `mounts` through `persona.update`.
+`persona.computer.memory`, `pids` and `mounts` through `persona.update`. A
+`computer` patch does reattach the teammate, and the reattach hands a running
+computer the secrets `persona.computer.secrets` names now.
 
 `computer.runtimes` is detection for the window: every CLI Hotline knows,
 whether it is on PATH, why not, and whether it is rootless. `computer.status`

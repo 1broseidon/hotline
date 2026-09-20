@@ -82,6 +82,7 @@ pub mod cookies;
 pub mod guide;
 pub mod login;
 pub mod releases;
+pub mod secrets;
 
 /// The image the desk's own release line is published as, at `release`.
 pub fn image_at(release: &str) -> String {
@@ -324,6 +325,21 @@ impl Computer {
         Ok(Ready {
             url: mcp_url(mcp_port),
             token,
+        })
+    }
+
+    /// The endpoint of a teammate's computer while it is running and this
+    /// process holds its token; `None` for one that is stopped, absent, or
+    /// was made by a process that is gone. A stopped computer is handed
+    /// nothing now and everything at its next start.
+    pub async fn running(&self, persona_id: &str) -> Option<Ready> {
+        let live = self.lock().containers.get(persona_id).cloned()?;
+        let inspection = inspect(&live.cmd, live.runtime, &container_name(persona_id))
+            .await
+            .ok()?;
+        inspection.running.then(|| Ready {
+            url: mcp_url(live.mcp_port),
+            token: live.token,
         })
     }
 
@@ -1150,6 +1166,7 @@ mod tests {
                 memory: None,
                 pids: None,
                 mounts: None,
+                secrets: None,
             }),
             subagents: None,
             session_checkpoints: Vec::new(),
@@ -1527,6 +1544,7 @@ mod tests {
             memory: None,
             pids: None,
             mounts: None,
+            secrets: None,
         });
         assert_eq!(image_of(&ada, None, None), default_image());
         assert_eq!(image_of(&ada, None, Some("0.5.3")), image_at("0.5.3"));
@@ -1540,6 +1558,7 @@ mod tests {
             memory: None,
             pids: None,
             mounts: None,
+            secrets: None,
         });
         assert_eq!(image_of(&ada, Some("room/image:1"), None), "own/image:2");
     }

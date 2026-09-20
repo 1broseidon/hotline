@@ -111,7 +111,42 @@ pub(crate) mod fake {
         StreamableHttpService, session::local::LocalSessionManager,
     };
     use serde_json::{Value, json};
-    use std::sync::Arc;
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+
+    /// Every set of secrets the fake was handed through `PUT /secrets`, in
+    /// order, so a test can prove what reached the machine and what did
+    /// not. A release too old for a guide has no such route.
+    #[derive(Clone, Default)]
+    pub(crate) struct Taken(pub(crate) Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+
+    impl Taken {
+        pub(crate) fn sets(&self) -> Vec<BTreeMap<String, String>> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    async fn take_secrets(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::http::StatusCode {
+        let bearer = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .unwrap_or("");
+        if bearer.is_empty() {
+            return axum::http::StatusCode::UNAUTHORIZED;
+        }
+        match serde_json::from_str::<BTreeMap<String, String>>(&body) {
+            Ok(set) => {
+                taken.0.lock().unwrap().push(set);
+                axum::http::StatusCode::NO_CONTENT
+            }
+            Err(_) => axum::http::StatusCode::BAD_REQUEST,
+        }
+    }
 
     /// The skill text a release `version` would serve, with the placeholder
     /// filled the way Hotline Computer's own build fills it.
@@ -190,6 +225,14 @@ pub(crate) mod fake {
     /// Serves a computer on a loopback port and answers the port. `version`
     /// is the release it claims; `None` is an image too old to have a guide.
     pub(crate) async fn serve(version: Option<&str>) -> u16 {
+        serve_taking(version).await.0
+    }
+
+    /// The same, with the record of every set of secrets handed to it. An
+    /// image too old for a guide is too old for `/secrets` as well, and
+    /// answers 404 there the way a real one does.
+    pub(crate) async fn serve_taking(version: Option<&str>) -> (u16, Taken) {
+        let taken = Taken::default();
         let computer = FakeComputer {
             version: version.map(str::to_owned),
         };
@@ -199,15 +242,19 @@ pub(crate) mod fake {
                 Arc::new(LocalSessionManager::default()),
                 Default::default(),
             );
-        let app = axum::Router::new()
+        let mut app = axum::Router::new()
             .route("/health", axum::routing::get(|| async { "ok" }))
             .nest_service("/mcp", service);
+        if version.is_some() {
+            app = app.route("/secrets", axum::routing::put(take_secrets));
+        }
+        let app = app.with_state(taken.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        port
+        (port, taken)
     }
 }
 

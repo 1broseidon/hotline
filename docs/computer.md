@@ -37,6 +37,15 @@ update.
   `--cap-drop=ALL` and nothing added back, `no-new-privileges`, memory and PID
   limits, a sized `/dev/shm`, and the one port published on loopback.
 - The workspace is mounted at `/home/agent/workspace`.
+- `PUT /secrets` takes the whole set of secrets the teammate is granted, a
+  JSON object of name to value, bearer in the `Authorization` header. The
+  computer keeps it in memory, puts it in the environment of every job the
+  agent starts through `shell` or `files run` (not of a preparation job,
+  whose captured environment is written into the workspace), redacts the
+  values from what its tools answer, and never answers one back — there is
+  no GET, and a job does not inherit the bearer either. A release from
+  before the route answers 404, and the desk says so on the teammate's
+  tape.
 
 A paired phone reaches the same viewer socket through a door on the Remote
 listener, `GET /computer/<personaId>/ws` with the phone's own bearer. The
@@ -76,7 +85,12 @@ own skill with its version and checksum, and writes it into the teammate's
 workspace as the `hotline-computer` skill (see [design.md](design.md), section
 7). `computer.status` reports that release, and when it differs from the one
 the teammate's computer would be created on now, the release it would get
-as `available`. `computer.update` is the pane's answer to that: stop the
+as `available`. The same start hands the computer the secrets the teammate
+is granted (`persona.computer.secrets`, read from the vault), and so does
+every reattach and every change to a stored value while the computer is
+running; a stopped one gets the current set at its next start. Mounts are
+different: they are bind mounts fixed when the container is created, so a
+changed mount takes effect at the next Remove. `computer.update` is the pane's answer to that: stop the
 teammate if it is running, remove the container, start the teammate again on
 the current choice. What survives an update is what survives a removal — the
 volumes — and nothing else; the pane says so next to the button.

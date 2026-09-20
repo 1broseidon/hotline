@@ -300,6 +300,27 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
 
+    /// The secrets the operator keeps for teammates: names and when each
+    /// changed, never a value. Defaults to none: a room without a vault
+    /// under it stores nothing.
+    fn secrets_list(&self) -> Result<Vec<crate::contract::SharedSecret>, String> {
+        Ok(Vec::new())
+    }
+    /// Stores or replaces a secret and hands the new value to every running
+    /// computer granted its name. Answers the record, never the value.
+    async fn secrets_set(
+        &self,
+        _name: &str,
+        _value: &str,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
+    /// Takes a secret away, and out of every running computer it was
+    /// granted to.
+    async fn secrets_delete(&self, _name: &str) -> Result<(), String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
+
     /// Starts OAuth discovery and a native browser callback for one HTTP MCP
     /// server. The result contains only a login id, URL and status.
     async fn mcp_auth_start(&self, _server_id: &str) -> Result<Value, String> {

@@ -43,6 +43,7 @@ it.
 | Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. |
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
 | Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. |
+| Secrets | `computer.secrets` | none | Named values from the operator's store (see below), in the environment of every job that computer runs. The computer redacts each value from what its tools answer and nothing returns one. A record from before the field, or a name nobody ticked, grants nothing. |
 | ACP harness | `backendId` other than `hotline` | Hotline Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Hotline's sandbox. Hotline's file callbacks for it stay in the workspace whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
 
 Reach, gateway, collaboration, background work and the computer are
@@ -105,6 +106,58 @@ granted; they never enter the tape, the model's input, or a log. What the
 agent gains is a browser already signed in to sites the person picked — the
 same exposure as the person signing in there by hand inside the computer, and
 the accepted risk of giving an agent a logged-in browser at all.
+
+## Secrets a teammate uses without seeing
+
+The operator keeps keys and tokens — a GitHub PAT, an npm token, a Stripe
+test key — in the vault, under names that are environment variables:
+`secrets.set {name, value}` writes the value to the OS credential store
+(macOS Keychain, Windows Credential Manager, Linux Secret Service, the same
+opaque-reference records as provider keys; no plaintext fallback) and
+`secrets.list` answers names and dates. Nothing on the wire, in the room
+stream, or in a subscription ever carries a value: the store is write-only
+from the window. All three commands are desk-seat only.
+
+A teammate gets a secret only by the operator ticking its name on that
+teammate's computer, `computer.secrets`, a standing choice like a mount,
+nothing pre-ticked, set only through `persona.update`, which the phone may
+not send. At every grant — session start, reattach, and whenever a stored
+value is replaced or deleted — the desk reads the granted values from the
+vault and hands the computer the whole set through `PUT /secrets` on its
+authenticated loopback port, bearer in a header. A stopped computer is
+handed nothing until its next start, which hands it the current set. The
+container keeps the set in memory and puts it in the environment of every
+job the agent starts through `shell` or `files run` — above the workspace's
+saved environment, under the agent's own explicit `env` — and of no
+preparation job, because what preparation captures is written into the
+workspace. It redacts every value from every tool result at the one point
+all its tools pass through, as `[redacted NAME]`, in the spelling JSON
+gives a value too. `/secrets` is PUT-only; there is no route that returns
+a value, because the bearer is the container's door key and not a secret:
+a job no longer inherits it, but anything running in the container can
+still read its service's environment, so holding the bearer must never be
+worth a value. The agent is told the names, in the preamble and by `state
+info`, and told it will never see a value.
+
+What this enforces: no agent tool reads, sets or grants a secret; a value
+passes host keyring → desk memory → container memory → job environment and
+is written to no tape, no log, no room event and no model input; and the
+computer scrubs the value as it is from what the model reads. What it does
+not enforce, stated plainly: a model that deliberately encodes a value —
+`base64`, splitting it, printing it on the desktop and taking a screenshot
+— can still read it, because the sandbox has to be able to use the value
+with arbitrary programs. Redaction is a guard against incidental exposure
+(`curl -v`, `env` in a debug dump, a tool printing its configuration), not a
+wall against a determined model; the wall is the grant, and the guidance is
+to grant a teammate only the secrets its job needs. Jobs already running
+keep what they were started with when a secret is revoked, the accepted
+"dispatched side effects survive revocation" rule; a running computer that
+cannot be told of a change keeps its set until it is stopped, and the
+teammate's tape says so. A release from before `/secrets` answers 404: the
+teammate starts, the tape names what is not in its shell, and the pane's
+Update is the fix. Network-layer injection, where a proxy adds the header
+and the value never exists in the sandbox, is the stronger follow-up for
+HTTP APIs and is not built.
 
 ## The method for a new capability
 
@@ -226,6 +279,11 @@ extend; when a change adds a boundary, it adds a row.
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the door refuses the unpaired, a path naming anything but a teammate, and a stopped computer; revoking the device drops the socket | `remote/tests.rs` `a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer`, `the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped`, `revoking_the_phone_drops_its_computer_socket`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
+| Stored secrets are the desk's alone: the phone can neither list, store nor delete one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
+| A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
+| A computer is handed only what its teammate is granted and what is stored; the tape names what is not; the preamble names what the computer has; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is named only when something was granted | `session/tests.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_is_named_only_when_something_was_granted` | Unix |
+| Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure` | — |
+| Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the set under the agent's own `env`, and every tool answer has the values redacted | Hotline Computer's `src/secrets.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
 
 Where real macOS execution is required: every `tools/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and

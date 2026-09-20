@@ -14,6 +14,7 @@ import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { ConnectProvider, ProviderRow } from "./ConnectProvider";
+import { SecretsSection } from "./Secrets";
 import { SkillsSection } from "./Skills";
 
 import { UpdatesSection } from "./UpdatesSection";
@@ -22,7 +23,7 @@ import { RemoteSection } from "./RemoteSection";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "providers" | "tools" | "skills" | "computer" | "remote" | "updates" | "import";
+export type SettingsSection = "general" | "providers" | "tools" | "skills" | "computer" | "secrets" | "remote" | "updates" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
@@ -30,6 +31,7 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "tools", title: "Tools" },
 	{ id: "skills", title: "Skills" },
 	{ id: "computer", title: "Computer" },
+	{ id: "secrets", title: "Secrets" },
 	{ id: "remote", title: "Remote" },
 	{ id: "updates", title: "Updates" },
 	{ id: "import", title: "Import" },
@@ -95,10 +97,12 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 		void wire.command("settings.update", { patch }).catch((error: Error) => setRefusal(error.message));
 	};
 
-	// Providers, Tools and Skills have a page under them, so their bands are their own.
+	// Providers, Tools and Skills have a page under them, so their bands are
+	// their own; Secrets keeps its own list, so it draws itself the same way.
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
+	if (section === "secrets") return <SecretsSection onBack={onBack} />;
 
 	return (
 		<div className="pane">

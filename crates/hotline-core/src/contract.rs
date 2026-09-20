@@ -398,6 +398,14 @@ pub struct PersonaComputer {
     /// teammate can read a checkout it has to test without cloning it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mounts: Option<Vec<ComputerMount>>,
+    /// The stored secrets this computer's shell gets as environment
+    /// variables, by name (see [`SharedSecret`]). The value never leaves the
+    /// vault except on its way to this machine, and the computer redacts it
+    /// from what it answers the agent. Absent means none: a record from
+    /// before this field, or a teammate nobody granted anything, is handed
+    /// nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<Vec<String>>,
 }
 
 /// One host folder bound into a teammate's computer.
@@ -531,6 +539,20 @@ pub struct BrowserProfile {
 pub struct CookieSite {
     pub domain: String,
     pub cookies: u32,
+}
+
+/// A secret the operator stored for teammates to use: a key or token kept in
+/// the OS credential store under a name that is the environment variable a
+/// granted computer finds it under. This is all the window ever sees of one
+/// — the value is written once and never answered back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SharedSecret {
+    /// `[A-Z][A-Z0-9_]*`, not Hotline's own `HOTLINE_*` and not the shell's.
+    pub name: String,
+    /// When the value was last stored or replaced, ms since the epoch.
+    pub updated_at: i64,
 }
 
 /// Which Hotline Computer release a new computer is created on: the newest
@@ -2013,6 +2035,20 @@ pub enum Command {
         profile_id: String,
         domains: Vec<String>,
     },
+    /// The secrets the operator has stored for teammates: names and when
+    /// each changed, never a value. Desk seat only.
+    #[serde(rename = "secrets.list")]
+    SecretsList {},
+    /// Stores a secret under `name`, or replaces the one there, and hands the
+    /// new value to every running computer granted that name. The value goes
+    /// to the OS credential store and is never answered back — not by this
+    /// command, not by a list, not by a subscription. Desk seat only.
+    #[serde(rename = "secrets.set")]
+    SecretsSet { name: String, value: String },
+    /// Takes a stored secret away, and out of every running computer it was
+    /// granted to. Desk seat only.
+    #[serde(rename = "secrets.delete")]
+    SecretsDelete { name: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

@@ -507,6 +507,9 @@ pub struct Room {
     push: crate::push::Push,
     /// One container per teammate, tokens in process state.
     computers: Computer,
+    /// Where the secrets a computer is granted are read from, on their way
+    /// to it. A room without one — a test's — grants none.
+    vault: Option<Arc<Vault>>,
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
@@ -536,9 +539,9 @@ impl Room {
             keys: keys.clone(),
             root: log.root().to_path_buf(),
             log: log.clone(),
-            mcp_vault: Some(vault),
+            mcp_vault: Some(vault.clone()),
         });
-        Self::with_agents(log, keys, agents)
+        Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
     }
 
     /// The room, on an agent seam a test can script. [`Room::new`] is this on
@@ -557,6 +560,17 @@ impl Room {
         keys: Arc<dyn ProviderKeys>,
         agents: Arc<dyn Agents>,
         computers: Computer,
+    ) -> Arc<Self> {
+        Self::with_agents_computers_and_vault(log, keys, agents, computers, None)
+    }
+
+    /// The room with a vault to read a computer's granted secrets from.
+    pub(crate) fn with_agents_computers_and_vault(
+        log: Log,
+        keys: Arc<dyn ProviderKeys>,
+        agents: Arc<dyn Agents>,
+        computers: Computer,
+        vault: Option<Arc<Vault>>,
     ) -> Arc<Self> {
         let push = crate::push::Push::new(log.root());
         let indexer = match Indexer::open(&log) {
@@ -583,6 +597,7 @@ impl Room {
             human_waits: Mutex::new(HashMap::new()),
             push,
             computers,
+            vault,
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
         });
@@ -919,7 +934,92 @@ impl Room {
                 },
             ),
         }
+        self.hand_secrets(persona, &ready).await;
         Ok(vec![crate::computer::mcp_server(&ready)])
+    }
+
+    /// Hands a running computer the secrets its teammate is granted — the
+    /// whole set, so what was unticked or deleted since is gone from it too
+    /// — and says on the tape what could not be handed: a name no longer
+    /// stored, a release too old to take any, a machine that would not
+    /// answer. The values pass vault → this process → container and are
+    /// written nowhere on the way.
+    async fn hand_secrets(&self, persona: &Persona, ready: &crate::computer::Ready) {
+        let notice = |text: String| {
+            self.write(
+                &persona.id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Info,
+                    text,
+                },
+            );
+        };
+        let granted: Vec<String> = persona
+            .computer
+            .as_ref()
+            .and_then(|computer| computer.secrets.clone())
+            .unwrap_or_default();
+        let (values, missing) = match &self.vault {
+            Some(vault) => match vault.shared_secret_values(&granted) {
+                Ok(read) => read,
+                Err(error) => {
+                    notice(format!(
+                        "The secrets {} was granted could not be read from the vault, so its computer has none: {error}",
+                        persona.name
+                    ));
+                    return;
+                }
+            },
+            None if granted.is_empty() => (std::collections::BTreeMap::new(), Vec::new()),
+            None => (std::collections::BTreeMap::new(), granted.clone()),
+        };
+        if !missing.is_empty() {
+            notice(format!(
+                "{} was granted secrets that are not stored any more: {}. Store them again under Settings → Secrets, or untick them.",
+                persona.name,
+                missing.join(", ")
+            ));
+        }
+        let names: Vec<&str> = values.keys().map(String::as_str).collect();
+        match crate::computer::secrets::deliver(ready, &values).await {
+            Ok(()) => {}
+            // A release from before secrets, granted none: nothing to say.
+            Err(crate::computer::secrets::Refusal::TooOld) if names.is_empty() => {}
+            Err(crate::computer::secrets::Refusal::TooOld) => notice(format!(
+                "{}'s computer is on a release that cannot take secrets, so {} not in its shell. Update the computer from the teammate's pane.",
+                persona.name,
+                if names.len() == 1 {
+                    format!("{} is", names[0])
+                } else {
+                    format!("{} are", names.join(", "))
+                }
+            )),
+            Err(crate::computer::secrets::Refusal::Failed(reason)) => notice(format!(
+                "{}'s computer could not be handed its secrets. {reason} Stop and start the computer to try again.",
+                persona.name
+            )),
+        }
+    }
+
+    /// After a secret was stored, replaced or deleted: every running computer
+    /// is handed the set its teammate is granted now, so a rotation or a
+    /// revocation reaches the machine without a restart. A stopped computer
+    /// gets the current set at its next start, as every start does.
+    pub async fn secrets_changed(&self) {
+        for persona in room::roster(&self.log) {
+            if !persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+            {
+                continue;
+            }
+            if let Some(ready) = self.computers.running(&persona.id).await {
+                self.hand_secrets(&persona, &ready).await;
+            }
+        }
     }
 
     /// Revokes a teammate's current generation before its replacement policy
@@ -3034,6 +3134,23 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     } else {
         ""
     };
+    // What the person put in the computer for it, by name only. The names
+    // are the environment variables; the values it is told it will never
+    // see, and told why, because a model that goes looking for one is a
+    // model that was not told the computer redacts them.
+    let secrets_sentence = match persona
+        .computer
+        .as_ref()
+        .filter(|computer| computer.enabled)
+        .and_then(|computer| computer.secrets.as_deref())
+        .filter(|names| !names.is_empty())
+    {
+        Some(names) => format!(
+            "\n\nThe person has put these secrets in your computer, by name: {}. Each is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable. You never see a value: the computer redacts every one from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+            names.join(", ")
+        ),
+        None => String::new(),
+    };
     let goal = persona.goal.trim();
     let identity = if goal.is_empty() {
         format!("You are {}.", persona.name)
@@ -3066,7 +3183,7 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
         .collect();
     let skills = crate::skills::index(&listed);
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,
         Local::now().format("%A %-d %B %Y"),
         crate::mcp::server::HOW_TO_USE,

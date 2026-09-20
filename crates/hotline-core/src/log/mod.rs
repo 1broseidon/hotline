@@ -212,14 +212,19 @@ impl Log {
         Ok(())
     }
 
-    /// The built-in agent's stored backend id was `pi`; it is `hotline`, with no
-    /// alias anywhere that reads. Records written before the rename are
-    /// rewritten in place, once: every room and tape file, line for line, so
-    /// nothing is folded, reordered, or dropped, and a torn line stays torn.
-    /// Runs at open, before any subscriber or mirror exists, and leaves its
-    /// name in `.migrations` so later opens read nothing.
+    /// The built-in agent's stored backend id was `pi`, then `toad`; it is
+    /// `hotline`, with no alias anywhere that reads. Records written before
+    /// the rename are rewritten in place, once: every room and tape file, line
+    /// for line, so nothing is folded, reordered, or dropped, and a torn line
+    /// stays torn. Runs at open, before any subscriber or mirror exists, and
+    /// leaves its name in `.migrations` so later opens read nothing.
+    ///
+    /// The marker is the second of its name. The first pass shipped in 0.14.0
+    /// looking only for `pi`, so a room moved over from Toad kept every
+    /// teammate on `toad` and recorded the pass as done; this one runs on such
+    /// a room once more.
     pub fn migrate_backend_id(&self) -> io::Result<()> {
-        const NAME: &str = "backend-id-hotline";
+        const NAME: &str = "backend-id-hotline-2";
         let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let marker = self.root.join(".migrations");
         let done = fs::read_to_string(&marker).unwrap_or_default();
@@ -391,14 +396,15 @@ impl Log {
 /// Every place a stored record names the built-in backend, renamed. Text a
 /// person typed is untouched: only the id fields are looked at.
 fn rename_backend(event: &mut Value) -> bool {
-    const OLD: &str = "pi";
+    const OLD: [&str; 2] = ["pi", "toad"];
     const NEW: &str = "hotline";
+    let is_old = |value: &Value| OLD.iter().any(|old| value == old);
     let mut changed = false;
-    if event["backendId"] == OLD {
+    if is_old(&event["backendId"]) {
         event["backendId"] = Value::from(NEW);
         changed = true;
     }
-    if event["kind"] == "setting" && event["id"] == "defaultBackendId" && event["value"] == OLD {
+    if event["kind"] == "setting" && event["id"] == "defaultBackendId" && is_old(&event["value"]) {
         event["value"] = Value::from(NEW);
         changed = true;
     }
@@ -407,7 +413,7 @@ fn rename_backend(event: &mut Value) -> bool {
         .and_then(Value::as_array_mut)
     {
         for checkpoint in checkpoints {
-            if checkpoint["backendId"] == OLD {
+            if is_old(&checkpoint["backendId"]) {
                 checkpoint["backendId"] = Value::from(NEW);
                 changed = true;
             }
@@ -693,10 +699,70 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(root.join(".migrations")).unwrap(),
-            "backend-id-hotline\n"
+            "backend-id-hotline-2\n"
         );
         // An empty directory is a finished migration too.
         scratch("rename-empty").migrate_backend_id().unwrap();
+    }
+
+    /// A room moved over from Toad 0.13: its records say `toad`, and 0.14.0's
+    /// pass, which looked only for `pi`, has already recorded itself as done.
+    /// The pass runs regardless and renames everything, tapes included.
+    #[test]
+    fn a_toad_room_is_renamed_even_after_the_first_pass_recorded_itself() {
+        let log = scratch("rename-toad");
+        let root = log.root().to_path_buf();
+        let room = root.join("room.jsonl");
+        fs::write(
+            root.join(".migrations"),
+            "backend-id-toad\nbackend-id-hotline\n",
+        )
+        .unwrap();
+        fs::write(
+            &room,
+            concat!(
+                r#"{"kind":"persona","id":"ada","backendId":"toad","goal":"a toad","sessionCheckpoints":[{"backendId":"toad","sessionId":"s1"}]}"#, "\n",
+                r#"{"kind":"persona","id":"bob","backendId":"pi"}"#, "\n",
+                r#"{"kind":"persona","id":"cy","backendId":"cursor"}"#, "\n",
+                r#"{"kind":"setting","id":"defaultBackendId","value":"toad"}"#, "\n",
+            ),
+        )
+        .unwrap();
+        let segments = root.join("transcripts").join("ada");
+        fs::create_dir_all(&segments).unwrap();
+        fs::write(
+            segments.join("1.jsonl"),
+            concat!(
+                r#"{"kind":"chapter","id":"c1","ts":1,"backendId":"toad"}"#,
+                "\n",
+                r#"{"kind":"user","id":"u1","text":"toad-core/"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        log.migrate_backend_id().unwrap();
+
+        let room_after = fs::read_to_string(&room).unwrap();
+        assert_eq!(room_after.lines().count(), 4);
+        assert!(!room_after.contains(r#""backendId":"toad""#));
+        assert!(!room_after.contains(r#""backendId":"pi""#));
+        assert!(room_after.contains(r#""goal":"a toad""#));
+        assert!(room_after.contains(r#"{"backendId":"hotline","sessionId":"s1"}"#));
+        assert!(room_after.contains(r#""id":"cy","backendId":"cursor""#));
+        assert!(room_after.contains(r#""id":"defaultBackendId","value":"hotline""#));
+        assert_eq!(
+            fs::read_to_string(segments.join("1.jsonl")).unwrap(),
+            concat!(
+                r#"{"kind":"chapter","id":"c1","ts":1,"backendId":"hotline"}"#,
+                "\n",
+                r#"{"kind":"user","id":"u1","text":"toad-core/"}"#,
+                "\n",
+            )
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".migrations")).unwrap(),
+            "backend-id-toad\nbackend-id-hotline\nbackend-id-hotline-2\n"
+        );
     }
 
     #[test]

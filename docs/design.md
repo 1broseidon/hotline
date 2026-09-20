@@ -141,8 +141,11 @@ only credential hashes and device metadata live on disk. A new certificate cover
 all advertised host IPs. The certificate, port, and grants are reused when the
 selected addresses are already covered, including toggling Remote off and on.
 Enabling an address absent from that certificate replaces it and requires pairing
-again. A phone using an address excluded by a new restriction also needs a fresh
-pairing QR. Disable and revoke close the affected sockets immediately.
+again, and so does a certificate the desk can no longer read: corrupt, gone from
+the OS store, or written by an earlier edition into a store this build cannot
+name, as a room moved over from Toad holds. A store that is merely locked or
+unavailable is reported, not replaced. A phone using an address excluded by a
+new restriction also needs a fresh pairing QR. Disable and revoke close the affected sockets immediately.
 
 Manual pairing is the same two-minute session for a phone that cannot scan: the
 panel shows the address, port, and a six-digit code next to the QR. Six digits

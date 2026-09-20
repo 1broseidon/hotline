@@ -274,6 +274,32 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;
 
+    /// The host browsers the operator could bring cookies from. Names only.
+    /// Defaults to none: a room without a desk under it offers no host.
+    async fn computer_browsers(&self) -> Vec<crate::contract::HostBrowser> {
+        Vec::new()
+    }
+    /// The sites in one host browser profile and how many cookies each has.
+    /// Domains and counts only; no value is read out.
+    async fn computer_cookies_preview(
+        &self,
+        _browser_id: &str,
+        _profile_id: &str,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        Err("Browser cookie import is unavailable on this room.".to_string())
+    }
+    /// Copies the ticked sites' cookies from a host browser into the
+    /// teammate's computer, and answers with the sites actually imported.
+    async fn computer_cookies_import(
+        &self,
+        _persona_id: &str,
+        _browser_id: &str,
+        _profile_id: &str,
+        _domains: &[String],
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        Err("Browser cookie import is unavailable on this room.".to_string())
+    }
+
     /// Starts OAuth discovery and a native browser callback for one HTTP MCP
     /// server. The result contains only a login id, URL and status.
     async fn mcp_auth_start(&self, _server_id: &str) -> Result<Value, String> {

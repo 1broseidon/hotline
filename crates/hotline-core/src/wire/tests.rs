@@ -1393,6 +1393,31 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
 }
 
+/// Cookie import reads the person's own machine, so it is the desk's alone:
+/// the phone cannot list host browsers, preview, or import, and there is no
+/// agent tool for any of it. This is the enforcement point behind the promise
+/// that the agent can never pull cookies itself.
+#[test]
+fn only_the_desk_seat_may_import_host_cookies() {
+    let browsers = Command::ComputerBrowsersList {};
+    let preview = Command::ComputerCookiesPreview {
+        browser_id: "chrome".to_string(),
+        profile_id: "Default".to_string(),
+    };
+    let import = Command::ComputerCookiesImport {
+        persona_id: "ada".to_string(),
+        browser_id: "chrome".to_string(),
+        profile_id: "Default".to_string(),
+        domains: vec!["example.com".to_string()],
+    };
+    assert!(Seat::Desk.permits(&browsers));
+    assert!(Seat::Desk.permits(&preview));
+    assert!(Seat::Desk.permits(&import));
+    assert!(!Seat::Phone.permits(&browsers));
+    assert!(!Seat::Phone.permits(&preview));
+    assert!(!Seat::Phone.permits(&import));
+}
+
 /// A phone answers what a teammate is waiting on and sets how it thinks.
 /// What it may reach, and any standing posture, stay at the desk.
 #[test]

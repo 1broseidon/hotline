@@ -309,6 +309,25 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
+        Command::ComputerBrowsersList {} => Ok(json!(room.computer_browsers().await)),
+        Command::ComputerCookiesPreview {
+            browser_id,
+            profile_id,
+        } => room
+            .computer_cookies_preview(&browser_id, &profile_id)
+            .await
+            .map(|sites| json!(sites)),
+        Command::ComputerCookiesImport {
+            persona_id,
+            browser_id,
+            profile_id,
+            domains,
+        } => {
+            living(log, &persona_id)?;
+            room.computer_cookies_import(&persona_id, &browser_id, &profile_id, &domains)
+                .await
+                .map(|sites| json!(sites))
+        }
     }
 }
 

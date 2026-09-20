@@ -83,6 +83,29 @@ decision for George, not a bug fix.
   for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.
 
+## Operator actions are not agent capabilities
+
+Some things the person does from the desk are one-shot transfers, not standing
+grants: attaching a file to a prompt, adding a mount, and importing a host
+browser's cookies into a teammate's computer. They use the person's own
+authority through the authenticated desk wire, are gated to the desk seat, and
+add nothing to what the agent may reach on its own. They are not a call-time
+approval prompt, which the standing-consent rule forbids, because the person
+initiates them; there is no card the agent can raise.
+
+Cookie import (`computer.browsers.list`, `computer.cookies.preview`,
+`computer.cookies.import`) is the sharpest case, so it is spelled out. The
+agent has no tool that reads the host's browsers; the three commands are
+desk-seat only and the phone allowlist does not name them, so the model cannot
+pull cookies whatever it is told. The person chooses the browser, the profile,
+and the exact sites; a preview carries domains and counts, never a value. On
+import the chosen cookies pass host → desk → container over the container's
+authenticated loopback port and are written into the sandbox the person already
+granted; they never enter the tape, the model's input, or a log. What the
+agent gains is a browser already signed in to sites the person picked — the
+same exposure as the person signing in there by hand inside the computer, and
+the accepted risk of giving an agent a logged-in browser at all.
+
 ## The method for a new capability
 
 Follow this when adding a tool, a tool origin, a driver behaviour, or a

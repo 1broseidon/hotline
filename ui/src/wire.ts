@@ -6,9 +6,11 @@ import type {
 	ComputerReleases,
 	ComputerStatus,
 	ConfigChoice,
+	CookieSite,
 	Credential,
 	EffortChoices,
 	GlobalSearchHit,
+	HostBrowser,
 	LoginPrompt,
 	LoginStatus,
 	PeerThreadSummary,
@@ -139,6 +141,9 @@ type Results = {
 	"computer.stop": null;
 	"computer.remove": null;
 	"computer.update": null;
+	"computer.browsers.list": HostBrowser[];
+	"computer.cookies.preview": CookieSite[];
+	"computer.cookies.import": CookieSite[];
 	welcome: Welcome;
 };
 

@@ -131,6 +131,20 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |
+| `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}]}]` — the host browsers cookies could come from; names only |
+| `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
+| `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
+
+`computer.browsers.list`, `computer.cookies.preview` and
+`computer.cookies.import` are the operator's cookie import: reading a browser
+on the person's own machine and handing the chosen sites' cookies to a
+teammate's computer. They are desk-seat only — the phone allowlist does not
+name them and no agent tool reaches them, so the agent can never pull cookies
+itself. A preview carries domains and counts; a value crosses only on import,
+host to desk to container, and never enters the tape, the model, or a log.
+`browsers.list` and `cookies.preview` read the host and touch no teammate;
+`cookies.import` starts the teammate's computer if it is stopped, the same as
+opening its screen would.
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always

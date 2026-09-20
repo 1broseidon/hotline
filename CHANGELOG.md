@@ -8,6 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-20
+
+### Added
+
+- Settings → Secrets keeps keys and tokens in this machine's keychain, each under the name that becomes an environment variable, and a teammate's computer uses them without ever seeing one. A value is written once and never shown again, here or to a teammate. On the teammate's pane, under its computer, the stored names are one tick each, nothing ticked until you tick it; a ticked secret is in the environment of every job that computer runs, the teammate is told the names, and the computer replaces every value with `[redacted NAME]` in what its tools answer. That keeps a value out of the model's context when a command prints it; it is not a wall against a command written to get one out, and the security notes say so. A stored value that is replaced or removed reaches a running computer at once. Needs Hotline Computer 0.7.0: on an older release the teammate's tape says its secrets are not in its shell and to update the computer from its pane.
+- Under a teammate's computer, **Bring over browser cookies** picks a browser on this machine, a profile, and the exact sites, and hands those cookies to the computer so its browser starts signed in to them. The browser decrypts its own jar, so nothing is reimplemented on the desk; the window only ever sees site names and counts, and the agent has no way to start any of this.
+
+### Changed
+
+- New computers are created on Hotline Computer 0.7.0 or newer, the first release that takes secrets and reads the desk's bearer as a header. An existing computer keeps the release it runs until it is updated or removed.
+
 ## [0.14.2] - 2026-09-19
 
 ### Fixed

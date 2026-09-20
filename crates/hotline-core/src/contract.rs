@@ -490,6 +490,49 @@ pub struct ComputerStatus {
     pub available: Option<String>,
 }
 
+/// A browser found on the host, offered to the operator as a source of
+/// cookies for a teammate's computer. Discovery reads only what names a
+/// profile; no cookie store is opened until the operator asks for a preview,
+/// and no value ever crosses the wire — only these names and, later, the
+/// per-site counts in [`CookieSite`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct HostBrowser {
+    /// The stable id the operator's choice names back to the desk, e.g.
+    /// `chrome`, `brave`, `chromium-snap`, `firefox`.
+    pub id: String,
+    pub name: String,
+    /// `chromium` or `firefox`: which family, so the desk knows to read it
+    /// over the debugging protocol or straight from its cookie file. The UI
+    /// does not branch on it; it is there for the preview copy.
+    pub family: String,
+    pub profiles: Vec<BrowserProfile>,
+}
+
+/// One profile within a host browser. Only profiles that have a cookie store
+/// on disk are listed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct BrowserProfile {
+    /// The on-disk directory (Chromium) or the `profiles.ini` path (Firefox);
+    /// the id the operator's choice names back.
+    pub id: String,
+    /// What the browser shows the profile as, e.g. "Personal", "default".
+    pub name: String,
+}
+
+/// One site the operator can choose to bring over, and how many cookies it
+/// holds. A preview is domains and counts only, never a value.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CookieSite {
+    pub domain: String,
+    pub cookies: u32,
+}
+
 /// Which Hotline Computer release a new computer is created on: the newest
 /// published one the desk has heard of, else the floor it was built
 /// against. A pinned image, the teammate's or the room's, overrides both.
@@ -1944,6 +1987,32 @@ pub enum Command {
     /// and starts the teammate again if it was running. The volumes survive.
     #[serde(rename = "computer.update")]
     ComputerUpdate { persona_id: String },
+    /// The browsers on the host the operator could bring cookies from, with
+    /// their profiles. Names only; no cookie store is opened. Desk seat only —
+    /// this reads the person's own machine, never the agent's, and no agent
+    /// tool can reach it.
+    #[serde(rename = "computer.browsers.list")]
+    ComputerBrowsersList {},
+    /// The sites in one host browser profile and how many cookies each has,
+    /// for the operator's picker. Domains and counts only; a value is never
+    /// read out. Desk seat only.
+    #[serde(rename = "computer.cookies.preview")]
+    ComputerCookiesPreview {
+        browser_id: String,
+        profile_id: String,
+    },
+    /// Copies the cookies for the ticked `domains` from a host browser into
+    /// the teammate's computer, so its browser starts signed in to them. The
+    /// operator chooses the sites; the values pass host → desk → container and
+    /// never touch the tape, the model, or a log. Desk seat only, and there is
+    /// no agent tool that does this — the agent can never pull cookies itself.
+    #[serde(rename = "computer.cookies.import")]
+    ComputerCookiesImport {
+        persona_id: String,
+        browser_id: String,
+        profile_id: String,
+        domains: Vec<String>,
+    },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

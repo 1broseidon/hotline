@@ -78,7 +78,9 @@ pub struct Ready {
     pub token: String,
 }
 
+pub mod cookies;
 pub mod guide;
+pub mod login;
 pub mod releases;
 
 /// The image the desk's own release line is published as, at `release`.

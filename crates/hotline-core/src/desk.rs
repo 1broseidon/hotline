@@ -731,6 +731,32 @@ impl RoomHandle for Desk {
     async fn computer_update(&self, persona_id: &str) -> Result<(), String> {
         self.room.computer_update(persona_id).await
     }
+
+    async fn computer_browsers(&self) -> Vec<crate::contract::HostBrowser> {
+        self.room.computer_browsers().await
+    }
+
+    async fn computer_cookies_preview(
+        &self,
+        browser_id: &str,
+        profile_id: &str,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        self.room
+            .computer_cookies_preview(browser_id, profile_id)
+            .await
+    }
+
+    async fn computer_cookies_import(
+        &self,
+        persona_id: &str,
+        browser_id: &str,
+        profile_id: &str,
+        domains: &[String],
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        self.room
+            .computer_cookies_import(persona_id, browser_id, profile_id, domains)
+            .await
+    }
 }
 
 fn record_login(

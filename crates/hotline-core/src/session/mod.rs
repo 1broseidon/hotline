@@ -48,10 +48,10 @@ pub use schedule::{parse_duration, parse_when};
 
 use crate::computer::Computer;
 use crate::contract::{
-    Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, HumanActionStatus,
-    HumanAnswer, NoticeLevel, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
-    SessionCapabilities, SessionInfo, SessionState, StreamDelta, TeammateToolLedger, ToolOutput,
-    ToolStatus, TranscriptEvent,
+    Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, CookieSite,
+    HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, Persona, Reach, Receipt,
+    RuntimeReport, ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState,
+    StreamDelta, TeammateToolLedger, ToolOutput, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -1822,6 +1822,94 @@ impl Room {
                 crate::computer::preferred_runtime(&room::settings(&self.log)),
             )
             .await
+    }
+
+    /// The host browsers the operator could bring cookies from. This reads
+    /// the person's own machine; it is reachable only over the desk seat and
+    /// no agent tool calls it.
+    pub async fn computer_browsers(&self) -> Vec<HostBrowser> {
+        crate::computer::cookies::detect()
+    }
+
+    /// The sites in one host browser profile, with counts, for the picker.
+    /// Domains and counts only; no cookie value is read out.
+    pub async fn computer_cookies_preview(
+        &self,
+        browser_id: &str,
+        profile_id: &str,
+    ) -> Result<Vec<CookieSite>, String> {
+        crate::computer::cookies::preview(browser_id, profile_id).await
+    }
+
+    /// Copies the cookies for the ticked sites from a host browser into the
+    /// teammate's computer, so its browser starts signed in to them, and
+    /// answers with the sites actually imported. The values pass host → desk →
+    /// container and are never written to the tape, the model, or a log.
+    pub async fn computer_cookies_import(
+        &self,
+        persona_id: &str,
+        browser_id: &str,
+        profile_id: &str,
+        domains: &[String],
+    ) -> Result<Vec<CookieSite>, String> {
+        let persona = room::roster(&self.log)
+            .into_iter()
+            .find(|persona| persona.id == persona_id)
+            .ok_or("No such teammate.")?;
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return Err(format!("{} has no computer to import into.", persona.name));
+        }
+        // Read only the ticked sites from the host browser.
+        let cookies = crate::computer::cookies::select(browser_id, profile_id, domains).await?;
+        if cookies.is_empty() {
+            return Err("None of the chosen sites had cookies to import.".to_string());
+        }
+        let imported = crate::computer::cookies::summarize(&cookies);
+
+        // The computer has to be up to receive the login; a stopped one is
+        // started, the same as opening its screen would.
+        let settings = room::settings(&self.log);
+        let prefer = crate::computer::preferred_runtime(&settings);
+        let room_image = crate::computer::preferred_image(&settings);
+        let notice_id = persona.id.clone();
+        let ready = self
+            .computers
+            .ensure_running(
+                &persona,
+                &persona.cwd,
+                prefer,
+                room_image.as_deref(),
+                |text| {
+                    self.write(
+                        &notice_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Info,
+                            text: text.to_string(),
+                        },
+                    );
+                },
+            )
+            .await?;
+
+        // The document the container's `login_load` reads. `storage` is empty:
+        // v1 carries cookies, not localStorage. The name is stable per source,
+        // so re-importing the same browser replaces the earlier file.
+        let name = format!("import-{browser_id}-{profile_id}");
+        let saved = serde_json::json!({
+            "name": name,
+            "browser": browser_id,
+            "created_at": chrono::Utc::now().to_rfc3339(),
+            "cookies": cookies,
+            "storage": {},
+        });
+        crate::computer::login::deliver(&ready, &name, &saved).await?;
+        Ok(imported)
     }
 
     async fn sweep_computers(&self) {

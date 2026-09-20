@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-09-19
+
 ### Fixed
 
 - A room moved over from Toad has its teammates on the built-in agent again. 0.14.0 renamed the stored agent id at open, but the pass looked for the name before Toad's rather than Toad's own, so on a moved room it changed nothing and recorded itself as done; every teammate then stood on an agent this machine did not know. The pass now covers both earlier names, runs once more on a room the first one passed over, and rewrites the chapter headers in the transcripts as well as the roster.

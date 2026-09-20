@@ -27,6 +27,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { CookieImport } from "./CookieImport";
+import { ComputerSecrets } from "./Secrets";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
 import type { OpenThread } from "./Thread";
@@ -498,7 +499,7 @@ const LIMITS_ABOUT =
 	"Blank is 4g of memory and 1024 processes; 0 processes is unlimited. Larger builds can request more memory or processes.";
 
 /** The settings without one of them, so blank means absent on the wire rather than an empty string. */
-function without(computer: PersonaComputer, key: "image" | "memory" | "pids" | "mounts"): PersonaComputer {
+function without(computer: PersonaComputer, key: "image" | "memory" | "pids" | "mounts" | "secrets"): PersonaComputer {
 	const next = { ...computer };
 	delete next[key];
 	return next;
@@ -508,7 +509,8 @@ function without(computer: PersonaComputer, key: "image" | "memory" | "pids" | "
  * The teammate's computer: the switch, and under it, while there is a
  * desktop to speak of, one row carrying its state that opens to what the
  * container is built with — image, memory, process limit, the host
- * folders bound in — and its Stop or Remove. Every change spreads the
+ * folders bound in, the stored secrets it may use — and its Stop or
+ * Remove. Every change spreads the
  * settings it does not touch, so flipping the switch never drops a mount.
  * Blank fields are absent on the wire, which is the default; a value the
  * runtime rejects surfaces as a start failure, not here. The status is a
@@ -694,6 +696,11 @@ function ComputerRows({
 									Bring over browser cookies
 								</button>
 							)}
+							<ComputerSecrets
+								granted={current.secrets ?? []}
+								disabled={disabled}
+								onChange={(next) => onChange(next.length === 0 ? without(current, "secrets") : { ...current, secrets: next })}
+							/>
 							{status?.available !== undefined && (
 								<>
 									<div className={NESTED}>

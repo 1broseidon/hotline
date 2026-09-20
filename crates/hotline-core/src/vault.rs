@@ -20,6 +20,9 @@ use std::sync::{Mutex, PoisonError};
 use tokio::sync::Mutex as AsyncMutex;
 
 mod launch;
+mod shared;
+
+pub use shared::check_secret_name;
 
 /// The client identity Hotline received from an MCP authorization server. The
 /// secret is kept beside the token in the vault record; this type never crosses
@@ -804,6 +807,15 @@ impl Vault {
             return Err(io::Error::other(format!(
                 "{} must be a real directory owned by this user",
                 mcp.display()
+            )));
+        }
+        let shared = self.shared_dir();
+        if let Ok(entry) = shared.symlink_metadata()
+            && !entry.is_dir()
+        {
+            return Err(io::Error::other(format!(
+                "{} must be a real directory owned by this user",
+                shared.display()
             )));
         }
         Ok(())

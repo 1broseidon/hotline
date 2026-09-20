@@ -328,6 +328,12 @@ pub(crate) async fn run(
                 .await
                 .map(|sites| json!(sites))
         }
+        Command::SecretsList {} => room.secrets_list().map(|secrets| json!(secrets)),
+        Command::SecretsSet { name, value } => room
+            .secrets_set(&name, &value)
+            .await
+            .map(|secret| json!(secret)),
+        Command::SecretsDelete { name } => room.secrets_delete(&name).await.map(|()| Value::Null),
     }
 }
 

@@ -1110,6 +1110,7 @@ fn the_preamble_says_who_where_how_far_and_when() {
         memory: None,
         pids: None,
         mounts: None,
+        secrets: None,
     });
     let desk = preamble(&ada, Some(Reach::Workspace), None);
     assert!(desk.contains("You have a computer"));
@@ -1347,6 +1348,8 @@ struct ComputerRoom {
     cwd: std::path::PathBuf,
     /// How often the releases endpoint was asked.
     asked: Arc<std::sync::atomic::AtomicUsize>,
+    /// Every set of secrets the fake computer was handed, in order.
+    taken: crate::computer::guide::fake::Taken,
 }
 
 /// `release` is what the fake computer claims to be (`None`: too old to
@@ -1363,11 +1366,21 @@ async fn computer_room(
     let root = fixtures::scratch(name);
     let cwd = root.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
-    let port = guide::fake::serve(release).await;
+    let (port, taken) = guide::fake::serve_taking(release).await;
     fixtures::fake_runtime(&root, port);
     std::fs::write(root.join("state"), "absent").unwrap();
     let (url, asked) = published::fake::serve(releases).await;
     let log = scratch(name);
+    // A vault of the test's own, so a granted secret has somewhere to be
+    // read from on its way to the machine.
+    let vault = Arc::new(
+        Vault::open_with_store(
+            log.root(),
+            log.clone(),
+            Arc::new(crate::credentials::tests::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
     let mut ada = persona("ada");
     ada.cwd = cwd.to_string_lossy().into_owned();
     ada.computer = Some(PersonaComputer {
@@ -1376,14 +1389,16 @@ async fn computer_room(
         memory: None,
         pids: None,
         mounts: None,
+        secrets: None,
     });
     enrol(&log, &ada);
     let agents = Fake::new(Scripted::new(Vec::new()));
-    let room = Room::with_agents_and_computers(
+    let room = Room::with_agents_computers_and_vault(
         log,
         Arc::new(DeskKeys),
         agents.clone(),
         Computer::with_path(root.as_os_str()).with_releases(&url),
+        Some(vault),
     );
     ComputerRoom {
         room,
@@ -1391,7 +1406,176 @@ async fn computer_room(
         root,
         cwd,
         asked,
+        taken,
     }
+}
+
+/// The notices on a teammate's tape, oldest first.
+#[cfg(unix)]
+fn notices(room: &Room, persona_id: &str) -> Vec<String> {
+    tape(room, persona_id)
+        .iter()
+        .filter(|event| event["kind"] == "notice")
+        .map(|event| event["text"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Grants `names` to ada's computer on the room's record, the way
+/// `persona.update` would, without reattaching anything.
+#[cfg(unix)]
+fn grant_secrets(room: &Room, names: &[&str]) {
+    let mut ada = room.persona("ada").unwrap();
+    let computer = ada.computer.as_mut().unwrap();
+    computer.secrets = Some(names.iter().map(|name| name.to_string()).collect());
+    enrol(&room.log, &ada);
+}
+
+/// The secrets a teammate is granted are read from the vault and handed to
+/// its computer at start, whole; a name that is not stored any more is said
+/// on the tape rather than silently dropped; and the preamble names what
+/// the computer has, never a value.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen() {
+    let ComputerRoom {
+        room,
+        agents,
+        taken,
+        ..
+    } = computer_room("computer-secrets", Some("0.9.1"), TWO_RELEASES, true).await;
+    let vault = room.vault.as_ref().unwrap();
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
+        .unwrap();
+    vault
+        .set_shared_secret("NPM_TOKEN", "npm_notarealtoken0002")
+        .unwrap();
+    grant_secrets(&room, &["GITHUB_TOKEN", "GONE_TOKEN"]);
+    room.start("ada").await.unwrap();
+
+    // Only what was granted, and only what is stored: NPM_TOKEN was never
+    // ticked, GONE_TOKEN is not there to give.
+    let sets = taken.sets();
+    assert_eq!(sets.len(), 1, "{sets:?}");
+    assert_eq!(
+        sets[0],
+        std::collections::BTreeMap::from([(
+            "GITHUB_TOKEN".to_string(),
+            "ghp_notarealtoken0001".to_string()
+        )])
+    );
+    let told = notices(&room, "ada");
+    assert!(
+        told.iter()
+            .any(|text| text.contains("not stored any more: GONE_TOKEN")),
+        "{told:?}"
+    );
+    assert!(
+        !told.iter().any(|text| text.contains("cannot take secrets")),
+        "{told:?}"
+    );
+
+    // The agent hears the names and that it will never see a value; the
+    // value itself is on no tape and in no preamble.
+    let heard = lock(&agents.preambles)[0].clone();
+    assert!(
+        heard.contains("by name: GITHUB_TOKEN, GONE_TOKEN."),
+        "{heard}"
+    );
+    assert!(heard.contains("You never see a value"), "{heard}");
+    assert!(!heard.contains("ghp_notarealtoken0001"), "{heard}");
+    let on_tape = serde_json::to_string(&tape(&room, "ada")).unwrap();
+    assert!(!on_tape.contains("ghp_notarealtoken0001"), "{on_tape}");
+    let on_room = std::fs::read_to_string(room.log.root().join("room.jsonl")).unwrap();
+    assert!(!on_room.contains("ghp_notarealtoken0001"), "{on_room}");
+}
+
+/// A stored value that is replaced or deleted reaches every running
+/// computer as a whole new set, so a rotation lands and a revocation
+/// leaves nothing behind, without anyone restarting the teammate.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_changed_secret_is_handed_again_to_every_running_computer() {
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-secrets-changed",
+        Some("0.9.1"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    let vault = room.vault.as_ref().unwrap();
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
+        .unwrap();
+    grant_secrets(&room, &["GITHUB_TOKEN"]);
+    room.start("ada").await.unwrap();
+    assert_eq!(taken.sets().len(), 1);
+
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_rotatedtoken00002")
+        .unwrap();
+    room.secrets_changed().await;
+    let sets = taken.sets();
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert_eq!(sets[1]["GITHUB_TOKEN"], "ghp_rotatedtoken00002");
+
+    vault.delete_shared_secret("GITHUB_TOKEN").unwrap();
+    room.secrets_changed().await;
+    let sets = taken.sets();
+    assert_eq!(sets.len(), 3, "{sets:?}");
+    assert!(
+        sets[2].is_empty(),
+        "a deleted secret is gone from the machine"
+    );
+    assert!(
+        notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("not stored any more: GITHUB_TOKEN")),
+    );
+
+    // A stopped computer is not chased: it gets the set at its next start.
+    room.stop("ada").unwrap();
+    room.computer_stop("ada").await.unwrap();
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_afterstop0000003")
+        .unwrap();
+    room.secrets_changed().await;
+    assert_eq!(taken.sets().len(), 3, "nothing handed to a stopped machine");
+}
+
+/// An image from before secrets answers 404. Granted nothing, that is
+/// nothing to say; granted something, the tape says the release cannot
+/// take it and points at the update.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_computer_from_before_secrets_is_named_only_when_something_was_granted() {
+    let ComputerRoom { room, .. } =
+        computer_room("computer-secrets-old-quiet", None, TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    assert!(
+        !notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("secrets")),
+        "{:?}",
+        notices(&room, "ada")
+    );
+
+    let ComputerRoom { room, .. } =
+        computer_room("computer-secrets-old-told", None, TWO_RELEASES, true).await;
+    room.vault
+        .as_ref()
+        .unwrap()
+        .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
+        .unwrap();
+    grant_secrets(&room, &["GITHUB_TOKEN"]);
+    room.start("ada").await.unwrap();
+    let told = notices(&room, "ada");
+    assert!(
+        told.iter().any(|text| text.contains(
+            "cannot take secrets, so GITHUB_TOKEN is not in its shell. Update the computer"
+        )),
+        "{told:?}"
+    );
 }
 
 #[cfg(unix)]

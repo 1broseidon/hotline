@@ -1418,6 +1418,32 @@ fn only_the_desk_seat_may_import_host_cookies() {
     assert!(!Seat::Phone.permits(&import));
 }
 
+/// Stored secrets are the desk's alone: the phone can neither list, store
+/// nor delete one, and there is no agent tool for any of it. With the grant
+/// itself living on `persona.update`, which the phone may not send either,
+/// nothing a model says can put a secret in front of a teammate.
+#[test]
+fn only_the_desk_seat_may_touch_stored_secrets() {
+    let list = Command::SecretsList {};
+    let set = Command::SecretsSet {
+        name: "GITHUB_TOKEN".to_string(),
+        value: "ghp_notarealtoken0001".to_string(),
+    };
+    let delete = Command::SecretsDelete {
+        name: "GITHUB_TOKEN".to_string(),
+    };
+    assert!(Seat::Desk.permits(&list));
+    assert!(Seat::Desk.permits(&set));
+    assert!(Seat::Desk.permits(&delete));
+    assert!(!Seat::Phone.permits(&list));
+    assert!(!Seat::Phone.permits(&set));
+    assert!(!Seat::Phone.permits(&delete));
+    assert!(!Seat::Phone.permits(&Command::PersonaUpdate {
+        id: "ada".to_string(),
+        patch: serde_json::json!({"computer": {"enabled": true, "secrets": ["GITHUB_TOKEN"]}}),
+    }));
+}
+
 /// A phone answers what a teammate is waiting on and sets how it thinks.
 /// What it may reach, and any standing posture, stay at the desk.
 #[test]

@@ -256,7 +256,21 @@ Linux needs a session D-Bus and an unlocked Secret Service, such as GNOME
 Keyring or KWallet. Copying the Hotline data directory alone does not transfer
 native-store credentials: reconnect providers and tool sources on the new
 machine or data-root path. The store does not grant agents access to unrelated
-credentials; future credential-sharing grants remain a separate feature.
+credentials. What a teammate may use is a separate, explicit grant: the
+shared secrets below.
+
+### Shared secrets
+
+`vault/shared/<NAME>.json` is one opaque reference per secret the operator
+stored for teammates, the same record kind as above; the name is the
+environment variable a granted computer finds the value under, and the
+reference file's own modification time is when the value last changed. There
+is no room event for a shared secret: the list is the directory, so nothing
+about one is ever appended to a stream, and storing or deleting one never
+rewrites another. The value is read back in exactly one place, the grant that
+hands it to a teammate's computer (`session::Room::hand_secrets`); the window
+sees names and dates. Which teammate gets which name is
+`persona.computer.secrets` on the teammate's record, which is names only.
 
 ## The search index
 

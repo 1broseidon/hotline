@@ -21,6 +21,7 @@ import type {
 	RuntimeReport,
 	ScheduledJob,
 	SessionInfo,
+	SharedSecret,
 	SkillEntry,
 	StreamDelta,
 	Target,
@@ -144,6 +145,10 @@ type Results = {
 	"computer.browsers.list": HostBrowser[];
 	"computer.cookies.preview": CookieSite[];
 	"computer.cookies.import": CookieSite[];
+	/** Names and when each was stored; never a value. */
+	"secrets.list": SharedSecret[];
+	"secrets.set": SharedSecret;
+	"secrets.delete": null;
 	welcome: Welcome;
 };
 

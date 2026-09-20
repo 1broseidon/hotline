@@ -121,6 +121,9 @@ pub(crate) mod fake {
     pub(crate) struct Taken(pub(crate) Arc<Mutex<Vec<BTreeMap<String, String>>>>);
 
     impl Taken {
+        // Read by the session tests, which drive a scripted runtime and so
+        // exist on unix alone.
+        #[cfg(unix)]
         pub(crate) fn sets(&self) -> Vec<BTreeMap<String, String>> {
             self.0.lock().unwrap().clone()
         }

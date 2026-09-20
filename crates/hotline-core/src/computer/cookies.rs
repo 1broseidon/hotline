@@ -56,7 +56,8 @@ enum Confinement {
     /// A system install: the copy may live in the system temp directory.
     Native,
     /// A snap: the copy must live under `~/snap/<name>/common` to be inside
-    /// the confinement the browser runs under.
+    /// the confinement the browser runs under. Snaps are a Linux packaging.
+    #[cfg(target_os = "linux")]
     Snap(String),
 }
 
@@ -82,6 +83,8 @@ fn home() -> PathBuf {
 
 /// The binaries that might be a given browser, tried in order. On Linux a
 /// bare name is resolved against `PATH`; an absolute path is taken as is.
+/// Windows names its browsers by their install paths and has no use for it.
+#[cfg(not(target_os = "windows"))]
 fn resolve_binary(names: &[&str]) -> Vec<PathBuf> {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
@@ -654,6 +657,7 @@ impl Staging {
         let base = match confinement {
             Confinement::Native => std::env::temp_dir(),
             // A snap can only open a profile under its own writable home.
+            #[cfg(target_os = "linux")]
             Confinement::Snap(name) => home().join("snap").join(name).join("common"),
         };
         let unique = format!(

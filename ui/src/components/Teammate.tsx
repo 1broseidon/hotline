@@ -26,6 +26,7 @@ import { Picker } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
+import { CookieImport } from "./CookieImport";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
 import type { OpenThread } from "./Thread";
@@ -535,6 +536,7 @@ function ComputerRows({
 	const [status, setStatus] = useState<ComputerStatus | null>(null);
 	const [open, setOpen] = useState(false);
 	const [adding, setAdding] = useState(false);
+	const [importing, setImporting] = useState(false);
 	const [acting, setActing] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [updateTold, setUpdateTold] = useState(false);
@@ -552,6 +554,7 @@ function ComputerRows({
 	useEffect(() => {
 		setOpen(false);
 		setAdding(false);
+		setImporting(false);
 		let gone = false;
 		const ask = () => {
 			void wire
@@ -681,6 +684,14 @@ function ComputerRows({
 								<button type="button" className={`${NESTED} group-row-add`} disabled={disabled} onClick={() => setAdding(true)}>
 									<PlusIcon />
 									Mount a folder
+								</button>
+							)}
+							{importing ? (
+								<CookieImport personaId={personaId} running={state === "running"} onClose={() => setImporting(false)} />
+							) : (
+								<button type="button" className={`${NESTED} group-row-add`} disabled={disabled} onClick={() => setImporting(true)}>
+									<PlusIcon />
+									Bring over browser cookies
 								</button>
 							)}
 							{status?.available !== undefined && (

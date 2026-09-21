@@ -2220,7 +2220,7 @@ impl Room {
         // The document the container's `login_load` reads. `storage` is empty:
         // v1 carries cookies, not localStorage. The name is stable per source,
         // so re-importing the same browser replaces the earlier file.
-        let name = format!("import-{browser_id}-{profile_id}");
+        let name = crate::computer::login::name_for(browser_id, profile_id);
         let saved = serde_json::json!({
             "name": name,
             "browser": browser_id,
@@ -2229,7 +2229,133 @@ impl Room {
             "storage": {},
         });
         crate::computer::login::deliver(&ready, &name, &saved).await?;
+
+        // The record the pane lists afterwards: which browser and profile,
+        // when, and the sites. Names are looked up now, while the browser
+        // is still installed to say them; the ids are what the record is
+        // keyed by.
+        let browsers = self.computer_browsers().await;
+        let browser = browsers.iter().find(|browser| browser.id == browser_id);
+        let import = crate::contract::CookieImport {
+            browser_id: browser_id.to_owned(),
+            browser_name: browser
+                .map(|browser| browser.name.clone())
+                .unwrap_or_else(|| browser_id.to_owned()),
+            profile_id: profile_id.to_owned(),
+            profile_name: browser
+                .and_then(|browser| {
+                    browser
+                        .profiles
+                        .iter()
+                        .find(|profile| profile.id == profile_id)
+                })
+                .map(|profile| profile.name.clone())
+                .unwrap_or_else(|| profile_id.to_owned()),
+            imported_at: now_ms(),
+            sites: imported.clone(),
+        };
+        let mut imports = room::cookie_imports(&self.log, persona_id);
+        room::merge_cookie_import(&mut imports, import);
+        room::record_cookie_imports(&self.log, persona_id, &imports)?;
         Ok(imported)
+    }
+
+    /// What has been brought over to `persona_id`'s computer, as recorded
+    /// at each import and trimmed at each forget.
+    pub fn computer_cookies_list(&self, persona_id: &str) -> Vec<crate::contract::CookieImport> {
+        room::cookie_imports(&self.log, persona_id)
+    }
+
+    /// Takes brought-over cookies back out of the teammate's computer: one
+    /// site when `domain` is given, the whole import when not. The domains
+    /// are always named to the computer, so what the browser drops is what
+    /// the record says, whatever the saved login there carries by now. The
+    /// computer has to be up to drop them; a stopped one is started, the
+    /// same as the import did.
+    pub async fn computer_cookies_forget(
+        &self,
+        persona_id: &str,
+        browser_id: &str,
+        profile_id: &str,
+        domain: Option<&str>,
+    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+        let mut imports = room::cookie_imports(&self.log, persona_id);
+        let Some(position) = imports
+            .iter()
+            .position(|import| import.browser_id == browser_id && import.profile_id == profile_id)
+        else {
+            return Err("Nothing from that browser is recorded for this teammate.".to_string());
+        };
+        let domains: Vec<String> = match domain {
+            Some(domain) => {
+                if !imports[position]
+                    .sites
+                    .iter()
+                    .any(|site| site.domain == domain)
+                {
+                    return Err(format!(
+                        "{domain} is not among the sites brought over from {}.",
+                        imports[position].browser_name
+                    ));
+                }
+                vec![domain.to_owned()]
+            }
+            None => imports[position]
+                .sites
+                .iter()
+                .map(|site| site.domain.clone())
+                .collect(),
+        };
+        let persona = self.persona(persona_id)?;
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return Err(format!(
+                "{} has no computer to take them out of.",
+                persona.name
+            ));
+        }
+        let settings = room::settings(&self.log);
+        let prefer = crate::computer::preferred_runtime(&settings);
+        let room_image = crate::computer::preferred_image(&settings);
+        let notice_id = persona.id.clone();
+        let ready = self
+            .computers
+            .ensure_running(
+                &persona,
+                &persona.cwd,
+                prefer,
+                room_image.as_deref(),
+                |text| {
+                    self.write(
+                        &notice_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Info,
+                            text: text.to_string(),
+                        },
+                    );
+                },
+            )
+            .await?;
+        let name = crate::computer::login::name_for(browser_id, profile_id);
+        crate::computer::login::forget(&ready, &name, &domains).await?;
+        match domain {
+            Some(domain) => {
+                imports[position].sites.retain(|site| site.domain != domain);
+                if imports[position].sites.is_empty() {
+                    imports.remove(position);
+                }
+            }
+            None => {
+                imports.remove(position);
+            }
+        }
+        room::record_cookie_imports(&self.log, persona_id, &imports)?;
+        Ok(imports)
     }
 
     async fn sweep_computers(&self) {

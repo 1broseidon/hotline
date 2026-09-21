@@ -1410,12 +1410,19 @@ fn only_the_desk_seat_may_import_host_cookies() {
         profile_id: "Default".to_string(),
         domains: vec!["example.com".to_string()],
     };
-    assert!(Seat::Desk.permits(&browsers));
-    assert!(Seat::Desk.permits(&preview));
-    assert!(Seat::Desk.permits(&import));
-    assert!(!Seat::Phone.permits(&browsers));
-    assert!(!Seat::Phone.permits(&preview));
-    assert!(!Seat::Phone.permits(&import));
+    let list = Command::ComputerCookiesList {
+        persona_id: "ada".to_string(),
+    };
+    let forget = Command::ComputerCookiesForget {
+        persona_id: "ada".to_string(),
+        browser_id: "chrome".to_string(),
+        profile_id: "Default".to_string(),
+        domain: Some("example.com".to_string()),
+    };
+    for command in [&browsers, &preview, &import, &list, &forget] {
+        assert!(Seat::Desk.permits(command), "{command:?}");
+        assert!(!Seat::Phone.permits(command), "{command:?}");
+    }
 }
 
 /// Stored secrets are the desk's alone: the phone can neither list, store

@@ -188,6 +188,156 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
     })
 }
 
+/// What has been brought over to a teammate's computer from the host's
+/// browsers: the latest `cookie-imports` event for that teammate, whole,
+/// since the stream folds by teammate and a line carrying one import would
+/// leave the fold holding one import. Nothing recorded is an empty list.
+pub fn cookie_imports(log: &Log, persona_id: &str) -> Vec<crate::contract::CookieImport> {
+    log.load(&StreamId::Room)
+        .into_iter()
+        .filter(|event| is_kind(event, "cookie-imports"))
+        .filter(|event| event.get("personaId").and_then(Value::as_str) == Some(persona_id))
+        .filter_map(|event| {
+            serde_json::from_value::<Vec<crate::contract::CookieImport>>(
+                event.get("imports").cloned().unwrap_or(Value::Null),
+            )
+            .ok()
+        })
+        .next_back()
+        .unwrap_or_default()
+}
+
+/// Folds one import into the record: the same browser and profile again
+/// keeps one entry, with its sites the union — a site brought over twice
+/// carries the latest count — and its time the latest; another browser or
+/// profile is another entry.
+pub(crate) fn merge_cookie_import(
+    imports: &mut Vec<crate::contract::CookieImport>,
+    import: crate::contract::CookieImport,
+) {
+    if let Some(earlier) = imports.iter_mut().find(|earlier| {
+        earlier.browser_id == import.browser_id && earlier.profile_id == import.profile_id
+    }) {
+        for site in import.sites {
+            match earlier
+                .sites
+                .iter_mut()
+                .find(|known| known.domain == site.domain)
+            {
+                Some(known) => known.cookies = site.cookies,
+                None => earlier.sites.push(site),
+            }
+        }
+        earlier.sites.sort_by(|a, b| a.domain.cmp(&b.domain));
+        earlier.browser_name = import.browser_name;
+        earlier.profile_name = import.profile_name;
+        earlier.imported_at = import.imported_at;
+    } else {
+        let mut import = import;
+        import.sites.sort_by(|a, b| a.domain.cmp(&b.domain));
+        imports.push(import);
+    }
+}
+
+/// Records the whole list of what a teammate's computer has been handed,
+/// replacing the earlier record; domains and counts only, never a value.
+pub(crate) fn record_cookie_imports(
+    log: &Log,
+    persona_id: &str,
+    imports: &[crate::contract::CookieImport],
+) -> Result<(), String> {
+    log.append(
+        &StreamId::Room,
+        &room_event(
+            "cookie-imports",
+            // The stream folds by id, so one entry per teammate is what the
+            // fold keeps, and the latest record is the whole record.
+            json!({"id": format!("cookie-imports:{persona_id}"), "personaId": persona_id, "imports": imports}),
+        ),
+    )
+    .map(|_| ())
+    .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
+#[cfg(test)]
+mod cookie_import_tests {
+    use super::tests::scratch;
+    use super::*;
+    use crate::contract::{CookieImport, CookieSite};
+
+    fn import(browser: &str, profile: &str, sites: &[(&str, u32)], at: i64) -> CookieImport {
+        CookieImport {
+            browser_id: browser.to_owned(),
+            browser_name: browser.to_uppercase(),
+            profile_id: profile.to_owned(),
+            profile_name: profile.to_owned(),
+            imported_at: at,
+            sites: sites
+                .iter()
+                .map(|(domain, cookies)| CookieSite {
+                    domain: (*domain).to_owned(),
+                    cookies: *cookies,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it() {
+        let mut imports = Vec::new();
+        merge_cookie_import(
+            &mut imports,
+            import("chrome", "Default", &[("github.com", 3)], 1),
+        );
+        merge_cookie_import(
+            &mut imports,
+            import(
+                "chrome",
+                "Default",
+                &[("gitlab.com", 2), ("github.com", 5)],
+                2,
+            ),
+        );
+        merge_cookie_import(
+            &mut imports,
+            import("firefox", "default", &[("github.com", 1)], 3),
+        );
+        assert_eq!(imports.len(), 2);
+        assert_eq!(imports[0].imported_at, 2);
+        assert_eq!(
+            imports[0]
+                .sites
+                .iter()
+                .map(|site| (site.domain.as_str(), site.cookies))
+                .collect::<Vec<_>>(),
+            vec![("github.com", 5), ("gitlab.com", 2)],
+            "the union, sorted, with the latest count"
+        );
+        assert_eq!(imports[1].browser_id, "firefox");
+    }
+
+    #[test]
+    fn the_record_is_the_latest_whole_list_per_teammate() {
+        let log = scratch("cookie-imports");
+        assert!(cookie_imports(&log, "ada").is_empty());
+        let first = vec![import("chrome", "Default", &[("github.com", 3)], 1)];
+        record_cookie_imports(&log, "ada", &first).unwrap();
+        record_cookie_imports(
+            &log,
+            "bob",
+            &[import("firefox", "default", &[("x.test", 1)], 2)],
+        )
+        .unwrap();
+        assert_eq!(cookie_imports(&log, "ada"), first);
+        record_cookie_imports(&log, "ada", &[]).unwrap();
+        assert!(
+            cookie_imports(&log, "ada").is_empty(),
+            "the latest record wins"
+        );
+        assert_eq!(cookie_imports(&log, "bob").len(), 1);
+    }
+}
+
 /// A persona event is the teammate's record with the kind beside it, and the
 /// whole record every time: a stream folds by id, so a line carrying only what
 /// changed would leave the fold holding only what changed.
@@ -257,7 +407,7 @@ mod tests {
     use crate::contract::{McpPolicy, PolicyMode};
     use serde_json::json;
 
-    fn scratch(name: &str) -> Log {
+    pub(super) fn scratch(name: &str) -> Log {
         let root =
             std::env::temp_dir().join(format!("hotline-core-room-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

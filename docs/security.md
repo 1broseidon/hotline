@@ -95,17 +95,26 @@ approval prompt, which the standing-consent rule forbids, because the person
 initiates them; there is no card the agent can raise.
 
 Cookie import (`computer.browsers.list`, `computer.cookies.preview`,
-`computer.cookies.import`) is the sharpest case, so it is spelled out. The
-agent has no tool that reads the host's browsers; the three commands are
-desk-seat only and the phone allowlist does not name them, so the model cannot
-pull cookies whatever it is told. The person chooses the browser, the profile,
+`computer.cookies.import`, `computer.cookies.list`, `computer.cookies.forget`)
+is the sharpest case, so it is spelled out. The agent has no tool that reads
+the host's browsers; the five commands are desk-seat only and the phone
+allowlist does not name them, so the model cannot pull cookies whatever it is
+told. The person chooses the browser, the profile,
 and the exact sites; a preview carries domains and counts, never a value. On
 import the chosen cookies pass host → desk → container over the container's
 authenticated loopback port and are written into the sandbox the person already
 granted; they never enter the tape, the model's input, or a log. What the
 agent gains is a browser already signed in to sites the person picked — the
 same exposure as the person signing in there by hand inside the computer, and
-the accepted risk of giving an agent a logged-in browser at all.
+the accepted risk of giving an agent a logged-in browser at all. Expired
+cookies never leave the host: the browser would drop them on its next look,
+and they would only pad the list. What was brought over is recorded — browser,
+profile, time, domains and counts, never a value — one record per teammate on
+the room stream, and listed on the teammate's pane, where each site and each
+browser's whole import can be taken back. `computer.cookies.forget` names the
+exact domains to the computer's bearer-guarded `DELETE /logins/{name}`, whose
+browser drops those cookies at once and whose saved login loses them, so what
+the agent's browser is signed in to is what the pane shows.
 
 ## Secrets a teammate uses without seeing
 
@@ -336,6 +345,7 @@ extend; when a change adds a boundary, it adds a row.
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the door refuses the unpaired, a path naming anything but a teammate, and a stopped computer; revoking the device drops the socket | `remote/tests.rs` `a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer`, `the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped`, `revoking_the_phone_drops_its_computer_socket`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
+| What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; the phone can neither list nor take back; expired cookies are left on the host | `session/tests.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
 | Stored secrets are the desk's alone: the phone can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |

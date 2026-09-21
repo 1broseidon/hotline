@@ -328,6 +328,21 @@ pub(crate) async fn run(
                 .await
                 .map(|sites| json!(sites))
         }
+        Command::ComputerCookiesList { persona_id } => room
+            .computer_cookies_list(&persona_id)
+            .await
+            .map(|imports| json!(imports)),
+        Command::ComputerCookiesForget {
+            persona_id,
+            browser_id,
+            profile_id,
+            domain,
+        } => {
+            living(log, &persona_id)?;
+            room.computer_cookies_forget(&persona_id, &browser_id, &profile_id, domain.as_deref())
+                .await
+                .map(|imports| json!(imports))
+        }
         Command::SecretsList {} => room.secrets_list().map(|secrets| json!(secrets)),
         Command::SecretsSet { name, value } => room
             .secrets_set(&name, &value)

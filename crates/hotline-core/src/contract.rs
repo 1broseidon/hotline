@@ -541,6 +541,24 @@ pub struct CookieSite {
     pub cookies: u32,
 }
 
+/// One browser profile's cookies brought over to a teammate's computer, as
+/// the pane lists it afterwards: which browser and profile they came from,
+/// when, and the sites, so the person can see what the computer's browser
+/// is signed in to and take any of it back. Domains and counts only; no
+/// cookie value is ever kept on the desk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieImport {
+    pub browser_id: String,
+    pub browser_name: String,
+    pub profile_id: String,
+    pub profile_name: String,
+    /// Unix milliseconds of the latest import from this browser and profile.
+    pub imported_at: i64,
+    pub sites: Vec<CookieSite>,
+}
+
 /// What a stored secret is, which says where a granted computer puts it: a
 /// variable into the environment of every job; a login typed into a sign-in
 /// form on one of its own sites; a passkey into the browser's authenticator,
@@ -2095,6 +2113,24 @@ pub enum Command {
         browser_id: String,
         profile_id: String,
         domains: Vec<String>,
+    },
+    /// What has been brought over to this teammate's computer, by browser
+    /// and profile, with the sites: the record the pane lists. Desk seat
+    /// only.
+    #[serde(rename = "computer.cookies.list")]
+    ComputerCookiesList { persona_id: String },
+    /// Takes brought-over cookies back out of the teammate's computer: one
+    /// site of an import when `domain` is given, the whole import when not.
+    /// The computer's browser drops them at once, and the record answers as
+    /// it stands afterwards. Starts the computer if it is stopped, the same
+    /// as the import did. Desk seat only.
+    #[serde(rename = "computer.cookies.forget")]
+    ComputerCookiesForget {
+        persona_id: String,
+        browser_id: String,
+        profile_id: String,
+        #[serde(default)]
+        domain: Option<String>,
     },
     /// The secrets the operator has stored for teammates: names and when
     /// each changed, never a value. Desk seat only.

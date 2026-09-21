@@ -6,6 +6,7 @@ import type {
 	ComputerReleases,
 	ComputerStatus,
 	ConfigChoice,
+	CookieImport,
 	CookieSite,
 	Credential,
 	EffortChoices,
@@ -146,6 +147,8 @@ type Results = {
 	"computer.browsers.list": HostBrowser[];
 	"computer.cookies.preview": CookieSite[];
 	"computer.cookies.import": CookieSite[];
+	"computer.cookies.list": CookieImport[];
+	"computer.cookies.forget": CookieImport[];
 	/** Names, kinds and what each is for; never a value. */
 	"secrets.list": SharedSecret[];
 	"secrets.set": SharedSecret;

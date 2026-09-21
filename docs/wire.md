@@ -134,6 +134,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}]}]` — the host browsers cookies could come from; names only |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
 | `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
+| `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
+| `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
 | `secrets.set` | `{name, value}` | the `SharedSecret` stored, a variable; the value is never answered back |
 | `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |
@@ -142,16 +144,25 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — the poll that finds it made stores it, ticks it, and answers `stored` with the record, once |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored |
 
-`computer.browsers.list`, `computer.cookies.preview` and
-`computer.cookies.import` are the operator's cookie import: reading a browser
-on the person's own machine and handing the chosen sites' cookies to a
-teammate's computer. They are desk-seat only — the phone allowlist does not
-name them and no agent tool reaches them, so the agent can never pull cookies
-itself. A preview carries domains and counts; a value crosses only on import,
-host to desk to container, and never enters the tape, the model, or a log.
-`browsers.list` and `cookies.preview` read the host and touch no teammate;
-`cookies.import` starts the teammate's computer if it is stopped, the same as
-opening its screen would.
+`computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
+`computer.cookies.list` and `computer.cookies.forget` are the operator's cookie
+import and its record: reading a browser on the person's own machine, handing
+the chosen sites' cookies to a teammate's computer, and taking them back. They
+are desk-seat only — the phone allowlist does not name them and no agent tool
+reaches them, so the agent can never pull cookies itself. A preview carries
+domains and counts, and leaves expired cookies behind, since the browser would
+drop them on its next look; a value crosses only on import, host to desk to
+container, and never enters the tape, the model, or a log. `browsers.list` and
+`cookies.preview` read the host and touch no teammate. `cookies.import` starts
+the teammate's computer if it is stopped, the same as opening its screen would,
+and records what it carried — browser, profile, time, domains and counts — on
+the room stream, one record per teammate, folded into what was recorded before
+for the same browser and profile. `cookies.list` answers that record.
+`cookies.forget` names the exact domains to the computer's `DELETE
+/logins/{name}` door, so a site is taken back whatever the saved login holds by
+then, starts a stopped computer to do it, and trims the record; a site never
+brought over is refused, and a release from before the door is named with the
+pane's Update.
 
 `secrets.list`, `secrets.set`, `secrets.login.set` and `secrets.delete` are
 the operator's store of secrets for teammates to use without seeing them,

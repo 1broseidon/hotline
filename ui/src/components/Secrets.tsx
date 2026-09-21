@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { PasskeyRegistration, SharedSecret, SharedSecretKind } from "../generated/contract";
-import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
+import { CloseIcon, InfoIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -667,6 +667,7 @@ export function ComputerSecrets({
 }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [note, setNote] = useState<string | null>(null);
+	const [about, setAbout] = useState(false);
 
 	useEffect(() => {
 		let gone = false;
@@ -687,12 +688,24 @@ export function ComputerSecrets({
 	return (
 		<div className={`${NESTED} flex-col items-stretch gap-1.5 py-3`}>
 			<span className="group-row-text">
-				<span className="group-row-title">Secrets it can use</span>
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					A ticked variable is an environment variable in every job this computer runs; a ticked login is typed by the
-					computer on the login's own sites; a ticked passkey signs in by itself. The teammate is told the names and never
-					sees a value. Tick only what its work needs; unticking takes it back at once.
+				<span className="group-row-title flex items-center gap-1">
+					Secrets
+					<button
+						type="button"
+						className="control btn-icon btn-quiet h-6 w-6 text-ink-3"
+						title="Secrets can be added under Settings → Secrets."
+						aria-label="About secrets"
+						aria-expanded={about}
+						onClick={() => setAbout((open) => !open)}
+					>
+						<InfoIcon />
+					</button>
 				</span>
+				{about && (
+					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+						Secrets can be added under Settings → Secrets.
+					</span>
+				)}
 			</span>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && (
@@ -700,11 +713,7 @@ export function ComputerSecrets({
 					{note}
 				</span>
 			)}
-			{stored !== null && names.length === 0 && (
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					Nothing stored yet. Store one under Settings → Secrets.
-				</span>
-			)}
+			{stored !== null && names.length === 0 && <span className="group-row-detail">None stored yet.</span>}
 			{names.map((name) => {
 				const record = stored?.find((one) => one.name === name);
 				const missing = stored !== null && record === undefined;

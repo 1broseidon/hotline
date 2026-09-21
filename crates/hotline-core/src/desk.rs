@@ -758,6 +758,25 @@ impl RoomHandle for Desk {
             .await
     }
 
+    async fn computer_cookies_list(
+        &self,
+        persona_id: &str,
+    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+        Ok(self.room.computer_cookies_list(persona_id))
+    }
+
+    async fn computer_cookies_forget(
+        &self,
+        persona_id: &str,
+        browser_id: &str,
+        profile_id: &str,
+        domain: Option<&str>,
+    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+        self.room
+            .computer_cookies_forget(persona_id, browser_id, profile_id, domain)
+            .await
+    }
+
     fn secrets_list(&self) -> Result<Vec<crate::contract::SharedSecret>, String> {
         self.vault
             .shared_secrets()

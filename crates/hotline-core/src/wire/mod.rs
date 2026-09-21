@@ -299,6 +299,25 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<Vec<crate::contract::CookieSite>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
+    /// What has been brought over to a teammate's computer, by browser and
+    /// profile, with the sites.
+    async fn computer_cookies_list(
+        &self,
+        _persona_id: &str,
+    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+        Err("Browser cookie import is unavailable on this room.".to_string())
+    }
+    /// Takes brought-over cookies back out: one site, or the whole import.
+    /// Answers the record as it stands afterwards.
+    async fn computer_cookies_forget(
+        &self,
+        _persona_id: &str,
+        _browser_id: &str,
+        _profile_id: &str,
+        _domain: Option<&str>,
+    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+        Err("Browser cookie import is unavailable on this room.".to_string())
+    }
 
     /// The secrets the operator keeps for teammates: names and when each
     /// changed, never a value. Defaults to none: a room without a vault

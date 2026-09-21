@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CookieSite, HostBrowser } from "../generated/contract";
+import type { CookieImport as CookieImportRecord, CookieSite, HostBrowser } from "../generated/contract";
+import { CloseIcon } from "../icons";
 import { wire } from "../wire";
 
 const NESTED = "group-row pl-7";
@@ -274,6 +275,115 @@ export function CookieImport({
 							: `Bring over ${chosen.size} ${chosen.size === 1 ? "site" : "sites"}`}
 				</button>
 			</div>
+		</div>
+	);
+}
+
+function when(ms: number): string {
+	return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/**
+ * What has been brought over to this teammate's computer: each browser and
+ * profile, when, and the sites with their counts — and the way to take it
+ * back, one site at a time or the whole browser's worth. Taking back names
+ * the exact sites to the computer, whose browser drops those cookies at
+ * once; a stopped computer is started to do it, as it is to receive them.
+ * Names and counts only, as everywhere on the desk.
+ */
+export function CookieImports({
+	personaId,
+	disabled,
+	refresh,
+}: {
+	personaId: string;
+	disabled: boolean;
+	refresh: number;
+}) {
+	const [imports, setImports] = useState<CookieImportRecord[] | null>(null);
+	const [busy, setBusy] = useState<string | null>(null);
+	const [note, setNote] = useState<string | null>(null);
+
+	// The record is re-read whenever the picker closes, so a fresh import
+	// shows up without a reload.
+	useEffect(() => {
+		let gone = false;
+		wire
+			.command("computer.cookies.list", { personaId })
+			.then((list) => !gone && setImports(list))
+			.catch((error) => !gone && setNote(reason(error)));
+		return () => {
+			gone = true;
+		};
+	}, [personaId, refresh]);
+
+	const forget = async (entry: CookieImportRecord, domain?: string) => {
+		setBusy(`${entry.browserId}/${entry.profileId}/${domain ?? "*"}`);
+		setNote(null);
+		try {
+			const left = await wire.command("computer.cookies.forget", {
+				personaId,
+				browserId: entry.browserId,
+				profileId: entry.profileId,
+				...(domain === undefined ? {} : { domain }),
+			});
+			setImports(left);
+		} catch (error) {
+			setNote(reason(error));
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const shown = imports ?? [];
+	if (shown.length === 0 && note === null) return null;
+
+	return (
+		<div className={`${NESTED} flex-col items-stretch gap-2 py-3`}>
+			{shown.map((entry) => {
+				const key = `${entry.browserId}/${entry.profileId}`;
+				return (
+					<div key={key} className="flex flex-col gap-1">
+						<div className="flex items-center gap-2 text-sm">
+							<span className="min-w-0 flex-1 truncate">
+								<span className="group-row-title">{entry.browserName}</span>
+								<span className="group-row-detail ml-2">
+									{entry.profileName} · {when(entry.importedAt)}
+								</span>
+							</span>
+							<button
+								type="button"
+								className="control btn-quiet btn-sm"
+								disabled={disabled || busy !== null}
+								onClick={() => void forget(entry)}
+							>
+								{busy === `${key}/*` ? "Removing…" : "Remove all"}
+							</button>
+						</div>
+						{entry.sites.map((site) => (
+							<div key={site.domain} className="flex items-center gap-2 py-0.5 pl-2 text-sm">
+								<span className="min-w-0 flex-1 truncate font-mono">{site.domain}</span>
+								<span className="group-row-detail font-mono">{site.cookies}</span>
+								<button
+									type="button"
+									className="control btn-icon btn-quiet h-6 w-6 text-ink-3"
+									title={`Remove ${site.domain}`}
+									aria-label={`Remove ${site.domain}`}
+									disabled={disabled || busy !== null}
+									onClick={() => void forget(entry, site.domain)}
+								>
+									<CloseIcon />
+								</button>
+							</div>
+						))}
+					</div>
+				);
+			})}
+			{note !== null && (
+				<span className="group-row-detail text-danger" style={{ whiteSpace: "normal" }}>
+					{note}
+				</span>
+			)}
 		</div>
 	);
 }

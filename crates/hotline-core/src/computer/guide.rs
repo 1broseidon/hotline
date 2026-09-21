@@ -114,6 +114,10 @@ pub(crate) mod fake {
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
 
+    /// What the desk asked the browser to drop: the saved login's name and
+    /// the domains named, in order.
+    type Forgotten = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+
     /// Every set of secrets the fake was handed through `PUT /secrets`, in
     /// order, so a test can prove what reached the machine and what did
     /// not. A release too old for a guide has no such route.
@@ -125,6 +129,9 @@ pub(crate) mod fake {
         /// The site armed for a passkey, and whether the browser has since
         /// "minted" one.
         arming: Arc<Mutex<Option<(String, bool)>>>,
+        /// Every forget the desk asked for: the saved login's name and the
+        /// domains, in order.
+        forgotten: Forgotten,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -144,6 +151,12 @@ pub(crate) mod fake {
                 .unwrap()
                 .as_ref()
                 .map(|(rp_id, _)| rp_id.clone())
+        }
+
+        /// What the desk asked the browser to drop, in order.
+        #[cfg(unix)]
+        pub(crate) fn forgotten(&self) -> Vec<(String, Vec<String>)> {
+            self.forgotten.lock().unwrap().clone()
         }
 
         /// The person added a passkey in the browser: the next poll answers
@@ -262,6 +275,46 @@ pub(crate) mod fake {
         axum::http::StatusCode::NO_CONTENT
     }
 
+    async fn forget_login(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        axum::extract::Path(name): axum::extract::Path<String>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+        }
+        let domains: Vec<String> = serde_json::from_str::<Value>(&body)
+            .ok()
+            .and_then(|body| serde_json::from_value(body["domains"].clone()).ok())
+            .unwrap_or_default();
+        let count = domains.len();
+        taken
+            .forgotten
+            .lock()
+            .unwrap()
+            .push((name.clone(), domains.clone()));
+        json_answer(
+            axum::http::StatusCode::OK,
+            json!({"name": name, "domains": domains, "forgotten": count, "kept": 0}),
+        )
+    }
+
+    /// Whether a release has the door that takes a login back: 0.8.1 and
+    /// later do.
+    fn has_logins_door(version: &str) -> bool {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let (major, minor, patch) = (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        );
+        (major, minor, patch) >= (0, 8, 1)
+    }
+
     /// Whether a release has the passkey door: 0.8 and later do.
     fn has_passkeys(version: &str) -> bool {
         let mut parts = version
@@ -378,6 +431,9 @@ pub(crate) mod fake {
                     .get(passkey_registration)
                     .delete(disarm_passkey),
             );
+        }
+        if version.is_some_and(has_logins_door) {
+            app = app.route("/logins/{name}", axum::routing::delete(forget_login));
         }
         let app = app.with_state(taken.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

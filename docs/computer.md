@@ -62,6 +62,16 @@ update.
   credential minted outside an arming, for another site, or after the ten
   minutes is removed from the authenticator on the next look, so the
   teammate cannot give itself a passkey. Bearer-only, like `/secrets`.
+- `DELETE /logins/{name}` with `{"domains": [...]}` takes a saved login's
+  cookies back: the browser drops every cookie for each named site, or a
+  host within it, from its running context, the saved login is pruned, and
+  it is removed when nothing is left; with no body, every domain the saved
+  login names. The desk's cookie import lands as the saved login
+  `import-<browser>-<profile>`, loaded with `state login_load`, and this is
+  its way back out; the desk always names the domains, from its own record.
+  A release from before the door (0.8.0 and earlier) answers 404, and the
+  desk says so and points at the teammate's Update. Bearer-only, like
+  `/secrets`.
 
 A paired phone reaches the same viewer socket through a door on the Remote
 listener, `GET /computer/<personaId>/ws` with the phone's own bearer. The

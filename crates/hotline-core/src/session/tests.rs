@@ -2121,7 +2121,7 @@ async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_exp
 }
 
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.9.2"},{"tag_name":"v0.9.0"}]"#;
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.9.2"},{"tag_name":"v0.9.1"}]"#;
 
 /// The command names the scripted runtime was given, in order.
 #[cfg(unix)]
@@ -2273,7 +2273,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
     assert_eq!(known.floor, crate::computer::COMPUTER_VERSION);
     assert_eq!(known.repository, crate::computer::COMPUTER_REPOSITORY);
     assert_eq!(known.newest.as_deref(), Some("0.9.2"));
-    assert_eq!(known.releases, ["0.9.2", "0.9.0"]);
+    assert_eq!(known.releases, ["0.9.2", "0.9.1"]);
     assert!(known.checked_at.is_some(), "{known:?}");
     assert_eq!(known.error, None);
 
@@ -2296,7 +2296,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
 #[cfg(unix)]
 #[tokio::test]
 async fn offline_a_fresh_computer_is_created_on_the_floor() {
-    let offline = computer_room("computer-offline", Some("0.9.0"), "not a list", false).await;
+    let offline = computer_room("computer-offline", Some("0.9.1"), "not a list", false).await;
     offline.room.start("ada").await.unwrap();
     let created = runtime_commands(&offline.root)
         .into_iter()
@@ -2320,7 +2320,7 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
 #[tokio::test]
 async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
     use std::sync::atomic::Ordering;
-    let desk = computer_room("computer-check-now", Some("0.9.0"), TWO_RELEASES, false).await;
+    let desk = computer_room("computer-check-now", Some("0.9.1"), TWO_RELEASES, false).await;
     desk.room.start("ada").await.unwrap();
     assert_eq!(desk.asked.load(Ordering::SeqCst), 1);
     let checked = desk.room.computer_releases_check().await;
@@ -2329,10 +2329,10 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
         2,
         "the button does not wait six hours"
     );
-    assert_eq!(checked.releases, ["0.9.2", "0.9.0"]);
+    assert_eq!(checked.releases, ["0.9.2", "0.9.1"]);
     assert_eq!(checked.error, None);
 
-    let offline = computer_room("computer-check-offline", Some("0.9.0"), "not a list", false).await;
+    let offline = computer_room("computer-check-offline", Some("0.9.1"), "not a list", false).await;
     let refused = offline.room.computer_releases_check().await;
     assert_eq!(refused.newest, None);
     assert!(refused.releases.is_empty());

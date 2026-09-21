@@ -30,7 +30,7 @@ use crate::store;
 use rmcp::ErrorData;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, JsonObject,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, JsonObject,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
@@ -100,6 +100,21 @@ fn schema(value: Value) -> Arc<JsonObject> {
             .expect("every tool schema here is written as an object")
             .clone(),
     )
+}
+
+/// The `tools/list` result, complete for the protocol a modern client
+/// negotiates.
+///
+/// Since MCP 2026-07-28 a list result must say how long it may be cached
+/// (`ttlMs`) and by whom (`cacheScope`); rmcp leaves both unset on a
+/// hand-built result, and a client that validates the modern shape — Claude
+/// Code does — rejects the listing and the teammate ends up with no tools at
+/// all. Zero and private is the truthful answer: the tools do not change, but
+/// what they reach is one teammate's tape.
+fn listing() -> ListToolsResult {
+    ListToolsResult::with_all_items(descriptors())
+        .with_ttl_ms(0)
+        .with_cache_scope(CacheScope::Private)
 }
 
 /// The tools as an MCP client is shown them.
@@ -561,7 +576,7 @@ impl ServerHandler for TeammateTools {
             &TOOL_NAMES,
             "the agent listed the tools on this teammate's own endpoint",
         );
-        Ok(ListToolsResult::with_all_items(descriptors()))
+        Ok(listing())
     }
 
     async fn call_tool(
@@ -782,6 +797,17 @@ mod tests {
 
     fn tools(room: &Arc<Room>) -> TeammateTools {
         TeammateTools::new(room, "ada")
+    }
+
+    /// A client on protocol 2026-07-28 requires the cache hints on a list
+    /// result and refuses the whole listing without them; this is what
+    /// hid every Hotline tool from a Claude Code teammate.
+    #[test]
+    fn the_listing_carries_the_cache_hints_a_modern_client_requires() {
+        let wire = serde_json::to_value(listing()).unwrap();
+        assert_eq!(wire["ttlMs"], json!(0), "{wire}");
+        assert_eq!(wire["cacheScope"], json!("private"), "{wire}");
+        assert_eq!(wire["tools"].as_array().unwrap().len(), TOOL_NAMES.len());
     }
 
     #[tokio::test(flavor = "multi_thread")]

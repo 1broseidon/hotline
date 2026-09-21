@@ -1162,6 +1162,22 @@ pub enum TranscriptEvent {
         level: NoticeLevel,
         text: String,
     },
+    /// The computer image being pulled for this teammate, as the runtime
+    /// reports its layers: one line per pull, rewritten in place as layers
+    /// land, so a minute of download is a bar and not a silence. `done` and
+    /// `failed` are the line's afterlife. A runtime whose output the desk
+    /// cannot count leaves `layersTotal` at zero, and the bar is indeterminate.
+    ComputerPull {
+        id: String,
+        ts: i64,
+        image: String,
+        layers_done: u32,
+        layers_total: u32,
+        status: PullStatus,
+        /// How long the pull took, once it is done.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        elapsed_ms: Option<i64>,
+    },
     /// A frame of the teammate's computer screen, taken as its capture tool
     /// ran. The chat is where the work actually happens, so what the agent saw
     /// belongs in it — a thumbnail, with the live screen a click away.
@@ -1453,6 +1469,15 @@ pub enum NoticeLevel {
     Info,
     Warn,
     Error,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum PullStatus {
+    Pulling,
+    Done,
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

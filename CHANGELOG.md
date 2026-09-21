@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A computer image being pulled is a line on the teammate's tape that
+  fills in, not a notice and then a minute of silence. The runtime names
+  each layer as it starts and finishes it, and the line counts them on a
+  bar, rewriting itself in place; done, it says what came down and how long
+  it took, and a failed pull says so where it stood. Docker and Podman are
+  counted; Apple's runtime shows the bar without a count.
+- The teammate pane's Desktop fold has Check now under Updates, so a newer
+  computer release can be asked for at once instead of on the desk's own
+  schedule. The offer to update follows straight away when there is one.
+
 ## [0.17.1] - 2026-09-21
 
 ### Fixed

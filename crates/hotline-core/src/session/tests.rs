@@ -2314,6 +2314,38 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
     );
 }
 
+/// An image the runtime does not have is pulled before the computer is
+/// made, and the pull is one line on the tape that fills in: named when it
+/// starts, counted as each layer lands, and left saying done with the
+/// time it took. One line, because every report carries the same id.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_pulled_image_is_one_line_on_the_tape_that_fills_in() {
+    let desk = computer_room("computer-pull", Some("0.9.1"), TWO_RELEASES, false).await;
+    std::fs::write(desk.root.join("state.noimage"), "").unwrap();
+    desk.room.start("ada").await.unwrap();
+    let pulled = runtime_commands(&desk.root)
+        .into_iter()
+        .filter(|line| line.starts_with("pull "))
+        .count();
+    assert_eq!(pulled, 1, "the image was pulled once");
+    let lines: Vec<Value> = tape(&desk.room, "ada")
+        .into_iter()
+        .filter(|event| event["kind"] == "computer_pull")
+        .collect();
+    assert_eq!(lines.len(), 1, "one line, rewritten in place: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(line["status"], "done");
+    assert_eq!(line["layersDone"], 2);
+    assert_eq!(line["layersTotal"], 2);
+    assert!(line["image"].as_str().unwrap().contains("hotline-computer"), "{line}");
+    assert!(line["elapsedMs"].is_i64(), "{line}");
+    assert!(
+        notices(&desk.room, "ada").iter().all(|text| !text.contains("Pulling")),
+        "the pull is no longer a notice"
+    );
+}
+
 /// The Settings button asks the endpoint at once, whatever the clock says,
 /// and a refused lookup keeps what was known and says why.
 #[cfg(unix)]

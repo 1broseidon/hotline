@@ -696,6 +696,8 @@ export type Provider = { id: string, name: string, doc?: string, credentialKinds
  */
 modelDiscovery: boolean, };
 
+export type PullStatus = "pulling" | "done" | "failed";
+
 /**
  * How far a teammate's tools reach. The one policy a teammate has, and it is
  * binary: the working directory is a wall, or the whole machine is open.
@@ -1089,7 +1091,11 @@ ring?: RingIntent, receipt?: Receipt, } | { "kind": "agent", id: string, ts: num
 /**
  * An emphasis on this bubble.
  */
-ring?: RingIntent, receipt?: Receipt, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", id: string, ts: number, actionId: string, reason: string, status: HumanActionStatus, 
+ring?: RingIntent, receipt?: Receipt, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+/**
+ * How long the pull took, once it is done.
+ */
+elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, dataUrl: string, } | { "kind": "human_action", id: string, ts: number, actionId: string, reason: string, status: HumanActionStatus, 
 /**
  * What the person said with their answer, when they said anything.
  */

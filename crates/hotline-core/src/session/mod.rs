@@ -921,24 +921,13 @@ impl Room {
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);
         let computers = self.computers.clone();
-        let persona_id = persona.id.clone();
         let ready = computers
             .ensure_running(
                 persona,
                 &persona.cwd,
                 prefer,
                 room_image.as_deref(),
-                |text| {
-                    self.write(
-                        &persona_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Info,
-                            text: text.to_string(),
-                        },
-                    );
-                },
+                self.pull_reporter(&persona.id),
             )
             .await?;
         // The guide the running release serves is the teammate's
@@ -1081,7 +1070,6 @@ impl Room {
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);
-        let notice_id = persona.id.clone();
         let ready = self
             .computers
             .ensure_running(
@@ -1089,17 +1077,7 @@ impl Room {
                 &persona.cwd,
                 prefer,
                 room_image.as_deref(),
-                |text| {
-                    self.write(
-                        &notice_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Info,
-                            text: text.to_string(),
-                        },
-                    );
-                },
+                self.pull_reporter(&persona.id),
             )
             .await?;
         let expires_at = match crate::computer::passkeys::arm(&ready, rp_id).await {
@@ -2549,17 +2527,7 @@ impl Room {
                 &persona.cwd,
                 prefer,
                 room_image.as_deref(),
-                |text| {
-                    self.write(
-                        &notice_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Info,
-                            text: text.to_string(),
-                        },
-                    );
-                },
+                self.pull_reporter(&notice_id),
             )
             .await?;
 
@@ -2674,17 +2642,7 @@ impl Room {
                 &persona.cwd,
                 prefer,
                 room_image.as_deref(),
-                |text| {
-                    self.write(
-                        &notice_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Info,
-                            text: text.to_string(),
-                        },
-                    );
-                },
+                self.pull_reporter(&notice_id),
             )
             .await?;
         let name = crate::computer::login::name_for(browser_id, profile_id);
@@ -3372,6 +3330,42 @@ impl Room {
     /// A chapter marker and the notice that a note is missing come this way:
     /// they are the room writing in its own voice, not a teammate speaking,
     /// and there is no reply, schedule or silence for them to be part of.
+    /// Where an image pull writes itself on the teammate's tape: one line
+    /// per pull, kept under one id and rewritten as layers land, so the tape
+    /// holds a bar that fills rather than a notice per layer. The id is
+    /// dropped once the pull is over, so a later pull is a later line.
+    fn pull_reporter<'a>(
+        &'a self,
+        persona_id: &'a str,
+    ) -> impl FnMut(crate::computer::PullReport) + 'a {
+        use crate::computer::PullOutcome;
+        use crate::contract::PullStatus;
+        let mut current: Option<String> = None;
+        move |report| {
+            let id = current.get_or_insert_with(new_id).clone();
+            let (status, elapsed_ms) = match report.outcome {
+                PullOutcome::Pulling => (PullStatus::Pulling, None),
+                PullOutcome::Done { elapsed_ms } => (PullStatus::Done, Some(elapsed_ms)),
+                PullOutcome::Failed => (PullStatus::Failed, None),
+            };
+            self.write(
+                persona_id,
+                &TranscriptEvent::ComputerPull {
+                    id,
+                    ts: now_ms(),
+                    image: report.image,
+                    layers_done: report.layers_done,
+                    layers_total: report.layers_total,
+                    status,
+                    elapsed_ms,
+                },
+            );
+            if status != PullStatus::Pulling {
+                current = None;
+            }
+        }
+    }
+
     fn write(&self, persona_id: &str, event: &TranscriptEvent) {
         match serde_json::to_value(event) {
             Ok(event) => self.write_value(persona_id, &event),

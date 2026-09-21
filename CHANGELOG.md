@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-21
+
 ### Added
 
 - A teammate's pane lists what **Bring over browser cookies** brought over: each browser and profile, when, and the sites with their counts. Every site has a remove, and every browser a **Remove all**; the computer's browser drops those cookies at once, whether it is running or is started to do it, and the list follows.

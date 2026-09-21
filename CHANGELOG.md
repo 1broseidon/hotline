@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-21
+
 ### Added
 
 - A passkey is made only once you approve the site's request. Under an

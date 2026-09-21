@@ -22,7 +22,7 @@ use tokio::sync::Mutex as AsyncMutex;
 mod launch;
 mod shared;
 
-pub use shared::check_secret_name;
+pub use shared::{StoredSecret, check_rp_id, check_secret_name, check_site};
 
 /// The client identity Hotline received from an MCP authorization server. The
 /// secret is kept beside the token in the vault record; this type never crosses

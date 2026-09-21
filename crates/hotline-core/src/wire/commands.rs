@@ -334,6 +334,34 @@ pub(crate) async fn run(
             .await
             .map(|secret| json!(secret)),
         Command::SecretsDelete { name } => room.secrets_delete(&name).await.map(|()| Value::Null),
+        Command::SecretsLoginSet {
+            name,
+            sites,
+            username,
+            password,
+            totp,
+        } => room
+            .secrets_login_set(&name, &sites, &username, &password, totp.as_deref())
+            .await
+            .map(|secret| json!(secret)),
+        Command::SecretsPasskeyRegister {
+            name,
+            persona_id,
+            rp_id,
+        } => {
+            living(log, &persona_id)?;
+            room.secrets_passkey_register(&name, &persona_id, &rp_id)
+                .await
+                .map(|registration| json!(registration))
+        }
+        Command::SecretsPasskeyRegistration { persona_id } => room
+            .secrets_passkey_registration(&persona_id)
+            .await
+            .map(|registration| json!(registration)),
+        Command::SecretsPasskeyCancel { persona_id } => room
+            .secrets_passkey_cancel(&persona_id)
+            .await
+            .map(|()| Value::Null),
     }
 }
 

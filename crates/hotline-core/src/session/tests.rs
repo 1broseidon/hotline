@@ -1060,7 +1060,7 @@ async fn starting_a_teammate_makes_its_working_directory() {
 fn the_preamble_says_who_where_how_far_and_when() {
     let mut ada = persona("ada");
     ada.cwd = "/tmp/harbour".to_string();
-    let walled = preamble(&ada, Some(Reach::Workspace), None);
+    let walled = preamble(&ada, Some(Reach::Workspace), None, &[]);
     assert!(walled.contains("You are Ada."));
     assert!(walled.contains("Keep the harbour running."));
     assert!(walled.contains("Your working directory is /tmp/harbour."));
@@ -1083,12 +1083,13 @@ fn the_preamble_says_who_where_how_far_and_when() {
         &ada,
         Some(Reach::Machine),
         Some("the wake block".to_string()),
+        &[],
     );
     assert!(open.contains("reach the whole machine"));
     assert!(open.ends_with("the wake block"));
 
     // The harness owns its tools' permissions; Hotline owns its file callbacks.
-    let child = preamble(&ada, None, None);
+    let child = preamble(&ada, None, None, &[]);
     assert!(child.contains("Your working directory is /tmp/harbour."));
     assert!(!child.contains("reach the whole machine"));
     assert!(!child.contains("a path that leaves it is refused"));
@@ -1112,7 +1113,7 @@ fn the_preamble_says_who_where_how_far_and_when() {
         mounts: None,
         secrets: None,
     });
-    let desk = preamble(&ada, Some(Reach::Workspace), None);
+    let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
     assert!(desk.contains("You have a computer"));
     assert!(desk.contains("take it over"));
     assert!(desk.contains("action `guide`"));
@@ -1457,11 +1458,13 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
     // ticked, GONE_TOKEN is not there to give.
     let sets = taken.sets();
     assert_eq!(sets.len(), 1, "{sets:?}");
+    // A variable travels as its bare value, the form every release with a
+    // secrets door takes.
     assert_eq!(
         sets[0],
         std::collections::BTreeMap::from([(
             "GITHUB_TOKEN".to_string(),
-            "ghp_notarealtoken0001".to_string()
+            serde_json::json!("ghp_notarealtoken0001")
         )])
     );
     let told = notices(&room, "ada");
@@ -1479,7 +1482,7 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
     // value itself is on no tape and in no preamble.
     let heard = lock(&agents.preambles)[0].clone();
     assert!(
-        heard.contains("by name: GITHUB_TOKEN, GONE_TOKEN."),
+        heard.contains("by name: GITHUB_TOKEN (a variable), GONE_TOKEN (not stored right now)."),
         "{heard}"
     );
     assert!(heard.contains("You never see a value"), "{heard}");
@@ -1578,8 +1581,191 @@ async fn a_computer_from_before_secrets_is_named_only_when_something_was_granted
     );
 }
 
+/// A passkey is made under an arming and nowhere else: the desk arms one
+/// teammate's computer for one site, polls, and the poll that finds the
+/// credential minted stores it, ticks it for that teammate, hands the
+/// computer the set with it, and ends the arming. The private key crosses
+/// once, computer to vault, and is on no tape and in no room event. A
+/// cancel ends an arming with nothing stored, and a release from before
+/// passkeys is told apart and named.
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.7.3"},{"tag_name":"v0.7.0"}]"#;
+#[tokio::test]
+async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() {
+    use crate::computer::guide::fake::KEY_BASE64;
+    use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
+
+    let ComputerRoom { room, taken, .. } =
+        computer_room("computer-passkey", Some("0.9.1"), TWO_RELEASES, true).await;
+    let vault = room.vault.as_ref().unwrap();
+
+    // Nothing armed: idle, and nothing to cancel.
+    let idle = room.secrets_passkey_registration("ada").await.unwrap();
+    assert_eq!(idle.state, PasskeyRegistrationState::Idle);
+    room.secrets_passkey_cancel("ada").await.unwrap();
+
+    // A site that is not one, and a name that is not one, are refused
+    // before the computer is touched.
+    assert!(
+        room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "GitHub.com")
+            .await
+            .is_err()
+    );
+    assert!(
+        room.secrets_passkey_register("github passkey", "ada", "github.com")
+            .await
+            .is_err()
+    );
+    assert_eq!(taken.armed(), None);
+
+    // Arming starts the computer, the same as opening its screen would.
+    let armed = room
+        .secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    assert_eq!(armed.state, PasskeyRegistrationState::Armed);
+    assert_eq!(armed.name.as_deref(), Some("GITHUB_PASSKEY"));
+    assert_eq!(armed.rp_id.as_deref(), Some("github.com"));
+    assert!(armed.expires_at.is_some());
+    assert_eq!(taken.armed().as_deref(), Some("github.com"));
+    assert_eq!(
+        room.computer_status("ada").await.unwrap().state,
+        crate::contract::ComputerState::Running
+    );
+    let still = room.secrets_passkey_registration("ada").await.unwrap();
+    assert_eq!(still.state, PasskeyRegistrationState::Armed);
+    assert!(
+        vault.shared_secrets().unwrap().is_empty(),
+        "nothing stored yet"
+    );
+
+    // The person adds a passkey in the browser: the next poll stores it.
+    taken.mint();
+    let stored = room.secrets_passkey_registration("ada").await.unwrap();
+    assert_eq!(stored.state, PasskeyRegistrationState::Stored);
+    let secret = stored.secret.expect("the record, as listed");
+    assert_eq!(secret.name, "GITHUB_PASSKEY");
+    assert_eq!(secret.kind, SharedSecretKind::Passkey);
+    assert_eq!(secret.rp_id.as_deref(), Some("github.com"));
+    assert_eq!(secret.user_name.as_deref(), Some("teammate"));
+    let listed = vault.shared_secrets().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].kind, SharedSecretKind::Passkey);
+
+    // Ticked for ada, handed to the computer whole, and the arming ended.
+    let ada = room.persona("ada").unwrap();
+    assert_eq!(
+        ada.computer.unwrap().secrets.as_deref(),
+        Some(&["GITHUB_PASSKEY".to_string()][..])
+    );
+    let sets = taken.sets();
+    let handed = &sets.last().expect("handed after storing")["GITHUB_PASSKEY"];
+    assert_eq!(handed["kind"], "passkey");
+    assert_eq!(handed["rpId"], "github.com");
+    assert_eq!(handed["privateKey"], KEY_BASE64);
+    assert_eq!(taken.armed(), None);
+    assert_eq!(
+        room.secrets_passkey_registration("ada")
+            .await
+            .unwrap()
+            .state,
+        PasskeyRegistrationState::Idle
+    );
+
+    // The private key is in the vault and nowhere the model or a log reads.
+    let on_tape = serde_json::to_string(&tape(&room, "ada")).unwrap();
+    assert!(!on_tape.contains(KEY_BASE64), "{on_tape}");
+    let on_room = std::fs::read_to_string(room.log.root().join("room.jsonl")).unwrap();
+    assert!(!on_room.contains(KEY_BASE64), "{on_room}");
+    assert!(!on_room.contains("AQID"), "{on_room}");
+
+    // A cancel ends an arming with nothing stored.
+    room.secrets_passkey_register("GITLAB_PASSKEY", "ada", "gitlab.com")
+        .await
+        .unwrap();
+    assert_eq!(taken.armed().as_deref(), Some("gitlab.com"));
+    room.secrets_passkey_cancel("ada").await.unwrap();
+    assert_eq!(taken.armed(), None);
+    assert_eq!(
+        room.secrets_passkey_registration("ada")
+            .await
+            .unwrap()
+            .state,
+        PasskeyRegistrationState::Idle
+    );
+    assert_eq!(vault.shared_secrets().unwrap().len(), 1);
+
+    // A release from before passkeys has no door for one, and is named.
+    let ComputerRoom { room, taken, .. } =
+        computer_room("computer-passkey-old", Some("0.7.0"), TWO_RELEASES, true).await;
+    let refused = room
+        .secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("cannot make passkeys"), "{refused}");
+    assert_eq!(taken.armed(), None);
+}
+
+/// A login is stored as one record and handed to the computer as one,
+/// kind first, beside a variable's bare value; the preamble names each by
+/// what it is, and the password, like the token, is on no tape.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() {
+    let ComputerRoom {
+        room,
+        agents,
+        taken,
+        ..
+    } = computer_room("computer-login", Some("0.9.1"), TWO_RELEASES, true).await;
+    let vault = room.vault.as_ref().unwrap();
+    vault
+        .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
+        .unwrap();
+    vault
+        .set_shared(
+            "GITHUB_LOGIN",
+            crate::vault::StoredSecret::Login {
+                sites: vec!["https://github.com".to_string()],
+                username: "george".to_string(),
+                password: "correct-horse-battery".to_string(),
+                totp: None,
+            },
+        )
+        .unwrap();
+    grant_secrets(&room, &["GITHUB_LOGIN", "GITHUB_TOKEN"]);
+    room.start("ada").await.unwrap();
+
+    let sets = taken.sets();
+    assert_eq!(sets.len(), 1, "{sets:?}");
+    assert_eq!(sets[0]["GITHUB_TOKEN"], "ghp_notarealtoken0001");
+    assert_eq!(
+        sets[0]["GITHUB_LOGIN"],
+        serde_json::json!({
+            "kind": "login", "sites": ["https://github.com"],
+            "username": "george", "password": "correct-horse-battery",
+        })
+    );
+
+    let heard = lock(&agents.preambles)[0].clone();
+    assert!(
+        heard.contains(
+            "by name: GITHUB_LOGIN (a login for https://github.com), GITHUB_TOKEN (a variable)."
+        ),
+        "{heard}"
+    );
+    assert!(
+        heard.contains("NAME.username, NAME.password, or NAME.code"),
+        "{heard}"
+    );
+    assert!(!heard.contains("correct-horse-battery"), "{heard}");
+    let on_tape = serde_json::to_string(&tape(&room, "ada")).unwrap();
+    assert!(!on_tape.contains("correct-horse-battery"), "{on_tape}");
+    let on_room = std::fs::read_to_string(room.log.root().join("room.jsonl")).unwrap();
+    assert!(!on_room.contains("correct-horse-battery"), "{on_room}");
+}
+
+#[cfg(unix)]
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.8.3"},{"tag_name":"v0.8.0"}]"#;
 
 /// The command names the scripted runtime was given, in order.
 #[cfg(unix)]
@@ -1628,7 +1814,7 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     // machine it cannot drive.
     let mut bob = persona("bob");
     bob.cwd = cwd.to_string_lossy().into_owned();
-    let unheard = preamble(&bob, Some(Reach::Workspace), None);
+    let unheard = preamble(&bob, Some(Reach::Workspace), None, &[]);
     assert!(!unheard.contains("hotline-computer"), "{unheard}");
     assert!(unheard.contains("\n- hotline-room: "), "{unheard}");
 
@@ -1713,29 +1899,29 @@ async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks() {
-    let fresh = computer_room("computer-newest", Some("0.7.3"), TWO_RELEASES, false).await;
+    let fresh = computer_room("computer-newest", Some("0.8.3"), TWO_RELEASES, false).await;
     fresh.room.start("ada").await.unwrap();
     let created = runtime_commands(&fresh.root)
         .into_iter()
         .find(|line| line.starts_with("create "))
         .unwrap();
     assert!(
-        created.contains("ghcr.io/1broseidon/hotline-computer:0.7.3"),
+        created.contains("ghcr.io/1broseidon/hotline-computer:0.8.3"),
         "{created}"
     );
     assert_eq!(fresh.asked.load(std::sync::atomic::Ordering::SeqCst), 1);
     let status = fresh.room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release.as_deref(), Some("0.7.3"));
+    assert_eq!(status.release.as_deref(), Some("0.8.3"));
     assert_eq!(status.available, None);
     let known = fresh.room.computer_releases();
     assert_eq!(known.floor, crate::computer::COMPUTER_VERSION);
     assert_eq!(known.repository, crate::computer::COMPUTER_REPOSITORY);
-    assert_eq!(known.newest.as_deref(), Some("0.7.3"));
-    assert_eq!(known.releases, ["0.7.3", "0.7.0"]);
+    assert_eq!(known.newest.as_deref(), Some("0.8.3"));
+    assert_eq!(known.releases, ["0.8.3", "0.8.0"]);
     assert!(known.checked_at.is_some(), "{known:?}");
     assert_eq!(known.error, None);
 
-    let pinned = computer_room("computer-pinned", Some("0.7.3"), TWO_RELEASES, true).await;
+    let pinned = computer_room("computer-pinned", Some("0.8.3"), TWO_RELEASES, true).await;
     pinned.room.start("ada").await.unwrap();
     let created = runtime_commands(&pinned.root)
         .into_iter()
@@ -1754,7 +1940,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
 #[cfg(unix)]
 #[tokio::test]
 async fn offline_a_fresh_computer_is_created_on_the_floor() {
-    let offline = computer_room("computer-offline", Some("0.7.0"), "not a list", false).await;
+    let offline = computer_room("computer-offline", Some("0.8.0"), "not a list", false).await;
     offline.room.start("ada").await.unwrap();
     let created = runtime_commands(&offline.root)
         .into_iter()
@@ -1778,7 +1964,7 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
 #[tokio::test]
 async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
     use std::sync::atomic::Ordering;
-    let desk = computer_room("computer-check-now", Some("0.7.0"), TWO_RELEASES, false).await;
+    let desk = computer_room("computer-check-now", Some("0.8.0"), TWO_RELEASES, false).await;
     desk.room.start("ada").await.unwrap();
     assert_eq!(desk.asked.load(Ordering::SeqCst), 1);
     let checked = desk.room.computer_releases_check().await;
@@ -1787,10 +1973,10 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
         2,
         "the button does not wait six hours"
     );
-    assert_eq!(checked.releases, ["0.7.3", "0.7.0"]);
+    assert_eq!(checked.releases, ["0.8.3", "0.8.0"]);
     assert_eq!(checked.error, None);
 
-    let offline = computer_room("computer-check-offline", Some("0.7.0"), "not a list", false).await;
+    let offline = computer_room("computer-check-offline", Some("0.8.0"), "not a list", false).await;
     let refused = offline.room.computer_releases_check().await;
     assert_eq!(refused.newest, None);
     assert!(refused.releases.is_empty());
@@ -1811,11 +1997,11 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
 async fn an_older_computer_is_offered_the_newest_release_on_the_six_hour_clock() {
     use crate::computer::releases::CHECK_EVERY_MS;
     use std::sync::atomic::Ordering;
-    let older = computer_room("computer-older", Some("0.7.0"), TWO_RELEASES, false).await;
+    let older = computer_room("computer-older", Some("0.8.0"), TWO_RELEASES, false).await;
     older.room.start("ada").await.unwrap();
     let status = older.room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release.as_deref(), Some("0.7.0"));
-    assert_eq!(status.available.as_deref(), Some("0.7.3"));
+    assert_eq!(status.release.as_deref(), Some("0.8.0"));
+    assert_eq!(status.available.as_deref(), Some("0.8.3"));
 
     let asked_at_start = older.asked.load(Ordering::SeqCst);
     let now = now_ms();

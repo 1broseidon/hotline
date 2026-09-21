@@ -49,9 +49,10 @@ pub use schedule::{parse_duration, parse_when};
 use crate::computer::Computer;
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, CookieSite,
-    HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, Persona, Reach, Receipt,
-    RuntimeReport, ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState,
-    StreamDelta, TeammateToolLedger, ToolOutput, ToolStatus, TranscriptEvent,
+    HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
+    PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
+    SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
+    ToolOutput, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -464,6 +465,15 @@ impl Turns {
 }
 
 /// Every session in the room, and the one place their words are written down.
+/// What a teammate's computer is armed to make: the name the passkey will
+/// be stored under, the site, and when the computer's arming ends.
+#[derive(Clone, Debug)]
+struct PasskeyArming {
+    name: String,
+    rp_id: String,
+    expires_at: i64,
+}
+
 pub struct Room {
     log: Log,
     keys: Arc<dyn ProviderKeys>,
@@ -510,6 +520,10 @@ pub struct Room {
     /// Where the secrets a computer is granted are read from, on their way
     /// to it. A room without one — a test's — grants none.
     vault: Option<Arc<Vault>>,
+    /// The passkey each teammate's computer is armed to make, by teammate:
+    /// the name it will be stored under and the site, until the poll that
+    /// finds it made, a cancel, or the computer's own ten minutes run out.
+    passkey_armings: Mutex<HashMap<String, PasskeyArming>>,
     /// Serializes policy changes across sockets, including the interval from
     /// capability invalidation through the durable append and reattach.
     policy_updates: Arc<TokioMutex<()>>,
@@ -598,6 +612,7 @@ impl Room {
             push,
             computers,
             vault,
+            passkey_armings: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
         });
@@ -784,7 +799,12 @@ impl Room {
         let reach = in_process.then(|| persona.reach.unwrap_or_default());
         let driver = self.agents.agent(
             &persona,
-            preamble(&persona, reach, chapters::wake_block(&events, now_ms())),
+            preamble(
+                &persona,
+                reach,
+                chapters::wake_block(&events, now_ms()),
+                &self.stored_secrets(),
+            ),
             said(&events),
             TeammateTools::new(self, &persona.id).with_capability(capability.clone()),
             extra_mcp,
@@ -1001,6 +1021,206 @@ impl Room {
                 persona.name
             )),
         }
+    }
+
+    /// What the vault lists, for the preamble to say what each granted name
+    /// is. A room without a vault, or one whose vault will not answer, lists
+    /// nothing, and the preamble says so per name.
+    fn stored_secrets(&self) -> Vec<SharedSecret> {
+        self.vault
+            .as_ref()
+            .and_then(|vault| vault.shared_secrets().ok())
+            .unwrap_or_default()
+    }
+
+    /// Arms `persona_id`'s computer to make one passkey for `rp_id`, to be
+    /// stored under `name` and ticked for that teammate. The computer has
+    /// to be up for its browser to make one; a stopped one is started, the
+    /// same as opening its screen would.
+    pub async fn secrets_passkey_register(
+        &self,
+        name: &str,
+        persona_id: &str,
+        rp_id: &str,
+    ) -> Result<PasskeyRegistration, String> {
+        crate::vault::check_secret_name(name).map_err(|error| error.to_string())?;
+        crate::vault::check_rp_id(rp_id).map_err(|error| error.to_string())?;
+        if self.vault.is_none() {
+            return Err("Stored secrets are unavailable on this room.".to_string());
+        }
+        let persona = self.persona(persona_id)?;
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return Err(format!(
+                "{} has no computer to make a passkey in. Turn one on in the teammate's pane first.",
+                persona.name
+            ));
+        }
+        let settings = room::settings(&self.log);
+        let prefer = crate::computer::preferred_runtime(&settings);
+        let room_image = crate::computer::preferred_image(&settings);
+        let notice_id = persona.id.clone();
+        let ready = self
+            .computers
+            .ensure_running(
+                &persona,
+                &persona.cwd,
+                prefer,
+                room_image.as_deref(),
+                |text| {
+                    self.write(
+                        &notice_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Info,
+                            text: text.to_string(),
+                        },
+                    );
+                },
+            )
+            .await?;
+        let expires_at = match crate::computer::passkeys::arm(&ready, rp_id).await {
+            Ok(expires_at) => expires_at,
+            Err(crate::computer::secrets::Refusal::TooOld) => {
+                return Err(format!(
+                    "{}'s computer is on a release that cannot make passkeys. Update it from the teammate's pane, then try again.",
+                    persona.name
+                ));
+            }
+            Err(crate::computer::secrets::Refusal::Failed(reason)) => {
+                return Err(format!("The computer could not be armed. {reason}"));
+            }
+        };
+        lock(&self.passkey_armings).insert(
+            persona.id.clone(),
+            PasskeyArming {
+                name: name.to_owned(),
+                rp_id: rp_id.to_owned(),
+                expires_at,
+            },
+        );
+        Ok(PasskeyRegistration {
+            state: PasskeyRegistrationState::Armed,
+            name: Some(name.to_owned()),
+            rp_id: Some(rp_id.to_owned()),
+            expires_at: Some(expires_at),
+            secret: None,
+        })
+    }
+
+    /// Where the making stands. The poll that finds the passkey made stores
+    /// it under the name the arming was for, ticks it for the teammate,
+    /// hands the computer its set — which is what keeps the credential in
+    /// the browser — ends the arming, and answers `stored`, once.
+    pub async fn secrets_passkey_registration(
+        &self,
+        persona_id: &str,
+    ) -> Result<PasskeyRegistration, String> {
+        let idle = PasskeyRegistration {
+            state: PasskeyRegistrationState::Idle,
+            name: None,
+            rp_id: None,
+            expires_at: None,
+            secret: None,
+        };
+        let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
+            return Ok(idle);
+        };
+        let Some(ready) = self.computers.running(persona_id).await else {
+            lock(&self.passkey_armings).remove(persona_id);
+            return Err("The computer stopped before a passkey was made. Start again.".to_string());
+        };
+        let polled = match crate::computer::passkeys::poll(&ready).await {
+            Ok(polled) => polled,
+            Err(crate::computer::secrets::Refusal::TooOld) => {
+                lock(&self.passkey_armings).remove(persona_id);
+                return Err("The computer is on a release that cannot make passkeys.".to_string());
+            }
+            Err(crate::computer::secrets::Refusal::Failed(reason)) => {
+                return Err(format!("The computer could not be asked. {reason}"));
+            }
+        };
+        match polled {
+            crate::computer::passkeys::Registration::Idle => {
+                lock(&self.passkey_armings).remove(persona_id);
+                Ok(idle)
+            }
+            crate::computer::passkeys::Registration::Armed { .. } => Ok(PasskeyRegistration {
+                state: PasskeyRegistrationState::Armed,
+                name: Some(arming.name),
+                rp_id: Some(arming.rp_id),
+                expires_at: Some(arming.expires_at),
+                secret: None,
+            }),
+            crate::computer::passkeys::Registration::Registered { credential, .. } => {
+                let vault = self
+                    .vault
+                    .as_ref()
+                    .ok_or("Stored secrets are unavailable on this room.")?;
+                vault
+                    .set_shared(&arming.name, credential)
+                    .map_err(|error| error.to_string())?;
+                // The grant: the tick the person would otherwise make in the
+                // teammate's pane, made for them since they asked for this
+                // passkey for this teammate.
+                let mut persona = self.persona(persona_id)?;
+                if let Some(computer) = persona.computer.as_mut() {
+                    let mut granted = computer.secrets.take().unwrap_or_default();
+                    if !granted.contains(&arming.name) {
+                        granted.push(arming.name.clone());
+                        granted.sort();
+                    }
+                    computer.secrets = Some(granted);
+                }
+                persona.updated_at = now_ms();
+                room::append_persona(&self.log, &persona)?;
+                self.hand_secrets(&persona, &ready).await;
+                if let Err(error) = crate::computer::passkeys::disarm(&ready).await {
+                    self.write(
+                        persona_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Info,
+                            text: format!(
+                                "The passkey {} was stored, but the computer's arming could not be ended; it ends by itself within ten minutes. {error:?}",
+                                arming.name
+                            ),
+                        },
+                    );
+                }
+                lock(&self.passkey_armings).remove(persona_id);
+                let secret = vault
+                    .shared_secrets()
+                    .map_err(|error| error.to_string())?
+                    .into_iter()
+                    .find(|secret| secret.name == arming.name);
+                Ok(PasskeyRegistration {
+                    state: PasskeyRegistrationState::Stored,
+                    name: Some(arming.name),
+                    rp_id: Some(arming.rp_id),
+                    expires_at: None,
+                    secret,
+                })
+            }
+        }
+    }
+
+    /// Ends an arming without a passkey. A computer that is not running has
+    /// nothing to end.
+    pub async fn secrets_passkey_cancel(&self, persona_id: &str) -> Result<(), String> {
+        lock(&self.passkey_armings).remove(persona_id);
+        if let Some(ready) = self.computers.running(persona_id).await
+            && let Err(crate::computer::secrets::Refusal::Failed(reason)) =
+                crate::computer::passkeys::disarm(&ready).await
+        {
+            return Err(format!("The computer could not be told. {reason}"));
+        }
+        Ok(())
     }
 
     /// After a secret was stored, replaced or deleted: every running computer
@@ -3098,7 +3318,29 @@ fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
 /// otherwise have to ask for or guess. Both kinds of agent hear this, so the
 /// house style is not a second briefing an ACP child gets and Hotline Agent does
 /// not.
-pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<String>) -> String {
+/// One stored secret as the preamble names it: its kind, and for a login
+/// or a passkey the sites it is for, so the teammate knows where it applies.
+fn describe_secret(secret: &SharedSecret) -> String {
+    use crate::contract::SharedSecretKind;
+    match secret.kind {
+        SharedSecretKind::Variable => "a variable".to_string(),
+        SharedSecretKind::Login => match secret.sites.as_deref() {
+            Some(sites) if !sites.is_empty() => format!("a login for {}", sites.join(", ")),
+            _ => "a login".to_string(),
+        },
+        SharedSecretKind::Passkey => match secret.rp_id.as_deref() {
+            Some(rp_id) => format!("a passkey for {rp_id}"),
+            None => "a passkey".to_string(),
+        },
+    }
+}
+
+pub(crate) fn preamble(
+    persona: &Persona,
+    reach: Option<Reach>,
+    wake: Option<String>,
+    stored: &[SharedSecret],
+) -> String {
     // An ACP harness manages its own tools; only file operations it delegates
     // to Hotline share Hotline's workspace boundary.
     let reach_sentence = match reach {
@@ -3134,10 +3376,10 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
     } else {
         ""
     };
-    // What the person put in the computer for it, by name only. The names
-    // are the environment variables; the values it is told it will never
-    // see, and told why, because a model that goes looking for one is a
-    // model that was not told the computer redacts them.
+    // What the person put in the computer for it, by name and kind. The
+    // values it is told it will never see, and told why, because a model
+    // that goes looking for one is a model that was not told the computer
+    // redacts them.
     let secrets_sentence = match persona
         .computer
         .as_ref()
@@ -3145,10 +3387,21 @@ pub(crate) fn preamble(persona: &Persona, reach: Option<Reach>, wake: Option<Str
         .and_then(|computer| computer.secrets.as_deref())
         .filter(|names| !names.is_empty())
     {
-        Some(names) => format!(
-            "\n\nThe person has put these secrets in your computer, by name: {}. Each is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable. You never see a value: the computer redacts every one from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
-            names.join(", ")
-        ),
+        Some(names) => {
+            let described: Vec<String> = names
+                .iter()
+                .map(
+                    |name| match stored.iter().find(|secret| &secret.name == name) {
+                        Some(secret) => format!("{name} ({})", describe_secret(secret)),
+                        None => format!("{name} (not stored right now)"),
+                    },
+                )
+                .collect();
+            format!(
+                "\n\nThe person has put these secrets in your computer, by name: {}. A variable is an environment variable in every shell job you run there, so use it as $NAME in a command, or leave it for a tool that reads that variable. A login is typed for you: on a sign-in form of one of its sites, use `browser fill` with `secret` set to NAME.username, NAME.password, or NAME.code for the six-digit code, instead of `text`; the computer types it only on that login's own sites and refuses any other page, and that refusal is right. A passkey signs in by itself when the site asks the browser for one; nothing types it. You never see a value: the computer redacts every one from what it answers you, and no tool returns one. If a task needs a secret you were not given, ask the person for it rather than working around it.",
+                described.join(", ")
+            )
+        }
         None => String::new(),
     };
     let goal = persona.goal.trim();

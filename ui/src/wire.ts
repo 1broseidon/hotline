@@ -13,6 +13,7 @@ import type {
 	HostBrowser,
 	LoginPrompt,
 	LoginStatus,
+	PasskeyRegistration,
 	PeerThreadSummary,
 	Persona,
 	Provider,
@@ -145,10 +146,15 @@ type Results = {
 	"computer.browsers.list": HostBrowser[];
 	"computer.cookies.preview": CookieSite[];
 	"computer.cookies.import": CookieSite[];
-	/** Names and when each was stored; never a value. */
+	/** Names, kinds and what each is for; never a value. */
 	"secrets.list": SharedSecret[];
 	"secrets.set": SharedSecret;
+	"secrets.login.set": SharedSecret;
 	"secrets.delete": null;
+	/** Where the making of a teammate's passkey stands. */
+	"secrets.passkey.register": PasskeyRegistration;
+	"secrets.passkey.registration": PasskeyRegistration;
+	"secrets.passkey.cancel": null;
 	welcome: Welcome;
 };
 

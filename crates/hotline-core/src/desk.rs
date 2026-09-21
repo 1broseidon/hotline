@@ -792,6 +792,58 @@ impl RoomHandle for Desk {
         self.room.secrets_changed().await;
         Ok(())
     }
+
+    async fn secrets_login_set(
+        &self,
+        name: &str,
+        sites: &[String],
+        username: &str,
+        password: &str,
+        totp: Option<&str>,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        self.vault
+            .set_shared(
+                name,
+                crate::vault::StoredSecret::Login {
+                    sites: sites.to_vec(),
+                    username: username.to_owned(),
+                    password: password.to_owned(),
+                    totp: totp.map(str::to_owned),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        let stored = self
+            .vault
+            .shared_secrets()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|secret| secret.name == name)
+            .ok_or_else(|| format!("{name} was stored but is not listed; check the vault."))?;
+        self.room.secrets_changed().await;
+        Ok(stored)
+    }
+
+    async fn secrets_passkey_register(
+        &self,
+        name: &str,
+        persona_id: &str,
+        rp_id: &str,
+    ) -> Result<crate::contract::PasskeyRegistration, String> {
+        self.room
+            .secrets_passkey_register(name, persona_id, rp_id)
+            .await
+    }
+
+    async fn secrets_passkey_registration(
+        &self,
+        persona_id: &str,
+    ) -> Result<crate::contract::PasskeyRegistration, String> {
+        self.room.secrets_passkey_registration(persona_id).await
+    }
+
+    async fn secrets_passkey_cancel(&self, persona_id: &str) -> Result<(), String> {
+        self.room.secrets_passkey_cancel(persona_id).await
+    }
 }
 
 fn record_login(

@@ -320,6 +320,40 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn secrets_delete(&self, _name: &str) -> Result<(), String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
+    /// Stores or replaces a login: sites, username, password, and a TOTP
+    /// seed when there is one. Answers the record, never a value.
+    async fn secrets_login_set(
+        &self,
+        _name: &str,
+        _sites: &[String],
+        _username: &str,
+        _password: &str,
+        _totp: Option<&str>,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
+    /// Arms a teammate's computer to make one passkey, to be stored under
+    /// `name` and ticked for that teammate.
+    async fn secrets_passkey_register(
+        &self,
+        _name: &str,
+        _persona_id: &str,
+        _rp_id: &str,
+    ) -> Result<crate::contract::PasskeyRegistration, String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
+    /// Where the making of that passkey stands; the poll that finds it made
+    /// stores it and answers `stored`.
+    async fn secrets_passkey_registration(
+        &self,
+        _persona_id: &str,
+    ) -> Result<crate::contract::PasskeyRegistration, String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
+    /// Ends an arming without a passkey.
+    async fn secrets_passkey_cancel(&self, _persona_id: &str) -> Result<(), String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
 
     /// Starts OAuth discovery and a native browser callback for one HTTP MCP
     /// server. The result contains only a login id, URL and status.

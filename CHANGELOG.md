@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A Claude Code teammate sees its Hotline tools and its computer again.
+  Hotline's loopback server and the computer's server both listed their
+  tools without the cache hints MCP 2026-07-28 requires, and Claude Code,
+  which negotiates that version and validates the reply, refused the whole
+  listing and retried until it gave up: `request_human`, `list_teammates`,
+  `schedule` and every `computer__` tool were absent while stdio servers
+  such as ketch and recoil worked. The listing now says it may not be cached
+  and belongs to one teammate. The computer side ships in Computer 0.9.1,
+  which the desk now pins.
+
 ## [0.17.0] - 2026-09-21
 
 ### Added

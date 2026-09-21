@@ -1638,10 +1638,10 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
         "nothing stored yet"
     );
 
-    // The person adds a passkey in the browser: the next poll stores it.
+    // The person adds a passkey in the browser: the look that finds it made
+    // — this poll's, or the room's own — stores it, and the poll is told.
     taken.mint();
-    let stored = room.secrets_passkey_registration("ada").await.unwrap();
-    assert_eq!(stored.state, PasskeyRegistrationState::Stored);
+    let stored = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
     let secret = stored.secret.expect("the record, as listed");
     assert_eq!(secret.name, "GITHUB_PASSKEY");
     assert_eq!(secret.kind, SharedSecretKind::Passkey);
@@ -1862,6 +1862,95 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
         room.computer_cookies_list("ada"),
         recorded,
         "nothing dropped, nothing forgotten"
+    );
+}
+
+/// Polls the registration until it answers `state`, since the room's own
+/// watch may be storing the passkey at the moment a poll arrives.
+#[cfg(unix)]
+async fn registration_until(
+    room: &Room,
+    persona_id: &str,
+    state: crate::contract::PasskeyRegistrationState,
+) -> crate::contract::PasskeyRegistration {
+    for _ in 0..100 {
+        let answer = room.secrets_passkey_registration(persona_id).await.unwrap();
+        if answer.state == state {
+            return answer;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("the registration never answered {state:?}");
+}
+
+/// The passkey is made from the teammate's screen, or by the teammate, and
+/// neither keeps Settings → Secrets open: nothing polls at the moment the
+/// browser mints it. The room stores it by itself, ticks it, hands it,
+/// ends the arming, says so on the tape, and tells the pane once when it
+/// next asks.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
+    use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-unwatched",
+        Some("0.9.1"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    let vault = room.vault.as_ref().unwrap();
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    assert!(vault.shared_secrets().unwrap().is_empty());
+    taken.mint();
+    let mut listed = Vec::new();
+    for _ in 0..100 {
+        listed = vault.shared_secrets().unwrap();
+        if !listed.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(listed.len(), 1, "the room stored it with nothing polling");
+    assert_eq!(listed[0].name, "GITHUB_PASSKEY");
+    assert_eq!(listed[0].kind, SharedSecretKind::Passkey);
+    // The pane, opened later, is told once; then nothing is pending.
+    let answer = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
+    assert_eq!(
+        answer.secret.map(|secret| secret.name).as_deref(),
+        Some("GITHUB_PASSKEY")
+    );
+    assert_eq!(
+        room.secrets_passkey_registration("ada")
+            .await
+            .unwrap()
+            .state,
+        PasskeyRegistrationState::Idle
+    );
+    // Ticked, handed whole, the arming ended, and said on the tape.
+    assert_eq!(
+        room.persona("ada")
+            .unwrap()
+            .computer
+            .unwrap()
+            .secrets
+            .as_deref(),
+        Some(&["GITHUB_PASSKEY".to_string()][..])
+    );
+    let sets = taken.sets();
+    assert_eq!(
+        sets.last().expect("handed after storing")["GITHUB_PASSKEY"]["kind"],
+        "passkey"
+    );
+    assert_eq!(taken.armed(), None);
+    let said = notices(&room, "ada");
+    assert!(
+        said.iter().any(|text| text.contains("GITHUB_PASSKEY")
+            && text.contains("github.com")
+            && text.contains("ticked")),
+        "{said:?}"
     );
 }
 

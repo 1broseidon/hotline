@@ -188,13 +188,15 @@ armed and only on the armed site, keyed by a token the page cannot read;
 and the computer's own check on every look removes from the authenticator
 any credential that is neither in the delivered set nor minted under the
 current arming, so a teammate cannot give itself a passkey, keep one made
-for another site, or keep one after the ten minutes. The desk polls
-`GET /passkeys/registration`; the poll that finds the credential minted
-stores it in the vault, ticks the name on `persona.computer.secrets` for
-that teammate — the same tick the pane makes for any secret, made for the
-operator because they asked for this passkey for this teammate — hands the
-computer the set with it, which is what keeps it in the authenticator, and
-`DELETE`s the arming. That answer is the one time a private key leaves the
+for another site, or keep one after the ten minutes. The room watches the
+arming it holds, polling `GET /passkeys/registration` every two seconds
+whatever pane is open — the passkey is made from the teammate's screen, or
+by the teammate, never from Settings — and the look that finds the
+credential minted stores it in the vault, ticks the name on
+`persona.computer.secrets` for that teammate — the same tick the pane makes
+for any secret, made for the operator because they asked for this passkey
+for this teammate — hands the computer the set with it, which is what keeps
+it in the authenticator, `DELETE`s the arming, and says so on the tape. That answer is the one time a private key leaves the
 container: over the bearer-guarded loopback door, in the direction the
 cookie import already trusts, into the vault, and into no tape, room event
 or log. Revocation is any of three: untick it on the teammate or remove it
@@ -350,7 +352,7 @@ extend; when a change adds a boundary, it adds a row.
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
 | A computer is handed only what its teammate is granted and what is stored; the tape names what is not; the preamble names what the computer has, by kind; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is named only when something was granted; a login travels as one record beside a variable's bare value | `session/tests.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_is_named_only_when_something_was_granted`, `a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites` | Unix |
-| A passkey is made only under an arming for one teammate and one site: a bad site or name is refused before the computer is touched, arming starts the computer, nothing is stored until the poll finds it made, and that poll stores it, ticks it for the teammate, hands the computer the set and ends the arming; the private key is on no tape and in no room event; a cancel stores nothing; a release from before passkeys is named | `session/tests.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate` | Unix |
+| A passkey is made only under an arming for one teammate and one site: a bad site or name is refused before the computer is touched, arming starts the computer, nothing is stored until a look finds it made, and that look stores it, ticks it for the teammate, hands the computer the set and ends the arming; the room's own watch does this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a cancel stores nothing; a release from before passkeys is named | `session/tests.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room` | Unix |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled and ended over the bearer door, a bad site is a 400 and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed and only for the armed site, a credential outside the arming is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
 

@@ -141,7 +141,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |
 | `secrets.delete` | `{name}` | none |
 | `secrets.passkey.register` | `{name, personaId, rpId}` | `PasskeyRegistration` `{state: "armed", name, rpId, expiresAt}` — that teammate's computer is armed for ten minutes to make one passkey for `rpId` |
-| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — the poll that finds it made stores it, ticks it, and answers `stored` with the record, once |
+| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — where the making stands; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored |
 
 `computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
@@ -176,11 +176,15 @@ types into a form only on a page of those sites when the teammate asks for
 `NAME.username`, `NAME.password` or `NAME.code` by name. A passkey is never
 sent in: `secrets.passkey.register` arms one teammate's computer for one
 site, `rpId` a lower-case host name, for ten minutes, starting the computer
-if it is stopped; `secrets.passkey.registration` is polled, and the poll that
-finds the browser has minted a credential under the arming stores it under
-`name`, ticks `name` on that teammate's `persona.computer.secrets`, hands the
-computer its set, ends the arming and answers `stored`; `secrets.passkey.cancel`
-ends an arming with nothing stored. The store is write-only from the window:
+if it is stopped, and the room then watches that arming by itself, every
+two seconds until it ends: the look that finds the browser has minted a
+credential under it stores it under `name`, ticks `name` on that teammate's
+`persona.computer.secrets`, hands the computer its set, ends the arming and
+writes a notice on the teammate's tape, whatever pane is open — the passkey
+is made from the teammate's screen, or by the teammate, so no pane's poll
+is running at that moment. `secrets.passkey.registration` answers where it
+stands, `stored` with the record once; `secrets.passkey.cancel` ends an
+arming with nothing stored. The store is write-only from the window:
 `set` and `login.set` answer the record, `list` answers names, kinds and what
 each is for, `registration` answers the record once stored, and no command,
 subscription or room event ever carries a value or a private key. All seven

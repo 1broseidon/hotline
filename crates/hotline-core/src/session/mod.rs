@@ -466,13 +466,24 @@ impl Turns {
 
 /// Every session in the room, and the one place their words are written down.
 /// What a teammate's computer is armed to make: the name the passkey will
-/// be stored under, the site, and when the computer's arming ends.
+/// be stored under, the site, and when the computer's arming ends. The
+/// room watches it by itself (see `watch_passkey_arming`); once a look has
+/// stored what the browser minted, the record as listed waits here for the
+/// next `registration` poll, which answers it once.
 #[derive(Clone, Debug)]
 struct PasskeyArming {
     name: String,
     rp_id: String,
     expires_at: i64,
+    /// A look found it made and is storing it; another look meanwhile
+    /// answers `armed` rather than storing it twice.
+    storing: bool,
+    /// Stored, ticked and handed: answered to the next poll, then let go.
+    stored: Option<crate::contract::SharedSecret>,
 }
+
+/// How often the room looks at an arming it holds.
+const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub struct Room {
     log: Log,
@@ -1038,7 +1049,7 @@ impl Room {
     /// to be up for its browser to make one; a stopped one is started, the
     /// same as opening its screen would.
     pub async fn secrets_passkey_register(
-        &self,
+        self: &Arc<Self>,
         name: &str,
         persona_id: &str,
         rp_id: &str,
@@ -1101,8 +1112,11 @@ impl Room {
                 name: name.to_owned(),
                 rp_id: rp_id.to_owned(),
                 expires_at,
+                storing: false,
+                stored: None,
             },
         );
+        watch_passkey_arming(Arc::downgrade(self), persona.id.clone());
         Ok(PasskeyRegistration {
             state: PasskeyRegistrationState::Armed,
             name: Some(name.to_owned()),
@@ -1112,14 +1126,31 @@ impl Room {
         })
     }
 
-    /// Where the making stands. The poll that finds the passkey made stores
-    /// it under the name the arming was for, ticks it for the teammate,
-    /// hands the computer its set — which is what keeps the credential in
-    /// the browser — ends the arming, and answers `stored`, once.
+    /// Where the making stands, for the pane's poll: `armed` while the
+    /// browser has not made it, `stored` with the record once it is —
+    /// answered once, whether this poll or the room's own watch found it —
+    /// and `idle` when there is nothing pending.
     pub async fn secrets_passkey_registration(
         &self,
         persona_id: &str,
     ) -> Result<PasskeyRegistration, String> {
+        let (answer, _) = self.look_at_passkey_arming(persona_id).await?;
+        if answer.state == PasskeyRegistrationState::Stored {
+            lock(&self.passkey_armings).remove(persona_id);
+        }
+        Ok(answer)
+    }
+
+    /// One look at a teammate's arming: where the making stands, and
+    /// whether there is anything left to watch. The look that finds the
+    /// passkey made stores it under the name the arming was for, ticks it
+    /// for the teammate, hands the computer its set — which is what keeps
+    /// the credential in the browser — ends the arming, and says so on the
+    /// tape; a look that arrives while that is under way answers `armed`.
+    async fn look_at_passkey_arming(
+        &self,
+        persona_id: &str,
+    ) -> Result<(PasskeyRegistration, bool), String> {
         let idle = PasskeyRegistration {
             state: PasskeyRegistrationState::Idle,
             name: None,
@@ -1127,9 +1158,30 @@ impl Room {
             expires_at: None,
             secret: None,
         };
-        let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
-            return Ok(idle);
+        let armed = |arming: &PasskeyArming| PasskeyRegistration {
+            state: PasskeyRegistrationState::Armed,
+            name: Some(arming.name.clone()),
+            rp_id: Some(arming.rp_id.clone()),
+            expires_at: Some(arming.expires_at),
+            secret: None,
         };
+        let stored =
+            |arming: &PasskeyArming, secret: crate::contract::SharedSecret| PasskeyRegistration {
+                state: PasskeyRegistrationState::Stored,
+                name: Some(arming.name.clone()),
+                rp_id: Some(arming.rp_id.clone()),
+                expires_at: None,
+                secret: Some(secret),
+            };
+        let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
+            return Ok((idle, false));
+        };
+        if let Some(secret) = arming.stored.clone() {
+            return Ok((stored(&arming, secret), false));
+        }
+        if arming.storing {
+            return Ok((armed(&arming), true));
+        }
         let Some(ready) = self.computers.running(persona_id).await else {
             lock(&self.passkey_armings).remove(persona_id);
             return Err("The computer stopped before a passkey was made. Start again.".to_string());
@@ -1147,67 +1199,124 @@ impl Room {
         match polled {
             crate::computer::passkeys::Registration::Idle => {
                 lock(&self.passkey_armings).remove(persona_id);
-                Ok(idle)
+                Ok((idle, false))
             }
-            crate::computer::passkeys::Registration::Armed { .. } => Ok(PasskeyRegistration {
-                state: PasskeyRegistrationState::Armed,
-                name: Some(arming.name),
-                rp_id: Some(arming.rp_id),
-                expires_at: Some(arming.expires_at),
-                secret: None,
-            }),
+            crate::computer::passkeys::Registration::Armed { .. } => Ok((armed(&arming), true)),
             crate::computer::passkeys::Registration::Registered { credential, .. } => {
-                let vault = self
-                    .vault
-                    .as_ref()
-                    .ok_or("Stored secrets are unavailable on this room.")?;
-                vault
-                    .set_shared(&arming.name, credential)
-                    .map_err(|error| error.to_string())?;
-                // The grant: the tick the person would otherwise make in the
-                // teammate's pane, made for them since they asked for this
-                // passkey for this teammate.
-                let mut persona = self.persona(persona_id)?;
-                if let Some(computer) = persona.computer.as_mut() {
-                    let mut granted = computer.secrets.take().unwrap_or_default();
-                    if !granted.contains(&arming.name) {
-                        granted.push(arming.name.clone());
-                        granted.sort();
+                {
+                    let mut armings = lock(&self.passkey_armings);
+                    match armings.get_mut(persona_id) {
+                        Some(live) if !live.storing && live.stored.is_none() => live.storing = true,
+                        // Another look has it, or had it.
+                        Some(live) => {
+                            let answer = match live.stored.clone() {
+                                Some(secret) => stored(&arming, secret),
+                                None => armed(&arming),
+                            };
+                            let more = live.stored.is_none();
+                            return Ok((answer, more));
+                        }
+                        // Cancelled meanwhile.
+                        None => return Ok((idle, false)),
                     }
-                    computer.secrets = Some(granted);
                 }
-                persona.updated_at = now_ms();
-                room::append_persona(&self.log, &persona)?;
-                self.hand_secrets(&persona, &ready).await;
-                if let Err(error) = crate::computer::passkeys::disarm(&ready).await {
-                    self.write(
-                        persona_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Info,
-                            text: format!(
-                                "The passkey {} was stored, but the computer's arming could not be ended; it ends by itself within ten minutes. {error:?}",
-                                arming.name
-                            ),
-                        },
-                    );
+                match self
+                    .store_minted_passkey(persona_id, &arming, &ready, credential)
+                    .await
+                {
+                    Ok(secret) => {
+                        if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+                            live.storing = false;
+                            live.stored = Some(secret.clone());
+                        }
+                        Ok((stored(&arming, secret), false))
+                    }
+                    Err(error) => {
+                        lock(&self.passkey_armings).remove(persona_id);
+                        self.write(
+                            persona_id,
+                            &TranscriptEvent::Notice {
+                                id: new_id(),
+                                ts: now_ms(),
+                                level: NoticeLevel::Warn,
+                                text: format!(
+                                    "The passkey for {} was made in the browser but could not be stored, so it is not kept: {error} Arm it again from Settings → Secrets.",
+                                    arming.rp_id
+                                ),
+                            },
+                        );
+                        Err(error)
+                    }
                 }
-                lock(&self.passkey_armings).remove(persona_id);
-                let secret = vault
-                    .shared_secrets()
-                    .map_err(|error| error.to_string())?
-                    .into_iter()
-                    .find(|secret| secret.name == arming.name);
-                Ok(PasskeyRegistration {
-                    state: PasskeyRegistrationState::Stored,
-                    name: Some(arming.name),
-                    rp_id: Some(arming.rp_id),
-                    expires_at: None,
-                    secret,
-                })
             }
         }
+    }
+
+    /// Keeps what the browser minted: stored in the vault under the
+    /// arming's name, ticked for the teammate — the tick the person would
+    /// otherwise make in the teammate's pane, made for them since they
+    /// asked for this passkey for this teammate — handed to the computer
+    /// with the rest of its set, the arming ended, and a line on the tape.
+    /// Answers the record as listed.
+    async fn store_minted_passkey(
+        &self,
+        persona_id: &str,
+        arming: &PasskeyArming,
+        ready: &crate::computer::Ready,
+        credential: crate::vault::StoredSecret,
+    ) -> Result<crate::contract::SharedSecret, String> {
+        let vault = self
+            .vault
+            .as_ref()
+            .ok_or("Stored secrets are unavailable on this room.")?;
+        vault
+            .set_shared(&arming.name, credential)
+            .map_err(|error| error.to_string())?;
+        let mut persona = self.persona(persona_id)?;
+        if let Some(computer) = persona.computer.as_mut() {
+            let mut granted = computer.secrets.take().unwrap_or_default();
+            if !granted.contains(&arming.name) {
+                granted.push(arming.name.clone());
+                granted.sort();
+            }
+            computer.secrets = Some(granted);
+        }
+        persona.updated_at = now_ms();
+        room::append_persona(&self.log, &persona)?;
+        self.hand_secrets(&persona, ready).await;
+        if let Err(error) = crate::computer::passkeys::disarm(ready).await {
+            self.write(
+                persona_id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Info,
+                    text: format!(
+                        "The passkey {} was stored, but the computer's arming could not be ended; it ends by itself within ten minutes. {error:?}",
+                        arming.name
+                    ),
+                },
+            );
+        }
+        let secret = vault
+            .shared_secrets()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|secret| secret.name == arming.name)
+            .ok_or_else(|| format!("{} was stored but is not listed.", arming.name))?;
+        self.write(
+            persona_id,
+            &TranscriptEvent::Notice {
+                id: new_id(),
+                ts: now_ms(),
+                level: NoticeLevel::Info,
+                text: format!(
+                    "The passkey {} for {} is stored and ticked for {}: its browser signs in there with it from now on. Take it back by unticking it here, removing it under Settings → Secrets, or deleting it in the site's security settings.",
+                    arming.name, arming.rp_id, persona.name
+                ),
+            },
+        );
+        Ok(secret)
     }
 
     /// Ends an arming without a passkey. A computer that is not running has
@@ -3160,6 +3269,34 @@ fn human_outcome(answer: HumanAnswered) -> String {
 /// closed — nobody is waiting, so the note is written before anyone comes back
 /// to read it. The task holds the room weakly, so it is the last thing the
 /// room's own end stops.
+/// The room's own look at a teammate's arming, every couple of seconds
+/// until the passkey is made or the arming ends. A person makes the passkey
+/// from the teammate's screen, or asks the teammate to, and neither keeps
+/// Settings → Secrets open, so no pane's poll can be relied on to be running
+/// at the moment the browser mints it: the room watches whatever is open,
+/// and the pane's poll only reads where it stands.
+fn watch_passkey_arming(room: Weak<Room>, persona_id: String) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(PASSKEY_LOOK_EVERY).await;
+            let Some(room) = room.upgrade() else {
+                return;
+            };
+            match room.look_at_passkey_arming(&persona_id).await {
+                Ok((_, true)) => {}
+                Ok((_, false)) => return,
+                // The computer could not be asked this time; the arming is
+                // still there to look at unless the look let it go.
+                Err(_) => {
+                    if !lock(&room.passkey_armings).contains_key(&persona_id) {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+}
+
 fn sweep_idle_chapters(room: Weak<Room>) {
     tokio::spawn(async move {
         tokio::time::sleep(FIRST_SWEEP).await;

@@ -469,20 +469,27 @@ function PasskeyPanel({ roster, onStored, onClose }: { roster: RosterEntry[]; on
 	const [working, setWorking] = useState(false);
 	const teammate = teammates.find((one) => one.id === personaId)?.name ?? "the teammate";
 
-	// An arming may be live from before this panel opened: pick it up.
+	// An arming may be live from before this panel opened, or the room may
+	// have stored the passkey while it was closed: pick either up.
 	useEffect(() => {
 		if (personaId === "") return;
 		let gone = false;
 		void wire
 			.command("secrets.passkey.registration", { personaId })
 			.then((current) => {
-				if (!gone && current.state === "armed") setRegistration(current);
+				if (gone) return;
+				if (current.state === "armed") {
+					setRegistration(current);
+				} else if (current.state === "stored") {
+					setRegistration(current);
+					onStored();
+				}
 			})
 			.catch(() => {});
 		return () => {
 			gone = true;
 		};
-	}, [personaId]);
+	}, [personaId, onStored]);
 
 	// While armed, ask every couple of seconds whether it has been made.
 	const armed = registration?.state === "armed";
@@ -571,8 +578,8 @@ function PasskeyPanel({ roster, onStored, onClose }: { roster: RosterEntry[]; on
 					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
 						Open {teammate}'s screen, sign in to {registration.rpId} the way the teammate should be signed in, and add a passkey in
 						the site's security settings; or ask {teammate} to. Its browser makes the passkey, and the moment it does this desk
-						stores it as <span className="font-mono">{registration.name}</span> and ticks it for {teammate}. Nothing else can be
-						made while armed, and nothing at all when not.
+						stores it as <span className="font-mono">{registration.name}</span> and ticks it for {teammate}, whether or not this
+						page is open; {teammate}'s tape says so. Nothing else can be made while armed, and nothing at all when not.
 					</span>
 				</span>
 				<span className="group-row-detail">Waiting for the passkey…</span>
@@ -669,6 +676,9 @@ export function ComputerSecrets({
 	const [note, setNote] = useState<string | null>(null);
 	const [about, setAbout] = useState(false);
 
+	// Re-read whenever the ticks change from elsewhere — a passkey the room
+	// just stored and ticked shows as what it is, not as "not stored".
+	const grantedKey = granted.join("\n");
 	useEffect(() => {
 		let gone = false;
 		wire
@@ -678,7 +688,7 @@ export function ComputerSecrets({
 		return () => {
 			gone = true;
 		};
-	}, []);
+	}, [grantedKey]);
 
 	const storedNames = stored === null ? null : stored.map((one) => one.name);
 	const names = storedNames === null ? granted : [...storedNames, ...granted.filter((name) => !storedNames.includes(name))];

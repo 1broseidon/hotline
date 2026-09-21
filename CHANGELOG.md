@@ -20,6 +20,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A passkey made for a teammate was stored only if Settings → Secrets happened to be open at that moment. It never is: the passkey is added from the teammate's screen, or by the teammate, so the credential ended up in the site and the teammate's browser but in no list on the desk, and the next arming threw it out of the browser. The room now watches the arming itself, stores the passkey the moment it is made, ticks it for the teammate, and says so on the teammate's tape; Settings → Secrets, opened later, is told once. The ticks on a teammate also re-read the stored list when a tick lands from elsewhere, so a fresh passkey does not show as "not stored".
 - Bringing over cookies from any Chrome profile but the first, or from Firefox, failed with "The computer could not load the cookies" and a note about the name: the computer's saved login was named after the profile's directory, which is `Profile 1` on Chrome and `k3j2x9.default-release` on Firefox, and the computer takes letters, digits and dashes only in a login's name. The name is made of those now.
 
 ## [0.16.0] - 2026-09-20

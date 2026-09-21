@@ -27,7 +27,7 @@ use tokio::process::Command;
 /// on the same major (see [`releases`]), and on this one when nothing newer
 /// is known. Bumped here deliberately — never derived from the desktop
 /// version, and never `latest`.
-pub const COMPUTER_VERSION: &str = "0.8.1";
+pub const COMPUTER_VERSION: &str = "0.9.0";
 
 /// The MCP server id a session is granted, and the origin the ledger names.
 pub const SERVER_ID: &str = "computer";

@@ -375,7 +375,7 @@ export function App() {
 			{railOnly ? null : (
 			<main className="flex min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
-					<Settings section={settingsSection} roster={roster} {...(back !== undefined ? { onBack: back } : {})} />
+					<Settings section={settingsSection} {...(back !== undefined ? { onBack: back } : {})} />
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (

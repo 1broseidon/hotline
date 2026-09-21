@@ -8,6 +8,35 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A passkey is made only once you approve the site's request. Under an
+  arming, the site's call to make a passkey waits in the teammate's
+  browser; a card on the teammate's tape says which site asks, from which
+  origin and for which account; Approve lets the browser make it and the
+  room stores and ticks it as before, Deny ends the arming, and a request
+  that goes away with its page expires the card. A paired phone is told,
+  and may answer the card too. Needs Computer 0.9.0; a 0.8.x computer still
+  makes the passkey under the arming without asking.
+- Your own skills, without importing them. Settings → Skills lists what is
+  in `~/.agents/skills`, the standard folder other agents read too, or a
+  folder you point it at; a switch on a row offers that skill to teammates,
+  which are then granted it in their panes like a gateway skill and read it
+  fresh from your folder at every start. Nothing is copied into Hotline, and
+  an entry that is not a skill says why. The gateway stays for a folder from
+  anywhere else.
+
+### Changed
+
+- Adding a passkey moved from Settings → Secrets to the teammate's pane,
+  under its computer's Browser fold, where the arming belongs; Settings →
+  Secrets lists what is stored.
+- A teammate's computer section is three folds: Desktop (its state, Stop,
+  Remove and Update, then image, memory, processes and folders), Browser
+  (the cookies brought over and the passkeys made for it) and Secrets (the
+  ticks).
+- New computers are created on Hotline Computer 0.9.0.
+
 ## [0.16.1] - 2026-09-21
 
 ### Added

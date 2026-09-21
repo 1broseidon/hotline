@@ -3,6 +3,7 @@ import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import type {
 	HumanActionStatus,
 	HumanAnswer,
+	PasskeyAskStatus,
 	PermissionOption,
 	PlanEntry,
 	ToolOutput,
@@ -21,6 +22,7 @@ import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
+import { askedFor } from "./PasskeyArm";
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -452,6 +454,9 @@ function Row({
 
 		case "human_action":
 			return <HumanAction personaId={personaId} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+
+		case "passkey_ask":
+			return <PasskeyAskCard personaId={personaId} event={event} />;
 
 		/* One quiet line, the way a chapter is a date. Pressing it opens
 		 * the thread in the inspector's place. */
@@ -940,6 +945,73 @@ function HumanAction({
 					</button>
 				)}
 			</div>
+		</div>
+	);
+}
+
+const PASSKEY_AFTERLIFE: Record<PasskeyAskStatus, string> = {
+	pending: "Needs you",
+	approved: "Approved",
+	denied: "Denied",
+	expired: "Expired",
+};
+
+/**
+ * A site asked the teammate's browser to make a passkey, under an arming
+ * the person started in the teammate's pane; the request waits in the
+ * browser until it is answered here, from whichever seat. Approve and the
+ * browser makes it, the room stores it under the arming's name and ticks
+ * it for this teammate; deny and the site hears no and the arming ends. A
+ * decided card is the outcome on the tape.
+ */
+function PasskeyAskCard({ personaId, event }: { personaId: string; event: Extract<TranscriptEvent, { kind: "passkey_ask" }> }) {
+	const [answering, setAnswering] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+	const who = askedFor(event);
+	const site = event.rpName !== undefined ? `${event.rpName} (${event.rpId})` : event.rpId;
+	const asks = `${site} asks to make a passkey${who !== null ? ` for ${who}` : ""}.`;
+
+	const answer = (approved: boolean) => {
+		if (answering || event.status !== "pending") return;
+		setAnswering(true);
+		setRefusal(null);
+		void wire.command("secrets.passkey.answer", { personaId, askId: event.askId, approved }).catch((error: unknown) => {
+			setRefusal(error instanceof Error ? error.message : String(error));
+			setAnswering(false);
+		});
+	};
+
+	if (event.status !== "pending") {
+		return (
+			<div className="card mt-3">
+				<p className="eyebrow mb-1">Passkey · {PASSKEY_AFTERLIFE[event.status]}</p>
+				<p className="selectable text-ink-2">{asks}</p>
+				{event.status === "approved" && (
+					<p className="selectable mt-1 text-ink-2">
+						Stored as <span className="font-mono">{event.name}</span> and ticked for this teammate once made.
+					</p>
+				)}
+			</div>
+		);
+	}
+
+	return (
+		<div className="card card-live mt-3">
+			<p className="eyebrow mb-1">Needs you · Passkey</p>
+			<p className="selectable">{asks}</p>
+			<p className="mt-1.5 text-sm text-ink-3">
+				The request came from {event.origin}. Approved, the passkey is stored as <span className="font-mono">{event.name}</span> and
+				ticked for this teammate, whose browser signs in there with it from now on. Denied, the site hears no and the arming ends.
+			</p>
+			<div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+				<button type="button" disabled={answering} className="control btn-primary" onClick={() => answer(true)}>
+					Approve
+				</button>
+				<button type="button" disabled={answering} className="control btn" onClick={() => answer(false)}>
+					Deny
+				</button>
+			</div>
+			{refusal !== null && <p className="mt-2 text-sm text-danger">{refusal}</p>}
 		</div>
 	);
 }

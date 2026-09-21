@@ -14,6 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
+use serde_json::{Map, Value};
+
 use crate::contract::{PolicyMode, SkillEntry, SkillPolicy, SkillSource};
 
 /// Where skills live inside a workspace, relative to the working directory.
@@ -242,6 +244,7 @@ fn entry(directory: &str, path: &Path, source: SkillSource) -> SkillEntry {
             description: skill.description,
             path: path.to_string_lossy().into_owned(),
             invalid: None,
+            offered: None,
             version: None,
         },
         Err(reason) => SkillEntry {
@@ -250,6 +253,7 @@ fn entry(directory: &str, path: &Path, source: SkillSource) -> SkillEntry {
             description: String::new(),
             path: path.to_string_lossy().into_owned(),
             invalid: Some(reason),
+            offered: None,
             version: None,
         },
     }
@@ -266,6 +270,7 @@ pub fn builtin_entries() -> Vec<SkillEntry> {
             name: skill.name,
             description: skill.description,
             invalid: None,
+            offered: None,
             version: None,
         })
         .collect()
@@ -318,6 +323,116 @@ pub fn computer_entry(cwd: &Path) -> Option<SkillEntry> {
     Some(found)
 }
 
+/// The room setting naming the person's own skills folder, when it is not
+/// the standard one.
+pub const HOME_SETTING: &str = "skillsHome";
+/// The room setting listing which of the person's own skills are offered to
+/// teammates, by name.
+pub const OFFERED_SETTING: &str = "offeredSkills";
+
+/// What the operator offers teammates beyond the built-ins: the gateway
+/// folder, everything valid in it; and the person's own folder,
+/// `~/.agents/skills` unless the room says otherwise, whose entries are
+/// offered by name and read from where they are, so an edit there is what a
+/// teammate reads at its next start.
+pub struct Offering {
+    pub gateway: PathBuf,
+    pub home: Option<PathBuf>,
+    pub offered: Vec<String>,
+}
+
+impl Offering {
+    /// From the room's settings, over a data directory.
+    pub fn from_settings(root: &Path, settings: &Map<String, Value>) -> Offering {
+        let home = settings
+            .get(HOME_SETTING)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .or_else(crate::paths::default_skills_home);
+        let offered = settings
+            .get(OFFERED_SETTING)
+            .and_then(Value::as_array)
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Offering {
+            gateway: crate::paths::skills_path(root),
+            home,
+            offered,
+        }
+    }
+
+    /// The gateway's entries, valid or not, then the person's own, each
+    /// saying whether it is offered.
+    pub fn entries(&self) -> Vec<SkillEntry> {
+        let mut out = read_folder(&self.gateway, SkillSource::Gateway, false);
+        out.extend(self.home_entries());
+        out
+    }
+
+    fn home_entries(&self) -> Vec<SkillEntry> {
+        let Some(home) = &self.home else {
+            return Vec::new();
+        };
+        read_folder(home, SkillSource::Home, false)
+            .into_iter()
+            .map(|entry| SkillEntry {
+                offered: Some(self.offered.contains(&entry.name)),
+                ..entry
+            })
+            .collect()
+    }
+
+    /// Whether teammates may be granted an entry: anything valid in the
+    /// gateway, and a home entry switched on.
+    pub fn offers(&self, entry: &SkillEntry) -> bool {
+        entry.invalid.is_none()
+            && (entry.source != SkillSource::Home || entry.offered == Some(true))
+    }
+
+    /// The person's own skill of that name, for the switch: refused when the
+    /// name is not one, there is no folder, the folder has no such entry, or
+    /// the entry is not a valid skill.
+    pub fn home_entry(&self, name: &str) -> Result<SkillEntry, String> {
+        valid_name(name)?;
+        if self.home.is_none() {
+            return Err("There is no folder of your own skills to read.".to_owned());
+        }
+        let entry = self
+            .home_entries()
+            .into_iter()
+            .find(|entry| entry.name == name)
+            .ok_or_else(|| format!("Your skills folder has no skill named {name}."))?;
+        match entry.invalid {
+            Some(reason) => Err(reason),
+            None => Ok(entry),
+        }
+    }
+
+    /// The offered names with one switched on or off: sorted, each once.
+    pub fn switched(&self, name: &str, offered: bool) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .offered
+            .iter()
+            .filter(|one| *one != name)
+            .cloned()
+            .collect();
+        if offered {
+            names.push(name.to_owned());
+        }
+        names.sort();
+        names.dedup();
+        names
+    }
+}
+
 /// Where a skill sits inside a workspace, as the agent is told it.
 pub fn workspace_path(name: &str) -> String {
     format!("{DIRECTORY}/{name}/{FILE}")
@@ -365,18 +480,19 @@ pub fn index(skills: &[SkillEntry]) -> String {
 }
 
 /// Writes the skills a teammate may read into its workspace: the built-ins,
-/// and the valid gateway skills its policy grants. Every entry Hotline writes
-/// carries [`MANAGED_MARKER`]; an entry without one is the teammate's or the
-/// person's, is left alone, and shadows a grant of the same name. A marked
-/// entry the grant no longer covers is removed, so a revoked grant leaves
-/// nothing of Hotline's behind.
+/// and the offered skills its policy grants — the gateway's, and the
+/// person's own that are switched on, copied fresh from where they are.
+/// Every entry Hotline writes carries [`MANAGED_MARKER`]; an entry without
+/// one is the teammate's or the person's, is left alone, and shadows a grant
+/// of the same name. A marked entry the grant no longer covers is removed,
+/// so a revoked grant leaves nothing of Hotline's behind.
 ///
 /// This is a write into a workspace without the confined handle the tools
-/// use, because it copies whole directories the operator put in the gateway.
-/// It is kept safe the plain way: `.agents`, `.agents/skills` and each entry
-/// are refused if they are symbolic links, and links inside a gateway skill
-/// are not copied.
-pub fn materialize(cwd: &Path, gateway: &Path, policy: &SkillPolicy) -> Result<(), String> {
+/// use, because it copies whole directories the operator put in the gateway
+/// or keeps in their own folder. It is kept safe the plain way: `.agents`,
+/// `.agents/skills` and each entry are refused if they are symbolic links,
+/// and links inside an offered skill are not copied.
+pub fn materialize(cwd: &Path, offering: &Offering, policy: &SkillPolicy) -> Result<(), String> {
     let target = cwd.join(DIRECTORY);
     for dir in [cwd.join(".agents"), target.clone()] {
         refuse_link(&dir)?;
@@ -391,13 +507,13 @@ pub fn materialize(cwd: &Path, gateway: &Path, policy: &SkillPolicy) -> Result<(
         .iter()
         .map(|(name, text)| (name.to_string(), Source::Text(text)))
         .collect();
-    for entry in read_folder(gateway, SkillSource::Gateway, false) {
+    for entry in offering.entries() {
         let granted = match policy.mode {
             PolicyMode::All => true,
             PolicyMode::Some => policy.names.contains(&entry.name),
             PolicyMode::None => false,
         };
-        if granted && entry.invalid.is_none() && !wanted.iter().any(|(name, _)| *name == entry.name)
+        if granted && offering.offers(&entry) && !wanted.iter().any(|(name, _)| *name == entry.name)
         {
             wanted.push((entry.name, Source::Tree(PathBuf::from(entry.path))));
         }
@@ -427,8 +543,8 @@ pub fn materialize(cwd: &Path, gateway: &Path, policy: &SkillPolicy) -> Result<(
             continue;
         }
         if ours && matches!(source, Source::Tree(_)) {
-            // A gateway skill may have lost a file since it was copied; the
-            // copy is remade whole so nothing stale is read.
+            // An offered skill may have changed or lost a file since it was
+            // copied; the copy is remade whole so nothing stale is read.
             remove_tree(&entry)?;
         }
         std::fs::create_dir_all(&entry).map_err(|error| made(&entry, error))?;
@@ -681,6 +797,15 @@ mod tests {
         }
     }
 
+    /// An offering of the gateway alone: nothing of the person's own.
+    fn gateway_only(folder: &Path) -> Offering {
+        Offering {
+            gateway: folder.to_path_buf(),
+            home: None,
+            offered: Vec::new(),
+        }
+    }
+
     fn names(folder: &Path) -> Vec<String> {
         let mut out: Vec<String> = std::fs::read_dir(folder)
             .map(|entries| {
@@ -713,7 +838,7 @@ mod tests {
             mode: PolicyMode::Some,
             names: vec!["cut-release".into(), "broken".into()],
         };
-        materialize(&cwd, &gateway, &some).unwrap();
+        materialize(&cwd, &gateway_only(&gateway), &some).unwrap();
         assert_eq!(names(&target), ["cut-release", "hotline-room", "mine"]);
         assert!(target.join("cut-release").join(MANAGED_MARKER).exists());
         assert!(target.join("cut-release/scripts/bump.sh").exists());
@@ -730,14 +855,14 @@ mod tests {
             mode: PolicyMode::All,
             names: Vec::new(),
         };
-        materialize(&cwd, &gateway, &all).unwrap();
+        materialize(&cwd, &gateway_only(&gateway), &all).unwrap();
         assert_eq!(
             names(&target),
             ["cut-release", "hotline-room", "later", "mine", "other"]
         );
 
         // Revoking leaves the built-ins and the teammate's own, nothing else.
-        materialize(&cwd, &gateway, &SkillPolicy::default()).unwrap();
+        materialize(&cwd, &gateway_only(&gateway), &SkillPolicy::default()).unwrap();
         assert_eq!(names(&target), ["hotline-room", "mine"]);
 
         // A skill of the teammate's own shadows a grant, and a built-in, by
@@ -750,7 +875,7 @@ mod tests {
         )
         .unwrap();
         std::fs::remove_file(target.join("hotline-room").join(MANAGED_MARKER)).unwrap();
-        materialize(&cwd, &gateway, &all).unwrap();
+        materialize(&cwd, &gateway_only(&gateway), &all).unwrap();
         assert!(!target.join("cut-release").join(MANAGED_MARKER).exists());
         let seen = visible(&cwd);
         let room = seen.iter().find(|one| one.name == "hotline-room").unwrap();
@@ -758,6 +883,121 @@ mod tests {
         assert_eq!(room.path, workspace_path("hotline-room"));
         assert!(seen.iter().any(|one| one.name == "cut-release"));
         assert_eq!(seen[0].name, "hotline-room", "built-ins are listed first");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_skill_of_the_persons_own_is_copied_only_when_offered_and_granted() {
+        let root = scratch("offered");
+        let gateway = root.join("gateway");
+        put(&gateway, "triage", false);
+        let home = root.join("home");
+        put(&home, "cut-release", false);
+        put(&home, "triage", false);
+        put(&home, "Bad", false);
+        let cwd = root.join("ws");
+        let target = cwd.join(DIRECTORY);
+        let all = SkillPolicy {
+            mode: PolicyMode::All,
+            names: Vec::new(),
+        };
+
+        // Nothing of the person's own is a grant until it is offered, even
+        // under all; the catalog says what is offered and what is wrong.
+        let none = Offering {
+            gateway: gateway.clone(),
+            home: Some(home.clone()),
+            offered: Vec::new(),
+        };
+        materialize(&cwd, &none, &all).unwrap();
+        assert_eq!(names(&target), ["hotline-room", "triage"]);
+        let entries = none.entries();
+        let listed: Vec<(SkillSource, &str, Option<bool>, bool)> = entries
+            .iter()
+            .map(|one| {
+                (
+                    one.source,
+                    one.name.as_str(),
+                    one.offered,
+                    one.invalid.is_some(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (SkillSource::Gateway, "triage", None, false),
+                (SkillSource::Home, "Bad", Some(false), true),
+                (SkillSource::Home, "cut-release", Some(false), false),
+                (SkillSource::Home, "triage", Some(false), false),
+            ]
+        );
+
+        // The switch: a valid name that is there, listed sorted and once.
+        assert_eq!(none.switched("cut-release", true), ["cut-release"]);
+        assert_eq!(
+            none.home_entry("nope").unwrap_err(),
+            "Your skills folder has no skill named nope."
+        );
+        assert!(
+            none.home_entry("Bad").is_err(),
+            "an invalid entry is not offered"
+        );
+        assert_eq!(
+            none.home_entry("cut-release").unwrap().source,
+            SkillSource::Home
+        );
+        let offered = Offering {
+            offered: vec!["triage".into(), "cut-release".into(), "cut-release".into()],
+            ..none
+        };
+        assert_eq!(offered.switched("triage", false), ["cut-release"]);
+        assert_eq!(
+            offered.switched("nope", true),
+            ["cut-release", "nope", "triage"]
+        );
+
+        // Offered and granted, it is copied from where it is, fresh each
+        // start; a name the gateway has is the gateway's.
+        materialize(&cwd, &offered, &all).unwrap();
+        assert_eq!(names(&target), ["cut-release", "hotline-room", "triage"]);
+        assert!(target.join("cut-release").join(MANAGED_MARKER).exists());
+        std::fs::write(
+            home.join("cut-release").join(FILE),
+            GOOD.replace("Cut a desktop release.", "Cut a desktop release, revised."),
+        )
+        .unwrap();
+        std::fs::write(
+            home.join("triage").join(FILE),
+            GOOD.replace("cut-release", "triage")
+                .replace("Cut a desktop release.", "The person's own triage."),
+        )
+        .unwrap();
+        materialize(&cwd, &offered, &all).unwrap();
+        assert!(
+            std::fs::read_to_string(target.join("cut-release").join(FILE))
+                .unwrap()
+                .contains("revised")
+        );
+        assert!(
+            !std::fs::read_to_string(target.join("triage").join(FILE))
+                .unwrap()
+                .contains("person's own"),
+            "the gateway's triage is the one copied"
+        );
+        assert!(
+            !home.join("cut-release").join(MANAGED_MARKER).exists(),
+            "the person's folder is never written"
+        );
+
+        // Withdrawn, it is gone at the next start.
+        let withdrawn = Offering {
+            offered: vec!["triage".into()],
+            ..offered
+        };
+        materialize(&cwd, &withdrawn, &all).unwrap();
+        assert_eq!(names(&target), ["hotline-room", "triage"]);
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -771,8 +1011,12 @@ mod tests {
         let elsewhere = root.join("elsewhere");
         std::fs::create_dir_all(&elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, cwd.join(DIRECTORY)).unwrap();
-        let refusal =
-            materialize(&cwd, &root.join("gateway"), &SkillPolicy::default()).unwrap_err();
+        let refusal = materialize(
+            &cwd,
+            &gateway_only(&root.join("gateway")),
+            &SkillPolicy::default(),
+        )
+        .unwrap_err();
         assert!(refusal.ends_with("is a symbolic link."), "{refusal}");
         assert!(
             names(&elsewhere).is_empty(),

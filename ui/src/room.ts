@@ -50,6 +50,7 @@ export function useRoomSettings(): {
 	enabledModels: Record<string, string[]>;
 	computerRuntime: string | null;
 	computerImage: string | null;
+	skillsHome: string | null;
 } {
 	const [events, setEvents] = useState<Map<string, RoomItem>>(new Map());
 
@@ -82,6 +83,7 @@ export function useRoomSettings(): {
 		enabledModels,
 		computerRuntime: optionalStringSetting(events.get("computerRuntime")),
 		computerImage: optionalStringSetting(events.get("computerImage")),
+		skillsHome: optionalStringSetting(events.get("skillsHome")),
 	};
 }
 

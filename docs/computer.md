@@ -54,14 +54,23 @@ update.
   says so on the teammate's tape; a release from before logins (0.7.x)
   refuses a typed record with 400.
 - `PUT /passkeys/registration {"rpId"}` arms the computer for ten minutes,
-  for that one site, and readies the browser; while armed, and only then,
-  `navigator.credentials.create()` on that site may mint one credential in
-  the authenticator. `GET /passkeys/registration` answers `idle`, `armed`, or
-  `registered` with the minted credential as a whole passkey record; the
-  desk stores it, delivers the set with it, and `DELETE`s the arming. A
-  credential minted outside an arming, for another site, or after the ten
-  minutes is removed from the authenticator on the next look, so the
-  teammate cannot give itself a passkey. Bearer-only, like `/secrets`.
+  for that one site, and readies the browser. While armed, and only then, a
+  site's `navigator.credentials.create()` is parked by the computer's guard
+  with what the site asked for, and `GET /passkeys/registration` answers
+  `asked` with that `ask` (`id`, `rpId`, `origin`, `rpName?`, `userName?`,
+  `userDisplayName?`, `askedAt`); the desk raises the card, and
+  `POST /passkeys/registration/answer {"id", "approved"}` carries the
+  answer back. Approved, the browser mints and `GET` answers `approved`,
+  then `registered` with the minted credential as a whole passkey record;
+  the desk stores it, delivers the set with it, and `DELETE`s the arming.
+  Denied, the site gets a `NotAllowedError` and the arming ends with it; an
+  answer to a request that is not waiting is a 409. A credential minted
+  outside an arming, without an approval, for another site, or after the
+  ten minutes is removed from the authenticator on the next look, so the
+  teammate cannot give itself a passkey, nor ask the person for one unless
+  the person armed the site first. Bearer-only, like `/secrets`. A 0.8.x
+  computer has no answer door and mints under the arming without asking;
+  the desk stores what it minted as before.
 - `DELETE /logins/{name}` with `{"domains": [...]}` takes a saved login's
   cookies back: the browser drops every cookie for each named site, or a
   host within it, from its running context, the saved login is pruned, and

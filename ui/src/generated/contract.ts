@@ -92,7 +92,7 @@ export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, 
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } };
+export type Command = { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } };
 
 /**
  * One host folder bound into a teammate's computer.
@@ -386,7 +386,30 @@ export type OpenAiApi = "responses" | "chat_completions";
 export type PairingInvitation = { kind: string, version: number, desktopId: string, name: string, endpoint: string, certificateSha256: string, invitationId: string, secret: string, expiresAt: number, };
 
 /**
- * The answer to `secrets.passkey.register`, `.registration` and `.cancel`.
+ * What a site asked for when it called for a passkey under an arming: the
+ * site, the origin the page is on, and the account the passkey would be
+ * for, as the computer read them off the request. What the card shows.
+ */
+export type PasskeyAsk = { 
+/**
+ * The computer's id for the request; the answer names it.
+ */
+id: string, rpId: string, origin: string, rpName?: string, userName?: string, userDisplayName?: string, 
+/**
+ * When the computer first saw it, ms since the epoch.
+ */
+askedAt: number, };
+
+/**
+ * Where a passkey card stands: waiting for the person, answered either
+ * way, or gone — the request left with its page, the arming ran out or
+ * was cancelled, or the computer stopped — before anyone answered.
+ */
+export type PasskeyAskStatus = "pending" | "approved" | "denied" | "expired";
+
+/**
+ * The answer to `secrets.passkey.register`, `.registration`, `.answer`
+ * and `.cancel`.
  */
 export type PasskeyRegistration = { state: PasskeyRegistrationState, 
 /**
@@ -398,17 +421,24 @@ name?: string, rpId?: string,
  */
 expiresAt?: number, 
 /**
+ * The site's request, when `asked` or `approved`.
+ */
+ask?: PasskeyAsk, 
+/**
  * The record stored, when `stored`.
  */
 secret?: SharedSecret, };
 
 /**
  * Where the making of a passkey stands. `armed` is the ten minutes in
- * which the teammate's computer may make one for the site; `stored` is
- * answered once, when the computer made it and the desk has stored it and
- * ticked it for that teammate; `idle` is no arming, or one that ran out.
+ * which the teammate's computer may make one for the site; `asked` is the
+ * site's request, parked in the browser until the person answers the card
+ * on the teammate's tape; `approved` is the moment between that answer and
+ * the browser making it; `stored` is answered once, when the computer made
+ * it and the desk has stored it and ticked it for that teammate; `idle` is
+ * no arming, or one that ran out, or one a denial ended.
  */
-export type PasskeyRegistrationState = "idle" | "armed" | "stored";
+export type PasskeyRegistrationState = "idle" | "armed" | "asked" | "approved" | "stored";
 
 /**
  * The last thing said in a peer thread, and which of the two said it.
@@ -524,9 +554,9 @@ hopNotice?: string,
  */
 mcpPolicy: McpPolicy, 
 /**
- * Which of the gateway's skills this teammate is given. Built-ins are
- * always on and not part of this. Absent means none, including for
- * older records.
+ * Which of the offered skills this teammate is given: the gateway's,
+ * and the person's own that are switched on. Built-ins are always on
+ * and not part of this. Absent means none, including for older records.
  */
 skillPolicy: SkillPolicy, 
 /**
@@ -888,9 +918,15 @@ export type Side = "me" | "them";
  * a skill and a sentence saying what is wrong when it is not; an invalid
  * entry is listed so the person can fix it, never silently skipped. `path`
  * is where the folder is: inside the workspace for what a teammate sees,
- * on disk for the gateway.
+ * on disk for the gateway and the person's own folder.
  */
 export type SkillEntry = { source: SkillSource, name: string, description: string, path: string, invalid?: string, 
+/**
+ * Whether a `home` entry is offered to teammates. Only a `home` entry
+ * has it: the gateway offers everything valid in it, and the rest are
+ * not the person's to offer.
+ */
+offered?: boolean, 
 /**
  * The release a computer's guide came from. Only a `computer` entry has
  * one: the desk's own skills are the desk's version, a gateway folder is
@@ -899,21 +935,25 @@ export type SkillEntry = { source: SkillSource, name: string, description: strin
 version?: string, };
 
 /**
- * Which skills from the gateway a teammate gets, the way [`McpPolicy`] says
- * which servers: `none` for a new teammate, `some` by name, or `all`
- * including skills added later. Built-in skills are not governed here; they
- * are always in the workspace.
+ * Which of the offered skills — the gateway's, and the person's own that
+ * are switched on — a teammate gets, the way [`McpPolicy`] says which
+ * servers: `none` for a new teammate, `some` by name, or `all` including
+ * skills offered later. Built-in skills are not governed here; they are
+ * always in the workspace.
  */
 export type SkillPolicy = { mode: PolicyMode, names: Array<string>, };
 
 /**
  * Where a skill came from. `builtin` is bundled with Hotline and always on;
  * `gateway` is the operator's folder in the data directory, granted per
- * teammate; `workspace` is the teammate's own `.agents/skills`, written by
- * the person or the teammate; `computer` is the guide the running computer
- * serves, at its release.
+ * teammate; `home` is the person's own folder, `~/.agents/skills` unless
+ * the room's `skillsHome` says otherwise, the standard place other agents
+ * read too, whose entries are offered to teammates by switch and read from
+ * where they are; `workspace` is the teammate's own `.agents/skills`,
+ * written by the person or the teammate; `computer` is the guide the
+ * running computer serves, at its release.
  */
-export type SkillSource = "builtin" | "gateway" | "workspace" | "computer";
+export type SkillSource = "builtin" | "gateway" | "home" | "workspace" | "computer";
 
 /**
  * One row the import wants the person to see: left behind (`skipped`)
@@ -1053,7 +1093,11 @@ ring?: RingIntent, receipt?: Receipt, } | { "kind": "thought", id: string, ts: n
 /**
  * What the person said with their answer, when they said anything.
  */
-note?: string, } | { "kind": "peer", id: string, ts: number, threadKey: string, withPersonaId: string, withName: string, role: PeerRole, exchanges: number, status: PeerStatus, 
+note?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+/**
+ * The name the passkey is stored under once made.
+ */
+name: string, rpId: string, origin: string, rpName?: string, userName?: string, userDisplayName?: string, status: PasskeyAskStatus, } | { "kind": "peer", id: string, ts: number, threadKey: string, withPersonaId: string, withName: string, role: PeerRole, exchanges: number, status: PeerStatus, 
 /**
  * What kind of citizen the other side is. Absent means a teammate —
  * every marker written before client seats existed, and every one

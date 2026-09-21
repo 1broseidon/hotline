@@ -177,35 +177,53 @@ virtual authenticator on each browser tab, from the delivered set, so a
 site's `navigator.credentials.get()` is answered inside Chromium and the
 private key is never typed, never in a tool answer (`[redacted
 NAME.privateKey]` if it ever were), and never in the model's input. Making
-one is the operator's act and happens in one place: `secrets.passkey.register`
-arms one teammate's computer for one site for ten minutes (`PUT
-/passkeys/registration`, bearer-only, the computer started if it was
-stopped), the operator signs in to the site through the teammate's screen
-and adds a passkey in the site's security settings — or asks the teammate
-to — and the browser's `navigator.credentials.create()` mints one. A guard
-script the computer installs on every document allows creation only while
-armed and only on the armed site, keyed by a token the page cannot read;
-and the computer's own check on every look removes from the authenticator
-any credential that is neither in the delivered set nor minted under the
-current arming, so a teammate cannot give itself a passkey, keep one made
-for another site, or keep one after the ten minutes. The room watches the
-arming it holds, polling `GET /passkeys/registration` every two seconds
-whatever pane is open — the passkey is made from the teammate's screen, or
-by the teammate, never from Settings — and the look that finds the
-credential minted stores it in the vault, ticks the name on
-`persona.computer.secrets` for that teammate — the same tick the pane makes
-for any secret, made for the operator because they asked for this passkey
-for this teammate — hands the computer the set with it, which is what keeps
-it in the authenticator, `DELETE`s the arming, and says so on the tape. That answer is the one time a private key leaves the
-container: over the bearer-guarded loopback door, in the direction the
-cookie import already trusts, into the vault, and into no tape, room event
-or log. Revocation is any of three: untick it on the teammate or remove it
-under Secrets, both of which hand the computer a set without it and the
-authenticator drops it on the next look; or delete the passkey in the
-site's own security settings, after which the credential the computer
-holds signs nothing. The desk's floor for a new computer is 0.8.0, the
-first release with the door; an older one refuses a login record with 400
-and has no passkey door, and the pane says so and points at Update.
+one is the operator's act, twice over. First the arming:
+`secrets.passkey.register`, from the teammate's pane, arms that teammate's
+computer for one site for ten minutes (`PUT /passkeys/registration`,
+bearer-only, the computer started if it was stopped). Then the approval:
+the operator signs in to the site through the teammate's screen and adds a
+passkey in the site's security settings — or asks the teammate to — and
+the site's `navigator.credentials.create()` is not answered by the browser
+on its own. A guard script the computer installs on every document, keyed
+by a token the page cannot read, rejects the call outright when nothing is
+armed or another site is; under the arming it parks the request with what
+the site asked for — the site, the origin, the account name and display
+name — and the computer's next look records it and answers it on `GET
+/passkeys/registration` as `asked`. The room, which polls that door every
+two seconds while an arming stands, writes a `passkey_ask` card on the
+teammate's tape and tells the phones, and the person's answer goes back
+through `secrets.passkey.answer` and `POST /passkeys/registration/answer`.
+Approved, the page is told to go ahead and the browser's authenticator
+mints; denied, the site gets a `NotAllowedError` and the arming ends with
+the denial, so neither a site nor a teammate can keep asking. One request
+is before the person at a time; a request whose page went away, an arming
+that ran out or was cancelled, and a computer that stopped each leave the
+card expired rather than answerable; and an answer to a request that is
+not waiting is refused by the room and by the computer (409), so a stale
+card cannot let one through. The card has the standing of a permission
+card — one answer to one request the operator armed for at the desk —
+which is why the phone may give it, while arming stays at the desk. The
+computer's own check on every look removes from the authenticator any
+credential that is neither in the delivered set nor minted under an
+approved request of the current arming, so a teammate cannot give itself
+a passkey, keep one made for another site, or keep one after the ten
+minutes. The look that finds the credential minted stores it in the
+vault, ticks the name on `persona.computer.secrets` for that teammate —
+the same tick the pane makes for any secret, made for the operator because
+they asked for this passkey for this teammate — hands the computer the set
+with it, which is what keeps it in the authenticator, `DELETE`s the
+arming, and says so on the tape. That answer is the one time a private key
+leaves the container: over the bearer-guarded loopback door, in the
+direction the cookie import already trusts, into the vault, and into no
+tape, room event or log. Revocation is any of three: untick it on the
+teammate or remove it under Secrets, both of which hand the computer a set
+without it and the authenticator drops it on the next look; or delete the
+passkey in the site's own security settings, after which the credential
+the computer holds signs nothing. The desk's floor for a new computer is
+0.9.0, the first release that asks before it mints; a 0.8.x computer mints
+under the arming without asking and the room stores what it minted as
+before, an older one refuses a login record with 400 and has no passkey
+door, and the pane says so and points at Update.
 
 What this enforces: no agent tool reads, sets or grants a secret; a value
 passes host keyring → desk memory → container memory → job environment and
@@ -340,7 +358,7 @@ extend; when a change adds a boundary, it adds a row.
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`, `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
-| The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person but never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
+| The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`, `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
@@ -352,9 +370,9 @@ extend; when a change adds a boundary, it adds a row.
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
 | A computer is handed only what its teammate is granted and what is stored; the tape names what is not; the preamble names what the computer has, by kind; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is named only when something was granted; a login travels as one record beside a variable's bare value | `session/tests.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_is_named_only_when_something_was_granted`, `a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites` | Unix |
-| A passkey is made only under an arming for one teammate and one site: a bad site or name is refused before the computer is touched, arming starts the computer, nothing is stored until a look finds it made, and that look stores it, ticks it for the teammate, hands the computer the set and ends the arming; the room's own watch does this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a cancel stores nothing; a release from before passkeys is named | `session/tests.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room` | Unix |
-| Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled and ended over the bearer door, a bad site is a 400 and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_and_ended_over_the_bearer_door` | — |
-| Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed and only for the armed site, a credential outside the arming is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
+| A passkey is made only under an arming for one teammate and one site, and only once the person approves the site's request: a bad site or name is refused before the computer is touched, arming starts the computer, the site's request raises a `passkey_ask` card on the tape with the site, origin and account, nothing is stored while the card waits, an answer must name the request, one answer per request, an approval lets the browser mint and the look that finds it made stores it, ticks it for the teammate, hands the computer the set and ends the arming; a denial ends the arming with nothing stored and the card says so; a request that left with its page expires its card and the next request is a new card; a cancel stores nothing and expires a waiting card; the room's own watch does all of this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a release from before passkeys is named | `session/tests.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room`, `a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires` | Unix |
+| Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
+| Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
 
 Where real macOS execution is required: every `tools/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and

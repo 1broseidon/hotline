@@ -1,16 +1,20 @@
 //! Handing a running computer the secrets its teammate is granted, out of
 //! band.
 //!
-//! The computer keeps the set in memory and puts each one in the environment
-//! of every job the agent starts; it never answers a value back, over any
-//! route, and redacts them from what its tools return. The desk replaces the
-//! whole set at every grant — session start, reattach, a stored value
-//! changing — so a rotation or a revocation reaches a running machine
-//! without a restart. The values ride desk → container over the container's
-//! authenticated loopback port, bearer in a header, and touch no tape, model
-//! or log on the way.
+//! The computer keeps the set in memory and puts each one where its kind
+//! says — a variable in the environment of every job the agent starts, a
+//! login behind `browser fill` on its own sites, a passkey in the browser's
+//! authenticator; it never answers a value back, over any route, and
+//! redacts them from what its tools return. The desk replaces the whole set
+//! at every grant — session start, reattach, a stored value changing — so a
+//! rotation or a revocation reaches a running machine without a restart.
+//! The values ride desk → container over the container's authenticated
+//! loopback port, bearer in a header, and touch no tape, model or log on
+//! the way.
 
 use super::Ready;
+use crate::vault::StoredSecret;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -26,9 +30,29 @@ pub enum Refusal {
     Failed(String),
 }
 
+/// The set as the wire carries it. A variable goes as its bare value, which
+/// every computer release with a `/secrets` route takes; a login or a
+/// passkey goes as the record, kind and all, which a release from 0.8 on
+/// takes and an earlier one refuses by name.
+pub fn wire_form(secrets: &BTreeMap<String, StoredSecret>) -> BTreeMap<String, Value> {
+    secrets
+        .iter()
+        .map(|(name, secret)| {
+            let value = match secret {
+                StoredSecret::Variable { value } => Value::String(value.clone()),
+                typed => serde_json::to_value(typed).unwrap_or(Value::Null),
+            };
+            (name.clone(), value)
+        })
+        .collect()
+}
+
 /// Replaces the computer's whole set with `secrets`, through `PUT /secrets`.
 /// An empty map clears it, which is how a revocation lands.
-pub async fn deliver(ready: &Ready, secrets: &BTreeMap<String, String>) -> Result<(), Refusal> {
+pub async fn deliver(
+    ready: &Ready,
+    secrets: &BTreeMap<String, StoredSecret>,
+) -> Result<(), Refusal> {
     let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
@@ -37,7 +61,7 @@ pub async fn deliver(ready: &Ready, secrets: &BTreeMap<String, String>) -> Resul
     let response = client
         .put(format!("{base}/secrets"))
         .bearer_auth(&ready.token)
-        .json(secrets)
+        .json(&wire_form(secrets))
         .send()
         .await
         .map_err(|error| Refusal::Failed(format!("Could not reach the computer: {error}")))?;
@@ -68,7 +92,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct Fake {
         /// Every body that arrived with the right bearer, in order.
-        taken: Arc<Mutex<Vec<BTreeMap<String, String>>>>,
+        taken: Arc<Mutex<Vec<BTreeMap<String, Value>>>>,
     }
 
     async fn secrets(State(fake): State<Fake>, headers: HeaderMap, body: String) -> StatusCode {
@@ -79,7 +103,7 @@ mod tests {
         if bearer != Some("the-token") {
             return StatusCode::UNAUTHORIZED;
         }
-        let Ok(set) = serde_json::from_str::<BTreeMap<String, String>>(&body) else {
+        let Ok(set) = serde_json::from_str::<BTreeMap<String, Value>>(&body) else {
             return StatusCode::BAD_REQUEST;
         };
         fake.taken.lock().unwrap().push(set);
@@ -113,15 +137,42 @@ mod tests {
         let mut set = BTreeMap::new();
         set.insert(
             "GITHUB_TOKEN".to_owned(),
-            "ghp_notarealtoken0001".to_owned(),
+            StoredSecret::Variable {
+                value: "ghp_notarealtoken0001".to_owned(),
+            },
         );
-        set.insert("NPM_TOKEN".to_owned(), "npm_notarealtoken0002".to_owned());
+        set.insert(
+            "GITHUB".to_owned(),
+            StoredSecret::Login {
+                sites: vec!["https://github.com".to_owned()],
+                username: "george".to_owned(),
+                password: "correct horse battery".to_owned(),
+                totp: None,
+            },
+        );
         deliver(&ready, &set).await.expect("taken");
         deliver(&ready, &BTreeMap::new())
             .await
             .expect("an empty set clears");
         let taken = fake.taken.lock().unwrap().clone();
-        assert_eq!(taken, vec![set, BTreeMap::new()]);
+        // A variable rides as its bare value, the form every release takes;
+        // a login as its record, kind first.
+        assert_eq!(
+            taken,
+            vec![
+                BTreeMap::from([
+                    (
+                        "GITHUB_TOKEN".to_owned(),
+                        Value::String("ghp_notarealtoken0001".to_owned())
+                    ),
+                    (
+                        "GITHUB".to_owned(),
+                        serde_json::json!({"kind": "login", "sites": ["https://github.com"], "username": "george", "password": "correct horse battery"})
+                    ),
+                ]),
+                BTreeMap::new()
+            ]
+        );
         serving.abort();
     }
 

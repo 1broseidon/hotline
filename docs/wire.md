@@ -134,9 +134,13 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}]}]` — the host browsers cookies could come from; names only |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
 | `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
-| `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt}` — names and dates, never a value |
-| `secrets.set` | `{name, value}` | the `SharedSecret` stored; the value is never answered back |
+| `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
+| `secrets.set` | `{name, value}` | the `SharedSecret` stored, a variable; the value is never answered back |
+| `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |
 | `secrets.delete` | `{name}` | none |
+| `secrets.passkey.register` | `{name, personaId, rpId}` | `PasskeyRegistration` `{state: "armed", name, rpId, expiresAt}` — that teammate's computer is armed for ten minutes to make one passkey for `rpId` |
+| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — the poll that finds it made stores it, ticks it, and answers `stored` with the record, once |
+| `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored |
 
 `computer.browsers.list`, `computer.cookies.preview` and
 `computer.cookies.import` are the operator's cookie import: reading a browser
@@ -149,17 +153,31 @@ host to desk to container, and never enters the tape, the model, or a log.
 `cookies.import` starts the teammate's computer if it is stopped, the same as
 opening its screen would.
 
-`secrets.list`, `secrets.set` and `secrets.delete` are the operator's store of
-keys and tokens for teammates to use without seeing them, kept in the OS
-credential store through the vault. A name is the environment variable a
-granted computer finds the value under — `[A-Z][A-Z0-9_]*`, not `HOTLINE_*`
-and not the shell's own — and a value is at least eight characters. The store
-is write-only from the window: `set` answers the record, `list` answers names
-and dates, and no command, subscription or room event ever carries a value.
-Desk seat only. Which teammate may use which secret is `persona.computer.secrets`
-through `persona.update`; `set` and `delete` also hand every running computer
-the set its teammate is granted now, so a rotation or a revocation lands
-without a restart (see [security.md](security.md)).
+`secrets.list`, `secrets.set`, `secrets.login.set` and `secrets.delete` are
+the operator's store of secrets for teammates to use without seeing them,
+kept in the OS credential store through the vault. A name is
+`[A-Z][A-Z0-9_]*`, not `HOTLINE_*` and not the shell's own. A variable
+(`set`) is a value of at least eight characters that becomes an environment
+variable in a granted computer. A login (`login.set`) is one or more sites —
+`https://` origins, or `http://` on localhost — a username, a password of at
+least eight characters, and optionally a TOTP seed, which a granted computer
+types into a form only on a page of those sites when the teammate asks for
+`NAME.username`, `NAME.password` or `NAME.code` by name. A passkey is never
+sent in: `secrets.passkey.register` arms one teammate's computer for one
+site, `rpId` a lower-case host name, for ten minutes, starting the computer
+if it is stopped; `secrets.passkey.registration` is polled, and the poll that
+finds the browser has minted a credential under the arming stores it under
+`name`, ticks `name` on that teammate's `persona.computer.secrets`, hands the
+computer its set, ends the arming and answers `stored`; `secrets.passkey.cancel`
+ends an arming with nothing stored. The store is write-only from the window:
+`set` and `login.set` answer the record, `list` answers names, kinds and what
+each is for, `registration` answers the record once stored, and no command,
+subscription or room event ever carries a value or a private key. All seven
+are desk seat only. Which teammate may use which secret is
+`persona.computer.secrets` through `persona.update`; a change to a stored
+secret also hands every running computer the set its teammate is granted
+now, so a rotation or a revocation lands without a restart (see
+[security.md](security.md)).
 
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always

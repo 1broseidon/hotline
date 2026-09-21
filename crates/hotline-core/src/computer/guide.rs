@@ -117,16 +117,70 @@ pub(crate) mod fake {
     /// Every set of secrets the fake was handed through `PUT /secrets`, in
     /// order, so a test can prove what reached the machine and what did
     /// not. A release too old for a guide has no such route.
+    /// What the fake computer was handed and where its passkey arming
+    /// stands: the record a test reads and drives.
     #[derive(Clone, Default)]
-    pub(crate) struct Taken(pub(crate) Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+    pub(crate) struct Taken {
+        sets: Arc<Mutex<Vec<BTreeMap<String, Value>>>>,
+        /// The site armed for a passkey, and whether the browser has since
+        /// "minted" one.
+        arming: Arc<Mutex<Option<(String, bool)>>>,
+    }
+
+    /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
+    pub(crate) const KEY_BASE64: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgeE7T2PDJPCRfPvTUFvVcQI7KFSDmnKbrRfEjRGbtV9WhRANCAATfeasaWHkMKJ4oCcdDzVX9c2xUUkC7Uiuqu8tS0LXtRJ8pCk+gNSvvqWaB3WgFNn4rvQ8wS1bH+dOjfgZoq2gz";
 
     impl Taken {
         // Read by the session tests, which drive a scripted runtime and so
         // exist on unix alone.
         #[cfg(unix)]
-        pub(crate) fn sets(&self) -> Vec<BTreeMap<String, String>> {
-            self.0.lock().unwrap().clone()
+        pub(crate) fn sets(&self) -> Vec<BTreeMap<String, Value>> {
+            self.sets.lock().unwrap().clone()
         }
+
+        pub(crate) fn armed(&self) -> Option<String> {
+            self.arming
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|(rp_id, _)| rp_id.clone())
+        }
+
+        /// The person added a passkey in the browser: the next poll answers
+        /// the credential the authenticator minted.
+        pub(crate) fn mint(&self) {
+            if let Some(arming) = self.arming.lock().unwrap().as_mut() {
+                arming.1 = true;
+            }
+        }
+
+        /// The credential the fake authenticator mints for `rp_id`, as the
+        /// computer answers it: a whole record, kind first.
+        pub(crate) fn credential(rp_id: &str) -> Value {
+            json!({
+                "kind": "passkey", "rpId": rp_id, "credentialId": "AQID",
+                "privateKey": KEY_BASE64, "userHandle": "dGVhbW1hdGUtMQ==", "userName": "teammate",
+            })
+        }
+    }
+
+    /// A JSON answer, built by hand: this axum is without its `json` feature.
+    fn json_answer(status: axum::http::StatusCode, body: Value) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        (
+            status,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            body.to_string(),
+        )
+            .into_response()
+    }
+
+    fn bearer_present(headers: &axum::http::HeaderMap) -> bool {
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .is_some_and(|bearer| !bearer.is_empty())
     }
 
     async fn take_secrets(
@@ -134,21 +188,87 @@ pub(crate) mod fake {
         headers: axum::http::HeaderMap,
         body: String,
     ) -> axum::http::StatusCode {
-        let bearer = headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .unwrap_or("");
-        if bearer.is_empty() {
+        if !bearer_present(&headers) {
             return axum::http::StatusCode::UNAUTHORIZED;
         }
-        match serde_json::from_str::<BTreeMap<String, String>>(&body) {
+        match serde_json::from_str::<BTreeMap<String, Value>>(&body) {
             Ok(set) => {
-                taken.0.lock().unwrap().push(set);
+                taken.sets.lock().unwrap().push(set);
                 axum::http::StatusCode::NO_CONTENT
             }
             Err(_) => axum::http::StatusCode::BAD_REQUEST,
         }
+    }
+
+    async fn arm_passkey(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+        }
+        let rp_id = serde_json::from_str::<Value>(&body)
+            .ok()
+            .and_then(|body| body["rpId"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        if rp_id.is_empty()
+            || !rp_id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+        {
+            return json_answer(
+                axum::http::StatusCode::BAD_REQUEST,
+                json!({"error": format!("{rp_id:?} is not a site for a passkey")}),
+            );
+        }
+        *taken.arming.lock().unwrap() = Some((rp_id.clone(), false));
+        json_answer(
+            axum::http::StatusCode::OK,
+            json!({"state": "armed", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64}),
+        )
+    }
+
+    async fn passkey_registration(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+        }
+        let answer = match taken.arming.lock().unwrap().clone() {
+            None => json!({"state": "idle"}),
+            Some((rp_id, false)) => {
+                json!({"state": "armed", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64})
+            }
+            Some((rp_id, true)) => json!({
+                "state": "registered", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64,
+                "credential": Taken::credential(&rp_id),
+            }),
+        };
+        json_answer(axum::http::StatusCode::OK, answer)
+    }
+
+    async fn disarm_passkey(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+    ) -> axum::http::StatusCode {
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED;
+        }
+        *taken.arming.lock().unwrap() = None;
+        axum::http::StatusCode::NO_CONTENT
+    }
+
+    /// Whether a release has the passkey door: 0.8 and later do.
+    fn has_passkeys(version: &str) -> bool {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        (major, minor) >= (0, 8)
     }
 
     /// The skill text a release `version` would serve, with the placeholder
@@ -250,6 +370,14 @@ pub(crate) mod fake {
             .nest_service("/mcp", service);
         if version.is_some() {
             app = app.route("/secrets", axum::routing::put(take_secrets));
+        }
+        if version.is_some_and(has_passkeys) {
+            app = app.route(
+                "/passkeys/registration",
+                axum::routing::put(arm_passkey)
+                    .get(passkey_registration)
+                    .delete(disarm_passkey),
+            );
         }
         let app = app.with_state(taken.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

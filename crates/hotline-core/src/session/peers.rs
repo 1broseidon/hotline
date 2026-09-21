@@ -1061,6 +1061,7 @@ impl Room {
                 &caller,
                 &view,
                 in_process.then(|| view.reach.unwrap_or_default()),
+                &self.stored_secrets(),
             ),
             said_in(&self.log.load(&StreamId::Thread(key.to_string())), flip),
             TeammateTools::new(self, &view.id).with_capability(target_capability.clone()),
@@ -1285,7 +1286,12 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
 
 /// What the agent is told before it is told anything else, for a turn it is
 /// taking on a colleague's behalf rather than the user's.
-fn peer_preamble(caller: &Persona, target: &Persona, reach: Option<Reach>) -> String {
+fn peer_preamble(
+    caller: &Persona,
+    target: &Persona,
+    reach: Option<Reach>,
+    stored: &[crate::contract::SharedSecret],
+) -> String {
     format!(
         "{}\n\nYou are replying privately to your teammate {} inside Hotline. \
          The next message is from them, not from the user, and this conversation is \
@@ -1294,7 +1300,7 @@ fn peer_preamble(caller: &Persona, target: &Persona, reach: Option<Reach>) -> St
          this turn.\n\n\
          Write like a colleague in chat: answer directly, with enough substance to be \
          useful and no report-style ceremony.",
-        super::preamble(target, reach, None),
+        super::preamble(target, reach, None, stored),
         caller.name,
     )
 }

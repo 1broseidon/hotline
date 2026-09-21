@@ -2805,7 +2805,7 @@ mod tests {
         let agent = scripted_agent(heard.clone(), false);
         let held = room("turn-room");
         let ada = persona(&scratch_cwd(), Vec::new());
-        let briefing = crate::session::preamble(&ada, None, None);
+        let briefing = crate::session::preamble(&ada, None, None, &[]);
         let driver = ChildAgent::new(
             root,
             "cursor".to_string(),

@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-09-21
+
 ### Added
 
 - A computer image being pulled is a line on the teammate's tape that

@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-20
+
 ### Added
 
 - Settings → Secrets now keeps three kinds of secret. **Store a login** takes the sites it is for, a username, a password and, when the site asks for six digits, the code seed; a teammate's computer types it into a sign-in form only on a page of those sites, by name (`NAME.username`, `NAME.password`, `NAME.code`), and refuses anywhere else. **Add a passkey for a teammate** names a site and a teammate and arms that teammate's computer for ten minutes: open its screen, sign in to the site as the teammate should be, and add a passkey in the site's security settings, or ask the teammate to; the computer's browser makes the passkey, the desk stores it the moment it is made and ticks it for that teammate, and from then on its browser signs in with it by itself. Nothing is made outside that arming, and a teammate cannot give itself one. Any of three places takes a passkey back: untick it on the teammate, remove it under Secrets, or delete it in the site's security settings. Variables are as before. Every value is still written once, never shown again, and redacted from what the computer's tools answer.
@@ -25,7 +27,6 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   The certificate is now made afresh, as it is when there is none, and the
   phones that pinned the old one pair again; a locked keychain is still
   reported rather than replaced.
-
 
 ## [0.15.0] - 2026-09-20
 

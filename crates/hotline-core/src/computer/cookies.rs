@@ -416,16 +416,42 @@ fn find(browser_id: &str) -> Result<Candidate, String> {
         .ok_or_else(|| format!("No browser named {browser_id:?} on this machine."))
 }
 
-/// Every cookie in one profile, as CDP cookie objects — the shape the
+/// Every live cookie in one profile, as CDP cookie objects — the shape the
 /// container's browser accepts back. This is the only function that opens a
 /// value; its callers reduce it to a preview or hand the selection to the
 /// container without it passing through anything the model can read.
 async fn read_all(browser_id: &str, profile_id: &str) -> Result<Vec<Value>, String> {
     let candidate = find(browser_id)?;
-    match candidate.family {
+    let cookies = match candidate.family {
         Family::Chromium => read_chromium(&candidate, profile_id).await,
         Family::Firefox => read_firefox(&candidate, profile_id),
-    }
+    }?;
+    Ok(unexpired(cookies, unix_now()))
+}
+
+/// Only what the browser would still send. A cookie past its expiry is one
+/// the browser drops on its next look and a site would refuse anyway, so it
+/// is left behind before the preview counts it or the computer takes it; a
+/// session cookie has no expiry and stays. Firefox keeps expired rows until
+/// its own sweep, and a profile that has not been opened in a while is
+/// mostly those.
+fn unexpired(cookies: Vec<Value>, now: i64) -> Vec<Value> {
+    cookies
+        .into_iter()
+        .filter(
+            |cookie| match cookie.get("expires").and_then(Value::as_f64) {
+                Some(expires) if expires > 0.0 => expires > now as f64,
+                _ => true,
+            },
+        )
+        .collect()
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 /// The sites in a profile and how many cookies each has — names and counts,
@@ -785,6 +811,23 @@ mod tests {
         assert_eq!(sites[1].domain, "other.test");
         let rendered = serde_json::to_string(&sites).unwrap();
         assert!(!rendered.contains("secret"));
+    }
+
+    #[test]
+    fn expired_cookies_are_left_behind_and_session_cookies_stay() {
+        let now = 1_700_000_000;
+        let cookies = vec![
+            json!({"domain": "a.test", "name": "old", "expires": 1_600_000_000}),
+            json!({"domain": "a.test", "name": "live", "expires": 1_800_000_000.5}),
+            json!({"domain": "a.test", "name": "cdp-session", "expires": -1}),
+            json!({"domain": "a.test", "name": "no-expiry"}),
+            json!({"domain": "a.test", "name": "this-second", "expires": 1_700_000_000}),
+        ];
+        let kept: Vec<String> = unexpired(cookies, now)
+            .iter()
+            .map(|cookie| cookie["name"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(kept, ["live", "cdp-session", "no-expiry"]);
     }
 
     #[test]

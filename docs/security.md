@@ -95,17 +95,26 @@ approval prompt, which the standing-consent rule forbids, because the person
 initiates them; there is no card the agent can raise.
 
 Cookie import (`computer.browsers.list`, `computer.cookies.preview`,
-`computer.cookies.import`) is the sharpest case, so it is spelled out. The
-agent has no tool that reads the host's browsers; the three commands are
-desk-seat only and the phone allowlist does not name them, so the model cannot
-pull cookies whatever it is told. The person chooses the browser, the profile,
+`computer.cookies.import`, `computer.cookies.list`, `computer.cookies.forget`)
+is the sharpest case, so it is spelled out. The agent has no tool that reads
+the host's browsers; the five commands are desk-seat only and the phone
+allowlist does not name them, so the model cannot pull cookies whatever it is
+told. The person chooses the browser, the profile,
 and the exact sites; a preview carries domains and counts, never a value. On
 import the chosen cookies pass host → desk → container over the container's
 authenticated loopback port and are written into the sandbox the person already
 granted; they never enter the tape, the model's input, or a log. What the
 agent gains is a browser already signed in to sites the person picked — the
 same exposure as the person signing in there by hand inside the computer, and
-the accepted risk of giving an agent a logged-in browser at all.
+the accepted risk of giving an agent a logged-in browser at all. Expired
+cookies never leave the host: the browser would drop them on its next look,
+and they would only pad the list. What was brought over is recorded — browser,
+profile, time, domains and counts, never a value — one record per teammate on
+the room stream, and listed on the teammate's pane, where each site and each
+browser's whole import can be taken back. `computer.cookies.forget` names the
+exact domains to the computer's bearer-guarded `DELETE /logins/{name}`, whose
+browser drops those cookies at once and whose saved login loses them, so what
+the agent's browser is signed in to is what the pane shows.
 
 ## Secrets a teammate uses without seeing
 
@@ -179,13 +188,15 @@ armed and only on the armed site, keyed by a token the page cannot read;
 and the computer's own check on every look removes from the authenticator
 any credential that is neither in the delivered set nor minted under the
 current arming, so a teammate cannot give itself a passkey, keep one made
-for another site, or keep one after the ten minutes. The desk polls
-`GET /passkeys/registration`; the poll that finds the credential minted
-stores it in the vault, ticks the name on `persona.computer.secrets` for
-that teammate — the same tick the pane makes for any secret, made for the
-operator because they asked for this passkey for this teammate — hands the
-computer the set with it, which is what keeps it in the authenticator, and
-`DELETE`s the arming. That answer is the one time a private key leaves the
+for another site, or keep one after the ten minutes. The room watches the
+arming it holds, polling `GET /passkeys/registration` every two seconds
+whatever pane is open — the passkey is made from the teammate's screen, or
+by the teammate, never from Settings — and the look that finds the
+credential minted stores it in the vault, ticks the name on
+`persona.computer.secrets` for that teammate — the same tick the pane makes
+for any secret, made for the operator because they asked for this passkey
+for this teammate — hands the computer the set with it, which is what keeps
+it in the authenticator, `DELETE`s the arming, and says so on the tape. That answer is the one time a private key leaves the
 container: over the bearer-guarded loopback door, in the direction the
 cookie import already trusts, into the vault, and into no tape, room event
 or log. Revocation is any of three: untick it on the teammate or remove it
@@ -336,11 +347,12 @@ extend; when a change adds a boundary, it adds a row.
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the door refuses the unpaired, a path naming anything but a teammate, and a stopped computer; revoking the device drops the socket | `remote/tests.rs` `a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer`, `the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped`, `revoking_the_phone_drops_its_computer_socket`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
+| What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; the phone can neither list nor take back; expired cookies are left on the host | `session/tests.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
 | Stored secrets are the desk's alone: the phone can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
 | A computer is handed only what its teammate is granted and what is stored; the tape names what is not; the preamble names what the computer has, by kind; no tape, room event or preamble carries a value; a replaced or deleted value reaches every running computer and no stopped one; a release from before secrets is named only when something was granted; a login travels as one record beside a variable's bare value | `session/tests.rs` `a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never_seen`, `a_changed_secret_is_handed_again_to_every_running_computer`, `a_computer_from_before_secrets_is_named_only_when_something_was_granted`, `a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites` | Unix |
-| A passkey is made only under an arming for one teammate and one site: a bad site or name is refused before the computer is touched, arming starts the computer, nothing is stored until the poll finds it made, and that poll stores it, ticks it for the teammate, hands the computer the set and ends the arming; the private key is on no tape and in no room event; a cancel stores nothing; a release from before passkeys is named | `session/tests.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate` | Unix |
+| A passkey is made only under an arming for one teammate and one site: a bad site or name is refused before the computer is touched, arming starts the computer, nothing is stored until a look finds it made, and that look stores it, ticks it for the teammate, hands the computer the set and ends the arming; the room's own watch does this with no pane polling, and the pane is told once when it next asks; the private key is on no tape and in no room event; a cancel stores nothing; a release from before passkeys is named | `session/tests.rs` `a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate`, `a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room` | Unix |
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled and ended over the bearer door, a bad site is a 400 and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed and only for the armed site, a credential outside the arming is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
 

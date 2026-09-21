@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { PasskeyRegistration, SharedSecret, SharedSecretKind } from "../generated/contract";
-import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
+import { CloseIcon, InfoIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -469,20 +469,27 @@ function PasskeyPanel({ roster, onStored, onClose }: { roster: RosterEntry[]; on
 	const [working, setWorking] = useState(false);
 	const teammate = teammates.find((one) => one.id === personaId)?.name ?? "the teammate";
 
-	// An arming may be live from before this panel opened: pick it up.
+	// An arming may be live from before this panel opened, or the room may
+	// have stored the passkey while it was closed: pick either up.
 	useEffect(() => {
 		if (personaId === "") return;
 		let gone = false;
 		void wire
 			.command("secrets.passkey.registration", { personaId })
 			.then((current) => {
-				if (!gone && current.state === "armed") setRegistration(current);
+				if (gone) return;
+				if (current.state === "armed") {
+					setRegistration(current);
+				} else if (current.state === "stored") {
+					setRegistration(current);
+					onStored();
+				}
 			})
 			.catch(() => {});
 		return () => {
 			gone = true;
 		};
-	}, [personaId]);
+	}, [personaId, onStored]);
 
 	// While armed, ask every couple of seconds whether it has been made.
 	const armed = registration?.state === "armed";
@@ -571,8 +578,8 @@ function PasskeyPanel({ roster, onStored, onClose }: { roster: RosterEntry[]; on
 					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
 						Open {teammate}'s screen, sign in to {registration.rpId} the way the teammate should be signed in, and add a passkey in
 						the site's security settings; or ask {teammate} to. Its browser makes the passkey, and the moment it does this desk
-						stores it as <span className="font-mono">{registration.name}</span> and ticks it for {teammate}. Nothing else can be
-						made while armed, and nothing at all when not.
+						stores it as <span className="font-mono">{registration.name}</span> and ticks it for {teammate}, whether or not this
+						page is open; {teammate}'s tape says so. Nothing else can be made while armed, and nothing at all when not.
 					</span>
 				</span>
 				<span className="group-row-detail">Waiting for the passkey…</span>
@@ -667,7 +674,11 @@ export function ComputerSecrets({
 }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [note, setNote] = useState<string | null>(null);
+	const [about, setAbout] = useState(false);
 
+	// Re-read whenever the ticks change from elsewhere — a passkey the room
+	// just stored and ticked shows as what it is, not as "not stored".
+	const grantedKey = granted.join("\n");
 	useEffect(() => {
 		let gone = false;
 		wire
@@ -677,7 +688,7 @@ export function ComputerSecrets({
 		return () => {
 			gone = true;
 		};
-	}, []);
+	}, [grantedKey]);
 
 	const storedNames = stored === null ? null : stored.map((one) => one.name);
 	const names = storedNames === null ? granted : [...storedNames, ...granted.filter((name) => !storedNames.includes(name))];
@@ -687,12 +698,24 @@ export function ComputerSecrets({
 	return (
 		<div className={`${NESTED} flex-col items-stretch gap-1.5 py-3`}>
 			<span className="group-row-text">
-				<span className="group-row-title">Secrets it can use</span>
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					A ticked variable is an environment variable in every job this computer runs; a ticked login is typed by the
-					computer on the login's own sites; a ticked passkey signs in by itself. The teammate is told the names and never
-					sees a value. Tick only what its work needs; unticking takes it back at once.
+				<span className="group-row-title flex items-center gap-1">
+					Secrets
+					<button
+						type="button"
+						className="control btn-icon btn-quiet h-6 w-6 text-ink-3"
+						title="Secrets can be added under Settings → Secrets."
+						aria-label="About secrets"
+						aria-expanded={about}
+						onClick={() => setAbout((open) => !open)}
+					>
+						<InfoIcon />
+					</button>
 				</span>
+				{about && (
+					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+						Secrets can be added under Settings → Secrets.
+					</span>
+				)}
 			</span>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && (
@@ -700,11 +723,7 @@ export function ComputerSecrets({
 					{note}
 				</span>
 			)}
-			{stored !== null && names.length === 0 && (
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					Nothing stored yet. Store one under Settings → Secrets.
-				</span>
-			)}
+			{stored !== null && names.length === 0 && <span className="group-row-detail">None stored yet.</span>}
 			{names.map((name) => {
 				const record = stored?.find((one) => one.name === name);
 				const missing = stored !== null && record === undefined;

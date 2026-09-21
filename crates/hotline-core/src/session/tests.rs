@@ -1638,10 +1638,10 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
         "nothing stored yet"
     );
 
-    // The person adds a passkey in the browser: the next poll stores it.
+    // The person adds a passkey in the browser: the look that finds it made
+    // — this poll's, or the room's own — stores it, and the poll is told.
     taken.mint();
-    let stored = room.secrets_passkey_registration("ada").await.unwrap();
-    assert_eq!(stored.state, PasskeyRegistrationState::Stored);
+    let stored = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
     let secret = stored.secret.expect("the record, as listed");
     assert_eq!(secret.name, "GITHUB_PASSKEY");
     assert_eq!(secret.kind, SharedSecretKind::Passkey);
@@ -1764,8 +1764,198 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
     assert!(!on_room.contains("correct-horse-battery"), "{on_room}");
 }
 
+/// What was brought over is listed from the room's record, and taken back
+/// by site or whole: the computer is told the exact domains and drops them,
+/// the record follows, and an entry with nothing left goes. A site that was
+/// never brought over is refused, and a release from before the door is
+/// named with the pane's Update.
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.8.3"},{"tag_name":"v0.8.0"}]"#;
+#[tokio::test]
+async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
+    use crate::contract::{CookieImport, CookieSite};
+    let ComputerRoom { room, taken, .. } =
+        computer_room("computer-cookies-forget", Some("0.9.1"), TWO_RELEASES, true).await;
+    assert!(room.computer_cookies_list("ada").is_empty());
+    let recorded = vec![CookieImport {
+        browser_id: "chrome".to_string(),
+        browser_name: "Google Chrome".to_string(),
+        profile_id: "Default".to_string(),
+        profile_name: "Default".to_string(),
+        imported_at: 1,
+        sites: vec![
+            CookieSite {
+                domain: "github.com".to_string(),
+                cookies: 3,
+            },
+            CookieSite {
+                domain: "gitlab.com".to_string(),
+                cookies: 2,
+            },
+        ],
+    }];
+    room::record_cookie_imports(&room.log, "ada", &recorded).unwrap();
+    assert_eq!(room.computer_cookies_list("ada"), recorded);
+
+    let refused = room
+        .computer_cookies_forget("ada", "chrome", "Default", Some("example.com"))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("not among the sites"), "{refused}");
+    assert!(
+        room.computer_cookies_forget("ada", "firefox", "default", None)
+            .await
+            .is_err()
+    );
+    assert!(
+        taken.forgotten().is_empty(),
+        "nothing asked of the computer yet"
+    );
+
+    // One site: the computer is told that domain, and the record loses it.
+    let left = room
+        .computer_cookies_forget("ada", "chrome", "Default", Some("github.com"))
+        .await
+        .unwrap();
+    assert_eq!(
+        taken.forgotten(),
+        vec![(
+            "import-chrome-Default".to_string(),
+            vec!["github.com".to_string()]
+        )]
+    );
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].sites.len(), 1);
+    assert_eq!(left[0].sites[0].domain, "gitlab.com");
+    assert_eq!(room.computer_cookies_list("ada"), left);
+
+    // The rest: every remaining domain is named, and the entry goes.
+    let left = room
+        .computer_cookies_forget("ada", "chrome", "Default", None)
+        .await
+        .unwrap();
+    assert!(left.is_empty());
+    assert_eq!(
+        taken.forgotten()[1],
+        (
+            "import-chrome-Default".to_string(),
+            vec!["gitlab.com".to_string()]
+        )
+    );
+    assert!(room.computer_cookies_list("ada").is_empty());
+
+    // A release from before the door: 404, said as the pane's Update.
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-cookies-forget-old",
+        Some("0.8.0"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    room::record_cookie_imports(&room.log, "ada", &recorded).unwrap();
+    let refused = room
+        .computer_cookies_forget("ada", "chrome", "Default", None)
+        .await
+        .unwrap_err();
+    assert!(refused.contains("cannot take cookies back"), "{refused}");
+    assert!(taken.forgotten().is_empty());
+    assert_eq!(
+        room.computer_cookies_list("ada"),
+        recorded,
+        "nothing dropped, nothing forgotten"
+    );
+}
+
+/// Polls the registration until it answers `state`, since the room's own
+/// watch may be storing the passkey at the moment a poll arrives.
+#[cfg(unix)]
+async fn registration_until(
+    room: &Room,
+    persona_id: &str,
+    state: crate::contract::PasskeyRegistrationState,
+) -> crate::contract::PasskeyRegistration {
+    for _ in 0..100 {
+        let answer = room.secrets_passkey_registration(persona_id).await.unwrap();
+        if answer.state == state {
+            return answer;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("the registration never answered {state:?}");
+}
+
+/// The passkey is made from the teammate's screen, or by the teammate, and
+/// neither keeps Settings → Secrets open: nothing polls at the moment the
+/// browser mints it. The room stores it by itself, ticks it, hands it,
+/// ends the arming, says so on the tape, and tells the pane once when it
+/// next asks.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
+    use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-unwatched",
+        Some("0.9.1"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
+    let vault = room.vault.as_ref().unwrap();
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    assert!(vault.shared_secrets().unwrap().is_empty());
+    taken.mint();
+    let mut listed = Vec::new();
+    for _ in 0..100 {
+        listed = vault.shared_secrets().unwrap();
+        if !listed.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(listed.len(), 1, "the room stored it with nothing polling");
+    assert_eq!(listed[0].name, "GITHUB_PASSKEY");
+    assert_eq!(listed[0].kind, SharedSecretKind::Passkey);
+    // The pane, opened later, is told once; then nothing is pending.
+    let answer = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
+    assert_eq!(
+        answer.secret.map(|secret| secret.name).as_deref(),
+        Some("GITHUB_PASSKEY")
+    );
+    assert_eq!(
+        room.secrets_passkey_registration("ada")
+            .await
+            .unwrap()
+            .state,
+        PasskeyRegistrationState::Idle
+    );
+    // Ticked, handed whole, the arming ended, and said on the tape.
+    assert_eq!(
+        room.persona("ada")
+            .unwrap()
+            .computer
+            .unwrap()
+            .secrets
+            .as_deref(),
+        Some(&["GITHUB_PASSKEY".to_string()][..])
+    );
+    let sets = taken.sets();
+    assert_eq!(
+        sets.last().expect("handed after storing")["GITHUB_PASSKEY"]["kind"],
+        "passkey"
+    );
+    assert_eq!(taken.armed(), None);
+    let said = notices(&room, "ada");
+    assert!(
+        said.iter().any(|text| text.contains("GITHUB_PASSKEY")
+            && text.contains("github.com")
+            && text.contains("ticked")),
+        "{said:?}"
+    );
+}
+
+#[cfg(unix)]
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.8.3"},{"tag_name":"v0.8.1"}]"#;
 
 /// The command names the scripted runtime was given, in order.
 #[cfg(unix)]
@@ -1917,7 +2107,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
     assert_eq!(known.floor, crate::computer::COMPUTER_VERSION);
     assert_eq!(known.repository, crate::computer::COMPUTER_REPOSITORY);
     assert_eq!(known.newest.as_deref(), Some("0.8.3"));
-    assert_eq!(known.releases, ["0.8.3", "0.8.0"]);
+    assert_eq!(known.releases, ["0.8.3", "0.8.1"]);
     assert!(known.checked_at.is_some(), "{known:?}");
     assert_eq!(known.error, None);
 
@@ -1940,7 +2130,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
 #[cfg(unix)]
 #[tokio::test]
 async fn offline_a_fresh_computer_is_created_on_the_floor() {
-    let offline = computer_room("computer-offline", Some("0.8.0"), "not a list", false).await;
+    let offline = computer_room("computer-offline", Some("0.8.1"), "not a list", false).await;
     offline.room.start("ada").await.unwrap();
     let created = runtime_commands(&offline.root)
         .into_iter()
@@ -1964,7 +2154,7 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
 #[tokio::test]
 async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
     use std::sync::atomic::Ordering;
-    let desk = computer_room("computer-check-now", Some("0.8.0"), TWO_RELEASES, false).await;
+    let desk = computer_room("computer-check-now", Some("0.8.1"), TWO_RELEASES, false).await;
     desk.room.start("ada").await.unwrap();
     assert_eq!(desk.asked.load(Ordering::SeqCst), 1);
     let checked = desk.room.computer_releases_check().await;
@@ -1973,10 +2163,10 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
         2,
         "the button does not wait six hours"
     );
-    assert_eq!(checked.releases, ["0.8.3", "0.8.0"]);
+    assert_eq!(checked.releases, ["0.8.3", "0.8.1"]);
     assert_eq!(checked.error, None);
 
-    let offline = computer_room("computer-check-offline", Some("0.8.0"), "not a list", false).await;
+    let offline = computer_room("computer-check-offline", Some("0.8.1"), "not a list", false).await;
     let refused = offline.room.computer_releases_check().await;
     assert_eq!(refused.newest, None);
     assert!(refused.releases.is_empty());

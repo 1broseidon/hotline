@@ -134,24 +134,35 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}]}]` — the host browsers cookies could come from; names only |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
 | `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
+| `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
+| `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
 | `secrets.set` | `{name, value}` | the `SharedSecret` stored, a variable; the value is never answered back |
 | `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |
 | `secrets.delete` | `{name}` | none |
 | `secrets.passkey.register` | `{name, personaId, rpId}` | `PasskeyRegistration` `{state: "armed", name, rpId, expiresAt}` — that teammate's computer is armed for ten minutes to make one passkey for `rpId` |
-| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — the poll that finds it made stores it, ticks it, and answers `stored` with the record, once |
+| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — where the making stands; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored |
 
-`computer.browsers.list`, `computer.cookies.preview` and
-`computer.cookies.import` are the operator's cookie import: reading a browser
-on the person's own machine and handing the chosen sites' cookies to a
-teammate's computer. They are desk-seat only — the phone allowlist does not
-name them and no agent tool reaches them, so the agent can never pull cookies
-itself. A preview carries domains and counts; a value crosses only on import,
-host to desk to container, and never enters the tape, the model, or a log.
-`browsers.list` and `cookies.preview` read the host and touch no teammate;
-`cookies.import` starts the teammate's computer if it is stopped, the same as
-opening its screen would.
+`computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
+`computer.cookies.list` and `computer.cookies.forget` are the operator's cookie
+import and its record: reading a browser on the person's own machine, handing
+the chosen sites' cookies to a teammate's computer, and taking them back. They
+are desk-seat only — the phone allowlist does not name them and no agent tool
+reaches them, so the agent can never pull cookies itself. A preview carries
+domains and counts, and leaves expired cookies behind, since the browser would
+drop them on its next look; a value crosses only on import, host to desk to
+container, and never enters the tape, the model, or a log. `browsers.list` and
+`cookies.preview` read the host and touch no teammate. `cookies.import` starts
+the teammate's computer if it is stopped, the same as opening its screen would,
+and records what it carried — browser, profile, time, domains and counts — on
+the room stream, one record per teammate, folded into what was recorded before
+for the same browser and profile. `cookies.list` answers that record.
+`cookies.forget` names the exact domains to the computer's `DELETE
+/logins/{name}` door, so a site is taken back whatever the saved login holds by
+then, starts a stopped computer to do it, and trims the record; a site never
+brought over is refused, and a release from before the door is named with the
+pane's Update.
 
 `secrets.list`, `secrets.set`, `secrets.login.set` and `secrets.delete` are
 the operator's store of secrets for teammates to use without seeing them,
@@ -165,11 +176,15 @@ types into a form only on a page of those sites when the teammate asks for
 `NAME.username`, `NAME.password` or `NAME.code` by name. A passkey is never
 sent in: `secrets.passkey.register` arms one teammate's computer for one
 site, `rpId` a lower-case host name, for ten minutes, starting the computer
-if it is stopped; `secrets.passkey.registration` is polled, and the poll that
-finds the browser has minted a credential under the arming stores it under
-`name`, ticks `name` on that teammate's `persona.computer.secrets`, hands the
-computer its set, ends the arming and answers `stored`; `secrets.passkey.cancel`
-ends an arming with nothing stored. The store is write-only from the window:
+if it is stopped, and the room then watches that arming by itself, every
+two seconds until it ends: the look that finds the browser has minted a
+credential under it stores it under `name`, ticks `name` on that teammate's
+`persona.computer.secrets`, hands the computer its set, ends the arming and
+writes a notice on the teammate's tape, whatever pane is open — the passkey
+is made from the teammate's screen, or by the teammate, so no pane's poll
+is running at that moment. `secrets.passkey.registration` answers where it
+stands, `stored` with the record once; `secrets.passkey.cancel` ends an
+arming with nothing stored. The store is write-only from the window:
 `set` and `login.set` answer the record, `list` answers names, kinds and what
 each is for, `registration` answers the record once stored, and no command,
 subscription or room event ever carries a value or a private key. All seven

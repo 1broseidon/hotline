@@ -26,7 +26,7 @@ import { Picker } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
-import { CookieImport } from "./CookieImport";
+import { CookieImport, CookieImports } from "./CookieImport";
 import { ComputerSecrets } from "./Secrets";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
@@ -539,6 +539,7 @@ function ComputerRows({
 	const [open, setOpen] = useState(false);
 	const [adding, setAdding] = useState(false);
 	const [importing, setImporting] = useState(false);
+	const [importsVersion, setImportsVersion] = useState(0);
 	const [acting, setActing] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [updateTold, setUpdateTold] = useState(false);
@@ -689,13 +690,21 @@ function ComputerRows({
 								</button>
 							)}
 							{importing ? (
-								<CookieImport personaId={personaId} running={state === "running"} onClose={() => setImporting(false)} />
+								<CookieImport
+									personaId={personaId}
+									running={state === "running"}
+									onClose={() => {
+										setImporting(false);
+										setImportsVersion((version) => version + 1);
+									}}
+								/>
 							) : (
 								<button type="button" className={`${NESTED} group-row-add`} disabled={disabled} onClick={() => setImporting(true)}>
 									<PlusIcon />
 									Bring over browser cookies
 								</button>
 							)}
+							<CookieImports personaId={personaId} disabled={disabled} refresh={importsVersion} />
 							<ComputerSecrets
 								granted={current.secrets ?? []}
 								disabled={disabled}

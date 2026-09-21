@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate's pane lists what **Bring over browser cookies** brought over: each browser and profile, when, and the sites with their counts. Every site has a remove, and every browser a **Remove all**; the computer's browser drops those cookies at once, whether it is running or is started to do it, and the list follows.
+
+### Changed
+
+- The secrets on a teammate's computer are a plain list now, titled **Secrets**: what is stored, with a tick on what this computer may use. The paragraph above it is gone; an info icon says where secrets are added.
+- Bringing over cookies leaves expired ones behind. The browser would drop them on its next look and a site would refuse them, so they are neither counted in the picker nor handed to the computer. Firefox keeps such rows until its own sweep, so a profile not opened in a while showed far more sites than it was signed in to.
+- New computers are created on Hotline Computer 0.8.1 or newer, the first release that takes cookies back. An existing computer keeps the release it runs until it is updated or removed; on an older one, removing says so and points at the teammate's Update.
+
+### Fixed
+
+- A passkey made for a teammate was stored only if Settings → Secrets happened to be open at that moment. It never is: the passkey is added from the teammate's screen, or by the teammate, so the credential ended up in the site and the teammate's browser but in no list on the desk, and the next arming threw it out of the browser. The room now watches the arming itself, stores the passkey the moment it is made, ticks it for the teammate, and says so on the teammate's tape; Settings → Secrets, opened later, is told once. The ticks on a teammate also re-read the stored list when a tick lands from elsewhere, so a fresh passkey does not show as "not stored".
+- Bringing over cookies from any Chrome profile but the first, or from Firefox, failed with "The computer could not load the cookies" and a note about the name: the computer's saved login was named after the profile's directory, which is `Profile 1` on Chrome and `k3j2x9.default-release` on Firefox, and the computer takes letters, digits and dashes only in a login's name. The name is made of those now.
+
 ## [0.16.0] - 2026-09-20
 
 ### Added

@@ -19,6 +19,21 @@ use rmcp::transport::streamable_http_client::{
 use serde_json::{Value, json};
 use std::time::Duration;
 
+/// The saved login a browser profile's cookies land in on the computer,
+/// which takes a login name of letters, digits and dashes only. A profile's
+/// directory is `Profile 1` on Chrome and `k3j2x9.default-release` on
+/// Firefox, so every other character becomes a dash; the two parts keep
+/// their order, so bringing the same profile over again lands on the same
+/// login, and taking it back names the same one.
+pub fn name_for(browser_id: &str, profile_id: &str) -> String {
+    let clean = |part: &str| -> String {
+        part.chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect()
+    };
+    format!("import-{}-{}", clean(browser_id), clean(profile_id))
+}
+
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Uploads the login and loads it into the computer's browser. `saved` is a
@@ -94,6 +109,60 @@ async fn upload(ready: &Ready, name: &str, saved: &Value) -> Result<(), String> 
     Ok(())
 }
 
+/// What the computer answered a forget with: how many cookies its browser
+/// dropped, and how many the saved login still carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Forgotten {
+    pub forgotten: usize,
+    pub kept: usize,
+}
+
+/// `DELETE /logins/{name}` on the computer's bearer door: the browser drops
+/// every cookie for `domains` — every domain of the saved login when none
+/// are named — and the saved login loses them too. A release from before
+/// the door answers 404, which is said as the pane's Update.
+pub async fn forget(ready: &Ready, name: &str, domains: &[String]) -> Result<Forgotten, String> {
+    let base = ready.url.strip_suffix("/mcp").unwrap_or(ready.url.as_str());
+    let client = reqwest::Client::builder()
+        .timeout(TIMEOUT)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .delete(format!("{base}/logins/{name}"))
+        .bearer_auth(&ready.token)
+        .json(&json!({"domains": domains}))
+        .send()
+        .await
+        .map_err(|error| format!("Could not ask the computer to drop the cookies: {error}"))?;
+    match response.status() {
+        status if status.is_success() => {
+            let answer: Value = response
+                .json()
+                .await
+                .map_err(|error| format!("The computer's answer could not be read: {error}"))?;
+            Ok(Forgotten {
+                forgotten: answer["forgotten"].as_u64().unwrap_or(0) as usize,
+                kept: answer["kept"].as_u64().unwrap_or(0) as usize,
+            })
+        }
+        reqwest::StatusCode::NOT_FOUND => Err(
+            "This computer's release cannot take cookies back. Update it from the teammate's pane, then try again."
+                .to_string(),
+        ),
+        status => {
+            let reason = response
+                .json::<Value>()
+                .await
+                .ok()
+                .and_then(|body| body["error"].as_str().map(str::to_owned))
+                .unwrap_or_default();
+            Err(format!(
+                "The computer did not drop the cookies ({status}). {reason}"
+            ))
+        }
+    }
+}
+
 /// Calls `state login_load` on the computer's MCP endpoint, the same way the
 /// desk fetches the guide, so the browser picks the cookies up now.
 async fn load(ready: &Ready, name: &str) -> Result<(), String> {
@@ -139,6 +208,25 @@ async fn load(ready: &Ready, name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_profile_directory_with_a_space_or_a_dot_still_names_a_login() {
+        assert_eq!(name_for("chrome", "Default"), "import-chrome-Default");
+        assert_eq!(name_for("chrome", "Profile 1"), "import-chrome-Profile-1");
+        assert_eq!(
+            name_for("firefox", "k3j2x9.default-release"),
+            "import-firefox-k3j2x9-default-release"
+        );
+        for name in [
+            name_for("chrome", "Profile 1"),
+            name_for("firefox", "a.b_c d"),
+        ] {
+            assert!(
+                name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+                "{name}"
+            );
+        }
+    }
     use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode, Uri, header};
     use axum::routing::post;

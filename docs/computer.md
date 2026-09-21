@@ -38,14 +38,30 @@ update.
   limits, a sized `/dev/shm`, and the one port published on loopback.
 - The workspace is mounted at `/home/agent/workspace`.
 - `PUT /secrets` takes the whole set of secrets the teammate is granted, a
-  JSON object of name to value, bearer in the `Authorization` header. The
-  computer keeps it in memory, puts it in the environment of every job the
+  JSON object of name to secret, bearer in the `Authorization` header. A
+  variable is its bare value; a login is `{"kind":"login", sites, username,
+  password, totp?}`; a passkey is `{"kind":"passkey", rpId, credentialId,
+  privateKey, userHandle?, userName?, userDisplayName?}`. The computer keeps
+  the set in memory, puts every variable in the environment of every job the
   agent starts through `shell` or `files run` (not of a preparation job,
-  whose captured environment is written into the workspace), redacts the
-  values from what its tools answer, and never answers one back — there is
-  no GET, and a job does not inherit the bearer either. A release from
-  before the route answers 404, and the desk says so on the teammate's
-  tape.
+  whose captured environment is written into the workspace), types a login
+  through `browser fill` with `secret` only on a page of the login's own
+  sites, loads every passkey into a WebAuthn virtual authenticator on each
+  browser tab so a site's `navigator.credentials.get()` is answered without
+  anything being typed, redacts every value from what its tools answer, and
+  never answers one back — there is no GET, and a job does not inherit the
+  bearer either. A release from before the route answers 404, and the desk
+  says so on the teammate's tape; a release from before logins (0.7.x)
+  refuses a typed record with 400.
+- `PUT /passkeys/registration {"rpId"}` arms the computer for ten minutes,
+  for that one site, and readies the browser; while armed, and only then,
+  `navigator.credentials.create()` on that site may mint one credential in
+  the authenticator. `GET /passkeys/registration` answers `idle`, `armed`, or
+  `registered` with the minted credential as a whole passkey record; the
+  desk stores it, delivers the set with it, and `DELETE`s the arming. A
+  credential minted outside an arming, for another site, or after the ten
+  minutes is removed from the authenticator on the next look, so the
+  teammate cannot give itself a passkey. Bearer-only, like `/secrets`.
 
 A paired phone reaches the same viewer socket through a door on the Remote
 listener, `GET /computer/<personaId>/ws` with the phone's own bearer. The

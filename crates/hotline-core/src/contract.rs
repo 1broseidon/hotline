@@ -541,10 +541,23 @@ pub struct CookieSite {
     pub cookies: u32,
 }
 
-/// A secret the operator stored for teammates to use: a key or token kept in
-/// the OS credential store under a name that is the environment variable a
-/// granted computer finds it under. This is all the window ever sees of one
-/// — the value is written once and never answered back.
+/// What a stored secret is, which says where a granted computer puts it: a
+/// variable into the environment of every job; a login typed into a sign-in
+/// form on one of its own sites; a passkey into the browser's authenticator,
+/// where it signs in by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SharedSecretKind {
+    Variable,
+    Login,
+    Passkey,
+}
+
+/// A secret the operator stored for teammates to use, kept in the OS
+/// credential store under a name spelled like an environment variable. This
+/// is all the window ever sees of one — the value is written once and never
+/// answered back; what is listed beside the name is identity, not a secret.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -553,6 +566,54 @@ pub struct SharedSecret {
     pub name: String,
     /// When the value was last stored or replaced, ms since the epoch.
     pub updated_at: i64,
+    pub kind: SharedSecretKind,
+    /// A login's sites: the origins its fields are typed on, and no other.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sites: Option<Vec<String>>,
+    /// A login's username.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// Whether a login carries a TOTP seed, so `NAME.code` is a code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub totp: Option<bool>,
+    /// A passkey's site, as a relying party id: `github.com`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rp_id: Option<String>,
+    /// The account name the site gave a passkey, when it gave one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_name: Option<String>,
+}
+
+/// Where the making of a passkey stands. `armed` is the ten minutes in
+/// which the teammate's computer may make one for the site; `stored` is
+/// answered once, when the computer made it and the desk has stored it and
+/// ticked it for that teammate; `idle` is no arming, or one that ran out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum PasskeyRegistrationState {
+    Idle,
+    Armed,
+    Stored,
+}
+
+/// The answer to `secrets.passkey.register`, `.registration` and `.cancel`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct PasskeyRegistration {
+    pub state: PasskeyRegistrationState,
+    /// The name the passkey is, or will be, stored under.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rp_id: Option<String>,
+    /// When the arming ends, ms since the epoch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+    /// The record stored, when `stored`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<SharedSecret>,
 }
 
 /// Which Hotline Computer release a new computer is created on: the newest
@@ -2049,6 +2110,38 @@ pub enum Command {
     /// granted to. Desk seat only.
     #[serde(rename = "secrets.delete")]
     SecretsDelete { name: String },
+    /// Stores a login under `name`, or replaces the record there: the sites
+    /// its fields may be typed on, a username, a password, and a TOTP seed
+    /// when the sign-in asks for a code. Answered like `secrets.set`. Desk
+    /// seat only.
+    #[serde(rename = "secrets.login.set")]
+    SecretsLoginSet {
+        name: String,
+        sites: Vec<String>,
+        username: String,
+        password: String,
+        #[serde(default)]
+        totp: Option<String>,
+    },
+    /// Arms `persona_id`'s computer, starting it if need be, to make one
+    /// passkey for `rp_id` in the next ten minutes, to be stored under
+    /// `name` and ticked for that teammate. The person then adds the passkey
+    /// in the site's own settings through the computer's screen, or asks the
+    /// teammate to. Desk seat only.
+    #[serde(rename = "secrets.passkey.register")]
+    SecretsPasskeyRegister {
+        name: String,
+        persona_id: String,
+        rp_id: String,
+    },
+    /// Where that stands: polled by the window while armed. The poll that
+    /// finds the passkey made stores it, ticks it, hands the computer its
+    /// set, ends the arming and answers `stored`. Desk seat only.
+    #[serde(rename = "secrets.passkey.registration")]
+    SecretsPasskeyRegistration { persona_id: String },
+    /// Ends an arming without a passkey. Desk seat only.
+    #[serde(rename = "secrets.passkey.cancel")]
+    SecretsPasskeyCancel { persona_id: String },
 }
 
 /// What a subscription is a subscription to: a stream, or a view the core

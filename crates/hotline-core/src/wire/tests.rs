@@ -1432,12 +1432,36 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
     let delete = Command::SecretsDelete {
         name: "GITHUB_TOKEN".to_string(),
     };
-    assert!(Seat::Desk.permits(&list));
-    assert!(Seat::Desk.permits(&set));
-    assert!(Seat::Desk.permits(&delete));
-    assert!(!Seat::Phone.permits(&list));
-    assert!(!Seat::Phone.permits(&set));
-    assert!(!Seat::Phone.permits(&delete));
+    let login = Command::SecretsLoginSet {
+        name: "GITHUB_LOGIN".to_string(),
+        sites: vec!["https://github.com".to_string()],
+        username: "george".to_string(),
+        password: "correct-horse-battery".to_string(),
+        totp: None,
+    };
+    let register = Command::SecretsPasskeyRegister {
+        name: "GITHUB_PASSKEY".to_string(),
+        persona_id: "ada".to_string(),
+        rp_id: "github.com".to_string(),
+    };
+    let registration = Command::SecretsPasskeyRegistration {
+        persona_id: "ada".to_string(),
+    };
+    let cancel = Command::SecretsPasskeyCancel {
+        persona_id: "ada".to_string(),
+    };
+    for command in [
+        &list,
+        &set,
+        &delete,
+        &login,
+        &register,
+        &registration,
+        &cancel,
+    ] {
+        assert!(Seat::Desk.permits(command), "{command:?}");
+        assert!(!Seat::Phone.permits(command), "{command:?}");
+    }
     assert!(!Seat::Phone.permits(&Command::PersonaUpdate {
         id: "ada".to_string(),
         patch: serde_json::json!({"computer": {"enabled": true, "secrets": ["GITHUB_TOKEN"]}}),

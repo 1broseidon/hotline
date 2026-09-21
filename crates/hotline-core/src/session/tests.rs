@@ -2338,10 +2338,15 @@ async fn a_pulled_image_is_one_line_on_the_tape_that_fills_in() {
     assert_eq!(line["status"], "done");
     assert_eq!(line["layersDone"], 2);
     assert_eq!(line["layersTotal"], 2);
-    assert!(line["image"].as_str().unwrap().contains("hotline-computer"), "{line}");
+    assert!(
+        line["image"].as_str().unwrap().contains("hotline-computer"),
+        "{line}"
+    );
     assert!(line["elapsedMs"].is_i64(), "{line}");
     assert!(
-        notices(&desk.room, "ada").iter().all(|text| !text.contains("Pulling")),
+        notices(&desk.room, "ada")
+            .iter()
+            .all(|text| !text.contains("Pulling")),
         "the pull is no longer a notice"
     );
 }

@@ -954,7 +954,10 @@ async fn pull(
         }
         Ok(Err(error)) => {
             report(progress(&tally, PullOutcome::Failed));
-            Err(format!("{} pull could not be waited for: {error}", cmd.display()))
+            Err(format!(
+                "{} pull could not be waited for: {error}",
+                cmd.display()
+            ))
         }
         Err(_) => {
             report(progress(&tally, PullOutcome::Failed));

@@ -91,7 +91,12 @@ async fn provision(
             workspace.to_str().ok_or("workspace is not UTF-8")?,
             Some(computer::runtime::Runtime::Docker),
             None,
-            |report| eprintln!("pull {}: {}/{} layers, {:?}", report.image, report.layers_done, report.layers_total, report.outcome),
+            |report| {
+                eprintln!(
+                    "pull {}: {}/{} layers, {:?}",
+                    report.image, report.layers_done, report.layers_total, report.outcome
+                )
+            },
         )
         .await?;
     let name = computer::container_name(&persona.id);
@@ -113,7 +118,12 @@ async fn provision(
             workspace.to_str().ok_or("workspace is not UTF-8")?,
             Some(computer::runtime::Runtime::Docker),
             None,
-            |report| eprintln!("pull {}: {}/{} layers, {:?}", report.image, report.layers_done, report.layers_total, report.outcome),
+            |report| {
+                eprintln!(
+                    "pull {}: {}/{} layers, {:?}",
+                    report.image, report.layers_done, report.layers_total, report.outcome
+                )
+            },
         )
         .await?;
     assert!(

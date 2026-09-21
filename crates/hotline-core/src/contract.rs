@@ -182,9 +182,9 @@ pub struct Persona {
     pub hop_notice: Option<String>,
     /// Which of the app's MCP servers this teammate is given.
     pub mcp_policy: McpPolicy,
-    /// Which of the gateway's skills this teammate is given. Built-ins are
-    /// always on and not part of this. Absent means none, including for
-    /// older records.
+    /// Which of the offered skills this teammate is given: the gateway's,
+    /// and the person's own that are switched on. Built-ins are always on
+    /// and not part of this. Absent means none, including for older records.
     #[serde(default)]
     pub skill_policy: SkillPolicy,
     /// Whether this teammate may create and receive its own persistent
@@ -603,19 +603,47 @@ pub struct SharedSecret {
 }
 
 /// Where the making of a passkey stands. `armed` is the ten minutes in
-/// which the teammate's computer may make one for the site; `stored` is
-/// answered once, when the computer made it and the desk has stored it and
-/// ticked it for that teammate; `idle` is no arming, or one that ran out.
+/// which the teammate's computer may make one for the site; `asked` is the
+/// site's request, parked in the browser until the person answers the card
+/// on the teammate's tape; `approved` is the moment between that answer and
+/// the browser making it; `stored` is answered once, when the computer made
+/// it and the desk has stored it and ticked it for that teammate; `idle` is
+/// no arming, or one that ran out, or one a denial ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum PasskeyRegistrationState {
     Idle,
     Armed,
+    Asked,
+    Approved,
     Stored,
 }
 
-/// The answer to `secrets.passkey.register`, `.registration` and `.cancel`.
+/// What a site asked for when it called for a passkey under an arming: the
+/// site, the origin the page is on, and the account the passkey would be
+/// for, as the computer read them off the request. What the card shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct PasskeyAsk {
+    /// The computer's id for the request; the answer names it.
+    pub id: String,
+    pub rp_id: String,
+    pub origin: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rp_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_display_name: Option<String>,
+    /// When the computer first saw it, ms since the epoch.
+    #[serde(default)]
+    pub asked_at: i64,
+}
+
+/// The answer to `secrets.passkey.register`, `.registration`, `.answer`
+/// and `.cancel`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -629,6 +657,9 @@ pub struct PasskeyRegistration {
     /// When the arming ends, ms since the epoch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    /// The site's request, when `asked` or `approved`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ask: Option<PasskeyAsk>,
     /// The record stored, when `stored`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret: Option<SharedSecret>,
@@ -1152,6 +1183,26 @@ pub enum TranscriptEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
+    /// A site asked the teammate's browser to make a passkey, under an
+    /// arming the person started for that site: the request waits in the
+    /// browser until the person answers here. Pending renders the card
+    /// with Approve and Deny; any other status is the card's afterlife.
+    PasskeyAsk {
+        id: String,
+        ts: i64,
+        ask_id: String,
+        /// The name the passkey is stored under once made.
+        name: String,
+        rp_id: String,
+        origin: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rp_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_display_name: Option<String>,
+        status: PasskeyAskStatus,
+    },
     Peer {
         id: String,
         ts: i64,
@@ -1411,6 +1462,19 @@ pub enum HumanActionStatus {
     Pending,
     Done,
     Dismissed,
+    Expired,
+}
+
+/// Where a passkey card stands: waiting for the person, answered either
+/// way, or gone — the request left with its page, the arming ran out or
+/// was cancelled, or the computer stopped — before anyone answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum PasskeyAskStatus {
+    Pending,
+    Approved,
+    Denied,
     Expired,
 }
 
@@ -1714,23 +1778,28 @@ pub struct Welcome {
 
 /// Where a skill came from. `builtin` is bundled with Hotline and always on;
 /// `gateway` is the operator's folder in the data directory, granted per
-/// teammate; `workspace` is the teammate's own `.agents/skills`, written by
-/// the person or the teammate; `computer` is the guide the running computer
-/// serves, at its release.
+/// teammate; `home` is the person's own folder, `~/.agents/skills` unless
+/// the room's `skillsHome` says otherwise, the standard place other agents
+/// read too, whose entries are offered to teammates by switch and read from
+/// where they are; `workspace` is the teammate's own `.agents/skills`,
+/// written by the person or the teammate; `computer` is the guide the
+/// running computer serves, at its release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum SkillSource {
     Builtin,
     Gateway,
+    Home,
     Workspace,
     Computer,
 }
 
-/// Which skills from the gateway a teammate gets, the way [`McpPolicy`] says
-/// which servers: `none` for a new teammate, `some` by name, or `all`
-/// including skills added later. Built-in skills are not governed here; they
-/// are always in the workspace.
+/// Which of the offered skills — the gateway's, and the person's own that
+/// are switched on — a teammate gets, the way [`McpPolicy`] says which
+/// servers: `none` for a new teammate, `some` by name, or `all` including
+/// skills offered later. Built-in skills are not governed here; they are
+/// always in the workspace.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -1752,7 +1821,7 @@ impl Default for SkillPolicy {
 /// a skill and a sentence saying what is wrong when it is not; an invalid
 /// entry is listed so the person can fix it, never silently skipped. `path`
 /// is where the folder is: inside the workspace for what a teammate sees,
-/// on disk for the gateway.
+/// on disk for the gateway and the person's own folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct SkillEntry {
@@ -1762,6 +1831,11 @@ pub struct SkillEntry {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invalid: Option<String>,
+    /// Whether a `home` entry is offered to teammates. Only a `home` entry
+    /// has it: the gateway offers everything valid in it, and the rest are
+    /// not the person's to offer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offered: Option<bool>,
     /// The release a computer's guide came from. Only a `computer` entry has
     /// one: the desk's own skills are the desk's version, a gateway folder is
     /// whatever the person put there.
@@ -1900,6 +1974,14 @@ pub enum Command {
     /// their next start.
     #[serde(rename = "skills.remove")]
     SkillsRemove { name: String },
+    /// Offers one of the person's own skills — a `home` entry — to
+    /// teammates, or withdraws it. Nothing is copied: the skill is read from
+    /// the person's folder at every start. Refused when the folder has no
+    /// valid skill of that name; the answer is the entry as `skills.list`
+    /// lists it. Teammates granted a withdrawn one lose it at their next
+    /// start.
+    #[serde(rename = "skills.offer")]
+    SkillsOffer { name: String, offered: bool },
     /// Every credential the room knows of, never a secret.
     #[serde(rename = "credential.list")]
     CredentialList {},
@@ -2170,11 +2252,23 @@ pub enum Command {
         persona_id: String,
         rp_id: String,
     },
-    /// Where that stands: polled by the window while armed. The poll that
-    /// finds the passkey made stores it, ticks it, hands the computer its
-    /// set, ends the arming and answers `stored`. Desk seat only.
+    /// Where that stands: polled by the window while armed. `asked` carries
+    /// the site's request, which waits for the card on the teammate's tape
+    /// to be answered; the look that finds the passkey made stores it,
+    /// ticks it, hands the computer its set, ends the arming and answers
+    /// `stored`. Desk seat only.
     #[serde(rename = "secrets.passkey.registration")]
     SecretsPasskeyRegistration { persona_id: String },
+    /// Answers the passkey card on a teammate's tape. Approved, the browser
+    /// makes the passkey and the room stores it and ticks it; denied, the
+    /// site hears no and the arming ends. One answer to one request, which
+    /// the phone may give too; refused when no such request is waiting.
+    #[serde(rename = "secrets.passkey.answer")]
+    SecretsPasskeyAnswer {
+        persona_id: String,
+        ask_id: String,
+        approved: bool,
+    },
     /// Ends an arming without a passkey. Desk seat only.
     #[serde(rename = "secrets.passkey.cancel")]
     SecretsPasskeyCancel { persona_id: String },

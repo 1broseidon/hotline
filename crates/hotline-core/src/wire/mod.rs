@@ -196,8 +196,9 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Every harness a teammate could run on here, the built-in one first.
     async fn backends(&self) -> Vec<crate::contract::BackendChoice>;
 
-    /// The skills catalog: built-ins, then the gateway folder, then — for a
-    /// named teammate — what is in its own workspace.
+    /// The skills catalog: built-ins, then the gateway folder and the
+    /// person's own, then — for a named teammate — what is in its own
+    /// workspace.
     fn skills(&self, persona_id: Option<&str>) -> Result<Vec<crate::contract::SkillEntry>, String>;
 
     /// Every model the desk's keys can reach, for the model picker.
@@ -369,6 +370,16 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<crate::contract::PasskeyRegistration, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
+    /// Answers the passkey card on a teammate's tape: approved, the
+    /// browser makes it and the room stores it; denied, the arming ends.
+    async fn secrets_passkey_answer(
+        &self,
+        _persona_id: &str,
+        _ask_id: &str,
+        _approved: bool,
+    ) -> Result<crate::contract::PasskeyRegistration, String> {
+        Err("Stored secrets are unavailable on this room.".to_string())
+    }
     /// Ends an arming without a passkey.
     async fn secrets_passkey_cancel(&self, _persona_id: &str) -> Result<(), String> {
         Err("Stored secrets are unavailable on this room.".to_string())
@@ -420,9 +431,12 @@ impl Seat {
     pub fn permits(&self, command: &Command) -> bool {
         match self {
             Seat::Desk => true,
-            // A phone answers for the person: a permission card and a
-            // `request_human` card are both a teammate waiting on someone,
-            // and waiting until they are back at a desk is the whole problem.
+            // A phone answers for the person: a permission card, a
+            // `request_human` card and a passkey card are each a teammate
+            // waiting on someone, and waiting until they are back at a desk
+            // is the whole problem. The passkey answer is one answer to one
+            // request the person armed for at the desk; the arming itself
+            // stays there.
             // Which model and how hard it thinks are settings the person
             // owns anywhere.
             //
@@ -444,6 +458,7 @@ impl Seat {
                     | Command::MobilePushRegister { .. }
                     | Command::SessionCancel { .. }
                     | Command::HumanAnswer { .. }
+                    | Command::SecretsPasskeyAnswer { .. }
                     | Command::SessionAnswerPermission { .. }
                     | Command::SessionSetModel { .. }
                     | Command::SessionSetConfig { .. }

@@ -118,6 +118,16 @@ pub(crate) mod fake {
     /// the domains named, in order.
     type Forgotten = Arc<Mutex<Vec<(String, Vec<String>)>>>;
 
+    /// Where the fake's passkey arming stands: the site, the request a
+    /// page parked under it with the person's answer so far, and whether
+    /// the browser has since "minted" one.
+    #[derive(Clone, Debug)]
+    struct FakeArming {
+        rp_id: String,
+        ask: Option<(Value, Option<bool>)>,
+        minted: bool,
+    }
+
     /// Every set of secrets the fake was handed through `PUT /secrets`, in
     /// order, so a test can prove what reached the machine and what did
     /// not. A release too old for a guide has no such route.
@@ -126,9 +136,9 @@ pub(crate) mod fake {
     #[derive(Clone, Default)]
     pub(crate) struct Taken {
         sets: Arc<Mutex<Vec<BTreeMap<String, Value>>>>,
-        /// The site armed for a passkey, and whether the browser has since
-        /// "minted" one.
-        arming: Arc<Mutex<Option<(String, bool)>>>,
+        arming: Arc<Mutex<Option<FakeArming>>>,
+        /// How many requests pages have parked, so each gets its own id.
+        asks: Arc<std::sync::atomic::AtomicUsize>,
         /// Every forget the desk asked for: the saved login's name and the
         /// domains, in order.
         forgotten: Forgotten,
@@ -150,7 +160,48 @@ pub(crate) mod fake {
                 .lock()
                 .unwrap()
                 .as_ref()
-                .map(|(rp_id, _)| rp_id.clone())
+                .map(|arming| arming.rp_id.clone())
+        }
+
+        /// The site asked for a passkey: a request for the armed site waits
+        /// for the person from the next poll on. Answers its id, `ask-1`
+        /// for the first, so a test can answer it.
+        pub(crate) fn ask(&self) -> String {
+            let id = format!(
+                "ask-{}",
+                self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+            );
+            if let Some(arming) = self.arming.lock().unwrap().as_mut() {
+                let rp_id = arming.rp_id.clone();
+                arming.ask = Some((
+                    json!({
+                        "id": id, "rpId": rp_id, "origin": format!("https://{rp_id}"),
+                        "rpName": "The site", "userName": "teammate", "userDisplayName": "The teammate",
+                        "askedAt": 1_700_000_000_000_i64,
+                    }),
+                    None,
+                ));
+            }
+            id
+        }
+
+        /// The person's answer to the request, as the desk carried it in.
+        pub(crate) fn answered(&self) -> Option<bool> {
+            self.arming
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|arming| arming.ask.as_ref())
+                .and_then(|(_, answer)| *answer)
+        }
+
+        /// The page the request was parked on went away, and the request
+        /// with it.
+        #[cfg(unix)]
+        pub(crate) fn page_left(&self) {
+            if let Some(arming) = self.arming.lock().unwrap().as_mut() {
+                arming.ask = None;
+            }
         }
 
         /// What the desk asked the browser to drop, in order.
@@ -159,11 +210,12 @@ pub(crate) mod fake {
             self.forgotten.lock().unwrap().clone()
         }
 
-        /// The person added a passkey in the browser: the next poll answers
-        /// the credential the authenticator minted.
+        /// The browser minted a passkey: the next poll answers the
+        /// credential. (A real computer mints only under an approved
+        /// request; the test decides the order here.)
         pub(crate) fn mint(&self) {
             if let Some(arming) = self.arming.lock().unwrap().as_mut() {
-                arming.1 = true;
+                arming.minted = true;
             }
         }
 
@@ -236,11 +288,38 @@ pub(crate) mod fake {
                 json!({"error": format!("{rp_id:?} is not a site for a passkey")}),
             );
         }
-        *taken.arming.lock().unwrap() = Some((rp_id.clone(), false));
+        *taken.arming.lock().unwrap() = Some(FakeArming {
+            rp_id: rp_id.clone(),
+            ask: None,
+            minted: false,
+        });
         json_answer(
             axum::http::StatusCode::OK,
             json!({"state": "armed", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64}),
         )
+    }
+
+    /// Where the arming stands, as a real computer answers it.
+    fn registration_status(arming: Option<&FakeArming>) -> Value {
+        let Some(arming) = arming else {
+            return json!({"state": "idle"});
+        };
+        let state = match (arming.minted, &arming.ask) {
+            (true, _) => "registered",
+            (false, Some((_, None))) => "asked",
+            (false, Some((_, Some(true)))) => "approved",
+            (false, Some((_, Some(false)))) => "denied",
+            (false, None) => "armed",
+        };
+        let mut status =
+            json!({"state": state, "rpId": arming.rp_id, "expiresAt": 1_700_000_600_000_i64});
+        if let Some((ask, _)) = &arming.ask {
+            status["ask"] = ask.clone();
+        }
+        if arming.minted {
+            status["credential"] = Taken::credential(&arming.rp_id);
+        }
+        status
     }
 
     async fn passkey_registration(
@@ -251,17 +330,41 @@ pub(crate) mod fake {
         if !bearer_present(&headers) {
             return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
-        let answer = match taken.arming.lock().unwrap().clone() {
-            None => json!({"state": "idle"}),
-            Some((rp_id, false)) => {
-                json!({"state": "armed", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64})
-            }
-            Some((rp_id, true)) => json!({
-                "state": "registered", "rpId": rp_id, "expiresAt": 1_700_000_600_000_i64,
-                "credential": Taken::credential(&rp_id),
-            }),
-        };
+        let answer = registration_status(taken.arming.lock().unwrap().as_ref());
         json_answer(axum::http::StatusCode::OK, answer)
+    }
+
+    async fn answer_passkey(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+        }
+        let body = serde_json::from_str::<Value>(&body).unwrap_or_default();
+        let id = body["id"].as_str().unwrap_or_default().to_owned();
+        let approved = body["approved"].as_bool().unwrap_or(false);
+        let mut guard = taken.arming.lock().unwrap();
+        let waiting = guard
+            .as_mut()
+            .and_then(|arming| arming.ask.as_mut())
+            .filter(|(ask, _)| ask["id"] == id);
+        let Some((_, answer)) = waiting else {
+            return json_answer(
+                axum::http::StatusCode::CONFLICT,
+                json!({"error": "no passkey request with that id is waiting for an answer"}),
+            );
+        };
+        *answer = Some(approved);
+        if !approved {
+            *guard = None;
+        }
+        json_answer(
+            axum::http::StatusCode::OK,
+            registration_status(guard.as_ref()),
+        )
     }
 
     async fn disarm_passkey(
@@ -313,6 +416,16 @@ pub(crate) mod fake {
             parts.next().unwrap_or(0),
         );
         (major, minor, patch) >= (0, 8, 1)
+    }
+
+    /// Whether a release asks the person before a passkey is made, and so
+    /// has the answer door: 0.9 and later do.
+    fn has_answer_door(version: &str) -> bool {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        (major, minor) >= (0, 9)
     }
 
     /// Whether a release has the passkey door: 0.8 and later do.
@@ -430,6 +543,12 @@ pub(crate) mod fake {
                 axum::routing::put(arm_passkey)
                     .get(passkey_registration)
                     .delete(disarm_passkey),
+            );
+        }
+        if version.is_some_and(has_answer_door) {
+            app = app.route(
+                "/passkeys/registration/answer",
+                axum::routing::post(answer_passkey),
             );
         }
         if version.is_some_and(has_logins_door) {

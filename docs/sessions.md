@@ -523,9 +523,10 @@ elsewhere:
   symlink cannot redirect a Hotline write outside it.
 
 Skills reach both drivers the same way. At every session start Hotline writes
-the built-in skills and the gateway skills the teammate's `skillPolicy`
-grants into `.agents/skills/<name>/` in the working directory, each entry
-carrying a `.managed-by-hotline` file. Only an entry with that file is ever
+the built-in skills and the offered skills the teammate's `skillPolicy`
+grants — the gateway's, and the person's own from `~/.agents/skills` that are
+switched on — into `.agents/skills/<name>/` in the working directory, each
+entry carrying a `.managed-by-hotline` file. Only an entry with that file is ever
 replaced or removed, so a skill the person or the teammate put there stays,
 and shadows a grant of the same name; a revoked grant's entry is removed at
 the next start. A `.agents` or `.agents/skills` that is a symlink refuses the

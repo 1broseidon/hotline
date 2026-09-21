@@ -1486,6 +1486,13 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
         status: crate::contract::HumanAnswer::Done,
         note: None,
     }));
+    // A passkey card is one answer to one request the person armed for at
+    // the desk; the arming, and the register that starts it, stay there.
+    assert!(Seat::Phone.permits(&Command::SecretsPasskeyAnswer {
+        persona_id: persona_id.clone(),
+        ask_id: "ask-1".to_string(),
+        approved: true,
+    }));
     assert!(Seat::Phone.permits(&Command::SessionSetModel {
         persona_id: persona_id.clone(),
         model_id: "anthropic/claude".to_string(),

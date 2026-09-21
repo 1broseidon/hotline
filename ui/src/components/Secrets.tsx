@@ -1,17 +1,14 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { PasskeyRegistration, SharedSecret, SharedSecretKind } from "../generated/contract";
-import { CloseIcon, InfoIcon, PlusIcon, WarningIcon } from "../icons";
+import type { SharedSecret, SharedSecretKind } from "../generated/contract";
+import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
-import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
-import { type RosterEntry, wire } from "../wire";
+import { wire } from "../wire";
 
 const NESTED = "group-row pl-7";
 /** What the desk asks of a value, said here before the desk has to. */
 const MIN_VALUE_CHARS = 8;
-/** How often the desk is asked whether the passkey has been made. */
-const POLL_EVERY_MS = 2000;
 
 function reason(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -47,13 +44,14 @@ function describeShort(secret: SharedSecret): string {
  * becomes an environment variable. A login is a username and password, with
  * a code seed when the site asks for one, typed by the computer only on the
  * login's own sites. A passkey is the teammate's own, made by its computer's
- * browser under an arming the operator starts here, and revoked by unticking
- * it on the teammate, removing it here, or deleting it at the site. Every
- * value is written once and never shown again, here or to a teammate. Which
- * teammate gets which is decided on that teammate, under its computer, one
- * tick per name. Every command here is desk-seat only.
+ * browser under an arming the operator starts in that teammate's pane (see
+ * `PasskeyArm`), listed here once made, and revoked by unticking it on the
+ * teammate, removing it here, or deleting it at the site. Every value is
+ * written once and never shown again, here or to a teammate. Which teammate
+ * gets which is decided on that teammate, under its computer, one tick per
+ * name. Every command here is desk-seat only.
  */
-export function SecretsSection({ roster, onBack }: { roster: RosterEntry[]; onBack?: (() => void) | undefined }) {
+export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	// Which kind is being added, if one is.
@@ -122,8 +120,6 @@ export function SecretsSection({ roster, onBack }: { roster: RosterEntry[]; onBa
 		}
 	};
 
-	const stored_ = useCallback(() => refresh(), [refresh]);
-
 	const addRow = (kind: SharedSecretKind, label: string) => (
 		<button
 			type="button"
@@ -156,11 +152,6 @@ export function SecretsSection({ roster, onBack }: { roster: RosterEntry[]; onBa
 								addRow("variable", "Store a variable")
 							)}
 							{adding === "login" ? <LoginForm busy={busy} onStore={storeLogin} onCancel={close} /> : addRow("login", "Store a login")}
-							{adding === "passkey" ? (
-								<PasskeyPanel roster={roster} onStored={stored_} onClose={close} />
-							) : (
-								addRow("passkey", "Add a passkey for a teammate")
-							)}
 							{stored === null ? (
 								<p className="group-row text-sm text-ink-3">Reading the keychain…</p>
 							) : stored.length === 0 ? (
@@ -448,216 +439,7 @@ function LoginForm({
 }
 
 /**
- * A passkey is made, not typed: the operator names it, names the site and
- * the teammate, and arms that teammate's computer for ten minutes. Then they
- * open the teammate's screen, sign in to the site as the teammate should,
- * and add a passkey in the site's security settings — or ask the teammate
- * to — and the computer's browser makes it. The desk polls until it is
- * made, stores it, and ticks it for the teammate; nothing is stored until
- * then, and a cancel ends the arming with nothing.
- */
-function PasskeyPanel({ roster, onStored, onClose }: { roster: RosterEntry[]; onStored(): void; onClose(): void }) {
-	const teammates = roster
-		.filter((entry) => entry.persona.computer?.enabled === true)
-		.map((entry) => ({ id: entry.persona.id, name: entry.persona.name }));
-	const [name, setName] = useState("");
-	const [site, setSite] = useState("");
-	const [personaId, setPersonaId] = useState(teammates[0]?.id ?? "");
-	const [registration, setRegistration] = useState<PasskeyRegistration | null>(null);
-	const [note, setNote] = useState<string | null>(null);
-	const [refusal, setRefusal] = useState<string | null>(null);
-	const [working, setWorking] = useState(false);
-	const teammate = teammates.find((one) => one.id === personaId)?.name ?? "the teammate";
-
-	// An arming may be live from before this panel opened, or the room may
-	// have stored the passkey while it was closed: pick either up.
-	useEffect(() => {
-		if (personaId === "") return;
-		let gone = false;
-		void wire
-			.command("secrets.passkey.registration", { personaId })
-			.then((current) => {
-				if (gone) return;
-				if (current.state === "armed") {
-					setRegistration(current);
-				} else if (current.state === "stored") {
-					setRegistration(current);
-					onStored();
-				}
-			})
-			.catch(() => {});
-		return () => {
-			gone = true;
-		};
-	}, [personaId, onStored]);
-
-	// While armed, ask every couple of seconds whether it has been made.
-	const armed = registration?.state === "armed";
-	useEffect(() => {
-		if (!armed || personaId === "") return;
-		let gone = false;
-		const look = async () => {
-			try {
-				const next = await wire.command("secrets.passkey.registration", { personaId });
-				if (gone) return;
-				if (next.state === "stored") {
-					setRegistration(next);
-					onStored();
-				} else if (next.state === "idle") {
-					setRegistration(null);
-					setNote("The arming ended without a passkey: its ten minutes ran out, or the computer restarted. Arm it again when you are ready.");
-				} else {
-					setRegistration(next);
-				}
-			} catch (error) {
-				if (gone) return;
-				setRegistration(null);
-				setRefusal(reason(error));
-			}
-		};
-		const timer = setInterval(() => void look(), POLL_EVERY_MS);
-		return () => {
-			gone = true;
-			clearInterval(timer);
-		};
-	}, [armed, personaId, onStored]);
-
-	const ready = name.trim() !== "" && site.trim() !== "" && personaId !== "";
-	const register = async () => {
-		if (!ready || working) return;
-		setWorking(true);
-		setRefusal(null);
-		setNote(null);
-		try {
-			setRegistration(await wire.command("secrets.passkey.register", { name: name.trim(), personaId, rpId: site.trim().toLowerCase() }));
-		} catch (error) {
-			setRefusal(reason(error));
-		} finally {
-			setWorking(false);
-		}
-	};
-	const cancel = async () => {
-		setWorking(true);
-		setRefusal(null);
-		try {
-			await wire.command("secrets.passkey.cancel", { personaId });
-			setRegistration(null);
-		} catch (error) {
-			setRefusal(reason(error));
-		} finally {
-			setWorking(false);
-		}
-	};
-
-	if (registration?.state === "stored") {
-		return (
-			<div className={`${NESTED} flex-col items-stretch gap-3 py-3`}>
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					Stored <span className="font-mono">{registration.name}</span> and ticked it for {teammate}. Its browser signs in to{" "}
-					{registration.rpId} with it from now on. Take it back any time: untick it on {teammate}, remove it here, or delete the
-					passkey in the site's security settings.
-				</span>
-				<div className="flex justify-end gap-2">
-					<button type="button" className="control btn" onClick={onClose}>
-						Done
-					</button>
-				</div>
-			</div>
-		);
-	}
-
-	if (registration?.state === "armed") {
-		const until = registration.expiresAt !== undefined ? new Date(registration.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
-		return (
-			<div className={`${NESTED} flex-col items-stretch gap-3 py-3`}>
-				<span className="group-row-text">
-					<span className="group-row-title">
-						Armed for {registration.rpId}
-						{until !== null ? ` until ${until}` : ""}
-					</span>
-					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-						Open {teammate}'s screen, sign in to {registration.rpId} the way the teammate should be signed in, and add a passkey in
-						the site's security settings; or ask {teammate} to. Its browser makes the passkey, and the moment it does this desk
-						stores it as <span className="font-mono">{registration.name}</span> and ticks it for {teammate}, whether or not this
-						page is open; {teammate}'s tape says so. Nothing else can be made while armed, and nothing at all when not.
-					</span>
-				</span>
-				<span className="group-row-detail">Waiting for the passkey…</span>
-				<div className="flex justify-end gap-2">
-					<button type="button" className="control btn-quiet" disabled={working} onClick={() => void cancel()}>
-						Cancel
-					</button>
-				</div>
-				{refusal !== null && <Refusal message={refusal} />}
-			</div>
-		);
-	}
-
-	return (
-		<div className={`${NESTED} flex-col items-stretch gap-3 py-3`}>
-			<div>
-				<label className="label" htmlFor="passkey-name">
-					Name
-				</label>
-				<input
-					id="passkey-name"
-					className="field font-mono text-sm"
-					placeholder="GITHUB_PASSKEY"
-					autoComplete="off"
-					spellCheck={false}
-					value={name}
-					onChange={(event) => setName(event.target.value.toUpperCase())}
-				/>
-			</div>
-			<div>
-				<label className="label" htmlFor="passkey-site">
-					Site
-				</label>
-				<input
-					id="passkey-site"
-					className="field font-mono text-sm"
-					placeholder="github.com"
-					autoComplete="off"
-					spellCheck={false}
-					value={site}
-					onChange={(event) => setSite(event.target.value)}
-				/>
-			</div>
-			<div>
-				<span className="label">Teammate</span>
-				{teammates.length === 0 ? (
-					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-						No teammate has a computer yet. Turn one on in a teammate's pane first.
-					</span>
-				) : (
-					<Picker value={personaId} choices={teammates} placeholder="Choose a teammate" label="Teammate" field onChange={setPersonaId} />
-				)}
-			</div>
-			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				The site is its host name, as the passkey will be registered: github.com, not a page. Arming lasts ten minutes and
-				starts the teammate's computer if it is stopped. The passkey is the teammate's own, made by its browser; it is stored here
-				only once made, and ticked for that teammate.
-			</span>
-			{note !== null && (
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					{note}
-				</span>
-			)}
-			<div className="flex justify-end gap-2">
-				<button type="button" className="control btn-quiet" disabled={working} onClick={onClose}>
-					Cancel
-				</button>
-				<button type="button" className="control btn" disabled={working || !ready} onClick={() => void register()}>
-					{working ? "Arming…" : "Arm the computer"}
-				</button>
-			</div>
-			{refusal !== null && <Refusal message={refusal} />}
-		</div>
-	);
-}
-
-/**
- * On a teammate, under its computer: the stored names, one tick each. A
+ * On a teammate, under its computer's Secrets fold: the stored names, one tick each. A
  * tick is the grant — nothing is ticked until the person ticks it — and a
  * name the keychain no longer has stays in the list with a warning until
  * it is unticked, so a stale grant is seen rather than silently dropped.
@@ -674,7 +456,6 @@ export function ComputerSecrets({
 }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
 	const [note, setNote] = useState<string | null>(null);
-	const [about, setAbout] = useState(false);
 
 	// Re-read whenever the ticks change from elsewhere — a passkey the room
 	// just stored and ticked shows as what it is, not as "not stored".
@@ -697,25 +478,8 @@ export function ComputerSecrets({
 
 	return (
 		<div className={`${NESTED} flex-col items-stretch gap-1.5 py-3`}>
-			<span className="group-row-text">
-				<span className="group-row-title flex items-center gap-1">
-					Secrets
-					<button
-						type="button"
-						className="control btn-icon btn-quiet h-6 w-6 text-ink-3"
-						title="Secrets can be added under Settings → Secrets."
-						aria-label="About secrets"
-						aria-expanded={about}
-						onClick={() => setAbout((open) => !open)}
-					>
-						<InfoIcon />
-					</button>
-				</span>
-				{about && (
-					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-						Secrets can be added under Settings → Secrets.
-					</span>
-				)}
+			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+				Stored under Settings → Secrets. Tick what this computer may use; a passkey made for this teammate is ticked by itself.
 			</span>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
 			{note !== null && (

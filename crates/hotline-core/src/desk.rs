@@ -18,7 +18,7 @@ use crate::models::Client;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
-use crate::{paths, room, skills};
+use crate::{room, skills};
 use async_trait::async_trait;
 use rig::providers::{chatgpt, copilot};
 use serde_json::json;
@@ -469,16 +469,14 @@ impl RoomHandle for Desk {
         }
     }
 
-    /// Built-ins first, then the gateway with its invalid entries named, then
-    /// the teammate's own — the ones Hotline copied there are the grant, so
-    /// they are not listed twice.
+    /// Built-ins first, then the gateway and the person's own folder with
+    /// their invalid entries named, then the teammate's own — the ones
+    /// Hotline copied there are the grant, so they are not listed twice.
     fn skills(&self, persona_id: Option<&str>) -> Result<Vec<SkillEntry>, String> {
         let mut entries = skills::builtin_entries();
-        entries.extend(skills::read_folder(
-            &paths::skills_path(self.log.root()),
-            SkillSource::Gateway,
-            false,
-        ));
+        entries.extend(
+            skills::Offering::from_settings(self.log.root(), &room::settings(&self.log)).entries(),
+        );
         if let Some(persona_id) = persona_id {
             let persona = room::roster(&self.log)
                 .into_iter()
@@ -858,6 +856,17 @@ impl RoomHandle for Desk {
         persona_id: &str,
     ) -> Result<crate::contract::PasskeyRegistration, String> {
         self.room.secrets_passkey_registration(persona_id).await
+    }
+
+    async fn secrets_passkey_answer(
+        &self,
+        persona_id: &str,
+        ask_id: &str,
+        approved: bool,
+    ) -> Result<crate::contract::PasskeyRegistration, String> {
+        self.room
+            .secrets_passkey_answer(persona_id, ask_id, approved)
+            .await
     }
 
     async fn secrets_passkey_cancel(&self, persona_id: &str) -> Result<(), String> {

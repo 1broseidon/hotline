@@ -149,6 +149,22 @@ pub(crate) async fn run(
             crate::skills::remove_from_gateway(&paths::skills_path(log.root()), &name)
                 .map(|()| Value::Null)
         }
+        // The switch is a room setting naming what is offered; the person's
+        // folder itself is never written.
+        Command::SkillsOffer { name, offered } => {
+            let offering = crate::skills::Offering::from_settings(log.root(), &room::settings(log));
+            let entry = offering.home_entry(&name)?;
+            let mut patch = Map::new();
+            patch.insert(
+                crate::skills::OFFERED_SETTING.to_owned(),
+                json!(offering.switched(&name, offered)),
+            );
+            update_settings(log, patch)?;
+            Ok(json!(crate::contract::SkillEntry {
+                offered: Some(offered),
+                ..entry
+            }))
+        }
         Command::ProvidersList {} => Ok(json!(crate::models::providers())),
         Command::ModelsList {} => Ok(json!(room.models())),
         Command::ModelsCatalog { provider_id } => room
@@ -371,6 +387,14 @@ pub(crate) async fn run(
         }
         Command::SecretsPasskeyRegistration { persona_id } => room
             .secrets_passkey_registration(&persona_id)
+            .await
+            .map(|registration| json!(registration)),
+        Command::SecretsPasskeyAnswer {
+            persona_id,
+            ask_id,
+            approved,
+        } => room
+            .secrets_passkey_answer(&persona_id, &ask_id, approved)
             .await
             .map(|registration| json!(registration)),
         Command::SecretsPasskeyCancel { persona_id } => room

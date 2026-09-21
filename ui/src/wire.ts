@@ -106,6 +106,7 @@ type Results = {
 	"skills.list": SkillEntry[];
 	"skills.add": SkillEntry;
 	"skills.remove": null;
+	"skills.offer": SkillEntry;
 	"providers.list": Provider[];
 	"models.list": ConfigChoice[];
 	"models.catalog": CatalogModel[];
@@ -157,6 +158,7 @@ type Results = {
 	/** Where the making of a teammate's passkey stands. */
 	"secrets.passkey.register": PasskeyRegistration;
 	"secrets.passkey.registration": PasskeyRegistration;
+	"secrets.passkey.answer": PasskeyRegistration;
 	"secrets.passkey.cancel": null;
 	welcome: Welcome;
 };

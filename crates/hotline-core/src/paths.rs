@@ -136,6 +136,15 @@ pub fn skills_path(root: &Path) -> PathBuf {
     root.join("skills")
 }
 
+/// The standard folder of a person's own skills, `~/.agents/skills`: the
+/// Agent Skills convention, which other agents on the machine read too.
+/// None on a machine without a home.
+pub fn default_skills_home() -> Option<PathBuf> {
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(|home| PathBuf::from(home).join(".agents").join("skills"))
+}
+
 /// The absolute path of a command, looking on `PATH` and the directories a
 /// packaged Mac app's GUI environment does not include.
 ///

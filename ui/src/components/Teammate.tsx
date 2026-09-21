@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type {
 	ComputerMount,
 	ComputerStatus,
@@ -27,6 +27,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import type { RosterEntry } from "../wire";
 import { CookieImport, CookieImports } from "./CookieImport";
+import { PasskeyArm } from "./PasskeyArm";
 import { ComputerSecrets } from "./Secrets";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
@@ -276,6 +277,7 @@ export function Teammate({
 							/>
 							<ComputerRows
 								personaId={persona.id}
+								teammate={persona.name}
 								computer={persona.computer}
 								disabled={busy}
 								onChange={(computer) => save({ computer })}
@@ -507,36 +509,43 @@ function without(computer: PersonaComputer, key: "image" | "memory" | "pids" | "
 
 /**
  * The teammate's computer: the switch, and under it, while there is a
- * desktop to speak of, one row carrying its state that opens to what the
- * container is built with — image, memory, process limit, the host
- * folders bound in, the stored secrets it may use — and its Stop or
- * Remove. Every change spreads the
- * settings it does not touch, so flipping the switch never drops a mount.
- * Blank fields are absent on the wire, which is the default; a value the
- * runtime rejects surfaces as a start failure, not here. The status is a
- * peek every few seconds while the pane is open — asking never wakes
- * anything, so the row can be honest about a desktop that stopped on its
- * own. Opening the desktop lives in the conversation's band, which is on
- * screen whenever it runs.
+ * desktop to speak of, three folds. Desktop carries the machine's state and
+ * opens to what is done with it — Stop, Remove, Update — and what the
+ * container is built with: image, memory, process limit, the host folders
+ * bound in. Browser is what its browser signs in with: the cookies brought
+ * over from the person's own browsers, and the passkeys made for the
+ * teammate under an arming started here. Secrets is the stored names, one
+ * tick each. Every change spreads the settings it does not touch, so
+ * flipping the switch never drops a mount. Blank fields are absent on the
+ * wire, which is the default; a value the runtime rejects surfaces as a
+ * start failure, not here. The status is a peek every few seconds while
+ * the pane is open — asking never wakes anything, so the row can be honest
+ * about a desktop that stopped on its own. Opening the desktop lives in
+ * the conversation's band, which is on screen whenever it runs.
  */
 function ComputerRows({
 	personaId,
+	teammate,
 	computer,
 	disabled,
 	onChange,
 }: {
 	personaId: string;
+	teammate: string;
 	computer: PersonaComputer | undefined;
 	disabled: boolean;
 	onChange(computer: PersonaComputer): void;
 }) {
 	const current: PersonaComputer = computer ?? { enabled: false };
 	const mounts = current.mounts ?? [];
+	const granted = current.secrets ?? [];
 	const [image, setImage] = useState(current.image ?? "");
 	const [memory, setMemory] = useState(current.memory ?? "");
 	const [pids, setPids] = useState(current.pids === undefined ? "" : String(current.pids));
 	const [status, setStatus] = useState<ComputerStatus | null>(null);
-	const [open, setOpen] = useState(false);
+	const [openDesktop, setOpenDesktop] = useState(false);
+	const [openBrowser, setOpenBrowser] = useState(false);
+	const [openSecrets, setOpenSecrets] = useState(false);
 	const [adding, setAdding] = useState(false);
 	const [importing, setImporting] = useState(false);
 	const [importsVersion, setImportsVersion] = useState(0);
@@ -554,8 +563,15 @@ function ComputerRows({
 		setPids(current.pids === undefined ? "" : String(current.pids));
 	}, [current.pids]);
 
+	// The ticks re-read themselves when the grant changes, and a passkey the
+	// room stored is ticked by the room, so a stored passkey needs nothing
+	// more from here; the callback is stable so the row's pick-up runs once.
+	const stored = useCallback(() => {}, []);
+
 	useEffect(() => {
-		setOpen(false);
+		setOpenDesktop(false);
+		setOpenBrowser(false);
+		setOpenSecrets(false);
 		setAdding(false);
 		setImporting(false);
 		let gone = false;
@@ -629,9 +645,51 @@ function ComputerRows({
 			<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={current.enabled} disabled={disabled} onChange={(on) => onChange({ ...current, enabled: on })} />
 			{(current.enabled || state !== "absent") && (
 				<>
-					<FoldRow title="Desktop" value={words.value} open={open} onToggle={() => setOpen((was) => !was)} />
-					{open && (
+					<FoldRow title="Desktop" value={words.value} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} />
+					{openDesktop && (
 						<>
+							<div className={NESTED}>
+								<span className="group-row-text">
+									<span
+										className={`group-row-detail${refusal !== null ? " text-danger" : ""}`}
+										style={{ whiteSpace: "normal" }}
+									>
+										{refusal ?? words.action}
+									</span>
+								</span>
+								{state === "running" && (
+									<button type="button" className="control btn-quiet btn-sm" disabled={acting} onClick={() => void act("computer.stop")}>
+										Stop
+									</button>
+								)}
+								{state === "stopped" && (
+									<button type="button" className="control btn-quiet btn-sm" disabled={acting} onClick={() => void act("computer.remove")}>
+										Remove
+									</button>
+								)}
+							</div>
+							{status?.available !== undefined && (
+								<>
+									<div className={NESTED}>
+										<RowText title={`Running ${status.release ?? "an older release"}`} value={`${status.available} is available`} />
+										<span className="-my-1 flex">
+											<InfoKey about={UPDATE_ABOUT} label="About updating" open={updateTold} onToggle={() => setUpdateTold((was) => !was)} />
+										</span>
+										<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.update")}>
+											Update
+										</button>
+									</div>
+									{updateTold && (
+										<div className={NESTED}>
+											<span className="group-row-text">
+												<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+													{UPDATE_ABOUT}
+												</span>
+											</span>
+										</div>
+									)}
+								</>
+							)}
 							<div className={`${NESTED} flex-col items-stretch gap-1.5`}>
 								<label className="group-row-text" htmlFor="edit-computer-image">
 									<span className="group-row-title">Image</span>
@@ -689,6 +747,11 @@ function ComputerRows({
 									Mount a folder
 								</button>
 							)}
+						</>
+					)}
+					<FoldRow title="Browser" value="cookies and passkeys" open={openBrowser} onToggle={() => setOpenBrowser((was) => !was)} />
+					{openBrowser && (
+						<>
 							{importing ? (
 								<CookieImport
 									personaId={personaId}
@@ -705,54 +768,21 @@ function ComputerRows({
 								</button>
 							)}
 							<CookieImports personaId={personaId} disabled={disabled} refresh={importsVersion} />
-							<ComputerSecrets
-								granted={current.secrets ?? []}
-								disabled={disabled}
-								onChange={(next) => onChange(next.length === 0 ? without(current, "secrets") : { ...current, secrets: next })}
-							/>
-							{status?.available !== undefined && (
-								<>
-									<div className={NESTED}>
-										<RowText title={`Running ${status.release ?? "an older release"}`} value={`${status.available} is available`} />
-										<span className="-my-1 flex">
-											<InfoKey about={UPDATE_ABOUT} label="About updating" open={updateTold} onToggle={() => setUpdateTold((was) => !was)} />
-										</span>
-										<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.update")}>
-											Update
-										</button>
-									</div>
-									{updateTold && (
-										<div className={NESTED}>
-											<span className="group-row-text">
-												<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-													{UPDATE_ABOUT}
-												</span>
-											</span>
-										</div>
-									)}
-								</>
-							)}
-							<div className={NESTED}>
-								<span className="group-row-text">
-									<span
-										className={`group-row-detail${refusal !== null ? " text-danger" : ""}`}
-										style={{ whiteSpace: "normal" }}
-									>
-										{refusal ?? words.action}
-									</span>
-								</span>
-								{state === "running" && (
-									<button type="button" className="control btn-quiet btn-sm" disabled={acting} onClick={() => void act("computer.stop")}>
-										Stop
-									</button>
-								)}
-								{state === "stopped" && (
-									<button type="button" className="control btn-quiet btn-sm" disabled={acting} onClick={() => void act("computer.remove")}>
-										Remove
-									</button>
-								)}
-							</div>
+							<PasskeyArm personaId={personaId} teammate={teammate} disabled={disabled} onStored={stored} />
 						</>
+					)}
+					<FoldRow
+						title="Secrets"
+						value={granted.length === 0 ? "none ticked" : `${granted.length} ticked`}
+						open={openSecrets}
+						onToggle={() => setOpenSecrets((was) => !was)}
+					/>
+					{openSecrets && (
+						<ComputerSecrets
+							granted={granted}
+							disabled={disabled}
+							onChange={(next) => onChange(next.length === 0 ? without(current, "secrets") : { ...current, secrets: next })}
+						/>
 					)}
 				</>
 			)}
@@ -1022,15 +1052,17 @@ function McpRows({
 const SKILL_GRANT_MODES: { id: PolicyMode; name: string; detail: string }[] = [
 	{ id: "none", name: "None", detail: "Default for new teammates" },
 	{ id: "some", name: "Selected", detail: "Only the skills ticked below" },
-	{ id: "all", name: "All", detail: "Every gateway skill, including ones added later" },
+	{ id: "all", name: "All", detail: "Every offered skill, including ones offered later" },
 ];
 
 /**
- * Which of the gateway's skills this teammate is given, drawn like the MCP
- * rows: the row's value is the answer, the fold holds the grant and the
- * ticks. Under them, what the teammate has of its own: the built-ins every
- * teammate carries and the skills it wrote itself, read from its workspace
- * when the fold opens, so a skill it saved during the last turn is there.
+ * Which of the offered skills — the gateway's, and the person's own that are
+ * switched on under Settings → Skills — this teammate is given, drawn like
+ * the MCP rows: the row's value is the answer, the fold holds the grant and
+ * the ticks. Under them, what the teammate has of its own: the built-ins
+ * every teammate carries and the skills it wrote itself, read from its
+ * workspace when the fold opens, so a skill it saved during the last turn is
+ * there.
  */
 function SkillRows({
 	personaId,
@@ -1060,7 +1092,11 @@ function SkillRows({
 		};
 	}, [open, personaId]);
 
-	const gateway = entries.filter((one) => one.source === "gateway" && one.invalid === undefined);
+	// The gateway's valid entries and the person's own switched on, one per
+	// name: the gateway lists first, and a name it has is its own.
+	const offered = entries
+		.filter((one) => one.invalid === undefined && (one.source === "gateway" || (one.source === "home" && one.offered === true)))
+		.filter((one, index, all) => all.findIndex((other) => other.name === one.name) === index);
 	const own = entries.filter((one) => one.source === "workspace");
 	const computer = entries.find((one) => one.source === "computer");
 	const toggle = (name: string) => {
@@ -1082,7 +1118,7 @@ function SkillRows({
 							value={policy.mode}
 							choices={SKILL_GRANT_MODES}
 							placeholder="Grant"
-							label="Which gateway skills this teammate gets"
+							label="Which offered skills this teammate gets"
 							disabled={disabled}
 							onChange={(mode) => {
 								if (mode !== policy.mode) onChange({ ...policy, mode: mode as PolicyMode });
@@ -1090,12 +1126,12 @@ function SkillRows({
 						/>
 					</div>
 					{policy.mode === "some" &&
-						(gateway.length === 0 ? (
+						(offered.length === 0 ? (
 							<div className={NESTED}>
-								<RowText title="No skills yet" value="add one under Settings → Skills" />
+								<RowText title="No skills offered yet" value="switch one on under Settings → Skills" />
 							</div>
 						) : (
-							gateway.map((entry) => (
+							offered.map((entry) => (
 								<label key={entry.name} className={`${NESTED} group-row-choice`}>
 									<input
 										type="checkbox"

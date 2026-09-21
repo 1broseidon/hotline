@@ -341,6 +341,16 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
     .unwrap();
 
     let mut client = Client::connect(port).await;
+    // The person's own folder is the machine's; this room reads an empty one.
+    let nowhere = root.join("no-home-skills");
+    std::fs::create_dir_all(&nowhere).unwrap();
+    let pointed = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "skillsHome": nowhere.to_string_lossy() } }),
+        )
+        .await;
+    assert_eq!(pointed["ok"], true, "{pointed}");
     let created = client
         .call(
             "persona.create",
@@ -2213,4 +2223,147 @@ async fn a_draft_carrying_access_choices_lands_them_on_the_teammate() {
         .expect("Ada's record is on the room stream");
     assert!(ada.contains("\"backgroundWork\":true"), "{ada}");
     assert!(ada.contains("\"reach\":\"machine\""), "{ada}");
+}
+
+/// The person's own skills, in the standard folder or one the room names,
+/// are offered by switch and granted like the gateway's: listed with what
+/// is offered and what is wrong, read from where they are at every start
+/// with nothing written into the folder, and gone from a workspace at the
+/// next start once withdrawn.
+#[tokio::test]
+async fn the_persons_own_skills_are_offered_by_switch_and_granted_like_the_gateways() {
+    let (root, port) = open("skills-home").await;
+    let skill = |name: &str, when: &str| {
+        format!("---\nname: {name}\ndescription: Use when {when}.\n---\n\nDo the thing.\n")
+    };
+    let home = root.join("home-skills");
+    std::fs::create_dir_all(home.join("cut-release")).unwrap();
+    std::fs::write(
+        home.join("cut-release/SKILL.md"),
+        skill("cut-release", "cutting a release"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(home.join("Broken")).unwrap();
+    std::fs::write(home.join("Broken/SKILL.md"), skill("Broken", "nothing")).unwrap();
+    let workspace = root.join("ws");
+    std::fs::create_dir_all(&workspace).unwrap();
+
+    let mut client = Client::connect(port).await;
+    // The room names the folder; unset, it is the machine's own standard one.
+    let pointed = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "skillsHome": home.to_string_lossy() } }),
+        )
+        .await;
+    assert_eq!(pointed["ok"], true, "{pointed}");
+    let own = |listed: &Value| -> Vec<(String, Option<bool>, Option<String>)> {
+        listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|one| one["source"] == "home")
+            .map(|one| {
+                (
+                    one["name"].as_str().unwrap().to_string(),
+                    one["offered"].as_bool(),
+                    one["invalid"].as_str().map(str::to_string),
+                )
+            })
+            .collect()
+    };
+    let listed = client.call("skills.list", json!({})).await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    assert_eq!(
+        own(&listed),
+        [
+            (
+                "Broken".to_string(),
+                Some(false),
+                Some(
+                    "The name Broken may only have lowercase letters, digits and hyphens."
+                        .to_string()
+                )
+            ),
+            ("cut-release".to_string(), Some(false), None),
+        ]
+    );
+
+    let offered = client
+        .call(
+            "skills.offer",
+            json!({ "name": "cut-release", "offered": true }),
+        )
+        .await;
+    assert_eq!(offered["ok"], true, "{offered}");
+    assert_eq!(offered["result"]["source"], "home");
+    assert_eq!(offered["result"]["offered"], true);
+    assert_eq!(
+        offered["result"]["path"].as_str(),
+        Some(home.join("cut-release").to_string_lossy().as_ref())
+    );
+    let refused = client
+        .call("skills.offer", json!({ "name": "Broken", "offered": true }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused["error"].as_str().unwrap().contains("lowercase"));
+    let missing = client
+        .call("skills.offer", json!({ "name": "nope", "offered": true }))
+        .await;
+    assert_eq!(missing["ok"], false, "{missing}");
+    assert_eq!(
+        missing["error"],
+        "Your skills folder has no skill named nope."
+    );
+    let listed = client.call("skills.list", json!({})).await;
+    assert_eq!(
+        own(&listed)[1],
+        ("cut-release".to_string(), Some(true), None)
+    );
+
+    // Granted like a gateway skill, it is copied from the person's folder at
+    // the start, and the folder itself is never written.
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "cwd": workspace.to_string_lossy() } }),
+        )
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let granted = client
+        .call(
+            "persona.update",
+            json!({ "id": persona_id, "patch": { "skillPolicy": { "mode": "some", "names": ["cut-release"] } } }),
+        )
+        .await;
+    assert_eq!(granted["ok"], true, "{granted}");
+    let refused = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    let folder = workspace.join(".agents/skills");
+    assert!(folder.join("cut-release/SKILL.md").exists());
+    assert!(folder.join("cut-release/.managed-by-hotline").exists());
+    assert!(
+        !home.join("cut-release/.managed-by-hotline").exists(),
+        "the person's folder is read, never written"
+    );
+
+    // Withdrawn, it is gone from the workspace at the next start, and the
+    // grant by name stays for the day it is offered again.
+    let withdrawn = client
+        .call(
+            "skills.offer",
+            json!({ "name": "cut-release", "offered": false }),
+        )
+        .await;
+    assert_eq!(withdrawn["ok"], true, "{withdrawn}");
+    assert_eq!(withdrawn["result"]["offered"], false);
+    let refused = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(!folder.join("cut-release").exists());
+    assert!(home.join("cut-release/SKILL.md").exists());
 }

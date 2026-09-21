@@ -64,7 +64,6 @@ use crate::driver::{
 use crate::log::{Log, StreamId, thread};
 use crate::mcp;
 use crate::mcp::server::TeammateTools;
-use crate::paths;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
@@ -475,6 +474,11 @@ struct PasskeyArming {
     name: String,
     rp_id: String,
     expires_at: i64,
+    /// The site's request the card on the tape was raised for, once one
+    /// was, and whether that card has been answered — by the person, or
+    /// by a look that found the computer already past it.
+    asked: Option<crate::contract::PasskeyAsk>,
+    answered: bool,
     /// A look found it made and is storing it; another look meanwhile
     /// answers `armed` rather than storing it twice.
     storing: bool,
@@ -774,12 +778,16 @@ impl Room {
             )
         })?;
         // The skills the teammate may read are files in its workspace, for
-        // either driver: the built-ins and whatever the gateway grants it,
-        // copied under Hotline's marker so a revoked grant leaves nothing of
-        // Hotline's behind and nothing of the teammate's is ever touched.
+        // either driver: the built-ins and whatever it is granted of the
+        // offered ones, copied under Hotline's marker so a revoked grant
+        // leaves nothing of Hotline's behind and nothing of the teammate's is
+        // ever touched.
         crate::skills::materialize(
             Path::new(&persona.cwd),
-            &paths::skills_path(self.log.root()),
+            &crate::skills::Offering::from_settings(
+                self.log.root(),
+                &crate::room::settings(&self.log),
+            ),
             &persona.skill_policy,
         )
         .map_err(|error| format!("{}'s skills could not be written: {error}", persona.name))?;
@@ -1112,6 +1120,8 @@ impl Room {
                 name: name.to_owned(),
                 rp_id: rp_id.to_owned(),
                 expires_at,
+                asked: None,
+                answered: false,
                 storing: false,
                 stored: None,
             },
@@ -1122,14 +1132,17 @@ impl Room {
             name: Some(name.to_owned()),
             rp_id: Some(rp_id.to_owned()),
             expires_at: Some(expires_at),
+            ask: None,
             secret: None,
         })
     }
 
-    /// Where the making stands, for the pane's poll: `armed` while the
-    /// browser has not made it, `stored` with the record once it is —
-    /// answered once, whether this poll or the room's own watch found it —
-    /// and `idle` when there is nothing pending.
+    /// Where the making stands, for the pane's poll: `armed` while the site
+    /// has not asked, `asked` with the request while the card on the tape
+    /// waits for the person, `approved` while the browser makes it,
+    /// `stored` with the record once it is — answered once, whether this
+    /// poll or the room's own watch found it — and `idle` when there is
+    /// nothing pending.
     pub async fn secrets_passkey_registration(
         &self,
         persona_id: &str,
@@ -1143,26 +1156,36 @@ impl Room {
 
     /// One look at a teammate's arming: where the making stands, and
     /// whether there is anything left to watch. The look that finds the
-    /// passkey made stores it under the name the arming was for, ticks it
-    /// for the teammate, hands the computer its set — which is what keeps
-    /// the credential in the browser — ends the arming, and says so on the
-    /// tape; a look that arrives while that is under way answers `armed`.
+    /// site's request waiting raises the card on the teammate's tape and
+    /// tells the phones; the look that finds the passkey made stores it
+    /// under the name the arming was for, ticks it for the teammate, hands
+    /// the computer its set — which is what keeps the credential in the
+    /// browser — ends the arming, and says so on the tape; a look that
+    /// arrives while that is under way answers where it stood. A request
+    /// that went away with its page, an arming that ran out, and a computer
+    /// that stopped each leave the card expired rather than answerable.
     async fn look_at_passkey_arming(
         &self,
         persona_id: &str,
     ) -> Result<(PasskeyRegistration, bool), String> {
+        use crate::computer::passkeys::Registration;
+        use crate::contract::PasskeyAsk;
         let idle = PasskeyRegistration {
             state: PasskeyRegistrationState::Idle,
             name: None,
             rp_id: None,
             expires_at: None,
+            ask: None,
             secret: None,
         };
-        let armed = |arming: &PasskeyArming| PasskeyRegistration {
-            state: PasskeyRegistrationState::Armed,
+        let standing = |arming: &PasskeyArming,
+                        state: PasskeyRegistrationState,
+                        ask: Option<PasskeyAsk>| PasskeyRegistration {
+            state,
             name: Some(arming.name.clone()),
             rp_id: Some(arming.rp_id.clone()),
             expires_at: Some(arming.expires_at),
+            ask,
             secret: None,
         };
         let stored =
@@ -1171,6 +1194,7 @@ impl Room {
                 name: Some(arming.name.clone()),
                 rp_id: Some(arming.rp_id.clone()),
                 expires_at: None,
+                ask: None,
                 secret: Some(secret),
             };
         let Some(arming) = lock(&self.passkey_armings).get(persona_id).cloned() else {
@@ -1180,16 +1204,21 @@ impl Room {
             return Ok((stored(&arming, secret), false));
         }
         if arming.storing {
-            return Ok((armed(&arming), true));
+            let state = if arming.asked.is_some() {
+                PasskeyRegistrationState::Approved
+            } else {
+                PasskeyRegistrationState::Armed
+            };
+            return Ok((standing(&arming, state, arming.asked.clone()), true));
         }
         let Some(ready) = self.computers.running(persona_id).await else {
-            lock(&self.passkey_armings).remove(persona_id);
+            self.drop_passkey_arming(persona_id);
             return Err("The computer stopped before a passkey was made. Start again.".to_string());
         };
         let polled = match crate::computer::passkeys::poll(&ready).await {
             Ok(polled) => polled,
             Err(crate::computer::secrets::Refusal::TooOld) => {
-                lock(&self.passkey_armings).remove(persona_id);
+                self.drop_passkey_arming(persona_id);
                 return Err("The computer is on a release that cannot make passkeys.".to_string());
             }
             Err(crate::computer::secrets::Refusal::Failed(reason)) => {
@@ -1197,12 +1226,56 @@ impl Room {
             }
         };
         match polled {
-            crate::computer::passkeys::Registration::Idle => {
-                lock(&self.passkey_armings).remove(persona_id);
+            Registration::Idle => {
+                self.drop_passkey_arming(persona_id);
                 Ok((idle, false))
             }
-            crate::computer::passkeys::Registration::Armed { .. } => Ok((armed(&arming), true)),
-            crate::computer::passkeys::Registration::Registered { credential, .. } => {
+            Registration::Armed { .. } => {
+                // The request the card was raised for is gone: its page went
+                // away before anyone answered.
+                if arming.asked.is_some() {
+                    self.expire_passkey_card(persona_id, &arming);
+                    if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+                        live.asked = None;
+                        live.answered = false;
+                    }
+                }
+                Ok((
+                    standing(&arming, PasskeyRegistrationState::Armed, None),
+                    true,
+                ))
+            }
+            Registration::Asked { ask, .. } => {
+                let known = arming
+                    .asked
+                    .as_ref()
+                    .is_some_and(|known| known.id == ask.id);
+                if !known {
+                    self.expire_passkey_card(persona_id, &arming);
+                    if let Some(live) = lock(&self.passkey_armings).get_mut(persona_id) {
+                        live.asked = Some(ask.clone());
+                        live.answered = false;
+                    }
+                    self.raise_passkey_card(persona_id, &arming, &ask);
+                }
+                Ok((
+                    standing(&arming, PasskeyRegistrationState::Asked, Some(ask)),
+                    true,
+                ))
+            }
+            Registration::Approved { ask, .. } => {
+                self.note_passkey_answer(persona_id, &arming, &ask, true);
+                Ok((
+                    standing(&arming, PasskeyRegistrationState::Approved, Some(ask)),
+                    true,
+                ))
+            }
+            Registration::Registered {
+                credential, ask, ..
+            } => {
+                if let Some(ask) = &ask {
+                    self.note_passkey_answer(persona_id, &arming, ask, true);
+                }
                 {
                     let mut armings = lock(&self.passkey_armings);
                     match armings.get_mut(persona_id) {
@@ -1211,7 +1284,7 @@ impl Room {
                         Some(live) => {
                             let answer = match live.stored.clone() {
                                 Some(secret) => stored(&arming, secret),
-                                None => armed(&arming),
+                                None => standing(&arming, PasskeyRegistrationState::Approved, ask),
                             };
                             let more = live.stored.is_none();
                             return Ok((answer, more));
@@ -1240,7 +1313,7 @@ impl Room {
                                 ts: now_ms(),
                                 level: NoticeLevel::Warn,
                                 text: format!(
-                                    "The passkey for {} was made in the browser but could not be stored, so it is not kept: {error} Arm it again from Settings → Secrets.",
+                                    "The passkey for {} was made in the browser but could not be stored, so it is not kept: {error} Arm it again from the teammate's pane.",
                                     arming.rp_id
                                 ),
                             },
@@ -1250,6 +1323,170 @@ impl Room {
                 }
             }
         }
+    }
+
+    /// The person's answer to the passkey card on `persona_id`'s tape: the
+    /// site's request, parked in the browser, is approved — the browser
+    /// makes the passkey and the room's watch stores it — or denied, which
+    /// ends the arming. One answer to one request: a request that is not
+    /// waiting any more is refused, so a stale card cannot let one through.
+    pub async fn secrets_passkey_answer(
+        &self,
+        persona_id: &str,
+        ask_id: &str,
+        approved: bool,
+    ) -> Result<PasskeyRegistration, String> {
+        let persona = self.persona(persona_id)?;
+        let arming = lock(&self.passkey_armings)
+            .get(persona_id)
+            .cloned()
+            .ok_or_else(|| format!("No passkey request is waiting for {}.", persona.name))?;
+        let Some(ask) = arming.asked.clone().filter(|ask| ask.id == ask_id) else {
+            return Err("That passkey request is not waiting any more.".to_string());
+        };
+        if arming.answered {
+            return Err("That passkey request was already answered.".to_string());
+        }
+        let Some(ready) = self.computers.running(persona_id).await else {
+            self.drop_passkey_arming(persona_id);
+            return Err("The computer stopped before the request was answered.".to_string());
+        };
+        match crate::computer::passkeys::answer(&ready, ask_id, approved).await {
+            Ok(_) => {}
+            Err(crate::computer::secrets::Refusal::TooOld) => {
+                return Err(
+                    "The computer is on a release that does not ask before making a passkey."
+                        .to_string(),
+                );
+            }
+            Err(crate::computer::secrets::Refusal::Failed(reason)) => {
+                return Err(format!("The computer could not take the answer. {reason}"));
+            }
+        }
+        self.note_passkey_answer(persona_id, &arming, &ask, approved);
+        if approved {
+            let (answer, _) = self.look_at_passkey_arming(persona_id).await?;
+            Ok(answer)
+        } else {
+            lock(&self.passkey_armings).remove(persona_id);
+            Ok(PasskeyRegistration {
+                state: PasskeyRegistrationState::Idle,
+                name: None,
+                rp_id: None,
+                expires_at: None,
+                ask: None,
+                secret: None,
+            })
+        }
+    }
+
+    /// Raises the card for a site's request on the teammate's tape, and
+    /// tells the phones the teammate needs someone.
+    fn raise_passkey_card(
+        &self,
+        persona_id: &str,
+        arming: &PasskeyArming,
+        ask: &crate::contract::PasskeyAsk,
+    ) {
+        self.write_passkey_card(
+            persona_id,
+            &arming.name,
+            ask,
+            crate::contract::PasskeyAskStatus::Pending,
+        );
+        let account = match (&ask.user_name, &ask.user_display_name) {
+            (Some(name), Some(display)) if display != name => format!(" for {name} ({display})"),
+            (Some(name), _) => format!(" for {name}"),
+            (None, Some(display)) => format!(" for {display}"),
+            (None, None) => String::new(),
+        };
+        self.push.notify(
+            &self.needs_you(persona_id),
+            &format!(
+                "{} asks to make a passkey{account}. Approve or deny it on the tape.",
+                ask.rp_id
+            ),
+            persona_id,
+        );
+    }
+
+    /// The card's afterlife once the request is answered — by the person
+    /// here, or found answered at the computer — written once.
+    fn note_passkey_answer(
+        &self,
+        persona_id: &str,
+        arming: &PasskeyArming,
+        ask: &crate::contract::PasskeyAsk,
+        approved: bool,
+    ) {
+        {
+            let mut armings = lock(&self.passkey_armings);
+            let Some(live) = armings.get_mut(persona_id) else {
+                return;
+            };
+            let known = live.asked.as_ref().is_some_and(|known| known.id == ask.id);
+            if known && live.answered {
+                return;
+            }
+            live.asked = Some(ask.clone());
+            live.answered = true;
+        }
+        self.write_passkey_card(
+            persona_id,
+            &arming.name,
+            ask,
+            if approved {
+                crate::contract::PasskeyAskStatus::Approved
+            } else {
+                crate::contract::PasskeyAskStatus::Denied
+            },
+        );
+    }
+
+    /// A card nobody answered, for a request that is gone.
+    fn expire_passkey_card(&self, persona_id: &str, arming: &PasskeyArming) {
+        if arming.answered {
+            return;
+        }
+        if let Some(ask) = &arming.asked {
+            self.write_passkey_card(
+                persona_id,
+                &arming.name,
+                ask,
+                crate::contract::PasskeyAskStatus::Expired,
+            );
+        }
+    }
+
+    /// Lets an arming go, expiring the card it raised if nobody answered.
+    fn drop_passkey_arming(&self, persona_id: &str) {
+        if let Some(arming) = lock(&self.passkey_armings).remove(persona_id) {
+            self.expire_passkey_card(persona_id, &arming);
+        }
+    }
+
+    fn write_passkey_card(
+        &self,
+        persona_id: &str,
+        name: &str,
+        ask: &crate::contract::PasskeyAsk,
+        status: crate::contract::PasskeyAskStatus,
+    ) {
+        self.write(
+            persona_id,
+            &TranscriptEvent::PasskeyAsk {
+                id: format!("passkey-ask:{}", ask.id),
+                ts: now_ms(),
+                ask_id: ask.id.clone(),
+                name: name.to_owned(),
+                rp_id: ask.rp_id.clone(),
+                origin: ask.origin.clone(),
+                rp_name: ask.rp_name.clone(),
+                user_name: ask.user_name.clone(),
+                user_display_name: ask.user_display_name.clone(),
+                status,
+            },
+        );
     }
 
     /// Keeps what the browser minted: stored in the vault under the
@@ -1319,10 +1556,10 @@ impl Room {
         Ok(secret)
     }
 
-    /// Ends an arming without a passkey. A computer that is not running has
-    /// nothing to end.
+    /// Ends an arming without a passkey; a card nobody answered expires
+    /// with it. A computer that is not running has nothing to end.
     pub async fn secrets_passkey_cancel(&self, persona_id: &str) -> Result<(), String> {
-        lock(&self.passkey_armings).remove(persona_id);
+        self.drop_passkey_arming(persona_id);
         if let Some(ready) = self.computers.running(persona_id).await
             && let Err(crate::computer::secrets::Refusal::Failed(reason)) =
                 crate::computer::passkeys::disarm(&ready).await

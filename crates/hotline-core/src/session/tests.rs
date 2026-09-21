@@ -1411,6 +1411,16 @@ async fn computer_room(
     }
 }
 
+/// The passkey cards on a teammate's tape, oldest first, each as its
+/// latest word.
+#[cfg(unix)]
+fn passkey_cards(room: &Room, persona_id: &str) -> Vec<Value> {
+    tape(room, persona_id)
+        .into_iter()
+        .filter(|event| event["kind"] == "passkey_ask")
+        .collect()
+}
+
 /// The notices on a teammate's tape, oldest first.
 #[cfg(unix)]
 fn notices(room: &Room, persona_id: &str) -> Vec<String> {
@@ -1638,11 +1648,57 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
         "nothing stored yet"
     );
 
-    // The person adds a passkey in the browser: the look that finds it made
-    // — this poll's, or the room's own — stores it, and the poll is told.
+    // The person presses "add a passkey" on the site: the request waits
+    // in the browser, and the look that finds it raises the card on ada's
+    // tape with what the site asked for. Nothing is stored while it waits.
+    let first = taken.ask();
+    let asked = registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    let ask = asked.ask.expect("the site's request");
+    assert_eq!(ask.id, first);
+    assert_eq!(ask.user_name.as_deref(), Some("teammate"));
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    assert_eq!(cards[0]["status"], "pending");
+    assert_eq!(cards[0]["askId"], first);
+    assert_eq!(cards[0]["name"], "GITHUB_PASSKEY");
+    assert_eq!(cards[0]["rpId"], "github.com");
+    assert_eq!(cards[0]["origin"], "https://github.com");
+    assert_eq!(cards[0]["rpName"], "The site");
+    assert_eq!(cards[0]["userName"], "teammate");
+    assert_eq!(cards[0]["userDisplayName"], "The teammate");
+    assert!(
+        vault.shared_secrets().unwrap().is_empty(),
+        "nothing is stored while the card waits"
+    );
+    assert_eq!(taken.answered(), None);
+    // An answer names the request; a stale card cannot let one through.
+    assert!(
+        room.secrets_passkey_answer("ada", "ask-9", true)
+            .await
+            .is_err()
+    );
+    assert_eq!(taken.answered(), None);
+    // Approved on the tape, the browser makes it: the look that finds it
+    // made — this poll's, or the room's own — stores it, and the poll is
+    // told. One answer to one request.
+    let approved = room
+        .secrets_passkey_answer("ada", &first, true)
+        .await
+        .unwrap();
+    assert_eq!(approved.state, PasskeyRegistrationState::Approved);
+    assert_eq!(taken.answered(), Some(true));
+    assert_eq!(passkey_cards(&room, "ada")[0]["status"], "approved");
+    assert!(
+        room.secrets_passkey_answer("ada", &first, true)
+            .await
+            .is_err()
+    );
     taken.mint();
     let stored = registration_until(&room, "ada", PasskeyRegistrationState::Stored).await;
     let secret = stored.secret.expect("the record, as listed");
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 1, "the card is one card: {cards:?}");
+    assert_eq!(cards[0]["status"], "approved");
     assert_eq!(secret.name, "GITHUB_PASSKEY");
     assert_eq!(secret.kind, SharedSecretKind::Passkey);
     assert_eq!(secret.rp_id.as_deref(), Some("github.com"));
@@ -1678,11 +1734,14 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
     assert!(!on_room.contains(KEY_BASE64), "{on_room}");
     assert!(!on_room.contains("AQID"), "{on_room}");
 
-    // A cancel ends an arming with nothing stored.
+    // A cancel ends an arming with nothing stored, and a card nobody
+    // answered expires with it.
     room.secrets_passkey_register("GITLAB_PASSKEY", "ada", "gitlab.com")
         .await
         .unwrap();
     assert_eq!(taken.armed().as_deref(), Some("gitlab.com"));
+    taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
     room.secrets_passkey_cancel("ada").await.unwrap();
     assert_eq!(taken.armed(), None);
     assert_eq!(
@@ -1693,6 +1752,10 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
         PasskeyRegistrationState::Idle
     );
     assert_eq!(vault.shared_secrets().unwrap().len(), 1);
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 2, "{cards:?}");
+    assert_eq!(cards[1]["name"], "GITLAB_PASSKEY");
+    assert_eq!(cards[1]["status"], "expired");
 
     // A release from before passkeys has no door for one, and is named.
     let ComputerRoom { room, taken, .. } =
@@ -1904,6 +1967,28 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
         .await
         .unwrap();
     assert!(vault.shared_secrets().unwrap().is_empty());
+    // The site asks: the room's own watch raises the card.
+    let ask = taken.ask();
+    let mut cards = Vec::new();
+    for _ in 0..100 {
+        cards = passkey_cards(&room, "ada");
+        if !cards.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        cards.len(),
+        1,
+        "the room raised the card with nothing polling"
+    );
+    assert_eq!(cards[0]["status"], "pending");
+    assert_eq!(cards[0]["askId"], ask);
+    // Answered, from whichever seat: the browser makes it, and the watch
+    // stores it.
+    room.secrets_passkey_answer("ada", &ask, true)
+        .await
+        .unwrap();
     taken.mint();
     let mut listed = Vec::new();
     for _ in 0..100 {
@@ -1954,8 +2039,89 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
     );
 }
 
+/// Denied on the tape, the site hears no and the arming is over: nothing
+/// is stored, the card says denied, and nothing answers twice. A request
+/// that leaves with its page — the person navigated away — expires its
+/// card, and the arming goes on for the next request.
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.8.3"},{"tag_name":"v0.8.1"}]"#;
+#[tokio::test]
+async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires() {
+    use crate::contract::PasskeyRegistrationState;
+    let ComputerRoom { room, taken, .. } =
+        computer_room("computer-passkey-denied", Some("0.9.1"), TWO_RELEASES, true).await;
+    let vault = room.vault.as_ref().unwrap();
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let first = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    let denied = room
+        .secrets_passkey_answer("ada", &first, false)
+        .await
+        .unwrap();
+    assert_eq!(denied.state, PasskeyRegistrationState::Idle);
+    assert_eq!(taken.armed(), None);
+    assert!(vault.shared_secrets().unwrap().is_empty());
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    assert_eq!(cards[0]["status"], "denied");
+    let refused = room
+        .secrets_passkey_answer("ada", &first, true)
+        .await
+        .unwrap_err();
+    assert!(
+        refused.contains("No passkey request is waiting"),
+        "{refused}"
+    );
+    assert_eq!(
+        room.secrets_passkey_registration("ada")
+            .await
+            .unwrap()
+            .state,
+        PasskeyRegistrationState::Idle
+    );
+    assert!(
+        room.persona("ada")
+            .unwrap()
+            .computer
+            .unwrap()
+            .secrets
+            .unwrap_or_default()
+            .is_empty(),
+        "nothing ticked"
+    );
+
+    // Lost with its page: the card expires, the arming stays.
+    room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
+        .await
+        .unwrap();
+    let second = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    taken.page_left();
+    let armed = registration_until(&room, "ada", PasskeyRegistrationState::Armed).await;
+    assert_eq!(armed.ask, None);
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 2, "{cards:?}");
+    assert_eq!(cards[1]["askId"], second);
+    assert_eq!(cards[1]["status"], "expired");
+    let refused = room
+        .secrets_passkey_answer("ada", &second, true)
+        .await
+        .unwrap_err();
+    assert!(refused.contains("not waiting any more"), "{refused}");
+    // The next request is a new card.
+    let third = taken.ask();
+    registration_until(&room, "ada", PasskeyRegistrationState::Asked).await;
+    let cards = passkey_cards(&room, "ada");
+    assert_eq!(cards.len(), 3, "{cards:?}");
+    assert_eq!(cards[2]["askId"], third);
+    assert_eq!(cards[2]["status"], "pending");
+    room.secrets_passkey_cancel("ada").await.unwrap();
+    assert_eq!(passkey_cards(&room, "ada")[2]["status"], "expired");
+}
+
+#[cfg(unix)]
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.9.2"},{"tag_name":"v0.9.0"}]"#;
 
 /// The command names the scripted runtime was given, in order.
 #[cfg(unix)]
@@ -2089,29 +2255,29 @@ async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks() {
-    let fresh = computer_room("computer-newest", Some("0.8.3"), TWO_RELEASES, false).await;
+    let fresh = computer_room("computer-newest", Some("0.9.2"), TWO_RELEASES, false).await;
     fresh.room.start("ada").await.unwrap();
     let created = runtime_commands(&fresh.root)
         .into_iter()
         .find(|line| line.starts_with("create "))
         .unwrap();
     assert!(
-        created.contains("ghcr.io/1broseidon/hotline-computer:0.8.3"),
+        created.contains("ghcr.io/1broseidon/hotline-computer:0.9.2"),
         "{created}"
     );
     assert_eq!(fresh.asked.load(std::sync::atomic::Ordering::SeqCst), 1);
     let status = fresh.room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release.as_deref(), Some("0.8.3"));
+    assert_eq!(status.release.as_deref(), Some("0.9.2"));
     assert_eq!(status.available, None);
     let known = fresh.room.computer_releases();
     assert_eq!(known.floor, crate::computer::COMPUTER_VERSION);
     assert_eq!(known.repository, crate::computer::COMPUTER_REPOSITORY);
-    assert_eq!(known.newest.as_deref(), Some("0.8.3"));
-    assert_eq!(known.releases, ["0.8.3", "0.8.1"]);
+    assert_eq!(known.newest.as_deref(), Some("0.9.2"));
+    assert_eq!(known.releases, ["0.9.2", "0.9.0"]);
     assert!(known.checked_at.is_some(), "{known:?}");
     assert_eq!(known.error, None);
 
-    let pinned = computer_room("computer-pinned", Some("0.8.3"), TWO_RELEASES, true).await;
+    let pinned = computer_room("computer-pinned", Some("0.9.2"), TWO_RELEASES, true).await;
     pinned.room.start("ada").await.unwrap();
     let created = runtime_commands(&pinned.root)
         .into_iter()
@@ -2130,7 +2296,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
 #[cfg(unix)]
 #[tokio::test]
 async fn offline_a_fresh_computer_is_created_on_the_floor() {
-    let offline = computer_room("computer-offline", Some("0.8.1"), "not a list", false).await;
+    let offline = computer_room("computer-offline", Some("0.9.0"), "not a list", false).await;
     offline.room.start("ada").await.unwrap();
     let created = runtime_commands(&offline.root)
         .into_iter()
@@ -2154,7 +2320,7 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
 #[tokio::test]
 async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
     use std::sync::atomic::Ordering;
-    let desk = computer_room("computer-check-now", Some("0.8.1"), TWO_RELEASES, false).await;
+    let desk = computer_room("computer-check-now", Some("0.9.0"), TWO_RELEASES, false).await;
     desk.room.start("ada").await.unwrap();
     assert_eq!(desk.asked.load(Ordering::SeqCst), 1);
     let checked = desk.room.computer_releases_check().await;
@@ -2163,10 +2329,10 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
         2,
         "the button does not wait six hours"
     );
-    assert_eq!(checked.releases, ["0.8.3", "0.8.1"]);
+    assert_eq!(checked.releases, ["0.9.2", "0.9.0"]);
     assert_eq!(checked.error, None);
 
-    let offline = computer_room("computer-check-offline", Some("0.8.1"), "not a list", false).await;
+    let offline = computer_room("computer-check-offline", Some("0.9.0"), "not a list", false).await;
     let refused = offline.room.computer_releases_check().await;
     assert_eq!(refused.newest, None);
     assert!(refused.releases.is_empty());
@@ -2191,7 +2357,7 @@ async fn an_older_computer_is_offered_the_newest_release_on_the_six_hour_clock()
     older.room.start("ada").await.unwrap();
     let status = older.room.computer_status("ada").await.unwrap();
     assert_eq!(status.release.as_deref(), Some("0.8.0"));
-    assert_eq!(status.available.as_deref(), Some("0.8.3"));
+    assert_eq!(status.available.as_deref(), Some("0.9.2"));
 
     let asked_at_start = older.asked.load(Ordering::SeqCst);
     let now = now_ms();

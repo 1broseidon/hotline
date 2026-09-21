@@ -141,8 +141,9 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `secrets.login.set` | `{name, sites, username, password, totp?}` | the `SharedSecret` stored, a login; the password and seed are never answered back |
 | `secrets.delete` | `{name}` | none |
 | `secrets.passkey.register` | `{name, personaId, rpId}` | `PasskeyRegistration` `{state: "armed", name, rpId, expiresAt}` — that teammate's computer is armed for ten minutes to make one passkey for `rpId` |
-| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "stored", name?, rpId?, expiresAt?, secret?}` — where the making stands; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
-| `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored |
+| `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "asked" \| "approved" \| "stored", name?, rpId?, expiresAt?, ask?, secret?}` — where the making stands; `asked` and `approved` carry the site's request `{id, rpId, origin, rpName?, userName?, userDisplayName?, askedAt}`, which waits for the card on the teammate's tape; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
+| `secrets.passkey.answer` | `{personaId, askId, approved}` | `PasskeyRegistration` — the person's answer to the passkey card: approved, the browser makes it (`approved`, then `stored` once the room has it); denied, the arming ends (`idle`). Refused when no such request is waiting. The phone may send this one |
+| `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored; a card nobody answered expires |
 
 `computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
 `computer.cookies.list` and `computer.cookies.forget` are the operator's cookie
@@ -174,21 +175,31 @@ variable in a granted computer. A login (`login.set`) is one or more sites —
 least eight characters, and optionally a TOTP seed, which a granted computer
 types into a form only on a page of those sites when the teammate asks for
 `NAME.username`, `NAME.password` or `NAME.code` by name. A passkey is never
-sent in: `secrets.passkey.register` arms one teammate's computer for one
-site, `rpId` a lower-case host name, for ten minutes, starting the computer
-if it is stopped, and the room then watches that arming by itself, every
-two seconds until it ends: the look that finds the browser has minted a
-credential under it stores it under `name`, ticks `name` on that teammate's
-`persona.computer.secrets`, hands the computer its set, ends the arming and
-writes a notice on the teammate's tape, whatever pane is open — the passkey
-is made from the teammate's screen, or by the teammate, so no pane's poll
-is running at that moment. `secrets.passkey.registration` answers where it
-stands, `stored` with the record once; `secrets.passkey.cancel` ends an
-arming with nothing stored. The store is write-only from the window:
-`set` and `login.set` answer the record, `list` answers names, kinds and what
-each is for, `registration` answers the record once stored, and no command,
-subscription or room event ever carries a value or a private key. All seven
-are desk seat only. Which teammate may use which secret is
+sent in: `secrets.passkey.register`, from the teammate's pane, arms that
+teammate's computer for one site, `rpId` a lower-case host name, for ten
+minutes, starting the computer if it is stopped, and the room then watches
+that arming by itself, every two seconds until it ends. Under the arming,
+the site's own request to make a passkey waits in the browser: the look
+that finds it writes a `passkey_ask` card on the teammate's tape — the
+site, the origin, the account the site named — and tells the phones, and
+`secrets.passkey.answer` is the person's answer to that card, from the
+desk or the phone. Approved, the browser makes it, and the look that finds
+the credential minted stores it under `name`, ticks `name` on that
+teammate's `persona.computer.secrets`, hands the computer its set, ends
+the arming and writes a notice on the teammate's tape, whatever pane is
+open — the passkey is made from the teammate's screen, or by the teammate,
+so no pane's poll is running at that moment. Denied, the site hears no and
+the arming ends. A request that leaves with its page, an arming that runs
+out or is cancelled, and a computer that stops each leave the card
+expired. `secrets.passkey.registration` answers where it stands, `stored`
+with the record once; `secrets.passkey.cancel` ends an arming with nothing
+stored. The store is write-only from the window: `set` and `login.set`
+answer the record, `list` answers names, kinds and what each is for,
+`registration` answers the record once stored, and no command,
+subscription or room event ever carries a value or a private key. All but
+`answer` are desk seat only; `answer` is one answer to one request the
+person armed for at the desk, so the phone may give it, as it may answer a
+permission card. Which teammate may use which secret is
 `persona.computer.secrets` through `persona.update`; a change to a stored
 secret also hands every running computer the set its teammate is granted
 now, so a rotation or a revocation lands without a restart (see

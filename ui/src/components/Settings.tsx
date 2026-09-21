@@ -4,7 +4,7 @@ import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
-import type { McpOAuthStatus, RosterEntry } from "../wire";
+import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -88,7 +88,7 @@ export function SettingsRail({
  * at a time, chosen in the rail, each a column of grouped rows. What a
  * teammate is, is not here; that is the teammate's own pane.
  */
-export function Settings({ section, roster, onBack }: { section: SettingsSection; roster: RosterEntry[]; onBack?: () => void }) {
+export function Settings({ section, onBack }: { section: SettingsSection; onBack?: () => void }) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -102,7 +102,7 @@ export function Settings({ section, roster, onBack }: { section: SettingsSection
 	if (section === "providers") return <ProvidersSection enabledModels={settings.enabledModels} onBack={onBack} />;
 	if (section === "tools") return <ToolsSection servers={settings.mcpServers} onBack={onBack} />;
 	if (section === "skills") return <SkillsSection onBack={onBack} />;
-	if (section === "secrets") return <SecretsSection roster={roster} onBack={onBack} />;
+	if (section === "secrets") return <SecretsSection onBack={onBack} />;
 
 	return (
 		<div className="pane">

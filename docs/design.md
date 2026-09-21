@@ -350,22 +350,32 @@ skill, because it is all an agent sees before deciding to read the body. A
 folder that breaks those rules is listed as invalid with the reason, never
 silently skipped.
 
-A skill has three sources and one channel. **Built-in** skills are bundled
+A skill has four sources and one channel. **Built-in** skills are bundled
 in `hotline-core` under `skills/` and are always on: Hotline's own procedures for
-its room and, when a teammate has one, its computer. The **gateway** is the
-operator's folder, `skills/` in the data directory, granted per teammate
-with the same none / some / all policy MCP servers use; a new teammate gets
-none, and all includes skills added later. **Workspace** skills are whatever
-is in the teammate's own `.agents/skills`, put there by the person or by the
-teammate itself. The channel is the workspace: on session start and on a
-grant change, Hotline copies the built-ins and the granted gateway skills into
+its room and, when a teammate has one, its computer. The person's **own**
+folder is `~/.agents/skills`, the standard place other agents on the machine
+read too, or another folder the room's `skillsHome` names; Hotline reads it
+where it is and copies nothing in, and each entry is offered to teammates by
+a switch under Settings → Skills (the `offeredSkills` setting), so a skill the
+person keeps for their other agents is one switch away from their teammates
+and an edit there is what the teammate reads at its next start. The
+**gateway** is the operator's folder, `skills/` in the data directory, for a
+skill from anywhere else: a folder the person picks is copied in under its
+name, and everything valid there is offered. What is offered — the gateway's
+and the person's own switched on — is granted per teammate with the same
+none / some / all policy MCP servers use; a new teammate gets none, and all
+includes skills offered later. **Workspace** skills are whatever is in the
+teammate's own `.agents/skills`, put there by the person or by the teammate
+itself. The channel is the workspace: on session start and on a grant
+change, Hotline copies the built-ins and the granted skills into
 `<cwd>/.agents/skills/`, so Hotline Agent reads them with its workspace tools
 inside its reach and an ACP child reads them with its own. Copies, not
 links, because a workspace mounted into a computer has to carry them. What
 Hotline copied it marks, and the `AGENTS.md` rule applies: Hotline replaces and
 removes only an entry carrying its marker, so a skill the person or the
 teammate wrote is never touched, and revoking a grant leaves nothing of
-Hotline's behind.
+Hotline's behind. A name the gateway has is the gateway's: the person's own of
+the same name is listed, but not the one a grant of that name copies.
 
 The preamble carries the index — each skill's name, description and path —
 and nothing else about skills. That is the progressive disclosure the format

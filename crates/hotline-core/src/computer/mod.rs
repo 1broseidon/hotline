@@ -63,13 +63,35 @@ const NIX_MOUNT: &str = "/nix";
 const NIX_VOLUME: &str = "hotline-nix-glibc";
 const DEFAULT_MEMORY: &str = "4g";
 const DEFAULT_PIDS: u32 = 1024;
-const PULL_NOTICE: &str = "Pulling the computer image …";
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_PROBE: Duration = Duration::from_secs(2);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const PULL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// One step of an image pull, as the runtime's own output tells it: how
+/// many layers it named, how many have landed, and whether it is over.
+///
+/// The desk never asks the registry for sizes; it reads the lines `docker
+/// pull` and `podman pull` print for a terminal that is not one, which name
+/// each layer as it starts and as it finishes. A runtime whose lines the
+/// desk does not read leaves `layers_total` at zero: the pull is still
+/// reported, as started and as over, with nothing to count in between.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PullReport {
+    pub image: String,
+    pub layers_done: u32,
+    pub layers_total: u32,
+    pub outcome: PullOutcome,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PullOutcome {
+    Pulling,
+    Done { elapsed_ms: i64 },
+    Failed,
+}
 
 /// What the grant and the in-process client need once the machine is up.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -266,7 +288,7 @@ impl Computer {
         workspace_cwd: &str,
         prefer: Option<Runtime>,
         room_image: Option<&str>,
-        mut notice: impl FnMut(&str),
+        report: impl FnMut(PullReport),
     ) -> Result<Ready, String> {
         let (runtime, cmd) = pick_runtime(prefer, &self.bins).await?;
         let name = container_name(&persona.id);
@@ -296,8 +318,7 @@ impl Computer {
             }
             let image = self.image_for(persona, room_image);
             if !image_present(&cmd, runtime, &image).await {
-                notice(PULL_NOTICE);
-                pull(&cmd, runtime, &image).await?;
+                pull(&cmd, runtime, &image, report).await?;
             }
             let args = create_args(runtime, &name, &image, &token, &cwd, persona)?;
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -840,10 +861,176 @@ async fn image_present(cmd: &Path, _runtime: Runtime, image: &str) -> bool {
         .is_ok()
 }
 
-async fn pull(cmd: &Path, runtime: Runtime, image: &str) -> Result<String, String> {
-    match runtime {
-        Runtime::AppleContainer => run(cmd, &["image", "pull", image], PULL_TIMEOUT).await,
-        _ => run(cmd, &["pull", image], PULL_TIMEOUT).await,
+/// Pulls the image, reporting each layer the runtime names as it lands.
+///
+/// The runtime's stdout and stderr are read line by line while it runs —
+/// Docker writes its progress to stdout, Podman to stderr — and every line
+/// that changes the tally is reported at once. The first report goes out
+/// before the first line, so the tape shows the pull the moment it starts,
+/// and the last says done or failed with the same counts.
+async fn pull(
+    cmd: &Path,
+    runtime: Runtime,
+    image: &str,
+    mut report: impl FnMut(PullReport),
+) -> Result<(), String> {
+    let args: &[&str] = match runtime {
+        Runtime::AppleContainer => &["image", "pull", image],
+        _ => &["pull", image],
+    };
+    let started = std::time::Instant::now();
+    let mut tally = PullTally::new(runtime);
+    let progress = |tally: &PullTally, outcome: PullOutcome| PullReport {
+        image: image.to_string(),
+        layers_done: tally.done(),
+        layers_total: tally.total(),
+        outcome,
+    };
+    report(progress(&tally, PullOutcome::Pulling));
+
+    let mut child = Command::new(cmd)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("{} could not be started: {error}", cmd.display()))?;
+    let stdout = child.stdout.take().expect("stdout was piped");
+    let stderr = child.stderr.take().expect("stderr was piped");
+    let (lines, mut heard) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let readers = tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let out = lines.clone();
+        let from_stdout = async move {
+            let mut lines_of = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines_of.next_line().await {
+                if out.send(line).is_err() {
+                    break;
+                }
+            }
+        };
+        let from_stderr = async move {
+            let mut lines_of = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines_of.next_line().await {
+                if lines.send(line).is_err() {
+                    break;
+                }
+            }
+        };
+        tokio::join!(from_stdout, from_stderr);
+    });
+    let mut tail: Vec<String> = Vec::new();
+    let outcome = tokio::time::timeout(PULL_TIMEOUT, async {
+        // The channel closes when both pipes do, which is when the runtime
+        // has said everything; only then is its exit status read.
+        while let Some(line) = heard.recv().await {
+            if tail.len() == 8 {
+                tail.remove(0);
+            }
+            tail.push(line.clone());
+            if tally.take(&line) {
+                report(progress(&tally, PullOutcome::Pulling));
+            }
+        }
+        child.wait().await
+    })
+    .await;
+    readers.abort();
+    match outcome {
+        Ok(Ok(status)) if status.success() => {
+            let elapsed_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+            report(progress(&tally, PullOutcome::Done { elapsed_ms }));
+            Ok(())
+        }
+        Ok(Ok(status)) => {
+            report(progress(&tally, PullOutcome::Failed));
+            Err(format!(
+                "{} pull failed ({}): {}",
+                cmd.display(),
+                status.code().unwrap_or(-1),
+                tail.join("\n").trim()
+            ))
+        }
+        Ok(Err(error)) => {
+            report(progress(&tally, PullOutcome::Failed));
+            Err(format!("{} pull could not be waited for: {error}", cmd.display()))
+        }
+        Err(_) => {
+            report(progress(&tally, PullOutcome::Failed));
+            Err(format!("{} pull timed out", cmd.display()))
+        }
+    }
+}
+
+/// The layers a pull has named and finished, read off the runtime's lines.
+///
+/// Docker, to a pipe, writes `<id>: Pulling fs layer` when it starts one,
+/// `<id>: Pull complete` when it finishes, and `<id>: Already exists` for
+/// one it had. Podman writes `Copying blob <digest>` when it starts one and
+/// `Copying blob <digest> done` when it finishes, or `… skipped: already
+/// exists`. Both are counted by layer id, so a line repeated is not a layer
+/// counted twice. Apple's `container` prints nothing the desk reads yet.
+struct PullTally {
+    runtime: Runtime,
+    named: std::collections::HashSet<String>,
+    finished: std::collections::HashSet<String>,
+}
+
+impl PullTally {
+    fn new(runtime: Runtime) -> Self {
+        Self {
+            runtime,
+            named: Default::default(),
+            finished: Default::default(),
+        }
+    }
+
+    fn total(&self) -> u32 {
+        u32::try_from(self.named.len()).unwrap_or(u32::MAX)
+    }
+
+    fn done(&self) -> u32 {
+        u32::try_from(self.finished.len()).unwrap_or(u32::MAX)
+    }
+
+    /// Reads one line; true when the tally changed.
+    fn take(&mut self, line: &str) -> bool {
+        let line = line.trim();
+        let (id, finished) = match self.runtime {
+            Runtime::Docker => {
+                let Some((id, status)) = line.split_once(": ") else {
+                    return false;
+                };
+                if id.contains(' ') || id.is_empty() {
+                    return false;
+                }
+                match status.trim() {
+                    "Pulling fs layer" => (id, false),
+                    "Pull complete" | "Already exists" => (id, true),
+                    _ => return false,
+                }
+            }
+            Runtime::Podman => {
+                let Some(rest) = line.strip_prefix("Copying blob ") else {
+                    return false;
+                };
+                let mut words = rest.split_whitespace();
+                let Some(id) = words.next() else {
+                    return false;
+                };
+                let rest = rest[id.len()..].trim();
+                let finished = rest.starts_with("done") || rest.starts_with("skipped");
+                (id, finished)
+            }
+            Runtime::AppleContainer => return false,
+        };
+        let id = id.to_string();
+        let mut changed = self.named.insert(id.clone());
+        if finished {
+            changed |= self.finished.insert(id);
+        }
+        changed
     }
 }
 
@@ -1102,8 +1289,23 @@ shift || true
 case "$cmd" in
   version) echo "fake 1"; exit 0 ;;
   info) echo '[]'; exit 0 ;;
-  image) exit 0 ;;
-  pull) exit 0 ;;
+  image)
+    if [ "$1" = inspect ] && [ -f "${STATE}.noimage" ]; then
+      echo "Error: No such image: $2" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
+  pull)
+    echo "test: Pulling from hotline-computer"
+    echo "aaaa1111: Pulling fs layer"
+    echo "bbbb2222: Pulling fs layer"
+    echo "aaaa1111: Pull complete"
+    echo "bbbb2222: Already exists"
+    echo "Status: Downloaded newer image for $1"
+    rm -f "${STATE}.noimage"
+    exit 0
+    ;;
   inspect)
     state=$(cat "$STATE")
     if [ "$state" = absent ]; then
@@ -1136,6 +1338,54 @@ mod tests {
     use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
     use std::fs;
     use std::path::Path;
+
+    /// Docker's lines to a pipe, in the order it prints them: a layer is
+    /// counted when named and again when it lands, an old one at once, and a
+    /// line about nothing in particular changes nothing.
+    #[test]
+    fn docker_lines_are_counted_by_layer() {
+        let mut tally = PullTally::new(Runtime::Docker);
+        assert!(!tally.take("0.9.1: Pulling from 1broseidon/hotline-computer"));
+        assert!(tally.take("a1b2c3d4e5f6: Pulling fs layer"));
+        assert!(tally.take("f6e5d4c3b2a1: Pulling fs layer"));
+        assert!(!tally.take("a1b2c3d4e5f6: Waiting"));
+        assert!(!tally.take("a1b2c3d4e5f6: Downloading"));
+        assert!(!tally.take("a1b2c3d4e5f6: Verifying Checksum"));
+        assert!(!tally.take("a1b2c3d4e5f6: Download complete"));
+        assert_eq!((tally.done(), tally.total()), (0, 2));
+        assert!(tally.take("a1b2c3d4e5f6: Pull complete"));
+        assert!(!tally.take("a1b2c3d4e5f6: Pull complete"));
+        assert!(tally.take("00ff00ff00ff: Already exists"));
+        assert_eq!((tally.done(), tally.total()), (2, 3));
+        assert!(!tally.take("Digest: sha256:abc"));
+        assert!(!tally.take("Status: Downloaded newer image for x"));
+    }
+
+    /// Podman names a blob when it starts copying and again with `done`
+    /// when it finishes; a blob it has is `skipped`.
+    #[test]
+    fn podman_lines_are_counted_by_blob() {
+        let mut tally = PullTally::new(Runtime::Podman);
+        assert!(!tally.take("Trying to pull ghcr.io/1broseidon/hotline-computer:0.9.1..."));
+        assert!(!tally.take("Getting image source signatures"));
+        assert!(tally.take("Copying blob sha256:aaaa"));
+        assert!(tally.take("Copying blob sha256:bbbb"));
+        assert_eq!((tally.done(), tally.total()), (0, 2));
+        assert!(tally.take("Copying blob sha256:aaaa done  |"));
+        assert!(tally.take("Copying blob sha256:cccc skipped: already exists"));
+        assert_eq!((tally.done(), tally.total()), (2, 3));
+        assert!(!tally.take("Copying config sha256:dddd done"));
+        assert!(!tally.take("Writing manifest to image destination"));
+    }
+
+    /// Apple's runtime prints nothing the desk reads, so its pull is only
+    /// ever started and over.
+    #[test]
+    fn apple_container_lines_are_not_counted() {
+        let mut tally = PullTally::new(Runtime::AppleContainer);
+        assert!(!tally.take("aaaa: Pulling fs layer"));
+        assert_eq!((tally.done(), tally.total()), (0, 0));
+    }
 
     fn persona(id: &str, cwd: &str) -> Persona {
         Persona {

@@ -552,6 +552,8 @@ function ComputerRows({
 	const [acting, setActing] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [updateTold, setUpdateTold] = useState(false);
+	const [checking, setChecking] = useState(false);
+	const [checked, setChecked] = useState<string | null>(null);
 
 	useEffect(() => {
 		setImage(current.image ?? "");
@@ -632,6 +634,31 @@ function ComputerRows({
 		}
 	};
 
+	// The desk asks the release endpoint on its own every few hours; this
+	// asks now, and re-reads the status so an offer to update appears at
+	// once rather than on the next poll.
+	const checkReleases = async () => {
+		if (checking) return;
+		setChecking(true);
+		try {
+			const releases = await wire.command("computer.releases.check", {});
+			const seen = await wire.command("computer.status", { personaId });
+			setStatus(seen);
+			const when = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+			setChecked(
+				releases.error !== undefined
+					? releases.error
+					: seen.available !== undefined
+						? `${seen.available} is available · checked ${when}`
+						: `Up to date · checked ${when}`,
+			);
+		} catch (error) {
+			setChecked(error instanceof Error ? error.message : String(error));
+		} finally {
+			setChecking(false);
+		}
+	};
+
 	const state = status?.state ?? "absent";
 	const words = STATE_WORDS[state];
 	const onEnter = (commit: () => void) => (event: KeyboardEvent<HTMLInputElement>) => {
@@ -667,6 +694,12 @@ function ComputerRows({
 										Remove
 									</button>
 								)}
+							</div>
+							<div className={NESTED}>
+								<RowText title="Updates" value={checking ? "Checking…" : (checked ?? `Running ${status?.release ?? "an unknown release"}`)} />
+								<button type="button" className="control btn-quiet btn-sm" disabled={checking || disabled} onClick={() => void checkReleases()}>
+									{checking ? "Checking…" : "Check now"}
+								</button>
 							</div>
 							{status?.available !== undefined && (
 								<>

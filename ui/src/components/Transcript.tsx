@@ -474,7 +474,71 @@ function Row({
 
 		case "computer_frame":
 			return <ComputerFrame dataUrl={event.dataUrl} />;
+
+		case "computer_pull":
+			return <PullLine event={event} />;
 	}
+}
+
+/**
+ * An image pull as one line that fills in. The runtime names each layer as
+ * it starts and finishes it, and the desk rewrites this line under one id
+ * as they land, so a minute of download reads as a bar rather than a
+ * silence; a runtime the desk cannot count leaves the bar indeterminate.
+ * Done, the line says what came down and how long it took. Failed, it says
+ * so, and the error that ended the start says why.
+ */
+function PullLine({ event }: { event: Extract<TranscriptEvent, { kind: "computer_pull" }> }) {
+	const short = shortImage(event.image);
+	if (event.status === "done") {
+		const took = event.elapsedMs === undefined ? "" : ` in ${tookWords(event.elapsedMs)}`;
+		return (
+			<p className="rule-line rule-line-plain gap-1.5" style={{ color: "var(--ink-3)" }}>
+				<span className="selectable font-normal">
+					Pulled {short}
+					{took}
+				</span>
+			</p>
+		);
+	}
+	if (event.status === "failed") {
+		return (
+			<p className="rule-line rule-line-plain gap-1.5" style={{ color: "var(--warn)" }}>
+				<WarningIcon className="shrink-0" />
+				<span className="selectable font-normal">The pull of {short} did not finish</span>
+			</p>
+		);
+	}
+	const counted = event.layersTotal > 0;
+	return (
+		<div className="rule-line rule-line-plain flex-col items-stretch gap-1.5" style={{ color: "var(--ink-3)" }} role="status">
+			<span className="flex justify-between gap-3">
+				<span className="selectable font-normal">Pulling {short}…</span>
+				{counted && (
+					<span className="tabular-nums">
+						{event.layersDone} / {event.layersTotal} layers
+					</span>
+				)}
+			</span>
+			<progress
+				className="w-full accent-[var(--accent)]"
+				aria-label={`Pulling ${short}`}
+				max={counted ? event.layersTotal : undefined}
+				value={counted ? event.layersDone : undefined}
+			/>
+		</div>
+	);
+}
+
+/** `ghcr.io/1broseidon/hotline-computer:0.9.1` → `hotline-computer 0.9.1`. */
+function shortImage(image: string): string {
+	const tail = image.slice(image.lastIndexOf("/") + 1);
+	const at = tail.indexOf(":");
+	return at === -1 ? tail : `${tail.slice(0, at)} ${tail.slice(at + 1)}`;
+}
+
+function tookWords(ms: number): string {
+	return ms < 1000 ? "under a second" : `${Math.round(ms / 1000)} s`;
 }
 
 /**

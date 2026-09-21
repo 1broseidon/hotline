@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-21
+
 ### Fixed
 
 - A Claude Code teammate sees its Hotline tools and its computer again.

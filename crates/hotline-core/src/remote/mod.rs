@@ -438,9 +438,25 @@ impl Remote {
             .await
             .map_err(message)?;
         let port = listener.local_addr().map_err(message)?.port();
-        let identity = match self.identity.read().map_err(message)? {
-            Some(bytes) => Some(serde_json::from_slice::<Identity>(&bytes).map_err(message)?),
-            None => None,
+        // The identity is a certificate this desk signed itself, so one it
+        // cannot read any more — corrupt, gone from the OS store, or written
+        // by an earlier edition into a store this build cannot name, which is
+        // what a room moved over from Toad holds — is replaced like a missing
+        // one, and the phones that pinned it pair again. A locked or
+        // unavailable store is reported instead: the identity is most likely
+        // still there, and replacing it would orphan every phone for nothing.
+        let identity = match self.identity.read() {
+            Ok(Some(bytes)) => serde_json::from_slice::<Identity>(&bytes).ok(),
+            Ok(None) => None,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::InvalidData | io::ErrorKind::NotFound
+                ) =>
+            {
+                None
+            }
+            Err(error) => return Err(message(error)),
         };
         let identity = match identity {
             Some(identity) if hosts.iter().all(|host| identity.hosts.contains(host)) => identity,

@@ -17,6 +17,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 - New computers are created on Hotline Computer 0.8.0 or newer, the first release that types a login and makes a passkey. An existing computer keeps the release it runs until it is updated or removed; on an older one, storing a login or arming a passkey says so and points at the teammate's Update.
 
+### Fixed
+
+- Remote turns on again in a room moved over from Toad. That edition kept the
+  listener's certificate in its own credential store, which this app cannot
+  read, and the switch answered "stored by an earlier edition of the app".
+  The certificate is now made afresh, as it is when there is none, and the
+  phones that pinned the old one pair again; a locked keychain is still
+  reported rather than replaced.
+
+
 ## [0.15.0] - 2026-09-20
 
 ### Added

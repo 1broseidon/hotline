@@ -1055,6 +1055,67 @@ async fn starting_a_teammate_makes_its_working_directory() {
     assert!(std::path::Path::new(&ada.cwd).is_dir());
 }
 
+/// Docker not running is no reason for a teammate to go silent: it starts
+/// without its computer, is not told it has one, and the tape says why and
+/// how to bring it back. The grant stays on, so the next start tries again.
+#[tokio::test]
+async fn a_computer_that_cannot_start_leaves_the_teammate_answering_without_one() {
+    let log = scratch("computer-down");
+    let mut ada = persona("ada");
+    ada.cwd = log
+        .root()
+        .join("workspaces")
+        .join("ada")
+        .to_string_lossy()
+        .into_owned();
+    ada.computer = Some(PersonaComputer {
+        enabled: true,
+        image: None,
+        memory: None,
+        pids: None,
+        mounts: None,
+        secrets: None,
+    });
+    enrol(&log, &ada);
+    let agents = Fake::new(Scripted::new(spoken_turn()));
+    let room = Room::with_agents_and_computers(
+        log,
+        Arc::new(DeskKeys),
+        agents.clone(),
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    );
+
+    let info = room
+        .start("ada")
+        .await
+        .expect("the teammate starts without its computer");
+    assert_eq!(info.state, SessionState::Ready);
+    assert!(
+        room.session("ada").is_ok(),
+        "a message now reaches a running session"
+    );
+
+    let preamble = lock(&agents.preambles).last().cloned().unwrap();
+    assert!(!preamble.contains("You have a computer"), "{preamble}");
+    let notice = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "notice" && event["level"] == "warn")
+        .expect("the tape says the computer did not start");
+    let text = notice["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("Ada's computer could not start: No container runtime was found"),
+        "{text}"
+    );
+    assert!(text.contains("Stop the session"), "{text}");
+    assert!(
+        room.persona("ada")
+            .unwrap()
+            .computer
+            .is_some_and(|computer| computer.enabled),
+        "the grant is kept, so the next start tries the computer again"
+    );
+}
+
 /// The preamble is everything the agent would otherwise have to ask for.
 #[test]
 fn the_preamble_says_who_where_how_far_and_when() {

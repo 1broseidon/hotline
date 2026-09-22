@@ -8,6 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A teammate whose computer cannot start answers anyway. With Docker not
+  running, a teammate with its computer turned on failed to start, and the
+  next message was met with "That teammate is not running". It now starts
+  without the computer and is not told it has one. Its tape says why the
+  computer did not start and how to bring it back: fix the cause, choose
+  Stop the session, and the next message starts it again with the computer.
+- A teammate that cannot be started says why in its conversation, instead
+  of the reason being dropped and the next message being refused.
+
 ## [0.17.4] - 2026-09-22
 
 ### Fixed

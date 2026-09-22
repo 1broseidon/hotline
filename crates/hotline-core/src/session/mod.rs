@@ -800,11 +800,28 @@ impl Room {
                     format!("{}'s AGENTS.md could not be written: {error}", persona.name)
                 })?;
         }
-        // Wake the computer before the grant so a teammate that asked for a
-        // machine either has one or the start fails with the runtime's
-        // sentence — never a silent absence. The grant itself is appended
-        // regardless of mcpPolicy.
-        let extra_mcp = self.grant_computer(&persona).await?;
+        // Wake the computer before the grant. The grant itself is appended
+        // regardless of mcpPolicy. A computer that cannot come up (Docker not
+        // running, an image that will not pull) does not keep the teammate
+        // from answering: it starts without one, told nothing of a machine it
+        // does not have, and the tape says why and how to bring it back —
+        // never a silent absence.
+        let (persona, extra_mcp) = match self.grant_computer(&persona).await {
+            Ok(extra_mcp) => (persona, extra_mcp),
+            Err(reason) => {
+                capability.check()?;
+                self.write(
+                    &persona.id,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Warn,
+                        text: computer_unavailable(&persona.name, &reason),
+                    },
+                );
+                (without_computer(persona), Vec::new())
+            }
+        };
         capability.check()?;
         // The agent's context is one chapter: it hears what was said in the
         // chapter it is joining, and the wake block tells it about the one
@@ -907,8 +924,8 @@ impl Room {
     }
 
     /// Starts the teammate's computer when it asked for one, and answers
-    /// the MCP server the session should be granted. A failure here is a
-    /// start failure: the teammate asked for a machine.
+    /// the MCP server the session should be granted. On a failure the
+    /// caller starts the teammate without one and says so on the tape.
     async fn grant_computer(&self, persona: &Persona) -> Result<Vec<mcp::McpServer>, String> {
         if !persona
             .computer
@@ -3827,6 +3844,27 @@ fn describe_secret(secret: &SharedSecret) -> String {
             None => "a passkey".to_string(),
         },
     }
+}
+
+/// The tape's sentence when a teammate's computer could not be started and
+/// the session went ahead without it.
+fn computer_unavailable(name: &str, reason: &str) -> String {
+    let reason = reason.trim().trim_end_matches('.');
+    format!(
+        "{name}'s computer could not start: {reason}. {name} is answering without it for now. \
+         Once that is fixed, choose Stop the session from {name}'s menu; the next message \
+         starts it again with its computer."
+    )
+}
+
+/// This session's view of a teammate whose computer did not come up: the
+/// grant is off for the preamble, the skills index and the driver, and the
+/// teammate's record is untouched, so the next start tries again.
+fn without_computer(mut persona: Persona) -> Persona {
+    if let Some(computer) = persona.computer.as_mut() {
+        computer.enabled = false;
+    }
+    persona
 }
 
 pub(crate) fn preamble(

@@ -31,8 +31,12 @@ in its pane. The image and its agent live in their own repository,
 ## Turn it on
 
 In the teammate's pane, **Computer**. The first start pulls the image, which
-the conversation notes, and builds the container. From then on, the
-container wakes with the teammate and stops with it. Stopping keeps the
+shows in the conversation as a bar that fills, and builds the container. The
+teammate does not wait for it: it answers straight away without its computer,
+can ask how the download is going, and gets the computer between turns once
+the image is down. If the computer cannot start at all, for example because
+Docker is not running, the teammate still answers and the conversation says
+why. From then on, the container wakes with the teammate and stops with it. Stopping keeps the
 container for the next start; removing it starts over. Thirty minutes idle
 stops it; seven days idle removes it.
 

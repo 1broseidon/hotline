@@ -2385,6 +2385,20 @@ async fn a_pulled_image_is_one_line_on_the_tape_that_fills_in() {
     let desk = computer_room("computer-pull", Some("0.9.1"), TWO_RELEASES, false).await;
     std::fs::write(desk.root.join("state.noimage"), "").unwrap();
     desk.room.start("ada").await.unwrap();
+    // The start no longer waits for a download; the line finishes behind it.
+    let finished = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if tape(&desk.room, "ada")
+                .iter()
+                .any(|event| event["kind"] == "computer_pull" && event["status"] == "done")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(finished.is_ok(), "the pull finishes behind the start");
     let pulled = runtime_commands(&desk.root)
         .into_iter()
         .filter(|line| line.starts_with("pull "))
@@ -2409,6 +2423,96 @@ async fn a_pulled_image_is_one_line_on_the_tape_that_fills_in() {
             .iter()
             .all(|text| !text.contains("Pulling")),
         "the pull is no longer a notice"
+    );
+}
+
+/// A download never keeps a teammate from answering. The start goes ahead
+/// the moment the image starts coming down, and the agent is told its
+/// computer is on the way and how to ask after it. When the image lands
+/// during a turn, the turn is left alone; the computer joins between turns,
+/// by a restart the conversation survives.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_download_starts_the_teammate_at_once_and_the_computer_joins_after_the_turn() {
+    let desk = computer_room(
+        "computer-download-behind",
+        Some("0.9.1"),
+        TWO_RELEASES,
+        false,
+    )
+    .await;
+    std::fs::write(desk.root.join("state.noimage"), "").unwrap();
+    std::fs::write(desk.root.join("state.pullgate"), "").unwrap();
+
+    let info = tokio::time::timeout(Duration::from_secs(10), desk.room.start("ada"))
+        .await
+        .expect("the start does not wait for the download")
+        .unwrap();
+    assert_eq!(info.state, SessionState::Ready);
+    let first = lock(&desk.agents.preambles).last().cloned().unwrap();
+    assert!(!first.contains("You have a computer"), "{first}");
+    assert!(first.contains("still downloading"), "{first}");
+    let status = desk.room.computer_setup_status("ada", Duration::ZERO).await;
+    assert_eq!(status["state"], "downloading", "{status}");
+    // The layers are counted as the runtime names them.
+    let counted = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if desk.room.computer_setup_status("ada", Duration::ZERO).await["layersTotal"] == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(counted.is_ok(), "the status counts the layers");
+
+    // A turn is in flight when the image lands.
+    let session = desk.room.session("ada").unwrap();
+    lock(&session.turns).running = true;
+    std::fs::remove_file(desk.root.join("state.pullgate")).unwrap();
+    let status = desk
+        .room
+        .computer_setup_status("ada", Duration::from_secs(10))
+        .await;
+    assert_eq!(
+        status["state"], "ready",
+        "waiting returns once it lands: {status}"
+    );
+    let still = desk.room.session("ada").unwrap();
+    assert!(
+        Arc::ptr_eq(&still, &session),
+        "the turn in flight is not cut short"
+    );
+    assert!(!still.computer);
+
+    // The turn ends; what `run_turns` does next brings the computer in.
+    lock(&session.turns).running = false;
+    desk.room.attach_computer_when_idle("ada");
+    let attached = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if desk.room.computer_setup_status("ada", Duration::ZERO).await["state"] == "attached" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(attached.is_ok(), "the computer joins between turns");
+    let last = lock(&desk.agents.preambles).last().cloned().unwrap();
+    assert!(last.contains("You have a computer"), "{last}");
+    assert!(
+        notices(&desk.room, "ada")
+            .iter()
+            .any(|text| text.contains("finished downloading and joins now")),
+        "the tape says when it joined"
+    );
+    let pulls = runtime_commands(&desk.root)
+        .into_iter()
+        .filter(|line| line.starts_with("pull "))
+        .count();
+    assert_eq!(
+        pulls, 1,
+        "the restart finds the image and does not pull again"
     );
 }
 

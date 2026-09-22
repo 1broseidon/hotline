@@ -19,6 +19,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A teammate that cannot be started says why in its conversation, instead
   of the reason being dropped and the next message being refused.
 
+### Changed
+
+- A teammate no longer waits for its computer's image to download before
+  it answers. It starts straight away without the computer while the bar
+  fills, and knows its computer is on the way: a new `computer_status` tool
+  says how far the download has got and can wait for it. Once the image is
+  down, the computer joins between turns, never in the middle of one, and
+  the conversation carries on.
+
 ## [0.17.4] - 2026-09-22
 
 ### Fixed

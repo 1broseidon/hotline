@@ -813,9 +813,9 @@ async fn agent_builder(
             .map_err(text)?
             .agent(model),
         (Client::Copilot, ProviderAuth::Login { token_dir }) => {
+            crate::providers::copilot::ensure_endpoints(token_dir).await;
             if crate::providers::copilot::wants_responses(token_dir, model) {
-                let session = crate::providers::copilot::session(token_dir).await?;
-                crate::providers::copilot::responses_client(token_dir, &session)?.agent(model)
+                crate::providers::copilot::responses_agent(token_dir, model).await?
             } else {
                 copilot::Client::builder()
                     .oauth()
@@ -1511,11 +1511,32 @@ mod tests {
     /// on the same stored token.
     #[tokio::test]
     async fn a_responses_only_copilot_model_takes_the_responses_route() {
-        use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
+        use axum::{
+            Router,
+            body::Bytes,
+            http::HeaderMap,
+            routing::{get, post},
+        };
+        use rig::completion::CompletionModel;
         use serde_json::json;
-        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let responses = tx.clone();
+        let listed = tx.clone();
         let app = Router::new()
+            .route(
+                "/models",
+                get(move |headers: HeaderMap| {
+                    let tx = listed.clone();
+                    async move {
+                        tx.send(("/models", headers, serde_json::Value::Null)).await.unwrap();
+                        json!({"data": [
+                            {"id":"grok-4.6","supported_endpoints":["/responses"]},
+                            {"id":"claude-sonnet-5","supported_endpoints":["/chat/completions","/responses"]}
+                        ]})
+                        .to_string()
+                    }
+                }),
+            )
             .route(
                 "/responses",
                 post(move |headers: HeaderMap, body: Bytes| {
@@ -1610,8 +1631,67 @@ mod tests {
         let (_, params) =
             request_settings(&keys, "github-copilot/gpt-5.3-codex", Some("high"), None).unwrap();
         assert_eq!(params, Some(json!({"reasoning": {"effort": "high"}})));
+
+        // Tools on the Responses route are strict, as on Rig's own route.
+        let agent = agent_builder(&keys, "github-copilot/grok-4.6", None, None)
+            .await
+            .unwrap()
+            .build();
+        let request = rig::completion::CompletionRequest {
+            preamble: None,
+            tools: vec![rig::completion::ToolDefinition {
+                name: "read_file".into(),
+                description: "Read a file".into(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"]
+                }),
+            }],
+            max_tokens: None,
+            additional_params: None,
+            model: None,
+            chat_history: vec![rig::message::Message::user("read it")],
+            documents: Vec::new(),
+            temperature: None,
+            tool_choice: None,
+            output_schema: None,
+            record_telemetry_content: false,
+        };
+        agent.model_handle().completion(request).await.unwrap();
+        let (path, _, body) = rx.recv().await.unwrap();
+        assert_eq!(path, "/responses");
+        assert_eq!(body["tools"][0]["name"], "read_file");
+        assert_eq!(body["tools"][0]["strict"], true, "{body}");
+        assert_eq!(
+            body["tools"][0]["parameters"]["additionalProperties"],
+            false
+        );
+
+        // A login from before endpoints were recorded fetches them on its
+        // first turn and takes the Responses route without a Refresh.
+        let older = crate::providers::copilot::tests::seeded_login("route-older", &url);
+        let older_keys = HashMap::from([(
+            "github-copilot".to_string(),
+            ProviderAuth::Login {
+                token_dir: older.clone(),
+            },
+        )]);
+        let answer = complete(
+            &older_keys,
+            "github-copilot/grok-4.6",
+            "you are Ada",
+            "hello",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer, "over responses");
+        assert_eq!(rx.recv().await.unwrap().0, "/models");
+        assert_eq!(rx.recv().await.unwrap().0, "/responses");
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&older);
     }
 
     fn echo_command() -> String {

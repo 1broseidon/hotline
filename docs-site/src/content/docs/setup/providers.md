@@ -44,9 +44,9 @@ from the server when it can.
 
 GitHub Copilot lists the models your account is offered, and each model is
 sent to the endpoint Copilot names for it, so Grok and the newer OpenAI
-models work alongside the Claude ones. If a Copilot model refuses with a
-message about `/chat/completions`, press **Refresh** on the Copilot
-connection once so the list is read again with its endpoints.
+models work alongside the Claude ones. If a Copilot model still refuses
+with a message about `/chat/completions`, press **Refresh** on the Copilot
+connection so the list is read again.
 
 ## The default model
 

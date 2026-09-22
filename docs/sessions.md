@@ -433,8 +433,12 @@ beside it. A model the list offers on `/responses` and not on
 `/responses` through Rig's OpenAI Responses client, with a transport that
 re-reads the token Rig keeps fresh and signs each request the way Copilot's
 own client does; every other model stays on Rig's Copilot route, which
-sends the Codex family to `/responses` on its own. A login with no
-`endpoints.json` yet stays on Rig's route until Refresh. A fetch that
+sends the Codex family to `/responses` on its own. Tools on the
+`/responses` route are sent strict, as on Rig's own Copilot Responses
+route. A login with no `endpoints.json` yet, such as one made before
+0.17.3, fetches the list on its first Copilot turn (at most 10 s, and a
+failure is not retried for 5 minutes, the turn staying on Rig's route
+meanwhile). A fetch that
 fails leaves the login in place and no list, with a notice that Refresh
 on the provider's own page under Settings → Providers retries. Refresh re-reads the list, which is
 also how a login made before this file existed, or a model newly enabled

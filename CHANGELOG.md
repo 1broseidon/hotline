@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-09-22
+
 ### Fixed
 
 - GitHub Copilot's Grok and newer OpenAI models answer again. Copilot

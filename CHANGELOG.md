@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-09-22
+
 ### Fixed
 
 - A GitHub Copilot sign-in from before 0.17.3 no longer needs Refresh

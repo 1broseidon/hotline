@@ -426,7 +426,15 @@ tools go to the tape with a text placeholder sent to the model.
 GitHub Copilot's picker uses the models its signed-in account lists,
 including IDs absent from the bundled catalogue. Metadata is added when an
 exact match exists. The list is fetched at sign-in (`GET {api}/models`,
-through Rig) and stored as `models.json` beside the login. A fetch that
+read directly with Rig's stored token) and stored as `models.json` beside
+the login, with each model's `supported_endpoints` in `endpoints.json`
+beside it. A model the list offers on `/responses` and not on
+`/chat/completions` (Grok and the newer OpenAI models) is driven over
+`/responses` through Rig's OpenAI Responses client, with a transport that
+re-reads the token Rig keeps fresh and signs each request the way Copilot's
+own client does; every other model stays on Rig's Copilot route, which
+sends the Codex family to `/responses` on its own. A login with no
+`endpoints.json` yet stays on Rig's route until Refresh. A fetch that
 fails leaves the login in place and no list, with a notice that Refresh
 on the provider's own page under Settings → Providers retries. Refresh re-reads the list, which is
 also how a login made before this file existed, or a model newly enabled
@@ -482,7 +490,7 @@ what is sent:
 | Anthropic | `{"thinking": {"type": "adaptive"}, "output_config": {"effort": e}}` |
 | Ollama (catalogued effort levels) | `{"think": e}` |
 | OpenAI, ChatGPT, OpenRouter, xAI | `{"reasoning": {"effort": e}}` |
-| Copilot (Responses, a `codex` model) | `{"reasoning": {"effort": e}}` |
+| Copilot (Responses: a `codex` model, or one the account offers only on `/responses`) | `{"reasoning": {"effort": e}}` |
 | Copilot (chat completions) | `{"reasoning_effort": e}` |
 | Gemini | `{"generationConfig": {"thinkingConfig": {"thinkingLevel": e}}}` for `minimal\|low\|medium\|high` |
 | Groq, DeepSeek, Mistral, Z.ai Standard and Coding Plan | `{"reasoning_effort": e}` |

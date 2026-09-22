@@ -8,6 +8,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- GitHub Copilot's Grok and newer OpenAI models answer again. Copilot
+  serves those only on its Responses endpoint and refused every request
+  with "not accessible via the /chat/completions endpoint", while Rig sent
+  everything but the Codex family there. Discovery now records which
+  endpoints the account's list offers for each model, beside the login,
+  and a model offered `/responses` alone is driven there, signed as
+  Copilot expects and with the effort in the Responses shape. Sign in
+  again or press Refresh under Settings → Providers once, so the list is
+  read with its endpoints; a login made before this release has no
+  endpoints on file and stays on the old route until then.
+
 ## [0.17.2] - 2026-09-21
 
 ### Added

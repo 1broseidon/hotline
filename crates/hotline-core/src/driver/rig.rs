@@ -77,7 +77,8 @@ pub async fn complete(
     prompt: &str,
     output_limit: Option<u64>,
 ) -> Result<String, String> {
-    let agent = agent_builder(keys, model_id, None, output_limit)?
+    let agent = agent_builder(keys, model_id, None, output_limit)
+        .await?
         .preamble(system)
         .build();
     agent
@@ -569,10 +570,15 @@ impl Turn {
             &self.model,
             self.effort.as_deref(),
             self.output_limit,
-        )?
+        )
+        .await?
         .build();
-        let (max_tokens, additional_params) =
-            request_settings(&self.model, self.effort.as_deref(), self.output_limit)?;
+        let (max_tokens, additional_params) = request_settings(
+            &self.keys,
+            &self.model,
+            self.effort.as_deref(),
+            self.output_limit,
+        )?;
         let request = rig::completion::CompletionRequest {
             preamble: Some(self.preamble.clone()),
             tools: tools.get_tool_definitions(),
@@ -713,7 +719,7 @@ async fn flush(sender: &mpsc::Sender<Update>, open: &mut Option<OpenMessage>) {
 
 /// The JSON merged into every request for this effort, when this client
 /// carries `additional_params` that far. Copilot's chat-completions route
-/// is applied in [`agent_builder`]: this function returns the Responses
+/// is applied in [`request_settings`]: this function returns the Responses
 /// body Copilot shares with OpenAI and ChatGPT.
 fn effort_params(client: Client, effort: &str) -> Option<serde_json::Value> {
     match client {
@@ -763,7 +769,7 @@ fn effort_config(model_id: &str, current: Option<&str>) -> Vec<SessionConfig> {
 }
 
 /// The builder for one model on the provider whose credential the desk holds.
-fn agent_builder(
+async fn agent_builder(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
@@ -806,13 +812,20 @@ fn agent_builder(
             .build()
             .map_err(text)?
             .agent(model),
-        (Client::Copilot, ProviderAuth::Login { token_dir }) => copilot::Client::builder()
-            .oauth()
-            .token_dir(token_dir)
-            .allow_device_flow(false)
-            .build()
-            .map_err(text)?
-            .agent(model),
+        (Client::Copilot, ProviderAuth::Login { token_dir }) => {
+            if crate::providers::copilot::wants_responses(token_dir, model) {
+                let session = crate::providers::copilot::session(token_dir).await?;
+                crate::providers::copilot::responses_client(token_dir, &session)?.agent(model)
+            } else {
+                copilot::Client::builder()
+                    .oauth()
+                    .token_dir(token_dir)
+                    .allow_device_flow(false)
+                    .build()
+                    .map_err(text)?
+                    .agent(model)
+            }
+        }
         (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
             openrouter::Client::new(&crate::providers::openrouter_key(tokens)?)
                 .map_err(text)?
@@ -873,7 +886,7 @@ fn agent_builder(
             .map_err(text)?
             .agent(model),
     };
-    let (ceiling, params) = request_settings(model_id, effort, output_limit)?;
+    let (ceiling, params) = request_settings(keys, model_id, effort, output_limit)?;
     let builder = match ceiling {
         Some(ceiling) => builder.max_tokens(ceiling),
         None => builder,
@@ -884,7 +897,19 @@ fn agent_builder(
     })
 }
 
+/// Whether a Copilot model goes over `/responses` from here: the account's
+/// model list offered it nowhere else. Rig's own route takes the rest.
+fn copilot_responses(keys: &HashMap<String, ProviderAuth>, provider: &str, model: &str) -> bool {
+    models::wiring(provider).is_some_and(|wiring| wiring.client == Client::Copilot)
+        && matches!(
+            keys.get(provider),
+            Some(ProviderAuth::Login { token_dir })
+                if crate::providers::copilot::wants_responses(token_dir, model)
+        )
+}
+
 fn request_settings(
+    keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
     output_limit: Option<u64>,
@@ -896,7 +921,10 @@ fn request_settings(
         .or_else(|| models::output_limit(model_id))
         .or_else(|| (wiring.client == Client::Anthropic).then_some(4096));
     let params = effort.and_then(|effort| {
-        if wiring.client == Client::Copilot && !model.to_ascii_lowercase().contains("codex") {
+        let chat_route = wiring.client == Client::Copilot
+            && !model.to_ascii_lowercase().contains("codex")
+            && !copilot_responses(keys, provider, model);
+        if chat_route {
             Some(serde_json::json!({"reasoning_effort": effort}))
         } else {
             effort_params(wiring.client, effort)
@@ -1162,6 +1190,7 @@ mod tests {
         ] {
             let model_id = format!("anthropic/{id}");
             let agent = agent_builder(&keys, &model_id, None, live_limit)
+                .await
                 .unwrap()
                 .build()
                 .with_model(client.completion_model(id));
@@ -1473,6 +1502,115 @@ mod tests {
             err.to_ascii_lowercase().contains("sign-in"),
             "a turn must name the missing sign-in, not start one: {err}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A Copilot model the account offers only on `/responses` is driven
+    /// there, signed as Copilot expects, with the effort in the Responses
+    /// shape; one it never named stays on Rig's `/chat/completions` route,
+    /// on the same stored token.
+    #[tokio::test]
+    async fn a_responses_only_copilot_model_takes_the_responses_route() {
+        use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
+        use serde_json::json;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let responses = tx.clone();
+        let app = Router::new()
+            .route(
+                "/responses",
+                post(move |headers: HeaderMap, body: Bytes| {
+                    let tx = responses.clone();
+                    async move {
+                        tx.send(("/responses", headers, serde_json::from_slice::<serde_json::Value>(&body).unwrap())).await.unwrap();
+                        json!({
+                            "id":"resp_1","object":"response","created_at":1,"status":"completed","model":"grok-4.6",
+                            "output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed",
+                                "content":[{"type":"output_text","text":"over responses"}]}],
+                            "usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+                        }).to_string()
+                    }
+                }),
+            )
+            .route(
+                "/chat/completions",
+                post(move |headers: HeaderMap, body: Bytes| {
+                    let tx = tx.clone();
+                    async move {
+                        tx.send(("/chat/completions", headers, serde_json::from_slice::<serde_json::Value>(&body).unwrap())).await.unwrap();
+                        json!({
+                            "id":"chatcmpl_1","object":"chat.completion","created":1,"model":"claude-sonnet-5",
+                            "choices":[{"index":0,"message":{"role":"assistant","content":"over chat"},"finish_reason":"stop"}],
+                            "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                        }).to_string()
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let dir = crate::providers::copilot::tests::seeded_login("route", &url);
+        crate::providers::copilot::tests::record_endpoints(
+            &dir,
+            json!({"grok-4.6": ["/responses"], "claude-sonnet-5": ["/chat/completions"]}),
+        );
+        let keys = HashMap::from([(
+            "github-copilot".to_string(),
+            ProviderAuth::Login {
+                token_dir: dir.clone(),
+            },
+        )]);
+
+        let answer = complete(
+            &keys,
+            "github-copilot/grok-4.6",
+            "you are Ada",
+            "hello",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer, "over responses");
+        let (path, headers, body) = rx.recv().await.unwrap();
+        assert_eq!(path, "/responses");
+        assert_eq!(body["model"], "grok-4.6");
+        assert_eq!(headers["authorization"], "Bearer copilot-test-token");
+        assert_eq!(headers["copilot-integration-id"], "vscode-chat");
+        assert_eq!(headers["x-initiator"], "user");
+        assert!(
+            body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["role"] == "system"),
+            "the preamble rides as an input message, as on Rig's Copilot route: {body}"
+        );
+
+        let answer = complete(
+            &keys,
+            "github-copilot/claude-sonnet-5",
+            "you are Ada",
+            "hello",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer, "over chat");
+        let (path, _, body) = rx.recv().await.unwrap();
+        assert_eq!(path, "/chat/completions");
+        assert_eq!(body["model"], "claude-sonnet-5");
+
+        let (_, params) =
+            request_settings(&keys, "github-copilot/grok-4.6", Some("high"), None).unwrap();
+        assert_eq!(params, Some(json!({"reasoning": {"effort": "high"}})));
+        let (_, params) =
+            request_settings(&keys, "github-copilot/claude-sonnet-5", Some("high"), None).unwrap();
+        assert_eq!(params, Some(json!({"reasoning_effort": "high"})));
+        let (_, params) =
+            request_settings(&keys, "github-copilot/gpt-5.3-codex", Some("high"), None).unwrap();
+        assert_eq!(params, Some(json!({"reasoning": {"effort": "high"}})));
+        server.abort();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

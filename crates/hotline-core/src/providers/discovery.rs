@@ -4,9 +4,7 @@ use crate::models::Client;
 use bytes::Bytes;
 use rig::client::ModelListingClient;
 use rig::http_client::{self, HttpClientExt, LazyBody, MultipartForm, StreamingResponse};
-use rig::providers::{
-    anthropic, copilot, deepseek, gemini, groq, mistral, ollama, openai, openrouter,
-};
+use rig::providers::{anthropic, deepseek, gemini, groq, mistral, ollama, openai, openrouter};
 use serde::{Deserialize, Serialize};
 use std::sync::{
     Arc,
@@ -254,17 +252,12 @@ pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<Liste
     collect(&client).await
 }
 
+/// Copilot's list is read directly rather than through Rig's lister, which
+/// drops the one field a turn needs: the endpoints each model answers on.
 pub(crate) async fn copilot_models(
     token_dir: &std::path::Path,
 ) -> Result<Vec<ListedModel>, String> {
-    let client = copilot::Client::builder()
-        .oauth()
-        .token_dir(token_dir)
-        .allow_device_flow(false)
-        .http_client(DiscoveryHttp::default())
-        .build()
-        .map_err(|_| "Could not prepare Copilot model discovery. Sign in again.".to_string())?;
-    collect(&client).await
+    super::copilot::list_models(token_dir).await
 }
 
 #[cfg(test)]

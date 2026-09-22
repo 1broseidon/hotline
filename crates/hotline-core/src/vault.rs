@@ -1134,7 +1134,7 @@ pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn read_model_file(path: &Path) -> io::Result<Vec<u8>> {
+pub(crate) fn read_model_file(path: &Path) -> io::Result<Vec<u8>> {
     if !path.symlink_metadata()?.is_file() {
         return Err(io::Error::other("Model cache must be a regular file."));
     }
@@ -1165,11 +1165,17 @@ fn read_model_file(path: &Path) -> io::Result<Vec<u8>> {
 /// without leaving the previous bytes behind a `create_new` refusal.
 pub(crate) fn write_account_models(token_dir: &Path, ids: &[String]) -> io::Result<()> {
     let ids = discovery::validate_ids(ids).map_err(io::Error::other)?;
-    let path = token_dir.join("models.json");
     let mut body = serde_json::to_vec(&ids).map_err(io::Error::other)?;
     body.push(b'\n');
-    let temporary = token_dir.join(format!(".models-{}.tmp", uuid::Uuid::new_v4()));
-    persist_renamed(&temporary, &path, token_dir, &body)
+    write_beside_login(token_dir, "models.json", &body)
+}
+
+/// One file beside a login, 0600, replaced whole through a rename so a
+/// reader never sees half of it and a rewrite leaves no previous bytes.
+pub(crate) fn write_beside_login(token_dir: &Path, name: &str, body: &[u8]) -> io::Result<()> {
+    let path = token_dir.join(name);
+    let temporary = token_dir.join(format!(".{name}-{}.tmp", uuid::Uuid::new_v4()));
+    persist_renamed(&temporary, &path, token_dir, body)
 }
 
 #[cfg(test)]

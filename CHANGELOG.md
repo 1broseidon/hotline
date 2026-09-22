@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A GitHub Copilot sign-in from before 0.17.3 no longer needs Refresh
+  before Grok and the newer OpenAI models answer. The first Copilot turn
+  on such a sign-in reads the account's model list itself and records
+  which endpoint each model uses. If Copilot cannot be reached, the turn
+  goes ahead on the old route and the list is tried again a few minutes
+  later.
+- Tools given to a Copilot model on the Responses route are sent as strict
+  schemas, as Copilot's Responses endpoint expects, so a Grok or gpt-5.x
+  teammate's file reads and commands arrive well-formed.
+
 ## [0.17.3] - 2026-09-22
 
 ### Fixed

@@ -16,11 +16,11 @@ use futures_util::StreamExt;
 use rig::http_client::{self, HttpClientExt, LazyBody, MultipartForm, StreamingResponse};
 use rig::providers::{copilot, openai};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 const API_BASE: &str = "https://api.githubcopilot.com";
 /// The per-model endpoints Copilot advertised, beside the login.
@@ -29,6 +29,10 @@ const RESPONSES: &str = "/responses";
 const CHAT_COMPLETIONS: &str = "/chat/completions";
 const MAX_ENDPOINTS: usize = 16;
 const MAX_ENDPOINT_LEN: usize = 64;
+/// How long a turn waits for the model list it fetches for itself.
+const ENSURE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How soon a login whose list could not be fetched is tried again.
+const ENSURE_RETRY: Duration = Duration::from_secs(5 * 60);
 
 // The identity Rig 0.42 presents to Copilot. Copilot refuses a request
 // that does not look like an editor's, so the transport here says the same.
@@ -208,6 +212,31 @@ fn write_endpoints(token_dir: &Path, endpoints: &Endpoints) -> Result<(), String
         .map_err(|_| "The GitHub Copilot model list could not be recorded.".to_string())
 }
 
+/// A login made before endpoints were recorded has none on file, and every
+/// Responses-only model on it would keep failing until someone pressed
+/// Refresh. The first Copilot turn on such a login fetches the list itself.
+/// A failed fetch leaves the turn on Rig's route and is not retried for a
+/// few minutes, so a Copilot outage does not add a wait to every turn.
+pub(crate) async fn ensure_endpoints(token_dir: &Path) {
+    if token_dir.join(ENDPOINTS_FILE).symlink_metadata().is_ok() {
+        return;
+    }
+    static TRIED: Mutex<Option<HashMap<PathBuf, Instant>>> = Mutex::new(None);
+    {
+        let mut tried = TRIED.lock().unwrap_or_else(PoisonError::into_inner);
+        let tried = tried.get_or_insert_with(HashMap::new);
+        let now = Instant::now();
+        if tried
+            .get(token_dir)
+            .is_some_and(|last| now.duration_since(*last) < ENSURE_RETRY)
+        {
+            return;
+        }
+        tried.insert(token_dir.to_path_buf(), now);
+    }
+    let _ = tokio::time::timeout(ENSURE_TIMEOUT, list_models(token_dir)).await;
+}
+
 fn read_endpoints(token_dir: &Path) -> Option<Endpoints> {
     let bytes = crate::vault::read_model_file(&token_dir.join(ENDPOINTS_FILE)).ok()?;
     let endpoints: Endpoints = serde_json::from_slice(&bytes).ok()?;
@@ -231,9 +260,25 @@ pub(crate) fn wants_responses(token_dir: &Path, model: &str) -> bool {
 
 // ---- The Responses route -------------------------------------------------
 
+/// An agent on Copilot's `/responses` for this model. Tools are marked
+/// strict, as Rig's own Copilot Responses route marks them, because
+/// Copilot's Responses endpoint calls tools reliably only with strict
+/// schemas.
+pub(crate) async fn responses_agent(
+    token_dir: &Path,
+    model: &str,
+) -> Result<rig::agent::AgentBuilder, String> {
+    let session = session(token_dir).await?;
+    let client = responses_client(token_dir, &session)?;
+    Ok(rig::agent::AgentBuilder::new(
+        openai::responses_api::ResponsesCompletionModel::<Transport>::new(client, model)
+            .with_strict_tools(),
+    ))
+}
+
 /// Rig's OpenAI Responses client aimed at Copilot. System instructions ride
 /// as `input` messages, as they do on Rig's own Copilot Responses route.
-pub(crate) fn responses_client(
+fn responses_client(
     token_dir: &Path,
     session: &Session,
 ) -> Result<openai::Client<Transport>, String> {
@@ -604,6 +649,47 @@ pub(crate) mod tests {
         assert!(named.contains(&("x-initiator", "agent".to_string())));
         assert!(named.contains(&("copilot-vision-request", "true".to_string())));
         assert!(named.contains(&("authorization", "Bearer tok".to_string())));
+    }
+
+    #[tokio::test]
+    async fn a_login_with_no_endpoints_fetches_them_once_and_a_failure_waits() {
+        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = hits.clone();
+        let app = Router::new().route(
+            "/models",
+            get(move || {
+                let counted = counted.clone();
+                async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    json!({"data": [{"id":"grok-4.6","supported_endpoints":["/responses"]}]})
+                        .to_string()
+                }
+            }),
+        );
+        let (url, server) = serve(app).await;
+        let dir = seeded_login("ensure", &url);
+        assert!(!wants_responses(&dir, "grok-4.6"));
+        ensure_endpoints(&dir).await;
+        assert!(wants_responses(&dir, "grok-4.6"));
+        ensure_endpoints(&dir).await;
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "a list on file is not fetched again"
+        );
+
+        let unreachable = seeded_login("ensure-down", "http://127.0.0.1:9");
+        ensure_endpoints(&unreachable).await;
+        assert!(!wants_responses(&unreachable, "grok-4.6"));
+        let started = Instant::now();
+        ensure_endpoints(&unreachable).await;
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "a failed login is not retried at once"
+        );
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&unreachable);
     }
 
     #[tokio::test]

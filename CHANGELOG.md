@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-23
+
 ### Added
 
 - A Hotline Agent teammate can hand work to a subagent: a fresh worker that

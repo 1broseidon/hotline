@@ -447,8 +447,17 @@ on the account, lands in the picker. Hotline does not POST
 a model the account lists as policy-disabled is simply not offered.
 
 Provider model discovery is also available through **Refresh** for OpenAI
-API, Anthropic API, OpenRouter, Gemini, Groq, DeepSeek, and Mistral. It uses
-the configured provider's Rig client. Supported connections also refresh
+API, Anthropic API, OpenRouter, Gemini, Groq, DeepSeek, Mistral, xAI and
+ChatGPT. It uses the configured provider's Rig client where Rig has a
+lister. Rig lists neither xAI nor ChatGPT, so Hotline reads those itself.
+xAI's list comes from `/v1/language-models`, with the key or the Grok
+subscription's refreshed bearer, and keeps only models that answer in text.
+ChatGPT's comes from the endpoint the Codex CLI reads,
+`https://chatgpt.com/backend-api/codex/models`, and keeps only the models
+Codex shows. That backend leaves out models newer than the `client_version`
+it is sent. The version is `CLIENT_VERSION` in `providers/chatgpt.rs`, so
+raise it when a new ChatGPT model is missing after a refresh. Supported
+connections also refresh
 when added in Settings; failure leaves the saved connection available for a
 later retry. A discovered ID does not need to wait
 for the next models.dev snapshot or Hotline release. Listed models can still

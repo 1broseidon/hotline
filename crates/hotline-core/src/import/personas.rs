@@ -15,25 +15,12 @@
 use super::records::{ResourceRecord, list_records, local_node_id, open};
 use crate::paths::default_workspace;
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
 use std::path::Path;
 
 /// Hotline Agent, which is what a teammate runs when its row names no harness.
 /// The literal is `DEFAULT_BACKEND_ID` in `src/bun/acp/registry.ts`; it is
 /// written into every persona, so it is an identifier and not a label.
 const DEFAULT_BACKEND_ID: &str = "pi";
-
-const MAX_SUBAGENT_EXTRAS: usize = 16;
-const MAX_SUBAGENT_NAME: usize = 60;
-const MAX_SUBAGENT_DESCRIPTION: usize = 400;
-const MAX_SUBAGENT_PROMPT: usize = 4_000;
-const MAX_SUBAGENT_ID: usize = 40;
-const MAX_SUBAGENT_MODEL_ID: usize = 120;
-
-/// Reserved `kind` for the built-in task runner. Operators cannot take this id.
-const GENERIC_SUBAGENT_KIND: &str = "generic";
-
-const DEFAULT_TASK_RUNNER_DESCRIPTION: &str = "A silent coding runner in this workspace. Use for bounded work that would take many tool calls, or for pieces that can run at the same time.";
 
 /// This desk's teammates, in the order the store holds them.
 ///
@@ -125,32 +112,6 @@ fn insert_if_true(persona: &mut Map<String, Value>, key: &str, class: &Map<Strin
     }
 }
 
-/// `slice(0, max)` as JavaScript counts it: in UTF-16 code units, cut on a
-/// character boundary, so a cut that would split a character drops it whole.
-fn truncate_utf16(value: &str, max: usize) -> String {
-    let mut units = 0;
-    let mut end = 0;
-    for (index, character) in value.char_indices() {
-        units += character.len_utf16();
-        if units > max {
-            break;
-        }
-        end = index + character.len_utf8();
-    }
-    value[..end].to_string()
-}
-
-fn clip(value: &str, max: usize) -> String {
-    truncate_utf16(value.trim(), max)
-}
-
-/// A clipped string field, or nothing when it is absent, not a string, or
-/// nothing but whitespace.
-fn optional_text(class: &Map<String, Value>, key: &str, max: usize) -> Option<String> {
-    let clipped = clip(class.get(key)?.as_str()?, max);
-    (!clipped.is_empty()).then_some(clipped)
-}
-
 fn object(value: Option<&Value>) -> Option<&Map<String, Value>> {
     value.and_then(Value::as_object)
 }
@@ -213,132 +174,6 @@ fn normalize_policy(value: Option<&Value>) -> Value {
         .map(|ids| ids.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     json!({ "mode": mode, "serverIds": server_ids })
-}
-
-fn is_reserved_subagent_id(id: &str) -> bool {
-    id == GENERIC_SUBAGENT_KIND
-}
-
-/// `/^[a-z][a-z0-9-]{0,39}$/`, and not the reserved kind.
-fn is_legal_subagent_id(id: &str) -> bool {
-    let mut characters = id.chars();
-    let starts = characters
-        .next()
-        .is_some_and(|first| first.is_ascii_lowercase());
-    starts
-        && id.len() <= MAX_SUBAGENT_ID
-        && characters.all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-        })
-        && !is_reserved_subagent_id(id)
-}
-
-/// Kind id from a display name. Empty when nothing legal remains.
-fn slugify_subagent_id(name: &str) -> String {
-    let lowered = name.to_lowercase();
-    let mut slug = String::new();
-    for character in lowered.chars() {
-        if character.is_ascii_lowercase() || character.is_ascii_digit() {
-            slug.push(character);
-        } else if !slug.ends_with('-') {
-            slug.push('-');
-        }
-    }
-    truncate_utf16(slug.trim_matches('-'), MAX_SUBAGENT_ID)
-}
-
-/// A free id near the one that was asked for, or nothing when there is none.
-fn unique_extra_id(wanted: &str, taken: &HashSet<String>) -> Option<String> {
-    let base = if is_legal_subagent_id(wanted) {
-        wanted.to_string()
-    } else {
-        slugify_subagent_id(wanted)
-    };
-    if base.is_empty() || is_reserved_subagent_id(&base) {
-        return None;
-    }
-    if !taken.contains(&base) && is_legal_subagent_id(&base) {
-        return Some(base);
-    }
-    for suffix in 2..100 {
-        let head = truncate_utf16(&base, MAX_SUBAGENT_ID - suffix.to_string().len() - 1);
-        let candidate = format!("{head}-{suffix}");
-        if !taken.contains(&candidate) && is_legal_subagent_id(&candidate) {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-fn normalize_defaults(value: Option<&Value>) -> Option<Value> {
-    let raw = object(value)?;
-    let mut defaults = Map::new();
-    for (key, max) in [
-        ("name", MAX_SUBAGENT_NAME),
-        ("description", MAX_SUBAGENT_DESCRIPTION),
-        ("prompt", MAX_SUBAGENT_PROMPT),
-        ("modelId", MAX_SUBAGENT_MODEL_ID),
-    ] {
-        if let Some(field) = optional_text(raw, key, max) {
-            defaults.insert(key.to_string(), json!(field));
-        }
-    }
-    (!defaults.is_empty()).then_some(Value::Object(defaults))
-}
-
-fn normalize_extra(value: &Value, taken: &mut HashSet<String>) -> Option<Value> {
-    let raw = value.as_object()?;
-    let name = optional_text(raw, "name", MAX_SUBAGENT_NAME)?;
-    let wanted = text(raw, "id").unwrap_or_else(|| name.clone());
-    let id = unique_extra_id(&wanted, taken)?;
-    let description = optional_text(raw, "description", MAX_SUBAGENT_DESCRIPTION)
-        .unwrap_or_else(|| DEFAULT_TASK_RUNNER_DESCRIPTION.to_string());
-    taken.insert(id.clone());
-
-    let mut extra = Map::new();
-    extra.insert("id".to_string(), json!(id));
-    extra.insert("name".to_string(), json!(name));
-    extra.insert("description".to_string(), json!(description));
-    if let Some(prompt) = optional_text(raw, "prompt", MAX_SUBAGENT_PROMPT) {
-        extra.insert("prompt".to_string(), json!(prompt));
-    }
-    if let Some(model_id) = optional_text(raw, "modelId", MAX_SUBAGENT_MODEL_ID) {
-        extra.insert("modelId".to_string(), json!(model_id));
-    }
-    Some(Value::Object(extra))
-}
-
-/// Drop anything a hand-edited config could smuggle in. Missing or empty
-/// becomes nothing, which is the same as "task runner only".
-fn normalize_subagents(value: Option<&Value>) -> Option<Value> {
-    let raw = object(value)?;
-    let defaults = normalize_defaults(raw.get("defaults"));
-    let mut taken = HashSet::new();
-    let mut extras = Vec::new();
-    for item in raw
-        .get("extras")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        if extras.len() >= MAX_SUBAGENT_EXTRAS {
-            break;
-        }
-        if let Some(extra) = normalize_extra(item, &mut taken) {
-            extras.push(extra);
-        }
-    }
-    if defaults.is_none() && extras.is_empty() {
-        return None;
-    }
-    let mut subagents = Map::new();
-    if let Some(defaults) = defaults {
-        subagents.insert("defaults".to_string(), defaults);
-    }
-    if !extras.is_empty() {
-        subagents.insert("extras".to_string(), Value::Array(extras));
-    }
-    Some(Value::Object(subagents))
 }
 
 fn persona_of(record: &ResourceRecord, root: &Path) -> Value {
@@ -404,9 +239,6 @@ fn persona_of(record: &ResourceRecord, root: &Path) -> Value {
     insert_if_truthy(&mut persona, "webSearchPolicy", portable);
     if let Some(computer) = normalize_computer(portable.get("computer")) {
         persona.insert("computer".to_string(), computer);
-    }
-    if let Some(subagents) = normalize_subagents(portable.get("subagents")) {
-        persona.insert("subagents".to_string(), subagents);
     }
     persona.insert(
         "sessionCheckpoints".to_string(),
@@ -632,45 +464,24 @@ mod tests {
     }
 
     #[test]
-    fn subagents_keep_only_what_a_hand_edited_row_could_legally_say() {
+    fn a_stored_subagent_configuration_is_not_carried_over() {
         let root = scratch("subagents");
         let database = create(&root, "this-desk");
         Put {
             portable: Some(json!({
                 "subagents": {
-                    "defaults": { "name": "  Runner  ", "prompt": "", "modelId": 7 },
-                    "extras": [
-                        { "name": "Reviewer", "description": "  reads diffs  " },
-                        { "id": "generic", "name": "Impostor" },
-                        { "name": "Reviewer" },
-                        { "description": "no name at all" },
-                    ],
+                    "defaults": { "name": "Runner" },
+                    "extras": [{ "name": "Reviewer", "description": "reads diffs" }],
                 },
             })),
             ..Put::new("delegator", "this-desk", json!({ "name": "Delegator" }))
         }
         .write(&database);
-        Put {
-            portable: Some(json!({ "subagents": { "extras": [{ "name": "" }] } })),
-            ..Put::new("solo", "this-desk", json!({ "name": "Solo" }))
-        }
-        .write(&database);
 
         let personas = list_local_personas(&root);
-        assert_eq!(
-            personas[0]["subagents"],
-            json!({
-                "defaults": { "name": "Runner" },
-                "extras": [
-                    { "id": "reviewer", "name": "Reviewer", "description": "reads diffs" },
-                    // An entry asking for the reserved kind is dropped, and a
-                    // second Reviewer is numbered rather than dropped with it.
-                    { "id": "reviewer-2", "name": "Reviewer", "description": DEFAULT_TASK_RUNNER_DESCRIPTION },
-                ],
-            })
-        );
-        // Nothing usable is the same as no subagents at all.
-        assert!(personas[1].get("subagents").is_none());
+        // A subagent is always the one generic runner; the configurable kinds
+        // an older desk stored have nothing left to mean.
+        assert!(personas[0].get("subagents").is_none());
     }
 
     #[test]

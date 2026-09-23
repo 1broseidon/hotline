@@ -135,6 +135,13 @@ export const CheckIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+export const ComputerIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<rect x="2.25" y="2.75" width="11.5" height="8" rx="1.25" />
+		<path d="M6 13.75h4M8 10.75v3" />
+	</svg>
+);
+
 export const ClockIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<circle cx="8" cy="8" r="5.75" />

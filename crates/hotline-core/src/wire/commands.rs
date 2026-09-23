@@ -31,9 +31,11 @@ pub(crate) async fn run(
         Command::PersonaUpdate { id, patch } => {
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
-            let updated = update_persona(log, room, &id, &patch)?;
-            if persona_patch_reattaches(&patch) {
+            let (updated, reattaches) = update_persona(log, room, &id, &patch)?;
+            if reattaches {
                 room.reattach(&id).await?;
+            } else if patch.get("computer").is_some() {
+                room.computer_settings_changed(&id).await;
             }
             Ok(updated)
         }
@@ -56,6 +58,7 @@ pub(crate) async fn run(
             }
             let updated = update_settings(log, patch)?;
             if servers {
+                forget_removed_servers(log)?;
                 // Replacing or deleting legacy sources also removes their
                 // superseded plaintext values from the room's history.
                 log.migrate_mcp_settings(|value| {
@@ -468,7 +471,6 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: draft.computer,
-        subagents: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
         created_at: stamped,
@@ -486,7 +488,7 @@ fn update_persona(
     room: &Arc<dyn RoomHandle>,
     id: &str,
     patch: &Value,
-) -> Result<Value, String> {
+) -> Result<(Value, bool), String> {
     let previous = living(log, id)?;
     let mut record = json!(previous);
     let fields = record
@@ -503,11 +505,30 @@ fn update_persona(
 
     let updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
-    if persona_patch_reattaches(patch) {
+    let reattaches = persona_update_reattaches(patch, &previous, &updated);
+    if reattaches {
         room.invalidate(id)?;
     }
     room::append_persona(log, &updated)?;
-    Ok(json!(updated))
+    Ok((json!(updated), reattaches))
+}
+
+/// Whether this update restarts a live session. The computer's own
+/// settings do not, short of turning it on or off: its limits, mounts and
+/// image take effect when the container is next made, and its secrets are
+/// handed to it where it runs. A turn in flight is not cut short for them.
+fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Persona) -> bool {
+    let enabled = |persona: &Persona| {
+        persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+    };
+    let mut rest = patch.clone();
+    if let Some(fields) = rest.as_object_mut() {
+        fields.remove("computer");
+    }
+    persona_patch_reattaches(&rest) || enabled(previous) != enabled(updated)
 }
 
 /// A patch of these fields rebuilds the driver, so a live session has to
@@ -572,6 +593,38 @@ fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Value, String
         *servers = crate::mcp::public_servers(servers);
     }
     Ok(Value::Object(settings))
+}
+
+/// The ids of the room's tool sources, as settings hold them now.
+fn server_ids(log: &Log) -> Vec<String> {
+    room::settings(log)
+        .get("mcpServers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|server| server["id"].as_str().map(String::from))
+        .collect()
+}
+
+/// A tool source removed from settings leaves every teammate's grant with
+/// it. Removing it was the decision; a policy still naming it would only be
+/// a warning that it is gone, on every teammate that ever had it. Each save
+/// of the list settles every grant against it, so one left behind by an
+/// older build goes too.
+fn forget_removed_servers(log: &Log) -> Result<(), String> {
+    let servers = server_ids(log);
+    for mut persona in room::roster(log) {
+        let granted = persona.mcp_policy.server_ids.len();
+        persona
+            .mcp_policy
+            .server_ids
+            .retain(|id| servers.contains(id));
+        if persona.mcp_policy.server_ids.len() != granted {
+            persona.updated_at = now();
+            room::append_persona(log, &persona)?;
+        }
+    }
+    Ok(())
 }
 
 /// Where a fresh room stands, from what it already knows. A live credential

@@ -75,8 +75,15 @@ export function Menu({
 		setStyle({ top, left, width, maxHeight });
 	}, [anchor, align]);
 
+	// Focus once the menu is placed: it opens hidden until it is measured,
+	// and a hidden element cannot take focus. Without it, Escape reaches the
+	// window instead of the menu and closes whatever pane it opened in.
+	const placed = style.visibility !== "hidden";
 	useEffect(() => {
-		root.current?.focus({ preventScroll: true });
+		if (placed) root.current?.focus({ preventScroll: true });
+	}, [placed]);
+
+	useEffect(() => {
 		const away = (event: MouseEvent) => {
 			const target = event.target as Node | null;
 			if (root.current?.contains(target) || anchor.contains(target)) return;

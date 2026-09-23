@@ -10,7 +10,7 @@ use crate::contract::{
     AttachmentKind, ChapterStatus, HumanAnswer, McpPolicy, PermissionOption, PersonaComputer,
     PolicyMode, ScheduledJob, SessionCheckpoint,
 };
-use crate::driver::DriverInfo;
+use crate::driver::{DriverInfo, Escalate};
 use crate::mcp::server::TeammateTools;
 use async_trait::async_trait;
 use serde_json::json;
@@ -50,7 +50,12 @@ pub(super) struct Scripted {
     /// The models the room offers, when this script stands in for Hotline
     /// Agent: its picker is read again from here whenever the room says so.
     room_models: Option<Arc<Mutex<Vec<ConfigChoice>>>>,
+    /// What each turn was armed with to be heard, in the order they ran.
+    escalations: Arc<Mutex<Vec<Armed>>>,
 }
+
+/// What one turn was handed to be heard through, if anything.
+type Armed = Option<Arc<dyn Escalate>>;
 
 impl Scripted {
     pub(super) fn new(script: Vec<Update>) -> Self {
@@ -72,6 +77,7 @@ impl Scripted {
             cancels: Arc::new(Mutex::new(0)),
             info_changes: None,
             room_models: None,
+            escalations: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -123,6 +129,10 @@ impl Driver for Scripted {
         let mut info = self.reported();
         info.models = lock(offered).clone();
         Some(info)
+    }
+
+    fn escalate_next(&self, escalation: Option<Arc<dyn Escalate>>) {
+        lock(&self.escalations).push(escalation);
     }
 
     async fn prompt(
@@ -203,6 +213,10 @@ pub(super) struct Fake {
     driver: Arc<Scripted>,
     preambles: Arc<Mutex<Vec<String>>>,
     seeds: Arc<Mutex<Vec<Vec<Said>>>>,
+    /// Each agent's view of its teammate and the tools it was handed, in the
+    /// order the room asked for them.
+    views: Arc<Mutex<Vec<Persona>>>,
+    tools: Arc<Mutex<Vec<TeammateTools>>>,
     answer: Result<String, String>,
 }
 
@@ -222,6 +236,8 @@ impl Fake {
             driver: Arc::new(driver),
             preambles: Arc::new(Mutex::new(Vec::new())),
             seeds: Arc::new(Mutex::new(Vec::new())),
+            views: Arc::new(Mutex::new(Vec::new())),
+            tools: Arc::new(Mutex::new(Vec::new())),
             answer,
         })
     }
@@ -231,14 +247,16 @@ impl Fake {
 impl Agents for Fake {
     fn agent(
         &self,
-        _persona: &Persona,
+        persona: &Persona,
         preamble: String,
         said: Vec<Said>,
-        _tools: TeammateTools,
+        tools: TeammateTools,
         _extra_mcp: Vec<crate::mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String> {
         lock(&self.preambles).push(preamble);
         lock(&self.seeds).push(said);
+        lock(&self.views).push(persona.clone());
+        lock(&self.tools).push(tools);
         Ok(self.driver.clone())
     }
 
@@ -312,7 +330,6 @@ pub(super) fn persona(id: &str) -> Persona {
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: None,
-        subagents: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
         created_at: 1_700_000_000_000,
@@ -2334,14 +2351,94 @@ async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask
 }
 
 /// Updating a computer recreates it on the release it would be created on
-/// now and starts the teammate again; the runtime sees a remove and a create.
+/// now, without touching the teammate's work: the command answers at once,
+/// the new release downloads while the old computer keeps serving the turn
+/// in flight, and the swap happens once that turn ends. The runtime sees a
+/// remove and a create only then.
 #[cfg(unix)]
 #[tokio::test]
-async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
+async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
     let ComputerRoom { room, root, .. } =
         computer_room("computer-update", Some("0.9.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
-    room.computer_update("ada").await.unwrap();
+    let session = room.session("ada").unwrap();
+    assert!(session.computer);
+    lock(&session.turns).running = true;
+    std::fs::write(root.join("state.noimage"), "").unwrap();
+    std::fs::write(root.join("state.pullgate"), "").unwrap();
+
+    tokio::time::timeout(Duration::from_secs(5), room.computer_update("ada"))
+        .await
+        .expect("the update does not wait for the download")
+        .unwrap();
+    let removes = |root: &std::path::Path| {
+        runtime_commands(root)
+            .iter()
+            .filter(|line| line.starts_with("rm "))
+            .count()
+    };
+    assert_eq!(removes(&root), 0, "the old computer keeps working");
+
+    std::fs::remove_file(root.join("state.pullgate")).unwrap();
+    let downloaded = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if lock(&room.computer_swaps)
+                .get("ada")
+                .is_some_and(|swap| swap.ready)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(downloaded.is_ok(), "the new release downloads");
+    let still = room.session("ada").unwrap();
+    assert!(
+        Arc::ptr_eq(&still, &session),
+        "the turn in flight is not cut short"
+    );
+    assert_eq!(removes(&root), 0, "nothing is swapped mid-turn");
+
+    // Idle for a moment, and a message is admitted in the gap between the
+    // swap seeing that and doing it: behind the start gate the swap finds the
+    // turn claimed and leaves the session alone.
+    lock(&session.turns).running = false;
+    let gate = room.start_gate("ada");
+    let held = gate.lock().await;
+    room.swap_computer_when_idle("ada");
+    lock(&session.turns).running = true;
+    drop(held);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(Arc::ptr_eq(&room.session("ada").unwrap(), &session));
+    assert_eq!(removes(&root), 0, "the admitted turn keeps its computer");
+    assert!(
+        lock(&room.computer_swaps)
+            .get("ada")
+            .is_some_and(|swap| swap.ready),
+        "the swap waits for that turn instead"
+    );
+
+    // The turn ends; what `run_turns` does next swaps the computer in.
+    lock(&session.turns).running = false;
+    room.swap_computer_when_idle("ada");
+    let swapped = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let replaced = room
+                .session("ada")
+                .ok()
+                .is_some_and(|now| !Arc::ptr_eq(&now, &session) && now.computer);
+            if replaced && room.info("ada").state == SessionState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        swapped.is_ok(),
+        "the teammate carries on with the new computer"
+    );
 
     let commands: Vec<String> = runtime_commands(&root)
         .iter()
@@ -2359,11 +2456,31 @@ async fn updating_a_computer_recreates_it_and_the_teammate_comes_back() {
         first_create < removed && removed < second_create,
         "{commands:?}"
     );
-    assert_eq!(
-        room.info("ada").state,
-        SessionState::Ready,
-        "the teammate is running again on the new computer"
+    assert!(
+        notices(&room, "ada")
+            .iter()
+            .any(|text| text.contains("is updated and rejoins now")),
+        "the tape says when it swapped"
     );
+}
+
+/// With no session running there is nothing to wait for: the container
+/// goes at once and the next start makes the new one.
+#[cfg(unix)]
+#[tokio::test]
+async fn updating_a_resting_teammates_computer_removes_it_at_once() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-update-idle", Some("0.9.1"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    room.stop("ada").unwrap();
+    room.computer_update("ada").await.unwrap();
+    assert!(
+        runtime_commands(&root)
+            .iter()
+            .any(|line| line.starts_with("rm ")),
+        "the container is gone"
+    );
+    assert!(room.session("ada").is_err(), "nothing was started");
 }
 
 /// A fresh computer is created on the newest published release: the desk
@@ -2818,6 +2935,107 @@ async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
         ["user", "user", "agent", "turn"],
         "the human closed the window, so the run's words are a bubble"
     );
+}
+
+/// A quiet run that finds something asks to be heard, once, and is: once its
+/// silent turn is over, the teammate is prompted with the finding in the open
+/// and answers the person as any reply is answered. Only the quiet turn was
+/// armed.
+#[tokio::test]
+async fn a_quiet_run_that_asks_has_its_teammate_tell_the_person() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::turns(vec![
+        saying("quiet", "Checked the page; it moved."),
+        saying("loud", "Your Apple order shipped this morning."),
+    ]);
+    driver.gate = Some(gate.clone());
+    let armed = driver.escalations.clone();
+    let prompts = driver.prompts.clone();
+    let room = room("quiet-escalates", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt_scheduled(
+        "ada",
+        "check the order page",
+        firing(ScheduleKind::Loop, true),
+    )
+    .await
+    .unwrap();
+    heard(&prompts, 1).await;
+    let escalation = lock(&armed)[0].clone().expect("a quiet run is armed");
+    escalation.escalate("The order shipped.").unwrap();
+    let refused = escalation.escalate("And another thing.").unwrap_err();
+    assert!(refused.contains("one per run"), "{refused}");
+
+    gate.add_permits(6);
+    let events = settled(&room, "ada", 6).await;
+    assert_eq!(
+        kinds(&events),
+        ["user", "thought", "turn", "user", "agent", "turn"],
+        "the run stayed thinking; the teammate's answer is a reply"
+    );
+    assert_eq!(events[1]["text"], "Checked the page; it moved.");
+    assert_eq!(events[3]["text"], "The order shipped.");
+    assert_eq!(events[3]["scheduled"]["jobId"], "job-1");
+    assert_eq!(events[3]["scheduled"].get("quiet"), None);
+    assert_eq!(events[4]["text"], "Your Apple order shipped this morning.");
+
+    let prompts = heard(&prompts, 2).await;
+    assert!(
+        prompts[1].contains("\"Apple order check\" found something")
+            && prompts[1].contains("The order shipped."),
+        "{}",
+        prompts[1]
+    );
+    let armed = lock(&armed);
+    assert_eq!(armed.len(), 2);
+    assert!(armed[1].is_none(), "the answer is not a quiet run");
+}
+
+/// A quiet run that does not ask is not followed by anything.
+#[tokio::test]
+async fn a_quiet_run_that_does_not_ask_stays_silent() {
+    let driver = Scripted::new(saying("quiet", "No change."));
+    let prompts = driver.prompts.clone();
+    let room = room("quiet-no-escalation", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt_scheduled(
+        "ada",
+        "check the order page",
+        firing(ScheduleKind::Loop, true),
+    )
+    .await
+    .unwrap();
+    let events = settled(&room, "ada", 3).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        kinds(&settled(&room, "ada", 3).await),
+        ["user", "thought", "turn"]
+    );
+    assert_eq!(events[1]["text"], "No change.");
+    assert_eq!(lock(&prompts).len(), 1);
+}
+
+/// Loud runs already speak, so they have nothing to ask for.
+#[tokio::test]
+async fn a_loud_schedule_is_not_armed_to_escalate() {
+    let driver = Scripted::new(saying("s", "Standup is at ten."));
+    let armed = driver.escalations.clone();
+    let room = room("scheduled-loud-unarmed", Fake::new(driver));
+    room.start("ada").await.unwrap();
+
+    room.prompt_scheduled(
+        "ada",
+        "post the standup",
+        firing(ScheduleKind::Schedule, false),
+    )
+    .await
+    .unwrap();
+    settled(&room, "ada", 3).await;
+    let armed = lock(&armed);
+    assert_eq!(armed.len(), 1);
+    assert!(armed[0].is_none());
 }
 
 /// A schedule that is not quiet is stamped and framed all the same; only the
@@ -4218,4 +4436,318 @@ async fn updates_wait_for_queued_work_and_release_the_room_after_failure() {
     drop(held);
     semaphore.add_permits(1);
     room.prompt("ada", "retry", None, None).await.unwrap();
+}
+
+/// Subagent runs: a fresh agent for the teammate on a stream of its own, one
+/// line on the tape, and the report handed back. See [`super::runner`].
+mod runs {
+    use super::*;
+    use crate::contract::SubagentStatus;
+    use crate::session::runner::{RunEnd, RunSpec};
+    use tokio_util::sync::CancellationToken;
+
+    fn spec(room: &Room, run_id: &str, task: &str) -> RunSpec {
+        RunSpec {
+            persona_id: "ada".to_string(),
+            run_id: run_id.to_string(),
+            title: "Check the crane".to_string(),
+            task: task.to_string(),
+            capability: room.capability_lease("ada"),
+        }
+    }
+
+    fn run_stream(room: &Room, run_id: &str) -> Vec<Value> {
+        room.log.load(&StreamId::Run(run_id.to_string()))
+    }
+
+    fn worked() -> Vec<Update> {
+        vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "m1".to_string(),
+                text: "Looking at the log.".to_string(),
+            },
+            Update::ToolCall {
+                call_id: "c1".to_string(),
+                title: "read crane.log".to_string(),
+                kind: "read".to_string(),
+            },
+            Update::ToolResult {
+                call_id: "c1".to_string(),
+                ok: true,
+                output: "winch: jammed".to_string(),
+                images: Vec::new(),
+            },
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "m2".to_string(),
+                text: "The winch is jammed.".to_string(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".to_string(),
+                usage: None,
+            },
+        ]
+    }
+
+    /// A run held before its first update, which a cancel ends.
+    fn held() -> (Scripted, Arc<Semaphore>) {
+        let gate = Arc::new(Semaphore::new(0));
+        let mut driver = Scripted::new(worked());
+        driver.gate = Some(gate.clone());
+        driver.on_cancel = vec![Update::Turn {
+            stop_reason: "aborted".to_string(),
+            usage: None,
+        }];
+        (driver, gate)
+    }
+
+    async fn prompted(agents: &Fake) {
+        for _ in 0..500 {
+            if !lock(&agents.driver.prompts).is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        panic!("the run never prompted its agent");
+    }
+
+    #[tokio::test]
+    async fn a_run_works_on_its_own_stream_and_hands_back_its_last_words() {
+        let agents = Fake::new(Scripted::new(worked()));
+        let room = room("run-report", agents.clone());
+        let outcome = room
+            .run(
+                spec(&room, "r1", "Find out why the crane stopped."),
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(outcome.end, RunEnd::Done);
+        assert_eq!(outcome.report, "The winch is jammed.");
+
+        // The run's stream opens on its own line, then the task, and the
+        // report is what it said once the work was done, not its opening.
+        let stream = run_stream(&room, "r1");
+        assert_eq!(
+            kinds(&stream),
+            ["subagent", "user", "agent", "tool", "agent", "turn"]
+        );
+        assert_eq!(stream[0]["status"], "done");
+        assert_eq!(stream[1]["text"], "Find out why the crane stopped.");
+        assert_eq!(stream[2]["text"], "Looking at the log.");
+        assert_eq!(stream[3]["status"], "completed");
+
+        // The teammate's tape holds one line for the whole run, rewritten
+        // in place, and none of the run's words.
+        let tape = tape(&room, "ada");
+        assert_eq!(kinds(&tape), ["subagent"]);
+        assert_eq!(tape[0]["id"], "subagent:r1");
+        assert_eq!(tape[0]["runId"], "r1");
+        assert_eq!(tape[0]["title"], "Check the crane");
+        assert_eq!(tape[0]["status"], "done");
+        assert!(tape[0]["elapsedMs"].as_i64().is_some());
+
+        // A worker's brief, none of the conversation, and the task as its
+        // one message.
+        let preamble = lock(&agents.preambles).last().cloned().unwrap();
+        assert!(
+            preamble.starts_with("You are a subagent working for Ada"),
+            "{preamble}"
+        );
+        assert!(
+            !preamble.contains("Keep the harbour running."),
+            "the teammate's goal is its own, not its worker's"
+        );
+        assert!(lock(&agents.seeds).last().unwrap().is_empty());
+        assert_eq!(
+            lock(&agents.driver.prompts).last().unwrap(),
+            "Ada handed you this task:\n\nFind out why the crane stopped."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen() {
+        let agents = Fake::new(Scripted::new(worked()));
+        let log = scratch("run-view");
+        let mut ada = persona("ada");
+        ada.model_id = Some("anthropic/older".to_string());
+        ada.session_checkpoints = vec![SessionCheckpoint {
+            backend_id: "hotline".to_string(),
+            session_id: "s1".to_string(),
+        }];
+        enrol(&log, &ada);
+        let room = Room::with_agents_and_computers(
+            log,
+            Arc::new(DeskKeys),
+            agents.clone(),
+            crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+        );
+        room.start("ada").await.unwrap();
+        let tools = lock(&agents.tools).last().cloned().unwrap();
+        assert!(
+            tools.offers_subagents(),
+            "the teammate's own session hands work off"
+        );
+
+        let outcome = room
+            .run(spec(&room, "r2", "Anything."), CancellationToken::new())
+            .await;
+        assert_eq!(outcome.end, RunEnd::Done);
+        let view = lock(&agents.views).last().cloned().unwrap();
+        assert_eq!(
+            view.model_id.as_deref(),
+            Some("anthropic/claude"),
+            "the model the session is on now, not the one on the record"
+        );
+        assert!(view.session_checkpoints.is_empty());
+        let tools = lock(&agents.tools).last().cloned().unwrap();
+        assert!(tools.in_run());
+        assert!(!tools.offers_subagents(), "a run starts no runs of its own");
+        assert!(tools.delegate().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_run_stops_its_agent_and_its_line_says_so() {
+        let (driver, gate) = held();
+        let agents = Fake::new(driver);
+        let room = room("run-cancel", agents.clone());
+        let cancel = CancellationToken::new();
+        let running = tokio::spawn({
+            let room = room.clone();
+            let cancel = cancel.clone();
+            async move { room.run(spec(&room, "r3", "Wait."), cancel).await }
+        });
+        gate.add_permits(2);
+        for _ in 0..500 {
+            if kinds(&run_stream(&room, "r3")).contains(&"tool".to_string()) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        assert_eq!(tape(&room, "ada")[0]["status"], "running");
+
+        cancel.cancel();
+        let outcome = running.await.unwrap();
+        assert_eq!(outcome.end, RunEnd::Cancelled);
+        assert!(outcome.report.contains("stopped"), "{}", outcome.report);
+        assert!(agents.cancel_count() >= 1, "the agent was told to stop");
+        let stream = run_stream(&room, "r3");
+        assert_eq!(
+            kinds(&stream),
+            ["subagent", "user", "agent", "tool", "turn"]
+        );
+        assert_eq!(stream[0]["status"], "cancelled");
+        assert_eq!(
+            stream[3]["status"], "failed",
+            "a tool the run never heard back about did not complete"
+        );
+        assert_eq!(tape(&room, "ada")[0]["status"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session() {
+        let (driver, _gate) = held();
+        let agents = Fake::new(driver);
+        let room = room("run-lease", agents.clone());
+        let cancel = CancellationToken::new();
+        let running = tokio::spawn({
+            let room = room.clone();
+            let cancel = cancel.clone();
+            async move { room.run(spec(&room, "r4", "Look around."), cancel).await }
+        });
+        prompted(&agents).await;
+        let tools = lock(&agents.tools).last().cloned().unwrap();
+        tools.call("list_chapters", &json!({})).await.unwrap();
+        assert_eq!(
+            tools
+                .call("react", &json!({"emoji": "👍"}))
+                .await
+                .unwrap_err(),
+            "A subagent has no tool called 'react'."
+        );
+
+        // Stopping the teammate stops everything it started.
+        room.capability_epoch("ada").stop();
+        assert!(
+            tools
+                .call("list_chapters", &json!({}))
+                .await
+                .unwrap_err()
+                .contains("revoked")
+        );
+        cancel.cancel();
+        assert_eq!(running.await.unwrap().end, RunEnd::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn a_run_for_a_teammate_whose_authority_is_gone_never_starts() {
+        let agents = Fake::new(Scripted::new(worked()));
+        let room = room("run-revoked", agents.clone());
+        let stale = spec(&room, "r5", "Anything.");
+        room.capability_epoch("ada").stop();
+        let outcome = room.run(stale, CancellationToken::new()).await;
+        assert_eq!(outcome.end, RunEnd::Failed);
+        assert!(outcome.report.contains("revoked"), "{}", outcome.report);
+        assert!(lock(&agents.driver.prompts).is_empty());
+        assert_eq!(
+            kinds(&run_stream(&room, "r5")),
+            ["subagent", "user", "notice"]
+        );
+        assert_eq!(tape(&room, "ada")[0]["status"], "failed");
+    }
+
+    #[tokio::test]
+    async fn only_a_hotline_agent_teammate_runs_subagents() {
+        let agents = Fake::new(Scripted::new(worked()));
+        let log = scratch("run-acp");
+        let mut ada = persona("ada");
+        ada.backend_id = "claude-code".to_string();
+        enrol(&log, &ada);
+        let room = Room::with_agents_and_computers(
+            log,
+            Arc::new(DeskKeys),
+            agents.clone(),
+            crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+        );
+        let outcome = room
+            .run(spec(&room, "r6", "Anything."), CancellationToken::new())
+            .await;
+        assert_eq!(outcome.end, RunEnd::Failed);
+        assert!(
+            outcome.report.contains("Only a Hotline Agent teammate"),
+            "{}",
+            outcome.report
+        );
+        assert!(lock(&agents.driver.prompts).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_run_the_last_process_left_running_is_cancelled_when_the_room_opens() {
+        let log = scratch("run-orphan");
+        enrol(&log, &persona("ada"));
+        let left = TranscriptEvent::Subagent {
+            id: "subagent:r7".to_string(),
+            ts: 5,
+            run_id: "r7".to_string(),
+            title: "Check the crane".to_string(),
+            status: SubagentStatus::Running,
+            elapsed_ms: None,
+        };
+        log.append(
+            &StreamId::Tape("ada".to_string()),
+            &serde_json::to_value(&left).unwrap(),
+        )
+        .unwrap();
+        let room = Room::with_agents_and_computers(
+            log,
+            Arc::new(DeskKeys),
+            Fake::new(Scripted::new(worked())),
+            crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+        );
+        let tape = tape(&room, "ada");
+        assert_eq!(kinds(&tape), ["subagent"]);
+        assert_eq!(tape[0]["status"], "cancelled");
+        assert_eq!(tape[0]["ts"], 5, "the line keeps its place");
+        assert_eq!(run_stream(&room, "r7")[0]["status"], "cancelled");
+    }
 }

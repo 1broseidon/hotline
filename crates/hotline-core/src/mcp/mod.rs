@@ -1657,7 +1657,6 @@ mod tests {
             allowed_senders: Vec::new(),
             web_search_policy: None,
             computer: None,
-            subagents: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,
             created_at: 1,
@@ -1705,6 +1704,7 @@ mod tests {
             &test_persona(persona_id),
             &[],
             &Connections::for_test(tools, Vec::new()),
+            false,
         );
         let rows = crate::session::ledger::teammate_tools(persona_id)
             .expect("published")

@@ -22,9 +22,7 @@ mod records;
 mod schedules;
 mod threads;
 
-use crate::contract::{
-    Face, HarnessChoice, Persona, PersonaComputer, PersonaSubagents, Reach, WebSearchPolicy,
-};
+use crate::contract::{Face, HarnessChoice, Persona, PersonaComputer, Reach, WebSearchPolicy};
 use crate::log::{Log, StreamId};
 use crate::store::search::Indexer;
 use crate::vault::Vault;
@@ -480,7 +478,6 @@ fn persona_from_legacy(mut value: Value) -> Result<Persona, String> {
         strip_if_invalid::<Face>(object, "face");
         strip_if_invalid::<WebSearchPolicy>(object, "webSearchPolicy");
         strip_if_invalid::<PersonaComputer>(object, "computer");
-        strip_if_invalid::<PersonaSubagents>(object, "subagents");
         strip_if_invalid::<HarnessChoice>(object, "harnessOverride");
         strip_if_invalid::<Reach>(object, "reach");
     }

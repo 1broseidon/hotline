@@ -282,6 +282,27 @@ impl Computer {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Downloads the image a computer for `persona` would be created on now,
+    /// without touching the one running. An update pulls ahead of the swap,
+    /// so the teammate keeps its computer for as long as the download takes.
+    pub async fn prepare(
+        &self,
+        persona: &Persona,
+        prefer: Option<Runtime>,
+        room_image: Option<&str>,
+        report: impl FnMut(PullReport),
+    ) -> Result<(), String> {
+        let (runtime, cmd) = pick_runtime(prefer, &self.bins).await?;
+        if pinned_image(persona, room_image).is_none() {
+            self.refresh_releases(now_ms()).await;
+        }
+        let image = self.image_for(persona, room_image);
+        if !image_present(&cmd, runtime, &image).await {
+            pull(&cmd, runtime, &image, report).await?;
+        }
+        Ok(())
+    }
+
     pub async fn ensure_running(
         &self,
         persona: &Persona,
@@ -1424,7 +1445,6 @@ mod tests {
                 mounts: None,
                 secrets: None,
             }),
-            subagents: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,
             created_at: 1,

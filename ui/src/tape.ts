@@ -77,6 +77,25 @@ export function useThread(key: string): { events: TranscriptEvent[] } {
 }
 
 /**
+ * A subagent's run is a stream like a thread: one snapshot, then events
+ * folded by id. It opens on the run's own line, rewritten as the run goes,
+ * which is how the pane knows the run's title and whether it is still going.
+ */
+export function useRun(runId: string): { events: TranscriptEvent[] } {
+	const [events, setEvents] = useState<TranscriptEvent[]>([]);
+
+	useEffect(() => {
+		setEvents([]);
+		return watchWhenOpen<TranscriptEvent>({ run: runId }, {
+			snapshot: (items) => setEvents(fold(items)),
+			event: (item) => setEvents((known) => merge(known, item)),
+		});
+	}, [runId]);
+
+	return { events };
+}
+
+/**
  * Subscribe only once the socket is open.
  *
  * The race: a restored teammate mounts Conversation in the same turn as

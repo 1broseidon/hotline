@@ -309,6 +309,22 @@ pub fn thread_path(root: &Path, key: &str) -> Option<PathBuf> {
     Some(managed_path(&threads_dir(root), key, ".jsonl"))
 }
 
+/// Where subagent runs keep their transcripts, one file per run.
+pub fn runs_dir(root: &Path) -> PathBuf {
+    root.join("runs")
+}
+
+/// The file one run's events are written to. A run id is minted by the room
+/// as a UUID, so anything with a character a UUID never has names no file.
+pub fn run_path(root: &Path, id: &str) -> Option<PathBuf> {
+    let plausible = !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-');
+    plausible.then(|| runs_dir(root).join(format!("{id}.jsonl")))
+}
+
 pub fn thread_meta_path(root: &Path, key: &str) -> Option<PathBuf> {
     thread_participants(key)?;
     Some(managed_path(&threads_dir(root), key, ".json"))

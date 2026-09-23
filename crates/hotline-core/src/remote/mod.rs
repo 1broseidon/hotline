@@ -74,7 +74,8 @@ struct PushTarget {
     platform: String,
 }
 /// The phones a notification goes to, read off the saved grants so the room
-/// never has to hold the remote.
+/// never has to hold the remote. None while Remote is off: turning it off
+/// keeps the pairings for later, and must also stop the notifications.
 pub struct PushTargets {
     pub desktop_id: String,
     pub tokens: Vec<String>,
@@ -89,6 +90,7 @@ pub fn push_targets(root: &Path) -> PushTargets {
         tokens: saved
             .grants
             .iter()
+            .filter(|_| saved.enabled)
             .filter_map(|grant| grant.push.as_ref().map(|push| push.token.clone()))
             .collect(),
     }

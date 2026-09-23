@@ -739,6 +739,10 @@ impl RoomHandle for Desk {
         self.room.computer_update(persona_id).await
     }
 
+    async fn computer_settings_changed(&self, _persona_id: &str) {
+        self.room.secrets_changed().await;
+    }
+
     async fn computer_browsers(&self) -> Vec<crate::contract::HostBrowser> {
         self.room.computer_browsers().await
     }
@@ -1086,7 +1090,6 @@ mod tests {
             allowed_senders: Vec::new(),
             web_search_policy: None,
             computer: None,
-            subagents: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,
             created_at: 1,

@@ -25,6 +25,8 @@
 
 use crate::contract::{ChapterClose, ScheduleKind, ScheduledJob, ToolSourceKind};
 use crate::driver::CapabilityLease;
+use crate::session::jobs::Delegate;
+use crate::session::runner::Subagents;
 use crate::session::{Room, ledger, now_ms, parse_duration, parse_when};
 use crate::store;
 use rmcp::ErrorData;
@@ -81,6 +83,11 @@ pub const TOOL_NAMES: [&str; 13] = [
     CANCEL_SCHEDULE,
     COMPUTER_STATUS,
 ];
+
+/// What a subagent run is given of these: its teammate's conversation, to
+/// read. A run speaks to nobody, so nothing that asks the person, reacts,
+/// messages a colleague, schedules or moves a chapter is on its list.
+const RUN_TOOLS: [&str; 2] = [SEARCH_THREAD, LIST_CHAPTERS];
 
 /// What the search may be asked for at once, and what it settles on when the
 /// agent does not say. The previous edition's numbers, so a teammate that moves
@@ -285,6 +292,11 @@ pub struct TeammateTools {
     room: Weak<Room>,
     persona_id: String,
     capability: Option<CapabilityLease>,
+    /// Whether this session may hand work to subagents. Only a teammate's
+    /// own session asks for them.
+    subagents: bool,
+    /// Whether these are a subagent run's: [`RUN_TOOLS`] and nothing else.
+    run: bool,
 }
 
 impl TeammateTools {
@@ -293,7 +305,45 @@ impl TeammateTools {
             room: Arc::downgrade(room),
             persona_id: persona_id.into(),
             capability: None,
+            subagents: false,
+            run: false,
         }
+    }
+
+    /// Lets this session hand work to subagents, each a managed job of its
+    /// turn. A driver that has no managed jobs never asks.
+    pub(crate) fn with_subagents(mut self) -> Self {
+        self.subagents = true;
+        self
+    }
+
+    /// Narrows these to a subagent run's: its teammate's conversation to
+    /// read, and no subagents of its own.
+    pub(crate) fn for_run(mut self) -> Self {
+        self.run = true;
+        self.subagents = false;
+        self
+    }
+
+    pub(crate) fn in_run(&self) -> bool {
+        self.run
+    }
+
+    pub(crate) fn offers_subagents(&self) -> bool {
+        self.subagents && !self.run
+    }
+
+    /// What starts this session's subagents, when it may have any. The runs
+    /// hold the same generation these tools do, so revoking the session
+    /// revokes every run it started.
+    pub(crate) fn delegate(&self) -> Option<Arc<dyn Delegate>> {
+        self.offers_subagents().then(|| {
+            Arc::new(Subagents {
+                room: self.room.clone(),
+                persona_id: self.persona_id.clone(),
+                capability: self.capability.clone(),
+            }) as Arc<dyn Delegate>
+        })
     }
 
     /// Binds these handles to one session generation. A clone kept by an old
@@ -313,6 +363,9 @@ impl TeammateTools {
     pub async fn call(&self, name: &str, arguments: &Value) -> Result<String, String> {
         if let Some(capability) = &self.capability {
             capability.check()?;
+        }
+        if self.run && !RUN_TOOLS.contains(&name) {
+            return Err(format!("A subagent has no tool called '{name}'."));
         }
         let room = self
             .room
@@ -509,6 +562,7 @@ impl TeammateTools {
     pub fn as_dynamic(&self) -> Vec<rig::tool::DynamicTool> {
         descriptors()
             .into_iter()
+            .filter(|tool| !self.run || RUN_TOOLS.contains(&tool.name.as_ref()))
             .map(|tool| {
                 let tools = self.clone();
                 let name = tool.name.to_string();
@@ -779,7 +833,6 @@ mod tests {
             allowed_senders: Vec::new(),
             web_search_policy: None,
             computer: None,
-            subagents: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,
             created_at: 1_700_000_000_000,

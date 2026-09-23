@@ -13,7 +13,11 @@ Open the teammate's conversation and choose **Schedules** in its band. A
 schedule is either **once**, at a date and time, or **every** so many
 seconds, minutes, hours or days. The prompt is what to ask when it fires.
 Each job has a **quiet** switch: quiet runs land in the tape as thoughts
-rather than as a reply that lights up the rail.
+rather than as a reply that lights up the rail. When a quiet run finds
+something you need to see, a Hotline Agent teammate hands it over, and
+once the run is done the teammate tells you in the conversation, like any
+other reply, and your phone is notified. A run that finds nothing says
+nothing.
 
 Bounds:
 

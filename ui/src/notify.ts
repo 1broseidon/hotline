@@ -32,6 +32,9 @@ export function noticeRoster(entries: RosterEntry[]): void {
 		if (previous !== "thinking") continue;
 		if (entry.session.state !== "ready" && entry.session.state !== "error") continue;
 		if (document.hasFocus()) continue;
+		// A turn that ended on the person's own line said nothing to them:
+		// a quiet schedule that found nothing stays quiet here too.
+		if (entry.session.state === "ready" && entry.preview?.from === "me") continue;
 		void postToast(entry.persona.id, entry.persona.name, lastLine(entry));
 		if (entry.session.state === "error") void requestAttention();
 	}

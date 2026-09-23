@@ -13,7 +13,7 @@ use images::Input;
 use images::user_message;
 
 use super::{
-    CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
+    CapabilityLease, Driver, DriverInfo, Escalate, MessageKind, ToolImage, Update, clip,
     with_image_placeholders,
 };
 use crate::contract::{
@@ -133,6 +133,8 @@ pub struct InProcess {
     /// are the functions themselves, not a server reached over a transport:
     /// Hotline Agent and Hotline's MCP server are two halves of one program.
     teammate: TeammateTools,
+    /// Armed for the next turn only: a quiet scheduled run's `tell_person`.
+    escalation: Mutex<Option<Arc<dyn Escalate>>>,
     /// Shared with every tool handle this session created.
     capability: Option<CapabilityLease>,
     /// Protected MCP OAuth registrations and tokens. None is retained for
@@ -171,6 +173,7 @@ impl InProcess {
             mcp_missing: Vec::new(),
             mcp: Mutex::new(None),
             teammate,
+            escalation: Mutex::new(None),
             capability: None,
             mcp_vault: None,
         }
@@ -268,9 +271,23 @@ impl Driver for InProcess {
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
-        publish_ledger(persona, &self.mcp_missing, &connected);
+        // A subagent's start is not the teammate's: the ledger says what the
+        // teammate's own session was built with, and a run built without its
+        // computer must not rewrite that.
+        if !self.teammate.in_run() {
+            publish_ledger(
+                persona,
+                &self.mcp_missing,
+                &connected,
+                self.teammate.offers_subagents(),
+            );
+        }
         *lock(&self.mcp) = Some(connected);
         Ok(self.info(&keys))
+    }
+
+    fn escalate_next(&self, escalation: Option<Arc<dyn Escalate>>) {
+        *lock(&self.escalation) = escalation;
     }
 
     async fn prompt(
@@ -310,6 +327,9 @@ impl Driver for InProcess {
                     .map(|tool| mcp_dynamic(tool, sender.clone())),
             );
         }
+        if let Some(escalation) = lock(&self.escalation).take() {
+            mcp_tools.push(tell_person(escalation));
+        }
         let model = lock(&self.model).clone();
         let output_limit = self
             .keys
@@ -335,6 +355,7 @@ impl Driver for InProcess {
             output_dir: self.output_dir.clone(),
             mcp_tools,
             capability: self.capability.clone(),
+            delegate: self.teammate.delegate(),
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
@@ -529,6 +550,8 @@ struct Turn {
     output_dir: PathBuf,
     mcp_tools: Vec<DynamicTool>,
     capability: Option<CapabilityLease>,
+    /// Who runs this teammate's subagents, when this session may start them.
+    delegate: Option<Arc<dyn crate::session::jobs::Delegate>>,
 }
 
 impl Turn {
@@ -945,6 +968,54 @@ fn lock<T>(held: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     held.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// What a quiet scheduled run is told it can do: its replies are kept out of
+/// the conversation, and this is the one way to put something in front of
+/// the person.
+const TELL_PERSON: &str = "This is a quiet scheduled run: nothing you reply \
+is shown to the person or notifies them. If you find something they need to \
+see or act on, call this once with what you found. When this run ends you \
+will be asked, in the open, to tell them, and that reply notifies them. If \
+there is nothing worth their attention, do not call it.";
+
+/// The one-turn tool a quiet scheduled run escalates through (BRO-96).
+fn tell_person(escalation: Arc<dyn Escalate>) -> DynamicTool {
+    DynamicTool::new(
+        "tell_person",
+        TELL_PERSON,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "What you found, with what the person needs to act on it."
+                }
+            },
+            "required": ["message"]
+        }),
+        move |_context, arguments| {
+            let escalation = escalation.clone();
+            Box::pin(async move {
+                let message = arguments
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default();
+                if message.is_empty() {
+                    return Err(ToolExecutionError::other("message is empty"));
+                }
+                escalation
+                    .escalate(message)
+                    .map(|()| {
+                        ToolOutput::text(
+                            "Handed over. When this run ends you will be asked to tell the person.",
+                        )
+                    })
+                    .map_err(ToolExecutionError::other)
+            })
+        },
+    )
+}
+
 /// The Rig adapter for one granted MCP tool. A transport death is already
 /// on the ledger; the notice rides this turn's update channel so the
 /// session writes it on the tape, once, without the tool knowing what a
@@ -1032,7 +1103,12 @@ fn result_of(content: &[ToolResultContent]) -> (String, Vec<ToolImage>) {
 /// the configuration promised. Built-ins are verified because Hotline handed
 /// them to the agent; MCP tools are verified when the server listed them,
 /// and absent — with the error as the reason — when it did not.
-pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &mcp::Connections) {
+pub(crate) fn publish_ledger(
+    persona: &Persona,
+    missing: &[String],
+    connected: &mcp::Connections,
+    subagents: bool,
+) {
     let mut ledger = ToolLedger::new(
         persona.id.clone(),
         AgentKind::Hotline,
@@ -1065,13 +1141,22 @@ pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &
             ledger.absent(ToolSourceKind::Builtin, "hotline", "shell", reason);
         }
     }
-    if tools::shell_available(reach).is_ok() {
+    if tools::shell_available(reach).is_ok() || subagents {
         ledger.all(
             crate::contract::ToolState::Verified,
             ToolSourceKind::Builtin,
             "hotline",
             crate::session::jobs::CONTROL_TOOLS,
-            "Hotline supervises shell jobs independently of model requests",
+            "Hotline supervises jobs independently of model requests",
+        );
+    }
+    if subagents {
+        ledger.all(
+            crate::contract::ToolState::Verified,
+            ToolSourceKind::Builtin,
+            "hotline",
+            &[crate::session::jobs::SUBAGENT],
+            "Hotline runs subagents as this teammate's jobs",
         );
     }
     // Hotline's own tools are built here, not connected to: the agent and the
@@ -1109,10 +1194,21 @@ pub(crate) fn publish_ledger(persona: &Persona, missing: &[String], connected: &
 /// A tool call as a line in the transcript: the name and the one argument
 /// that says what it touched.
 fn describe_tool(name: &str, arguments: &Value) -> String {
-    let subject = ["path", "command", "pattern", "query", "expression"]
-        .iter()
-        .find_map(|key| arguments.get(*key).and_then(Value::as_str))
-        .map(|value| clip(value, TITLE_CHARS));
+    let text = |key: &&str| arguments.get(*key).and_then(Value::as_str);
+    let subject = if name == crate::session::jobs::SUBAGENT {
+        // A subagent is named by the label it was given, else its task's
+        // first line: the task itself is a brief, not a title.
+        ["title", "task"]
+            .iter()
+            .filter_map(text)
+            .map(|value| value.lines().next().unwrap_or(value).trim())
+            .find(|value| !value.is_empty())
+    } else {
+        ["path", "command", "pattern", "query", "expression"]
+            .iter()
+            .find_map(text)
+    }
+    .map(|value| clip(value, TITLE_CHARS));
     match subject {
         Some(subject) => format!("{name} {subject}"),
         None => name.to_string(),
@@ -1428,6 +1524,7 @@ mod tests {
             output_dir: root.join("out"),
             mcp_tools: Vec::new(),
             capability: None,
+            delegate: None,
         };
         let (sender, _receiver) = mpsc::channel(8);
         let result = turn.run(&sender, Message::user("did the crane jam?")).await;

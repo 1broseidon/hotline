@@ -5,7 +5,7 @@
 //! each of their own tapes.
 
 use super::*;
-use crate::contract::ChapterClose;
+use crate::contract::{ChapterClose, NoticeLevel, ToolStatus};
 use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;

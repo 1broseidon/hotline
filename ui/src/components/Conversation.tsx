@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, InfoIcon, MoreIcon, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, InfoIcon, MoreIcon, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
 import { useTape } from "../tape";
@@ -11,9 +11,10 @@ import { BackKey, Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
-import { Composer } from "./Composer";
+import { Composer, isDown } from "./Composer";
 import { Search } from "./Search";
 import { Starters } from "./Starters";
+import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
 import { Transcript, type ReplyTarget } from "./Transcript";
 
@@ -51,6 +52,7 @@ export function Conversation({
 	onDelete,
 	onPick,
 	onOpenThread,
+	onOpenSubagent,
 }: {
 	entry: RosterEntry;
 	/** A narrow window: the rail is a step back from here. */
@@ -68,6 +70,7 @@ export function Conversation({
 	onDelete(): void;
 	onPick(personaId: string, eventId: string): void;
 	onOpenThread(thread: OpenThread): void;
+	onOpenSubagent(run: OpenSubagent): void;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -89,13 +92,21 @@ export function Conversation({
 			const at = Date.now();
 			setSaying({ text, at, ...(answered ? { replyTo: answered.eventId } : {}) });
 			setReplying(null);
-			void wire
-				.command("session.prompt", {
-					personaId,
-					text,
-					...(answered ? { replyTo: answered.eventId } : {}),
-					...(attachments.length > 0 ? { attachments } : {}),
-				})
+			// A teammate that is not running is started on the way, and the
+			// words wait for it: a start that is refused is the reason shown,
+			// where a send racing it could only say the teammate is not running.
+			const started = isDown(session.state)
+				? wire.command("session.start", { personaId }).then(() => setRefused(null))
+				: Promise.resolve();
+			void started
+				.then(() =>
+					wire.command("session.prompt", {
+						personaId,
+						text,
+						...(answered ? { replyTo: answered.eventId } : {}),
+						...(attachments.length > 0 ? { attachments } : {}),
+					}),
+				)
 				.then(
 					() => setSaying(null),
 					(error: unknown) => {
@@ -108,7 +119,7 @@ export function Conversation({
 					},
 				);
 		},
-		[personaId, replying],
+		[personaId, replying, session.state],
 	);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */
@@ -129,16 +140,6 @@ export function Conversation({
 			},
 		];
 	}, [events, saying]);
-	/* A start that is refused says why here; otherwise the next message
-	 * would only be told the teammate is not running. */
-	const start = useCallback(() => {
-		void wire
-			.command("session.start", { personaId })
-			.then(
-				() => setRefused(null),
-				(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
-			);
-	}, [personaId]);
 	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
 	/* Success is the tape: the marker is superseded in place and the title
@@ -259,8 +260,14 @@ export function Conversation({
 				)}
 
 				{openScreen !== undefined && (
-					<button type="button" className="control btn-quiet" title="Open the teammate's desktop" onClick={openScreen}>
-						Screen
+					<button
+						type="button"
+						className="control btn-icon"
+						title="Open the teammate's computer"
+						aria-label="Open the teammate's computer"
+						onClick={openScreen}
+					>
+						<ComputerIcon />
 					</button>
 				)}
 				<button
@@ -304,6 +311,7 @@ export function Conversation({
 							withName: event.withName,
 						})
 					}
+					onOpenSubagent={(event) => onOpenSubagent({ runId: event.runId, title: event.title })}
 				/>
 				{untouched && (
 					<div className="relative shrink-0 px-6">
@@ -317,7 +325,6 @@ export function Conversation({
 					replyQuote={replying?.text ?? null}
 					onSend={send}
 					{...(refill !== null ? { refill } : {})}
-					onStart={start}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
 				/>

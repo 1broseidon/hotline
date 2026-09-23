@@ -9,6 +9,7 @@ import { Titlebar } from "./ui/Titlebar";
 import { Settings, SettingsRail, type SettingsSection } from "./components/Settings";
 import { Shortcuts } from "./components/Shortcuts";
 import { Teammate } from "./components/Teammate";
+import { Subagent, type OpenSubagent } from "./components/Subagent";
 import { Thread, type OpenThread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
@@ -21,6 +22,9 @@ import { wire, type Connection, type RosterEntry } from "./wire";
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
 
+/** What can stand in the inspector's place beside a conversation. */
+type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent };
+
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
 	const [roster, setRoster] = useState<RosterEntry[]>([]);
@@ -30,7 +34,9 @@ export function App() {
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
-	const [thread, setThread] = useState<OpenThread | null>(null);
+	/* What stands in the inspector's place: a peer thread or a subagent's
+	 * run, opened from its line in the conversation. */
+	const [aside, setAside] = useState<Aside | null>(null);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	/* A narrow window shows one thing at a time, the way a phone does: the
@@ -138,7 +144,7 @@ export function App() {
 	useEffect(() => {
 		setSearchOpen(false);
 		setFocusSchedules(false);
-		setThread(null);
+		setAside(null);
 		saveSelected(selectedId);
 	}, [selectedId]);
 
@@ -181,18 +187,20 @@ export function App() {
 			if (selectedId === null) return;
 			setPane(null);
 			setSearchOpen(false);
-			setThread(null);
+			setAside(null);
 			setFocusSchedules(schedules);
 			setInspector((open) => schedules || !open);
 		},
 		[selectedId],
 	);
-	const openThread = useCallback((next: OpenThread) => {
+	const openAside = useCallback((next: Aside) => {
 		setPane(null);
 		setSearchOpen(false);
 		setInspector(false);
-		setThread(next);
+		setAside(next);
 	}, []);
+	const openThread = useCallback((thread: OpenThread) => openAside({ kind: "thread", thread }), [openAside]);
+	const openSubagent = useCallback((run: OpenSubagent) => openAside({ kind: "subagent", run }), [openAside]);
 
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string) => {
@@ -202,7 +210,7 @@ export function App() {
 				if (selectedId === personaId) {
 					setSelectedId(null);
 					setInspector(false);
-					setThread(null);
+					setAside(null);
 				}
 			} catch {
 				// The inspector's own Remove reports a refusal if this fails.
@@ -224,9 +232,9 @@ export function App() {
 					closePane();
 					return;
 				}
-				if (thread !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
+				if (aside !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
 					event.preventDefault();
-					setThread(null);
+					setAside(null);
 					return;
 				}
 				if (inspector && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
@@ -272,7 +280,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, thread, searchOpen, narrow, railShown, select, closePane, togglePane, toggleInspector]);
+	}, [roster, selectedId, pane, inspector, aside, searchOpen, narrow, railShown, select, closePane, togglePane, toggleInspector]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -409,14 +417,23 @@ export function App() {
 								setFocus({ eventId, at: Date.now() });
 							}}
 							onOpenThread={openThread}
+							onOpenSubagent={openSubagent}
 						/>
-						{thread !== null ? (
+						{aside?.kind === "thread" ? (
 							<Thread
-								key={`thread-${thread.key}`}
-								open={thread}
+								key={`thread-${aside.thread.key}`}
+								open={aside.thread}
 								selfId={selected.persona.id}
 								selfName={selected.persona.name}
-								onClose={() => setThread(null)}
+								onClose={() => setAside(null)}
+							/>
+						) : aside?.kind === "subagent" ? (
+							<Subagent
+								key={`run-${aside.run.runId}`}
+								open={aside.run}
+								selfId={selected.persona.id}
+								selfName={selected.persona.name}
+								onClose={() => setAside(null)}
 							/>
 						) : (
 							inspector && (

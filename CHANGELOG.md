@@ -8,6 +8,52 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A Hotline Agent teammate can hand work to a subagent: a fresh worker that
+  runs as the teammate, in the same folder with the same tools and model,
+  but with none of the conversation. The teammate keeps talking with you
+  while the subagent works, and tells you what it found when the report
+  comes back. Each subagent is one line in the conversation that says how
+  it is going; press it to read everything the subagent did. Up to four run
+  at once, and stopping the teammate stops them.
+- A quiet schedule can speak up when it finds something. A Hotline Agent
+  teammate on a quiet run can hand over what it found, once per run. When
+  the run ends, the teammate tells you in the conversation like any other
+  reply, and you are notified. Everything else the run says stays out of
+  the way, and a run that finds nothing is as silent as before, now also
+  without a desktop notification.
+
+### Fixed
+
+- Turning Remote off now stops notifications to paired phones. Before, a
+  phone that had registered for notifications kept getting them while
+  Remote was off. Turning Remote back on resumes them without pairing
+  again.
+- A message to a teammate that cannot start now says why, for example a
+  working folder Hotline cannot write to. The words you typed go back in
+  the box. Before, the reason was lost and every message only said "That
+  teammate is not running."
+- Removing a tool source takes it off every teammate that was granted it.
+  Before, each of those teammates kept a warning that the server no longer
+  exists. Saving your tool sources also clears any such leftovers from
+  earlier removals.
+- Updating a teammate's computer no longer stops what the teammate is
+  doing. The new version downloads in the background and swaps in once
+  the current turn ends. Changing the computer's memory, process limit,
+  folders or secrets no longer restarts the teammate either.
+- On Linux, choosing a time for a one-off schedule no longer freezes the
+  window. Pick the day from a list of the next 30 days, and type the time
+  as `9:30`, `14:00` or `2pm`.
+- Escape in an open menu closes just the menu. The menu never took focus
+  when it opened, so Escape went to the window and closed the whole pane
+  the menu was in.
+
+### Changed
+
+- The button that opens a teammate's computer is a computer icon instead
+  of the word "Screen".
+
 ## [0.17.7] - 2026-09-23
 
 ### Added

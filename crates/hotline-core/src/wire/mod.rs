@@ -77,6 +77,11 @@ pub trait RoomHandle: Send + Sync + 'static {
         }
         Err("This room has no credential vault for saving tool sources.".into())
     }
+    /// A teammate's computer settings changed without turning it on or off.
+    /// Nothing restarts for it: limits, mounts and a pinned image take
+    /// effect when the container is next made, and a running computer is
+    /// handed the secrets it is granted now.
+    async fn computer_settings_changed(&self, _persona_id: &str) {}
     /// Serializes policy persistence and reattachment across client sockets.
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>>;
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
@@ -976,6 +981,7 @@ fn subscribe(
         Target::Room => StreamId::Room,
         Target::Tape(persona_id) => StreamId::Tape(persona_id),
         Target::Thread(key) => StreamId::Thread(key),
+        Target::Run(id) => StreamId::Run(id),
     };
 
     let events = log.subscribe(&stream);

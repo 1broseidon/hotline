@@ -88,6 +88,35 @@ export function useRoomSettings(): {
 }
 
 /**
+ * A number that goes up whenever the room's model choices may have changed:
+ * a connection added or removed, a provider's list refreshed or edited, or
+ * the "Models shown" filter saved. A list fetched in an effect that depends
+ * on it is fetched again, so no picker waits for a restart.
+ */
+export function useModelsRevision(): number {
+	const [revision, setRevision] = useState(0);
+
+	useEffect(() => {
+		return wire.subscribe<RoomItem>("room", {
+			snapshot: () => {},
+			event: (item) => {
+				if (changesModels(item)) setRevision((known) => known + 1);
+			},
+		});
+	}, []);
+
+	return revision;
+}
+
+function changesModels(item: RoomItem): boolean {
+	return (
+		item.kind === "credential" ||
+		item.kind === "models" ||
+		(item.kind === "setting" && item.id === "enabledModels")
+	);
+}
+
+/**
  * The jobs still waiting to fire, soonest first. Folded from the room the
  * same way settings are, so the header pill and the teammate list see one
  * picture.

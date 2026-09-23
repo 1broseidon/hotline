@@ -14,7 +14,7 @@ import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
 import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
 import { noticeRoster, setWindowTitle } from "./notify";
-import { useRoomJobs, useRoomSettings } from "./room";
+import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 
@@ -52,8 +52,7 @@ export function App() {
 	}, [selectedId]);
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
 	const jobs = useRoomJobs();
-	const { enabledModels } = useRoomSettings();
-	const enabledKey = JSON.stringify(enabledModels);
+	const modelsRevision = useModelsRevision();
 
 	useEffect(() => {
 		wire.connect();
@@ -83,15 +82,19 @@ export function App() {
 	}, []);
 
 	/* The room's models are asked for once a socket is up, again after a
-	 * reconnect, and when the saved filter changes: a key added on another
-	 * seat, or a filter saved here, changes the answer. */
+	 * reconnect, and whenever the room says they changed: a key added on
+	 * another seat, a provider's list refreshed, or a filter saved here. */
 	useEffect(() => {
 		if (connection !== "open") return;
+		let current = true;
 		wire
 			.command("models.list", {})
-			.then(setModels)
-			.catch(() => setModels([]));
-	}, [connection, enabledKey]);
+			.then((next) => current && setModels(next))
+			.catch(() => current && setModels([]));
+		return () => {
+			current = false;
+		};
+	}, [connection, modelsRevision]);
 
 	const selected = roster.find((one) => one.persona.id === selectedId) ?? null;
 

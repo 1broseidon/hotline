@@ -641,6 +641,7 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
         });
         room.settle_tapes();
+        follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
         sweep_idle_chapters(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
         room
@@ -2326,6 +2327,18 @@ impl Room {
         });
     }
 
+    /// Reads each live session's picker again from its driver. Only a driver
+    /// whose choices come from the room answers; a harness keeps what it
+    /// reported.
+    fn refresh_session_models(&self) {
+        let sessions: Vec<Arc<Session>> = lock(&self.sessions).values().cloned().collect();
+        for session in sessions {
+            if let Some(reported) = session.driver.current_info() {
+                let _ = self.apply_driver_info(&session, &reported);
+            }
+        }
+    }
+
     /// Applies only mutable picker metadata from a driver response. The
     /// lifecycle and lease checks happen while the session is still captured,
     /// so a setter response or ACP notification from a replaced driver cannot
@@ -3837,6 +3850,29 @@ fn watch_passkey_arming(room: Weak<Room>, persona_id: String) {
                     }
                 }
             }
+        }
+    });
+}
+
+/// Keeps each live session's model picker in step with the room. A key
+/// added, a list refreshed or a filter saved changes what Hotline Agent can
+/// run, and that must not wait for the session to restart. A lagged
+/// receiver may have missed one of those events, so it refreshes too.
+fn follow_model_changes(room: Weak<Room>, mut events: broadcast::Receiver<Value>) {
+    tokio::spawn(async move {
+        loop {
+            let changed = match events.recv().await {
+                Ok(event) => crate::room::changes_models(&event),
+                Err(broadcast::error::RecvError::Lagged(_)) => true,
+                Err(broadcast::error::RecvError::Closed) => return,
+            };
+            if !changed {
+                continue;
+            }
+            let Some(room) = room.upgrade() else {
+                return;
+            };
+            room.refresh_session_models();
         }
     });
 }

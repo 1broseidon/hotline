@@ -223,6 +223,10 @@ impl InProcess {
 
 #[async_trait]
 impl Driver for InProcess {
+    fn current_info(&self) -> Option<DriverInfo> {
+        Some(self.info(&self.keys.provider_auth()))
+    }
+
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         if let Some(capability) = &self.capability {
             capability.check()?;

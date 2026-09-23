@@ -5,7 +5,7 @@ import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
-import { DEFAULT_IDLE_HOURS, useRoomSettings } from "../room";
+import { DEFAULT_IDLE_HOURS, useModelsRevision, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -165,16 +165,25 @@ function GeneralSection({
 		setHours(String(idleHours));
 	}, [idleHours]);
 
+	const modelsRevision = useModelsRevision();
+
 	useEffect(() => {
 		void wire
 			.command("backends.list", {})
 			.then(setBackends)
 			.catch(() => setBackends([]));
+	}, []);
+
+	useEffect(() => {
+		let current = true;
 		void wire
 			.command("models.list", {})
-			.then(setModels)
-			.catch(() => setModels([]));
-	}, []);
+			.then((next) => current && setModels(next))
+			.catch(() => current && setModels([]));
+		return () => {
+			current = false;
+		};
+	}, [modelsRevision]);
 
 	const commitHours = (raw: string) => {
 		setHours(raw);

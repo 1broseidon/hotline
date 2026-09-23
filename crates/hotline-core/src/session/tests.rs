@@ -47,6 +47,9 @@ pub(super) struct Scripted {
     /// reattach proves the old one was cancelled rather than left running.
     cancels: Arc<Mutex<usize>>,
     info_changes: Option<watch::Sender<DriverInfo>>,
+    /// The models the room offers, when this script stands in for Hotline
+    /// Agent: its picker is read again from here whenever the room says so.
+    room_models: Option<Arc<Mutex<Vec<ConfigChoice>>>>,
 }
 
 impl Scripted {
@@ -68,6 +71,29 @@ impl Scripted {
             waiting: Arc::new(Mutex::new(Vec::new())),
             cancels: Arc::new(Mutex::new(0)),
             info_changes: None,
+            room_models: None,
+        }
+    }
+
+    pub(super) fn with_room_models(mut self) -> (Self, Arc<Mutex<Vec<ConfigChoice>>>) {
+        let offered = Arc::new(Mutex::new(self.reported().models));
+        self.room_models = Some(offered.clone());
+        (self, offered)
+    }
+
+    fn reported(&self) -> DriverInfo {
+        DriverInfo {
+            agent_name: "Scripted".to_string(),
+            models: vec![ConfigChoice {
+                id: "anthropic/claude".to_string(),
+                name: "Claude".to_string(),
+                description: None,
+                group: None,
+            }],
+            current_model_id: "anthropic/claude".to_string(),
+            model_label: Some("Claude".to_string()),
+            session_id: lock(&self.session_id).clone(),
+            ..DriverInfo::default()
         }
     }
 
@@ -89,19 +115,14 @@ impl Scripted {
 #[async_trait]
 impl Driver for Scripted {
     async fn start(&self, _persona: &Persona) -> Result<DriverInfo, String> {
-        Ok(DriverInfo {
-            agent_name: "Scripted".to_string(),
-            models: vec![ConfigChoice {
-                id: "anthropic/claude".to_string(),
-                name: "Claude".to_string(),
-                description: None,
-                group: None,
-            }],
-            current_model_id: "anthropic/claude".to_string(),
-            model_label: Some("Claude".to_string()),
-            session_id: lock(&self.session_id).clone(),
-            ..DriverInfo::default()
-        })
+        Ok(self.reported())
+    }
+
+    fn current_info(&self) -> Option<DriverInfo> {
+        let offered = self.room_models.as_ref()?;
+        let mut info = self.reported();
+        info.models = lock(offered).clone();
+        Some(info)
     }
 
     async fn prompt(
@@ -399,6 +420,42 @@ fn spoken_turn() -> Vec<Update> {
             usage: None,
         },
     ]
+}
+
+#[tokio::test]
+async fn a_live_session_takes_a_changed_model_list_without_restarting() {
+    let (driver, offered) = Scripted::new(spoken_turn()).with_room_models();
+    let room = room("models-follow", Fake::new(driver));
+    let started = room.start("ada").await.unwrap();
+    let mut infos = room.subscribe_info();
+
+    lock(&offered).push(ConfigChoice {
+        id: "xai/grok-4.7".to_string(),
+        name: "Grok 4.7".to_string(),
+        description: None,
+        group: None,
+    });
+    // A setting that has nothing to do with models is not a reason to look.
+    room.log
+        .append(
+            &StreamId::Room,
+            &json!({"kind": "setting", "id": "chapterIdleHours", "value": 4}),
+        )
+        .unwrap();
+    crate::room::models_changed(&room.log);
+
+    let info = tokio::time::timeout(Duration::from_secs(5), infos.recv())
+        .await
+        .expect("the picker was not refreshed")
+        .unwrap();
+    let ids: Vec<&str> = info.models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, ["anthropic/claude", "xai/grok-4.7"]);
+    assert_eq!(info.state, SessionState::Ready, "the session kept running");
+    assert_eq!(info.session_id, started.session_id);
+    assert!(
+        infos.try_recv().is_err(),
+        "the unrelated setting did not refresh the picker a second time"
+    );
 }
 
 #[tokio::test]

@@ -15,6 +15,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   connection reads it straight away. This works for an xAI key and a Grok
   subscription sign-in alike. Until you refresh, the bundled list stays.
 
+### Fixed
+
+- On Linux, installing a `.deb` or `.rpm` update no longer hangs after you
+  type your password. With Homebrew's polkit installed, Hotline ran a copy of
+  `pkexec` that cannot ask for admin rights. It then fell back to `sudo`,
+  and one failed try left a `sudo` waiting on a terminal nobody could see.
+  Every later update queued behind it. Hotline now uses the system's own
+  password prompt directly, stops waiting after ten minutes, and says why
+  an install did not go through.
+- A teammate's model menu shows a provider change straight away. Refreshing
+  a provider's list, adding or removing a model by hand, connecting a
+  provider, or changing "Models shown" used to reach a running teammate only
+  after it restarted. The menu now updates without a restart, for idle
+  teammates too.
+
 ## [0.17.6] - 2026-09-22
 
 ### Changed

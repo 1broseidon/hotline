@@ -319,6 +319,14 @@ pub trait Driver: Send + Sync {
         None
     }
 
+    /// Picker metadata worked out again now, for a driver whose choices come
+    /// from the room rather than from the agent. Hotline Agent's models are
+    /// the room's connections, so a key added or a list refreshed changes
+    /// them mid-session. A harness reports its own and answers `None`.
+    fn current_info(&self) -> Option<DriverInfo> {
+        None
+    }
+
     /// Runs one turn. The turn is over when the receiver ends, and the last
     /// update before that is a [`Update::Turn`].
     ///

@@ -580,7 +580,9 @@ impl Vault {
             return Err(io::Error::other("Model cache must be a regular file."));
         }
         let temporary = dir.join(format!(".models-{}.tmp", uuid::Uuid::new_v4()));
-        persist_renamed(&temporary, &dest, &dir, body)
+        persist_renamed(&temporary, &dest, &dir, body)?;
+        crate::room::models_changed(&self.log);
+        Ok(())
     }
 
     pub(crate) fn connect_local(&self, base_url: &str, ids: &[String]) -> io::Result<Credential> {
@@ -1250,6 +1252,30 @@ mod tests {
             vault
                 .cache_discovery(&second.id, &[listed("stale-result")])
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn a_refreshed_or_edited_model_list_is_announced_on_the_room_stream() {
+        let vault = vault("provider-models-announced");
+        let credential = vault.create("xai", "Grok", "xai-key").unwrap();
+        let mut room = vault.log.subscribe(&StreamId::Room);
+        vault
+            .cache_discovery(&credential.id, &[listed("grok-4.7")])
+            .unwrap();
+        vault
+            .set_manual_models(&credential.id, &["grok-next".into()])
+            .unwrap();
+        for _ in 0..2 {
+            let event = room.try_recv().expect("a models event");
+            assert_eq!(event["kind"], "models");
+            assert_eq!(event["id"], crate::room::MODELS_CHANGED);
+        }
+        let refused = vault.cache_discovery(&credential.id, &[listed("bad\nid")]);
+        assert!(refused.is_err());
+        assert!(
+            room.try_recv().is_err(),
+            "a refused write announced nothing"
         );
     }
 

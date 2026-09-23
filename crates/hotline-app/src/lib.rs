@@ -19,6 +19,8 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+#[cfg(target_os = "linux")]
+mod linux_package;
 mod remote;
 mod updater;
 

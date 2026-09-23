@@ -14,6 +14,12 @@
 //!   [`schedules`] is every one that is not deleted. The event's kind is
 //!   always `schedule`; a loop is the job that carries `every`.
 //!
+//! - `models` says the room's model choices changed where no other event
+//!   shows it: a discovery refresh, a manual model id, a sign-in's account
+//!   list. It carries no data. It always has the same id, so the stream
+//!   folds it to one line, and a live session and the window each read the
+//!   list again when it arrives.
+//!
 //! A delete is not a new kind: it is the same kind and id again with
 //! `deleted: true`. The stream folds by id, so the tombstone is the last word
 //! and a reader finds it instead of what it replaced — which is also what
@@ -38,6 +44,34 @@ fn defaults() -> Map<String, Value> {
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
     settings
+}
+
+/// The one id every `models` event shares.
+pub(crate) const MODELS_CHANGED: &str = "models-changed";
+
+/// Tells the room its model choices changed. A failed write only costs the
+/// prompt update: the list is read fresh on the next start either way.
+pub(crate) fn models_changed(log: &Log) {
+    let _ = log.append(
+        &StreamId::Room,
+        &room_event(
+            "models",
+            json!({
+                "id": MODELS_CHANGED,
+                "ts": chrono::Utc::now().timestamp_millis(),
+            }),
+        ),
+    );
+}
+
+/// Whether a room event can change which models Hotline Agent offers: a
+/// connection added, revoked or removed, the "Models shown" filter, or the
+/// `models` event itself.
+pub(crate) fn changes_models(event: &Value) -> bool {
+    is_kind(event, "credential")
+        || is_kind(event, "models")
+        || (is_kind(event, "setting")
+            && event.get("id").and_then(Value::as_str) == Some("enabledModels"))
 }
 
 fn is_kind(event: &Value, kind: &str) -> bool {

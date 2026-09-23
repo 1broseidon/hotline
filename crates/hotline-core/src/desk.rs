@@ -919,6 +919,8 @@ async fn store_copilot_account_models(token_dir: &Path, log: &Log) {
         Ok(ids) => {
             if crate::vault::write_account_models(token_dir, &ids).is_err() {
                 notice_unread_account_models(log);
+            } else {
+                crate::room::models_changed(log);
             }
         }
         Err(_) => notice_unread_account_models(log),

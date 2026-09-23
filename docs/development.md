@@ -112,8 +112,17 @@ Hotline rechecks the trusted endpoint and requires the version the user reviewed
 **Download, install and restart** uses `tauri-plugin-updater` 2.11.0, following
 Prism's desktop updater. The plugin verifies the downloaded signature before
 installation. A download can be cancelled; installation cannot be cancelled
-from Hotline after the native installer starts. Linux deb/rpm installs may ask
-for system privileges. Failed download, verification or installation leaves
+from Hotline after the native installer starts. A Linux deb or rpm does not
+go through the plugin's installer, which runs `pkexec` from PATH and then
+falls back to `sudo`. Hotline's PATH is the login shell's, so a Homebrew
+polkit's `pkexec`, which is not setuid, can shadow the system one. The last
+`sudo` fallback then asks for a password on the desktop session's own
+terminal, where nobody can answer, and every later `sudo` queues behind it.
+`crates/hotline-app/src/linux_package.rs` instead runs `/usr/bin/pkexec`
+with `/usr/bin/dpkg -i` or `/usr/bin/rpm -U`, all by absolute path. It has
+no sudo fallback and gives up after ten minutes. A dismissed password prompt
+reads as cancelled. Any other failure carries the installer's last line.
+Failed download, verification or installation leaves
 Hotline running and releases the room so work can continue. Successful installation
 hands restart to Tauri. If the OS cannot relaunch it, reopen Hotline normally.
 

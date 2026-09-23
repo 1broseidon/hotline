@@ -8,6 +8,26 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A teammate whose computer cannot start answers anyway. With Docker not
+  running, a teammate with its computer turned on failed to start, and the
+  next message was met with "That teammate is not running". It now starts
+  without the computer and is not told it has one. Its tape says why the
+  computer did not start and how to bring it back: fix the cause, choose
+  Stop the session, and the next message starts it again with the computer.
+- A teammate that cannot be started says why in its conversation, instead
+  of the reason being dropped and the next message being refused.
+
+### Changed
+
+- A teammate no longer waits for its computer's image to download before
+  it answers. It starts straight away without the computer while the bar
+  fills, and knows its computer is on the way: a new `computer_status` tool
+  says how far the download has got and can wait for it. Once the image is
+  down, the computer joins between turns, never in the middle of one, and
+  the conversation carries on.
+
 ## [0.17.4] - 2026-09-22
 
 ### Fixed

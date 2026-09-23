@@ -61,9 +61,12 @@ const SCHEDULE: &str = "schedule";
 const LOOP: &str = "loop";
 const LIST_SCHEDULES: &str = "list_schedules";
 const CANCEL_SCHEDULE: &str = "cancel_schedule";
+const COMPUTER_STATUS: &str = "computer_status";
+/// The longest `computer_status` waits for a download in one call.
+const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 12] = [
+pub const TOOL_NAMES: [&str; 13] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
@@ -76,6 +79,7 @@ pub const TOOL_NAMES: [&str; 12] = [
     LOOP,
     LIST_SCHEDULES,
     CANCEL_SCHEDULE,
+    COMPUTER_STATUS,
 ];
 
 /// What the search may be asked for at once, and what it settles on when the
@@ -91,7 +95,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` asks one of them something and waits for their answer. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` asks one of them something and waits for their answer. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -261,6 +265,17 @@ fn descriptors() -> Vec<Tool> {
                 "additionalProperties": false,
             })),
         ),
+        Tool::new(
+            COMPUTER_STATUS,
+            "Where your computer is: `attached` (its computer__ tools are yours), `downloading` (its image is still coming down, with layers done of total), `ready` (downloaded; it joins when this turn ends), `failed` (with the reason), `unavailable`, or `none`. Pass `wait_seconds` (up to 300) to wait for a download to finish before answering.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 300 },
+                },
+                "additionalProperties": false,
+            })),
+        ),
     ]
 }
 
@@ -340,6 +355,17 @@ impl TeammateTools {
                     .start_fresh_chapter(&self.persona_id, ChapterClose::Agent)
                     .await?;
                 Ok(json!({ "closed": true, "title": closed.title }).to_string())
+            }
+            COMPUTER_STATUS => {
+                let wait = arguments
+                    .get("wait_seconds")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .min(MAX_COMPUTER_WAIT_SECONDS);
+                Ok(room
+                    .computer_setup_status(&self.persona_id, std::time::Duration::from_secs(wait))
+                    .await
+                    .to_string())
             }
             LIST_TEAMMATES => {
                 let teammates: Vec<Value> = crate::room::roster(room.log())

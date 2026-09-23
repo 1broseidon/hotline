@@ -324,6 +324,10 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
 /// One teammate's live conversation.
 struct Session {
     persona_id: String,
+    /// Whether this session was started with the teammate's computer
+    /// attached. A session started while the image was still downloading, or
+    /// after the computer failed, runs without it.
+    computer: bool,
     /// The generation every driver and tool handle for this session shares.
     capability: CapabilityLease,
     /// Which agent is answering, because a checkpoint is kept per backend and
@@ -491,6 +495,10 @@ const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2
 
 pub struct Room {
     log: Log,
+    /// A computer being set up behind a session that started without it,
+    /// per teammate: downloading, ready to join once the turn ends, or
+    /// failed. Watched by `computer_status`, which can wait on it.
+    computer_setups: Mutex<HashMap<String, watch::Sender<ComputerSetup>>>,
     keys: Arc<dyn ProviderKeys>,
     agents: Arc<dyn Agents>,
     /// The one writer of the search index. `None` when it could not be opened,
@@ -618,6 +626,7 @@ impl Room {
             capabilities: Mutex::new(HashMap::new()),
             lifecycle: Mutex::new(()),
             starts: Mutex::new(HashMap::new()),
+            computer_setups: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
@@ -800,11 +809,36 @@ impl Room {
                     format!("{}'s AGENTS.md could not be written: {error}", persona.name)
                 })?;
         }
-        // Wake the computer before the grant so a teammate that asked for a
-        // machine either has one or the start fails with the runtime's
-        // sentence — never a silent absence. The grant itself is appended
-        // regardless of mcpPolicy.
-        let extra_mcp = self.grant_computer(&persona).await?;
+        // Wake the computer before the grant. The grant itself is appended
+        // regardless of mcpPolicy. The computer never keeps the teammate from
+        // answering: an image still downloading, or a computer that cannot
+        // come up at all (Docker not running, an image that will not pull),
+        // starts the teammate without it. The agent is told which, and the
+        // tape says so too — never a silent absence.
+        let (persona, extra_mcp, computer_note) = match self.computer_at_start(&persona).await {
+            ComputerAtStart::NotWanted => (persona, Vec::new(), None),
+            ComputerAtStart::Attached(extra_mcp) => (persona, extra_mcp, None),
+            ComputerAtStart::Downloading => (
+                without_computer(persona),
+                Vec::new(),
+                Some(COMPUTER_DOWNLOADING.to_string()),
+            ),
+            ComputerAtStart::Unavailable(reason) => {
+                capability.check()?;
+                self.write(
+                    &persona.id,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Warn,
+                        text: computer_unavailable(&persona.name, &reason),
+                    },
+                );
+                let note = computer_failed_note(&reason);
+                (without_computer(persona), Vec::new(), Some(note))
+            }
+        };
+        let has_computer = !extra_mcp.is_empty();
         capability.check()?;
         // The agent's context is one chapter: it hears what was said in the
         // chapter it is joining, and the wake block tells it about the one
@@ -821,7 +855,7 @@ impl Room {
             preamble(
                 &persona,
                 reach,
-                chapters::wake_block(&events, now_ms()),
+                with_note(computer_note, chapters::wake_block(&events, now_ms())),
                 &self.stored_secrets(),
             ),
             said(&events),
@@ -860,6 +894,7 @@ impl Room {
         info.capabilities = reported.capabilities;
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
+            computer: has_computer,
             capability: capability.clone(),
             backend_id: persona.backend_id.clone(),
             driver,
@@ -906,10 +941,276 @@ impl Room {
         Ok(info)
     }
 
-    /// Starts the teammate's computer when it asked for one, and answers
-    /// the MCP server the session should be granted. A failure here is a
-    /// start failure: the teammate asked for a machine.
-    async fn grant_computer(&self, persona: &Persona) -> Result<Vec<mcp::McpServer>, String> {
+    /// What this start does about the teammate's computer.
+    ///
+    /// The computer is brought up on its own task. When it is up without a
+    /// download — the image already here — the start waits for it, as it
+    /// always has, and grants it. The moment a download begins, the start
+    /// goes ahead without it: the pull fills its bar on the tape, and once
+    /// it lands the session restarts with the computer after the turn in
+    /// flight (see [`Room::attach_computer_when_idle`]).
+    async fn computer_at_start(self: &Arc<Self>, persona: &Persona) -> ComputerAtStart {
+        if !persona
+            .computer
+            .as_ref()
+            .is_some_and(|computer| computer.enabled)
+        {
+            return ComputerAtStart::NotWanted;
+        }
+        {
+            let mut setups = lock(&self.computer_setups);
+            if setups
+                .get(&persona.id)
+                .is_some_and(|setup| matches!(*setup.borrow(), ComputerSetup::Downloading { .. }))
+            {
+                // A download already under way joins when it lands; a second
+                // one would race it for the same container.
+                return ComputerAtStart::Downloading;
+            }
+            setups.remove(&persona.id);
+        }
+        let settings = room::settings(&self.log);
+        let prefer = crate::computer::preferred_runtime(&settings);
+        let room_image = crate::computer::preferred_image(&settings);
+        let (began, downloading) = oneshot::channel::<()>();
+        let room = self.clone();
+        let wanted = persona.clone();
+        let mut bringing_up = tokio::spawn(async move {
+            let mut began = Some(began);
+            let mut tape = room.pull_reporter(&wanted.id);
+            let report = |report: crate::computer::PullReport| {
+                room.computer_download_progress(&wanted.id, &report);
+                if let Some(began) = began.take() {
+                    let _ = began.send(());
+                }
+                tape(report);
+            };
+            room.computers
+                .ensure_running(&wanted, &wanted.cwd, prefer, room_image.as_deref(), report)
+                .await
+        });
+        tokio::select! {
+            result = &mut bringing_up => match result {
+                Ok(Ok(ready)) => {
+                    lock(&self.computer_setups).remove(&persona.id);
+                    match self.finish_grant(persona, &ready).await {
+                        Ok(extra_mcp) => ComputerAtStart::Attached(extra_mcp),
+                        Err(reason) => ComputerAtStart::Unavailable(reason),
+                    }
+                }
+                Ok(Err(reason)) => {
+                    lock(&self.computer_setups).remove(&persona.id);
+                    ComputerAtStart::Unavailable(reason)
+                }
+                Err(error) => {
+                    lock(&self.computer_setups).remove(&persona.id);
+                    ComputerAtStart::Unavailable(error.to_string())
+                }
+            },
+            Ok(()) = downloading => {
+                let room = self.clone();
+                let persona_id = persona.id.clone();
+                tokio::spawn(async move {
+                    let result = match bringing_up.await {
+                        Ok(result) => result,
+                        Err(error) => Err(error.to_string()),
+                    };
+                    room.computer_downloaded(&persona_id, result);
+                });
+                ComputerAtStart::Downloading
+            }
+        }
+    }
+
+    /// Records a download's progress where `computer_status` can see it.
+    fn computer_download_progress(&self, persona_id: &str, report: &crate::computer::PullReport) {
+        let setup = ComputerSetup::Downloading {
+            image: report.image.clone(),
+            layers_done: report.layers_done,
+            layers_total: report.layers_total,
+        };
+        let mut setups = lock(&self.computer_setups);
+        match setups.get(persona_id) {
+            Some(watching) => {
+                watching.send_replace(setup);
+            }
+            None => {
+                setups.insert(persona_id.to_string(), watch::channel(setup).0);
+            }
+        }
+    }
+
+    fn set_computer_setup(&self, persona_id: &str, setup: ComputerSetup) {
+        let mut setups = lock(&self.computer_setups);
+        match setups.get(persona_id) {
+            Some(watching) => {
+                watching.send_replace(setup);
+            }
+            None => {
+                setups.insert(persona_id.to_string(), watch::channel(setup).0);
+            }
+        }
+    }
+
+    /// A download that ran behind a session has finished, one way or the
+    /// other. Landed, the computer joins once the turn ends; failed, the
+    /// tape says why exactly as a start that failed at once would.
+    fn computer_downloaded(
+        self: &Arc<Self>,
+        persona_id: &str,
+        result: Result<crate::computer::Ready, String>,
+    ) {
+        match result {
+            Ok(_) => {
+                self.set_computer_setup(persona_id, ComputerSetup::Ready);
+                self.attach_computer_when_idle(persona_id);
+            }
+            Err(reason) => {
+                self.set_computer_setup(persona_id, ComputerSetup::Failed(reason.clone()));
+                if let Ok(persona) = self.persona(persona_id) {
+                    self.write(
+                        persona_id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Warn,
+                            text: computer_unavailable(&persona.name, &reason),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Brings a computer that finished downloading into its teammate's
+    /// session, between turns. A turn in flight is never cut short for it:
+    /// the end of the turn calls this again (see `run_turns`). With no
+    /// session running there is nothing to restart; the next start finds
+    /// the computer up and grants it at once.
+    fn attach_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
+        if !lock(&self.computer_setups)
+            .get(persona_id)
+            .is_some_and(|setup| matches!(*setup.borrow(), ComputerSetup::Ready))
+        {
+            return;
+        }
+        let wanted = self.persona(persona_id).ok().filter(|persona| {
+            persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        });
+        let session = lock(&self.sessions).get(persona_id).cloned();
+        let (Some(persona), Some(session)) = (wanted, session) else {
+            lock(&self.computer_setups).remove(persona_id);
+            return;
+        };
+        if session.computer {
+            lock(&self.computer_setups).remove(persona_id);
+            return;
+        }
+        if lock(&session.turns).running {
+            return;
+        }
+        lock(&self.computer_setups).remove(persona_id);
+        self.write(
+            persona_id,
+            &TranscriptEvent::Notice {
+                id: new_id(),
+                ts: now_ms(),
+                level: NoticeLevel::Info,
+                text: format!(
+                    "{}'s computer finished downloading and joins now; the conversation carries on.",
+                    persona.name
+                ),
+            },
+        );
+        let room = self.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            // A restart that fails says why on the teammate's band itself.
+            let _ = room.reattach(&persona_id).await;
+        });
+    }
+
+    /// What `computer_status` answers: where this teammate's computer is,
+    /// waiting up to `wait` for a download in progress to finish.
+    pub(crate) async fn computer_setup_status(&self, persona_id: &str, wait: Duration) -> Value {
+        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+            persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        });
+        if !enabled {
+            return json!({
+                "state": "none",
+                "note": "You have no computer. The person can turn one on in your pane.",
+            });
+        }
+        if lock(&self.sessions)
+            .get(persona_id)
+            .is_some_and(|session| session.computer)
+        {
+            return json!({
+                "state": "attached",
+                "note": "Your computer is attached: its `computer__` tools are yours to use.",
+            });
+        }
+        let watching = lock(&self.computer_setups)
+            .get(persona_id)
+            .map(watch::Sender::subscribe);
+        let Some(mut watching) = watching else {
+            return json!({
+                "state": "unavailable",
+                "note": "Your computer did not start for this session; the notice on your tape says why. Work without it, and tell the person if the task needs it.",
+            });
+        };
+        if !wait.is_zero() && matches!(*watching.borrow(), ComputerSetup::Downloading { .. }) {
+            let _ = tokio::time::timeout(wait, async {
+                while matches!(
+                    *watching.borrow_and_update(),
+                    ComputerSetup::Downloading { .. }
+                ) {
+                    if watching.changed().await.is_err() {
+                        break;
+                    }
+                }
+            })
+            .await;
+        }
+        let setup = watching.borrow().clone();
+        match setup {
+            ComputerSetup::Downloading {
+                image,
+                layers_done,
+                layers_total,
+            } => json!({
+                "state": "downloading",
+                "image": image,
+                "layersDone": layers_done,
+                "layersTotal": layers_total,
+                "note": "Your computer's image is still downloading. Keep working without it, or call again with `wait_seconds` to wait for it. When it lands, your session restarts with the computer once your current turn ends, and this conversation carries over.",
+            }),
+            ComputerSetup::Ready => json!({
+                "state": "ready",
+                "note": "Your computer has finished downloading. Its `computer__` tools arrive when this turn ends: finish or pause here, and they are yours from the next message.",
+            }),
+            ComputerSetup::Failed(reason) => json!({
+                "state": "failed",
+                "reason": reason,
+                "note": "Your computer could not start. The person has been told on your tape; work without it, and say so if the task needs it.",
+            }),
+        }
+    }
+
+    /// Starts the teammate's computer, waiting for it however long it
+    /// takes, and grants it. Peer sessions use this: a colleague asked to
+    /// work on its own machine either has it or refuses the request.
+    pub(super) async fn grant_computer(
+        &self,
+        persona: &Persona,
+    ) -> Result<Vec<mcp::McpServer>, String> {
         if !persona
             .computer
             .as_ref()
@@ -920,8 +1221,8 @@ impl Room {
         let settings = room::settings(&self.log);
         let prefer = crate::computer::preferred_runtime(&settings);
         let room_image = crate::computer::preferred_image(&settings);
-        let computers = self.computers.clone();
-        let ready = computers
+        let ready = self
+            .computers
             .ensure_running(
                 persona,
                 &persona.cwd,
@@ -930,6 +1231,17 @@ impl Room {
                 self.pull_reporter(&persona.id),
             )
             .await?;
+        self.finish_grant(persona, &ready).await
+    }
+
+    /// The rest of the grant, once the computer is up: its guide as the
+    /// teammate's skill, its secrets, and the MCP server to hand the session.
+    async fn finish_grant(
+        &self,
+        persona: &Persona,
+        ready: &crate::computer::Ready,
+    ) -> Result<Vec<mcp::McpServer>, String> {
+        let ready = ready.clone();
         // The guide the running release serves is the teammate's
         // `hotline-computer` skill: written here, after the container is up and
         // before the preamble is built, so the index lists it and the file it
@@ -3141,6 +3453,7 @@ impl Room {
             return;
         }
         self.set_state(&session, SessionState::Ready);
+        self.attach_computer_when_idle(&session.persona_id);
     }
 
     fn steer_waiting(&self, session: &Arc<Session>) {
@@ -3827,6 +4140,67 @@ fn describe_secret(secret: &SharedSecret) -> String {
             None => "a passkey".to_string(),
         },
     }
+}
+
+/// Where a teammate's computer set-up stands, for `computer_status`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ComputerSetup {
+    Downloading {
+        image: String,
+        layers_done: u32,
+        layers_total: u32,
+    },
+    /// Downloaded and up: joins the session when its turn ends.
+    Ready,
+    Failed(String),
+}
+
+/// What a start does about the teammate's computer.
+enum ComputerAtStart {
+    NotWanted,
+    Attached(Vec<mcp::McpServer>),
+    Downloading,
+    Unavailable(String),
+}
+
+/// What a teammate whose computer is still downloading is told at start.
+const COMPUTER_DOWNLOADING: &str = "Your computer is still downloading its image, so you are starting without it. Call `computer_status` to see how far it has got, or with `wait_seconds` to wait for it. When it lands, your session restarts with its `computer__` tools once your current turn ends, and this conversation carries over. Until then, do what you can without it.";
+
+/// What a teammate whose computer could not start is told.
+fn computer_failed_note(reason: &str) -> String {
+    let reason = reason.trim().trim_end_matches('.');
+    format!(
+        "Your computer could not start for this session ({reason}), so you have none. The person has been told on your tape. Work without it, and say so if the task needs it."
+    )
+}
+
+/// A note for the agent, ahead of the wake block.
+fn with_note(note: Option<String>, wake: Option<String>) -> Option<String> {
+    match (note, wake) {
+        (Some(note), Some(wake)) => Some(format!("{note}\n\n{wake}")),
+        (note, wake) => note.or(wake),
+    }
+}
+
+/// The tape's sentence when a teammate's computer could not be started and
+/// the session went ahead without it.
+fn computer_unavailable(name: &str, reason: &str) -> String {
+    let reason = reason.trim().trim_end_matches('.');
+    format!(
+        "{name}'s computer could not start: {reason}. {name} is answering without it for now. \
+         Once that is fixed, choose Stop the session from {name}'s menu; the next message \
+         starts it again with its computer."
+    )
+}
+
+/// This session's view of a teammate whose computer did not come up: the
+/// grant is off for the preamble, the skills index and the driver, and the
+/// teammate's record is untouched, so the next start tries again.
+fn without_computer(mut persona: Persona) -> Persona {
+    if let Some(computer) = persona.computer.as_mut() {
+        computer.enabled = false;
+    }
+    persona
 }
 
 pub(crate) fn preamble(

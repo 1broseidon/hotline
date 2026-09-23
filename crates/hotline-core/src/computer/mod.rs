@@ -1303,6 +1303,8 @@ case "$cmd" in
     echo "test: Pulling from hotline-computer"
     echo "aaaa1111: Pulling fs layer"
     echo "bbbb2222: Pulling fs layer"
+    # A test holds the download open for as long as this file exists.
+    while [ -f "${STATE}.pullgate" ]; do sleep 0.05; done
     echo "aaaa1111: Pull complete"
     echo "bbbb2222: Already exists"
     echo "Status: Downloaded newer image for $1"

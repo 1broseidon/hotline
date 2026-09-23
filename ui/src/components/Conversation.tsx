@@ -129,7 +129,16 @@ export function Conversation({
 			},
 		];
 	}, [events, saying]);
-	const start = useCallback(() => void wire.command("session.start", { personaId }), [personaId]);
+	/* A start that is refused says why here; otherwise the next message
+	 * would only be told the teammate is not running. */
+	const start = useCallback(() => {
+		void wire
+			.command("session.start", { personaId })
+			.then(
+				() => setRefused(null),
+				(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
+			);
+	}, [personaId]);
 	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
 	/* Success is the tape: the marker is superseded in place and the title

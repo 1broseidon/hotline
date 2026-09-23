@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.7] - 2026-09-23
+
 ### Added
 
 - xAI and ChatGPT read their model lists from the provider. Refresh on

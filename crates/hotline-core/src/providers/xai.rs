@@ -434,6 +434,33 @@ impl HttpClientExt for SubscriptionHttp {
     }
 }
 
+/// The subscription's language models. The bearer and its refresh come from
+/// [`SubscriptionHttp`]; the size and time bounds come from discovery.
+pub(crate) async fn list_models(
+    dir: &CredentialFile,
+) -> Result<Vec<super::discovery::ListedModel>, String> {
+    list_models_with(&SubscriptionHttp::new(dir)?).await
+}
+
+async fn list_models_with(
+    subscription: &SubscriptionHttp,
+) -> Result<Vec<super::discovery::ListedModel>, String> {
+    use super::discovery::{self, DiscoveryHttp};
+    let request = Request::get(format!(
+        "{}{}",
+        subscription.api_url,
+        discovery::XAI_LANGUAGE_MODELS
+    ))
+    .body(Bytes::new())
+    .map_err(|_| discovery::failed())?;
+    let listing = DiscoveryHttp::default();
+    let body = discovery::fetch(subscription.request(request, |request| {
+        HttpClientExt::send::<Bytes, Vec<u8>>(&listing, request)
+    }))
+    .await?;
+    discovery::xai_listing(&body)
+}
+
 pub(crate) fn client(
     dir: &CredentialFile,
 ) -> Result<rig::providers::xai::Client<SubscriptionHttp>, String> {
@@ -551,6 +578,30 @@ mod tests {
             .unwrap();
         let agent = client.agent("grok-4").build();
         assert_eq!(agent.prompt("Say hello").await.unwrap(), "Hello from Grok.");
+    }
+
+    #[tokio::test]
+    async fn a_subscription_lists_its_language_models_with_its_bearer() {
+        let scratch = Scratch::new();
+        scratch.tokens(false);
+        let app = Router::new().route(
+            super::super::discovery::XAI_LANGUAGE_MODELS,
+            axum::routing::get(|headers: http::HeaderMap| async move {
+                assert_eq!(headers["authorization"], "Bearer old-access");
+                json_response(json!({"models": [
+                    {"id": "grok-4.7", "output_modalities": ["text"]},
+                    {"id": "grok-imagine-video", "output_modalities": ["video"]},
+                ]}))
+            }),
+        );
+        let (url, _server) = serve(app).await;
+        let models = list_models_with(&transport(&scratch.0, &url))
+            .await
+            .unwrap();
+        assert_eq!(
+            models.into_iter().map(|model| model.id).collect::<Vec<_>>(),
+            ["grok-4.7"]
+        );
     }
 
     #[tokio::test]

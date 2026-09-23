@@ -681,6 +681,15 @@ impl RoomHandle for Desk {
                 let key = crate::providers::openrouter_key(&tokens)?;
                 crate::providers::discovery::api_models(Client::OpenRouter, &key).await?
             }
+            (Client::ChatGpt, ProviderAuth::Login { token_dir }) => {
+                crate::providers::chatgpt::list_models(&token_dir).await?
+            }
+            (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
+                crate::providers::xai::list_models(&tokens).await?
+            }
+            (Client::XAi, ProviderAuth::ApiKey(key)) => {
+                crate::providers::discovery::xai_models(&key).await?
+            }
             (client, ProviderAuth::ApiKey(key)) if crate::models::supports_discovery(client) => {
                 crate::providers::discovery::api_models(client, &key).await?
             }

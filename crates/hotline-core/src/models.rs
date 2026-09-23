@@ -56,12 +56,12 @@ pub struct Wiring {
 /// silently.
 pub const CHATGPT_MODELS: &[&str] = &[
     "gpt-6-astra",
-    "gpt-5.6",
+    "gpt-6-sol",
+    "gpt-6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
     "gpt-5.5",
-    "gpt-5.4",
 ];
 
 /// The providers Hotline reaches, in wired order — which is how the model
@@ -948,10 +948,10 @@ mod tests {
         api["openai"]["models"]
             .as_object_mut()
             .unwrap()
-            .remove("gpt-5.6");
+            .remove("gpt-6-sol");
         let err = snapshot(&api, "d").unwrap_err();
         assert!(
-            err.contains("gpt-5.6"),
+            err.contains("gpt-6-sol"),
             "a missing openai id must fail the sync: {err}"
         );
     }
@@ -979,12 +979,12 @@ mod tests {
     #[test]
     fn openai_codex_inherits_openai_efforts() {
         let mut api = api();
-        api["openai"]["models"]["gpt-5.6"]["reasoning_options"] = json!([
+        api["openai"]["models"]["gpt-6-sol"]["reasoning_options"] = json!([
             {"type": "effort", "values": ["none", "low", "medium", "high"]}
         ]);
         let catalog = snapshot(&api, "d").unwrap();
         assert_eq!(
-            catalog.providers["openai-codex"].models["gpt-5.6"].efforts,
+            catalog.providers["openai-codex"].models["gpt-6-sol"].efforts,
             ["none", "low", "medium", "high"]
         );
     }

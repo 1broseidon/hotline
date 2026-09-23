@@ -252,6 +252,83 @@ pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<Liste
     collect(&client).await
 }
 
+pub(crate) fn failed() -> String {
+    "Could not discover models. Check this connection and try again; the previous list is unchanged.".to_string()
+}
+
+/// A listing's body, under discovery's time limit.
+pub(crate) async fn fetch(
+    send: impl Future<Output = http_client::Result<http::Response<LazyBody<Vec<u8>>>>>,
+) -> Result<Vec<u8>, String> {
+    let response = tokio::time::timeout(Duration::from_secs(30), send)
+        .await
+        .map_err(|_| "Model discovery timed out; the previous list is unchanged.".to_string())?
+        .map_err(|_| failed())?;
+    response.into_body().await.map_err(|_| failed())
+}
+
+/// Checks a hand-read listing the way [`collect`] checks Rig's.
+pub(crate) fn finish(mut models: Vec<ListedModel>) -> Result<Vec<ListedModel>, String> {
+    validate(&models)?;
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    models.dedup_by(|a, b| a.id == b.id);
+    Ok(models)
+}
+
+const XAI_URL: &str = "https://api.x.ai";
+
+/// xAI's language models. Rig has no xAI lister, and `/v1/models` mixes in
+/// image and video models, so this reads `/v1/language-models` itself.
+pub(crate) const XAI_LANGUAGE_MODELS: &str = "/v1/language-models";
+
+pub(crate) async fn xai_models(key: &str) -> Result<Vec<ListedModel>, String> {
+    xai_models_at(XAI_URL, key).await
+}
+
+async fn xai_models_at(base_url: &str, key: &str) -> Result<Vec<ListedModel>, String> {
+    let request = http::Request::get(format!("{base_url}{XAI_LANGUAGE_MODELS}"))
+        .header(http::header::AUTHORIZATION, format!("Bearer {key}"))
+        .body(Bytes::new())
+        .map_err(|_| failed())?;
+    let body = fetch(DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request)).await?;
+    xai_listing(&body)
+}
+
+#[derive(Deserialize)]
+struct XaiListing {
+    #[serde(alias = "data")]
+    models: Vec<XaiModel>,
+}
+
+#[derive(Deserialize)]
+struct XaiModel {
+    id: String,
+    output_modalities: Option<Vec<String>>,
+}
+
+/// Models that answer in text. A listing without modalities keeps them all.
+pub(crate) fn xai_listing(body: &[u8]) -> Result<Vec<ListedModel>, String> {
+    let listed: XaiListing = serde_json::from_slice(body).map_err(|_| failed())?;
+    finish(
+        listed
+            .models
+            .into_iter()
+            .filter(|model| {
+                model
+                    .output_modalities
+                    .as_ref()
+                    .is_none_or(|out| out.iter().any(|kind| kind == "text"))
+            })
+            .map(|model| ListedModel {
+                id: model.id,
+                name: None,
+                context_limit: None,
+                output_limit: None,
+            })
+            .collect(),
+    )
+}
+
 /// Copilot's list is read directly rather than through Rig's lister, which
 /// drops the one field a turn needs: the endpoints each model answers on.
 pub(crate) async fn copilot_models(
@@ -286,6 +363,39 @@ mod tests {
                 axum::serve(listener, app).await.unwrap();
             })),
         )
+    }
+
+    #[tokio::test]
+    async fn xai_lists_its_text_models_with_the_key() {
+        let app = Router::new().route(
+            XAI_LANGUAGE_MODELS,
+            get(|headers: HeaderMap| async move {
+                assert_eq!(headers["authorization"], "Bearer xai-key");
+                (
+                    [("content-type", "application/json")],
+                    json!({"models": [
+                        {"id": "grok-4.7", "input_modalities": ["text", "image"],
+                         "output_modalities": ["text"], "aliases": ["grok-latest"]},
+                        {"id": "grok-imagine-image", "output_modalities": ["image"]},
+                        {"id": "grok-4.6", "output_modalities": ["text"]},
+                    ]})
+                    .to_string(),
+                )
+            }),
+        );
+        let (url, _server) = serve(app).await;
+        let ids: Vec<_> = xai_models_at(&url, "xai-key")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+        assert_eq!(ids, ["grok-4.6", "grok-4.7"]);
+        assert_eq!(
+            xai_listing(br#"{"data":[{"id":"grok-4.7","object":"model"}]}"#).unwrap()[0].id,
+            "grok-4.7"
+        );
+        assert!(xai_listing(b"not json").is_err());
     }
 
     #[tokio::test]

@@ -156,9 +156,11 @@ pub fn supports_discovery(client: Client) -> bool {
             | Client::OpenAi
             | Client::OpenRouter
             | Client::Gemini
+            | Client::XAi
             | Client::Groq
             | Client::DeepSeek
             | Client::Mistral
+            | Client::ChatGpt
             | Client::Copilot
             | Client::Ollama
             | Client::OllamaCloud

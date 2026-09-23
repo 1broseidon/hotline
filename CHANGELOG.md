@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- xAI and ChatGPT read their model lists from the provider. Refresh on
+  either provider's page shows what your account offers today, and a new
+  connection reads it straight away. This works for an xAI key and a Grok
+  subscription sign-in alike. Until you refresh, the bundled list stays.
+
 ## [0.17.6] - 2026-09-22
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "source": "https://models.dev/api.json",
-  "synced": "2026-09-09",
+  "synced": "2026-09-23",
   "providers": {
     "anthropic": {
       "name": "Anthropic",
@@ -217,6 +217,29 @@
             "output": 128000
           }
         },
+        "claude-opus-5-5": {
+          "name": "Claude Opus 5.5",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 4.0,
+            "output": 20.0,
+            "cache_read": 0.2,
+            "cache_write": 5.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
         "claude-sonnet-4-5": {
           "name": "Claude Sonnet 4.5 (latest)",
           "release_date": "2025-09-29",
@@ -300,30 +323,9 @@
       "name": "DeepSeek",
       "doc": "https://api-docs.deepseek.com/quick_start/pricing",
       "models": {
-        "deepseek-v4-flash": {
-          "name": "DeepSeek V4 Flash",
-          "release_date": "2026-07-31",
-          "reasoning": true,
-          "efforts": [
-            "low",
-            "high",
-            "max"
-          ],
-          "attachment": false,
-          "cost": {
-            "input": 0.14,
-            "output": 0.28,
-            "cache_read": 0.0028
-          },
-          "limit": {
-            "context": 1000000,
-            "output": 384000
-          }
-        },
-        "deepseek-v4-flash-vision-exp": {
-          "name": "DeepSeek V4 Flash Vision Exp",
-          "release_date": "2026-08-21",
-          "status": "beta",
+        "deepseek-flash": {
+          "name": "DeepSeek V4.1 Flash",
+          "release_date": "2026-09-10",
           "reasoning": true,
           "efforts": [
             "low",
@@ -332,9 +334,9 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.14,
-            "output": 0.28,
-            "cache_read": 0.0028
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.003
           },
           "limit": {
             "context": 1000000,
@@ -346,6 +348,7 @@
           "release_date": "2026-08-12",
           "reasoning": true,
           "efforts": [
+            "low",
             "high",
             "max"
           ],
@@ -864,6 +867,27 @@
         "grok-4.6": {
           "name": "Grok 4.6",
           "release_date": "2026-08-12",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 6.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 500000,
+            "output": 128000
+          }
+        },
+        "grok-4.7": {
+          "name": "Grok 4.7",
+          "release_date": "2026-09-21",
           "reasoning": true,
           "efforts": [
             "low",
@@ -1738,6 +1762,27 @@
           "status": "beta",
           "reasoning": true,
           "efforts": [
+            "none",
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.14
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "zai-glm-5-3": {
+          "name": "GLM-5.3",
+          "release_date": "2026-08-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
             "high",
             "max"
           ],
@@ -1772,6 +1817,11 @@
             "max"
           ],
           "attachment": false,
+          "cost": {
+            "input": 0.22,
+            "output": 0.66,
+            "cache_read": 0.007
+          },
           "limit": {
             "context": 1048576,
             "output": 1048576
@@ -1786,6 +1836,11 @@
             "max"
           ],
           "attachment": false,
+          "cost": {
+            "input": 0.22,
+            "output": 0.66,
+            "cache_read": 0.007
+          },
           "limit": {
             "context": 1048576,
             "output": 1048576
@@ -1800,9 +1855,53 @@
             "max"
           ],
           "attachment": false,
+          "cost": {
+            "input": 0.66,
+            "output": 1.98,
+            "cache_read": 0.022
+          },
           "limit": {
             "context": 1048576,
             "output": 1048576
+          }
+        },
+        "deepseek-v4-pro:0813": {
+          "name": "DeepSeek V4 Pro 0813",
+          "release_date": "2026-08-12",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 0.66,
+            "output": 1.98,
+            "cache_read": 0.022
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 1048576
+          }
+        },
+        "deepseek-v4.1-flash": {
+          "name": "DeepSeek V4.1 Flash",
+          "release_date": "2026-09-10",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.003
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 384000
           }
         },
         "gemma4:31b": {
@@ -1810,6 +1909,11 @@
           "release_date": "2026-04-02",
           "reasoning": true,
           "attachment": true,
+          "cost": {
+            "input": 0.14,
+            "output": 0.4,
+            "cache_read": 0.05
+          },
           "limit": {
             "context": 262144,
             "output": 262144
@@ -1820,6 +1924,11 @@
           "release_date": "2026-03-27",
           "reasoning": true,
           "attachment": false,
+          "cost": {
+            "input": 1.0,
+            "output": 3.2,
+            "cache_read": 0.2
+          },
           "limit": {
             "context": 202752,
             "output": 131072
@@ -1834,6 +1943,11 @@
             "max"
           ],
           "attachment": false,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26
+          },
           "limit": {
             "context": 976000,
             "output": 131072
@@ -1849,6 +1963,11 @@
             "max"
           ],
           "attachment": false,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26
+          },
           "limit": {
             "context": 1048576,
             "output": 131072
@@ -1864,6 +1983,11 @@
             "max"
           ],
           "attachment": true,
+          "cost": {
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.03
+          },
           "limit": {
             "context": 1000000,
             "output": 131072
@@ -1879,6 +2003,11 @@
             "high"
           ],
           "attachment": false,
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.014
+          },
           "limit": {
             "context": 131072,
             "output": 32768
@@ -1894,6 +2023,11 @@
             "high"
           ],
           "attachment": false,
+          "cost": {
+            "input": 0.07,
+            "output": 0.3,
+            "cache_read": 0.035
+          },
           "limit": {
             "context": 131072,
             "output": 32768
@@ -1914,6 +2048,11 @@
           "release_date": "2026-04-20",
           "reasoning": true,
           "attachment": true,
+          "cost": {
+            "input": 0.95,
+            "output": 4.0,
+            "cache_read": 0.16
+          },
           "limit": {
             "context": 262144,
             "output": 262144
@@ -1924,6 +2063,11 @@
           "release_date": "2026-06-12",
           "reasoning": true,
           "attachment": true,
+          "cost": {
+            "input": 0.95,
+            "output": 4.0,
+            "cache_read": 0.19
+          },
           "limit": {
             "context": 262144,
             "output": 262144
@@ -1939,6 +2083,11 @@
             "max"
           ],
           "attachment": true,
+          "cost": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3
+          },
           "limit": {
             "context": 1048576,
             "output": 131072
@@ -1959,6 +2108,11 @@
           "release_date": "2026-03-18",
           "reasoning": true,
           "attachment": false,
+          "cost": {
+            "input": 0.3,
+            "output": 1.2,
+            "cache_read": 0.06
+          },
           "limit": {
             "context": 196608,
             "output": 196608
@@ -1975,6 +2129,11 @@
             "max"
           ],
           "attachment": true,
+          "cost": {
+            "input": 0.6,
+            "output": 2.4,
+            "cache_read": 0.12
+          },
           "limit": {
             "context": 512000,
             "output": 131072
@@ -1985,6 +2144,10 @@
           "release_date": "2025-12-02",
           "reasoning": false,
           "attachment": true,
+          "cost": {
+            "input": 0.5,
+            "output": 1.5
+          },
           "limit": {
             "context": 262144,
             "output": 262144
@@ -1995,6 +2158,10 @@
           "release_date": "2025-12-15",
           "reasoning": true,
           "attachment": false,
+          "cost": {
+            "input": 0.06,
+            "output": 0.24
+          },
           "limit": {
             "context": 1048576,
             "output": 131072
@@ -2005,6 +2172,11 @@
           "release_date": "2026-03-11",
           "reasoning": true,
           "attachment": false,
+          "cost": {
+            "input": 0.015,
+            "output": 0.6,
+            "cache_read": 0.015
+          },
           "limit": {
             "context": 262144,
             "output": 65536
@@ -2015,6 +2187,11 @@
           "release_date": "2026-06-04",
           "reasoning": true,
           "attachment": false,
+          "cost": {
+            "input": 0.1,
+            "output": 3.0,
+            "cache_read": 0.1
+          },
           "limit": {
             "context": 262144,
             "output": 128000
@@ -2025,6 +2202,10 @@
           "release_date": "2026-02-15",
           "reasoning": true,
           "attachment": true,
+          "cost": {
+            "input": 0.6,
+            "output": 3.6
+          },
           "limit": {
             "context": 262144,
             "output": 65536
@@ -2557,6 +2738,54 @@
             "output": 128000
           }
         },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-6-sol": {
+          "name": "GPT-6 Sol",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 10.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
         "o3": {
           "name": "o3",
           "release_date": "2025-04-16",
@@ -2602,23 +2831,6 @@
       "name": "ChatGPT",
       "doc": "https://chatgpt.com",
       "models": {
-        "gpt-5.4": {
-          "name": "GPT-5.4",
-          "release_date": "2026-03-05",
-          "reasoning": true,
-          "efforts": [
-            "none",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "attachment": true,
-          "limit": {
-            "context": 1050000,
-            "output": 128000
-          }
-        },
         "gpt-5.5": {
           "name": "GPT-5.5",
           "release_date": "2026-04-23",
@@ -2629,24 +2841,6 @@
             "medium",
             "high",
             "xhigh"
-          ],
-          "attachment": true,
-          "limit": {
-            "context": 1050000,
-            "output": 128000
-          }
-        },
-        "gpt-5.6": {
-          "name": "GPT-5.6",
-          "release_date": "2026-07-09",
-          "reasoning": true,
-          "efforts": [
-            "none",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
           ],
           "attachment": true,
           "limit": {
@@ -2713,6 +2907,42 @@
           "release_date": "2026-09-04",
           "reasoning": true,
           "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "gpt-6-sol": {
+          "name": "GPT-6 Sol",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
             "low",
             "medium",
             "high",
@@ -2929,22 +3159,6 @@
             "output": 64000
           }
         },
-        "anthropic/claude-opus-4": {
-          "name": "Claude Opus 4",
-          "release_date": "2025-05-22",
-          "reasoning": true,
-          "attachment": true,
-          "cost": {
-            "input": 15.0,
-            "output": 75.0,
-            "cache_read": 1.5,
-            "cache_write": 18.75
-          },
-          "limit": {
-            "context": 200000,
-            "output": 32000
-          }
-        },
         "anthropic/claude-opus-4.1": {
           "name": "Claude Opus 4.1 (latest)",
           "release_date": "2025-08-05",
@@ -3068,6 +3282,29 @@
             "output": 128000
           }
         },
+        "anthropic/claude-opus-5.5": {
+          "name": "Claude Opus 5.5",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 4.0,
+            "output": 20.0,
+            "cache_read": 0.2,
+            "cache_write": 5.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
         "anthropic/claude-sonnet-4": {
           "name": "Claude Sonnet 4",
           "release_date": "2025-05-22",
@@ -3080,7 +3317,7 @@
             "cache_write": 3.75
           },
           "limit": {
-            "context": 1000000,
+            "context": 200000,
             "output": 64000
           }
         },
@@ -3261,6 +3498,21 @@
             "output": 131072
           }
         },
+        "cohere/command-a-plus": {
+          "name": "Command A+",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.3,
+            "output": 1.5,
+            "cache_read": 0.15
+          },
+          "limit": {
+            "context": 192000,
+            "output": 64000
+          }
+        },
         "cohere/command-r-08-2024": {
           "name": "Command R",
           "release_date": "2024-08-30",
@@ -3323,9 +3575,8 @@
           "reasoning": false,
           "attachment": false,
           "cost": {
-            "input": 0.29,
-            "output": 1.14,
-            "cache_read": 0.11
+            "input": 0.25,
+            "output": 1.0
           },
           "limit": {
             "context": 163840,
@@ -3430,9 +3681,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.08708,
-            "output": 0.17416,
-            "cache_read": 0.017416
+            "input": 0.088606,
+            "output": 0.177212,
+            "cache_read": 0.017721
           },
           "limit": {
             "context": 1048576,
@@ -3450,8 +3701,8 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.065,
-            "output": 0.18,
+            "input": 0.04,
+            "output": 0.64,
             "cache_read": 0.016
           },
           "limit": {
@@ -3489,9 +3740,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.87,
-            "output": 1.74,
-            "cache_read": 0.0725
+            "input": 0.95526,
+            "output": 1.91052,
+            "cache_read": 0.079605
           },
           "limit": {
             "context": 1048576,
@@ -3509,13 +3760,33 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.65868,
-            "output": 1.97604,
-            "cache_read": 0.020958
+            "input": 1.32,
+            "output": 3.96,
+            "cache_read": 0.044
           },
           "limit": {
             "context": 1048576,
-            "output": 393216
+            "output": 384000
+          }
+        },
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "DeepSeek V4.1 Flash",
+          "release_date": "2026-09-10",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 943718
           }
         },
         "dots-studio/dots-3-note-preview:free": {
@@ -3594,22 +3865,6 @@
           "limit": {
             "context": 1048576,
             "output": 65536
-          }
-        },
-        "google/gemini-2.5-pro-preview-05-06": {
-          "name": "Gemini 2.5 Pro Preview 05-06",
-          "release_date": "2025-05-07",
-          "reasoning": true,
-          "attachment": true,
-          "cost": {
-            "input": 1.25,
-            "output": 10.0,
-            "cache_read": 0.125,
-            "cache_write": 0.375
-          },
-          "limit": {
-            "context": 1048576,
-            "output": 65535
           }
         },
         "google/gemini-3-flash-preview": {
@@ -3829,8 +4084,8 @@
           }
         },
         "google/gemma-3-12b-it": {
-          "name": "Gemma 3 12B",
-          "release_date": "2025-03-13",
+          "name": "Gemma 3 12B IT",
+          "release_date": "2025-03-12",
           "reasoning": false,
           "attachment": true,
           "cost": {
@@ -3843,7 +4098,7 @@
           }
         },
         "google/gemma-3-27b-it": {
-          "name": "Gemma 3 27B",
+          "name": "Gemma 3 27B IT",
           "release_date": "2025-03-12",
           "reasoning": false,
           "attachment": true,
@@ -3863,12 +4118,13 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.07,
-            "output": 0.34
+            "input": 0.09,
+            "output": 0.3,
+            "cache_read": 0.05
           },
           "limit": {
             "context": 262144,
-            "output": 16384
+            "output": 235929
           }
         },
         "google/gemma-4-26b-a4b-it:free": {
@@ -4034,19 +4290,33 @@
             "output": 32768
           }
         },
-        "kwaipilot/kat-coder-pro-v2": {
-          "name": "KAT-Coder-Pro V2",
-          "release_date": "2026-03-27",
-          "reasoning": false,
-          "attachment": false,
+        "inclusionai/ling-3.0-flash-vl": {
+          "name": "Ling 3.0 Flash VL",
+          "release_date": "2026-09-10",
+          "reasoning": true,
+          "attachment": true,
           "cost": {
-            "input": 0.3,
-            "output": 1.2,
-            "cache_read": 0.06
+            "input": 0.06,
+            "output": 0.18,
+            "cache_read": 0.012
+          },
+          "limit": {
+            "context": 131072,
+            "output": 32768
+          }
+        },
+        "inclusionai/ling-3.0-flash-vl:free": {
+          "name": "Ling 3.0 Flash VL (free)",
+          "release_date": "2026-09-10",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0
           },
           "limit": {
             "context": 262144,
-            "output": 144000
+            "output": 32768
           }
         },
         "kwaipilot/kat-coder-pro-v2.5": {
@@ -4142,12 +4412,12 @@
           "reasoning": false,
           "attachment": true,
           "cost": {
-            "input": 0.2,
-            "output": 0.696
+            "input": 0.1875,
+            "output": 0.6525
           },
           "limit": {
             "context": 1048576,
-            "output": 115200
+            "output": 16384
           }
         },
         "meta-llama/llama-4-scout": {
@@ -4177,12 +4447,12 @@
           "attachment": true,
           "cost": {
             "input": 0.3,
-            "output": 1.1,
+            "output": 1.2,
             "cache_read": 0.04
           },
           "limit": {
             "context": 131072,
-            "output": 117964
+            "output": 16384
           }
         },
         "meta/muse-spark-1.1": {
@@ -4303,7 +4573,7 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.55,
+            "input": 0.4,
             "output": 2.2
           },
           "limit": {
@@ -4490,21 +4760,6 @@
             "output": 104857
           }
         },
-        "mistralai/mistral-large-2512": {
-          "name": "Mistral Large 3",
-          "release_date": "2024-11-01",
-          "reasoning": false,
-          "attachment": true,
-          "cost": {
-            "input": 0.5,
-            "output": 1.5,
-            "cache_read": 0.05
-          },
-          "limit": {
-            "context": 262144,
-            "output": 209715
-          }
-        },
         "mistralai/mistral-medium-3": {
           "name": "Mistral Medium 3",
           "release_date": "2025-05-07",
@@ -4601,17 +4856,31 @@
             "output": 209715
           }
         },
+        "mistralai/mistral-small-3.1-24b-instruct": {
+          "name": "Mistral Small 3.1 24B",
+          "release_date": "2025-03-17",
+          "reasoning": false,
+          "attachment": true,
+          "cost": {
+            "input": 0.351,
+            "output": 0.555
+          },
+          "limit": {
+            "context": 128000,
+            "output": 102400
+          }
+        },
         "mistralai/mistral-small-3.2-24b-instruct": {
           "name": "Mistral Small 3.2 24B",
           "release_date": "2025-06-20",
           "reasoning": false,
           "attachment": true,
           "cost": {
-            "input": 0.075,
-            "output": 0.2
+            "input": 0.09375,
+            "output": 0.25
           },
           "limit": {
-            "context": 131072,
+            "context": 256000,
             "output": 16384
           }
         },
@@ -4632,7 +4901,7 @@
         },
         "mistralai/voxtral-small-24b-2507": {
           "name": "Voxtral Small 24B 2507",
-          "release_date": "2025-10-30",
+          "release_date": "2025-07-15",
           "reasoning": false,
           "attachment": true,
           "cost": {
@@ -4656,7 +4925,7 @@
           },
           "limit": {
             "context": 131072,
-            "output": 100352
+            "output": 98304
           }
         },
         "moonshotai/kimi-k2-0905": {
@@ -4670,7 +4939,7 @@
           },
           "limit": {
             "context": 262144,
-            "output": 100352
+            "output": 98304
           }
         },
         "moonshotai/kimi-k2-thinking": {
@@ -4680,11 +4949,12 @@
           "attachment": false,
           "cost": {
             "input": 0.6,
-            "output": 2.5
+            "output": 2.5,
+            "cache_read": 0.15
           },
           "limit": {
             "context": 262144,
-            "output": 235929
+            "output": 98304
           }
         },
         "moonshotai/kimi-k2.5": {
@@ -4723,9 +4993,9 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.71,
-            "output": 3.5,
-            "cache_read": 0.15
+            "input": 0.7062,
+            "output": 3.3,
+            "cache_read": 0.18
           },
           "limit": {
             "context": 262144,
@@ -4761,10 +5031,30 @@
             "medium",
             "high"
           ],
-          "attachment": false,
+          "attachment": true,
           "cost": {
             "input": 0.0,
             "output": 0.0
+          },
+          "limit": {
+            "context": 262144,
+            "output": 235929
+          }
+        },
+        "nex-agi/nex-n2.5-pro": {
+          "name": "Nex-N2.5-Pro",
+          "release_date": "2026-09-08",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "medium",
+            "high"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.075,
+            "output": 0.25,
+            "cache_read": 0.015
           },
           "limit": {
             "context": 262144,
@@ -4829,12 +5119,12 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.085,
-            "output": 0.4
+            "input": 0.08,
+            "output": 0.45
           },
           "limit": {
             "context": 262144,
-            "output": 16384
+            "output": 235929
           }
         },
         "nvidia/nemotron-3-super-120b-a12b:free": {
@@ -4865,13 +5155,13 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.625,
-            "output": 3.125,
-            "cache_read": 0.1875
+            "input": 0.6,
+            "output": 2.4,
+            "cache_read": 0.12
           },
           "limit": {
             "context": 262144,
-            "output": 32768
+            "output": 182520
           }
         },
         "nvidia/nemotron-3-ultra-550b-a55b:free": {
@@ -4898,13 +5188,13 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.08,
+            "input": 0.07,
             "output": 0.2,
             "cache_read": 0.04
           },
           "limit": {
             "context": 262144,
-            "output": 131072
+            "output": 235929
           }
         },
         "nvidia/nemotron-3.5-lightning:free": {
@@ -4982,20 +5272,6 @@
           "release_date": "2023-11-06",
           "reasoning": false,
           "attachment": true,
-          "cost": {
-            "input": 10.0,
-            "output": 30.0
-          },
-          "limit": {
-            "context": 128000,
-            "output": 4096
-          }
-        },
-        "openai/gpt-4-turbo-preview": {
-          "name": "GPT-4 Turbo Preview",
-          "release_date": "2024-01-25",
-          "reasoning": false,
-          "attachment": false,
           "cost": {
             "input": 10.0,
             "output": 30.0
@@ -5716,6 +5992,102 @@
             "output": 128000
           }
         },
+        "openai/gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "openai/gpt-6-luna-pro": {
+          "name": "GPT-6 Luna Pro",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "openai/gpt-6-sol": {
+          "name": "GPT-6 Sol",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 10.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "openai/gpt-6-sol-pro": {
+          "name": "GPT-6 Sol Pro",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 10.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
         "openai/gpt-chat-latest": {
           "name": "GPT Chat Latest",
           "release_date": "2026-05-05",
@@ -5742,12 +6114,13 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.037,
-            "output": 0.17
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.075
           },
           "limit": {
             "context": 131072,
-            "output": 117964
+            "output": 65536
           }
         },
         "openai/gpt-oss-20b": {
@@ -5761,17 +6134,16 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.03,
-            "output": 0.13,
-            "cache_read": 0.03
+            "input": 0.018,
+            "output": 0.09
           },
           "limit": {
             "context": 131072,
-            "output": 117964
+            "output": 32768
           }
         },
         "openai/gpt-oss-safeguard-20b": {
-          "name": "gpt-oss-safeguard-20b",
+          "name": "GPT OSS Safeguard 20B",
           "release_date": "2025-10-29",
           "reasoning": true,
           "efforts": [
@@ -5972,6 +6344,24 @@
             "output": 32768
           }
         },
+        "prism-ml/ternary-bonsai-2-27b": {
+          "name": "Ternary Bonsai 2 27B",
+          "release_date": "2026-09-18",
+          "reasoning": true,
+          "efforts": [
+            "medium",
+            "xhigh"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.075,
+            "output": 0.5
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        },
         "qwen/qwen-2.5-72b-instruct": {
           "name": "Qwen2.5 72B Instruct",
           "release_date": "2024-09-19",
@@ -6036,12 +6426,12 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.2275,
-            "output": 0.91
+            "input": 0.12,
+            "output": 0.24
           },
           "limit": {
             "context": 131072,
-            "output": 8192
+            "output": 16384
           }
         },
         "qwen/qwen3-235b-a22b": {
@@ -6064,12 +6454,13 @@
           "reasoning": false,
           "attachment": false,
           "cost": {
-            "input": 0.22,
-            "output": 0.88
+            "input": 0.0875,
+            "output": 0.35,
+            "cache_read": 0.0175
           },
           "limit": {
             "context": 262144,
-            "output": 16384
+            "output": 235929
           }
         },
         "qwen/qwen3-235b-a22b-thinking-2507": {
@@ -6325,12 +6716,12 @@
           "reasoning": false,
           "attachment": true,
           "cost": {
-            "input": 0.15,
-            "output": 0.6
+            "input": 0.13,
+            "output": 0.52
           },
           "limit": {
             "context": 262144,
-            "output": 16384
+            "output": 32768
           }
         },
         "qwen/qwen3-vl-30b-a3b-thinking": {
@@ -6395,12 +6786,12 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.29,
-            "output": 2.4
+            "input": 0.26,
+            "output": 2.08
           },
           "limit": {
             "context": 262144,
-            "output": 81920
+            "output": 65536
           }
         },
         "qwen/qwen3.5-27b": {
@@ -6458,7 +6849,7 @@
           },
           "limit": {
             "context": 262144,
-            "output": 235929
+            "output": 32768
           }
         },
         "qwen/qwen3.5-flash-02-23": {
@@ -6510,13 +6901,13 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.3,
-            "output": 2.0,
-            "cache_read": 0.03
+            "input": 0.32,
+            "output": 2.7,
+            "cache_read": 0.15
           },
           "limit": {
             "context": 262144,
-            "output": 65536
+            "output": 262140
           }
         },
         "qwen/qwen3.6-35b-a3b": {
@@ -6525,8 +6916,8 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.1,
-            "output": 0.9,
+            "input": 0.15,
+            "output": 1.0,
             "cache_read": 0.05
           },
           "limit": {
@@ -6667,6 +7058,25 @@
             "output": 131072
           }
         },
+        "qwen/qwen3.8-27b:free": {
+          "name": "Qwen3.8 27B (free)",
+          "release_date": "2026-08-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "xhigh"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0
+          },
+          "limit": {
+            "context": 262144,
+            "output": 235929
+          }
+        },
         "qwen/qwen3.8-flash": {
           "name": "Qwen3.8 Flash",
           "release_date": "2026-08-26",
@@ -6706,6 +7116,21 @@
             "output": 131072
           }
         },
+        "qwen/qwen3.8-omni-flash": {
+          "name": "Qwen3.8 Omni Flash",
+          "release_date": "2026-09-17",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.15,
+            "output": 0.47,
+            "cache_read": 0.016
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
         "rekaai/reka-edge": {
           "name": "Reka Edge",
           "release_date": "2026-03-20",
@@ -6734,9 +7159,49 @@
             "output": 128000
           }
         },
+        "sakana/fugu-max": {
+          "name": "Fugu Max",
+          "release_date": "2026-09-11",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 6.0,
+            "cache_read": 0.25
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
         "sakana/fugu-ultra": {
           "name": "Fugu Ultra",
           "release_date": "2026-06-15",
+          "reasoning": true,
+          "efforts": [
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 5.0,
+            "output": 30.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
+        "sakana/fugu-ultra-v2": {
+          "name": "Fugu Ultra v2",
+          "release_date": "2026-09-11",
           "reasoning": true,
           "efforts": [
             "high",
@@ -6881,20 +7346,6 @@
             "output": 64000
           }
         },
-        "thedrummer/unslopnemo-12b": {
-          "name": "UnslopNemo 12B",
-          "release_date": "2024-11-08",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 0.4,
-            "output": 0.4
-          },
-          "limit": {
-            "context": 1024000,
-            "output": 819200
-          }
-        },
         "thinkingmachines/inkling": {
           "name": "Inkling",
           "release_date": "2026-07-15",
@@ -6985,10 +7436,32 @@
             "output": 262144
           }
         },
+        "unbiased/pareto": {
+          "name": "Pareto",
+          "release_date": "2026-09-17",
+          "reasoning": false,
+          "attachment": true,
+          "cost": {
+            "input": 2.5,
+            "output": 7.5,
+            "cache_read": 0.25
+          },
+          "limit": {
+            "context": 262144,
+            "output": 131072
+          }
+        },
         "upstage/solar-pro-3": {
           "name": "Solar Pro 3",
           "release_date": "2026-01-27",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
           "attachment": false,
           "cost": {
             "input": 0.15,
@@ -7004,11 +7477,20 @@
           "name": "Solar Pro 4",
           "release_date": "2026-08-10",
           "reasoning": true,
+          "efforts": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": false,
           "cost": {
-            "input": 0.03,
-            "output": 0.12,
-            "cache_read": 0.006
+            "input": 0.09,
+            "output": 0.36,
+            "cache_read": 0.018
           },
           "limit": {
             "context": 524288,
@@ -7092,6 +7574,27 @@
             "output": 450000
           }
         },
+        "x-ai/grok-4.7": {
+          "name": "Grok 4.7",
+          "release_date": "2026-09-21",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 1.6,
+            "output": 4.8,
+            "cache_read": 0.4
+          },
+          "limit": {
+            "context": 500000,
+            "output": 450000
+          }
+        },
         "x-ai/grok-build-0.1": {
           "name": "Grok Build 0.1",
           "release_date": "2026-04-16",
@@ -7134,6 +7637,51 @@
           },
           "limit": {
             "context": 1050000,
+            "output": 131072
+          }
+        },
+        "xiaomi/mimo-v2.6-flash": {
+          "name": "MiMo-V2.6-Flash",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.14,
+            "output": 0.28,
+            "cache_read": 0.0028
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        },
+        "xiaomi/mimo-v2.6-pro": {
+          "name": "MiMo-V2.6-Pro",
+          "release_date": "2026-09-22",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.435,
+            "output": 0.87,
+            "cache_read": 0.0036
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        },
+        "xiaomi/mimo-v2.6-pro-ultraspeed": {
+          "name": "MiMo-V2.6-Pro-UltraSpeed",
+          "release_date": "2026-09-21",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 4.35,
+            "output": 8.7,
+            "cache_read": 0.036
+          },
+          "limit": {
+            "context": 1048576,
             "output": 131072
           }
         },
@@ -7237,7 +7785,7 @@
             "output": 0.4
           },
           "limit": {
-            "context": 202752,
+            "context": 200000,
             "output": 117964
           }
         },
@@ -7296,9 +7844,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.966,
-            "output": 3.036,
-            "cache_read": 0.1932
+            "input": 0.6496,
+            "output": 2.0416,
+            "cache_read": 0.12064
           },
           "limit": {
             "context": 1048576,
@@ -7316,13 +7864,13 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 1.4,
-            "output": 4.4,
-            "cache_read": 0.26
+            "input": 0.84,
+            "output": 2.64,
+            "cache_read": 0.156
           },
           "limit": {
-            "context": 1048576,
-            "output": 943718
+            "context": 1310720,
+            "output": 131072
           }
         },
         "z-ai/glm-5.3-flash": {
@@ -7336,12 +7884,32 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.075,
-            "output": 0.25,
-            "cache_read": 0.015
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.05
           },
           "limit": {
             "context": 1310720,
+            "output": 943718
+          }
+        },
+        "z-ai/glm-5.3-flashx": {
+          "name": "GLM 5.3 FlashX",
+          "release_date": "2026-09-18",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.37,
+            "output": 1.25,
+            "cache_read": 0.075
+          },
+          "limit": {
+            "context": 1048576,
             "output": 131072
           }
         },
@@ -7384,7 +7952,7 @@
           }
         },
         "~anthropic/claude-haiku-latest": {
-          "name": "Anthropic Claude Haiku Latest",
+          "name": "Claude Haiku Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
           "attachment": true,
@@ -7412,10 +7980,10 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 5.0,
-            "output": 25.0,
-            "cache_read": 0.5,
-            "cache_write": 6.25
+            "input": 4.0,
+            "output": 20.0,
+            "cache_read": 0.2,
+            "cache_write": 5.0
           },
           "limit": {
             "context": 1000000,
@@ -7423,7 +7991,7 @@
           }
         },
         "~anthropic/claude-sonnet-latest": {
-          "name": "Anthropic Claude Sonnet Latest",
+          "name": "Claude Sonnet Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
           "efforts": [
@@ -7445,6 +8013,46 @@
             "output": 128000
           }
         },
+        "~deepseek/deepseek-flash-latest": {
+          "name": "DeepSeek Flash Latest",
+          "release_date": "2026-09-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 943718
+          }
+        },
+        "~deepseek/deepseek-pro-latest": {
+          "name": "DeepSeek Pro Latest",
+          "release_date": "2026-09-14",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": false,
+          "cost": {
+            "input": 0.4,
+            "output": 4.3,
+            "cache_read": 0.033
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 384000
+          }
+        },
         "~deepseek/deepseek-v4-flash-latest": {
           "name": "DeepSeek V4 Flash Latest",
           "release_date": "2026-08-01",
@@ -7456,17 +8064,17 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.05,
-            "output": 0.16,
-            "cache_read": 0.013
+            "input": 0.03,
+            "output": 0.8,
+            "cache_read": 0.008
           },
           "limit": {
             "context": 1310720,
-            "output": 393216
+            "output": 943718
           }
         },
         "~google/gemini-flash-latest": {
-          "name": "Google Gemini Flash Latest",
+          "name": "Gemini Flash Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
           "efforts": [
@@ -7487,7 +8095,7 @@
           }
         },
         "~google/gemini-pro-latest": {
-          "name": "Google Gemini Pro Latest",
+          "name": "Gemini Pro Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
           "efforts": [
@@ -7508,7 +8116,7 @@
           }
         },
         "~moonshotai/kimi-latest": {
-          "name": "MoonshotAI Kimi Latest",
+          "name": "Kimi Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
           "efforts": [
@@ -7518,18 +8126,87 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 2.4,
-            "output": 12.0,
-            "cache_read": 0.24
+            "input": 1.05,
+            "output": 13.0,
+            "cache_read": 0.3
           },
           "limit": {
             "context": 1048576,
             "output": 943718
           }
         },
-        "~openai/gpt-latest": {
-          "name": "OpenAI GPT Latest",
+        "~openai/gpt-astra-latest": {
+          "name": "GPT Astra Latest",
+          "release_date": "2026-09-11",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 10.0,
+            "output": 50.0,
+            "cache_read": 1.0,
+            "cache_write": 12.5
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "~openai/gpt-luna-latest": {
+          "name": "GPT Luna Latest",
+          "release_date": "2026-09-11",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          }
+        },
+        "~openai/gpt-mini-latest": {
+          "name": "GPT Mini Latest",
           "release_date": "2026-04-27",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.75,
+            "output": 4.5,
+            "cache_read": 0.075
+          },
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          }
+        },
+        "~openai/gpt-sol-latest": {
+          "name": "GPT Sol Latest",
+          "release_date": "2026-09-11",
           "reasoning": true,
           "efforts": [
             "none",
@@ -7551,25 +8228,27 @@
             "output": 128000
           }
         },
-        "~openai/gpt-mini-latest": {
-          "name": "OpenAI GPT Mini Latest",
-          "release_date": "2026-04-27",
+        "~openai/gpt-terra-latest": {
+          "name": "GPT Terra Latest",
+          "release_date": "2026-09-11",
           "reasoning": true,
           "efforts": [
             "none",
             "low",
             "medium",
             "high",
-            "xhigh"
+            "xhigh",
+            "max"
           ],
           "attachment": true,
           "cost": {
-            "input": 0.75,
-            "output": 4.5,
-            "cache_read": 0.075
+            "input": 2.0,
+            "output": 12.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
           },
           "limit": {
-            "context": 400000,
+            "context": 1050000,
             "output": 128000
           }
         },
@@ -7585,9 +8264,9 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 2.0,
-            "output": 6.0,
-            "cache_read": 0.5
+            "input": 1.6,
+            "output": 4.8,
+            "cache_read": 0.4
           },
           "limit": {
             "context": 500000,
@@ -7611,7 +8290,7 @@
           },
           "limit": {
             "context": 1310720,
-            "output": 943718
+            "output": 131072
           }
         },
         "~z-ai/glm-latest": {
@@ -7625,13 +8304,13 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 1.113,
-            "output": 3.498,
-            "cache_read": 0.2067
+            "input": 0.5625,
+            "output": 2.5,
+            "cache_read": 0.125
           },
           "limit": {
-            "context": 1048576,
-            "output": 128000
+            "context": 1310720,
+            "output": 131072
           }
         }
       }
@@ -7714,6 +8393,27 @@
         "grok-4.6": {
           "name": "Grok 4.6",
           "release_date": "2026-08-12",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 2.0,
+            "output": 6.0,
+            "cache_read": 0.5
+          },
+          "limit": {
+            "context": 500000,
+            "output": 500000
+          }
+        },
+        "grok-4.7": {
+          "name": "Grok 4.7",
+          "release_date": "2026-09-21",
           "reasoning": true,
           "efforts": [
             "low",
@@ -7839,6 +8539,22 @@
           "cost": {
             "input": 0.3,
             "output": 0.9
+          },
+          "limit": {
+            "context": 128000,
+            "output": 32768
+          }
+        },
+        "glm-4.6v-flash": {
+          "name": "GLM-4.6V-Flash",
+          "release_date": "2025-12-08",
+          "reasoning": true,
+          "attachment": true,
+          "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cache_read": 0.0,
+            "cache_write": 0.0
           },
           "limit": {
             "context": 128000,
@@ -7993,9 +8709,30 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.075,
-            "output": 0.25,
-            "cache_read": 0.015,
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.03,
+            "cache_write": 0.0
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        },
+        "glm-5.3-flashx": {
+          "name": "GLM-5.3-FlashX",
+          "release_date": "2026-09-18",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.37,
+            "output": 1.25,
+            "cache_read": 0.075,
             "cache_write": 0.0
           },
           "limit": {

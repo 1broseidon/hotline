@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- The bundled model list is refreshed from models.dev. xAI gains Grok 4.7.
+  ChatGPT now offers what a ChatGPT sign-in serves today: GPT-6 Sol and
+  GPT-6 Luna join GPT-6 Astra, and GPT-5.6 and GPT-5.4 leave the list. A
+  teammate already set to one of the two that left keeps it.
+
 ## [0.17.5] - 2026-09-22
 
 ### Fixed

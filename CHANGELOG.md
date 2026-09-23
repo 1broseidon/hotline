@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.6] - 2026-09-22
+
 ### Changed
 
 - The bundled model list is refreshed from models.dev. xAI gains Grok 4.7.

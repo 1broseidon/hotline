@@ -2400,6 +2400,25 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
     );
     assert_eq!(removes(&root), 0, "nothing is swapped mid-turn");
 
+    // Idle for a moment, and a message is admitted in the gap between the
+    // swap seeing that and doing it: behind the start gate the swap finds the
+    // turn claimed and leaves the session alone.
+    lock(&session.turns).running = false;
+    let gate = room.start_gate("ada");
+    let held = gate.lock().await;
+    room.swap_computer_when_idle("ada");
+    lock(&session.turns).running = true;
+    drop(held);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(Arc::ptr_eq(&room.session("ada").unwrap(), &session));
+    assert_eq!(removes(&root), 0, "the admitted turn keeps its computer");
+    assert!(
+        lock(&room.computer_swaps)
+            .get("ada")
+            .is_some_and(|swap| swap.ready),
+        "the swap waits for that turn instead"
+    );
+
     // The turn ends; what `run_turns` does next swaps the computer in.
     lock(&session.turns).running = false;
     room.swap_computer_when_idle("ada");

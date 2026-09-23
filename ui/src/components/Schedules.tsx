@@ -337,7 +337,12 @@ function dayChoices(): { id: string; name: string; detail?: string }[] {
 
 /** The time as this machine's clock writes it: `2:30 PM` or `14:30`. */
 function timeText(hours: number, minutes: number): string {
-	return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+	const local = new Date(2000, 0, 1, hours, minutes).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+	const read = parseTime(local);
+	if (read?.hours === hours && read.minutes === minutes) return local;
+	// A clock the field cannot read back (`오후 2:30`, Arabic digits) is
+	// written as `14:30`, which it always can.
+	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 /**

@@ -2035,6 +2035,11 @@ impl Room {
         let _working = self.working()?;
         let gate = self.start_gate(persona_id);
         let _held = gate.lock().await;
+        self.reattach_held(persona_id).await
+    }
+
+    /// [`Self::reattach`] for a caller already holding the start gate.
+    async fn reattach_held(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         // The wire invalidates before appending. Repeating it also gives
         // direct callers the same stale-driver boundary.
         self.invalidate(persona_id)?;
@@ -2097,16 +2102,23 @@ impl Room {
     /// second stop would cancel the session the first had just brought up.
     /// Behind the gate the second message finds the chapter the first opened
     /// and joins it.
-    async fn in_this_chapter(self: &Arc<Self>, persona_id: &str) -> Result<Arc<Session>, String> {
-        let gate = self.start_gate(persona_id);
-        let _held = gate.lock().await;
+    ///
+    /// The gate comes back with the session, and the caller holds it until
+    /// the message has claimed its turn: a computer swap between turns takes
+    /// the same gate, so it can never restart a session under a message that
+    /// was just admitted to it.
+    async fn in_this_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+    ) -> Result<(Arc<Session>, tokio::sync::OwnedMutexGuard<()>), String> {
+        let held = self.start_gate(persona_id).lock_owned().await;
         let session = self.session(persona_id)?;
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
-            return Ok(session);
+            return Ok((session, held));
         }
         let capability = self.stop_with_capability(persona_id);
         self.start_now(persona_id, capability).await?;
-        self.session(persona_id)
+        Ok((self.session(persona_id)?, held))
     }
 
     /// Hands the teammate a message and returns at once: the turn runs on its
@@ -2123,7 +2135,7 @@ impl Room {
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
         let _working = self.working()?;
-        let session = self.in_this_chapter(persona_id).await?;
+        let (session, _held) = self.in_this_chapter(persona_id).await?;
         if let Some(answered) = reply_to {
             mark(&session.pending_reply, answered);
         }
@@ -2161,7 +2173,7 @@ impl Room {
         run: ScheduledRun,
     ) -> Result<(), String> {
         let _working = self.working()?;
-        let session = self.in_this_chapter(persona_id).await?;
+        let (session, _held) = self.in_this_chapter(persona_id).await?;
         if !schedule::scheduled_run_allowed(&self.log, persona_id, &run) {
             return Err("Background work is not granted for this teammate.".to_string());
         }
@@ -2852,28 +2864,47 @@ impl Room {
                 .as_ref()
                 .is_some_and(|computer| computer.enabled)
         });
-        if let (Some(persona), Some(_)) = (&wanted, &session) {
-            self.write(
-                persona_id,
-                &TranscriptEvent::Notice {
-                    id: new_id(),
-                    ts: now_ms(),
-                    level: NoticeLevel::Info,
-                    text: format!(
-                        "{}'s computer is updated and rejoins now; the conversation carries on.",
-                        persona.name
-                    ),
-                },
-            );
-        }
         let room = self.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
+            // Behind the start gate a message either has claimed its turn
+            // already, or waits and lands on the session this brings up.
+            let gate = room.start_gate(&persona_id);
+            let held = gate.lock().await;
+            let busy = lock(&room.sessions)
+                .get(&persona_id)
+                .is_some_and(|session| lock(&session.turns).running);
+            if busy {
+                // Admitted in the gap: that turn's end brings the swap back,
+                // unless it has ended already, which this looks for once more.
+                drop(held);
+                lock(&room.computer_swaps)
+                    .entry(persona_id.clone())
+                    .or_insert(swap);
+                room.swap_computer_when_idle(&persona_id);
+                return;
+            }
+            if let (Some(persona), Some(_)) = (&wanted, &session) {
+                room.write(
+                    &persona_id,
+                    &TranscriptEvent::Notice {
+                        id: new_id(),
+                        ts: now_ms(),
+                        level: NoticeLevel::Info,
+                        text: format!(
+                            "{}'s computer is updated and rejoins now; the conversation carries on.",
+                            persona.name
+                        ),
+                    },
+                );
+            }
             let _ = room.computer_remove(&persona_id).await;
             if wanted.is_some() && session.is_some() {
                 // A restart that fails says why on the teammate's band itself.
-                let _ = room.reattach(&persona_id).await;
+                let _working = room.working();
+                let _ = room.reattach_held(&persona_id).await;
             }
+            drop(held);
             room.forget_release(swap.old).await;
         });
     }

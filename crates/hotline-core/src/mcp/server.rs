@@ -1288,7 +1288,18 @@ mod tests {
     async fn tools_outliving_their_room_refuse_rather_than_panic() {
         let room = room_with_a_conversation("closed");
         let orphan = tools(&room);
+        // The room's own background tasks hold it for a moment at a time,
+        // so it is gone only once the last of them lets go.
+        let gone = Arc::downgrade(&room);
         drop(room);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while gone.strong_count() > 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the room never went away"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
         assert!(
             orphan
                 .call(SEARCH_THREAD, &json!({ "query": "crane" }))

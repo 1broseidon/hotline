@@ -10,7 +10,10 @@ knows about. A packaged Hotline checks GitHub every six hours while it runs;
 **Download, install and restart** fetches the package for this platform,
 verifies its signature against the key built into Hotline, installs it and
 relaunches. A download can be cancelled; the native installer, once started,
-cannot. Linux `.deb` and `.rpm` installs may ask for system privileges.
+cannot. A Linux `.deb` or `.rpm` install asks for your password in the
+system's own prompt. If you dismiss it, nothing changes. If the install has
+not finished after ten minutes, Hotline stops waiting and says so. You can
+also install any release by hand from the releases page.
 
 Hotline refuses to install while any teammate is mid-turn, has a message
 queued, or is in the middle of a session start. Once the room is idle it

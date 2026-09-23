@@ -419,9 +419,23 @@ async fn install(app: &AppHandle, state: &Updates, version: &str) -> Result<(), 
     app.save_window_state(super::window_state_flags())
         .map_err(|error| error.to_string())?;
     let app = app.clone();
+    #[cfg(target_os = "linux")]
+    let package = state
+        .target
+        .as_deref()
+        .and_then(super::linux_package::Package::for_target);
     tauri::async_runtime::spawn_blocking(move || {
         // This lease lives with the installer, even if its caller disappears.
         let _held = held;
+        // A .deb or .rpm goes through the system's own pkexec, never the
+        // plugin's PATH lookup and sudo fallbacks (see linux_package).
+        #[cfg(target_os = "linux")]
+        if let Some(package) = package {
+            super::linux_package::install(package, &bytes)?;
+            app.state::<Updates>()
+                .change(&app, |status| status.phase = Phase::Restarting);
+            app.restart();
+        }
         update.install(bytes).map_err(|error| {
             format!("Installation failed. Hotline is still running; try again. {error}")
         })?;

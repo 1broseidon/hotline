@@ -35,12 +35,14 @@
 //! work before a live session is rebuilt.
 
 mod chapters;
+mod escalation;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod narration;
 mod pacing;
 mod peers;
 mod quiet;
+pub(crate) mod runner;
 pub(crate) mod schedule;
 
 pub use peers::{DeliverResult, TEAMMATE_MESSAGE_MAX};
@@ -499,6 +501,10 @@ pub struct Room {
     /// per teammate: downloading, ready to join once the turn ends, or
     /// failed. Watched by `computer_status`, which can wait on it.
     computer_setups: Mutex<HashMap<String, watch::Sender<ComputerSetup>>>,
+    /// Computers being updated behind a running session: the new release
+    /// downloads while the old computer keeps working, and the swap waits
+    /// for the turn in flight to end. Keyed by teammate.
+    computer_swaps: Mutex<HashMap<String, ComputerSwap>>,
     keys: Arc<dyn ProviderKeys>,
     agents: Arc<dyn Agents>,
     /// The one writer of the search index. `None` when it could not be opened,
@@ -627,6 +633,7 @@ impl Room {
             lifecycle: Mutex::new(()),
             starts: Mutex::new(HashMap::new()),
             computer_setups: Mutex::new(HashMap::new()),
+            computer_swaps: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
@@ -686,7 +693,8 @@ impl Room {
     /// anything is served from them.
     ///
     /// A permission or human-action card left open by the last process is a
-    /// button nobody is behind, so it is expired and the stream compacted;
+    /// button nobody is behind, so it is expired, a subagent line it left
+    /// running is settled as cancelled, and the stream compacted;
     /// then the index is synced, because the fold just rewrote files and a
     /// tape written by the importer or the previous edition has never been
     /// indexed here at all.
@@ -708,9 +716,22 @@ impl Room {
                 .map(StreamId::Thread),
         );
         for stream in streams {
-            for expired in crate::log::expire_orphaned_permissions(&self.log.load(&stream), now) {
-                if let Err(error) = self.log.append(&stream, &expired) {
-                    eprintln!("could not expire a card left open by the last process: {error}");
+            let events = self.log.load(&stream);
+            let mut settled = crate::log::expire_orphaned_permissions(&events, now);
+            if matches!(stream, StreamId::Tape(_)) {
+                for marker in runner::settle_orphaned_subagents(&events) {
+                    if let Some(run_id) = marker.get("runId").and_then(Value::as_str)
+                        && let Err(error) =
+                            self.log.append(&StreamId::Run(run_id.to_string()), &marker)
+                    {
+                        eprintln!("could not settle the run {run_id}: {error}");
+                    }
+                    settled.push(marker);
+                }
+            }
+            for event in settled {
+                if let Err(error) = self.log.append(&stream, &event) {
+                    eprintln!("could not settle a line left open by the last process: {error}");
                 }
             }
             if let Err(error) = self.log.compact(&stream) {
@@ -860,7 +881,9 @@ impl Room {
                 &self.stored_secrets(),
             ),
             said(&events),
-            TeammateTools::new(self, &persona.id).with_capability(capability.clone()),
+            TeammateTools::new(self, &persona.id)
+                .with_capability(capability.clone())
+                .with_subagents(),
             extra_mcp,
         )?;
         // Subscribe before startup: ACP may publish a picker change between
@@ -2740,20 +2763,124 @@ impl Room {
     }
 
     /// Recreates a teammate's computer on the release it would be created on
-    /// now. The container goes; the workspace, scratch and home volumes stay,
-    /// and a teammate that was running is started again on the new one.
+    /// now. The container goes; the workspace, scratch and home volumes stay.
+    ///
+    /// A running teammate is neither stopped nor held up for it: the new
+    /// release downloads while the old computer keeps working, and the swap
+    /// happens between turns (see [`Room::swap_computer_when_idle`]). With
+    /// no session running the container simply goes, and the next start
+    /// makes the new one.
     pub async fn computer_update(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
-        let was_live = lock(&self.sessions).contains_key(persona_id);
+        let persona = self.persona(persona_id)?;
         let old = self.computer_status(persona_id).await?.release;
-        if was_live {
-            self.stop(persona_id)?;
+        if !lock(&self.sessions).contains_key(persona_id) {
+            self.computer_remove(persona_id).await?;
+            self.forget_release(old).await;
+            return Ok(());
         }
-        self.computer_remove(persona_id).await?;
-        if was_live {
-            self.start(persona_id).await?;
+        {
+            let mut swaps = lock(&self.computer_swaps);
+            if swaps.contains_key(persona_id) {
+                // One update at a time; the one under way lands the same release.
+                return Ok(());
+            }
+            swaps.insert(persona_id.to_string(), ComputerSwap { old, ready: false });
         }
-        // The release that was running is not coming back; its image is
-        // removed unless another container is still on it.
+        let room = self.clone();
+        tokio::spawn(async move {
+            let settings = room::settings(&room.log);
+            let prepared = room
+                .computers
+                .prepare(
+                    &persona,
+                    crate::computer::preferred_runtime(&settings),
+                    crate::computer::preferred_image(&settings).as_deref(),
+                    room.pull_reporter(&persona.id),
+                )
+                .await;
+            match prepared {
+                Ok(()) => {
+                    if let Some(swap) = lock(&room.computer_swaps).get_mut(&persona.id) {
+                        swap.ready = true;
+                    }
+                    room.swap_computer_when_idle(&persona.id);
+                }
+                Err(reason) => {
+                    lock(&room.computer_swaps).remove(&persona.id);
+                    room.write(
+                        &persona.id,
+                        &TranscriptEvent::Notice {
+                            id: new_id(),
+                            ts: now_ms(),
+                            level: NoticeLevel::Warn,
+                            text: format!(
+                                "{}'s computer could not be updated, and keeps the one it has: {reason}",
+                                persona.name
+                            ),
+                        },
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Swaps in a computer whose new release has downloaded, between turns.
+    /// A turn in flight keeps the old computer to its end, which calls this
+    /// again (see `run_turns`). The swap is the old container going and the
+    /// session reattaching, which makes and grants the new one.
+    fn swap_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
+        if !lock(&self.computer_swaps)
+            .get(persona_id)
+            .is_some_and(|swap| swap.ready)
+        {
+            return;
+        }
+        let session = lock(&self.sessions).get(persona_id).cloned();
+        if session
+            .as_ref()
+            .is_some_and(|session| lock(&session.turns).running)
+        {
+            return;
+        }
+        let Some(swap) = lock(&self.computer_swaps).remove(persona_id) else {
+            return;
+        };
+        let wanted = self.persona(persona_id).ok().filter(|persona| {
+            persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        });
+        if let (Some(persona), Some(_)) = (&wanted, &session) {
+            self.write(
+                persona_id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Info,
+                    text: format!(
+                        "{}'s computer is updated and rejoins now; the conversation carries on.",
+                        persona.name
+                    ),
+                },
+            );
+        }
+        let room = self.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            let _ = room.computer_remove(&persona_id).await;
+            if wanted.is_some() && session.is_some() {
+                // A restart that fails says why on the teammate's band itself.
+                let _ = room.reattach(&persona_id).await;
+            }
+            room.forget_release(swap.old).await;
+        });
+    }
+
+    /// The release that was running is not coming back; its image is removed
+    /// unless another container is still on it.
+    async fn forget_release(&self, old: Option<String>) {
         if let Some(old) = old {
             self.computers
                 .forget_image(
@@ -2762,7 +2889,6 @@ impl Room {
                 )
                 .await;
         }
-        Ok(())
     }
 
     /// The release a new computer is created on, as the desk knows it now.
@@ -3395,6 +3521,20 @@ impl Room {
             if let Some(said) = wired.said.clone() {
                 lock(&session.unread).push(said);
             }
+            // A quiet run's replies are thinking; it is heard only by asking.
+            // Armed for this turn alone, and cleared for every other one.
+            let quiet_run = wired
+                .scheduled
+                .clone()
+                .filter(|run| run.quiet == Some(true));
+            let escalation = quiet_run
+                .as_ref()
+                .map(|_| Arc::new(escalation::Escalation::new()));
+            session.driver.escalate_next(
+                escalation
+                    .clone()
+                    .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
+            );
             let mut updates = session
                 .driver
                 .prompt(wired.text, wired.attachments, reach)
@@ -3459,6 +3599,12 @@ impl Room {
                 wire.attachments = attachments;
                 lock(&session.turns).waiting.push_front(wire);
             }
+            if let (Some(run), Some(note)) = (
+                quiet_run,
+                escalation.as_ref().and_then(|armed| armed.take()),
+            ) {
+                self.escalate(&session, run, &note);
+            }
             next = lock(&session.turns).next_line();
         }
         if !self.current_session(&session) || !session.capability.is_current() {
@@ -3467,6 +3613,35 @@ impl Room {
         }
         self.set_state(&session, SessionState::Ready);
         self.attach_computer_when_idle(&session.persona_id);
+        self.swap_computer_when_idle(&session.persona_id);
+    }
+
+    /// A quiet run found something: the teammate is prompted with it in the
+    /// open, next, so it answers the person as any reply is answered. The
+    /// line is stamped with the job but not quiet, so no window opens over
+    /// the answer.
+    fn escalate(&self, session: &Session, run: ScheduledRun, note: &str) {
+        let run = ScheduledRun { quiet: None, ..run };
+        let mut wire = Wired::words(escalation::follow_up(&run, note));
+        wire.scheduled = Some(run.clone());
+        mark(&session.pending_scheduled, run);
+        let id = new_id();
+        self.append(
+            session,
+            TranscriptEvent::User {
+                id: id.clone(),
+                ts: now_ms(),
+                text: note.to_string(),
+                attachments: None,
+                reactions: None,
+                reply_to: None,
+                scheduled: None,
+                ring: None,
+                receipt: Some(Receipt::Sent),
+            },
+        );
+        wire.said = Some(id);
+        lock(&session.turns).waiting.push_front(wire);
     }
 
     fn steer_waiting(&self, session: &Arc<Session>) {
@@ -3972,7 +4147,7 @@ fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec
             boundary.finish(None);
             Vec::new()
         }
-        Update::Delta { .. } => Vec::new(),
+        Update::Delta { .. } | Update::Parked => Vec::new(),
         Update::Message { kind, id, text } => match kind {
             MessageKind::Agent => {
                 let ts = now_ms();
@@ -4178,6 +4353,13 @@ fn describe_secret(secret: &SharedSecret) -> String {
     }
 }
 
+/// An update waiting to be swapped in: the release it replaces, whose image
+/// goes once nothing is on it, and whether the new one has downloaded.
+struct ComputerSwap {
+    old: Option<String>,
+    ready: bool,
+}
+
 /// Where a teammate's computer set-up stands, for `computer_status`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ComputerSetup {
@@ -4245,21 +4427,7 @@ pub(crate) fn preamble(
     wake: Option<String>,
     stored: &[SharedSecret],
 ) -> String {
-    // An ACP harness manages its own tools; only file operations it delegates
-    // to Hotline share Hotline's workspace boundary.
-    let reach_sentence = match reach {
-        Some(Reach::Workspace) => {
-            if cfg!(target_os = "linux") {
-                " Your built-in file tools stay in that directory: a path that leaves it is refused, except for your saved tool output. The shell also has read-only installed tools and a private home at .hotline-home inside the workspace; other host files are hidden. Granted integrations have their own permissions."
-            } else {
-                " Your built-in file tools stay in that directory: a path that leaves it is refused, except for your saved tool output. Shell restrictions depend on the operating system; consult its tool description. Granted integrations have their own permissions."
-            }
-        }
-        Some(Reach::Machine) => " Your tools reach the whole machine, not only that directory.",
-        None => {
-            " Your harness manages the permissions of its own tools. File operations delegated to Hotline through ACP stay inside your working directory."
-        }
-    };
+    let reach_sentence = reach_sentence(reach);
     // A computer is granted at start, outside the policy, so the agent is told
     // here rather than by a tool listing: what the desktop is, that the person
     // can watch it and take it over, and what to do when a page wants
@@ -4330,15 +4498,7 @@ pub(crate) fn preamble(
     // computer: it is written by that teammate's grant, and a colleague
     // sharing the working directory has no use for a line about a machine it
     // cannot drive.
-    let has_computer = persona
-        .computer
-        .as_ref()
-        .is_some_and(|computer| computer.enabled);
-    let listed: Vec<_> = crate::skills::visible(Path::new(&persona.cwd))
-        .into_iter()
-        .filter(|skill| has_computer || skill.name != crate::skills::COMPUTER)
-        .collect();
-    let skills = crate::skills::index(&listed);
+    let skills = skills_index(persona);
     let standing = format!(
         "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,
@@ -4350,6 +4510,40 @@ pub(crate) fn preamble(
         Some(wake) => format!("{standing}\n\n{wake}"),
         None => standing,
     }
+}
+
+/// How far a teammate's tools reach, said the way its preamble says it.
+///
+/// An ACP harness manages its own tools; only file operations it delegates
+/// to Hotline share Hotline's workspace boundary.
+fn reach_sentence(reach: Option<Reach>) -> &'static str {
+    match reach {
+        Some(Reach::Workspace) => {
+            if cfg!(target_os = "linux") {
+                " Your built-in file tools stay in that directory: a path that leaves it is refused, except for your saved tool output. The shell also has read-only installed tools and a private home at .hotline-home inside the workspace; other host files are hidden. Granted integrations have their own permissions."
+            } else {
+                " Your built-in file tools stay in that directory: a path that leaves it is refused, except for your saved tool output. Shell restrictions depend on the operating system; consult its tool description. Granted integrations have their own permissions."
+            }
+        }
+        Some(Reach::Machine) => " Your tools reach the whole machine, not only that directory.",
+        None => {
+            " Your harness manages the permissions of its own tools. File operations delegated to Hotline through ACP stay inside your working directory."
+        }
+    }
+}
+
+/// The skills in a teammate's workspace, a line each. The computer's guide
+/// is left out for a teammate this view has no computer for.
+fn skills_index(persona: &Persona) -> String {
+    let has_computer = persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled);
+    let listed: Vec<_> = crate::skills::visible(Path::new(&persona.cwd))
+        .into_iter()
+        .filter(|skill| has_computer || skill.name != crate::skills::COMPUTER)
+        .collect();
+    crate::skills::index(&listed)
 }
 
 fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {

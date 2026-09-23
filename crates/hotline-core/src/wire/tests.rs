@@ -2246,6 +2246,108 @@ async fn persona_update_of_reach_reattaches_and_a_name_patch_does_not() {
     );
 }
 
+/// Turning the computer on or off restarts the teammate, because it gains
+/// or loses the tools. Its limits, mounts and secrets do not: they wait for
+/// the container to be made again, and a turn in flight is not cut short.
+#[tokio::test]
+async fn computer_details_do_not_restart_the_teammate_but_turning_it_on_does() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("computer-details", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let ada_id = ada["id"].as_str().unwrap().to_string();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "computer": { "enabled": true },
+        } } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 2).await["ok"], true);
+    assert_eq!(quiet.reattached(), vec![ada_id.clone()]);
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "computer": { "enabled": true, "memory": "8g", "secrets": ["GITHUB_TOKEN"] },
+        } } }),
+    )
+    .await;
+    let answer = answered(&mut socket, 3).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["computer"]["memory"], "8g");
+    assert_eq!(
+        quiet.reattached(),
+        vec![ada_id.clone()],
+        "no second restart"
+    );
+    assert_eq!(*quiet.invalidations.lock().unwrap(), vec![ada_id.clone()]);
+
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "computer": { "enabled": false, "memory": "8g" },
+        } } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 4).await["ok"], true);
+    assert_eq!(quiet.reattached(), vec![ada_id.clone(), ada_id]);
+}
+
+/// Removing a tool source is the decision, so it leaves every teammate's
+/// grant as well: no policy is left naming a server that is gone, including
+/// one an older build left behind. A setting that does not name servers
+/// leaves grants alone.
+#[tokio::test]
+async fn removing_a_tool_source_takes_it_out_of_every_grant() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("forget-servers", quiet.clone());
+    log.append(
+        &StreamId::Room,
+        &json!({ "kind": "setting", "id": "mcpServers", "value": [
+            { "id": "prism", "type": "http", "name": "Prism", "url": "http://127.0.0.1:9086/mcp" },
+            { "id": "ketch", "type": "stdio", "name": "ketch", "command": "ketch", "args": [] },
+        ] }),
+    )
+    .unwrap();
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let ada_id = ada["id"].as_str().unwrap().to_string();
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "persona.update", "params": { "id": ada_id, "patch": {
+            "mcpPolicy": { "mode": "some", "serverIds": ["prism", "ketch", "ghost"] },
+        } } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 2).await["ok"], true);
+    let granted = |log: &Log| {
+        room::roster(log)
+            .into_iter()
+            .find(|persona| persona.id == ada_id)
+            .unwrap()
+            .mcp_policy
+            .server_ids
+    };
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "settings.update", "params": { "patch": { "chapterIdleHours": 2 } } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 3).await["ok"], true);
+    assert_eq!(granted(&log), ["prism", "ketch", "ghost"]);
+
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "settings.update", "params": { "patch": { "mcpServers": [] } } }),
+    )
+    .await;
+    assert_eq!(answered(&mut socket, 4).await["ok"], true);
+    assert!(granted(&log).is_empty());
+}
+
 /// The room's server list is what every policy of "all" includes, so every
 /// live session restarts. A setting that does not name servers leaves them.
 #[tokio::test]

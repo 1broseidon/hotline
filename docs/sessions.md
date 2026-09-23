@@ -143,6 +143,46 @@ revocation, and a failed inference also cancel the activity's jobs and settle
 their results before the driver closes. A dropped driver retains process cleanup
 guards. Existing effects are never rolled back.
 
+While the loop waits on its jobs, what the model said last is released to
+the tape as a reply rather than held as possible narration: the driver sends
+`Update::Parked` just before it waits, and the person reads that line while
+the work goes on.
+
+### Subagents
+
+A Hotline Agent teammate's own session can hand a task to a **subagent**
+with the `subagent` tool: `task` is everything the worker will know, and
+`title` is the short label the person sees. A subagent is a managed job
+like a shell command — the call returns a receipt at once, `inspect_job`,
+`wait_jobs` and `cancel_job` work on it, up to four run at a time, and its
+report arrives later as the job's result — so the teammate keeps talking
+with the person while it works, and a message from the person reaches the
+teammate without waiting for any subagent.
+
+There is one kind of subagent. It is the teammate's agent started fresh by
+`Room::run` (`session/runner.rs`): the teammate's working directory, reach,
+granted MCP servers, and the model and effort its session is on at that
+moment, with a system prompt of its own that makes it a worker reporting
+back rather than the teammate talking to the person. It gets none of the
+conversation, no checkpoint to reopen, no computer, and of Hotline's own
+tools only `search_thread` and `list_chapters`. It cannot start subagents.
+Its report is what it said after its last tool call; a run that ends on an
+error or a cancel says so and keeps what it had said.
+
+A run writes to its own stream, `runs/<runId>.jsonl`, the way a tape is
+written. On the teammate's tape it leaves one `subagent` line, rewritten as
+the run goes from `running` to `done`, `failed` or `cancelled`; pressing it
+opens the run in the inspector's place. The run id is the job id and the
+tool call's id. Stop, revocation or any other end of the teammate's turn
+cancels its runs and waits for them to settle; a run the process died under
+is settled as `cancelled` on the next start. The authority rules are
+[security.md](security.md#grant-lifecycle).
+
+`drive` in the same module is the loop both a run and a peer exchange use to
+take one prompt to its end on a stream nobody is watching: the funnel's
+narration, the same events, and a tool left running when the driver stops
+written down as failed.
+
 Other tools remain synchronous. An update arriving during one of those tools
 waits for it to settle, then skips further calls from the old request. An
 obsolete `request_human` wait is released without treating the new text as an
@@ -1042,6 +1082,21 @@ What stays loud: `notice`, `permission`, `human_action`, `peer`, `tool`,
 agent's voice, not of the app. A person who types during a quiet run is
 owed an answer they can read: a user event closes the window. A wedged turn
 cannot mute a teammate forever — the window expires after thirty minutes.
+
+A quiet run that finds something has one way to be heard, and has to ask
+for it by name. Its turn, and only that turn, is handed a `tell_person` tool
+(`session/escalation.rs`, armed through `Driver::escalate_next`). A call
+does not post anything: it hands the teammate a note, once per run (a
+second call is refused). When the quiet turn is over, the room writes the
+note as a `user` line stamped with the job's `scheduled` (not quiet, so no
+window opens) and queues it ahead of anything else waiting. The teammate
+hears which job found what and is asked to tell the person, so the answer
+is an ordinary reply in its own voice: it lands in the chat, lights the
+rail, and pushes like any other. A run that finds nothing is exactly as
+silent as before, and the desktop toast skips a turn whose last visible
+line is the person's own. Hotline Agent teammates get the tool; an ACP agent
+brings its own tools and is not offered one, so its quiet runs stay silent.
+A subagent never gets it: it reports to its teammate, which decides.
 
 ## The ledger
 

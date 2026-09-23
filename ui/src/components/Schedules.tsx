@@ -148,7 +148,8 @@ function JobRow({ job, now, backgroundWork }: { job: ScheduledJob; now: number; 
 
 function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 	const [kind, setKind] = useState<ScheduleKind>("schedule");
-	const [when, setWhen] = useState(defaultWhenInput);
+	const [day, setDay] = useState(() => defaultWhen().day);
+	const [time, setTime] = useState(() => defaultWhen().time);
 	const [count, setCount] = useState("1");
 	const [unit, setUnit] = useState<Unit>("hours");
 	const [prompt, setPrompt] = useState("");
@@ -159,7 +160,7 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 	const add = async () => {
 		const text = prompt.trim();
 		if (!text || busy) return;
-		const params = buildCreate(personaId, kind, when, count, unit, text, quiet);
+		const params = buildCreate(personaId, kind, day, time, count, unit, text, quiet);
 		if (typeof params === "string") {
 			setSaid(params);
 			return;
@@ -188,16 +189,31 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 			</div>
 			{kind === "schedule" ? (
 				<div>
-					<label className="label" htmlFor="job-when">
+					<label className="label" htmlFor="job-time">
 						At
 					</label>
-					<input
-						id="job-when"
-						type="datetime-local"
-						className="field"
-						value={when}
-						onChange={(event) => setWhen(event.target.value)}
-					/>
+					{/* No native date field: WebKitGTK's calendar popup hangs the
+					 * window on Linux. A one-shot is at most 30 days out, so
+					 * the day is a short menu and the time is typed. */}
+					<div className="flex items-center gap-2">
+						<div className="flex-1">
+							<Picker field value={day} choices={dayChoices()} placeholder="Day" label="Day" onChange={setDay} />
+						</div>
+						<input
+							id="job-time"
+							type="text"
+							inputMode="text"
+							className="field w-28"
+							placeholder="9:30, 14:00, 2pm"
+							aria-label="Time"
+							value={time}
+							onChange={(event) => setTime(event.target.value)}
+							onBlur={() => {
+								const parsed = parseTime(time);
+								if (parsed !== null) setTime(timeText(parsed.hours, parsed.minutes));
+							}}
+						/>
+					</div>
 				</div>
 			) : (
 				<div>
@@ -264,7 +280,8 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 function buildCreate(
 	personaId: string,
 	kind: ScheduleKind,
-	whenInput: string,
+	day: string,
+	timeRaw: string,
 	countRaw: string,
 	unit: Unit,
 	prompt: string,
@@ -272,8 +289,11 @@ function buildCreate(
 ): { personaId: string; kind: ScheduleKind; when?: number; every?: number; prompt: string; quiet?: boolean } | string {
 	const quietField = quiet ? { quiet: true as const } : {};
 	if (kind === "schedule") {
-		const when = new Date(whenInput).getTime();
-		if (!Number.isFinite(when)) return "Pick a date and time.";
+		const at = parseTime(timeRaw);
+		if (at === null) return "Type a time like 9:30, 14:00 or 2pm.";
+		const [year, month, date] = day.split("-").map(Number);
+		const when = new Date(year ?? NaN, (month ?? NaN) - 1, date, at.hours, at.minutes).getTime();
+		if (!Number.isFinite(when)) return "Pick a day.";
 		const wait = when - Date.now();
 		if (wait < MIN_WAIT || wait > MAX_AHEAD) {
 			return "A one-shot has to be between a second and 30 days from now.";
@@ -290,17 +310,55 @@ function buildCreate(
 	return { personaId, kind, every, prompt, ...quietField };
 }
 
-function defaultWhenInput(): string {
+/** An hour from now, on the minute. */
+function defaultWhen(): { day: string; time: string } {
 	const at = new Date(Date.now() + HOUR);
-	at.setSeconds(0, 0);
-	return toLocalInput(at.getTime());
+	return { day: dayKey(at), time: timeText(at.getHours(), at.getMinutes()) };
 }
 
-/** `datetime-local` is local civil time, no zone; pad so the field can parse it. */
-function toLocalInput(ms: number): string {
-	const at = new Date(ms);
+/** A local calendar day as `YYYY-MM-DD`. */
+function dayKey(at: Date): string {
 	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+	return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/** Today and the 30 days after it: as far as a one-shot can reach. */
+function dayChoices(): { id: string; name: string; detail?: string }[] {
+	const today = new Date();
+	const choices = [];
+	for (let offset = 0; offset <= 30; offset++) {
+		const at = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
+		const date = at.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+		const named = offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : null;
+		choices.push(named === null ? { id: dayKey(at), name: date } : { id: dayKey(at), name: named, detail: date });
+	}
+	return choices;
+}
+
+/** The time as this machine's clock writes it: `2:30 PM` or `14:30`. */
+function timeText(hours: number, minutes: number): string {
+	return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * A typed time, read the way people write one: `9`, `09:30`, `930`,
+ * `14.05`, `2pm`, `2:30 PM`, `2:30 p.m.`. Null when it is not a time of day.
+ */
+function parseTime(raw: string): { hours: number; minutes: number } | null {
+	const text = raw.trim().toLowerCase().replace(/\s+/g, "").replace(/([ap])\.?m\.?$/, "$1m");
+	const match = /^(\d{1,2})(?:[:.h]?(\d{2}))?(am|pm|a|p)?$/.exec(text);
+	if (!match) return null;
+	let hours = Number(match[1]);
+	const minutes = match[2] === undefined ? 0 : Number(match[2]);
+	const half = match[3]?.[0];
+	if (minutes > 59) return null;
+	if (half !== undefined) {
+		if (hours < 1 || hours > 12) return null;
+		hours = (hours % 12) + (half === "p" ? 12 : 0);
+	} else if (hours > 23) {
+		return null;
+	}
+	return { hours, minutes };
 }
 
 function useNow(interval = 15_000): number {

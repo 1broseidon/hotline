@@ -330,10 +330,20 @@ before acting.
   Each queued firing carries its own provenance because a one-shot may be
   tombstoned by then. Revoking background work pauses agent jobs without
   deleting them.
-- **Subagents.** The only delegation that exists is the peer session above.
-  `persona.subagents` is a carried record field with no behaviour behind
-  it yet; whatever wires it must give each subagent a lease dependent on
-  its parent's, never a broader one.
+- **Subagents.** A Hotline Agent teammate's own session may hand a task to
+  a subagent: a fresh run of the same teammate, started as a managed job of
+  the turn that asked. The run holds a lease `scoped()` from that session's,
+  so a stop, a policy change or a revoked session revokes every run it
+  started, and the run's end revokes the run's lease alone. A run is the
+  teammate's reach, its granted MCP servers and its model, never more: it
+  gets no computer, no subagents of its own, and of Hotline's tools only
+  `search_thread` and `list_chapters` — nothing that asks the person,
+  reacts, messages a colleague, schedules, or moves a chapter. It writes to
+  its own stream and one line on the tape; its report reaches the teammate
+  as execution data, which the teammate is told to verify rather than
+  obey. The parent turn cancels and settles its runs however it ends, and a
+  run left running by a dead process is settled as cancelled at startup.
+  There is no per-teammate subagent configuration to widen any of this.
 
 ## The regression matrix
 
@@ -362,6 +372,7 @@ extend; when a change adds a boundary, it adds a row.
 | Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`, `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
+| Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests.rs` `runs::a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `runs::a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `runs::a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `runs::a_cancelled_run_stops_its_agent_and_its_line_says_so`, `runs::a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the door refuses the unpaired, a path naming anything but a teammate, and a stopped computer; revoking the device drops the socket | `remote/tests.rs` `a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer`, `the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped`, `revoking_the_phone_drops_its_computer_socket`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |

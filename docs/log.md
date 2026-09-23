@@ -9,13 +9,14 @@ to say where its bytes landed, and two of those at once would be told an
 offset that is already taken. Opening a log touches nothing: a stream's
 file is made when something is appended to it.
 
-Three streams, one rule for all of them:
+Four streams, one rule for all of them:
 
 | Stream | File | One per |
 | --- | --- | --- |
 | `Room` | `room.jsonl` | room |
 | `Tape(id)` | `transcripts/<id>/<epoch>.jsonl` | teammate |
 | `Thread(key)` | `threads/<key>.jsonl` | pair |
+| `Run(id)` | `runs/<id>.jsonl` | subagent run |
 
 A subscriber is handed every event appended after it asked. History is
 `Log::load`, not replayed on subscribe. A stream nobody is still
@@ -99,6 +100,29 @@ here is left alone. A thread whose sides are both strangers is skipped.
 A label for a side the roster cannot resolve is written onto an existing
 sidecar. No sidecar, no invented one.
 
+## Runs
+
+A subagent's run is a stream of its own, `runs/<runId>.jsonl`, with no
+segments and no sidecar. The run id is the id of the job that started it
+and names the run everywhere: a run id that is not 1 to 64 letters,
+digits and hyphens is refused rather than made into a path. The stream is
+written the way a tape is — the same events, split and folded the same
+way — and holds, in order of first appearance, the run's `subagent` line,
+the task as a `user` event, and what the worker said and did. A run is
+not offered to the search index: it is the teammate's working, not its
+conversation.
+
+The one trace a run leaves on its teammate's tape is its `subagent` line,
+rewritten by id (`subagent:<runId>`) as the run goes:
+
+```json
+{"kind": "subagent", "id": "subagent:…", "ts": 1700000000000, "runId": "…", "title": "Check the crane", "status": "done", "elapsedMs": 41200}
+```
+
+`status` is `running`, `done`, `failed` or `cancelled`. `ts` is when the
+run started, and the line keeps its place. `elapsedMs` is present once
+the run has stopped. How a run is driven is [sessions.md](sessions.md#subagents).
+
 ## The room stream
 
 `room.jsonl` holds the roster, the settings, the jobs that will wake a
@@ -131,7 +155,9 @@ The teammate's record as the contract serializes it, with `"kind":
 
 Present when they were set: `node`, `face`, `team`, `reach`
 (`"workspace"` or `"machine"`), `modelId`, `modeId`, `harnessOverride`,
-`hopNotice`, `webSearchPolicy`, `computer`, `subagents`, `lastSessionId`.
+`hopNotice`, `webSearchPolicy`, `computer`, `lastSessionId`. A
+`subagents` field an earlier build wrote is ignored: a subagent is not
+configured per teammate.
 A tombstone is `{"kind": "persona", "id": "…", "deleted": true}`. An
 event that does not read as a `Persona` is skipped rather than fatal. A
 record whose `id` is empty is skipped the same way: an id with no
@@ -206,7 +232,10 @@ beside it, before anything is served from either. A permission card left
 open by the last process is a button nobody is behind, so it is
 superseded with `decision: "expired"`;
 a `human_action` card still `pending` is the same fact and is superseded
-with `status: "expired"`. Then the tape is compacted and the search index
+with `status: "expired"`. A `subagent` line still `running` belongs to a
+run that died with that process, so it is superseded with `status:
+"cancelled"` on the tape and at the head of the run's own stream. Then the
+tape is compacted and the search index
 is synced, because the fold just rewrote files and a tape written by the
 importer or the previous edition has never been indexed here at all. The idle
 chapter sweep and the scheduler's clock start on the same open; those are

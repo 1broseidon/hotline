@@ -7,7 +7,7 @@
 //! keeps its place, so the fold is the whole state of a stream, and a
 //! compaction is that fold written back over the file.
 //!
-//! Three streams, one rule for all of them:
+//! Four streams, one rule for all of them:
 //!
 //! - [`StreamId::Room`] is the room itself — the roster, the settings, the
 //!   schedules — in `room.jsonl`. One file, no epochs.
@@ -17,8 +17,10 @@
 //!   its data directory copies tapes unchanged.
 //! - [`StreamId::Thread`] is one pair of teammates' conversation, in
 //!   `threads/<key>.jsonl` beside a sidecar naming the two sides.
+//! - [`StreamId::Run`] is one subagent's run, in `runs/<id>.jsonl`: the task
+//!   it was handed and everything it did with it. Nobody replicates it.
 //!
-//! [`Log`] is the only door to all three, and the only writer. A reader that
+//! [`Log`] is the only door to all four, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
 //! [`Log::subscribe`] and is handed every event appended after it asked.
 //! There is no cursor and no "from" on the subscription: history and the live
@@ -51,12 +53,14 @@ use tokio::sync::broadcast;
 const SUBSCRIPTION_DEPTH: usize = 256;
 
 /// Which stream. The room's belongs to the room, a tape's to one teammate,
-/// a thread's to one pair — the key from [`crate::paths::thread_key`].
+/// a thread's to one pair — the key from [`crate::paths::thread_key`] — and a
+/// run's to one subagent run, by its id.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StreamId {
     Room,
     Tape(String),
     Thread(String),
+    Run(String),
 }
 
 /// One write, as replication sees it: which bytes landed where. The bytes are
@@ -375,6 +379,12 @@ impl Log {
                 fs::create_dir_all(crate::paths::threads_dir(&self.root))?;
                 Ok((file, 1))
             }
+            StreamId::Run(id) => {
+                let file = crate::paths::run_path(&self.root, id)
+                    .ok_or_else(|| io::Error::other(format!("Invalid run id: {id}")))?;
+                fs::create_dir_all(crate::paths::runs_dir(&self.root))?;
+                Ok((file, 1))
+            }
         }
     }
 
@@ -389,6 +399,7 @@ impl Log {
                 .map(|(_, path)| path)
                 .collect(),
             StreamId::Thread(key) => thread::file(&self.root, key).into_iter().collect(),
+            StreamId::Run(id) => crate::paths::run_path(&self.root, id).into_iter().collect(),
         }
     }
 }

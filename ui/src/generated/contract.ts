@@ -582,12 +582,6 @@ webSearchPolicy?: WebSearchPolicy,
  */
 computer?: PersonaComputer, 
 /**
- * Subagents this teammate may send work to. Scoped here, not app-wide:
- * one teammate's reviewer is not another's. Absent means the built-in
- * task runner only, with no extras and no model pin.
- */
-subagents?: PersonaSubagents, 
-/**
  * The last durable ACP session for each backend this teammate has used.
  *
  * ACP session ids are opaque to the agent that issued them. Keeping one
@@ -656,16 +650,6 @@ backgroundWork?: boolean, };
  * The linked desktop a teammate lives on.
  */
 export type PersonaNode = { id: string, name: string, };
-
-/**
- * Operator-configured extras plus an optional pin on the built-in task
- * runner.
- *
- * `generic` is reserved: it is always present, cannot be deleted, and is what
- * `subagent` runs when `kind` is omitted. Extras are additional kinds the
- * parent may choose, each with its own brief and optional model.
- */
-export type PersonaSubagents = { defaults?: SubagentDefaults, extras?: Array<SubagentSpec>, };
 
 export type PlanEntry = { content: string, status: string, priority?: string, };
 
@@ -973,32 +957,20 @@ export type SlashCommand = { name: string, description?: string, hint?: string, 
 export type StreamDelta = { "type": "agent_delta", personaId: string, messageId: string, text: string, } | { "type": "thought_delta", personaId: string, messageId: string, text: string, };
 
 /**
- * Overrides for the built-in task runner (`kind: generic`).
+ * Where a subagent's run has got to.
  */
-export type SubagentDefaults = { name?: string, description?: string, 
-/**
- * Extra briefing appended to the silent-runner prompt.
- */
-prompt?: string, 
-/**
- * Optional model as provider/id. Absent means inherit the teammate's.
- */
-modelId?: string, };
-
-/**
- * An extra subagent the parent can pass as `kind`.
- */
-export type SubagentSpec = { id: string, name: string, description: string, prompt?: string, modelId?: string, };
+export type SubagentStatus = "running" | "done" | "failed" | "cancelled";
 
 /**
  * What a subscription is a subscription to: a stream, or a view the core
  * maintains and nobody logs.
  *
  * Externally tagged, so a stream reads as the word or the pair naming it —
- * `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"view":
- * "roster"}` — which is the shape the window would have written by hand.
+ * `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"run":
+ * "<runId>"}`, `{"view": "roster"}` — which is the shape the window would
+ * have written by hand.
  */
-export type Target = "room" | { "tape": string } | { "thread": string } | { "view": ViewName };
+export type Target = "room" | { "tape": string } | { "thread": string } | { "run": string } | { "view": ViewName };
 
 /**
  * Everything Hotline knows about one teammate's tools, and how it knows it.
@@ -1116,7 +1088,19 @@ name: string, rpId: string, origin: string, rpName?: string, userName?: string, 
  * message from outside the room must never look like one from a
  * teammate.
  */
-seat?: PeerSeat, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+seat?: PeerSeat, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
+/**
+ * When the run started. The line keeps its place as it is rewritten.
+ */
+ts: number, runId: string, 
+/**
+ * The short label the teammate gave the task.
+ */
+title: string, status: SubagentStatus, 
+/**
+ * How long it ran, once it has stopped.
+ */
+elapsedMs?: number, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

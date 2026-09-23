@@ -93,11 +93,6 @@
 	input[type="search"]::-webkit-search-decoration {
 		appearance: none;
 	}
-	/* The clock in a one-shot schedule keeps the platform's own segments;
-	 * only its frame is ours. */
-	input[type="datetime-local"] {
-		color-scheme: light dark;
-	}
 }
 
 @layer components {

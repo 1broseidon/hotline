@@ -30,13 +30,13 @@
 //! The card is still written to the thread and the marker goes to `waiting`,
 //! so a reader can see what the thread is stopped on.
 
-use super::{Room, event_of, fold_said, lock, new_id, now_ms};
+use super::{Room, fold_said, lock, new_id, now_ms};
 use crate::contract::{
-    NoticeLevel, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, PermissionOption, Persona,
-    Reach, Receipt, ToolStatus, TranscriptEvent,
+    PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, PermissionOption, Persona, Reach,
+    Receipt, TranscriptEvent,
 };
 use crate::driver::rig::Said;
-use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, Update, acp};
+use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, acp};
 use crate::log::{StreamId, thread};
 use crate::mcp::server::TeammateTools;
 use crate::paths::{thread_key, thread_participants};
@@ -597,61 +597,25 @@ impl Room {
             self.mark(&session, &caller, &target, PeerStatus::Failed);
             return Err("That peer session's capabilities have been revoked.".to_string());
         }
-        let mut updates = session
-            .driver
-            .prompt(
-                envelope(&caller, message),
-                Vec::new(),
-                self.reach_of(&target.id),
-            )
-            .await;
-        let mut in_flight = HashMap::new();
         // The same funnel as a tape: what the peer says between its tool
         // calls is thinking, and the asker hears the report.
-        let mut voice = super::narration::Voice::new();
-        let mut replies: Vec<String> = Vec::new();
-        let mut failure: Option<String> = None;
-        let mut asked_once = false;
-        let mut done = false;
-        while !done {
-            let batch = match updates.recv().await {
-                Some(update) => voice.step(update),
-                None => {
-                    done = true;
-                    voice.finish()
+        let driven = super::runner::drive(
+            session.driver.as_ref(),
+            envelope(&caller, message),
+            self.reach_of(&target.id),
+            None,
+            |event, asked| {
+                self.append_thread(&session, event);
+                if asked {
+                    self.mark(&session, &caller, &target, PeerStatus::Waiting);
                 }
-            };
-            for update in batch {
-                let asked = matches!(update, Update::Permission { .. });
-                asked_once |= asked;
-                for event in event_of(update, &mut in_flight) {
-                    match &event {
-                        TranscriptEvent::Agent { text, .. } => {
-                            replies.push(text.clone());
-                        }
-                        TranscriptEvent::Notice {
-                            level: NoticeLevel::Error,
-                            text,
-                            ..
-                        } => failure = Some(text.clone()),
-                        _ => {}
-                    }
-                    self.append_thread(&session, event);
-                    if asked {
-                        self.mark(&session, &caller, &target, PeerStatus::Waiting);
-                    }
-                }
-            }
-        }
-        // A driver that stopped without a turn leaves a tool spinning in the
-        // thread forever, exactly as it would on a tape.
-        for (call_id, pending) in in_flight.drain() {
-            self.append_thread(&session, pending.event(&call_id, ToolStatus::Failed, None));
-        }
+            },
+        )
+        .await;
         // A permission the turn left open on the thread is a button nobody is
         // behind, exactly as on a tape — and no seat is shown a peer card, so
         // the child's own timeout is the only thing that ever answered it.
-        if asked_once {
+        if driven.asked {
             let stream = StreamId::Thread(session.thread_key.clone());
             for expired in
                 crate::log::expire_orphaned_permissions(&self.log.load(&stream), now_ms())
@@ -670,7 +634,7 @@ impl Room {
             self.mark(&session, &caller, &target, PeerStatus::Failed);
             return Err("That peer session's capabilities have been revoked.".to_string());
         }
-        if let Some(error) = failure {
+        if let Some(error) = driven.failure {
             self.mark(&session, &caller, &target, PeerStatus::Failed);
             return Err(format!("{} could not answer: {error}", target.name));
         }
@@ -678,7 +642,7 @@ impl Room {
         self.mark(&session, &caller, &target, PeerStatus::Done);
         Ok(DeliverResult {
             from: target.name,
-            reply: replies.join("\n\n"),
+            reply: driven.replies.join("\n\n"),
         })
     }
 
@@ -1269,6 +1233,7 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             reactions,
             ring,
             receipt,
+            ..
         } => TranscriptEvent::User {
             id,
             ts,

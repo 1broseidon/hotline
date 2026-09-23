@@ -73,6 +73,7 @@ export function Transcript({
 	speakers,
 	onReply,
 	onOpenThread,
+	onOpenSubagent,
 	onOpenScreen,
 }: {
 	personaId: string;
@@ -87,6 +88,7 @@ export function Transcript({
 	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
 	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
+	onOpenSubagent?(event: SubagentEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
 }) {
@@ -201,6 +203,7 @@ export function Transcript({
 									speakers={speakers}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
+									{...(onOpenSubagent !== undefined ? { onOpenSubagent } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
 									onJump={(eventId) => setJumped({ eventId, at: Date.now() })}
 								/>
@@ -380,6 +383,7 @@ function Row({
 	speakers,
 	onReply,
 	onOpenThread,
+	onOpenSubagent,
 	onOpenScreen,
 	onJump,
 }: {
@@ -390,6 +394,7 @@ function Row({
 	speakers: Speakers | undefined;
 	onReply?(target: ReplyTarget): void;
 	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
+	onOpenSubagent?(event: SubagentEvent): void;
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;
 }) {
@@ -472,6 +477,22 @@ function Row({
 				</button>
 			);
 
+		/* Work the teammate handed to a subagent: one quiet line that fills
+		 * in as the run goes, the way a peer thread is one. Pressing it opens
+		 * the run in the inspector's place. */
+		case "subagent":
+			return (
+				<button
+					type="button"
+					className="rule-line rule-line-plain w-full"
+					style={event.status === "failed" ? { color: "var(--warn)" } : undefined}
+					onClick={() => onOpenSubagent?.(event)}
+				>
+					<span className="min-w-0 truncate">{`Subagent · ${event.title}`}</span>
+					<span className="shrink-0">{`· ${subagentState(event)}`}</span>
+				</button>
+			);
+
 		case "computer_frame":
 			return <ComputerFrame dataUrl={event.dataUrl} />;
 
@@ -539,6 +560,33 @@ function shortImage(image: string): string {
 
 function tookWords(ms: number): string {
 	return ms < 1000 ? "under a second" : `${Math.round(ms / 1000)} s`;
+}
+
+export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
+
+/** Where a subagent's run has got to, in the words its line ends with. */
+export function subagentState(event: SubagentEvent): string {
+	const took = event.elapsedMs === undefined ? "" : ` after ${runWords(event.elapsedMs)}`;
+	switch (event.status) {
+		case "running":
+			return "working";
+		case "done":
+			return event.elapsedMs === undefined ? "done" : `done in ${runWords(event.elapsedMs)}`;
+		case "failed":
+			return `failed${took}`;
+		case "cancelled":
+			return `stopped${took}`;
+	}
+}
+
+/** A run is seconds to many minutes long: say it the way a person would. */
+function runWords(ms: number): string {
+	const seconds = Math.round(ms / 1000);
+	if (seconds < 1) return "under a second";
+	if (seconds < 60) return `${seconds} s`;
+	const minutes = Math.floor(seconds / 60);
+	const rest = seconds % 60;
+	return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
 }
 
 /**

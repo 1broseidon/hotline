@@ -14,7 +14,7 @@ function isWorking(state: SessionState): boolean {
 }
 
 /** A session that is started on the way, before what was typed is said. */
-function isDown(state: SessionState): boolean {
+export function isDown(state: SessionState): boolean {
 	return state === "idle" || state === "stopped" || state === "error";
 }
 
@@ -39,7 +39,6 @@ export function Composer({
 	replyQuote,
 	onSend,
 	refill,
-	onStart,
 	onCancel,
 	onClearReply,
 }: {
@@ -50,7 +49,6 @@ export function Composer({
 	onSend(text: string, attachments: Attachment[]): void;
 	/** Words a refused send handed back; a new nonce fills the field again. */
 	refill?: Refill;
-	onStart(): void;
 	onCancel(): void;
 	onClearReply(): void;
 }) {
@@ -58,7 +56,6 @@ export function Composer({
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
-	const down = isDown(state);
 	const hasContent = text.trim().length > 0 || attachments.length > 0;
 
 	// Grow with content, up to a ceiling. Before paint, because measuring after
@@ -126,7 +123,6 @@ export function Composer({
 	const submit = () => {
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0) return;
-		if (down) onStart();
 		setText("");
 		const sending = attachments;
 		setAttachments([]);

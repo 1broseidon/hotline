@@ -776,8 +776,17 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
         super::push_targets(h.root.path()).tokens,
         ["ExponentPushToken[def]"]
     );
+    // Turning Remote off keeps the phone paired but stops notifying it.
+    h.remote.configure(false, network::ALL).await.unwrap();
+    assert!(super::push_targets(h.root.path()).tokens.is_empty());
+    h.remote.configure(true, network::ALL).await.unwrap();
+    assert_eq!(
+        super::push_targets(h.root.path()).tokens,
+        ["ExponentPushToken[def]"]
+    );
     h.remote.revoke(&phone.id).unwrap();
     assert!(super::push_targets(h.root.path()).tokens.is_empty());
+    h.remote.configure(false, network::ALL).await.unwrap();
 }
 
 /// The desk with a computer it does not have: every call forwards to the real

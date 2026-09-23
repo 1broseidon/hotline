@@ -83,13 +83,12 @@ pub(super) async fn run(
     sender: &mpsc::Sender<Update>,
     shell: Option<RunCommand>,
 ) -> Result<(), Failure> {
-    let mut jobs = Jobs::new(shell);
-    if jobs.enabled() {
+    let mut jobs = Jobs::new(shell, turn.delegate.clone());
+    if let Some(instructions) = jobs.instructions() {
         template.tools.extend(jobs.definitions());
         template.preamble = Some(format!(
-            "{}\n\n{}",
+            "{}\n\n{instructions}",
             template.preamble.unwrap_or_default(),
-            jobs::INSTRUCTIONS
         ));
     }
     let result = run_inner(model, template, tools, turn, sender, &mut jobs).await;
@@ -421,8 +420,11 @@ async fn run_inner(
                 ToolResult::skipped("Not executed: this activity's tool access was revoked.")
             } else {
                 match call.function.name.as_str() {
-                    "shell" if jobs.enabled() => {
+                    "shell" if jobs.shell_enabled() => {
                         job_result(jobs.launch(call_id.clone(), call.function.arguments.clone()))
+                    }
+                    jobs::SUBAGENT if jobs.delegates() => {
+                        job_result(jobs.delegate(call_id.clone(), call.function.arguments.clone()))
                     }
                     "inspect_job" if jobs.enabled() => job_result(
                         serde_json::from_value::<JobArgs>(call.function.arguments.clone())
@@ -514,6 +516,8 @@ async fn run_inner(
             if jobs.active() {
                 // A textual response is not activity completion while jobs
                 // run. Park without spending model requests; input can wake us.
+                // What it just said is what the person reads meanwhile.
+                send(sender, Update::Parked).await;
                 tokio::select! {
                     biased;
                     () = turn.stop.raised() => { stopped = true; break; }
@@ -774,6 +778,7 @@ mod tests {
             output_dir: std::env::temp_dir(),
             mcp_tools: Vec::new(),
             capability: None,
+            delegate: None,
         };
         let request = CompletionRequest {
             model: None,

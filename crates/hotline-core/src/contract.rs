@@ -205,11 +205,6 @@ pub struct Persona {
     /// user-configured servers. Absent means off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
-    /// Subagents this teammate may send work to. Scoped here, not app-wide:
-    /// one teammate's reviewer is not another's. Absent means the built-in
-    /// task runner only, with no extras and no model pin.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subagents: Option<PersonaSubagents>,
     /// The last durable ACP session for each backend this teammate has used.
     ///
     /// ACP session ids are opaque to the agent that issued them. Keeping one
@@ -687,52 +682,6 @@ pub struct ComputerReleases {
     /// Why the last lookup failed, until one succeeds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-}
-
-/// Operator-configured extras plus an optional pin on the built-in task
-/// runner.
-///
-/// `generic` is reserved: it is always present, cannot be deleted, and is what
-/// `subagent` runs when `kind` is omitted. Extras are additional kinds the
-/// parent may choose, each with its own brief and optional model.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "contract.ts", optional_fields)]
-pub struct PersonaSubagents {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub defaults: Option<SubagentDefaults>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extras: Option<Vec<SubagentSpec>>,
-}
-
-/// Overrides for the built-in task runner (`kind: generic`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts", optional_fields)]
-pub struct SubagentDefaults {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Extra briefing appended to the silent-runner prompt.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
-    /// Optional model as provider/id. Absent means inherit the teammate's.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_id: Option<String>,
-}
-
-/// An extra subagent the parent can pass as `kind`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts", optional_fields)]
-pub struct SubagentSpec {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_id: Option<String>,
 }
 
 /// One harness, optionally pinned to a model — how the matching ladder names
@@ -1248,6 +1197,23 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<TokenUsage>,
     },
+    /// A subagent this teammate started: one line on the teammate's tape,
+    /// written again under the same id as the run goes, that opens the run's
+    /// own transcript. The run itself never writes to this tape — what it did
+    /// is on its own stream, `runs/<runId>`, and what it reported came back
+    /// to the teammate as a job result.
+    Subagent {
+        id: String,
+        /// When the run started. The line keeps its place as it is rewritten.
+        ts: i64,
+        run_id: String,
+        /// The short label the teammate gave the task.
+        title: String,
+        status: SubagentStatus,
+        /// How long it ran, once it has stopped.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        elapsed_ms: Option<i64>,
+    },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.
@@ -1532,6 +1498,17 @@ pub enum PeerStatus {
     Done,
     Waiting,
     Failed,
+}
+
+/// Where a subagent's run has got to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SubagentStatus {
+    Running,
+    Done,
+    Failed,
+    Cancelled,
 }
 
 /// An outside MCP agent holding a seat in this room, rather than a teammate.
@@ -2303,8 +2280,9 @@ pub enum Command {
 /// maintains and nobody logs.
 ///
 /// Externally tagged, so a stream reads as the word or the pair naming it —
-/// `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"view":
-/// "roster"}` — which is the shape the window would have written by hand.
+/// `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"run":
+/// "<runId>"}`, `{"view": "roster"}` — which is the shape the window would
+/// have written by hand.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -2312,6 +2290,8 @@ pub enum Target {
     Room,
     Tape(String),
     Thread(String),
+    /// One subagent run's own transcript, by run id.
+    Run(String),
     View(ViewName),
 }
 

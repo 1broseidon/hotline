@@ -82,6 +82,16 @@ impl Voice {
                 *self = Self::new();
                 out
             }
+            // A turn waiting on its jobs has said what it has to say for now:
+            // the held line is the report, and whatever wakes it — a job's
+            // result, the person — starts a new stretch of voice, whose first
+            // words are heard as they come.
+            update @ Update::Parked => {
+                let mut out = self.release(MessageKind::Agent);
+                out.push(update);
+                *self = Self::new();
+                out
+            }
             // The agent has not spoken again: a held line keeps waiting.
             update @ (Update::ToolResult { .. }
             | Update::Delta { .. }
@@ -292,6 +302,43 @@ mod tests {
         );
         assert_eq!(out[0], "agent:I need to push this.");
         assert!(out[1].starts_with("Permission"));
+    }
+
+    #[test]
+    fn a_turn_waiting_on_its_jobs_says_its_last_line_and_the_next_stretch_is_heard() {
+        let mut voice = Voice::new();
+        let out = run(
+            &mut voice,
+            vec![
+                says("m1", "on it"),
+                calls("c1"),
+                says("m2", "Handed that to a subagent; I'll report back."),
+                Update::Parked,
+            ],
+        );
+        assert_eq!(
+            out,
+            [
+                "agent:on it",
+                "call:c1",
+                "agent:Handed that to a subagent; I'll report back.",
+                "Parked",
+            ]
+        );
+        assert!(
+            !voice.mutes_deltas(),
+            "an answer to the person while the job runs streams as speech"
+        );
+        let out = run(
+            &mut voice,
+            vec![says("m3", "Still running, about halfway."), Update::Parked],
+        );
+        assert_eq!(out, ["agent:Still running, about halfway.", "Parked"]);
+        let out = run(
+            &mut voice,
+            vec![returns("c1"), says("m4", "It's done: three bugs."), turn()],
+        );
+        assert_eq!(out, ["result:c1", "agent:It's done: three bugs.", "turn"]);
     }
 
     #[test]

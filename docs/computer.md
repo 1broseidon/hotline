@@ -134,9 +134,15 @@ is granted (`persona.computer.secrets`, read from the vault), and so does
 every reattach and every change to a stored value while the computer is
 running; a stopped one gets the current set at its next start. Mounts are
 different: they are bind mounts fixed when the container is created, so a
-changed mount takes effect at the next Remove. `computer.update` is the pane's answer to that: stop the
-teammate if it is running, remove the container, start the teammate again on
-the current choice. What survives an update is what survives a removal — the
+changed mount takes effect at the next Remove. `computer.update` is the pane's answer to that: remove the
+container so the next one is made on the current choice. A teammate at rest
+has its container removed at once. A running one is not stopped or held up:
+the new release downloads while the old computer keeps working, and once the
+turn in flight ends the container is removed and the session reattaches onto
+the new one. The rest of the computer's settings (limits, mounts, a pinned
+image, granted secrets) do not restart the teammate either. The first three
+wait for the next container, and secrets are handed to the running one. Only
+turning the computer on or off restarts the session. What survives an update is what survives a removal — the
 volumes — and nothing else; the pane says so next to the button.
 
 The runtimes, how they are found, and the fake runtime the tests drive are in

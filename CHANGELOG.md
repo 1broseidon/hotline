@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-09-22
+
 ### Fixed
 
 - A teammate whose computer cannot start answers anyway. With Docker not

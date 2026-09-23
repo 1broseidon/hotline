@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/hotline-core", "crates/hotline-app"]
 
 [workspace.package]
-version = "0.17.4"
+version = "0.17.5"
 edition = "2024"
 
 [workspace.dependencies]

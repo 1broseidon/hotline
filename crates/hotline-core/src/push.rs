@@ -50,6 +50,9 @@ impl Push {
                     "title": title,
                     "body": body,
                     "sound": "default",
+                    // Lets the phone's notification service turn the glance into a
+                    // message from the teammate, with their picture.
+                    "mutableContent": true,
                     "data": { "desktopId": targets.desktop_id, "personaId": persona_id },
                 })
             })

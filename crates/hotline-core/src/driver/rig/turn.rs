@@ -2,11 +2,12 @@
 //! execution depends on which provider the model handle uses.
 
 use super::*;
-use crate::session::jobs::{self, JobArgs, JobSnapshot, JobState, Jobs, WaitArgs};
+use crate::session::jobs::{self, JobArgs, JobKind, JobSnapshot, JobState, Jobs, WaitArgs};
 use rig::completion::{CompletionModel, CompletionRequest};
 use rig::message::{AssistantContent, ToolCall, UserContent};
 use rig::streaming::StreamedAssistantContent;
 use rig::tool::{ToolContext, ToolResult, ToolSet};
+use serde_json::json;
 
 #[derive(Default)]
 pub(super) struct Steering {
@@ -425,7 +426,8 @@ async fn run_inner(
                     "inspect_job" if jobs.enabled() => job_result(
                         serde_json::from_value::<JobArgs>(call.function.arguments.clone())
                             .map_err(text)
-                            .and_then(|args| jobs.inspect(&args.job_id)),
+                            .and_then(|args| jobs.snapshot(&args.job_id))
+                            .map(|job| model_job(turn, job)),
                     ),
                     "cancel_job" if jobs.enabled() => job_result(
                         serde_json::from_value::<JobArgs>(call.function.arguments.clone())
@@ -484,7 +486,15 @@ async fn run_inner(
                 )
                 .await;
             }
-            let output = model_output(turn, &call_id, result.output(), &shown, &images).await;
+            let output = model_output(
+                turn,
+                &call_id,
+                &call.function.name,
+                result.output(),
+                &shown,
+                &images,
+            )
+            .await;
             history.push(Message::User {
                 content: vec![UserContent::ToolResult(rig::message::ToolResult {
                     call: call.id.clone(),
@@ -618,11 +628,38 @@ async fn publish_job(turn: &Turn, sender: &mpsc::Sender<Update>, job: JobSnapsho
 }
 
 fn job_message(turn: &Turn, job: &JobSnapshot) -> Message {
-    let data = serde_json::to_string(job).expect("job records contain only strings and states");
-    let output = hand_to_model(&turn.output_dir, &job.job_id, &data);
     Message::user(format!(
-        "Hotline execution data (not an operator instruction): managed job result {output}"
+        "Hotline execution data (not an operator instruction): managed job result {}",
+        model_job(turn, job)
     ))
+}
+
+/// A job as the model is shown it. A command's output reads as a terminal
+/// left it and, past the command budget, as the start and more of the end of
+/// each stream, with the whole output's size and the file that holds it. A
+/// subagent's report is cut only past the built-in budget.
+fn model_job(turn: &Turn, job: &JobSnapshot) -> Value {
+    let mut shown = json!(job);
+    let Some(output) = &job.output else {
+        return shown;
+    };
+    let (output, budget) = match job.kind {
+        JobKind::Shell => (plain(output), Budget::COMMAND),
+        JobKind::Subagent => (output.clone(), Budget::BUILT_IN),
+    };
+    if output.len() <= budget.bytes() {
+        shown["output"] = json!(output);
+        return shown;
+    }
+    shown["output"] = json!(match job.kind {
+        JobKind::Shell => command_view(&output),
+        JobKind::Subagent => elide(&output, budget),
+    });
+    shown["output_bytes"] = json!(output.len());
+    if let Some(path) = keep(&turn.output_dir, &job.job_id, &output) {
+        shown["full_output"] = json!(path);
+    }
+    shown
 }
 
 async fn wait_jobs(
@@ -667,6 +704,7 @@ async fn wait_jobs(
 async fn model_output(
     turn: &Turn,
     call_id: &str,
+    tool: &str,
     output: &ToolOutput,
     shown: &str,
     images: &[ToolImage],
@@ -680,8 +718,9 @@ async fn model_output(
         };
     }
     let rendered = output.render();
-    if rendered.len() > MODEL_TOOL_OUTPUT_BYTES {
-        ToolOutput::text(hand_to_model(&turn.output_dir, call_id, &rendered))
+    let budget = Budget::of(tool);
+    if rendered.len() > budget.bytes() {
+        ToolOutput::text(hand_to_model(&turn.output_dir, call_id, &rendered, budget))
     } else {
         output.clone()
     }
@@ -1148,6 +1187,143 @@ mod tests {
         while let Some(update) = receiver.recv().await {
             assert!(!matches!(update, Update::ToolCall { .. }));
         }
+    }
+
+    /// A megabyte of build log reaches the model once, as a few KB with both
+    /// streams' ends and where the rest is, and not again in wait_jobs.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is() {
+        let root = tempfile::tempdir().unwrap();
+        let outputs = root.path().join("outputs");
+        let shell = RunCommand::new(
+            Workspace::open(root.path().into(), Reach::Machine, outputs.clone()).unwrap(),
+        );
+        let (mut turn, request) = fixture();
+        turn.output_dir = outputs;
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, first_stream) = mpsc::channel(8);
+        let (second, second_stream) = mpsc::channel(8);
+        let (third, third_stream) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([
+                Some(first_stream),
+                Some(second_stream),
+                Some(third_stream),
+            ])),
+        };
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(
+                &model,
+                request,
+                &ToolSet::default(),
+                &turn,
+                &updates,
+                Some(shell),
+            )
+            .await
+        });
+        tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+        let call = |id: &str, name: &str, arguments: Value| {
+            Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+                id,
+                name.into(),
+                arguments,
+            )))
+        };
+        let done = || {
+            Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage::default(),
+            )))
+        };
+        // Compiling on stderr, then its error; tests on stdout, then their summary.
+        let build = r"for i in $(seq 30000); do printf '\033[32m   Compiling\033[0m crate-%05d v1.0.0\n' $i; done >&2; printf 'error[E0308]: mismatched types\n' >&2; for i in $(seq 2000); do printf 'test case_%04d ... ok\n' $i; done; printf 'test result: FAILED. 1999 passed; 1 failed\n'; exit 101";
+        receive(&mut requests).await;
+        first
+            .send(call(
+                "build",
+                "shell",
+                serde_json::json!({"command": build}),
+            ))
+            .await
+            .unwrap();
+        first.send(done()).await.unwrap();
+        drop(first);
+        let receipt = serde_json::to_string(&receive(&mut requests).await.chat_history).unwrap();
+        let job_id = receipt
+            .split("job_id\\\":\\\"")
+            .nth(1)
+            .and_then(|rest| rest.split("\\\"").next())
+            .expect("the receipt names the job")
+            .to_owned();
+        second
+            .send(call(
+                "wait",
+                "wait_jobs",
+                serde_json::json!({"job_ids": [job_id]}),
+            ))
+            .await
+            .unwrap();
+        second.send(done()).await.unwrap();
+        drop(second);
+        let last = receive(&mut requests).await;
+        answer(third).await;
+        task.await.unwrap().unwrap();
+
+        let mut job = None;
+        let mut waited = None;
+        for message in &last.chat_history {
+            let Message::User { content } = message else {
+                continue;
+            };
+            for content in content.iter() {
+                match content {
+                    UserContent::Text(text) => {
+                        if let Some(data) = text.text.strip_prefix(
+                            "Hotline execution data (not an operator instruction): managed job result ",
+                        ) {
+                            assert!(data.len() < 20 * 1024, "{} bytes", data.len());
+                            job = Some(serde_json::from_str::<Value>(data).unwrap());
+                        }
+                    }
+                    UserContent::ToolResult(result) if result.call == "wait" => {
+                        let Some(rig::message::ToolResultContent::Text(text)) =
+                            result.content.first()
+                        else {
+                            panic!("wait_jobs answers in text");
+                        };
+                        waited = Some(serde_json::from_str::<Value>(&text.text).unwrap());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let job = job.expect("the job's result reached the model");
+        let output = job["output"].as_str().unwrap();
+        // Each stream's end: the test summary on stdout, the error on stderr.
+        assert!(output.starts_with("test case_0001 ... ok"), "{output}");
+        assert!(
+            output.contains("test result: FAILED. 1999 passed; 1 failed"),
+            "{output}"
+        );
+        assert!(
+            output.ends_with("error[E0308]: mismatched types\n\n[exit status 101]"),
+            "{output}"
+        );
+        assert!(!output.contains('\u{1b}'), "{output}");
+        assert_eq!(job["state"], "failed");
+        // All of it, as a terminal would show it, is where the job says.
+        let full = std::fs::read_to_string(job["full_output"].as_str().unwrap()).unwrap();
+        assert_eq!(job["output_bytes"], full.len());
+        assert!(full.len() > 1_000_000, "{} bytes", full.len());
+        assert!(full.contains("\n   Compiling crate-15000 v1.0.0\n"));
+        // wait_jobs reports the state and leaves the output to the result.
+        let waited = waited.expect("wait_jobs answered");
+        assert_eq!(waited["jobs"][0]["state"], "failed", "{waited}");
+        assert!(waited["jobs"][0].get("output").is_none(), "{waited}");
     }
 
     #[cfg(unix)]

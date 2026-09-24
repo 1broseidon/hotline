@@ -59,10 +59,86 @@ const AGENT_NAME: &str = "Hotline Agent";
 /// Only the tool's subject, not the whole command, goes in the title line.
 const TITLE_CHARS: usize = 120;
 
-/// How much of a tool's result the model is shown. Big enough for a build log;
-/// anything larger is kept in full on disk beside the tape, and the text the
-/// model sees ends with that path so the agent can read the rest.
-const MODEL_TOOL_OUTPUT_BYTES: usize = 256 * 1024;
+/// How much of a result the model is shown, from its start and from its end.
+/// Anything longer is kept whole on disk beside the tape, and the model is
+/// told where, so it can search or read the rest. What the model is shown
+/// stays in the conversation and goes out again with every later request in
+/// the chapter, so each kind of result gets only what it needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Budget {
+    head: usize,
+    tail: usize,
+}
+
+impl Budget {
+    /// A command's output. A build or a test run says how it went at the
+    /// end, so most of this comes from there: a megabyte of log costs the
+    /// conversation 16 KiB.
+    const COMMAND: Self = Self {
+        head: 4 * 1024,
+        tail: 12 * 1024,
+    };
+    /// What a granted server or the computer answers. The computer pages its
+    /// own output well inside this; the budget stops a server that doesn't.
+    const EXTERNAL: Self = Self {
+        head: 32 * 1024,
+        tail: 32 * 1024,
+    };
+    /// Hotline's own tools, and a subagent's report. A file read already
+    /// stops at 2000 lines and says where to go on, and cutting it shorter
+    /// would only cost more reads.
+    const BUILT_IN: Self = Self {
+        head: 128 * 1024,
+        tail: 128 * 1024,
+    };
+
+    /// A tool's budget by its name: a granted server's tools, the
+    /// computer's among them, are named `{server}__{tool}`.
+    fn of(tool: &str) -> Self {
+        if tool.contains("__") {
+            Self::EXTERNAL
+        } else {
+            Self::BUILT_IN
+        }
+    }
+
+    fn bytes(self) -> usize {
+        self.head + self.tail
+    }
+
+    /// `bytes` of a command's output, weighted to its end like the whole.
+    fn share(bytes: usize) -> Self {
+        Self {
+            head: bytes / 4,
+            tail: bytes - bytes / 4,
+        }
+    }
+}
+
+/// A command's output cut to the command budget. The shell writes stdout,
+/// then stderr after a line of its own, and each keeps its own start and
+/// end: a test run's failures on stdout outlast a long compile on stderr.
+fn command_view(output: &str) -> String {
+    let budget = Budget::COMMAND.bytes();
+    if output.len() <= budget {
+        return output.to_string();
+    }
+    let Some((stdout, stderr)) = output.split_once(crate::tools::STDERR_LINE) else {
+        return elide(output, Budget::COMMAND);
+    };
+    let half = budget / 2;
+    let out = if stderr.len() < half {
+        budget - stderr.len()
+    } else {
+        stdout.len().min(half)
+    };
+    format!(
+        "{}{}{}",
+        elide(stdout, Budget::share(out)),
+        crate::tools::STDERR_LINE,
+        elide(stderr, Budget::share(budget - out))
+    )
+}
 
 /// One answer, with no tools and no conversation: the note that closes a
 /// chapter, and anything else that asks a model a single question.
@@ -627,19 +703,25 @@ fn images_to_model(provider: &str) -> bool {
 /// The text the model is given for a tool result: the whole thing when it
 /// fits, otherwise the head and tail with the rest written to
 /// `{output_dir}/{call_id}.txt` and that path on the last line.
-fn hand_to_model(output_dir: &Path, call_id: &str, output: &str) -> String {
-    if output.len() <= MODEL_TOOL_OUTPUT_BYTES {
+fn hand_to_model(output_dir: &Path, call_id: &str, output: &str, budget: Budget) -> String {
+    if output.len() <= budget.bytes() {
         return output.to_string();
     }
-    let elided = elide(output, MODEL_TOOL_OUTPUT_BYTES);
-    let path = output_dir.join(format!("{call_id}.txt"));
-    match std::fs::create_dir_all(output_dir).and_then(|_| std::fs::write(&path, output)) {
-        Ok(()) => {
-            let named = path.canonicalize().unwrap_or(path);
-            format!("{elided}\nFull output: {}", named.display())
-        }
-        Err(_) => elided,
+    let elided = elide(output, budget);
+    match keep(output_dir, call_id, output) {
+        Some(path) => format!("{elided}\nFull output: {}", path.display()),
+        None => elided,
     }
+}
+
+/// Writes a whole result to `{output_dir}/{name}.txt`, where the workspace
+/// tools can read it even when the teammate is confined to its folder.
+fn keep(output_dir: &Path, name: &str, text: &str) -> Option<PathBuf> {
+    let path = output_dir.join(format!("{name}.txt"));
+    std::fs::create_dir_all(output_dir)
+        .and_then(|_| std::fs::write(&path, text))
+        .ok()?;
+    Some(path.canonicalize().unwrap_or(path))
 }
 
 /// The head and the tail of the output, with one line where the middle was.
@@ -647,13 +729,22 @@ fn hand_to_model(output_dir: &Path, call_id: &str, output: &str) -> String {
 /// A cut in the middle is the honest one: the head holds what the command
 /// said it was doing and the tail holds how it ended, and a build log that
 /// only kept its first quarter would hide the error the agent ran it for.
-fn elide(text: &str, limit: usize) -> String {
-    if text.len() <= limit {
+fn elide(text: &str, budget: Budget) -> String {
+    if text.len() <= budget.bytes() {
         return text.to_string();
     }
-    let half = limit / 2;
-    let head = floor_boundary(text, half);
-    let tail = ceil_boundary(text, text.len() - half);
+    let mut head = floor_boundary(text, budget.head);
+    let mut tail = ceil_boundary(text, text.len() - budget.tail);
+    // Whole lines read better, when a line ends near where the cut falls.
+    if let Some(end) = text[..head].rfind('\n').filter(|end| *end >= head / 2) {
+        head = end;
+    }
+    if let Some(start) = text[tail..]
+        .find('\n')
+        .filter(|start| *start < budget.tail / 2)
+    {
+        tail += start + 1;
+    }
     let cut = tail - head;
     format!(
         "{}\n[… {cut} bytes elided …]\n{}",
@@ -673,6 +764,79 @@ fn ceil_boundary(text: &str, at: usize) -> usize {
     (at..=text.len())
         .find(|at| text.is_char_boundary(*at))
         .unwrap_or(text.len())
+}
+
+/// A command's output as a terminal would have left it. Colour, cursor and
+/// title codes read as noise outside a terminal, and a progress bar redraws
+/// its line with carriage returns: keep the last draw. The computer answers
+/// its own commands the same way.
+fn plain(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            skip_escape(&mut chars);
+        } else {
+            out.push(c);
+        }
+    }
+    out.split('\n')
+        .map(|line| {
+            line.rsplit('\r')
+                .find(|part| !part.trim().is_empty())
+                .unwrap_or("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Consumes the rest of the escape sequence an ESC opened, and nothing after.
+fn skip_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    match chars.peek() {
+        // A control sequence: parameters, then a final byte from @ to ~.
+        Some('[') => {
+            chars.next();
+            while let Some(&c) = chars.peek() {
+                if !(' '..='~').contains(&c) {
+                    break;
+                }
+                chars.next();
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+        }
+        // A string, such as a window title, up to BEL or ESC \.
+        Some(']' | 'P' | 'X' | '^' | '_') => {
+            chars.next();
+            while let Some(&c) = chars.peek() {
+                if c == '\n' {
+                    break;
+                }
+                chars.next();
+                if c == '\u{7}' {
+                    break;
+                }
+                if c == '\u{1b}' {
+                    chars.next_if_eq(&'\\');
+                    break;
+                }
+            }
+        }
+        // Anything shorter, such as a character set: intermediates from
+        // space to /, then one final byte.
+        _ => {
+            while let Some(&c) = chars.peek() {
+                if !(' '..='~').contains(&c) {
+                    break;
+                }
+                chars.next();
+                if !(' '..='/').contains(&c) {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 /// A message being streamed: its id, whether it is speech or thought, and
@@ -1387,9 +1551,11 @@ mod tests {
         assert!(!images_to_model("ollama"));
     }
 
+    const BUDGET_100: Budget = Budget { head: 50, tail: 50 };
+
     #[test]
     fn output_under_the_limit_is_untouched() {
-        assert_eq!(elide("hello", 16), "hello");
+        assert_eq!(elide("hello", Budget { head: 8, tail: 8 }), "hello");
     }
 
     /// The head and the tail both survive, and the line between them says how
@@ -1397,17 +1563,94 @@ mod tests {
     #[test]
     fn a_long_output_keeps_both_ends_and_says_what_it_cut() {
         let text = format!("start{}end", "x".repeat(1_000));
-        let elided = elide(&text, 100);
+        let elided = elide(&text, BUDGET_100);
         assert!(elided.starts_with("start"));
         assert!(elided.ends_with("end"));
         assert!(elided.contains("[… 908 bytes elided …]"), "{elided}");
+    }
+
+    /// A log is cut between lines when a line ends near the cut.
+    #[test]
+    fn a_log_is_cut_between_lines() {
+        let text: String = (0..100).map(|i| format!("line {i:03}\n")).collect();
+        let elided = elide(&text, BUDGET_100);
+        assert!(
+            elided.starts_with("line 000\nline 001\nline 002\nline 003\nline 004\n[… "),
+            "{elided}"
+        );
+        assert!(
+            elided.ends_with(" elided …]\nline 095\nline 096\nline 097\nline 098\nline 099\n"),
+            "{elided}"
+        );
+    }
+
+    /// A command's stdout and stderr each keep their start and end, and a
+    /// short one is kept whole while the other takes the rest.
+    #[test]
+    fn a_commands_streams_are_cut_each_to_its_own_ends() {
+        use crate::tools::STDERR_LINE;
+        let stdout: String = (0..5000)
+            .map(|i| format!("test case_{i:04} ... ok\n"))
+            .collect();
+        let stderr: String = (0..5000)
+            .map(|i| format!("   Compiling crate-{i:04}\n"))
+            .collect();
+        let view = command_view(&format!(
+            "{stdout}summary{STDERR_LINE}{stderr}error\n[exit status 101]"
+        ));
+        assert!(
+            view.len() < Budget::COMMAND.bytes() + 200,
+            "{} bytes",
+            view.len()
+        );
+        assert!(view.starts_with("test case_0000 ... ok\n"));
+        assert!(
+            view.contains(&format!(
+                "case_4999 ... ok\nsummary{STDERR_LINE}   Compiling crate-0000\n"
+            )),
+            "{view}"
+        );
+        assert!(
+            view.ends_with("crate-4999\nerror\n[exit status 101]"),
+            "{view}"
+        );
+        let view = command_view(&format!("short{STDERR_LINE}{stderr}"));
+        assert!(
+            view.starts_with(&format!("short{STDERR_LINE}   Compiling crate-0000\n")),
+            "{view}"
+        );
+        assert!(
+            view.len() > Budget::COMMAND.bytes() - 100,
+            "{} bytes",
+            view.len()
+        );
+        let view = command_view(&stderr);
+        assert_eq!(view.matches("elided").count(), 1, "{view}");
+    }
+
+    /// Colour, redraws and titles are gone; the lines they drew are not.
+    #[test]
+    fn a_commands_output_reads_as_a_terminal_left_it() {
+        let raw = "\u{1b}[1m\u{1b}[92m   Compiling\u{1b}[0m ctor v0.8.0\n\u{1b}[96mBuilding\u{1b}[0m 1/9\rBuilding 2/9\u{1b}[K\n";
+        assert_eq!(plain(raw), "   Compiling ctor v0.8.0\nBuilding 2/9\n");
+        let raw = "\u{1b}]0;make\u{7}one\r\n\u{1b}(B\u{1b}[mtwo\u{1b}[2~\r\n";
+        assert_eq!(plain(raw), "one\ntwo\n");
+        assert_eq!(plain("a\u{1b}\nb\u{1b}"), "a\nb");
+    }
+
+    #[test]
+    fn a_granted_servers_tools_get_the_external_budget() {
+        assert_eq!(Budget::of("computer__shell"), Budget::EXTERNAL);
+        assert_eq!(Budget::of("linear__get_issue"), Budget::EXTERNAL);
+        assert_eq!(Budget::of("read"), Budget::BUILT_IN);
+        assert_eq!(Budget::of("search_thread"), Budget::BUILT_IN);
     }
 
     /// The cut lands on a character boundary, never inside one.
     #[test]
     fn a_multibyte_output_is_cut_between_characters() {
         let text = "é".repeat(1_000);
-        let elided = elide(&text, 101);
+        let elided = elide(&text, Budget { head: 51, tail: 50 });
         assert!(elided.contains("[…"));
         assert!(elided.starts_with('é'));
         assert!(elided.ends_with('é'));
@@ -1428,7 +1671,7 @@ mod tests {
         let workspace_dir = root.join("workspace");
         let output_dir = root.join("tool-output");
         std::fs::create_dir_all(&workspace_dir).unwrap();
-        let body = "x".repeat(MODEL_TOOL_OUTPUT_BYTES + 64);
+        let body = "x".repeat(Budget::BUILT_IN.bytes() + 64);
         std::fs::write(workspace_dir.join("big.txt"), &body).unwrap();
         let workspace = Workspace::open(workspace_dir, Reach::Machine, output_dir.clone()).unwrap();
         let args: <RunCommand as Tool>::Args =
@@ -1439,7 +1682,7 @@ mod tests {
             .unwrap();
         assert_eq!(output, body);
 
-        let handed = hand_to_model(&output_dir, "call-1", &output);
+        let handed = hand_to_model(&output_dir, "call-1", &output, Budget::BUILT_IN);
         let saved = output_dir.join("call-1.txt");
         assert_eq!(std::fs::read_to_string(&saved).unwrap(), body);
         let named = saved.canonicalize().unwrap();

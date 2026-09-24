@@ -54,6 +54,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - On Linux, the window's edges and corners show the resize cursor, so you
   can see where to take hold of the window to resize it instead of
   guessing.
+- Resizing the window no longer leaves the conversation scrolled up from
+  its latest message: if you were at the bottom, you stay there.
 
 ## [0.19.0] - 2026-09-24
 

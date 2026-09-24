@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- Hotline Agent teammates on Claude use Anthropic's prompt caching. Over
+  an Anthropic API key, each step of a reply reads the conversation so far
+  from the cache instead of paying full price to send it again; through
+  OpenRouter, the teammate's instructions and tools are cached. Long
+  conversations cost less and start answering sooner.
 - A long command costs a teammate's conversation far less. A megabyte
   of build log used to stay in the conversation as 256 KiB and go out
   again with every later request. Now the teammate sees 16 KiB: how

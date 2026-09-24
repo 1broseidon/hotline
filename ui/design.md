@@ -28,7 +28,9 @@ One family, **Workbench**, for every screen:
   shade lighter and bluer than the well outlines the whole window there,
   so it has an edge against a dark desktop. On Linux the window is
   see-through and the page rounds its own corners to the pane radius, so
-  the window is one more pane on the desk; maximised, it is square. macOS
+  the window is one more pane on the desk; maximised, it is square. No
+  frame means no frame's resize cursors either, so the page wears them
+  along the band at its edge where a press resizes the window. macOS
   keeps its traffic lights in the left corner, on the strip's centre
   line, and the strip leaves room for them.
 - The **mark** is one shape in one colour, `ui/src/ui/HotlineMark.tsx`:

@@ -49,6 +49,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the working folder, then Permissions, Computer and Tools under their
   own headings, then schedules and threads.
 
+### Fixed
+
+- On Linux, the window's edges and corners show the resize cursor, so you
+  can see where to take hold of the window to resize it instead of
+  guessing.
+
 ## [0.19.0] - 2026-09-24
 
 ### Added

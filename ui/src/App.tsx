@@ -6,6 +6,7 @@ import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Titlebar } from "./ui/Titlebar";
+import { WindowEdges } from "./ui/WindowEdges";
 import { Settings, SettingsRail, type SettingsSection } from "./components/Settings";
 import { Shortcuts } from "./components/Shortcuts";
 import { Teammate } from "./components/Teammate";
@@ -349,6 +350,7 @@ export function App() {
 				onToggleSearch={() => setSearchOpen((open) => !open)}
 				rail={{ open: railSize.open, onToggle: toggleRail }}
 			/>
+			{platform() === "linux" && <WindowEdges />}
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{!railSize.open ? null : pane === "settings" ? (
 				<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />

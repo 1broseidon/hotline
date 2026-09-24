@@ -140,6 +140,94 @@
 		border-radius: 0;
 	}
 
+	/* The band along a frameless Linux window's edge where tauri starts a
+	 * resize (ui/WindowEdges.tsx): 5px times the GTK scale, which is the
+	 * page's pixel ratio, wearing the cursors the desktop's own frames
+	 * wear. Over everything but the hairline, and gone when maximised,
+	 * when there is no edge to take and tauri starts nothing. */
+	.window-edge {
+		--band: 5px;
+		position: fixed;
+		z-index: 2147483646;
+		user-select: none;
+	}
+	@media (-webkit-min-device-pixel-ratio: 1.5), (min-resolution: 1.5dppx) {
+		.window-edge {
+			--band: 10px;
+		}
+	}
+	@media (-webkit-min-device-pixel-ratio: 2.5), (min-resolution: 2.5dppx) {
+		.window-edge {
+			--band: 15px;
+		}
+	}
+	html[data-maximized] .window-edge {
+		display: none;
+	}
+	.window-edge-n,
+	.window-edge-s {
+		left: var(--band);
+		right: var(--band);
+		height: var(--band);
+	}
+	.window-edge-e,
+	.window-edge-w {
+		top: var(--band);
+		bottom: var(--band);
+		width: var(--band);
+	}
+	.window-edge-ne,
+	.window-edge-se,
+	.window-edge-sw,
+	.window-edge-nw {
+		width: var(--band);
+		height: var(--band);
+	}
+	.window-edge-n,
+	.window-edge-ne,
+	.window-edge-nw {
+		top: 0;
+	}
+	.window-edge-s,
+	.window-edge-se,
+	.window-edge-sw {
+		bottom: 0;
+	}
+	.window-edge-e,
+	.window-edge-ne,
+	.window-edge-se {
+		right: 0;
+	}
+	.window-edge-w,
+	.window-edge-nw,
+	.window-edge-sw {
+		left: 0;
+	}
+	.window-edge-n {
+		cursor: n-resize;
+	}
+	.window-edge-ne {
+		cursor: ne-resize;
+	}
+	.window-edge-e {
+		cursor: e-resize;
+	}
+	.window-edge-se {
+		cursor: se-resize;
+	}
+	.window-edge-s {
+		cursor: s-resize;
+	}
+	.window-edge-sw {
+		cursor: sw-resize;
+	}
+	.window-edge-w {
+		cursor: w-resize;
+	}
+	.window-edge-nw {
+		cursor: nw-resize;
+	}
+
 	/* ------------------------------------------------------------ titlebar
 	 * The window's top strip on every platform: the well itself, so the
 	 * window is one material to its edge. Three cells, the outer two equal,

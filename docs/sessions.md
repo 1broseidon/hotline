@@ -818,6 +818,11 @@ Where the file comes from:
 - **`screen`** — its computer's screen now, one window of it, or one
   region, as the computer's `capture` tool takes it.
 
+A computer too old for either — before 0.7 for a file, whose download door
+took its token only in the address or did not exist, and before 0.10 for
+the screen, whose `capture` had no `image` mode — is said as the pane's
+Update rather than as the error it answered.
+
 The desk keeps its own copy under `files/<teammate>/<message id>/` in the
 data directory, so the conversation still holds the file after the
 workspace changes or the computer is removed. A picture — PNG, JPEG, GIF or

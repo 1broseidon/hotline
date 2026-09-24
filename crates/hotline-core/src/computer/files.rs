@@ -38,8 +38,9 @@ pub(crate) fn on_computer(requested: &str) -> String {
 
 /// The file at `path` on the computer, whole, or a sentence saying why not.
 /// A file over `limit` is refused as soon as its size is known, before any
-/// more of it is read. A release from before the download door (0.10)
-/// answers 404, which is said as the pane's Update.
+/// more of it is read. A release too old to hand a file over this way is
+/// said as the pane's Update: one from before 0.6 has no door and answers
+/// 404, and 0.6's door took the token only in the address and answers 401.
 pub(crate) async fn download(
     ready: &Ready,
     path: &str,
@@ -60,9 +61,12 @@ pub(crate) async fn download(
         .send()
         .await
         .map_err(|error| format!("The computer did not answer: {error}"))?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
+    if matches!(
+        response.status(),
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::UNAUTHORIZED
+    ) {
         return Err(
-            "Your computer's release cannot hand over files. The person can update it from your pane; a screenshot still works."
+            "Your computer's release cannot hand over files. The person can update it from your pane."
                 .to_string(),
         );
     }
@@ -154,6 +158,14 @@ async fn capture(ready: &Ready, arguments: Value) -> Result<String, String> {
             .iter()
             .find_map(|block| block.as_text().map(|text| text.text.clone()))
             .unwrap_or_default();
+        // A release from before 0.10 has no `image` mode, and says so in
+        // words that release will never change.
+        if text.contains(r#"unknown action "image""#) {
+            return Err(
+                "Your computer's release cannot take a screenshot to send. The person can update it from your pane."
+                    .to_string(),
+            );
+        }
         return Err(format!(
             "The computer could not take the screenshot: {text}"
         ));
@@ -221,12 +233,12 @@ mod tests {
                 .is_err()
         );
 
-        let (old, _) = fake::serve_taking(Some("0.9.1")).await;
+        let (old, _) = fake::serve_taking(Some("0.6.0")).await;
         assert_eq!(
             download(&self::ready(old), "/home/agent/report.txt", 1024, over)
                 .await
                 .unwrap_err(),
-            "Your computer's release cannot hand over files. The person can update it from your pane; a screenshot still works."
+            "Your computer's release cannot hand over files. The person can update it from your pane."
         );
     }
 
@@ -239,5 +251,11 @@ mod tests {
 
         let refused = screenshot(&ready, Some("Nowhere"), None).await.unwrap_err();
         assert!(refused.contains("no window is"), "{refused}");
+
+        let (old, _) = fake::serve_taking(Some("0.9.1")).await;
+        assert_eq!(
+            screenshot(&self::ready(old), None, None).await.unwrap_err(),
+            "Your computer's release cannot take a screenshot to send. The person can update it from your pane."
+        );
     }
 }

@@ -477,8 +477,20 @@ pub(crate) mod fake {
         (major, minor) >= (0, 9)
     }
 
-    /// Whether a release has the download door: 0.10 and later do.
+    /// Whether a release's download door takes the token as a header, the
+    /// way the desk sends it: 0.7 and later do. 0.6's took it only in the
+    /// address, and nothing before had the door.
     fn has_download_door(version: &str) -> bool {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        (major, minor) >= (0, 7)
+    }
+
+    /// Whether a release's `capture` has the `image` mode, a picture with
+    /// no tree: 0.10 and later do.
+    fn has_image_capture(version: &str) -> bool {
         let mut parts = version
             .split('.')
             .map(|part| part.parse::<u32>().unwrap_or(0));
@@ -551,9 +563,24 @@ pub(crate) mod fake {
                 .as_ref()
                 .and_then(|arguments| arguments.get("window"))
                 .and_then(Value::as_str);
+            let mode = request
+                .arguments
+                .as_ref()
+                .and_then(|arguments| arguments.get("mode"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let answered = match (&self.version, action) {
                 _ if bearer.is_empty() => {
                     CallToolResult::error(vec![ContentBlock::text("no bearer token")])
+                }
+                // What an older release says of a mode it does not have.
+                _ if request.name == "capture"
+                    && mode == "image"
+                    && !self.version.as_deref().is_some_and(has_image_capture) =>
+                {
+                    CallToolResult::error(vec![ContentBlock::text(
+                        r#"capture: unknown action "image" (one of: ["tree", "png"])"#,
+                    )])
                 }
                 _ if request.name == "capture" => match window {
                     Some(wanted) if wanted != "Editor" => {

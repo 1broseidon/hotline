@@ -349,11 +349,9 @@ fn index_message(
     if kind != "user" && kind != "agent" {
         return Ok(());
     }
-    let text = event
-        .get("text")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
+    // A file is found by its name, with or without a caption.
+    let text = crate::sent::message_text(event);
+    let text = text.trim();
     if text.is_empty() {
         return Ok(());
     }

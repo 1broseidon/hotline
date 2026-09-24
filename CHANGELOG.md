@@ -10,6 +10,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- A teammate can send you a file in the conversation: a report from its
+  workspace, a file from its computer, or a screenshot of its computer's
+  screen. It arrives as a message from the teammate, with what it said
+  about it. A picture shows in the conversation and opens full size when
+  you click it; a PDF opens in your viewer when you press Open; anything
+  can be saved where you choose or shown in its folder. Nothing opens by
+  itself. Pictures are sent as
+  JPEGs of at most 2000 pixels and other files up to 25 MB, and Hotline
+  keeps its own copy, so the file stays in the conversation after the
+  teammate's folder or computer changes. A paired phone is told of the
+  file like any reply and can fetch it from the desk.
+
 - Opening Hotline while it is already running brings its window back
   instead of starting a second copy. Two copies on the same data would
   both run its schedules, answer its phones and write its conversations.

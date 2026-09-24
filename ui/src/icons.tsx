@@ -93,6 +93,13 @@ export const FolderIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+export const FileIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M9 2.5H4.75A1.25 1.25 0 0 0 3.5 3.75v8.5a1.25 1.25 0 0 0 1.25 1.25h6.5a1.25 1.25 0 0 0 1.25-1.25V6z" />
+		<path d="M9 2.5V6h3.5" />
+	</svg>
+);
+
 export const ArrowUpIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box} strokeWidth={1.75}>
 		<path d="M8 12.5v-9M4.25 7.25L8 3.5l3.75 3.75" />

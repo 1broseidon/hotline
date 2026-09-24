@@ -40,6 +40,7 @@ Every teammate, whichever driver, also has tools that belong to the room:
 | Tool | What it does |
 | --- | --- |
 | `request_human` | Asks you for something only a person can do, and waits up to ten minutes. |
+| `send_file` | Sends you a file in the conversation: a report, a chart, a screenshot of its computer. A picture shows in the conversation and opens full size when clicked; a PDF opens when you press Open; any file can be saved where you choose. |
 | `message_teammate` | Sends a message to another teammate, once you have allowed that pair. |
 | `schedule`, `loop`, `list_schedules`, `cancel_schedule` | Wakes itself later, or on an interval, with **Background work** on. |
 

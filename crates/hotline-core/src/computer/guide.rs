@@ -404,6 +404,55 @@ pub(crate) mod fake {
         )
     }
 
+    /// The one file the fake's home holds, at `/home/agent/report.txt`.
+    pub(crate) const FILE_BODY: &[u8] = b"quarterly numbers\n";
+
+    /// `GET /files/download`, as a real computer answers it: the file
+    /// itself, or a refusal in JSON.
+    async fn download(
+        headers: axum::http::HeaderMap,
+        uri: axum::http::Uri,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        if !bearer_present(&headers) {
+            return json_answer(
+                axum::http::StatusCode::UNAUTHORIZED,
+                json!({"error": "unauthorized"}),
+            );
+        }
+        let path = reqwest::Url::parse(&format!("http://computer{uri}"))
+            .ok()
+            .and_then(|url| {
+                url.query_pairs()
+                    .find(|(key, _)| key == "path")
+                    .map(|(_, value)| value.into_owned())
+            });
+        if path.as_deref() != Some("/home/agent/report.txt") {
+            // What a real one says of a path it cannot resolve.
+            return json_answer(
+                axum::http::StatusCode::BAD_REQUEST,
+                json!({"error": "path must be under /home/agent/"}),
+            );
+        }
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+            FILE_BODY,
+        )
+            .into_response()
+    }
+
+    /// A small picture, as `capture` returns one: a PNG.
+    fn screen_png() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::RgbImage::from_pixel(8, 6, image::Rgb([40, 90, 200]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    }
+
     /// Whether a release has the door that takes a login back: 0.8.1 and
     /// later do.
     fn has_logins_door(version: &str) -> bool {
@@ -463,11 +512,11 @@ pub(crate) mod fake {
             _context: RequestContext<rmcp::RoleServer>,
         ) -> Result<ListToolsResult, ErrorData> {
             let schema = json!({"type":"object","properties":{"action":{"type":"string"}}});
-            Ok(ListToolsResult::with_all_items(vec![Tool::new(
-                "state",
-                "Computer state.",
-                Arc::new(schema.as_object().cloned().unwrap()),
-            )]))
+            let schema = Arc::new(schema.as_object().cloned().unwrap());
+            Ok(ListToolsResult::with_all_items(vec![
+                Tool::new("state", "Computer state.", schema.clone()),
+                Tool::new("capture", "See the screen.", schema),
+            ]))
         }
 
         async fn call_tool(
@@ -488,10 +537,29 @@ pub(crate) mod fake {
                 .and_then(|arguments| arguments.get("action"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            let window = request
+                .arguments
+                .as_ref()
+                .and_then(|arguments| arguments.get("window"))
+                .and_then(Value::as_str);
             let answered = match (&self.version, action) {
                 _ if bearer.is_empty() => {
                     CallToolResult::error(vec![ContentBlock::text("no bearer token")])
                 }
+                _ if request.name == "capture" => match window {
+                    Some(wanted) if wanted != "Editor" => {
+                        CallToolResult::error(vec![ContentBlock::text(format!(
+                            "no window is {wanted:?}; the windows are 1 \"Editor\""
+                        ))])
+                    }
+                    _ => CallToolResult::success(vec![
+                        ContentBlock::image(
+                            base64::Engine::encode(&base64::prelude::BASE64_STANDARD, screen_png()),
+                            "image/png",
+                        ),
+                        ContentBlock::text("8x6 image; 1 px = 1 screen px"),
+                    ]),
+                },
                 (Some(version), "guide") => {
                     let skill = skill_of(version);
                     let manifest = json!({
@@ -533,6 +601,7 @@ pub(crate) mod fake {
             );
         let mut app = axum::Router::new()
             .route("/health", axum::routing::get(|| async { "ok" }))
+            .route("/files/download", axum::routing::get(download))
             .nest_service("/mcp", service);
         if version.is_some() {
             app = app.route("/secrets", axum::routing::put(take_secrets));

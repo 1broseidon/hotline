@@ -1070,7 +1070,12 @@ pub enum TranscriptEvent {
     Agent {
         id: String,
         ts: i64,
+        /// With a file, the caption, which may be empty.
         text: String,
+        /// A file the teammate sent the person with `send_file`: one per
+        /// message, read back with `file.read`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attachments: Option<Vec<Attachment>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reactions: Option<Vec<String>>,
         /// An emphasis on this bubble.
@@ -1252,18 +1257,24 @@ pub enum TranscriptEvent {
     },
 }
 
-/// Something handed to a teammate alongside a message.
+/// A file that rides with a message, either way.
 ///
-/// Everything is a path, pasted images included: a pasted screenshot is
-/// written into the persona's `attachments` directory before it is ever
-/// attached. That keeps one shape on the wire, keeps base64 out of the
-/// transcript on disk, and means an attachment can still be opened months
-/// later from the record of the conversation that mentioned it.
+/// Handed to a teammate, everything is a path, pasted images included: a
+/// pasted screenshot is written into the persona's `attachments` directory
+/// before it is ever attached. That keeps one shape on the wire, keeps base64
+/// out of the transcript on disk, and means an attachment can still be opened
+/// months later from the record of the conversation that mentioned it.
+///
+/// Sent by a teammate with `send_file`, the file is the desk's own copy,
+/// under `files/` in the data directory, and `path` is where that copy is. A
+/// phone never sees that path mean anything: it reads the file with
+/// `file.read`, by the message's id.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct Attachment {
-    /// Images can be inlined for an agent that takes them; files are linked.
+    /// Images can be inlined for an agent that takes them, and are drawn in
+    /// the conversation when a teammate sends one; files are linked.
     pub kind: AttachmentKind,
     /// Basename, which is all the composer and the bubble ever show.
     pub name: String,
@@ -1273,6 +1284,16 @@ pub struct Attachment {
     /// Bytes on disk, for the size a chip shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<i64>,
+    /// An image's size in pixels, so its place can be held before it loads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// Where a teammate's file came from, in words a person reads: a path in
+    /// its workspace or on its computer, or the part of the computer's screen
+    /// a screenshot shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1888,6 +1909,23 @@ pub struct MobileAttachmentChunk {
     pub data: String,
 }
 
+/// Part of a file a teammate sent, as `file.read` answers it. `data` is
+/// base64 and at most 512 KiB of the file; `next` is where the next part
+/// starts, and is absent once `data` reaches the end.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct FileChunk {
+    pub name: String,
+    pub mime_type: String,
+    /// The whole file's size in bytes.
+    pub size: i64,
+    pub offset: i64,
+    pub data: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<i64>,
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -1918,6 +1956,16 @@ pub enum Command {
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },
+    /// Part of a file a teammate sent: the message `eventId` on that
+    /// teammate's tape, from `offset`. The answer is a [`FileChunk`]; a large
+    /// file is read a chunk at a time, when the person opens it.
+    #[serde(rename = "file.read")]
+    FileRead {
+        persona_id: String,
+        event_id: String,
+        #[serde(default)]
+        offset: i64,
+    },
     /// Where to notify this phone: the token its push service issued, and
     /// which platform it is for. Sent by the phone after it connects.
     #[serde(rename = "mobile.push_register")]

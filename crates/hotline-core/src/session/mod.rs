@@ -36,6 +36,7 @@
 
 mod chapters;
 mod escalation;
+pub(crate) mod files;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod narration;
@@ -3818,14 +3819,18 @@ impl Room {
     /// than as a [`TranscriptEvent`] are the ones superseding a line they read
     /// off the tape, which is already JSON.
     fn write_value(&self, persona_id: &str, event: &Value) {
-        if let Err(error) = self
-            .log
-            .append(&StreamId::Tape(persona_id.to_string()), event)
-        {
+        if let Err(error) = self.try_write_value(persona_id, event) {
             eprintln!("the tape for {persona_id} could not be appended to: {error}");
-            return;
         }
+    }
+
+    /// The same, saying whether the line landed, for a caller about to tell
+    /// someone it did.
+    fn try_write_value(&self, persona_id: &str, event: &Value) -> std::io::Result<()> {
+        self.log
+            .append(&StreamId::Tape(persona_id.to_string()), event)?;
         self.index(persona_id, event);
+        Ok(())
     }
 
     /// The index is an index: it is rebuilt from the tape whenever the two
@@ -4042,11 +4047,14 @@ fn said(events: &[Value]) -> Vec<Said> {
         None if chapter_view::chapters_of(events).is_empty() => events.iter().collect(),
         None => Vec::new(),
     };
+    // A file sent without a caption is a message with no words; the model
+    // remembers it by name.
     fold_said(within.iter().filter_map(|event| {
-        let text = event.get("text")?.as_str()?;
+        event.get("text")?.as_str()?;
+        let text = crate::sent::message_text(event);
         match event.get("kind")?.as_str()? {
-            "user" => Some(Said::User(text.to_string())),
-            "agent" => Some(Said::Agent(text.to_string())),
+            "user" => Some(Said::User(text)),
+            "agent" => Some(Said::Agent(text)),
             _ => None,
         }
     }))
@@ -4099,6 +4107,7 @@ fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec
                         },
                         ts,
                         text,
+                        attachments: None,
                         reactions: None,
                         ring: None,
                         receipt: None,

@@ -1394,6 +1394,83 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
 }
 
+/// A file a teammate sent is part of the conversation the phone reads, so
+/// the phone reads the file too — by its message, never by a path.
+#[test]
+fn the_phone_seat_reads_a_sent_file_by_its_message() {
+    assert!(Seat::Phone.permits(&Command::FileRead {
+        persona_id: "ada".to_string(),
+        event_id: "e1".to_string(),
+        offset: 0,
+    }));
+}
+
+#[tokio::test]
+async fn a_sent_file_is_read_by_its_message_a_part_at_a_time() {
+    let (root, _log, port) = door("file-read");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+    let kept = paths::sent_file_dir(&root, id, "e1").unwrap();
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join("report.txt"), b"quarterly numbers\n").unwrap();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "file.read", "params": { "personaId": id, "eventId": "e1" } }),
+    )
+    .await;
+    let read = answered(&mut socket, 2).await;
+    assert_eq!(read["ok"], true, "{read}");
+    assert_eq!(read["result"]["name"], "report.txt");
+    assert_eq!(read["result"]["mimeType"], "text/plain");
+    assert_eq!(read["result"]["size"], 18);
+    assert_eq!(read["result"]["offset"], 0);
+    assert_eq!(read["result"]["data"], "cXVhcnRlcmx5IG51bWJlcnMK");
+    assert_eq!(read["result"].get("next"), None);
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "file.read", "params": { "personaId": id, "eventId": "e1", "offset": 10 } }),
+    )
+    .await;
+    let rest = answered(&mut socket, 3).await;
+    assert_eq!(rest["result"]["offset"], 10);
+    assert_eq!(rest["result"]["data"], "bnVtYmVycwo=");
+
+    for (n, params, error) in [
+        (
+            4,
+            json!({ "personaId": id, "eventId": "e2" }),
+            "That message has no file.",
+        ),
+        (
+            5,
+            json!({ "personaId": id, "eventId": "../e1" }),
+            "That message has no file.",
+        ),
+        (
+            6,
+            json!({ "personaId": id, "eventId": "e1", "offset": 19 }),
+            "The file is 18 bytes; 19 is not a place in it.",
+        ),
+        (
+            7,
+            json!({ "personaId": "nobody", "eventId": "e1" }),
+            "There is no teammate nobody.",
+        ),
+    ] {
+        ask(
+            &mut socket,
+            json!({ "id": n, "cmd": "file.read", "params": params }),
+        )
+        .await;
+        let refused = answered(&mut socket, n).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert_eq!(refused["error"], error);
+    }
+}
+
 /// Cookie import reads the person's own machine, so it is the desk's alone:
 /// the phone cannot list host browsers, preview, or import, and there is no
 /// agent tool for any of it. This is the enforcement point behind the promise

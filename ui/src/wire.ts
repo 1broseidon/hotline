@@ -10,6 +10,7 @@ import type {
 	CookieSite,
 	Credential,
 	EffortChoices,
+	FileChunk,
 	GlobalSearchHit,
 	HostBrowser,
 	LoginPrompt,
@@ -126,6 +127,8 @@ type Results = {
 	"human.answer": null;
 	"search.thread": ThreadSearchResult;
 	"search.all": GlobalSearchResult;
+	/** One part of a file a teammate sent, by its message. */
+	"file.read": FileChunk;
 	"chapter.list": ChapterSummary[];
 	"chapter.start_fresh": ChapterSummary;
 	"chapter.resume": ChapterSummary;

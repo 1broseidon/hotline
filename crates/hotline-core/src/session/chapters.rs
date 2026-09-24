@@ -230,8 +230,8 @@ pub(super) fn serialize_chapter(events: &[Value]) -> String {
     for event in events {
         let text = |key: &str, max: usize| flat(string(event, key), max);
         match string(event, "kind") {
-            "user" => lines.push(format!("USER: {}", text("text", MESSAGE_CHARS))),
-            "agent" => lines.push(format!("TEAMMATE: {}", text("text", MESSAGE_CHARS))),
+            "user" => lines.push(format!("USER: {}", said(event))),
+            "agent" => lines.push(format!("TEAMMATE: {}", said(event))),
             "tool" => {
                 let output = tool_output(event);
                 let arrow = match output.is_empty() {
@@ -447,7 +447,7 @@ fn quoted_tail(events: &[Value], count: usize, chars: usize) -> Option<String> {
                     "user" => "user",
                     _ => "teammate",
                 },
-                "text": string(event, "text"),
+                "text": crate::sent::message_text(event),
             })
         })
         .collect();
@@ -502,6 +502,11 @@ fn stamp(now: i64) -> String {
 
 /// One line, cut to length. A transcript a model reads is easier to read flat,
 /// and every field of a note is a sentence rather than a document.
+/// A message's words, and the name of any file that came with them.
+fn said(event: &Value) -> String {
+    flat(&crate::sent::message_text(event), MESSAGE_CHARS)
+}
+
 fn flat(text: &str, max: usize) -> String {
     let flattened = text.split_whitespace().collect::<Vec<&str>>().join(" ");
     if flattened.chars().count() <= max {

@@ -1,16 +1,10 @@
 //! Model input is prepared once, away from the session and Tokio workers.
 use super::*;
+use crate::images::{DECODERS, MAX_FILE_BYTES, MAX_JPEG_BYTES, Unfit, normalize};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use std::io::{Cursor, Read};
-use tokio::sync::Semaphore;
 
-const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
-const MAX_PIXELS: u64 = 40_000_000;
-const MAX_EDGE: u32 = 2000;
-const MAX_JPEG_BYTES: usize = 1024 * 1024;
 const MAX_IMAGES: usize = 4;
-// The permit is held by the blocking worker, even if its caller is stopped.
-static DECODERS: Semaphore = Semaphore::const_new(2);
 
 pub(super) async fn tool_output(output: &ToolOutput, stop: &Stop) -> ToolOutput {
     let mut content = output.as_content().to_vec();
@@ -45,7 +39,7 @@ pub(super) async fn tool_output(output: &ToolOutput, stop: &Stop) -> ToolOutput 
                 .map_err(|_| "Invalid tool image")?
                 .into_dimensions()
                 .map_err(|_| "Invalid tool image")?;
-            let bytes = normalize(&bytes)?;
+            let bytes = normalize(&bytes).map_err(Unfit::for_model)?;
             let shown = image::ImageReader::new(Cursor::new(&bytes))
                 .with_guessed_format()
                 .map_err(|_| "Invalid normalized image")?
@@ -253,68 +247,7 @@ fn read_image(attachment: &Attachment) -> Result<Vec<u8>, &'static str> {
     file.take(MAX_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| "not readable; on disk only")?;
-    normalize(&bytes)
-}
-
-pub(super) fn normalize(bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
-    if bytes.len() as u64 > MAX_FILE_BYTES {
-        return Err("image exceeds 20 MiB; on disk only");
-    }
-    let mut reader = image::ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|_| "invalid image; on disk only")?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(16000);
-    limits.max_image_height = Some(16000);
-    limits.max_alloc = Some(160 * 1024 * 1024);
-    reader.limits(limits);
-    use image::ImageDecoder;
-    let mut decoder = reader
-        .into_decoder()
-        .map_err(|_| "unsupported or invalid image (convert HEIC to JPEG); on disk only")?;
-    let (width, height) = decoder.dimensions();
-    if u64::from(width) * u64::from(height) > MAX_PIXELS {
-        return Err("image exceeds 40 megapixels; on disk only");
-    }
-    let orientation = decoder
-        .orientation()
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut decoded = image::DynamicImage::from_decoder(decoder)
-        .map_err(|_| "could not decode image; on disk only")?;
-    decoded.apply_orientation(orientation);
-    let resized = if decoded.width().max(decoded.height()) > MAX_EDGE {
-        decoded.resize(MAX_EDGE, MAX_EDGE, image::imageops::FilterType::Triangle)
-    } else {
-        decoded
-    };
-    // Flatten transparency onto white, so transparent screenshots keep legible text.
-    let rgba = resized.to_rgba8();
-    let mut rgb = image::RgbImage::new(rgba.width(), rgba.height());
-    for (from, to) in rgba.pixels().zip(rgb.pixels_mut()) {
-        let alpha = u32::from(from[3]);
-        for channel in 0..3 {
-            to[channel] =
-                ((u32::from(from[channel]) * alpha + 255 * (255 - alpha) + 127) / 255) as u8;
-        }
-    }
-    loop {
-        let mut out = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
-            .encode_image(&rgb)
-            .map_err(|_| "could not encode image; on disk only")?;
-        if out.len() <= MAX_JPEG_BYTES {
-            return Ok(out);
-        }
-        if rgb.width().max(rgb.height()) <= 256 {
-            return Err("image exceeds encoded budget; on disk only");
-        }
-        rgb = image::imageops::resize(
-            &rgb,
-            (rgb.width() * 3 / 4).max(1),
-            (rgb.height() * 3 / 4).max(1),
-            image::imageops::FilterType::Triangle,
-        );
-    }
+    normalize(&bytes).map_err(Unfit::for_model)
 }
 
 #[cfg(test)]
@@ -328,6 +261,9 @@ mod tests {
             path: path.display().to_string(),
             mime_type: Some("image/gif".into()),
             size: None,
+            width: None,
+            height: None,
+            origin: None,
         }
     }
 

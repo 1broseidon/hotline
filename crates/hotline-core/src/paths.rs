@@ -330,6 +330,25 @@ pub fn thread_meta_path(root: &Path, key: &str) -> Option<PathBuf> {
     Some(managed_path(&threads_dir(root), key, ".json"))
 }
 
+/// Files teammates have sent the person: the desk's own copies, a directory
+/// per teammate and one per message inside it.
+pub fn sent_files_dir(root: &Path) -> PathBuf {
+    root.join("files")
+}
+
+/// The directory of the file one message carries, which keeps the name it
+/// was sent under. A message id is minted by the room as a UUID, so anything
+/// with a character a UUID never has names no directory.
+pub fn sent_file_dir(root: &Path, persona_id: &str, event_id: &str) -> Option<PathBuf> {
+    let plausible = !persona_id.is_empty()
+        && !event_id.is_empty()
+        && event_id.len() <= 64
+        && event_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-');
+    plausible.then(|| managed_path(&sent_files_dir(root), persona_id, "").join(event_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

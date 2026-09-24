@@ -86,6 +86,13 @@ fn message_preview(event: &Value) -> Option<Value> {
         _ => return None,
     };
     let text = event.get("text").and_then(Value::as_str).unwrap_or("");
+    // A file sent without a caption is previewed by its name.
+    let text = match text.trim().is_empty() {
+        true => crate::sent::file_names(event)
+            .collect::<Vec<_>>()
+            .join(", "),
+        false => text.to_string(),
+    };
     let at = event.get("ts").cloned().unwrap_or(Value::Null);
     Some(json!({ "from": from, "text": text, "at": at }))
 }
@@ -178,6 +185,39 @@ mod tests {
         assert_eq!(
             preview(&root, "p"),
             Some(json!({"from": "them", "text": "hello there", "at": 2}))
+        );
+    }
+
+    #[test]
+    fn a_file_sent_without_a_caption_previews_as_its_name() {
+        let root = scratch("previews-file");
+        let file = |name: &str| json!({"kind": "file", "name": name, "path": "/x"});
+        write_tape(
+            &root,
+            "p",
+            1,
+            &[json!({
+                "kind": "agent", "id": "a1", "ts": 2, "text": "",
+                "attachments": [file("report.pdf")],
+            })],
+        );
+        assert_eq!(
+            preview(&root, "p"),
+            Some(json!({"from": "them", "text": "report.pdf", "at": 2}))
+        );
+
+        write_tape(
+            &root,
+            "p",
+            1,
+            &[json!({
+                "kind": "agent", "id": "a1", "ts": 3, "text": "The numbers",
+                "attachments": [file("report.pdf")],
+            })],
+        );
+        assert_eq!(
+            preview(&root, "p"),
+            Some(json!({"from": "them", "text": "The numbers", "at": 3}))
         );
     }
 

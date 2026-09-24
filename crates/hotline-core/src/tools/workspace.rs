@@ -470,6 +470,26 @@ impl Workspace {
         Ok(selected.join("\n"))
     }
 
+    /// A file a teammate is sending the person, opened to be read whole. It
+    /// is found where the read tools find one, so what a teammate may send
+    /// is exactly what it may read. Answers the open file, its size, and
+    /// where it is.
+    pub(crate) fn open_to_send(
+        &self,
+        requested: &str,
+    ) -> Result<(std::fs::File, u64, PathBuf), ToolError> {
+        self.check_capability()?;
+        let (dir, relative, root) = self.resolve_readable(requested, false)?;
+        let file = dir
+            .open(&relative)
+            .map_err(|error| ToolError::new(format!("Cannot open {requested}: {error}")))?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(ToolError::new(format!("{requested} is not a file.")));
+        }
+        Ok((file.into_std(), metadata.len(), root.join(relative)))
+    }
+
     fn list_directory(&self, args: ListDirectoryArgs) -> Result<String, ToolError> {
         self.check_capability()?;
         let requested = args.path.as_deref().unwrap_or(".");

@@ -279,3 +279,18 @@ export function watchUpdates(onChange: (status: UpdateStatus) => void, onError: 
 export async function checkUpdate(): Promise<void> { await invoke("check_update"); }
 export async function installUpdate(version: string): Promise<void> { await invoke("install_update", { version }); }
 export async function cancelUpdate(): Promise<void> { await invoke("cancel_update"); }
+
+/** Opens a PDF or a picture a teammate sent in the system's own viewer. The shell opens nothing else. */
+export async function openSentFile(path: string): Promise<void> {
+	if (!isDesktop()) throw new Error("Open the desktop application to open this.");
+	await invoke("open_sent_file", { path });
+}
+
+/**
+ * Saves a copy of a file a teammate sent where the person picks, in the
+ * system's save dialog. Where the copy went, or null when it was dismissed.
+ */
+export async function saveSentFile(path: string): Promise<string | null> {
+	if (!isDesktop()) throw new Error("Open the desktop application to save this.");
+	return invoke<string | null>("save_sent_file", { path });
+}

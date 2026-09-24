@@ -118,6 +118,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.set_config` | `{personaId, configId, value}` | `SessionInfo` |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
+| `file.read` | `{personaId, eventId, offset}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64; `next` is where the next part starts, absent at the end |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -408,6 +409,22 @@ it does not, and `mcp.auth_sign_out` forgets it.
 The command returns as soon as the turn is started; what the turn
 produces reaches the client as tape events and ephemeral deltas.
 
+A teammate sends the person a file with its `send_file` tool, and the file
+arrives as the teammate's message: an `agent` event whose `text` is the
+caption, possibly empty, and whose `attachments` holds the one file,
+`{kind, name, path, mimeType, size, width?, height?, origin}`. `kind` is
+`image` for a picture, which the desk has already made into a JPEG of at
+most 2000 px, and `file` for anything else, kept as it came, up to 25 MB.
+`width` and `height` are a picture's pixels, so a client can hold its
+place before it loads. `origin` says where it came from in words. `path` is
+the desk's own copy, under `files/` in the data directory, and means
+nothing off this machine: a client reads the file with `file.read`, which
+names a message and never a path, and serves only the one file the desk
+kept for that message. A message with no such file is `"That message has
+no file."`; an offset past the end is refused in a sentence. A phone needs
+no capability to ask: only a desk that serves `file.read` sends a
+teammate's file.
+
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code
 units. Hits are chapters first, then messages; a thread hit has no
@@ -606,8 +623,9 @@ A paired phone's socket is the phone seat: a smaller fixed set of commands
 (`Seat::permits` in `crates/hotline-core/src/wire/mod.rs` lists them) and
 three kinds of subscription — a tape, the roster, and a teammate's
 schedules. It never opens the room stream, a thread or a run, and it can
-neither make, cancel nor quiet a job. Anything else is refused with
-`"code": "forbidden"`.
+neither make, cancel nor quiet a job. It reads a file a teammate sent with
+`file.read`, because the file is part of the conversation it already
+reads. Anything else is refused with `"code": "forbidden"`.
 
 The phone's socket opens with a hello before any answer:
 

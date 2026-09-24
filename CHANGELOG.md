@@ -56,6 +56,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   guessing.
 - Resizing the window no longer leaves the conversation scrolled up from
   its latest message: if you were at the bottom, you stay there.
+- The first message after a long quiet starts the new chapter. A chapter
+  that had gone quiet could close a moment after that message arrived,
+  leaving the message and its reply in the old chapter, drawing "New
+  chapter" one message later, and costing the teammate its memory of the
+  reply it had just given.
 
 ## [0.19.0] - 2026-09-24
 

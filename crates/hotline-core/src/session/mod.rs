@@ -2054,7 +2054,9 @@ impl Room {
     /// the agent is where the swap happens: the old session stops, a fresh one
     /// starts, and starting it opens the chapter this message will land in. A
     /// running session with an open chapter is left alone, which is every
-    /// message but the first of a chapter.
+    /// message but the first of a chapter. A chapter that has gone quiet past
+    /// the room's idle window closes here first, so the message that ends a
+    /// long quiet is the first of the next chapter, not the last of the old.
     ///
     /// The whole of that decision is behind the teammate's start gate. Which
     /// session is running and which chapter it is in are only true together,
@@ -2073,6 +2075,13 @@ impl Room {
         persona_id: &str,
     ) -> Result<(Arc<Session>, tokio::sync::OwnedMutexGuard<()>), String> {
         let held = self.start_gate(persona_id).lock_owned().await;
+        // A message after a long quiet starts the next chapter: the stale one
+        // closes before the line is written, so the line lands in the chapter
+        // it begins rather than in the one the idle sweep would otherwise close
+        // under it, taking the agent's memory of the reply along.
+        if self.went_quiet(persona_id, now_ms()) && !self.mid_turn(persona_id) {
+            self.close_chapter(persona_id, ChapterClose::Idle).await;
+        }
         let session = self.session(persona_id)?;
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
             return Ok((session, held));
@@ -3412,7 +3421,6 @@ impl Room {
     /// allows. `looked_again` carries the teammates whose chapter was stale
     /// while a turn was running, and when to look at them next.
     async fn sweep_chapters(self: &Arc<Self>, looked_again: &mut HashMap<String, i64>) {
-        let idle_ms = chapters::idle_ms(&room::settings(&self.log));
         for persona in room::roster(&self.log) {
             let now = now_ms();
             if looked_again
@@ -3421,28 +3429,49 @@ impl Room {
             {
                 continue;
             }
-            let events = self.tape(&persona.id);
-            let Some(open) = chapter_view::open_chapter(&events) else {
+            // Behind the start gate, the one a message takes to be written:
+            // a message arriving now holds it and closes the stale chapter
+            // itself before its line goes down, and one that arrived already
+            // is recent activity the check below sees. Without the gate the
+            // close reads the chapter, waits on the note, and writes the close
+            // over a line said in the meantime.
+            let gate = self.start_gate(&persona.id);
+            let Ok(_held) = gate.try_lock() else {
                 continue;
             };
-            let last = chapter_view::last_activity(chapter_view::slice_of(&events, open))
-                .or_else(|| open.get("ts").and_then(Value::as_i64))
-                .unwrap_or(now);
-            if now - last < idle_ms {
+            if !self.went_quiet(&persona.id, now) {
                 continue;
             }
             // A chapter is closed between turns: the note is written from the
             // slice, and a turn still running is still adding to it.
-            if matches!(
-                self.info(&persona.id).state,
-                SessionState::Thinking | SessionState::Starting
-            ) {
+            if self.mid_turn(&persona.id) {
                 looked_again.insert(persona.id.clone(), now + BUSY_RECHECK_MS);
                 continue;
             }
             looked_again.remove(&persona.id);
             self.close_chapter(&persona.id, ChapterClose::Idle).await;
         }
+    }
+
+    /// Whether the teammate's open chapter has been quiet for longer than the
+    /// room allows, counted from the last thing said in it.
+    fn went_quiet(&self, persona_id: &str, now: i64) -> bool {
+        let idle_ms = chapters::idle_ms(&room::settings(&self.log));
+        let events = self.tape(persona_id);
+        let Some(open) = chapter_view::open_chapter(&events) else {
+            return false;
+        };
+        let last = chapter_view::last_activity(chapter_view::slice_of(&events, open))
+            .or_else(|| open.get("ts").and_then(Value::as_i64))
+            .unwrap_or(now);
+        now - last >= idle_ms
+    }
+
+    fn mid_turn(&self, persona_id: &str) -> bool {
+        matches!(
+            self.info(persona_id).state,
+            SessionState::Thinking | SessionState::Starting
+        )
     }
 
     async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: Wired) {

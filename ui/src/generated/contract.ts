@@ -997,7 +997,20 @@ export type ThreadSearchHit = { "kind": "chapter", chapterId: string, ts: number
  */
 status?: string, } | { "kind": "message", eventId: string, chapterId?: string, ts: number, from: Side, excerpt: string, };
 
-export type TokenUsage = { inputTokens?: number, outputTokens?: number, totalTokens?: number, };
+/**
+ * What one turn's requests cost in tokens. On Hotline Agent the input counts
+ * every input token, cached or not, and the two cache counts are part of it;
+ * an ACP agent's numbers are the agent's own.
+ */
+export type TokenUsage = { inputTokens?: number, outputTokens?: number, totalTokens?: number, 
+/**
+ * Input the provider read back from its prompt cache.
+ */
+cacheReadTokens?: number, 
+/**
+ * Input the provider wrote to its prompt cache for the next request.
+ */
+cacheWriteTokens?: number, };
 
 /**
  * One line of a teammate's tool ledger.

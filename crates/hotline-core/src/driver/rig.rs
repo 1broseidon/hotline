@@ -77,7 +77,7 @@ pub async fn complete(
     prompt: &str,
     output_limit: Option<u64>,
 ) -> Result<String, String> {
-    let agent = agent_builder(keys, model_id, None, output_limit)
+    let agent = agent_builder(keys, model_id, None, output_limit, Reuse::Once)
         .await?
         .preamble(system)
         .build();
@@ -590,6 +590,7 @@ impl Turn {
             &self.model,
             self.effort.as_deref(),
             self.output_limit,
+            Reuse::Rounds,
         )
         .await?
         .build();
@@ -788,12 +789,54 @@ fn effort_config(model_id: &str, current: Option<&str>) -> Vec<SessionConfig> {
     }]
 }
 
+/// How often the requests a builder makes go out. A turn resends the tools,
+/// the preamble and the conversation so far on every round, so a provider
+/// that caches only when asked is asked. A single answer is asked once, and a
+/// cache write costs more than a plain read that nothing would follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reuse {
+    Rounds,
+    Once,
+}
+
+/// Claude over the API caches nothing unless the request asks. The tools and
+/// the preamble are marked, and the top-level breakpoint moves forward with
+/// the conversation, so each round reads what the round before it wrote.
+fn anthropic_model(
+    client: &anthropic::Client,
+    model: &str,
+    reuse: Reuse,
+) -> anthropic::completion::CompletionModel {
+    let model = client.completion_model(model);
+    match reuse {
+        Reuse::Rounds => model.with_prompt_caching().with_automatic_caching(),
+        Reuse::Once => model,
+    }
+}
+
+/// OpenRouter hands a cache marker on the preamble through to Claude, which
+/// caches nothing without one. The other models it routes cache on their own
+/// or not at all, so they are left as they were.
+fn openrouter_model(
+    client: &openrouter::Client,
+    model: &str,
+    reuse: Reuse,
+) -> openrouter::CompletionModel {
+    let completion = client.completion_model(model);
+    if reuse == Reuse::Rounds && model.starts_with("anthropic/") {
+        completion.with_prompt_caching()
+    } else {
+        completion
+    }
+}
+
 /// The builder for one model on the provider whose credential the desk holds.
 async fn agent_builder(
     keys: &HashMap<String, ProviderAuth>,
     model_id: &str,
     effort: Option<&str>,
     output_limit: Option<u64>,
+    reuse: Reuse,
 ) -> Result<rig::agent::AgentBuilder, String> {
     let (provider, model) = model_id
         .split_once('/')
@@ -847,9 +890,12 @@ async fn agent_builder(
             }
         }
         (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
-            openrouter::Client::new(&crate::providers::openrouter_key(tokens)?)
-                .map_err(text)?
-                .agent(model)
+            rig::agent::AgentBuilder::new(openrouter_model(
+                &openrouter::Client::new(&crate::providers::openrouter_key(tokens)?)
+                    .map_err(text)?,
+                model,
+                reuse,
+            ))
         }
         (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
             crate::providers::xai::client(tokens)?.agent(model)
@@ -869,15 +915,15 @@ async fn agent_builder(
         (_, ProviderAuth::Login { .. } | ProviderAuth::StoredLogin { .. }) => {
             return Err(format!("{provider} needs a key, not a sign-in."));
         }
-        (Client::Anthropic, ProviderAuth::ApiKey(key)) => {
-            anthropic::Client::new(key).map_err(text)?.agent(model)
-        }
+        (Client::Anthropic, ProviderAuth::ApiKey(key)) => rig::agent::AgentBuilder::new(
+            anthropic_model(&anthropic::Client::new(key).map_err(text)?, model, reuse),
+        ),
         (Client::OpenAi, ProviderAuth::ApiKey(key)) => {
             openai::Client::new(key).map_err(text)?.agent(model)
         }
-        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => {
-            openrouter::Client::new(key).map_err(text)?.agent(model)
-        }
+        (Client::OpenRouter, ProviderAuth::ApiKey(key)) => rig::agent::AgentBuilder::new(
+            openrouter_model(&openrouter::Client::new(key).map_err(text)?, model, reuse),
+        ),
         (Client::Gemini, ProviderAuth::ApiKey(key)) => {
             gemini::Client::new(key).map_err(text)?.agent(model)
         }
@@ -1273,7 +1319,7 @@ mod tests {
             (known.as_str(), Some(1234), 1234),
         ] {
             let model_id = format!("anthropic/{id}");
-            let agent = agent_builder(&keys, &model_id, None, live_limit)
+            let agent = agent_builder(&keys, &model_id, None, live_limit, Reuse::Once)
                 .await
                 .unwrap()
                 .build()
@@ -1285,6 +1331,155 @@ mod tests {
         }
         assert_eq!(models::output_limit("anthropic/brand-new-claude"), None);
         assert!(models::efforts("anthropic/brand-new-claude").is_empty());
+        server.abort();
+    }
+
+    /// A provider that answers every request on `path` with `answer` and
+    /// hands each request's body to the test.
+    async fn provider_at(
+        path: &'static str,
+        answer: serde_json::Value,
+    ) -> (
+        String,
+        tokio::sync::mpsc::Receiver<serde_json::Value>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use axum::{Router, body::Bytes, routing::post};
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let answer = answer.to_string();
+        let app = Router::new().route(
+            path,
+            post(move |body: Bytes| {
+                let tx = tx.clone();
+                let answer = answer.clone();
+                async move {
+                    tx.send(serde_json::from_slice(&body).unwrap())
+                        .await
+                        .unwrap();
+                    answer
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (url, rx, server)
+    }
+
+    fn claude_answer(usage: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"id":"msg_test", "type":"message", "role":"assistant", "model":"claude-test", "content":[{"type":"text","text":"ok"}], "stop_reason":"end_turn", "stop_sequence":null, "usage":usage})
+    }
+
+    #[tokio::test]
+    async fn a_turn_asks_claude_to_cache_and_a_single_answer_does_not() {
+        let (url, mut requests, server) = provider_at(
+            "/v1/messages",
+            claude_answer(serde_json::json!({"input_tokens":2,"output_tokens":1})),
+        )
+        .await;
+        let client = anthropic::Client::builder()
+            .api_key("test-only-key")
+            .base_url(&url)
+            .build()
+            .unwrap();
+        for (reuse, cached) in [(Reuse::Rounds, true), (Reuse::Once, false)] {
+            let agent =
+                rig::agent::AgentBuilder::new(anthropic_model(&client, "claude-test", reuse))
+                    .preamble("You are Ada.")
+                    .max_tokens(64)
+                    .build();
+            assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+            let request = requests.recv().await.unwrap();
+            assert_eq!(
+                request.get("cache_control").is_some(),
+                cached,
+                "the breakpoint that moves with the conversation, {reuse:?}: {request}"
+            );
+            assert_eq!(
+                request["system"][0].get("cache_control").is_some(),
+                cached,
+                "the preamble's own marker, {reuse:?}: {request}"
+            );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn what_claude_reads_from_its_cache_counts_as_input() {
+        let (url, _requests, server) = provider_at(
+            "/v1/messages",
+            claude_answer(serde_json::json!({
+                "input_tokens": 5,
+                "cache_read_input_tokens": 1000,
+                "cache_creation_input_tokens": 200,
+                "output_tokens": 7
+            })),
+        )
+        .await;
+        let client = anthropic::Client::builder()
+            .api_key("test-only-key")
+            .base_url(&url)
+            .build()
+            .unwrap();
+        let response = anthropic_model(&client, "claude-test", Reuse::Rounds)
+            .completion_request("hello")
+            .max_tokens(64)
+            .send()
+            .await
+            .unwrap();
+        let usage = turn::every_input_token(response.usage, "anthropic/claude-test");
+        assert_eq!(
+            (
+                usage.input_tokens,
+                usage.cached_input_tokens,
+                usage.cache_creation_input_tokens
+            ),
+            (1205, 1000, 200)
+        );
+        assert_eq!(
+            turn::every_input_token(response.usage, "openai/gpt-test").input_tokens,
+            5,
+            "a provider that counts cached input inside its input is taken as it reports"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn claude_on_openrouter_is_asked_to_cache_and_other_models_are_left_alone() {
+        let (url, mut requests, server) = provider_at(
+            "/chat/completions",
+            serde_json::json!({
+                "id":"gen-test","object":"chat.completion","created":1,"model":"routed",
+                "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+            }),
+        )
+        .await;
+        let client = openrouter::Client::builder()
+            .api_key("test-only-key")
+            .base_url(&url)
+            .build()
+            .unwrap();
+        for (model, reuse, cached) in [
+            ("anthropic/claude-test", Reuse::Rounds, true),
+            ("anthropic/claude-test", Reuse::Once, false),
+            ("openai/gpt-test", Reuse::Rounds, false),
+        ] {
+            let agent = rig::agent::AgentBuilder::new(openrouter_model(&client, model, reuse))
+                .preamble("You are Ada.")
+                .build();
+            assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+            let request = requests.recv().await.unwrap();
+            let preamble = &request["messages"][0];
+            assert_eq!(preamble["role"], "system", "{request}");
+            assert_eq!(
+                preamble["content"][0].get("cache_control").is_some(),
+                cached,
+                "{model} {reuse:?}: {request}"
+            );
+        }
         server.abort();
     }
 
@@ -1718,7 +1913,7 @@ mod tests {
         assert_eq!(params, Some(json!({"reasoning": {"effort": "high"}})));
 
         // Tools on the Responses route are strict, as on Rig's own route.
-        let agent = agent_builder(&keys, "github-copilot/grok-4.6", None, None)
+        let agent = agent_builder(&keys, "github-copilot/grok-4.6", None, None, Reuse::Rounds)
             .await
             .unwrap()
             .build();

@@ -1424,6 +1424,9 @@ pub struct PlanEntry {
     pub priority: Option<String>,
 }
 
+/// What one turn's requests cost in tokens. On Hotline Agent the input counts
+/// every input token, cached or not, and the two cache counts are part of it;
+/// an ACP agent's numbers are the agent's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -1434,6 +1437,12 @@ pub struct TokenUsage {
     pub output_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<i64>,
+    /// Input the provider read back from its prompt cache.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<i64>,
+    /// Input the provider wrote to its prompt cache for the next request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

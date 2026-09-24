@@ -167,7 +167,12 @@ release?: string,
  * The release this teammate's computer would be created on now, when
  * that differs from the one running: the pane's offer to update.
  */
-available?: string, };
+available?: string, 
+/**
+ * Why the update the person last pressed did not land, until they try
+ * again. Said in the pane that offered it, never in the conversation.
+ */
+updateFailed?: string, };
 
 export type ConfigChoice = { id: string, name: string, description?: string, 
 /**

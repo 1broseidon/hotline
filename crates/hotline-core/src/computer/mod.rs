@@ -454,6 +454,7 @@ impl Computer {
                         viewer: None,
                         release: None,
                         available: None,
+                        update_failed: None,
                     });
                 }
             };
@@ -468,6 +469,7 @@ impl Computer {
                 viewer: None,
                 release: None,
                 available: None,
+                update_failed: None,
             });
         };
         let inspection = match inspect(&cmd, runtime, &name).await {
@@ -479,6 +481,7 @@ impl Computer {
                     viewer: None,
                     release: None,
                     available: None,
+                    update_failed: None,
                 });
             }
         };
@@ -543,6 +546,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             viewer: None,
             release: None,
             available: None,
+            update_failed: None,
         };
     }
     if !inspection.running {
@@ -552,6 +556,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             viewer: None,
             release: None,
             available: None,
+            update_failed: None,
         };
     }
     let mcp = inspection.mcp_port.or(known.map(|known| known.0));
@@ -559,6 +564,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
         state: ComputerState::Running,
         release: None,
         available: None,
+        update_failed: None,
         url: mcp.map(mcp_url),
         viewer: match (
             mcp,
@@ -1326,6 +1332,10 @@ case "$cmd" in
     echo "bbbb2222: Pulling fs layer"
     # A test holds the download open for as long as this file exists.
     while [ -f "${STATE}.pullgate" ]; do sleep 0.05; done
+    if [ -f "${STATE}.pullfail" ]; then
+      echo "Error: registry unreachable" >&2
+      exit 1
+    fi
     echo "aaaa1111: Pull complete"
     echo "bbbb2222: Already exists"
     echo "Status: Downloaded newer image for $1"

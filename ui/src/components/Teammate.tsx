@@ -712,6 +712,15 @@ function ComputerRows({
 											Update
 										</button>
 									</div>
+									{status.updateFailed !== undefined && (
+										<div className={NESTED}>
+											<span className="group-row-text">
+												<span className="group-row-detail text-danger" style={{ whiteSpace: "normal" }}>
+													{`The update did not finish, so the computer keeps ${status.release ?? "the release it has"}: ${status.updateFailed}`}
+												</span>
+											</span>
+										</div>
+									)}
 									{updateTold && (
 										<div className={NESTED}>
 											<span className="group-row-text">

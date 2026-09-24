@@ -504,6 +504,8 @@ pub struct Room {
     /// Computers being updated behind a running session: the new release
     /// downloads while the old computer keeps working, and the swap waits
     /// for the turn in flight to end. Keyed by teammate.
+    /// Why a teammate's last pressed update did not land, for its pane.
+    computer_update_failures: Mutex<HashMap<String, String>>,
     computer_swaps: Mutex<HashMap<String, ComputerSwap>>,
     keys: Arc<dyn ProviderKeys>,
     agents: Arc<dyn Agents>,
@@ -634,6 +636,7 @@ impl Room {
             starts: Mutex::new(HashMap::new()),
             computer_setups: Mutex::new(HashMap::new()),
             computer_swaps: Mutex::new(HashMap::new()),
+            computer_update_failures: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
@@ -2728,6 +2731,9 @@ impl Room {
                 status.available = Some(wanted);
             }
         }
+        status.update_failed = lock(&self.computer_update_failures)
+            .get(persona_id)
+            .cloned();
         Ok(status)
     }
 
@@ -2741,6 +2747,7 @@ impl Room {
     /// makes the new one.
     pub async fn computer_update(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
+        lock(&self.computer_update_failures).remove(persona_id);
         let old = self.computer_status(persona_id).await?.release;
         if !lock(&self.sessions).contains_key(persona_id) {
             self.computer_remove(persona_id).await?;
@@ -2780,6 +2787,7 @@ impl Room {
                         "{}'s computer could not be updated, and keeps the one it has: {reason}",
                         persona.name
                     );
+                    lock(&room.computer_update_failures).insert(persona.id.clone(), reason);
                 }
             }
         });

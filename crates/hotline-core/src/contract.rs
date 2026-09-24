@@ -491,6 +491,14 @@ pub struct ComputerStatus {
     /// that differs from the one running: the pane's offer to update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub available: Option<String>,
+    /// Why the update the person last pressed did not land, until they try
+    /// again. Said in the pane that offered it, never in the conversation.
+    #[serde(
+        rename = "updateFailed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub update_failed: Option<String>,
 }
 
 /// A browser found on the host, offered to the operator as a source of

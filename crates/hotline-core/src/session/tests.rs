@@ -2438,6 +2438,42 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
     );
 }
 
+/// An update the person pressed that cannot download says why in the pane
+/// that offered it, never in the conversation, and pressing it again
+/// clears the old reason.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_failed_update_is_told_in_the_pane_not_the_conversation() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-update-fails", Some("0.9.1"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    std::fs::write(root.join("state.noimage"), "").unwrap();
+    std::fs::write(root.join("state.pullfail"), "").unwrap();
+
+    room.computer_update("ada").await.unwrap();
+    let failed = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(reason) = room.computer_status("ada").await.unwrap().update_failed {
+                break reason;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the pane is told");
+    assert!(!failed.is_empty());
+    assert!(notices(&room, "ada").is_empty(), "the conversation is not");
+
+    std::fs::write(root.join("state.pullgate"), "").unwrap();
+    room.computer_update("ada").await.unwrap();
+    assert_eq!(
+        room.computer_status("ada").await.unwrap().update_failed,
+        None,
+        "trying again clears the old reason"
+    );
+    std::fs::remove_file(root.join("state.pullgate")).unwrap();
+}
+
 /// With no session running there is nothing to wait for: the container
 /// goes at once and the next start makes the new one.
 #[cfg(unix)]

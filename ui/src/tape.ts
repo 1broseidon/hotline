@@ -47,6 +47,10 @@ export function useTape(personaId: string): { events: TranscriptEvent[]; streami
 		return watchWhenOpen<TranscriptEvent, StreamDelta>({ tape: personaId }, {
 			snapshot: (items) => {
 				setEvents(fold(items));
+				// A snapshot is a (re)connect: a download that ended while the
+				// socket was down said so on a frame nobody heard. Still going,
+				// its next report draws the ring again.
+				setPulling(null);
 				setLoaded(true);
 			},
 			event: (item) => {

@@ -1552,7 +1552,6 @@ fn passkey_cards(room: &Room, persona_id: &str) -> Vec<Value> {
 }
 
 /// The notices on a teammate's tape, oldest first.
-#[cfg(unix)]
 fn notices(room: &Room, persona_id: &str) -> Vec<String> {
     tape(room, persona_id)
         .iter()

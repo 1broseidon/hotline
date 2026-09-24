@@ -306,7 +306,7 @@ async fn run_inner(
                 _ => {}
             }
         }
-        let reported = stream.usage();
+        let reported = every_input_token(stream.usage(), &turn.model);
         usage_complete &= stream.response.is_some() && reported.has_values();
         context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
         usage += reported;
@@ -701,10 +701,31 @@ async fn finish(
                 input_tokens: Some(usage.input_tokens as i64),
                 output_tokens: Some(usage.output_tokens as i64),
                 total_tokens: Some(usage.total_tokens as i64),
+                cache_read_tokens: Some(usage.cached_input_tokens as i64).filter(|n| *n > 0),
+                cache_write_tokens: Some(usage.cache_creation_input_tokens as i64)
+                    .filter(|n| *n > 0),
             }),
         },
     )
     .await;
+}
+
+/// A round's usage with `input_tokens` counting every token the request
+/// carried. Anthropic reports what it read from its prompt cache, and what it
+/// wrote to it, beside `input_tokens`; every other route counts them inside,
+/// which is where the context threshold and the turn's record expect them.
+pub(super) fn every_input_token(
+    mut usage: rig::completion::Usage,
+    model_id: &str,
+) -> rig::completion::Usage {
+    let provider = model_id.split('/').next().unwrap_or("");
+    if models::wiring(provider).is_some_and(|wiring| wiring.client == Client::Anthropic) {
+        usage.input_tokens = usage
+            .input_tokens
+            .saturating_add(usage.cached_input_tokens)
+            .saturating_add(usage.cache_creation_input_tokens);
+    }
+    usage
 }
 
 #[cfg(test)]
@@ -1537,7 +1558,53 @@ mod tests {
 
     #[tokio::test]
     async fn context_rotation_waits_for_the_session_handoff_before_requesting_again() {
+        let recorded = hand_off_a_full_context(
+            "test/model",
+            rig::completion::Usage {
+                input_tokens: 17_000,
+                output_tokens: 100,
+                total_tokens: 17_100,
+                ..Default::default()
+            },
+        )
+        .await;
+        assert_eq!(recorded.input_tokens, Some(17_010));
+        assert_eq!(
+            (recorded.cache_read_tokens, recorded.cache_write_tokens),
+            (None, None)
+        );
+    }
+
+    /// Claude counts what it read from its prompt cache, and what it wrote
+    /// there, beside its input. A context that came mostly from the cache is
+    /// just as full, and the turn's record says how much of it was cached.
+    #[tokio::test]
+    async fn a_context_claude_read_from_its_cache_is_just_as_full() {
+        let recorded = hand_off_a_full_context(
+            "anthropic/claude-test",
+            rig::completion::Usage {
+                input_tokens: 40,
+                cached_input_tokens: 16_000,
+                cache_creation_input_tokens: 960,
+                output_tokens: 100,
+                total_tokens: 17_100,
+                ..Default::default()
+            },
+        )
+        .await;
+        assert_eq!(recorded.input_tokens, Some(17_010));
+        assert_eq!(
+            (recorded.cache_read_tokens, recorded.cache_write_tokens),
+            (Some(16_000), Some(960))
+        );
+    }
+
+    /// A turn whose first round reports `usage` against a 20k context: the
+    /// chapter hands off before the next request goes out, and the turn's
+    /// record is returned.
+    async fn hand_off_a_full_context(model_id: &str, usage: rig::completion::Usage) -> TokenUsage {
         let (mut turn, request) = fixture();
+        turn.model = model_id.into();
         turn.context_limit = Some(20_000);
         let (seen, mut requests) = mpsc::unbounded_channel();
         let (first, a) = mpsc::channel(8);
@@ -1562,30 +1629,49 @@ mod tests {
             .unwrap();
         first
             .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage {
-                    input_tokens: 17_000,
-                    output_tokens: 100,
-                    total_tokens: 17_100,
-                    ..Default::default()
-                },
+                "scripted", usage,
             ))))
             .await
             .unwrap();
         drop(first);
-        loop {
-            if let Update::Chapter { boundary } = receiver.recv().await.unwrap() {
-                assert!(requests.try_recv().is_err());
-                boundary.finish(Some("Chapter handoff: reaction completed.".into()));
-                break;
+        let boundary = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Update::Chapter { boundary } = receiver.recv().await.unwrap() {
+                    return boundary;
+                }
             }
-        }
+        })
+        .await
+        .expect("a full context hands off before the next request");
+        assert!(requests.try_recv().is_err());
+        boundary.finish(Some("Chapter handoff: reaction completed.".into()));
         let next = receive(&mut requests).await;
         let rendered = serde_json::to_string(&next.chat_history).unwrap();
         assert!(rendered.contains("reaction completed"));
         assert!(rendered.contains("done-once"));
         assert!(rendered.contains("Fresh continuation"));
-        answer(second).await;
+        second
+            .send(Ok(RawStreamingChoice::Message("the new direction".into())))
+            .await
+            .unwrap();
+        second
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15,
+                    ..Default::default()
+                },
+            ))))
+            .await
+            .unwrap();
+        drop(second);
         task.await.unwrap().unwrap();
+        loop {
+            if let Update::Turn { usage, .. } = receiver.recv().await.unwrap() {
+                return usage.expect("every round reported its usage");
+            }
+        }
     }
 }

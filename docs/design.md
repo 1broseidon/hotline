@@ -226,6 +226,17 @@ boundary once. A continuation that still cannot fit fails explicitly. ACP owns
 its own internal request loop and context management; Hotline does not interrupt an
 opaque child turn using a guessed token count.
 
+Claude over the API caches nothing unless a request asks, and every round of a
+turn resends the tools, the preamble and the history. A turn therefore asks: the
+tools and the preamble carry cache markers, and a top-level breakpoint moves
+forward with the conversation. Claude through OpenRouter gets the preamble's
+marker, which is the one OpenRouter passes on. A one-shot answer such as a
+chapter's note asks for nothing, because a cache write costs more than a plain
+read that nothing follows. Anthropic reports cached input beside its input
+tokens rather than inside them, so a round's usage is counted whole before it
+meets the context threshold or the turn's record, which keeps cache reads and
+writes as counts of their own.
+
 An ACP prompt failure never automatically reissues that prompt. The next operator
 message replaces the failed child only after the old process exits, opens a fresh
 session with the same granted servers and disposition, and supplies a briefing

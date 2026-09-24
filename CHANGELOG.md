@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- Hotline Agent teammates on Claude use Anthropic's prompt caching. Over
+  an Anthropic API key, each step of a reply reads the conversation so far
+  from the cache instead of paying full price to send it again; through
+  OpenRouter, the teammate's instructions and tools are cached. Long
+  conversations cost less and start answering sooner.
+
 ## [0.18.1] - 2026-09-23
 
 ### Changed

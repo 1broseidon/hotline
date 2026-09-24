@@ -2015,6 +2015,8 @@ fn usage_of(usage: Option<&acp::Usage>) -> Option<TokenUsage> {
         input_tokens: Some(usage.input_tokens as i64),
         output_tokens: Some(usage.output_tokens as i64),
         total_tokens: Some(usage.total_tokens as i64),
+        cache_read_tokens: usage.cached_read_tokens.map(|tokens| tokens as i64),
+        cache_write_tokens: usage.cached_write_tokens.map(|tokens| tokens as i64),
     })
 }
 

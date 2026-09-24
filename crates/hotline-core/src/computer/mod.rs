@@ -48,7 +48,7 @@ const WORKSPACE_MOUNT: &str = "/home/agent/workspace";
 /// own in the home, so an empty volume is what a fresh container would
 /// have had anyway. An extra mount may sit inside it; only one that would
 /// cover it is refused, and that one already covers the workspace.
-const HOME_MOUNT: &str = "/home/agent";
+pub(crate) const HOME_MOUNT: &str = "/home/agent";
 /// A named volume per teammate, so a checkout or a build it starts outlives
 /// the container the hibernate cycle removes. The workspace is the person's
 /// folder; this one is the teammate's.
@@ -101,6 +101,7 @@ pub struct Ready {
 }
 
 pub mod cookies;
+pub(crate) mod files;
 pub mod guide;
 pub mod login;
 pub mod passkeys;

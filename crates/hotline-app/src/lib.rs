@@ -7,8 +7,9 @@
 //! wire's business. Plugins remember the window's place, pick folders, open
 //! links, and write the clipboard; on Linux and Windows one posts toasts too,
 //! while on macOS the notification center does, through `notify`, because it
-//! is the one that hands a click back. The judgement for all of it lives in
-//! the page, not here. The page draws the window's top strip on
+//! is the one that hands a click back. Two commands open or save a file a
+//! teammate sent, and refuse any other path (`files`). The judgement for
+//! all of it lives in the page, not here. The page draws the window's top strip on
 //! every platform. On macOS the menu bar is this process's, and its items
 //! emit an event the window handles. On Linux and Windows there is no menu
 //! bar and no system frame: the strip carries the window's controls too,
@@ -19,6 +20,7 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod files;
 mod instance;
 #[cfg(target_os = "linux")]
 mod linux_package;
@@ -312,6 +314,8 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         notify::notify,
+        files::open_sent_file,
+        files::save_sent_file,
         updater::get_update_status,
         updater::check_update,
         updater::install_update,
@@ -323,6 +327,8 @@ pub fn run() {
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        files::open_sent_file,
+        files::save_sent_file,
         updater::get_update_status,
         updater::check_update,
         updater::install_update,

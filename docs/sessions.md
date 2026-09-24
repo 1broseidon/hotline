@@ -206,7 +206,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
 
 Settings → Tools is the MCP gateway: configuring a server makes it available
@@ -796,6 +796,59 @@ shows Open the screen only while `computer.status` says running, which the
 conversation asks every five seconds while the teammate has a computer and
 a session; the band shows Screen on the same condition. Outside the desk
 (a browser tab) the viewer opens as a link instead.
+
+## Sending the person a file
+
+`send_file` is one of Hotline's own tools, on both agent kinds
+(`session/files.rs`). The teammate names where the file is and says a
+caption, and the file arrives as its message: an `agent` event whose `text`
+is the caption, possibly empty, carrying the file in `attachments`. The
+person is told the way they are told of any reply — it counts as unread,
+and a phone is pushed the caption, or "Sent <name>" without one.
+
+Where the file comes from:
+
+- **`workspace`** — a path the teammate's own read tools can open, through
+  the same `Workspace` and the same session lease: its working directory,
+  its `tool-output` overflow, or anywhere under whole-machine reach. What
+  its reach refuses to `read`, `send_file` refuses to send.
+- **`computer`** — a path on its own computer, relative ones starting at
+  `/home/agent`, fetched over the computer's bearer download door. The
+  computer hands over nothing outside its home.
+- **`screen`** — its computer's screen now, one window of it, or one
+  region, as the computer's `capture` tool takes it.
+
+The desk keeps its own copy under `files/<teammate>/<message id>/` in the
+data directory, so the conversation still holds the file after the
+workspace changes or the computer is removed. A picture — PNG, JPEG, GIF or
+WebP, known by its bytes — is prepared by the same policy as a picture the
+person attaches (`images.rs`): upright, flattened, at most 2000 px and a
+JPEG of at most 1 MiB, with its width and height on the attachment. A
+picture that policy cannot make is sent as the file it is, and the
+teammate is told why. Anything else is kept byte for byte, up to 25 MB; a
+larger file is refused in a sentence that names the cap. No kind of file
+is refused for what it is, because the desk never opens one on its own: a
+picture or a PDF opens in the system's viewer when the person presses it,
+and only when its name and its first bytes agree — the system picks the
+program by the name, so a PDF is always kept under a `.pdf` name, and a
+script that starts like a PDF is never handed over as one. Any file can be
+saved where the person picks, or shown in its folder.
+`attachments[].origin` says where the file came from, in words.
+
+A quiet scheduled run is refused rather than demoted. Its words become
+thinking, and a file in thinking reaches nobody while the teammate believes
+it was sent, so the tool says it cannot send from a quiet run. A window
+that opens while the file is being fetched is caught when the message is
+stamped, and the kept copy is removed.
+
+The model remembers a sent file by name: the conversation a driver is
+seeded with, a chapter's handoff note and the search index read a message
+as its words followed by `[file: <name>]` for each file it carries. The
+roster's preview of a file sent without a caption is its name.
+
+A client reads the file with `file.read`, by the message's id, a part of at
+most 512 KiB at a time; the phone seat may too. Kept copies follow the tape:
+nothing deletes them while the conversation they belong to is kept.
 
 ## Teammate collaboration
 

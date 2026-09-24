@@ -1,6 +1,7 @@
 import { ErrorCard } from "./ErrorCard";
 import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import type {
+	Attachment,
 	HumanActionStatus,
 	HumanAnswer,
 	PasskeyAskStatus,
@@ -23,6 +24,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { askedFor } from "./PasskeyArm";
+import { SentFile } from "./SentFile";
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -417,7 +419,7 @@ function Row({
 					text={event.text}
 				/>
 			) : (
-				<AgentSay event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
+				<AgentSay personaId={personaId} event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		/* Where the turn stopped. Drawn only when the stop was not the agent's
@@ -566,17 +568,22 @@ function Steps({ items, live, shown }: { items: Step[]; live: boolean; shown: bo
 	);
 }
 
-/** An agent's line, focusable so R can answer it without a pointer. */
+/**
+ * An agent's line, focusable so R can answer it without a pointer. A file
+ * it sent sits under its words, or is the whole bubble when it came alone.
+ */
 function AgentSay({
+	personaId,
 	event,
 	run,
 	onReply,
 }: {
+	personaId: string;
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
 	run: Run;
 	onReply?(target: ReplyTarget): void;
 }) {
-	const reply = () => onReply?.({ eventId: event.id, text: firstLine(event.text) });
+	const reply = () => onReply?.({ eventId: event.id, text: lineOf(event) });
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			<div
@@ -591,7 +598,10 @@ function AgentSay({
 					reply();
 				}}
 			>
-				<Markdown text={event.text} />
+				{event.text.trim() !== "" && <Markdown text={event.text} />}
+				{event.attachments?.map((file) => (
+					<SentFile key={file.path} personaId={personaId} eventId={event.id} file={file} />
+				))}
 				<Reactions emoji={event.reactions} />
 				{onReply !== undefined && (
 					<button
@@ -726,8 +736,15 @@ function ScheduledLine({ name, prompt }: { name: string; prompt: string }) {
 /** First line of a say, or nothing — a missing or empty original is not a quote. */
 function quotedLine(event: TranscriptEvent): string | undefined {
 	if (event.kind !== "user" && event.kind !== "agent") return undefined;
-	const line = firstLine(event.text);
+	const line = lineOf(event);
 	return line.length > 0 ? line : undefined;
+}
+
+/** A say's first line, or the names of its files when it came without words. */
+function lineOf(event: { text: string; attachments?: Attachment[] }): string {
+	const line = firstLine(event.text);
+	if (line.length > 0) return line;
+	return firstLine((event.attachments ?? []).map((file) => file.name).join(", "));
 }
 
 /** The stored text minus a leading quote block the old composer prepended. */

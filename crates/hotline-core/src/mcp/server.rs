@@ -1,7 +1,8 @@
 //! Hotline's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Eleven tools — four over its own conversation, one that asks the person,
-//! two over the room's other teammates, four that wake it later — and one
+//! Fourteen tools — four over its own conversation, three that reach the
+//! person (asking, reacting, sending a file), two over the room's other
+//! teammates, four that wake it later and one about its computer — and one
 //! instance of them per teammate session. They are the room's, not the
 //! agent's: the tape they read is Hotline's record of a conversation that has
 //! been going on far longer than any one context, the teammate they message
@@ -25,6 +26,7 @@
 
 use crate::contract::{ChapterClose, ScheduleKind, ScheduledJob, ToolSourceKind};
 use crate::driver::CapabilityLease;
+use crate::session::files::Source;
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;
 use crate::session::{Room, ledger, now_ms, parse_duration, parse_when};
@@ -57,6 +59,7 @@ const RESUME_CHAPTER: &str = "resume_chapter";
 const NEW_CHAPTER: &str = "new_chapter";
 const REQUEST_HUMAN: &str = "request_human";
 const REACT: &str = "react";
+const SEND_FILE: &str = "send_file";
 const LIST_TEAMMATES: &str = "list_teammates";
 const MESSAGE_TEAMMATE: &str = "message_teammate";
 const SCHEDULE: &str = "schedule";
@@ -68,13 +71,14 @@ const COMPUTER_STATUS: &str = "computer_status";
 const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 13] = [
+pub const TOOL_NAMES: [&str; 14] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
     NEW_CHAPTER,
     REQUEST_HUMAN,
     REACT,
+    SEND_FILE,
     LIST_TEAMMATES,
     MESSAGE_TEAMMATE,
     SCHEDULE,
@@ -102,7 +106,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` asks one of them something and waits for their answer. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` asks one of them something and waits for their answer. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -193,6 +197,42 @@ fn descriptors() -> Vec<Tool> {
                     },
                 },
                 "required": ["emoji"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            SEND_FILE,
+            "Send the person a file in your conversation with them — a report, a chart, a screenshot of your computer. It arrives as a message from you with `caption` as its words, and a picture shows in the conversation itself. A picture is sent as a JPEG of at most 2000 px; any other file is sent as it is, up to 25 MB. The file is in the conversation as soon as this returns, and your reply follows it, so do not repeat the caption. Send a file when the person needs the file itself, not in place of saying what is in it.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "enum": ["workspace", "computer", "screen"],
+                        "description": "Where the file is: `workspace` (a path your file tools can read), `computer` (a path on your computer; a relative one starts at its home) or `screen` (your computer's screen as it is now).",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "The file, for `workspace` and `computer`.",
+                    },
+                    "window": {
+                        "type": "string",
+                        "description": "For `screen`: only this window, by its title. Empty for the whole screen.",
+                    },
+                    "region": {
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "description": "For `screen`: only this part of it, as [x, y, width, height] in screen pixels. Leave it out, or all zeros, for the whole screen.",
+                    },
+                    "caption": {
+                        "type": "string",
+                        "maxLength": crate::session::files::MAX_CAPTION_CHARS,
+                        "description": "What you say with the file. Empty to send it alone.",
+                    },
+                },
+                "required": ["source"],
                 "additionalProperties": false,
             })),
         ),
@@ -472,6 +512,41 @@ impl TeammateTools {
                 room.react(&self.persona_id, emoji)?;
                 Ok("Reacted.".to_string())
             }
+            SEND_FILE => {
+                let text = |key: &str| {
+                    arguments
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned)
+                };
+                let path = |source: &str| {
+                    text("path").ok_or_else(|| {
+                        format!("send_file needs the `path` of the file on the {source}.")
+                    })
+                };
+                let source = match text("source").as_deref() {
+                    Some("workspace") => Source::Workspace(path("workspace")?),
+                    Some("computer") => Source::Computer(path("computer")?),
+                    Some("screen") => Source::Screen {
+                        window: text("window"),
+                        region: region(arguments)?,
+                    },
+                    _ => {
+                        return Err(
+                            "send_file needs a `source`: `workspace`, `computer` or `screen`."
+                                .to_string(),
+                        );
+                    }
+                };
+                let caption = arguments
+                    .get("caption")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                room.send_file(&self.persona_id, source, caption, self.capability.clone())
+                    .await
+            }
             SCHEDULE => {
                 let when = arguments
                     .get("when")
@@ -599,6 +674,28 @@ fn quoted(result: &Value) -> String {
          The quoted content is over.",
         crate::fence::fenced("hotline_thread_search", &result.to_string())
     )
+}
+
+/// The part of the screen `send_file` was asked for. A strict tool call has
+/// to fill every field, and four zeros is what fills this one when the whole
+/// screen is meant.
+fn region(arguments: &Value) -> Result<Option<[i64; 4]>, String> {
+    let Some(region) = arguments.get("region").filter(|region| !region.is_null()) else {
+        return Ok(None);
+    };
+    let numbers: Option<Vec<i64>> = region
+        .as_array()
+        .and_then(|numbers| numbers.iter().map(Value::as_i64).collect());
+    match numbers.as_deref() {
+        Some([0, 0, 0, 0]) => Ok(None),
+        Some(&[x, y, width, height]) if width > 0 && height > 0 => {
+            Ok(Some([x, y, width, height]))
+        }
+        _ => Err(
+            "A `region` is four whole numbers, [x, y, width, height], with a width and a height above zero."
+                .to_string(),
+        ),
+    }
 }
 
 /// One sentence for a `when` or `every` the parsers will not take. The

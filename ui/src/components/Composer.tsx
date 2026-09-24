@@ -4,6 +4,7 @@ import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
 import { pickFiles } from "../native";
+import { sizeText } from "../sizes";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -264,12 +265,6 @@ function fromDroppedPath(path: string): Attachment {
 function basename(path: string): string {
 	const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
 	return slash === -1 ? path : path.slice(slash + 1);
-}
-
-function sizeText(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	const kb = bytes / 1024;
-	return kb < 1024 ? `${Math.round(kb)} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
 
 const IMAGE_EXTENSIONS = new Set([

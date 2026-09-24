@@ -11,17 +11,23 @@
 export type AgentKind = "hotline" | "acp";
 
 /**
- * Something handed to a teammate alongside a message.
+ * A file that rides with a message, either way.
  *
- * Everything is a path, pasted images included: a pasted screenshot is
- * written into the persona's `attachments` directory before it is ever
- * attached. That keeps one shape on the wire, keeps base64 out of the
- * transcript on disk, and means an attachment can still be opened months
- * later from the record of the conversation that mentioned it.
+ * Handed to a teammate, everything is a path, pasted images included: a
+ * pasted screenshot is written into the persona's `attachments` directory
+ * before it is ever attached. That keeps one shape on the wire, keeps base64
+ * out of the transcript on disk, and means an attachment can still be opened
+ * months later from the record of the conversation that mentioned it.
+ *
+ * Sent by a teammate with `send_file`, the file is the desk's own copy,
+ * under `files/` in the data directory, and `path` is where that copy is. A
+ * phone never sees that path mean anything: it reads the file with
+ * `file.read`, by the message's id.
  */
 export type Attachment = { 
 /**
- * Images can be inlined for an agent that takes them; files are linked.
+ * Images can be inlined for an agent that takes them, and are drawn in
+ * the conversation when a teammate sends one; files are linked.
  */
 kind: AttachmentKind, 
 /**
@@ -31,7 +37,17 @@ name: string, path: string, mimeType?: string,
 /**
  * Bytes on disk, for the size a chip shows.
  */
-size?: number, };
+size?: number, 
+/**
+ * An image's size in pixels, so its place can be held before it loads.
+ */
+width?: number, height?: number, 
+/**
+ * Where a teammate's file came from, in words a person reads: a path in
+ * its workspace or on its computer, or the part of the computer's screen
+ * a screenshot shows.
+ */
+origin?: string, };
 
 export type AttachmentKind = "image" | "file";
 
@@ -92,7 +108,7 @@ export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, 
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } };
+export type Command = { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, offset: number, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } };
 
 /**
  * One host folder bound into a teammate's computer.
@@ -300,6 +316,17 @@ export type FaceMouth = "none" | "flat" | "smile" | "smirk" | "open";
  * lilypad now.
  */
 export type FacePattern = "solid" | "spotted" | "waterline" | "ripples" | "lilypad";
+
+/**
+ * Part of a file a teammate sent, as `file.read` answers it. `data` is
+ * base64 and at most 512 KiB of the file; `next` is where the next part
+ * starts, and is absent once `data` reaches the end.
+ */
+export type FileChunk = { name: string, mimeType: string, 
+/**
+ * The whole file's size in bytes.
+ */
+size: number, offset: number, data: string, next?: number, };
 
 /**
  * A search hit that names whose conversation it came from.
@@ -1103,7 +1130,16 @@ scheduled?: ScheduledRun,
 /**
  * An emphasis on this bubble.
  */
-ring?: RingIntent, receipt?: Receipt, } | { "kind": "agent", id: string, ts: number, text: string, reactions?: Array<string>, 
+ring?: RingIntent, receipt?: Receipt, } | { "kind": "agent", id: string, ts: number, 
+/**
+ * With a file, the caption, which may be empty.
+ */
+text: string, 
+/**
+ * A file the teammate sent the person with `send_file`: one per
+ * message, read back with `file.read`.
+ */
+attachments?: Array<Attachment>, reactions?: Array<string>, 
 /**
  * An emphasis on this bubble.
  */

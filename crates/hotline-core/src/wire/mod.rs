@@ -458,6 +458,11 @@ impl Seat {
             // A resting teammate's session reports no models and no configs,
             // so a phone reads what this desk can reach the way the window
             // does. Both are lists of what exists, not grants of anything.
+            //
+            // A file a teammate sent is part of the conversation the phone
+            // already reads, so the phone reads the file too. `file.read`
+            // names a message, never a path, and serves only what the desk
+            // kept for that message.
             Seat::Phone => matches!(
                 command,
                 Command::MobilePrompt { .. }
@@ -473,6 +478,7 @@ impl Seat {
                     | Command::ModelsEfforts { .. }
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
+                    | Command::FileRead { .. }
             ),
         }
     }

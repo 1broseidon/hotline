@@ -247,6 +247,14 @@ pub(crate) async fn run(
             limit,
         } => Ok(search::search(log.root(), &persona_id, &query, limit)),
         Command::SearchAll { query, limit } => Ok(search::search_all(log.root(), &query, limit)),
+        Command::FileRead {
+            persona_id,
+            event_id,
+            offset,
+        } => {
+            living(log, &persona_id)?;
+            crate::sent::read(log.root(), &persona_id, &event_id, offset).map(|chunk| json!(chunk))
+        }
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room
             .import(&home_expanded(&from))

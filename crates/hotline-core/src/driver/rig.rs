@@ -1656,6 +1656,9 @@ mod tests {
             path: "/tmp/note.txt".to_string(),
             mime_type: None,
             size: None,
+            width: None,
+            height: None,
+            origin: None,
         };
         assert_eq!(
             user_message("look", std::slice::from_ref(&attachment)),
@@ -1678,6 +1681,9 @@ mod tests {
             path: path.to_string_lossy().into_owned(),
             mime_type: Some("image/png".to_string()),
             size: None,
+            width: None,
+            height: None,
+            origin: None,
         };
         let Message::User { content } = user_message("see", &[image(&png)]) else {
             panic!("a user message");

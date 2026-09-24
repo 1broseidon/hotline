@@ -1,7 +1,10 @@
 # Images handed to a model
 
 Hotline Agent prepares desktop drops and uploaded phone attachments through the
-same path in `driver/rig/images.rs`. The original file stays untouched. The
+same path in `driver/rig/images.rs`, on the policy in `images.rs`. A picture a
+teammate sends the person with `send_file` is prepared by the same policy
+before the desk keeps it ([sessions.md](sessions.md)). The original file stays
+untouched. The
 model receives its path and, when decoding succeeds, normalized image bytes.
 An unreadable, corrupt, unsupported, or over-budget image stays a path with
 an explanation. Its bytes never become persistent model input.

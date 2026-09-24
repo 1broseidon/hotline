@@ -171,6 +171,9 @@ pub(super) fn resolve(
                 path: path.to_string_lossy().into_owned(),
                 mime_type: metadata.mime_type,
                 size: Some(i64::from(metadata.size)),
+                width: None,
+                height: None,
+                origin: None,
             })
         })
         .collect()

@@ -387,6 +387,150 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     task.abort();
 }
 
+/// A paired phone reads one teammate's schedules through the real door: an
+/// empty list said out loud, each change as the whole list, a refusal for
+/// anything that would change a job or reach the room, and on reconnecting
+/// the list as it now is, with what changed while it was away. A revoked
+/// phone reads nothing.
+#[tokio::test]
+async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away() {
+    let h = Harness::new().await;
+    let door = Door::bind(h.desk.log.clone(), "test-desk".into(), h.desk.clone()).unwrap();
+    let port = door.port();
+    let task = tokio::spawn(door.run());
+    let (mut desk, _) =
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=test-desk"))
+            .await
+            .unwrap();
+    let mut asked = 0;
+    let mut at_desk = async |cmd: &str, params: Value| -> Value {
+        asked += 1;
+        desk.send(Message::text(
+            json!({"id": asked, "cmd": cmd, "params": params}).to_string(),
+        ))
+        .await
+        .unwrap();
+        loop {
+            let frame: Value =
+                serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap())
+                    .unwrap();
+            if frame["id"] == asked {
+                assert_eq!(frame["ok"], true, "{cmd}: {frame}");
+                return frame["result"].clone();
+            }
+        }
+    };
+    let cwd = h.root.path().to_str().unwrap();
+    let ada = at_desk(
+        "persona.create",
+        json!({"draft": {"name": "Ada", "goal": "Keep the harbour running", "cwd": cwd}}),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let bob = at_desk(
+        "persona.create",
+        json!({"draft": {"name": "Bob", "goal": "Count the boats", "cwd": cwd}}),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let grant = h.pair().await;
+    let token = grant["token"].as_str().unwrap();
+    let mut phone = h.socket(token).await.unwrap();
+    // The hello is how a phone knows it may ask; a desk from before this
+    // list names nothing, and the phone then shows no schedules section.
+    assert_eq!(read(&mut phone).await["capabilities"], json!(["schedules"]));
+
+    send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
+    assert_eq!(read(&mut phone).await, json!({"id": 1, "ok": true}));
+    assert_eq!(read(&mut phone).await, json!({"sub": 1, "snapshot": []}));
+
+    let sweep = at_desk(
+        "schedule.create",
+        json!({"personaId": ada, "kind": "loop", "every": 3_600_000, "prompt": "Sweep the inbox"}),
+    )
+    .await;
+    let listed = read(&mut phone).await;
+    assert_eq!(listed["sub"], 1, "{listed}");
+    let entry = &listed["snapshot"][0];
+    assert_eq!(entry["id"], sweep["id"]);
+    assert_eq!(entry["personaId"], ada.as_str());
+    assert_eq!(entry["kind"], "loop");
+    assert_eq!(entry["every"], 3_600_000);
+    assert_eq!(entry["prompt"], "Sweep the inbox");
+    assert_eq!(entry["nextAt"], sweep["nextAt"]);
+    // Who made a job is the desk's business, not a display field.
+    assert!(entry.get("operatorCreated").is_none(), "{entry}");
+    assert_eq!(listed["snapshot"].as_array().unwrap().len(), 1);
+
+    let refusals = [
+        json!({"id": 2, "cmd": "schedule.create", "params": {"personaId": ada, "kind": "loop", "every": 60_000, "prompt": "Not from here"}}),
+        json!({"id": 3, "cmd": "schedule.cancel", "params": {"id": sweep["id"]}}),
+        json!({"id": 4, "cmd": "schedule.set_quiet", "params": {"id": sweep["id"], "quiet": true}}),
+        json!({"id": 5, "cmd": "schedule.list"}),
+        json!({"id": 6, "sub": "room"}),
+    ];
+    for frame in refusals {
+        let id = frame["id"].clone();
+        send(&mut phone, frame).await;
+        let refused = read(&mut phone).await;
+        assert_eq!(refused["id"], id, "{refused}");
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert_eq!(refused["code"], "forbidden", "{refused}");
+    }
+    send(&mut phone, json!({"id": 7, "sub": {"schedules": "nobody"}})).await;
+    let unknown = read(&mut phone).await;
+    assert_eq!(unknown["ok"], false, "{unknown}");
+    assert_eq!(unknown["code"], "unknown_teammate", "{unknown}");
+    // Nothing the phone asked for moved a job.
+    assert_eq!(h.desk.schedule_list().len(), 1);
+
+    // Away: the loop is cancelled, a one-shot is made, and Bob gets a job of
+    // his own. Back, the list is what is true now.
+    phone.close(None).await.unwrap();
+    drop(phone);
+    at_desk("schedule.cancel", json!({"id": sweep["id"]})).await;
+    let when = crate::session::now_ms() + 3_600_000;
+    let once = at_desk(
+        "schedule.create",
+        json!({"personaId": ada, "kind": "schedule", "when": when, "prompt": "Check the crane"}),
+    )
+    .await;
+    at_desk(
+        "schedule.create",
+        json!({"personaId": bob, "kind": "loop", "every": 3_600_000, "prompt": "Count the boats"}),
+    )
+    .await;
+    let mut phone = h.socket(token).await.unwrap();
+    read(&mut phone).await;
+    send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
+    assert_eq!(read(&mut phone).await, json!({"id": 1, "ok": true}));
+    let now = read(&mut phone).await;
+    let jobs = now["snapshot"].as_array().unwrap();
+    assert_eq!(jobs.len(), 1, "{now}");
+    assert_eq!(jobs[0]["id"], once["id"]);
+    assert_eq!(jobs[0]["kind"], "schedule");
+    assert_eq!(jobs[0]["when"], when);
+    assert_eq!(jobs[0]["nextAt"], when);
+
+    // Revoked, the phone's socket closes and cannot be opened again.
+    h.remote
+        .revoke(grant["deviceId"].as_str().unwrap())
+        .unwrap();
+    let closed = tokio::time::timeout(Duration::from_secs(3), phone.next())
+        .await
+        .unwrap();
+    assert!(!matches!(closed, Some(Ok(Message::Text(_)))), "{closed:?}");
+    assert!(h.socket(token).await.is_err());
+
+    h.remote.configure(false, network::ALL).await.unwrap();
+    task.abort();
+}
+
 #[tokio::test]
 async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_meaning() {
     let h = Harness::new().await;

@@ -127,6 +127,25 @@ impl Log {
         fold(events.into_iter())
     }
 
+    /// The whole stream, folded, or why a file of it could not be read.
+    ///
+    /// `load` passes over a file it cannot read, which suits a fold that is
+    /// drawn again on the next event. A read that a client will take as the
+    /// whole truth — "this teammate has no schedules" — uses this instead, so
+    /// that a failure is never answered as nothing. A stream nobody has
+    /// written to is still empty, not an error.
+    pub fn try_load(&self, stream: &StreamId) -> io::Result<Vec<Value>> {
+        let mut events = Vec::new();
+        for file in self.readable_files(stream) {
+            match fs::read_to_string(&file) {
+                Ok(text) => events.extend(parse_lines(&text)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(fold(events.into_iter()))
+    }
+
     /// Adds one event to the end of the stream, then hands it to whoever is
     /// listening.
     pub fn append(&self, stream: &StreamId, event: &Value) -> io::Result<Appended> {

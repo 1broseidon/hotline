@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- The desk can show a paired phone a teammate's scheduled jobs and loops,
+  kept current as they are made, fire and are cancelled, ready for the
+  phone app to list them. The phone can only read them: making,
+  cancelling and quieting a job stay at the desk.
+
 ### Changed
 
 - Hotline Agent teammates on Claude use Anthropic's prompt caching. Over

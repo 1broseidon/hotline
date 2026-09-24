@@ -28,6 +28,7 @@
 
 use crate::contract::{Persona, ScheduleKind, ScheduledJob, SessionCheckpoint};
 use crate::log::{Log, StreamId};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 /// What a setting means before anybody has set it. `hotline` is the built-in Hotline
@@ -109,10 +110,14 @@ pub(crate) fn room_event(kind: &str, body: Value) -> Value {
 /// one of those: an id with no characters in it cannot name the files that
 /// hold a tape, so a teammate that has one could never be opened at all.
 pub fn roster(log: &Log) -> Vec<Persona> {
-    log.load(&StreamId::Room)
-        .into_iter()
+    personas(&log.load(&StreamId::Room))
+}
+
+fn personas(events: &[Value]) -> Vec<Persona> {
+    events
+        .iter()
         .filter(|event| is_kind(event, "persona") && !is_deleted(event))
-        .filter_map(|event| serde_json::from_value::<Persona>(event).ok())
+        .filter_map(|event| Persona::deserialize(event).ok())
         .filter(|persona| !persona.id.is_empty())
         .collect()
 }
@@ -153,14 +158,42 @@ pub fn settings(log: &Log) -> Map<String, Value> {
 /// does not read as a job is skipped rather than fatal, the same as a
 /// teammate that does not read as a persona.
 pub fn schedules(log: &Log) -> Vec<ScheduledJob> {
-    let mut jobs: Vec<ScheduledJob> = log
-        .load(&StreamId::Room)
-        .into_iter()
+    jobs(&log.load(&StreamId::Room))
+}
+
+fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
+    let mut jobs: Vec<ScheduledJob> = events
+        .iter()
         .filter(|event| is_kind(event, "schedule") && !is_deleted(event))
-        .filter_map(|event| job_from_event(&event))
+        .filter_map(job_from_event)
         .collect();
     jobs.sort_by(|a, b| a.next_at.cmp(&b.next_at).then(a.id.cmp(&b.id)));
     jobs
+}
+
+/// One teammate's jobs, soonest first, for a reader that will take the
+/// answer as the whole truth: `None` when the room holds no living teammate
+/// by that id, and an error when the room could not be read. Neither may
+/// come back looking like a teammate with nothing scheduled.
+pub(crate) fn teammate_schedules(
+    log: &Log,
+    persona_id: &str,
+) -> Result<Option<Vec<ScheduledJob>>, String> {
+    let events = log
+        .try_load(&StreamId::Room)
+        .map_err(|error| format!("The room's stream could not be read: {error}."))?;
+    if personas(&events)
+        .iter()
+        .all(|persona| persona.id != persona_id)
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        jobs(&events)
+            .into_iter()
+            .filter(|job| job.persona_id == persona_id)
+            .collect(),
+    ))
 }
 
 /// A job event is the job's record with the stream kind beside it. The job's
@@ -715,6 +748,68 @@ mod tests {
             "{}",
             lines[2]
         );
+    }
+
+    #[test]
+    fn one_teammates_schedules_are_its_own_and_none_is_an_answer() {
+        let log = scratch("teammate-schedules");
+        append_persona(&log, &persona("ada", "Ada")).unwrap();
+        append_persona(&log, &persona("bob", "Bob")).unwrap();
+
+        // A teammate with nothing waiting is a list with nothing in it; a
+        // teammate the room does not hold is no list at all.
+        assert_eq!(teammate_schedules(&log, "ada").unwrap(), Some(Vec::new()));
+        assert_eq!(teammate_schedules(&log, "nobody").unwrap(), None);
+
+        let mut sweep = job("job-1", "ada", ScheduleKind::Loop, "sweep the inbox", true);
+        let once = job(
+            "job-2",
+            "ada",
+            ScheduleKind::Schedule,
+            "check the crane",
+            false,
+        );
+        let theirs = job(
+            "job-3",
+            "bob",
+            ScheduleKind::Schedule,
+            "count the boats",
+            false,
+        );
+        for job in [&sweep, &once, &theirs] {
+            append_schedule(&log, job).unwrap();
+        }
+        assert_eq!(
+            teammate_schedules(&log, "ada").unwrap(),
+            Some(vec![sweep.clone(), once.clone()])
+        );
+        assert_eq!(teammate_schedules(&log, "bob").unwrap(), Some(vec![theirs]));
+
+        // A loop that ran is the same job with a later next run, once; a
+        // one-shot that fired is gone.
+        sweep.next_at += 15_000;
+        append_schedule(&log, &sweep).unwrap();
+        tombstone_schedule(&log, "job-2").unwrap();
+        assert_eq!(teammate_schedules(&log, "ada").unwrap(), Some(vec![sweep]));
+
+        // A teammate deleted is no longer one whose jobs can be read, though
+        // the clock has not yet cleared them away.
+        append(&log, &tombstone("persona", "ada"));
+        assert_eq!(teammate_schedules(&log, "ada").unwrap(), None);
+    }
+
+    #[test]
+    fn a_room_that_cannot_be_read_is_an_error_not_an_empty_list() {
+        let log = scratch("teammate-schedules-unreadable");
+        // Nobody has written to the room yet: that is a room with no
+        // teammates, which is an answer.
+        assert_eq!(teammate_schedules(&log, "ada").unwrap(), None);
+        // A room stream that is there but cannot be read is not.
+        std::fs::create_dir_all(log.root().join("room.jsonl")).unwrap();
+        let error = teammate_schedules(&log, "ada").unwrap_err();
+        assert!(error.contains("could not be read"), "{error}");
+        assert!(log.try_load(&StreamId::Room).is_err());
+        assert!(log.load(&StreamId::Room).is_empty());
     }
 
     #[test]

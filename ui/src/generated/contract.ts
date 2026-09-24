@@ -760,6 +760,32 @@ export type RuntimeReport = { runtime: ComputerRuntime, state: RuntimeState, det
 export type RuntimeState = "ready" | "not_installed" | "not_running" | "not_responding" | "failed" | "unsupported";
 
 /**
+ * One of a teammate's scheduled jobs as the schedules view shows it: what a
+ * person reading the list needs, and nothing that decides what the job may
+ * do.
+ *
+ * `kind` is `schedule` for once and `loop` for every `every` milliseconds.
+ * `when` is a one-shot's original time, milliseconds since the epoch.
+ * `nextAt` is when the desk next means to wake the teammate for it, also
+ * milliseconds since the epoch, and a plan rather than a promise: a desk
+ * that is closed or asleep then fires it once when it can, a fire that
+ * could not start tries again a minute later, and a loop counts its next
+ * interval from when a run ends. There is no paused or failed job — a job
+ * is listed until it has fired for the last time or is cancelled.
+ */
+export type ScheduleEntry = { id: string, personaId: string, kind: ScheduleKind, 
+/**
+ * What the teammate is asked when the job fires, which is also the only
+ * name a job has.
+ */
+prompt: string, when?: number, every?: number, nextAt: number, 
+/**
+ * Present and true when the job was asked to say nothing in the chat
+ * unless it finds something worth saying.
+ */
+quiet?: boolean, };
+
+/**
  * `schedule` is once. `loop` is every interval until cancelled.
  */
 export type ScheduleKind = "schedule" | "loop";
@@ -972,10 +998,10 @@ export type SubagentStatus = "running" | "done" | "failed" | "cancelled";
  *
  * Externally tagged, so a stream reads as the word or the pair naming it —
  * `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"run":
- * "<runId>"}`, `{"view": "roster"}` — which is the shape the window would
- * have written by hand.
+ * "<runId>"}`, `{"view": "roster"}`, `{"schedules": "<personaId>"}` — which
+ * is the shape the window would have written by hand.
  */
-export type Target = "room" | { "tape": string } | { "thread": string } | { "run": string } | { "view": ViewName };
+export type Target = "room" | { "tape": string } | { "thread": string } | { "run": string } | { "view": ViewName } | { "schedules": string };
 
 /**
  * Everything Hotline knows about one teammate's tools, and how it knows it.

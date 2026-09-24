@@ -33,6 +33,12 @@ answered exactly once with success, or with an error:
 {"id": 1, "ok": false, "error": "There is no teammate nobody."}
 ```
 
+A refusal a client should act on by its reason, rather than show, also
+carries a `code`: `forbidden` when the seat may not run the command or open
+the subscription, `unknown_teammate` when a schedules subscription names a
+teammate the room does not hold, and `unreadable` when the room stream could
+not be read. The sentence stays for a person; the code is for the client.
+
 A command whose result is JSON `null` — delete, stop, prompt, cancel,
 revoke, `session.answer_permission`, `human.answer`, `schedule.cancel`,
 `schedule.set_quiet`, `computer.stop`, `computer.remove`, and a successful
@@ -462,12 +468,13 @@ its own jobs.
 A command the room cannot read is `"This room cannot read that command:
 …"`. A seat that may not run one is `"That seat may not run this
 command."` A seat that may not subscribe to a target is `"That seat may
-not subscribe to that."`
+not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 
 ## Subscriptions
 
 `sub` is a `Target`: `"room"`, `{"tape": "<personaId>"}`,
-`{"thread": "<key>"}`, or `{"view": "roster"}`.
+`{"thread": "<key>"}`, `{"view": "roster"}`, or
+`{"schedules": "<personaId>"}`.
 
 | target | snapshot | then |
 | --- | --- | --- |
@@ -475,6 +482,7 @@ not subscribe to that."`
 | `{"tape": id}` | that tape's fold | each tape event; `ephemeral` for streaming deltas |
 | `{"thread": key}` | that thread's fold | each thread event |
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
+| `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
 A tape subscription also forwards `StreamDelta`s for that teammate, never
 written down:
@@ -527,11 +535,92 @@ itself after its teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; a lagged burst of
 session-info is ignored.
 
+## The schedules view
+
+A teammate's scheduled jobs and loops, for a client that may read them but
+not the room stream they are kept on, which also carries every setting and
+grant. It is how a paired phone reads schedules; the desk may open it too.
+
+`{"id": n, "sub": {"schedules": "<personaId>"}}` is answered `{"id": n,
+"ok": true}` and then `{"sub": n, "snapshot": [ScheduleEntry…]}`, soonest
+first. Every later frame is the whole list again, as another `snapshot`,
+sent only when the list changed. A client replaces what it holds with each
+one; there are no deltas to apply, so a new job, a cancellation, a one-shot
+that fired and a loop whose next run moved cannot leave a stale or doubled
+entry behind. Another teammate's jobs never appear and never cause a frame.
+
+A `ScheduleEntry`:
+
+```json
+{"id": "…", "personaId": "…", "kind": "loop", "prompt": "Sweep the inbox",
+ "every": 3600000, "nextAt": 1790000000000, "quiet": true}
+```
+
+`kind` is `schedule` (once) or `loop`. `when` is a one-shot's original time
+and `every` a loop's interval; `nextAt` is when the desk next means to wake
+the teammate for the job. Times are milliseconds since the Unix epoch and
+intervals are milliseconds. `nextAt` is a plan, not a promise: a desk that
+is closed or asleep fires a missed job once when it can, a fire that could
+not start tries again a minute later, and a loop counts its next interval
+from when a run ends. `quiet` is present and true when the job was asked to
+say nothing in the chat unless it finds something worth saying. There is no
+paused or failed state: a job is listed until it has fired for the last
+time or is cancelled. Who made a job is not part of the entry.
+
+The view is read before the subscription is acknowledged, so a list that
+cannot be told is a refusal and never `ok` followed by `[]`:
+
+- a teammate the room does not hold: `{"id": n, "ok": false, "error":
+  "There is no teammate <id>.", "code": "unknown_teammate"}`;
+- a room stream that cannot be read: `"code": "unreadable"`;
+- a seat that may not open it: `"code": "forbidden"`.
+
+After it opens, a teammate deleted ends the view with `{"sub": n,
+"removed": "<personaId>"}`, and a room that can no longer be read ends it
+with `{"sub": n, "error": "…", "code": "unreadable"}`. Either way the id is
+free again. A view that falls behind on the room stream reads the list
+again. Reconnecting is the refresh: a new subscription's snapshot is the
+list as it is now, including what changed while the client was away.
+
+What a client can tell apart, and where each comes from:
+
+| state | comes from |
+| --- | --- |
+| a list, possibly empty | the response: `ok`, then a `snapshot` (`[]` is "nothing scheduled") |
+| loading, not yet known | the client: the subscription is sent and no snapshot has arrived |
+| offline, or stale | the transport: the socket closed, or the view ended with `unreadable`; what the client holds is the last list it was sent, and a new subscription replaces it |
+| an older desktop | the hello: `capabilities` does not list `schedules` (see [the phone seat](#the-phone-seat)) |
+| not allowed | the response: `forbidden`; or the transport, for a phone whose pairing was revoked, whose socket is closed and whose handshake is refused |
+| no such teammate | the response: `unknown_teammate`, or `removed` on an open view |
+| the desk could not read it | the response: `unreadable` |
+
 ## The seat
 
-A seat is what a socket may do: a set, not a routing table. The only
-variant is `Desk`. The desk seat may run every command and subscribe to
-every target. The token that opened the socket is what seated it.
+A seat is what a socket may do: a set, not a routing table. The token that
+opened the socket is what seated it. The desk seat may run every command
+and subscribe to every target.
+
+### The phone seat
+
+A paired phone's socket is the phone seat: a smaller fixed set of commands
+(`Seat::permits` in `crates/hotline-core/src/wire/mod.rs` lists them) and
+three kinds of subscription — a tape, the roster, and a teammate's
+schedules. It never opens the room stream, a thread or a run, and it can
+neither make, cancel nor quiet a job. Anything else is refused with
+`"code": "forbidden"`.
+
+The phone's socket opens with a hello before any answer:
+
+```json
+{"type": "hello", "protocolVersion": 1, "desktopId": "…", "mode": "team",
+ "capabilities": ["schedules"]}
+```
+
+`capabilities` names what this desk can do beyond protocol 1, so a phone
+asks only for what the desk it reached understands. `schedules` is the
+schedules view. A desk from before the list sends no `capabilities`, and a
+phone reads that as "not on this desk", never as "nothing scheduled"; asked
+anyway, such a desk refuses the target as one it cannot read.
 
 ## The token gate
 

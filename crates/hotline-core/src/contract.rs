@@ -2307,8 +2307,8 @@ pub enum Command {
 ///
 /// Externally tagged, so a stream reads as the word or the pair naming it —
 /// `"room"`, `{"tape": "<personaId>"}`, `{"thread": "<key>"}`, `{"run":
-/// "<runId>"}`, `{"view": "roster"}` — which is the shape the window would
-/// have written by hand.
+/// "<runId>"}`, `{"view": "roster"}`, `{"schedules": "<personaId>"}` — which
+/// is the shape the window would have written by hand.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
@@ -2319,6 +2319,59 @@ pub enum Target {
     /// One subagent run's own transcript, by run id.
     Run(String),
     View(ViewName),
+    /// One teammate's scheduled jobs and loops, by persona id, as
+    /// `ScheduleEntry`s: the whole list on opening and the whole list again
+    /// whenever it changes. The way a phone reads them, since the room stream
+    /// that holds them is the desk's alone.
+    Schedules(String),
+}
+
+/// One of a teammate's scheduled jobs as the schedules view shows it: what a
+/// person reading the list needs, and nothing that decides what the job may
+/// do.
+///
+/// `kind` is `schedule` for once and `loop` for every `every` milliseconds.
+/// `when` is a one-shot's original time, milliseconds since the epoch.
+/// `nextAt` is when the desk next means to wake the teammate for it, also
+/// milliseconds since the epoch, and a plan rather than a promise: a desk
+/// that is closed or asleep then fires it once when it can, a fire that
+/// could not start tries again a minute later, and a loop counts its next
+/// interval from when a run ends. There is no paused or failed job — a job
+/// is listed until it has fired for the last time or is cancelled.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ScheduleEntry {
+    pub id: String,
+    pub persona_id: String,
+    pub kind: ScheduleKind,
+    /// What the teammate is asked when the job fires, which is also the only
+    /// name a job has.
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub every: Option<i64>,
+    pub next_at: i64,
+    /// Present and true when the job was asked to say nothing in the chat
+    /// unless it finds something worth saying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quiet: Option<bool>,
+}
+
+impl From<ScheduledJob> for ScheduleEntry {
+    fn from(job: ScheduledJob) -> Self {
+        Self {
+            id: job.id,
+            persona_id: job.persona_id,
+            kind: job.kind,
+            prompt: job.prompt,
+            when: job.when,
+            every: job.every,
+            next_at: job.next_at,
+            quiet: job.quiet,
+        }
+    }
 }
 
 /// The views the core maintains. One so far.

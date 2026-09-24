@@ -4,7 +4,8 @@
 //!
 //! - `{"id": n, "cmd": "<name>", "params": {…}}`, answered exactly once with
 //!   `{"id": n, "ok": true, "result": …}` or `{"id": n, "ok": false,
-//!   "error": "<sentence>"}`.
+//!   "error": "<sentence>"}`, and a refusal a client acts on by its reason
+//!   also carries a `code`.
 //! - `{"id": n, "sub": <target>}`, answered `{"id": n, "ok": true}` and then
 //!   `{"sub": n, "snapshot": [...]}` once, `{"sub": n, "event": {…}}` per
 //!   event as it lands, `{"sub": n, "removed": "<id>"}` when a view's row
@@ -49,6 +50,7 @@ use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 
 mod commands;
 mod roster;
+mod schedules;
 
 #[cfg(test)]
 mod tests;
@@ -478,7 +480,12 @@ impl Seat {
     pub fn permits_sub(&self, target: &Target) -> bool {
         match self {
             Seat::Desk => true,
-            Seat::Phone => matches!(target, Target::Tape(_) | Target::View(ViewName::Roster)),
+            // A teammate's schedules are a read of one list, not the room
+            // stream they are kept on, which also carries every setting.
+            Seat::Phone => matches!(
+                target,
+                Target::Tape(_) | Target::View(ViewName::Roster) | Target::Schedules(_)
+            ),
         }
     }
 }
@@ -695,8 +702,14 @@ where
 {
     socket
         .send(Message::text(
-            json!({"type":"hello", "protocolVersion":1, "desktopId":desktop_id, "mode":"team"})
-                .to_string(),
+            json!({
+                "type": "hello",
+                "protocolVersion": 1,
+                "desktopId": desktop_id,
+                "mode": "team",
+                "capabilities": PHONE_CAPABILITIES,
+            })
+            .to_string(),
         ))
         .await?;
     seated_inner(socket, Seat::Phone, log, room, Some(phone)).await
@@ -802,10 +815,10 @@ async fn answer(
     if frame.get("cmd").is_some() {
         match read_command(&frame) {
             Ok(command) if !seat.permits(&command) => {
-                reply(
+                decline(
                     sender,
                     id,
-                    Err("That seat may not run this command.".to_string()),
+                    Refused::because(FORBIDDEN, "That seat may not run this command."),
                 );
             }
             Ok(command) => {
@@ -874,8 +887,8 @@ async fn answer(
     if let Some(target) = frame.get("sub") {
         // A subscription that opened answered itself, on its way past the
         // acknowledgement; only a refusal is left to say here.
-        if let Err(error) = subscribe(target, seat, log, room, sender, subscriptions, id) {
-            reply(sender, id, Err(error));
+        if let Err(refused) = subscribe(target, seat, log, room, sender, subscriptions, id) {
+            decline(sender, id, refused);
         }
         return;
     }
@@ -928,6 +941,52 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
     let _ = sender.send(frame.to_string());
 }
 
+/// What a phone's hello says this desk can do beyond protocol 1, so that a
+/// phone asks only for what the desk it reached understands. `schedules`: the
+/// `{"schedules": "<personaId>"}` subscription. A desk from before this list
+/// sends none, and a phone must read that as "not here", never as "nothing".
+pub(crate) const PHONE_CAPABILITIES: &[&str] = &["schedules"];
+
+/// The seat may not do this, whoever asks and whatever the room holds.
+const FORBIDDEN: &str = "forbidden";
+/// The command or subscription names a teammate the room does not hold.
+const UNKNOWN_TEAMMATE: &str = "unknown_teammate";
+/// The room could not be read, so there is no answer to give — which is not
+/// the same as an empty one.
+const UNREADABLE: &str = "unreadable";
+
+/// A refusal, and, when a client should act on why rather than show the
+/// sentence, the code that says why.
+struct Refused {
+    error: String,
+    code: Option<&'static str>,
+}
+
+impl Refused {
+    fn because(code: &'static str, error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            code: Some(code),
+        }
+    }
+}
+
+impl From<String> for Refused {
+    fn from(error: String) -> Self {
+        Self { error, code: None }
+    }
+}
+
+/// `{"id": n, "ok": false, "error": …}`, with `code` beside the sentence
+/// when the refusal has one.
+fn decline(sender: &Outbox, id: i64, refused: Refused) {
+    let mut frame = json!({ "id": id, "ok": false, "error": refused.error });
+    if let Some(code) = refused.code {
+        frame["code"] = json!(code);
+    }
+    let _ = sender.send(frame.to_string());
+}
+
 /// Opens a subscription.
 ///
 /// The acknowledgement is queued before the task that forwards the stream
@@ -943,11 +1002,14 @@ fn subscribe(
     sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
     id: i64,
-) -> Result<(), String> {
+) -> Result<(), Refused> {
     let target: Target = serde_json::from_value(target.clone())
         .map_err(|error| format!("That is not something to subscribe to: {error}."))?;
     if !seat.permits_sub(&target) {
-        return Err("That seat may not subscribe to that.".to_string());
+        return Err(Refused::because(
+            FORBIDDEN,
+            "That seat may not subscribe to that.",
+        ));
     }
     // A task that ended on its own — the stream closed, the socket's writer
     // went away — still occupies this map unless we notice. Reusing the id
@@ -955,16 +1017,44 @@ fn subscribe(
     // deliver.
     subscriptions.retain(|_, handle| !handle.is_finished());
     if seat == Seat::Phone && subscriptions.len() >= 8 {
-        return Err("A phone can open at most eight subscriptions.".into());
+        return Err(String::from("A phone can open at most eight subscriptions.").into());
     }
     if subscriptions.contains_key(&id) {
-        return Err(format!("Subscription {id} is already open."));
+        return Err(format!("Subscription {id} is already open.").into());
     }
 
-    reply(sender, id, Ok(Value::Null));
-
     let stream = match target {
+        // The list is read before the subscription is acknowledged, because a
+        // teammate the room does not hold, or a room that cannot be read, is
+        // a refusal — never `ok` followed by an empty list. The room stream
+        // is subscribed to first, so a job that lands between the read and
+        // the view's first wait is still seen.
+        Target::Schedules(persona_id) => {
+            let room_events = log.subscribe(&StreamId::Room);
+            let shown =
+                schedules::read(log, &persona_id).map_err(|unreadable| match unreadable {
+                    schedules::Unreadable::NoTeammate(error) => {
+                        Refused::because(UNKNOWN_TEAMMATE, error)
+                    }
+                    schedules::Unreadable::Failed(error) => Refused::because(UNREADABLE, error),
+                })?;
+            reply(sender, id, Ok(Value::Null));
+            if !send(sender, json!({ "sub": id, "snapshot": shown })) {
+                return Ok(());
+            }
+            let view = schedules::view(
+                id,
+                persona_id,
+                log.clone(),
+                room_events,
+                shown,
+                sender.clone(),
+            );
+            subscriptions.insert(id, tokio::spawn(view));
+            return Ok(());
+        }
         Target::View(ViewName::Roster) => {
+            reply(sender, id, Ok(Value::Null));
             let room_events = log.subscribe(&StreamId::Room);
             let infos = room.subscribe_info();
             let view = roster::view(
@@ -984,6 +1074,7 @@ fn subscribe(
         Target::Run(id) => StreamId::Run(id),
     };
 
+    reply(sender, id, Ok(Value::Null));
     let events = log.subscribe(&stream);
     let deltas = match &stream {
         StreamId::Tape(_) => Some(room.subscribe_deltas()),

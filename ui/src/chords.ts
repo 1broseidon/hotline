@@ -58,6 +58,7 @@ export const CHORDS: readonly Chord[] = [
 	{ id: "send", group: "conversation", label: "Send", keys: "Enter" },
 	{ id: "newline", group: "conversation", label: "New line", keys: "Shift+Enter" },
 	{ id: "interrupt", group: "conversation", label: "Interrupt", keys: "Esc" },
+	{ id: "sidebar", group: "panes", label: "Team", keys: mod("B"), match: { mod: true, key: "b", code: "KeyB" } },
 	{ id: "close", group: "panes", label: "Close", keys: "Esc", match: { key: "Escape" } },
 ];
 

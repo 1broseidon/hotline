@@ -113,6 +113,9 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .select_all()
         .build()?;
 
+    let team = MenuItemBuilder::with_id("sidebar", "Team")
+        .accelerator("CmdOrCtrl+B")
+        .build(app)?;
     let search = MenuItemBuilder::with_id("search", "Search")
         .accelerator("CmdOrCtrl+F")
         .build(app)?;
@@ -120,6 +123,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .accelerator("CmdOrCtrl+I")
         .build(app)?;
     let mut view = SubmenuBuilder::new(app, "View")
+        .item(&team)
         .item(&search)
         .item(&teammate)
         .separator();

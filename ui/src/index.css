@@ -143,13 +143,11 @@
 	/* ------------------------------------------------------------ titlebar
 	 * The window's top strip on every platform: the well itself, so the
 	 * window is one material to its edge. Three cells, the outer two equal,
-	 * so the title stays on the window's centre line whatever stands at
-	 * the right; a title that does not fit truncates, and a narrow window
-	 * drops it, since the pane's band already says the name. The title is
-	 * a reading, not a heading; the controls are marks on the chrome. On
-	 * macOS the traffic lights sit in the left corner, on this strip's
-	 * centre line (hotline-app), and the strip leaves 80 for them; in
-	 * fullscreen they leave with the menu bar and the room goes too. */
+	 * so the mark stays on the window's centre line whatever stands at
+	 * either side; the controls are marks on the chrome. On macOS the
+	 * traffic lights sit in the left corner, on this strip's centre line
+	 * (hotline-app), and the strip leaves 80 for them before the rail key;
+	 * in fullscreen they leave with the menu bar and the room goes too. */
 	.titlebar {
 		position: relative;
 		display: grid;
@@ -158,7 +156,9 @@
 		flex-shrink: 0;
 		align-items: center;
 		gap: 8px;
-		padding: 0 8px 0 14px;
+		/* 21: the rail key's 26px centred on 34, the faces column's centre
+		 * (the window's 8px gutter and half of its 52). */
+		padding: 0 8px 0 21px;
 	}
 	html[data-platform="macos"]:not([data-fullscreen]) .titlebar {
 		padding-left: 80px;
@@ -167,30 +167,27 @@
 		position: absolute;
 		inset: 0;
 	}
-	.titlebar-mark {
+	/* The corner holds the key that shows and hides the rail, since the rail
+	 * is what stands under it. */
+	.titlebar-lead {
 		position: relative;
 		grid-column: 1;
 		justify-self: start;
-		pointer-events: none;
-		color: var(--ink-3);
+		display: flex;
+		align-items: center;
 	}
+	/* The mark alone on the window's centre line: the app's name. */
 	.titlebar-title {
 		position: relative;
 		grid-column: 2;
+		display: flex;
+		align-items: center;
 		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		pointer-events: none;
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
 		font-weight: 500;
 		color: var(--ink-3);
-	}
-	@media (max-width: 719px) {
-		.titlebar-title {
-			display: none;
-		}
 	}
 	/* Placed by number, not by order: a narrow window drops the title, and
 	 * auto-placement would then seat the tools in its column, mid-strip. */
@@ -251,6 +248,17 @@
 	.band-drag {
 		position: absolute;
 		inset: 0;
+	}
+	/* What the teammate in the band is doing, or what they are for: one
+	 * quiet line after the name, cut off before it crowds the keys. */
+	.band-status {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
 	}
 	.band-row {
 		position: relative;
@@ -1161,6 +1169,13 @@
 	.rule-line-plain {
 		justify-content: center;
 	}
+	/* A rule's words wrap anywhere: a notice that quotes an error is one
+	 * unbroken token, and it must not hold the transcript wider than the pane. */
+	.rule-line > * {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		text-align: center;
+	}
 	.rule-line-plain::before,
 	.rule-line-plain::after {
 		display: none;
@@ -1399,18 +1414,94 @@
 	/* ---------------------------------------------------------------- rail
 	 * The roster stands in the well itself, no pane round it. A row is a
 	 * fill, never a line. */
-	/* The rail is a column beside a pane until the window cannot hold both;
-	 * then it is the whole window, and a pane replaces it rather than
-	 * sharing it (App.tsx decides which). */
+	/* The rail is always a column beside the pane; its width is the one you
+	 * dragged, or faces only in a narrow window (App.tsx). */
 	.rail {
 		width: 240px;
 		flex-shrink: 0;
 	}
-	@media (max-width: 719px) {
-		.rail {
-			width: auto;
-			min-width: 0;
-			flex: 1;
+	/* The rail's edge is the gutter beside it, taken back out of the row's
+	 * gap by its margins so it adds no width: a hit area the gutter's width,
+	 * with a hairline that shows on hover or while dragging. With the rail
+	 * closed it sits in the window's left gutter, where it can be pulled
+	 * back out. The drag holds its cursor over the whole window. */
+	.rail-edge {
+		position: relative;
+		width: 8px;
+		margin: 0 -8px;
+		flex-shrink: 0;
+		cursor: col-resize;
+		touch-action: none;
+		z-index: 1;
+	}
+	.rail-edge::after {
+		content: "";
+		position: absolute;
+		inset: 8px auto 8px 3px;
+		width: 2px;
+		border-radius: 1px;
+		background: transparent;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.rail-edge:hover::after,
+	.rail-edge:focus-visible::after,
+	.rail-edge[data-dragging]::after {
+		background: var(--line-strong);
+	}
+	.rail-edge:focus-visible {
+		outline: none;
+	}
+	html[data-resizing],
+	html[data-resizing] * {
+		cursor: col-resize !important;
+		user-select: none;
+	}
+	/* Faces only: the row is the face, centred, and the name waits on a
+	 * hover card beside it, the menus' surface (pop plane). The dot a
+	 * working teammate breathes rides the face's shoulder. */
+	.rail-compact .rail-row {
+		justify-content: center;
+		padding: 6px 0;
+	}
+	/* Faces only has no margin for the unread dot, so it rides the other shoulder. */
+	.rail-face-unread {
+		position: absolute;
+		top: -1px;
+		right: -1px;
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 0 2px var(--well);
+	}
+	.rail-face-vital {
+		position: absolute;
+		right: -1px;
+		bottom: -1px;
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		box-shadow: 0 0 0 2px var(--well);
+	}
+	.rail-tip {
+		position: fixed;
+		z-index: 40;
+		max-width: 260px;
+		padding: 6px 10px;
+		border-radius: var(--radius-control);
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			var(--shadow-float);
+		transform: translateY(-50%);
+		pointer-events: none;
+		animation: tip-in var(--dur-open) var(--ease-out) both;
+	}
+	/* pop-in, keeping the card centred on its row. */
+	@keyframes tip-in {
+		from {
+			opacity: 0;
+			transform: translate(-2px, -50%);
 		}
 	}
 	.rail-row {
@@ -1418,7 +1509,10 @@
 		width: 100%;
 		align-items: center;
 		gap: 10px;
-		padding: 6px 8px 6px 10px;
+		/* The face's centre is 34px from the window's edge, under the
+		 * titlebar's rail key, and so is every face in the faces-only rail
+		 * and every key at its foot: one axis down the left of the window. */
+		padding: 6px 8px;
 		border-radius: var(--radius-control);
 		text-align: left;
 		transition: background-color var(--dur-press) var(--ease-out);
@@ -1452,6 +1546,50 @@
 	}
 	.pane {
 		flex: 1;
+	}
+	/* The teammate pane opens on who they are: the face, the name in the
+	 * heading's size and the goal under it like a bio, both plain text
+	 * until pointed at, when they show the field they are. */
+	.profile {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+	}
+	.profile .avatar {
+		margin-bottom: 8px;
+	}
+	.profile-name,
+	.profile-goal {
+		width: calc(100% + 12px);
+		margin-left: -6px;
+		padding: 2px 6px;
+		border-radius: var(--radius-control);
+		background: transparent;
+		outline: none;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.profile-name:hover,
+	.profile-goal:hover,
+	.profile-name:focus,
+	.profile-goal:focus {
+		background: var(--fill-hover);
+	}
+	.profile-name {
+		font-size: var(--text-lg);
+		line-height: var(--text-lg--line-height);
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.profile-goal {
+		resize: none;
+		overflow: hidden;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
+	.profile-goal::placeholder {
+		color: var(--ink-4);
 	}
 	/* The scroller (ui/src/ui/Scroll.tsx): the host fills its pane, the
 	 * inner element scrolls with the toolkit's bar hidden, and the thumb is
@@ -1543,7 +1681,11 @@
 		width: 320px;
 		flex-shrink: 0;
 	}
-	@media (max-width: 980px) {
+	/* The inspector takes the conversation's place once the conversation
+	 * beside it would be narrower than its band: 716px of main is a 980px
+	 * window beside a rail at its usual width, and it holds wherever the rail
+	 * has been dragged, because main is the container asked. */
+	@container (max-width: 716px) {
 		.inspector {
 			width: auto;
 			flex: 1;
@@ -1708,6 +1850,7 @@
 	.ambient-mark,
 	.ambient-mark[data-sleeping],
 	.menu,
+	.rail-tip,
 	.search-panel,
 	.row-lit {
 		animation: none;

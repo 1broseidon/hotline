@@ -51,6 +51,13 @@ export const CloseIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+export const SidebarIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<rect x="2.25" y="3" width="11.5" height="10" rx="2" />
+		<path d="M6.25 3v10" />
+	</svg>
+);
+
 export const SearchIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<circle cx="7" cy="7" r="3.75" />
@@ -58,13 +65,14 @@ export const SearchIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
-export const GearIcon = ({ className }: IconProps) => (
+/* Settings as two sliders: a cog's rays round a circle read as a sun, a light-mode switch. */
+export const SettingsIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
-		<circle cx="8" cy="8" r="2.25" />
-		<path d="M8 2.5v1.25M8 12.25V13.5M2.5 8h1.25M12.25 8H13.5M4.05 4.05l.88.88M11.07 11.07l.88.88M4.05 11.95l.88-.88M11.07 4.93l.88-.88" />
+		<path d="M2.5 5h6M11.5 5h2M2.5 11h2M7.5 11h6" />
+		<circle cx="10" cy="5" r="1.5" />
+		<circle cx="6" cy="11" r="1.5" />
 	</svg>
 );
-
 export const MoreIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />

@@ -8,6 +8,22 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- The team list at the left can be resized by dragging its edge. Drag it
+  past its narrowest and it becomes a column of faces, each showing its
+  name and what it is doing when you hover; drag further and it closes.
+  The button at the top left and Ctrl+B (⌘B on a Mac) close and open it
+  too, and a drag from the window's left edge brings it back, the way you
+  left it. A double-click on the edge resets it. Hotline remembers all of
+  it. In a narrow window the list is always the column of faces beside
+  the conversation, opened and closed the same way; there is no longer a
+  separate screen for the list with a back arrow to reach it. The
+  teammate pane opens beside the conversation whenever the list leaves
+  room for both, and takes the conversation's place when it does not.
+- Settings has a new icon, two sliders, in place of one that read as a
+  light-mode sun.
+
 ### Changed
 
 - The Hotline mark picks up the phone: a receiver now rests across the
@@ -22,6 +38,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the reply lands it reels back in and hangs up. The toad wakes up from
   behind the message box when a teammate starts working and sinks back
   down behind it when the work is done.
+- A teammate's name appears once, at the head of their conversation, with
+  a quiet line beside it saying what they are doing, or what they are for
+  when they are not working. Their model and effort have moved there from
+  the title bar, which now holds only the mark, and the message box just
+  says Message. Pressing the name opens the teammate's pane; the separate
+  info button is gone.
+- The teammate pane opens on who they are, like a contact card: their
+  face, their name and their goal, each edited in place. Under it come
+  the working folder, then Permissions, Computer and Tools under their
+  own headings, then schedules and threads.
 
 ## [0.19.0] - 2026-09-24
 

@@ -4,7 +4,7 @@ import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
-import { Rail, unreadOf } from "./components/Rail";
+import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Titlebar } from "./ui/Titlebar";
 import { Settings, SettingsRail, type SettingsSection } from "./components/Settings";
 import { Shortcuts } from "./components/Shortcuts";
@@ -39,11 +39,12 @@ export function App() {
 	const [aside, setAside] = useState<Aside | null>(null);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-	/* A narrow window shows one thing at a time, the way a phone does: the
-	 * rail, or what was chosen in it. This is which, and it means nothing
-	 * once the window is wide enough for both. */
+	/* A narrow window keeps the pane and shows the rail as faces only, open
+	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
-	const [railShown, setRailShown] = useState(false);
+	/* The rail: how wide you dragged it, whether it is down to faces, and whether you closed it. */
+	const [railSize, setRailSize] = useRailSize();
+	const toggleRail = useCallback(() => setRailSize((was) => ({ ...was, open: !was.open })), [setRailSize]);
 	/* The teammate's own pane sits beside the conversation, not in its place:
 	 * you edit a colleague while watching them work. */
 	const [inspector, setInspector] = useState(false);
@@ -157,17 +158,14 @@ export function App() {
 	const select = useCallback((personaId: string) => {
 		setSelectedId(personaId);
 		setPane(null);
-		setRailShown(false);
 	}, []);
 
 	// A clicked toast is a teammate asking to be looked at; the shell has
 	// already raised the window.
 	useEffect(() => listenToastClicks(select), [select]);
 
-	/* Closing a pane lands on the rail: it is where the pane was opened from. */
 	const closePane = useCallback(() => {
 		setPane(null);
-		setRailShown(true);
 	}, []);
 	const togglePane = useCallback(
 		(id: Exclude<Pane, null>) => {
@@ -177,8 +175,6 @@ export function App() {
 				return;
 			}
 			setPane(id);
-			// Settings opens on its menu, which is the rail; the rest are the pane itself.
-			setRailShown(id === "settings");
 		},
 		[pane, closePane],
 	);
@@ -242,11 +238,6 @@ export function App() {
 					setInspector(false);
 					return;
 				}
-				// With nothing else on top, a narrow window's Escape is the back key.
-				if (narrow && !railShown && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
-					event.preventDefault();
-					setRailShown(true);
-				}
 				return;
 			}
 			if (chord === "new-teammate") {
@@ -271,6 +262,11 @@ export function App() {
 				setSearchOpen(true);
 				return;
 			}
+			if (chord === "sidebar") {
+				event.preventDefault();
+				if (takeChord()) toggleRail();
+				return;
+			}
 			if (chord === null || !chord.startsWith("teammate-")) return;
 			const seat = Number(chord.slice("teammate-".length));
 			const entry = roster[seat - 1];
@@ -280,10 +276,14 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, aside, searchOpen, narrow, railShown, select, closePane, togglePane, toggleInspector]);
+	}, [roster, selectedId, pane, inspector, aside, searchOpen, select, closePane, togglePane, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
+			if (id === "sidebar") {
+				if (takeChord()) toggleRail();
+				return;
+			}
 			if (id === "settings") {
 				if (takeChord()) togglePane("settings");
 				return;
@@ -319,7 +319,7 @@ export function App() {
 				if (entry) select(entry.persona.id);
 			}
 		});
-	}, [roster, selectedId, pane, select, togglePane, toggleInspector]);
+	}, [roster, selectedId, pane, select, togglePane, toggleInspector, toggleRail]);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
@@ -334,34 +334,24 @@ export function App() {
 		return () => document.removeEventListener("contextmenu", suppress);
 	}, []);
 
-	/* Narrow: the rail alone when it is what you are looking at, or when
-	 * there is nothing else to look at; otherwise the pane alone, with a
-	 * back key in its band. An empty room's welcome pane counts as something
-	 * to look at. Wide: both, and no back key. */
 	const welcome = rosterLoaded && roster.length === 0;
-	const railOnly = narrow && (railShown || (pane === null && selected === null && !welcome));
-	const back = narrow ? () => setRailShown(true) : undefined;
+	/* A narrow window has room for faces beside the pane and no more. */
+	const faces = narrow || railSize.compact;
+	/* Settings' sections have no faces to fall back to: they stand at the
+	 * names' width, and at the narrowest of it in a narrow window. */
+	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
 
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
-				selected={selected}
-				models={models}
 				searchable={pane === null && selected !== null}
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}
-				onSaid={setSaid}
+				rail={{ open: railSize.open, onToggle: toggleRail }}
 			/>
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
-			{narrow && !railOnly ? null : pane === "settings" ? (
-				<SettingsRail
-					section={settingsSection}
-					onSection={(section) => {
-						setSettingsSection(section);
-						setRailShown(false);
-					}}
-					onBack={closePane}
-				/>
+			{!railSize.open ? null : pane === "settings" ? (
+				<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />
 			) : (
 			<Rail
 				entries={roster}
@@ -380,13 +370,15 @@ export function App() {
 					if (id === "github") void openLink("https://github.com/1broseidon/hotline");
 					else togglePane(id);
 				}}
+				width={faces ? RAIL_FACES : railSize.width}
+				compact={faces}
 			/>
 			)}
+			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
-			{railOnly ? null : (
-			<main className="flex min-w-0 flex-1 gap-2">
+			<main className="@container flex min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
-					<Settings section={settingsSection} {...(back !== undefined ? { onBack: back } : {})} />
+					<Settings section={settingsSection} />
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (
@@ -400,7 +392,8 @@ export function App() {
 						<Conversation
 							key={selected.persona.id}
 							entry={selected}
-							{...(back !== undefined ? { onBack: back } : {})}
+							models={models}
+							onSaid={setSaid}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -465,7 +458,6 @@ export function App() {
 					</div>
 				)}
 			</main>
-			)}
 			</div>
 		</div>
 	);

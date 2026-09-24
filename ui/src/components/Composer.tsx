@@ -190,7 +190,7 @@ export function Composer({
 						rows={1}
 						value={text}
 						aria-label={`Message ${name}`}
-						placeholder={`Message ${name}`}
+						placeholder="Message"
 						onChange={(event) => setText(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {

@@ -379,11 +379,23 @@ proof the profile took.
 
 A granted stdio server is spawned in its own process group on Unix, so a
 launcher like `npx` does not leave the real server behind when the session
-stops. A result larger than 256 KiB is kept in full under
-`tool-output/<personaId>/` in the data directory; the model is shown the
-head and the tail and that path. Under workspace reach the teammate can
-read that directory, and nothing else outside the working directory. The
-transcript bubble keeps 4,000 characters of output either way.
+stops.
+
+What the model is shown of a result stays in the conversation and goes
+out again with every later request in the chapter, so each kind of result
+has a budget (`Budget` in `driver/rig.rs`). A command's output reads as a
+terminal left it, without colour codes or redrawn progress lines. Past
+16 KiB the model sees how stdout and stderr each start and end, a quarter
+from the start and the rest from the end, where a build or a test run
+says how it went. A granted server's result, the computer's included, is
+cut past 64 KiB, and Hotline's own tools past 256 KiB, half from each end.
+A file read already stops at 2,000 lines. Whatever is cut is kept whole
+under `tool-output/<personaId>/` in the data directory, and the model is
+told its size and path. Under workspace reach the teammate can read that
+directory, and nothing else outside the working directory. A finished
+job's output reaches the model once, as the job's result; `wait_jobs` and
+`cancel_job` report only states. The transcript bubble keeps 4,000
+characters of output either way.
 
 Anything quoted out of a conversation goes in front of a model inside a
 fence (`fence.rs`): `search_thread` and `list_chapters` results, the wake

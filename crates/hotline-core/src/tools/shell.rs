@@ -145,6 +145,9 @@ pub(crate) struct CommandOutcome {
     pub output: String,
 }
 
+/// The line between a command's stdout and its stderr in its output.
+pub(crate) const STDERR_LINE: &str = "\n[stderr]\n";
+
 impl RunCommand {
     pub(crate) fn boundary(&self) -> &'static str {
         match self.workspace.reach() {
@@ -235,7 +238,7 @@ impl RunCommand {
         let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
         let errors = String::from_utf8_lossy(&output.stderr);
         if !errors.trim().is_empty() {
-            text.push_str("\n[stderr]\n");
+            text.push_str(STDERR_LINE);
             text.push_str(&errors);
         }
         let status = output.status.code().unwrap_or(-1);

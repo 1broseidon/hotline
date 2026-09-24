@@ -15,6 +15,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   from the cache instead of paying full price to send it again; through
   OpenRouter, the teammate's instructions and tools are cached. Long
   conversations cost less and start answering sooner.
+- A long command costs a teammate's conversation far less. A megabyte
+  of build log used to stay in the conversation as 256 KiB and go out
+  again with every later request. Now the teammate sees 16 KiB: how
+  stdout and stderr each start and end, without colour codes or redrawn
+  progress lines, plus the size and the file that holds all of it. A
+  finished command's output is shown once, not again when the teammate
+  waits on it. Tools from a granted server are cut at 64 KiB, and the
+  whole result is kept on disk as before.
 
 ## [0.18.1] - 2026-09-23
 

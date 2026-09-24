@@ -90,14 +90,14 @@ pub(super) fn fresh(history: &[Message], output_dir: &Path) -> Vec<Message> {
         }
     }
     let facts = facts.join("\n");
-    let shown = if facts.len() <= MODEL_TOOL_OUTPUT_BYTES {
+    let shown = if facts.len() <= Budget::BUILT_IN.bytes() {
         facts.clone()
     } else {
         let path = output_dir.join(format!("continuation-{}.txt", uuid::Uuid::new_v4()));
         match std::fs::create_dir_all(output_dir).and_then(|_| std::fs::write(&path, &facts)) {
             Ok(()) => format!(
                 "{}\nFull execution checkpoint: {}. Consult this record before considering any repeated action whose result is absent from this excerpt.",
-                elide(&facts, MODEL_TOOL_OUTPUT_BYTES),
+                elide(&facts, Budget::BUILT_IN),
                 path.display()
             ),
             // A failed write must not turn missing execution evidence into apparent nonexecution.

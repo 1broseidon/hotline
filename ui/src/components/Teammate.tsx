@@ -21,6 +21,7 @@ import { useMcpServers, type McpServer } from "../mcp";
 import { COMPUTER_STATUS_EVERY_MS } from "../computer";
 import { confirmRemove, pickDirectory, revealPath } from "../native";
 import { firstLine } from "../room";
+import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Scroll } from "../ui/Scroll";
@@ -164,38 +165,39 @@ export function Teammate({
 	return (
 		<aside className="inspector" aria-label={`${persona.name}'s settings`}>
 			<Band>
-				<input
-					aria-label="Name"
-					className="min-w-0 flex-1 rounded-[var(--radius-control)] bg-transparent px-1 text-lg font-semibold text-ink outline-none hover:bg-hover focus:bg-hover"
-					value={name}
-					autoComplete="off"
-					spellCheck={false}
-					onChange={(event) => setName(event.target.value)}
-					onBlur={saveName}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") event.currentTarget.blur();
-						if (event.key === "Escape") {
-							setName(persona.name);
-							event.currentTarget.blur();
-						}
-					}}
-				/>
+				<h2 className="eyebrow min-w-0 flex-1 truncate pl-1">Teammate</h2>
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>
 			<Scroll>
-				<div className="flex flex-col gap-5 px-4 py-4">
-					<div>
-						<label className="label" htmlFor="edit-goal">
-							Goal
-						</label>
+				<div className="flex flex-col gap-5 px-4 pb-4 pt-2">
+					{/* Who they are, the way a contact card opens: the face, the name
+					    and what they are for, each edited where it stands. */}
+					<div className="profile">
+						<Avatar id={persona.id} name={name.trim() || persona.name} size={44} />
+						<input
+							aria-label="Name"
+							className="profile-name"
+							value={name}
+							autoComplete="off"
+							spellCheck={false}
+							onChange={(event) => setName(event.target.value)}
+							onBlur={saveName}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") event.currentTarget.blur();
+								if (event.key === "Escape") {
+									setName(persona.name);
+									event.currentTarget.blur();
+								}
+							}}
+						/>
 						<textarea
 							ref={goalField}
-							id="edit-goal"
-							className="field min-h-[46px] overflow-hidden"
-							rows={2}
-							placeholder="What this teammate is for."
+							aria-label="Goal"
+							className="profile-goal"
+							rows={1}
+							placeholder="What this teammate is for"
 							value={goal}
 							onChange={(event) => setGoal(event.target.value)}
 							onBlur={saveGoal}
@@ -206,7 +208,7 @@ export function Teammate({
 						<h3 className="label">Working directory</h3>
 						<div className="grouped">
 							<div className="group-row">
-								<RowText title={folderName(persona.cwd)} />
+								<RowText title={folderName(persona.cwd) === persona.id ? "Its own folder" : folderName(persona.cwd)} />
 								<span className="-my-1 -mr-2 flex items-center gap-0.5">
 									<InfoKey about={persona.cwd} label="Show the full path" open={pathShown} onToggle={() => setPathShown((was) => !was)} />
 									<button
@@ -242,8 +244,9 @@ export function Teammate({
 						</div>
 					</section>
 
+					{/* What it may do without you: reach, waking itself, who may hand it work. */}
 					<section>
-						<h3 className="label">Access</h3>
+						<h3 className="label">Permissions</h3>
 						<div className="grouped">
 							{hotline ? (
 								<SwitchRow
@@ -275,6 +278,12 @@ export function Teammate({
 								disabled={busy}
 								onChange={(allowedSenders) => save({ allowedSenders })}
 							/>
+						</div>
+					</section>
+
+					<section>
+						<h3 className="label">Computer</h3>
+						<div className="grouped">
 							<ComputerRows
 								personaId={persona.id}
 								teammate={persona.name}
@@ -282,6 +291,13 @@ export function Teammate({
 								disabled={busy}
 								onChange={(computer) => save({ computer })}
 							/>
+						</div>
+					</section>
+
+					{/* What it is given to work with, and what actually attached at the last start. */}
+					<section>
+						<h3 className="label">Tools</h3>
+						<div className="grouped">
 							<McpRows
 								policy={persona.mcpPolicy}
 								servers={servers}
@@ -669,7 +685,7 @@ function ComputerRows({
 
 	return (
 		<>
-			<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={current.enabled} disabled={disabled} onChange={(on) => onChange({ ...current, enabled: on })} />
+			<SwitchRow title="A computer of its own" about={COMPUTER_ABOUT} checked={current.enabled} disabled={disabled} onChange={(on) => onChange({ ...current, enabled: on })} />
 			{(current.enabled || state !== "absent") && (
 				<>
 					<FoldRow title="Desktop" value={words.value} open={openDesktop} onToggle={() => setOpenDesktop((was) => !was)} />

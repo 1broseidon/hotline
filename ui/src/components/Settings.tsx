@@ -47,13 +47,16 @@ export function SettingsRail({
 	section,
 	onSection,
 	onBack,
+	width,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
 	onBack(): void;
+	/** The rail's dragged width: settings' menu stands where the rail does. */
+	width?: number | undefined;
 }) {
 	return (
-		<nav aria-label="Settings" className="rail flex flex-col">
+		<nav aria-label="Settings" className="rail flex flex-col" style={width !== undefined ? { width } : undefined}>
 			<Band>
 				<button
 					type="button"

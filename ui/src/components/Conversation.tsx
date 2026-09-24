@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Attachment, ScheduledJob, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, InfoIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
 import { useTape } from "../tape";
 import { Avatar } from "../ui/Avatar";
-import { BackKey, Band } from "../ui/Band";
+import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
 import { Composer, isDown } from "./Composer";
+import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
 import { Starters } from "./Starters";
 import type { OpenSubagent } from "./Subagent";
@@ -19,10 +20,10 @@ import type { OpenThread } from "./Thread";
 import { Transcript, type ReplyTarget } from "./Transcript";
 
 /**
- * One teammate's conversation: the band naming them, the transcript, the
- * composer, and the search over it. The model and effort are not here:
- * they are on the window's strip (ui/Titlebar.tsx), which hands a refusal
- * down as `said` for the band to say. Keyed by teammate above, so switching
+ * One teammate's conversation: the band naming them, with their model and
+ * effort, the transcript, the composer, and the search over it. The name
+ * opens their pane beside it. A picker's refusal comes back up as `said`
+ * for the band to say. Keyed by teammate above, so switching
  * tears the tape subscription down and puts up another rather than folding
  * two conversations into one column.
  *
@@ -45,7 +46,6 @@ export function Conversation({
 	searchOpen,
 	inspectorOpen,
 	focus,
-	onBack,
 	onToggleInspector,
 	onOpenSchedules,
 	onCloseSearch,
@@ -53,13 +53,17 @@ export function Conversation({
 	onPick,
 	onOpenThread,
 	onOpenSubagent,
+	models,
+	onSaid,
 }: {
 	entry: RosterEntry;
-	/** A narrow window: the rail is a step back from here. */
-	onBack?: () => void;
+	/** The room's models, for the model picker in the band. */
+	models: ConfigChoice[];
+	/** Where the band's model or effort picker hands a refusal. */
+	onSaid(said: string | null): void;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
-	/** What the strip's model or effort picker was refused with, or nothing. */
+	/** What the band's model or effort picker was refused with, or nothing. */
 	said: string | null;
 	searchOpen: boolean;
 	inspectorOpen: boolean;
@@ -224,26 +228,37 @@ export function Conversation({
 	 * something that was asked for. Why the previous chapter cannot be
 	 * reopened is a standing fact rather than an event, so it stays on the
 	 * greyed menu item, read at the moment somebody goes looking for it. */
+	/* The band is the one place that says who this is, so it also says what
+	 * they are doing: the kind of work while a turn runs, else what they are
+	 * for. The window's title bar carries only the mark. */
+	const status = session.state === "thinking" ? (entry.activity ?? "Working") : persona.goal.split("\n")[0]!.trim();
+
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<Band>
-				{onBack !== undefined && <BackKey onBack={onBack} />}
 				<button
 					type="button"
 					className="control btn-quiet -ml-1 min-w-0 shrink gap-2 pl-1 pr-2"
+					// The name is the one way into the teammate's pane, the way a
+					// messages app opens a contact from its header.
+					title={`Teammate (${chordKeys("teammate")})`}
 					aria-label={session.state === "thinking" ? `${persona.name}, working` : persona.name}
+					aria-expanded={inspectorOpen}
 					onClick={onToggleInspector}
 				>
 					<Avatar id={persona.id} name={persona.name} size={20} />
-					<span className="truncate text-lg font-semibold text-ink">{persona.name}</span>
+					<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
 					{session.state === "thinking" && (
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 					)}
+					{status !== "" && <span className="band-status">{status}</span>}
 				</button>
 
 				<span className="min-w-0 flex-1" />
+
+				<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
 
 				{jobs.length > 0 && !narrow && (
 					<button
@@ -284,16 +299,6 @@ export function Conversation({
 						<ComputerIcon />
 					</button>
 				)}
-				<button
-					type="button"
-					className="control btn-icon"
-					title={`Teammate (${chordKeys("teammate")})`}
-					aria-label="Teammate"
-					aria-pressed={inspectorOpen}
-					onClick={onToggleInspector}
-				>
-					<InfoIcon />
-				</button>
 				<MenuButton className="control btn-icon" label="More" entries={more}>
 					<MoreIcon />
 				</MenuButton>

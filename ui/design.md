@@ -18,15 +18,19 @@ press.
 One family, **Workbench**, for every screen:
 
 - The window's top strip, on every platform, is the well itself: 32px,
-  the mark in the left corner where a frame keeps its app icon, the
-  window's title in the centre in ink-3, and at the right the open
-  teammate's model and effort and the search. On Linux and Windows the
-  shell draws no frame, and minimize, maximize and close sit flush to the
-  right corner beyond them as marks on the chrome, not keys. A hairline a
+  the key that shows and hides the rail in the left corner, the mark
+  alone in the centre, and the search at the right. It is the window's,
+  not a teammate's: who is open, and their model and effort, are in the
+  pane's band, and only the task bar, which has no band, names them. On
+  Linux and Windows the shell draws no frame, and minimize, maximize and
+  close sit flush to the right corner beyond them as marks on the chrome,
+  not keys. A hairline a
   shade lighter and bluer than the well outlines the whole window there,
   so it has an edge against a dark desktop. On Linux the window is
   see-through and the page rounds its own corners to the pane radius, so
-  the window is one more pane on the desk; maximised, it is square. macOS
+  the window is one more pane on the desk; maximised, it is square. No
+  frame means no frame's resize cursors either, so the page wears them
+  along the band at its edge where a press resizes the window. macOS
   keeps its traffic lights in the left corner, on the strip's centre
   line, and the strip leaves room for them.
 - The **mark** is one shape in one colour, `ui/src/ui/HotlineMark.tsx`:
@@ -66,21 +70,32 @@ One family, **Workbench**, for every screen:
   stays and watches it — on the line — and when it lands the line reels
   back into the handset, which hangs up and winks before the mark goes. A
   press on the mark opens the work behind it for that turn. The band is
-  the name and the tools; the model and effort are on the window's strip,
-  and everything else about a teammate — its mode included — lives under
-  the inspector.
+  the one place that says who this is: the face, the name and one quiet
+  line of what they are doing or, at rest, what they are for; then their
+  model and effort and the tools. The name opens the inspector, where
+  everything else about a teammate — its mode included — lives.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
 
-A window narrower than 720px holds one thing at a time, the way a phone
-does: the rail, or what was chosen in it, with a back key at the head of
-the pane's band and Escape as the same step. Nothing is re-laid out in
-place; a pane replaces the rail rather than squeezing beside it, and a
-wide window never shows the back key. The strip keeps the model, the
-effort and the search and drops its title, which the pane's band already
-says; the schedule line folds into the More menu, one press further
+In a wide window the rail is yours to size: its edge is the gutter
+beside it, dragged between 180 and 420px. Dragged past its narrowest it
+does not squeeze its rows; it drops to faces, 52px, each name and line
+waiting on a hover card on the menus' surface; dragged past the faces
+it closes. The key in the left corner of the titlebar and Ctrl/⌘+B close
+and open it; closed, its edge stays in the window's left gutter so it
+can be pulled back out, and it returns at the width it had. Settings'
+sections stand in the same place at the same width.
+
+A window narrower than 720px keeps the pane and shows the rail as faces
+only beside it, opened and closed from the same titlebar key; it is
+never dragged there, and there is no view of the rail alone and no back
+key. Settings' sections stand at the rail's narrowest beside their pane.
+The band's schedule line folds into the More menu, one press further
 away, rather than a band that clips it. The inspector has its own, wider
-cut-off, because it needs the conversation beside it and the rail does not.
+cut-off, because it needs the conversation beside it and the rail does not:
+it is measured on the room the rail leaves, not the window, so a closed
+rail makes space for both and a wide one hands the inspector the
+conversation's place.
 
 Providers and Tools are one shape, because they do one job: a list of
 things the room has. An add row heads the list in accent — the one accent
@@ -207,20 +222,22 @@ transition and animation, and holds the mark still.
   is the first thing on the card. The desktop opens in a window of its
   own, one per teammate; the band carries Screen while it runs.
 - Machinery between messages is folded into instrument rows on a 2px rule.
-- The inspector is 320px, so it shows state and folds detail. The name is
-  the band's heading and edits in place; the goal is the one field; the
-  working directory is a row of its own, the folder's name and three
-  quiet keys (the full path, choose, reveal), never a path field. Every
-  grant is one row of one Access list, ordered authority, equipment,
-  outcome: reach, background work and collaboration, each with an info
-  key for its risk; the computer and MCP servers; then what attached at
-  the last start. A row is a title, a value after a dot if there is one,
-  and a switch, a chevron or quiet keys at the right edge and nothing
-  else. A row's second line is a
-  value or nothing — what a grant means is the docs' job, not a sentence
-  under every row. A chevron opens in place, set in from its row; what
-  attached at the last start is the list's last row, with the failures
-  always out. Schedules and threads take the same shape. Nothing sits
+- The inspector is 320px, so it shows state and folds detail. Its band
+  says only Teammate. It opens on who they are, the way a contact card
+  does: the face, the name at the heading's size and the goal under it
+  like a bio, each plain text until pointed at, when it shows the field
+  it is. The working directory is a row of its own, the folder's name
+  (Its own folder when it is the teammate's) and three quiet keys (the
+  full path, choose, reveal), never a path field. Every grant is one row
+  in one of three lists, ordered authority, equipment, outcome:
+  Permissions (reach, background work and collaboration, each with an
+  info key for its risk), Computer, and Tools (MCP servers, skills, then
+  what attached at the last start). A row is a title, a value after a
+  dot if there is one, and a switch, a chevron or quiet keys at the right
+  edge and nothing else. A row's second line is a value or nothing —
+  what a grant means is the docs' job, not a sentence under every row. A
+  chevron opens in place, set in from its row; what attached at the last
+  start is the Tools list's last row, with the failures always out. Schedules and threads take the same shape. Nothing sits
   beside a text field, and the destructive key is the footer, asking
   through the system dialog.
 

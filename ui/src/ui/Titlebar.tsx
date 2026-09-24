@@ -1,18 +1,15 @@
 import { useEffect, useState } from "react";
-import type { ConfigChoice } from "../generated/contract";
 import { chordKeys } from "../chords";
-import { SessionPickers } from "../components/Pickers";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon, SearchIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon, SearchIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
-import { windowTitle } from "../notify";
-import type { RosterEntry } from "../wire";
 import { HotlineMark } from "./HotlineMark";
 
 /**
  * The window's top strip, on every platform: the well itself, with the
- * mark at the left corner where a frame keeps its app icon, the title in
- * the centre, and at the right the open teammate's model and effort and
- * the search. Where the shell draws no frame (Linux, Windows) the three
+ * rail's show-and-hide key at the left corner, the mark alone in the
+ * centre, and the search at the right. It is the window's, not a
+ * teammate's: who is open, and their model and effort, are in the pane's
+ * band. Where the shell draws no frame (Linux, Windows) the three
  * window controls sit flush to the right corner beyond them. macOS keeps
  * its traffic lights in the left corner and the strip leaves room for
  * them (index.css); the shell puts them on this strip's centre line. It
@@ -22,20 +19,17 @@ import { HotlineMark } from "./HotlineMark";
  * is stamped on the root for the corners to square off.
  */
 export function Titlebar({
-	selected,
-	models,
 	searchable,
 	searchOpen,
 	onToggleSearch,
-	onSaid,
+	rail,
 }: {
-	selected: RosterEntry | null;
-	models: ConfigChoice[];
 	/** A conversation is showing: the search has something to search. */
 	searchable: boolean;
 	searchOpen: boolean;
 	onToggleSearch(): void;
-	onSaid(said: string | null): void;
+	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
+	rail?: { open: boolean; onToggle(): void } | undefined;
 }) {
 	const frame = drawsFrame();
 	const [maximized, setMaximized] = useState(false);
@@ -49,10 +43,26 @@ export function Titlebar({
 	return (
 		<header className="titlebar">
 			<div data-tauri-drag-region className="titlebar-drag" onDoubleClick={() => void toggleMaximize()} />
-			<HotlineMark className="titlebar-mark" width={18} plain />
-			<p className="titlebar-title">{windowTitle(selected?.persona.name ?? null)}</p>
+			<div className="titlebar-lead">
+				{rail !== undefined && (
+					<button
+						type="button"
+						className="control btn-icon"
+						title={`${rail.open ? "Hide" : "Show"} the team (${chordKeys("sidebar")})`}
+						aria-label={rail.open ? "Hide the team" : "Show the team"}
+						onClick={rail.onToggle}
+					>
+						<SidebarIcon />
+					</button>
+				)}
+			</div>
+			<p className="titlebar-title">
+				{/* The mark alone: the app's name. Whose conversation this is lives
+				    once, in the pane's band; the task bar, which has no band,
+				    names them (windowTitle). */}
+				<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
+			</p>
 			<div className="titlebar-tools">
-				{selected !== null && <SessionPickers key={selected.persona.id} entry={selected} models={models} onSaid={onSaid} />}
 				<button
 					type="button"
 					className="control btn-icon"

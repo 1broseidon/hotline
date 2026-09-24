@@ -124,11 +124,25 @@ export function Transcript({
 	useEffect(() => {
 		const el = scroller.current;
 		if (!el) return;
+		// The layout the last decision was taken on. A scroll event lands a
+		// frame after the scroll that caused it, and while the window is being
+		// resized every frame reflows the bubbles: the pin's own scroll arrives
+		// to a column hundreds of pixels taller or shorter than the one it
+		// pinned, and read as distance it looks like you scrolling away. So a
+		// scroll that comes with a new layout never lets go of the bottom; only
+		// one on the layout already seen can.
+		let seen = { height: el.scrollHeight, view: el.clientHeight };
 		const measure = () => {
+			if (pinned.current && (el.scrollHeight !== seen.height || el.clientHeight !== seen.view)) {
+				pin();
+				return;
+			}
+			seen = { height: el.scrollHeight, view: el.clientHeight };
 			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
 			setFollowing(pinned.current);
 		};
 		const pin = () => {
+			seen = { height: el.scrollHeight, view: el.clientHeight };
 			if (pinned.current) el.scrollTop = el.scrollHeight;
 		};
 		el.addEventListener("scroll", measure, { passive: true });

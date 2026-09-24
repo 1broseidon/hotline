@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- A teammate's computer that is downloading shows as a ring filling in
+  where its computer button sits, instead of a progress line in the
+  conversation. You keep talking while it downloads, and the button
+  appears when it is ready.
+- The conversation no longer narrates Hotline's own work. There are no
+  more lines saying a computer finished downloading, joined or was
+  updated, that the model or provider changed, that a request is being
+  retried, that the context was reset, or that a chapter closed without
+  a handoff note. What is left is what you and your teammate said and
+  did, and any reply that failed.
+- If a computer update you pressed cannot download, the teammate pane
+  says why under the Update button. Pressing Update again clears it.
+
 ## [0.18.0] - 2026-09-23
 
 ### Added

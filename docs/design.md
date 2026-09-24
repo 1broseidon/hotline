@@ -57,6 +57,13 @@ These come over as ideas and, where the code was already Rust, as code.
   failure the old app shipped.
 - **Quiet scheduled runs by construction**, not by asking the model to be
   quiet: a window over the run demotes its words to thoughts by event kind.
+- **One conversation, no machinery in it.** The tape holds what the person
+  and the teammate said and did. The room does not narrate its own work: a
+  computer downloading, joining or updating, a provider switch, a retry, a
+  context rotation or a restart leaves no line. A download shows as a ring
+  on the computer's button; the rest goes to the desk's log. What stays is
+  a failure the person has to know about (a reply that could not be made)
+  and the outcome of something they did themselves.
 - **Persistent work is a grant.** Background work defaults off for teammates.
   It authorizes their own schedules and loops; jobs the person creates in the
   desk carry explicit operator provenance. Revocation pauses agent-created

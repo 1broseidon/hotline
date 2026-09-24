@@ -319,13 +319,7 @@ impl Driver for InProcess {
         *lock(&self.steering) = Some(steering.clone());
         let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
         if let Some(connected) = lock(&self.mcp).as_ref() {
-            mcp_tools.extend(
-                connected
-                    .tools
-                    .iter()
-                    .cloned()
-                    .map(|tool| mcp_dynamic(tool, sender.clone())),
-            );
+            mcp_tools.extend(connected.tools.iter().cloned().map(mcp_dynamic));
         }
         if let Some(escalation) = lock(&self.escalation).take() {
             mcp_tools.push(tell_person(escalation));
@@ -367,7 +361,6 @@ impl Driver for InProcess {
             if changed {
                 let mut history = turn.history.lock().await;
                 *history = recovery::fresh(&history, &turn.output_dir);
-                send(&sender, Update::Notice { level: NoticeLevel::Info, text: "The model or provider connection changed. Continuing fresh from conversation and execution facts; provider-specific replay state was reset.".into() }).await;
             }
             *lock(&history_origin) = Some(origin);
             let message = message.prepare(&turn.stop).await;
@@ -1017,29 +1010,20 @@ fn tell_person(escalation: Arc<dyn Escalate>) -> DynamicTool {
 }
 
 /// The Rig adapter for one granted MCP tool. A transport death is already
-/// on the ledger; the notice rides this turn's update channel so the
-/// session writes it on the tape, once, without the tool knowing what a
-/// tape is.
-fn mcp_dynamic(tool: mcp::McpTool, notices: mpsc::Sender<Update>) -> DynamicTool {
+/// on the ledger; the model hears it as the call's error.
+fn mcp_dynamic(tool: mcp::McpTool) -> DynamicTool {
     DynamicTool::new(
         tool.name.clone(),
         tool.description.clone(),
         tool.parameters.clone(),
         move |_context, arguments| {
             let tool = tool.clone();
-            let notices = notices.clone();
             Box::pin(async move {
                 match tool.call(arguments).await {
                     Ok(content) => rig_output(content),
-                    Err(mcp::CallError::Transport { message, notice }) => {
-                        if let Some(text) = notice {
-                            let _ = notices
-                                .send(Update::Notice {
-                                    level: NoticeLevel::Warn,
-                                    text,
-                                })
-                                .await;
-                        }
+                    // A server that went away is on the ledger and in the
+                    // tool's own result; the conversation does not narrate it.
+                    Err(mcp::CallError::Transport { message, .. }) => {
                         Err(ToolExecutionError::other(message))
                     }
                     Err(mcp::CallError::Tool(message)) => Err(ToolExecutionError::other(message)),
@@ -1814,11 +1798,10 @@ mod tests {
             .into_owned()
     }
 
-    /// The failing call returns the error to the model as before, and the
-    /// notice that the origin is gone rides the same channel the session
-    /// writes to the tape — once.
+    /// The failing call returns the error to the model as before, and says
+    /// nothing to the conversation: the ledger already carries it.
     #[tokio::test]
-    async fn a_dead_mcp_transport_sends_the_went_away_notice_once() {
+    async fn a_dead_mcp_transport_fails_the_call_and_nothing_else() {
         use crate::mcp::{McpServer, McpTransport};
         use rig::tool::ToolSet;
 
@@ -1837,10 +1820,9 @@ mod tests {
         )
         .await;
         assert!(connected.failed.is_empty(), "{:?}", connected.failed);
-        let (tx, mut rx) = mpsc::channel(8);
         let tool = connected.tools[0].clone();
         let name = tool.name.clone();
-        let set = ToolSet::from_dynamic_tools(vec![mcp_dynamic(tool, tx)]);
+        let set = ToolSet::from_dynamic_tools(vec![mcp_dynamic(tool)]);
         let first = set
             .execute(
                 &name,
@@ -1859,27 +1841,6 @@ mod tests {
             )
             .await;
         assert!(!second.is_success(), "{second:?}");
-        match rx.try_recv() {
-            Ok(Update::Notice { level, text }) => {
-                assert_eq!(level, NoticeLevel::Warn);
-                assert!(text.starts_with("The Echo MCP server went away:"), "{text}");
-                assert!(
-                    text.contains("Its tools are gone until the teammate restarts."),
-                    "{text}"
-                );
-            }
-            other => panic!("the failing call sends the notice, not {other:?}"),
-        }
-
-        let third = set
-            .execute(
-                &name,
-                json!({"text": "harbour"}).to_string(),
-                &mut ToolContext::new(),
-            )
-            .await;
-        assert!(!third.is_success(), "{third:?}");
-        assert!(rx.try_recv().is_err(), "the notice lands once");
     }
 
     /// A CallToolResult with text and an image becomes text plus an image

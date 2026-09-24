@@ -504,6 +504,8 @@ pub struct Room {
     /// Computers being updated behind a running session: the new release
     /// downloads while the old computer keeps working, and the swap waits
     /// for the turn in flight to end. Keyed by teammate.
+    /// Why a teammate's last pressed update did not land, for its pane.
+    computer_update_failures: Mutex<HashMap<String, String>>,
     computer_swaps: Mutex<HashMap<String, ComputerSwap>>,
     keys: Arc<dyn ProviderKeys>,
     agents: Arc<dyn Agents>,
@@ -634,6 +636,7 @@ impl Room {
             starts: Mutex::new(HashMap::new()),
             computer_setups: Mutex::new(HashMap::new()),
             computer_swaps: Mutex::new(HashMap::new()),
+            computer_update_failures: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
@@ -847,15 +850,7 @@ impl Room {
             ),
             ComputerAtStart::Unavailable(reason) => {
                 capability.check()?;
-                self.write(
-                    &persona.id,
-                    &TranscriptEvent::Notice {
-                        id: new_id(),
-                        ts: now_ms(),
-                        level: NoticeLevel::Warn,
-                        text: computer_unavailable(&persona.name, &reason),
-                    },
-                );
+                eprintln!("{}", computer_unavailable(&persona.name, &reason));
                 let note = computer_failed_note(&reason);
                 (without_computer(persona), Vec::new(), Some(note))
             }
@@ -1092,15 +1087,7 @@ impl Room {
             Err(reason) => {
                 self.set_computer_setup(persona_id, ComputerSetup::Failed(reason.clone()));
                 if let Ok(persona) = self.persona(persona_id) {
-                    self.write(
-                        persona_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Warn,
-                            text: computer_unavailable(&persona.name, &reason),
-                        },
-                    );
+                    eprintln!("{}", computer_unavailable(&persona.name, &reason));
                 }
             }
         }
@@ -1125,7 +1112,7 @@ impl Room {
                 .is_some_and(|computer| computer.enabled)
         });
         let session = lock(&self.sessions).get(persona_id).cloned();
-        let (Some(persona), Some(session)) = (wanted, session) else {
+        let (Some(_), Some(session)) = (wanted, session) else {
             lock(&self.computer_setups).remove(persona_id);
             return;
         };
@@ -1137,18 +1124,6 @@ impl Room {
             return;
         }
         lock(&self.computer_setups).remove(persona_id);
-        self.write(
-            persona_id,
-            &TranscriptEvent::Notice {
-                id: new_id(),
-                ts: now_ms(),
-                level: NoticeLevel::Info,
-                text: format!(
-                    "{}'s computer finished downloading and joins now; the conversation carries on.",
-                    persona.name
-                ),
-            },
-        );
         let room = self.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
@@ -1281,21 +1256,16 @@ impl Room {
                     &guide.skill,
                 )
                 .map_err(|error| {
-                    format!("{}'s computer guide could not be written: {error}", persona.name)
+                    format!(
+                        "{}'s computer guide could not be written: {error}",
+                        persona.name
+                    )
                 })?;
                 self.computers.learned_release(&persona.id, &guide.version);
             }
-            Err(reason) => self.write(
-                &persona.id,
-                &TranscriptEvent::Notice {
-                    id: new_id(),
-                    ts: now_ms(),
-                    level: NoticeLevel::Info,
-                    text: format!(
-                        "The computer did not hand over its guide, so {} will ask it directly. {reason}",
-                        persona.name
-                    ),
-                },
+            Err(reason) => eprintln!(
+                "{}'s computer did not hand over its guide; it will ask it directly. {reason}",
+                persona.name
             ),
         }
         self.hand_secrets(persona, &ready).await;
@@ -1309,17 +1279,7 @@ impl Room {
     /// answer. The values pass vault → this process → container and are
     /// written nowhere on the way.
     async fn hand_secrets(&self, persona: &Persona, ready: &crate::computer::Ready) {
-        let notice = |text: String| {
-            self.write(
-                &persona.id,
-                &TranscriptEvent::Notice {
-                    id: new_id(),
-                    ts: now_ms(),
-                    level: NoticeLevel::Info,
-                    text,
-                },
-            );
-        };
+        let notice = |text: String| eprintln!("{}: {text}", persona.name);
         let granted: Vec<String> = persona
             .computer
             .as_ref()
@@ -2771,6 +2731,9 @@ impl Room {
                 status.available = Some(wanted);
             }
         }
+        status.update_failed = lock(&self.computer_update_failures)
+            .get(persona_id)
+            .cloned();
         Ok(status)
     }
 
@@ -2784,6 +2747,7 @@ impl Room {
     /// makes the new one.
     pub async fn computer_update(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
         let persona = self.persona(persona_id)?;
+        lock(&self.computer_update_failures).remove(persona_id);
         let old = self.computer_status(persona_id).await?.release;
         if !lock(&self.sessions).contains_key(persona_id) {
             self.computer_remove(persona_id).await?;
@@ -2819,18 +2783,11 @@ impl Room {
                 }
                 Err(reason) => {
                     lock(&room.computer_swaps).remove(&persona.id);
-                    room.write(
-                        &persona.id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Warn,
-                            text: format!(
-                                "{}'s computer could not be updated, and keeps the one it has: {reason}",
-                                persona.name
-                            ),
-                        },
+                    eprintln!(
+                        "{}'s computer could not be updated, and keeps the one it has: {reason}",
+                        persona.name
                     );
+                    lock(&room.computer_update_failures).insert(persona.id.clone(), reason);
                 }
             }
         });
@@ -2883,20 +2840,6 @@ impl Room {
                     .or_insert(swap);
                 room.swap_computer_when_idle(&persona_id);
                 return;
-            }
-            if let (Some(persona), Some(_)) = (&wanted, &session) {
-                room.write(
-                    &persona_id,
-                    &TranscriptEvent::Notice {
-                        id: new_id(),
-                        ts: now_ms(),
-                        level: NoticeLevel::Info,
-                        text: format!(
-                            "{}'s computer is updated and rejoins now; the conversation carries on.",
-                            persona.name
-                        ),
-                    },
-                );
             }
             let _ = room.computer_remove(&persona_id).await;
             if wanted.is_some() && session.is_some() {
@@ -3186,8 +3129,7 @@ impl Room {
     /// an ACP child from the checkpoint the marker still names. The user
     /// lines said in the meantime arrive as a [`Room::nudge`], Hotline's words,
     /// never a line of the tape. If the restore itself fails, the new session
-    /// still starts, reads the note the wake block already carries, and a
-    /// notice says the context could not be reopened.
+    /// still starts and reads the note the wake block already carries.
     pub async fn resume_chapter(
         self: &Arc<Self>,
         persona_id: &str,
@@ -3271,31 +3213,17 @@ impl Room {
 
         match self.start(persona_id).await {
             Ok(info) => {
+                // The new session still reads the note the wake block carries,
+                // so the conversation goes on; the gap is the log's business.
                 if persona.backend_id != HOTLINE_BACKEND_ID && !info.context_restored {
-                    self.write(
-                        persona_id,
-                        &TranscriptEvent::Notice {
-                            id: new_id(),
-                            ts: now_ms(),
-                            level: NoticeLevel::Warn,
-                            text: "The previous chapter's context could not be reopened."
-                                .to_string(),
-                        },
+                    eprintln!(
+                        "{}: the previous chapter's context could not be reopened",
+                        persona.name
                     );
                 }
             }
-            Err(error) => {
-                self.write(
-                    persona_id,
-                    &TranscriptEvent::Notice {
-                        id: new_id(),
-                        ts: now_ms(),
-                        level: NoticeLevel::Warn,
-                        text: "The previous chapter's context could not be reopened.".to_string(),
-                    },
-                );
-                return Err(error);
-            }
+            // The refusal goes back to whoever asked, and says why there.
+            Err(error) => return Err(error),
         }
         if let Err(error) = self.nudge(persona_id, &chapters::resume_nudge(&interim)) {
             eprintln!(
@@ -3388,19 +3316,9 @@ impl Room {
             by,
         );
         if missing {
-            // The chapter closed either way; what is gone is the handoff the
-            // next chapter would have woken on, and a person who never hears
-            // about it will not know why the next chapter starts cold.
-            self.write(
-                persona_id,
-                &TranscriptEvent::Notice {
-                    id: new_id(),
-                    ts: now_ms(),
-                    level: NoticeLevel::Warn,
-                    text: "This chapter closed without a handoff note: no model answered."
-                        .to_string(),
-                },
-            );
+            // The chapter closed either way; the next one starts from the
+            // tape rather than a handoff. Nothing for the conversation to say.
+            eprintln!("{persona_id}: a chapter closed without a handoff note: no model answered");
         }
         self.chapter_summary(persona_id, &open)
     }
@@ -3862,39 +3780,27 @@ impl Room {
     /// A chapter marker and the notice that a note is missing come this way:
     /// they are the room writing in its own voice, not a teammate speaking,
     /// and there is no reply, schedule or silence for them to be part of.
-    /// Where an image pull writes itself on the teammate's tape: one line
-    /// per pull, kept under one id and rewritten as layers land, so the tape
-    /// holds a bar that fills rather than a notice per layer. The id is
-    /// dropped once the pull is over, so a later pull is a later line.
+    /// Where an image pull shows: live progress for the computer's button,
+    /// never a line on the tape. A download is the room's business, and the
+    /// conversation carries on as if it were not happening.
     fn pull_reporter<'a>(
         &'a self,
         persona_id: &'a str,
     ) -> impl FnMut(crate::computer::PullReport) + 'a {
         use crate::computer::PullOutcome;
         use crate::contract::PullStatus;
-        let mut current: Option<String> = None;
         move |report| {
-            let id = current.get_or_insert_with(new_id).clone();
-            let (status, elapsed_ms) = match report.outcome {
-                PullOutcome::Pulling => (PullStatus::Pulling, None),
-                PullOutcome::Done { elapsed_ms } => (PullStatus::Done, Some(elapsed_ms)),
-                PullOutcome::Failed => (PullStatus::Failed, None),
+            let status = match report.outcome {
+                PullOutcome::Pulling => PullStatus::Pulling,
+                PullOutcome::Done { .. } => PullStatus::Done,
+                PullOutcome::Failed => PullStatus::Failed,
             };
-            self.write(
-                persona_id,
-                &TranscriptEvent::ComputerPull {
-                    id,
-                    ts: now_ms(),
-                    image: report.image,
-                    layers_done: report.layers_done,
-                    layers_total: report.layers_total,
-                    status,
-                    elapsed_ms,
-                },
-            );
-            if status != PullStatus::Pulling {
-                current = None;
-            }
+            let _ = self.deltas.send(StreamDelta::ComputerPull {
+                persona_id: persona_id.to_string(),
+                layers_done: report.layers_done,
+                layers_total: report.layers_total,
+                status,
+            });
         }
     }
 

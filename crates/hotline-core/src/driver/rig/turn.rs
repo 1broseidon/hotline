@@ -144,7 +144,6 @@ async fn run_inner(
     let mut last_round_failed = false;
     let mut retries = 0;
     let mut repaired = false;
-    let mut recovery_noticed = false;
     let mut context_tokens = 0;
     let mut rotated = false;
 
@@ -219,7 +218,6 @@ async fn run_inner(
                     &failure,
                     &mut retries,
                     &mut repaired,
-                    &mut recovery_noticed,
                     &mut history,
                     turn,
                     sender,
@@ -271,7 +269,6 @@ async fn run_inner(
                         &failure,
                         &mut retries,
                         &mut repaired,
-                        &mut recovery_noticed,
                         &mut history,
                         turn,
                         sender,
@@ -331,7 +328,6 @@ async fn run_inner(
                 &failure,
                 &mut retries,
                 &mut repaired,
-                &mut recovery_noticed,
                 &mut history,
                 turn,
                 sender,
@@ -545,7 +541,6 @@ async fn recover(
     failure: &Failure,
     retries: &mut u32,
     repaired: &mut bool,
-    noticed: &mut bool,
     history: &mut Vec<Message>,
     turn: &Turn,
     sender: &mpsc::Sender<Update>,
@@ -579,17 +574,13 @@ async fn recover(
         } else {
             "The provider refused its saved response state."
         };
-        send(sender, Update::Notice { level: NoticeLevel::Warn, text: format!("{reason} Continuing fresh from committed execution facts; opaque reasoning and image pixels were dropped. Attachment paths and completed actions remain recorded.") }).await;
+        eprintln!("[hotline agent] {reason} Continuing fresh from committed execution facts.");
         return Ok(true);
     }
     let Some(delay) = failure.retry_delay(*retries) else {
         return Ok(false);
     };
     *retries += 1;
-    if !*noticed {
-        send(sender, Update::Notice { level: NoticeLevel::Info, text: "The provider request failed. Retrying inference from the last committed state; completed actions will not be repeated.".into() }).await;
-        *noticed = true;
-    }
     let deadline = tokio::time::sleep(delay);
     tokio::pin!(deadline);
     loop {
@@ -1423,7 +1414,7 @@ mod tests {
             requests: seen,
             streams: Mutex::new(VecDeque::from([Some(stream)])),
         };
-        let (updates, mut receiver) = mpsc::channel(64);
+        let (updates, _receiver) = mpsc::channel(64);
         let task = tokio::spawn(async move {
             run(&model, request, &ToolSet::default(), &turn, &updates, None).await
         });
@@ -1435,11 +1426,8 @@ mod tests {
             .await
             .unwrap();
         drop(first);
-        while let Some(update) = receiver.recv().await {
-            if matches!(update, Update::Notice { .. }) {
-                break;
-            }
-        }
+        // Backing off says nothing, so give the turn a moment to be in it.
+        tokio::time::sleep(Duration::from_millis(100)).await;
         stop.raise();
         tokio::time::timeout(Duration::from_secs(1), task)
             .await
@@ -1507,7 +1495,7 @@ mod tests {
                 notices += 1;
             }
         }
-        assert_eq!(notices, 1, "one explicit recovery boundary");
+        assert_eq!(notices, 0, "the recovery is not narrated to the person");
     }
 
     #[tokio::test]
@@ -1521,7 +1509,7 @@ mod tests {
             requests: seen,
             streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
         };
-        let (updates, mut receiver) = mpsc::channel(64);
+        let (updates, _receiver) = mpsc::channel(64);
         let task = tokio::spawn(async move {
             run(&model, request, &ToolSet::default(), &turn, &updates, None).await
         });
@@ -1536,11 +1524,8 @@ mod tests {
             .await
             .unwrap();
         drop(first);
-        while let Some(update) = receiver.recv().await {
-            if matches!(update, Update::Notice { .. }) {
-                break;
-            }
-        }
+        // Backing off says nothing, so give the turn a moment to be in it.
+        tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(steering.admit(Message::user("new direction")));
         let request = receive(&mut requests).await;
         let text = serde_json::to_string(&request.chat_history).unwrap();

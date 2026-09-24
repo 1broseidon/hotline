@@ -722,6 +722,7 @@ impl RoomHandle for Quiet {
             viewer: Some("http://127.0.0.1:15800".into()),
             release: None,
             available: None,
+            update_failed: None,
         })
     }
 

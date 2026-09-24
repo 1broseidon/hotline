@@ -997,6 +997,7 @@ impl RoomHandle for Computered {
             viewer,
             release: None,
             available: None,
+            update_failed: None,
         })
     }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
@@ -1146,6 +1147,7 @@ fn the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running(
         viewer: viewer.map(str::to_owned),
         release: None,
         available: None,
+        update_failed: None,
     };
     assert_eq!(
         server::computer_target(&status(

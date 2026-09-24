@@ -491,6 +491,14 @@ pub struct ComputerStatus {
     /// that differs from the one running: the pane's offer to update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub available: Option<String>,
+    /// Why the update the person last pressed did not land, until they try
+    /// again. Said in the pane that offered it, never in the conversation.
+    #[serde(
+        rename = "updateFailed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub update_failed: Option<String>,
 }
 
 /// A browser found on the host, offered to the operator as a source of
@@ -1731,6 +1739,15 @@ pub enum StreamDelta {
         persona_id: String,
         message_id: String,
         text: String,
+    },
+    /// How far the teammate's computer image has downloaded. Drawn as a ring
+    /// where the computer's button sits, so the conversation carries on
+    /// around it; never written to the tape.
+    ComputerPull {
+        persona_id: String,
+        layers_done: u32,
+        layers_total: u32,
+        status: PullStatus,
     },
 }
 

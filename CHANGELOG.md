@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   retried, that the context was reset, or that a chapter closed without
   a handoff note. What is left is what you and your teammate said and
   did, and any reply that failed.
+- If a computer update you pressed cannot download, the teammate pane
+  says why under the Update button. Pressing Update again clears it.
 
 ## [0.18.0] - 2026-09-23
 

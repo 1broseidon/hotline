@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-24
+
 ### Added
 
 - A teammate can send you a file in the conversation: a report from its

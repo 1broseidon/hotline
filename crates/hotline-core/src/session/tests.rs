@@ -3790,6 +3790,81 @@ async fn the_idle_sweep_closes_a_stale_chapter_and_leaves_a_fresh_one() {
     );
 }
 
+/// Ada's chapter, last spoken in ten hours ago: past the room's eight.
+fn quiet_room(name: &str, agents: Arc<Fake>) -> (Arc<Room>, i64) {
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    let stale = now_ms() - 10 * 3_600_000;
+    write_tape(
+        &log,
+        "ada",
+        &[
+            json!({"kind": "chapter", "id": "c-ada", "ts": stale, "backendId": "hotline"}),
+            spoken("user", "u1", stale + 1_000, "did the crane jam?"),
+            spoken("agent", "a1", stale + 2_000, "It jammed."),
+        ],
+    );
+    let room = Room::with_agents_and_computers(
+        log,
+        Arc::new(DeskKeys),
+        agents,
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    );
+    (room, stale)
+}
+
+/// The message that ends a long quiet is the first line of the next chapter:
+/// the stale one closes before it is written, ending when the conversation
+/// stopped, so the reply is made in the new chapter's context and the divider
+/// sits above the message rather than one message later.
+#[tokio::test]
+async fn a_message_after_the_idle_window_opens_the_next_chapter() {
+    let (room, stale) = quiet_room(
+        "chapter-arrival",
+        Fake::answering(
+            Scripted::turns(vec![saying("one", "Welcome back.")]),
+            note_json("Crane jam"),
+        ),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "back again", None, None).await.unwrap();
+    settled(&room, "ada", 4).await;
+
+    let events = tape(&room, "ada");
+    assert_eq!(
+        kinds(&events)[..6],
+        ["chapter", "user", "agent", "chapter", "user", "agent"]
+    );
+    assert_eq!(events[0]["closedBy"], "idle");
+    assert_eq!(
+        events[0]["endedAt"],
+        stale + 2_000,
+        "the old chapter ended when the conversation stopped"
+    );
+    assert_eq!(events[3].get("endedAt"), None, "the new chapter is open");
+    assert_eq!(events[4]["text"], "back again");
+    assert_eq!(events[5]["text"], "Welcome back.");
+}
+
+/// A message being written holds the start gate, and the sweep leaves that
+/// teammate to it: the message closes the chapter itself if it must, and
+/// the sweep never writes a close over a line said while its note was out.
+#[tokio::test]
+async fn the_idle_sweep_leaves_a_chapter_to_a_message_being_written() {
+    let (room, _) = quiet_room(
+        "chapter-sweep-gate",
+        Fake::answering(Scripted::new(Vec::new()), note_json("Crane jam")),
+    );
+    let gate = room.start_gate("ada");
+    let held = gate.lock().await;
+    room.sweep_chapters(&mut HashMap::new()).await;
+    assert_eq!(markers(&room, "ada")[0].get("endedAt"), None);
+
+    drop(held);
+    room.sweep_chapters(&mut HashMap::new()).await;
+    assert_eq!(markers(&room, "ada")[0]["closedBy"], "idle");
+}
+
 /// A teammate nobody spoke to does not collect empty rules in its drawer.
 #[tokio::test]
 async fn a_chapter_nobody_spoke_in_closes_without_a_title() {

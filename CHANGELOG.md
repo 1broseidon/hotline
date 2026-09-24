@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-24
+
 ### Added
 
 - The team list at the left can be resized by dragging its edge. Drag it

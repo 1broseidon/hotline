@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-09-23
+
 ### Changed
 
 - A teammate's computer that is downloading shows as a ring filling in

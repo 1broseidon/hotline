@@ -17,8 +17,8 @@ import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
-import { activityOf } from "../activity";
-import { Glyph } from "../ui/Glyph";
+import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "../activity";
+import { Glyph, LANDED_MS } from "../ui/Glyph";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
@@ -148,6 +148,7 @@ export function Transcript({
 	// Hooks before the empty-state return, so their order never changes.
 	const arrived = toBlocks(events, streaming);
 	const hidden = useCadence(personaId, arrived);
+	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null)));
 
 	if (empty) {
 		return (
@@ -160,7 +161,6 @@ export function Transcript({
 	}
 
 	const blocks = hidden.size === 0 ? arrived : arrived.filter((block) => !(block.kind === "event" && hidden.has(block.event.id)));
-	const activity = live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null;
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -178,8 +178,14 @@ export function Transcript({
 		<div className="relative flex min-h-0 flex-1 flex-col">
 		<Scroll scrollerRef={scroller}>
 			{/* `justify-end` rests a short conversation on the composer rather
-			    than stranding it at the top of an empty pane. */}
-			<div className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${live ? "pb-14" : "pb-6"}`}>
+			    than stranding it at the top of an empty pane. The room at the
+			    bottom is the mark's for as long as the mark is there — through
+			    the landing and the sleep, not just the turn — so the last bubble
+			    never slides under it. It opens before the mark rises into it
+			    (`wake` waits out this 200ms) and eases back once the mark is gone. */}
+			<div
+				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 transition-[padding] duration-200 ${activity !== null ? "pb-14" : "pb-6"}`}
+			>
 				{blocks.map((block, index) => {
 					const previous = blocks[index - 1];
 					const stamp =
@@ -221,6 +227,7 @@ export function Transcript({
 					<button
 						type="button"
 						className="ambient-mark"
+						data-sleeping={sleeping || undefined}
 						aria-expanded={workShown}
 						title={workShown ? "Hide the work" : "Show the work"}
 						onClick={() => setWorkShown((was) => !was)}
@@ -249,6 +256,100 @@ export function Transcript({
 		)}
 		</div>
 	);
+}
+
+/**
+ * Each kind of work stays on the mark for at least DWELL_MS before the next
+ * replaces it, so an agent alternating reads and searches a few times a
+ * second shows each as a pose and not as a twitch. Waiting on you and
+ * writing take over at once: they are the two you need to see the moment
+ * they happen.
+ */
+const DWELL_MS = 900;
+
+function useSteady(activity: Activity | null): Activity | null {
+	const shown = useRef<{ activity: Activity | null; at: number }>({ activity, at: Date.now() });
+	const [, wake] = useReducer((n: number) => n + 1, 0);
+	const now = Date.now();
+	const was = shown.current;
+	const work = (one: Activity | null) => one !== null && one.phase !== "blocked" && one.phase !== "writing";
+	const changing = activity?.phase !== was.activity?.phase;
+	const hold = changing && work(activity) && work(was.activity) && now - was.at < DWELL_MS;
+	if (changing && !hold) shown.current = { activity, at: now };
+	const dueIn = hold ? DWELL_MS - (now - was.at) : null;
+	useEffect(() => {
+		if (dueIn === null) return;
+		const timer = window.setTimeout(wake, dueIn);
+		return () => window.clearTimeout(timer);
+	}, [dueIn]);
+	return hold ? was.activity : activity;
+}
+
+/**
+ * The mark wakes and goes back to sleep behind the composer: it rises from
+ * behind it when a turn starts (the CSS does that on mount) and, once the
+ * turn and any landing are over, it holds RESTING for SLEEP_MS — the handset
+ * settles on the cradle, then the toad sinks back down out of sight. A turn
+ * that starts again while it is sinking takes the mark back up. Worked out
+ * during render, like the landing, so there is no frame without a mark.
+ * SLEEP_MS is the settle and the sink in index.css's `.ambient-mark[data-sleeping]`.
+ */
+const SLEEP_MS = 800;
+
+function useSleep(personaId: string, activity: Activity | null): { activity: Activity | null; sleeping: boolean } {
+	const awake = useRef(false);
+	const [sleeping, setSleeping] = useState(false);
+	const off = activity === null;
+	const going = off && (sleeping || awake.current);
+	useEffect(() => {
+		awake.current = false;
+		setSleeping(false);
+	}, [personaId]);
+	useEffect(() => {
+		if (!off) {
+			awake.current = true;
+			setSleeping(false);
+			return;
+		}
+		if (!awake.current) return;
+		awake.current = false;
+		setSleeping(true);
+		const timer = window.setTimeout(() => setSleeping(false), SLEEP_MS);
+		return () => window.clearTimeout(timer);
+	}, [off]);
+	return activity !== null ? { activity, sleeping: false } : going ? { activity: RESTING, sleeping: true } : { activity: null, sleeping: false };
+}
+
+/**
+ * The mark hangs up after the reply lands. A turn that ended while it was
+ * writing keeps the mark for LANDED_MS in the `landed` phase, so the voice
+ * line can reel back into the handset and drop onto the cradle; any other
+ * ending — a cancel mid-tool, a refusal — lets it go at once, because
+ * nothing was said to hang up on. Worked out during render rather than after
+ * it, so the mark is never gone for a frame between writing and landing.
+ */
+function useLanding(personaId: string, activity: Activity | null): Activity | null {
+	const last = useRef<ActivityPhase | null>(null);
+	const [landing, setLanding] = useState(false);
+	const phase = activity?.phase ?? null;
+	const ended = phase === null && (landing || last.current === "writing");
+	useEffect(() => {
+		last.current = null;
+		setLanding(false);
+	}, [personaId]);
+	useEffect(() => {
+		if (phase !== null) {
+			last.current = phase;
+			setLanding(false);
+			return;
+		}
+		if (last.current !== "writing") return;
+		last.current = null;
+		setLanding(true);
+		const timer = window.setTimeout(() => setLanding(false), LANDED_MS);
+		return () => window.clearTimeout(timer);
+	}, [phase]);
+	return activity ?? (ended ? LANDED : null);
 }
 
 /**

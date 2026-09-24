@@ -881,11 +881,16 @@
 	 * message and gets no bubble; it is in the room while the reply is on its
 	 * way and gone when it lands. A press opens the work above it. The
 	 * pupils are the canvas colour, so the eyes read as eyes against it. */
+	/* The row's bottom edge is the composer's top, and nothing shows below
+	 * it: the mark wakes up from behind the composer and sinks back behind
+	 * it to sleep. Above and to the sides it may move freely. */
 	.ambient {
 		position: absolute;
-		inset: auto 0 10px 0;
+		inset: auto 0 0 0;
+		padding-bottom: 10px;
 		z-index: 1;
 		pointer-events: none;
+		clip-path: inset(-160px -80px 0 -80px);
 	}
 	.ambient-mark {
 		display: flex;
@@ -895,7 +900,25 @@
 		border-radius: var(--radius-control);
 		color: var(--ink-3);
 		pointer-events: auto;
-		animation: pop-in var(--dur-open) var(--ease-out) both;
+		/* The transcript makes room first (its 200ms padding ease), then the
+		 * mark rises into it, slow out of sleep; the glyph's first blink
+		 * (WAKE_BLINK) lands as it surfaces. */
+		animation: wake 650ms 200ms cubic-bezier(0.33, 1, 0.68, 1) both;
+	}
+	/* Settle on the cradle, then sink: 300 + 480ms, SLEEP_MS in Transcript.tsx. */
+	.ambient-mark[data-sleeping] {
+		pointer-events: none;
+		animation: sleep 480ms 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
+	}
+	@keyframes wake {
+		from {
+			transform: translateY(calc(100% + 10px));
+		}
+	}
+	@keyframes sleep {
+		to {
+			transform: translateY(calc(100% + 10px));
+		}
 	}
 	.ambient-word {
 		font-size: var(--text-sm);
@@ -905,58 +928,31 @@
 		display: block;
 		flex-shrink: 0;
 		fill: currentColor;
+		/* Thinking holds the receiver high and running hops: the mark may
+		 * move past its box, and the row above the composer has the room. */
+		overflow: visible;
 	}
 	.glyph .g-pupils {
 		fill: var(--canvas);
 	}
-	/* Every part moves about its own centre, so the collapse into dots is
-	 * each eye shrinking where it stands and dropping onto the row. While
-	 * the mark is posed, the frame loop owns these transforms and nothing
-	 * eases them: a transition on a value painted sixty times a second is
-	 * a smear. Only the collapse eases, and it starts from wherever the last
-	 * frame left off. */
+	/* Every part moves about its own centre, so a blink squashes an eye where
+	 * it stands and the receiver turns about its middle. The frame loop owns
+	 * these transforms and nothing eases them: a transition on a value
+	 * painted sixty times a second is a smear. */
 	.glyph .g-body,
 	.glyph .g-eyeL,
 	.glyph .g-eyeR,
-	.glyph .g-dot,
-	.glyph .g-pupils {
+	.glyph .g-pupils,
+	.glyph .g-receiver {
 		transform-box: fill-box;
 		transform-origin: center;
 	}
-	.glyph-mark .g-dot {
-		transform: scale(0);
-	}
-	.glyph-dots .g-body {
-		transform: scaleY(0.001);
-		transition: transform var(--dur-move) var(--ease-in-out);
-	}
-	.glyph-dots .g-pupils {
-		opacity: 0;
-		transition: opacity var(--dur-move) var(--ease-in-out);
-	}
-	.glyph-dots .g-eyeL,
-	.glyph-dots .g-eyeR {
-		transform: translateY(9px) scale(0.4);
-		transition: transform var(--dur-move) var(--ease-in-out);
-		animation: typing var(--dur-typing) var(--ease-in-out) infinite;
-	}
-	.glyph-dots .g-dot {
-		transition: transform var(--dur-move) var(--ease-in-out);
-		animation: typing var(--dur-typing) var(--ease-in-out) infinite;
-		animation-delay: calc(var(--dur-typing) / 6);
-	}
-	.glyph-dots .g-eyeR {
-		animation-delay: calc(var(--dur-typing) / 3);
-	}
-	@keyframes typing {
-		0%,
-		55%,
-		100% {
-			opacity: 0.35;
-		}
-		25% {
-			opacity: 1;
-		}
+	/* On the line: the handset as a stroke, pulled out above the toad into the reply. */
+	.glyph .g-line {
+		fill: none;
+		stroke: currentColor;
+		stroke-linecap: round;
+		stroke-linejoin: round;
 	}
 
 	/* A reply's quote: a bar and a quieter voice above your own line. */
@@ -1709,9 +1705,8 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.beat,
-	.glyph-dots .g-eyeL,
-	.glyph-dots .g-eyeR,
-	.glyph-dots .g-dot,
+	.ambient-mark,
+	.ambient-mark[data-sleeping],
 	.menu,
 	.search-panel,
 	.row-lit {

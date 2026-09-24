@@ -230,10 +230,13 @@ produces; the PNGs are tracked so a checkout builds without the CLI's
 rasteriser. The first PNG in `tauri.conf.json`'s icon list is the window's
 own icon on Linux, which is why the 128px one leads it: X drops an icon
 larger than a quarter megabyte, and 256px is a few bytes over. The same
-target also renders the tray: `icons/tray.png` is the mark at 32×32 in the
-accent on transparent, for Linux and Windows; `icons/tray-template.png` is
-the mark at 44×44 in solid black on transparent, for macOS as a template
-image. In the page the same drawing is `ui/src/ui/HotlineMark.tsx`.
+target also renders the tray from the plain toad, `assets/hotline-mark-plain.svg`,
+the mark without its handset, as the titlebar wears it:
+`icons/tray.png` is the mark at 32×32 in the accent on transparent, for
+Linux and Windows; `icons/tray-template.png` is the mark at 44×44 in solid
+black on transparent, for macOS as a template image. In the page the same
+drawing is `ui/src/ui/HotlineMark.tsx`, from the receiver geometry in
+`ui/src/ui/receiver.ts`.
 
 The page is `ui/`. The design system is written down in `ui/design.md`
 and spelled as tokens in `ui/src/tokens.css` — five planes of one cool

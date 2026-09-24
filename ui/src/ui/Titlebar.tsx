@@ -49,7 +49,7 @@ export function Titlebar({
 	return (
 		<header className="titlebar">
 			<div data-tauri-drag-region className="titlebar-drag" onDoubleClick={() => void toggleMaximize()} />
-			<HotlineMark className="titlebar-mark" width={18} />
+			<HotlineMark className="titlebar-mark" width={18} plain />
 			<p className="titlebar-title">{windowTitle(selected?.persona.name ?? null)}</p>
 			<div className="titlebar-tools">
 				{selected !== null && <SessionPickers key={selected.persona.id} entry={selected} models={models} onSaid={onSaid} />}

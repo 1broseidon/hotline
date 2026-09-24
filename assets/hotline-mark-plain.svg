@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.75 64 64" role="img" aria-label="Hotline">
+	<!--
+		The Hotline mark off the hook: the toad alone, as the app's own chrome wears it
+		(the titlebar, and the tray from this file). There the mark is the app's name,
+		not a teammate at work, so it needs no handset. hotline-mark.svg is the mark with
+		its receiver.
+	-->
+	<mask id="hotline-pupils-plain" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+		<rect width="64" height="64" fill="#fff" />
+		<rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000" />
+		<rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000" />
+	</mask>
+	<g mask="url(#hotline-pupils-plain)" fill="currentColor">
+		<rect x="4" y="30" width="56" height="18" rx="6" />
+		<circle cx="20" cy="30" r="10.5" />
+		<circle cx="44" cy="30" r="10.5" />
+	</g>
+</svg>

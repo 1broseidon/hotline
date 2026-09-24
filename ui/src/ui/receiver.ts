@@ -4,14 +4,18 @@
  * The eyes already sit where a desk phone's earpiece and mouthpiece rest in
  * the cradle, so the handset is drawn around them rather than on its own
  * grid: each cup is an arc concentric with an eye, set out by a gap and as
- * thick as the handset, and the handle bridges the two cup tops a little
- * lower than they stand, so the cups read as earcups on a headband as well
- * as the two ends of a receiver. The lips hang past each eye's shoulder;
+ * thick as the handset, and the handle bridges the two cup tops. On the
+ * large drawing it sits a little lower than they stand, so the cups read as
+ * earcups on a headband as well as the two ends of a receiver; on the small
+ * one, which the working glyph moves, it runs straight across, because a dip
+ * in the middle is one more thing every pose would have to carry. The lips hang past each eye's shoulder;
  * they are what says "phone" at every size.
  *
- * One colour, one fill: the gap is the cut. At 16px a 2.2-unit cut is 0.6px
+ * One colour, one fill: the gap is the cut. At 16px a 2.4-unit cut is 0.6px
  * and the handset fuses with the eyes into goggles, so there is a small
- * drawing with a wider cut, the way a typeface has an optical size.
+ * drawing, the brow, with a wider cut and a slim straight handset: at a
+ * glance a toad with a heavy brow, the receiver on a second look. That is
+ * the one the working glyph moves; the way a typeface has an optical size.
  *
  * assets/hotline-mark.svg and assets/hotline-mark-small.svg are these paths
  * written out; change the numbers here and re-render them.
@@ -20,9 +24,10 @@
 export type Receiver = { gap: number; thick: number; lips: number; sag: number };
 
 /** The drawing, from 25px up. */
-export const RECEIVER: Receiver = { gap: 2.2, thick: 4.6, lips: 170, sag: 1.5 };
-/** The drawing at 24px and under: a cut that survives as a pixel. */
-export const RECEIVER_SMALL: Receiver = { gap: 3.4, thick: 4.8, lips: 166, sag: 1.3 };
+export const RECEIVER: Receiver = { gap: 2.4, thick: 6.5, lips: 166, sag: 1.3 };
+/** The brow: the drawing at 24px and under and on the moving glyph, a slim straight handset whose cut survives as a pixel. */
+export const RECEIVER_SMALL: Receiver = { gap: 3.4, thick: 3.8, lips: 156, sag: 0 };
+
 
 const LEFT = 20;
 const RIGHT = 44;

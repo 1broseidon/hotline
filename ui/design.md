@@ -32,11 +32,14 @@ One family, **Workbench**, for every screen:
 - The **mark** is one shape in one colour, `ui/src/ui/HotlineMark.tsx`:
   the toad with a telephone receiver resting across its eyes, where a
   desk phone's handset sits in the cradle, cut from them by a gap. At
-  24px and under it draws the small receiver, whose wider cut survives
-  as a pixel (`ui/src/ui/receiver.ts` holds both). In chrome it is ink-3,
-  the colour of a reading, never the accent: the accent is for what is
-  happening, and the mark is furniture. The app tile is the same drawing
-  in the accent on a dark rounded square (`assets/hotline-tile.svg`).
+  24px and under, and on the mark that moves, it draws the brow: a slim,
+  straight handset whose wider cut survives as a pixel
+  (`ui/src/ui/receiver.ts` holds both). The titlebar and the tray wear
+  the toad alone; the handset is what the mark does, and chrome is at
+  rest. In chrome it is ink-3, the colour of a reading, never the accent:
+  the accent is for what is happening, and the mark is furniture. The app
+  tile is the drawing with its handset in the accent on a dark rounded
+  square (`assets/hotline-tile.svg`).
 - The **well** is the window's ground. The rail stands directly in it.
 - A **pane** is a rounded canvas set 8px into the well with one hairline
   at its edge and a 1px light along its top: the conversation, the
@@ -55,14 +58,17 @@ One family, **Workbench**, for every screen:
   message to a resting teammate starts the session on its way. While
   they work the mark floats above the composer — not in a bubble, because
   it is not a message — with one word for what kind of work: Reading,
-  Searching, Editing, Running, Thinking, or Waiting on you. Nothing
+  Searching, Editing, Running, Thinking, or Waiting on you. It wakes up
+  from behind the composer when the work starts, and when the turn is over
+  it settles on the cradle and sinks back behind it to sleep. Nothing
   streams. A reply lands whole, the way a text does; while it is on its
-  way the receiver unbends into a moving voice line and the toad folds
-  into it, and when it lands the line reels back into the handset, which
-  hangs up and winks before the mark goes. A press on the mark
-  opens the work behind it for that turn. The band is the name and the
-  tools; the model and effort are on the window's strip, and everything
-  else about a teammate — its mode included — lives under the inspector.
+  way the receiver lifts off into a wave running above the toad, which
+  stays and watches it — on the line — and when it lands the line reels
+  back into the handset, which hangs up and winks before the mark goes. A
+  press on the mark opens the work behind it for that turn. The band is
+  the name and the tools; the model and effort are on the window's strip,
+  and everything else about a teammate — its mode included — lives under
+  the inspector.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
 

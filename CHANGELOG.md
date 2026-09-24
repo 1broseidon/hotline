@@ -11,14 +11,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Changed
 
 - The Hotline mark picks up the phone: a receiver now rests across the
-  toad's eyes in the window, the app icon and the tray. While a teammate
+  toad's eyes on the working mark and the app icon, while the title bar
+  and the tray keep the plain toad. While a teammate
   works, how it holds the receiver tells you what kind of work it is:
   up at the ear while it thinks, low while it reads, swinging as it
   searches, tucked at the shoulder while it edits, hopping while a
   command runs, and back on the cradle, ringing, when it is waiting on
   you. The three dots are gone: while a reply is on its way the receiver
-  unbends into a moving line, and when the reply lands it reels back in
-  and hangs up.
+  lifts off into a moving line above the toad, which watches it, and when
+  the reply lands it reels back in and hangs up. The toad wakes up from
+  behind the message box when a teammate starts working and sinks back
+  down behind it when the work is done.
 
 ## [0.19.0] - 2026-09-24
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ActivityPhase } from "../activity";
-import { RECEIVER, receiverLine, receiverPath } from "./receiver";
+import { RECEIVER_SMALL as RECEIVER, receiverLine, receiverPath } from "./receiver";
 
 /**
  * The Hotline mark, moving because of something.
@@ -21,15 +21,15 @@ import { RECEIVER, receiverLine, receiverPath } from "./receiver";
  * on the cradle and rings, then stares. A blink marks each change into a
  * new kind of work, so the change is seen.
  *
- * The reply is the call itself: the handset comes off the head and unbends
- * into a voice line, the toad folding into it, and the line moves for as
- * long as the words are on their way. When the turn ends the transcript
+ * The reply is the call itself: the handset comes off the head and pulls
+ * out into a line above it, and the toad stays below watching it — on the
+ * line — for as long as the words are on their way. When the turn ends the transcript
  * holds the mark in `landed` for LANDED_MS: the line reels back into a
  * handset, drops onto the cradle with a clunk, and the toad winks — done,
  * over to you. The hang-up is where the call ends, not where the reply
  * starts.
  *
- * The drawing is assets/hotline-mark.svg, the same one HotlineMark draws
+ * The drawing is assets/hotline-mark-small.svg, the same one HotlineMark draws
  * still; here the pupils are painted in the ground's colour rather than
  * masked, because a mask cannot be animated part by part and a blink needs
  * the eye and its pupil to squash together.
@@ -81,17 +81,20 @@ const STALL_OVER = 6;
  */
 const RING_AGAIN = 30;
 
-/** The reply: the handset unbends over MORPH, and landing reels it back. */
+/** The reply: the handset lifts off into the line over MORPH, and landing reels it back. */
 const LINE_POINTS = 80;
 const MORPH = 0.5;
 const REEL = 0.4;
 const DROP = 0.3;
 const CLUNK = 0.12;
 const WINK = 0.56;
+/** When the first blink comes after the mark mounts: as it finishes rising from behind the composer (`wake` in index.css). */
+const WAKE_BLINK = 0.7;
 /** How long the transcript keeps the mark after the turn so it can land. */
 export const LANDED_MS = (REEL + DROP + CLUNK + WINK) * 1000 + 100;
 
-const LINE_WIDTH = 3.6;
+/** The line is the handset's own line, as thick as the handset: one line, lifted into the reply and back. */
+const LINE_WIDTH = RECEIVER.thick;
 
 /** Shut quicker than opened, then a moment with both eyes open: a gesture, not a twitch. */
 function winkAt(p: number): number {
@@ -206,19 +209,32 @@ function poseOf(phase: ActivityPhase, t: number, stall: number): Pose {
 		case "writing":
 		case "landed":
 			return { ...REST };
+		/* Going back to sleep: on the cradle, still. */
+		case "rest":
+			return { ...REST };
 	}
 }
 
-/** The voice line: a wave that moves along itself, tapered at both ends. */
+/**
+ * On the line: the handset lifted off the head and pulled out into a wave
+ * that runs along itself above the toad, tapered at both ends. The toad
+ * stays below and watches it — the reply is coming down the line to you.
+ */
 function voiceLine(t: number): [number, number][] {
 	const points: [number, number][] = [];
 	for (let i = 0; i < LINE_POINTS; i++) {
 		const u = i / (LINE_POINTS - 1);
-		const x = 9 + 46 * u;
-		const amp = 4.4 * Math.sin(Math.PI * u) ** 0.6 * (0.72 + 0.28 * Math.sin(x * 0.55 - t * 3.1));
-		points.push([x, 36 + amp * Math.sin((2 * Math.PI * x) / 10.5 - 2 * Math.PI * 1.4 * t)]);
+		const x = 10 + 44 * u;
+		points.push([x, 10 + 2.6 * Math.sin(Math.PI * u) ** 0.6 * Math.sin((2 * Math.PI * x) / 9 - 2 * Math.PI * 1.4 * t)]);
 	}
 	return points;
+}
+
+/** The toad watching the line, `m` of the way there: eyes up and wandering along it, sat a little lower. */
+function watching(pose: Pose, t: number, m: number): void {
+	pose.pupilY = -1.8 * m;
+	pose.pupil = 2.2 * Math.sin(t * 2.4) * m;
+	pose.dy = 1.2 * m;
 }
 
 const HANDSET = receiverLine(RECEIVER, LINE_POINTS);
@@ -250,11 +266,14 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 
 	useEffect(() => {
 		if (!REDUCED_MOTION) return;
-		/* Held still: the pose at rest, or the line flat while a reply is on its way. */
+		/* Held still: the pose at rest, or the line still above the toad while a reply is on its way. */
 		const node = root.current;
 		if (!node) return;
-		if (phase === "writing") paint(node, { ...REST }, { lift: 0, tilt: 0, hx: 0 }, { points: voiceLine(0), width: LINE_WIDTH }, 1);
-		else paint(node, { ...REST }, { lift: 0, tilt: 0, hx: 0 }, null, 0);
+		if (phase === "writing") {
+			const pose = { ...REST };
+			watching(pose, 0, 1);
+			paint(node, pose, { lift: 0, tilt: 0, hx: 0 }, { points: voiceLine(0), width: LINE_WIDTH });
+		} else paint(node, { ...REST }, { lift: 0, tilt: 0, hx: 0 }, null);
 	}, [phase]);
 
 	useEffect(() => {
@@ -262,7 +281,8 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 		let frame = 0;
 		let last = performance.now();
 		let blinkAt = -1;
-		let nextBlink = 2 + Math.random() * 3;
+		// The first blink is the waking one: just as the mark clears the composer.
+		let nextBlink = performance.now() / 1000 + WAKE_BLINK;
 		/* The handset eases between holds — picking up a phone takes a
 		 * moment — and everything else is painted raw. */
 		const held = { lift: 0, tilt: 0, hx: 0 };
@@ -280,7 +300,7 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			if (since.current < 0) {
 				since.current = now;
 				entry = { ...held };
-				if (phase !== "writing" && phase !== "landed") blinkAt = now / 1000;
+				if (phase !== "writing" && phase !== "landed" && phase !== "rest") blinkAt = now / 1000;
 			}
 			const t = (now - since.current) / 1000;
 			const stall =
@@ -303,20 +323,19 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			pose.eyeR = Math.min(pose.eyeR, blink);
 			const k = 1 - Math.exp(-dt / 0.08);
 			let line: Line | null = null;
-			let fold = 0;
 
 			if (phase === "writing") {
-				/* Off the head and into the line, the toad folding in after it. */
+				/* Off the head and into the line, the toad looking up after it. */
 				const m = ease(clamp01(t / MORPH));
-				line = { points: mix(heldLine(entry.lift, entry.tilt, entry.hx), voiceLine(t), m), width: RECEIVER.thick + (LINE_WIDTH - RECEIVER.thick) * m };
-				fold = m;
+				line = { points: mix(heldLine(entry.lift, entry.tilt, entry.hx), voiceLine(t), m), width: LINE_WIDTH };
+				watching(pose, t, m);
 				spoken = t;
 			} else if (phase === "landed") {
 				/* Reel in, drop onto the cradle, clunk, wink. */
 				if (t < REEL) {
 					const m = ease(t / REEL);
-					line = { points: mix(voiceLine(spoken + t), heldLine(3, 0, 0), m), width: LINE_WIDTH + (RECEIVER.thick - LINE_WIDTH) * m };
-					fold = 1 - m;
+					line = { points: mix(voiceLine(spoken + t), heldLine(3, 0, 0), m), width: LINE_WIDTH };
+					watching(pose, spoken + t, 1 - m);
 					Object.assign(held, { lift: 3, tilt: 0, hx: 0 });
 				} else {
 					const c = t - REEL;
@@ -334,7 +353,7 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 				held.hx += (pose.hx - held.hx) * k;
 			}
 
-			paint(node, pose, held, line, fold);
+			paint(node, pose, held, line);
 		};
 
 		frame = requestAnimationFrame(draw);
@@ -370,26 +389,18 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
  * The only place that touches the DOM. Attributes rather than React state:
  * this runs every frame, and re-rendering a component sixty times a second
  * to move a handful of shapes would cost more than the animation does.
- * `fold` is how far the toad has folded into the voice line, 0 to 1.
  */
-function paint(root: SVGSVGElement, pose: Pose, held: { lift: number; tilt: number; hx: number }, line: Line | null, fold: number): void {
+function paint(root: SVGSVGElement, pose: Pose, held: { lift: number; tilt: number; hx: number }, line: Line | null): void {
 	const set = (selector: string, name: string, value: string) => root.querySelector(selector)?.setAttribute(name, value);
-	const keep = 1 - fold;
 	const w = pose.wide;
-	const gone = fold > 0.97 ? "0" : "1";
 	const f = (v: number) => Math.max(0.001, v).toFixed(3);
 	set(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
-	set(".g-body", "transform", `scale(${f(1 - 0.3 * fold)} ${f(pose.body * keep)})`);
-	set(".g-body", "opacity", gone);
-	// The eyes shrink in toward the line as the toad folds into it.
-	set(".g-eyeL", "transform", `translate(${(6 * fold).toFixed(2)} ${(6 * fold).toFixed(2)}) scale(${f(w * keep)} ${f(pose.eyeL * w * keep)})`);
-	set(".g-eyeR", "transform", `translate(${(-6 * fold).toFixed(2)} ${(6 * fold).toFixed(2)}) scale(${f(w * keep)} ${f(pose.eyeR * w * keep)})`);
-	set(".g-eyeL", "opacity", gone);
-	set(".g-eyeR", "opacity", gone);
+	set(".g-body", "transform", `scale(1 ${f(pose.body)})`);
+	set(".g-eyeL", "transform", `scale(${f(w)} ${f(pose.eyeL * w)})`);
+	set(".g-eyeR", "transform", `scale(${f(w)} ${f(pose.eyeR * w)})`);
 	// The pupils are one group, so an uneven wink squashes them by the lesser
 	// of the two — the open eye keeps its slit and the shut one has nothing to show.
-	set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w * keep)})`);
-	set(".g-pupils", "opacity", keep.toFixed(3));
+	set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w)})`);
 	set(".g-hand", "transform", `translate(${held.hx.toFixed(2)} ${(pose.hy - held.lift).toFixed(2)})`);
 	set(".g-receiver", "transform", `rotate(${(held.tilt + pose.ht).toFixed(2)})`);
 	set(".g-hand", "opacity", line ? "0" : "1");

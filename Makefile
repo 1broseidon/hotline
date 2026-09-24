@@ -46,8 +46,8 @@ icons: tray-icons
 	cd crates/hotline-app && cargo tauri icon ../../assets/hotline-tile.svg -o icons && rm -rf icons/android icons/ios
 
 tray-icons:
-	sed 's/currentColor/#6bcb62/' assets/hotline-mark-small.svg | rsvg-convert -w 32 -h 32 -o crates/hotline-app/icons/tray.png -
-	sed 's/currentColor/#000000/' assets/hotline-mark-small.svg | rsvg-convert -w 44 -h 44 -o crates/hotline-app/icons/tray-template.png -
+	sed 's/currentColor/#6bcb62/' assets/hotline-mark-plain.svg | rsvg-convert -w 32 -h 32 -o crates/hotline-app/icons/tray.png -
+	sed 's/currentColor/#000000/' assets/hotline-mark-plain.svg | rsvg-convert -w 44 -h 44 -o crates/hotline-app/icons/tray-template.png -
 
 ## The website: the landing page in site/ with the docs built under it at /docs.
 .PHONY: site site-deploy og-card toad-redirect-deploy

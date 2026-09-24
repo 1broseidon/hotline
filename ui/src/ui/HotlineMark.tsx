@@ -7,16 +7,23 @@ import { RECEIVER, RECEIVER_SMALL, receiverBox, receiverPath } from "./receiver"
  * at any size; the pupils are punched through and the handset is cut from
  * the eyes by a gap, so there is never a second fill to keep in step. At
  * 24px and under it draws the small receiver, whose cut survives as a
- * pixel. The source of truth is assets/hotline-mark.svg (and -small), and
- * the app tile is the same drawing.
+ * pixel and whose handset is slim and straight, the same drawing the working glyph
+ * rests in. `plain` is the toad alone, off the hook: the app's own chrome
+ * (the titlebar, and the tray from assets/hotline-mark-plain.svg) wears it,
+ * because there the mark is the app's name, not a teammate at work. The
+ * source of truth is assets/hotline-mark.svg (and -small),
+ * and the app tile is the same drawing.
  *
  * Decorative by default. It takes a label only where it is the only thing
  * naming the app on screen; beside a title that already says Hotline, a second
  * announcement of the same word is noise.
  */
-export function HotlineMark({ className, label, width = 20 }: { className?: string; label?: string; width?: number }) {
+/** The toad alone: its eyes' tops to the waterline. */
+const PLAIN_BOX = { x: 4, y: 19.5, w: 56, h: 28.5 };
+
+export function HotlineMark({ className, label, width = 20, plain = false }: { className?: string; label?: string; width?: number; plain?: boolean }) {
 	const g = width <= 24 ? RECEIVER_SMALL : RECEIVER;
-	const box = receiverBox(g);
+	const box = plain ? PLAIN_BOX : receiverBox(g);
 	return (
 		<svg
 			className={className}
@@ -39,8 +46,9 @@ export function HotlineMark({ className, label, width = 20 }: { className?: stri
 					<circle cx="20" cy="30" r="10.5" />
 					<circle cx="44" cy="30" r="10.5" />
 				</g>
-				<path d={receiverPath(g)} />
+				{!plain && <path d={receiverPath(g)} />}
 			</g>
 		</svg>
 	);
 }
+

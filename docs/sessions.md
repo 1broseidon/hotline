@@ -918,8 +918,8 @@ chapter's note. The session is stopped and started again: Hotline Agent is
 seeded from that chapter's tape slice; an ACP child from the checkpoint
 the marker still names. User lines said in the meantime arrive as a nudge
 — Hotline's words, never a line of the tape. If the restore fails, the new
-session reads the note (the wake block already carries it) and a notice
-says the context could not be reopened. A second resume is refused when
+session reads the note (the wake block already carries it) and the desk's
+log says the context could not be reopened; the tape does not. A second resume is refused when
 the chapter immediately before closed by resume, when nothing precedes, or
 when that previous chapter ran on a different agent.
 

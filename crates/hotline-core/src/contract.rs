@@ -1732,6 +1732,15 @@ pub enum StreamDelta {
         message_id: String,
         text: String,
     },
+    /// How far the teammate's computer image has downloaded. Drawn as a ring
+    /// where the computer's button sits, so the conversation carries on
+    /// around it; never written to the tape.
+    ComputerPull {
+        persona_id: String,
+        layers_done: u32,
+        layers_total: u32,
+        status: PullStatus,
+    },
 }
 
 // ---------------------------------------------------------------------------

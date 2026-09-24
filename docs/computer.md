@@ -100,11 +100,14 @@ the container with a token generated for it, starts it, and waits for
 waits for it and grants it. The first pull report instead lets the start go
 ahead without the computer: the agent is told its computer is downloading and
 has `computer_status` (optionally waiting up to 300 s) to follow it, the pull
-fills its bar on the tape, and when `ensure_running` returns the session is
-restarted with the grant as soon as no turn is in flight (`run_turns` checks
-on its way out). A computer that fails, at once or behind the session, leaves
-the teammate answering without it, with a warning on the tape and the reason
-in its preamble; the persona keeps the grant, so the next start tries again.
+streams as a `computer_pull` delta that the window draws as a ring where the
+computer's button will be (never a line on the tape, never sent to the
+phone), and when `ensure_running` returns the session is restarted with the
+grant as soon as no turn is in flight (`run_turns` checks on its way out).
+A computer that fails, at once or behind the session, leaves the teammate
+answering without it, with the reason in its preamble and the desk's log;
+the persona keeps the grant, so the next start tries again. None of this is
+narrated on the tape: the conversation carries on as one conversation.
 Peer sessions still wait for their computer. The token lives in the container's private process environment, never
 in room settings. Hotline recovers it from runtime inspection after an app restart,
 so an existing computer keeps its jobs and viewer. A container without a

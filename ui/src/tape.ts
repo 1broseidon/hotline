@@ -28,9 +28,13 @@ export type Streaming = {
  * every reader agrees on what the tape says, and it is also what makes a
  * reconnect's second snapshot harmless.
  */
-export function useTape(personaId: string): { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean } {
+/** A computer download under way: layers landed of layers counted, 0 of 0 until the runtime says. */
+export type Pulling = { done: number; total: number };
+
+export function useTape(personaId: string): { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean; pulling: Pulling | null } {
 	const [events, setEvents] = useState<TranscriptEvent[]>([]);
 	const [streaming, setStreaming] = useState<Streaming[]>([]);
+	const [pulling, setPulling] = useState<Pulling | null>(null);
 	/* Whether the snapshot has landed: an empty tape and a tape not yet read
 	 * look the same, and the starter card must not show on the second. */
 	const [loaded, setLoaded] = useState(false);
@@ -38,6 +42,7 @@ export function useTape(personaId: string): { events: TranscriptEvent[]; streami
 	useEffect(() => {
 		setEvents([]);
 		setStreaming([]);
+		setPulling(null);
 		setLoaded(false);
 		return watchWhenOpen<TranscriptEvent, StreamDelta>({ tape: personaId }, {
 			snapshot: (items) => {
@@ -51,11 +56,18 @@ export function useTape(personaId: string): { events: TranscriptEvent[]; streami
 				// drawing after that bubble stays until its own line lands.
 				setStreaming((live) => settle(live, item));
 			},
-			ephemeral: (delta) => setStreaming((live) => append(live, delta)),
+			ephemeral: (delta) => {
+				// A download is drawn on the computer's button, not in the talk.
+				if (delta.type === "computer_pull") {
+					setPulling(delta.status === "pulling" ? { done: delta.layersDone, total: delta.layersTotal } : null);
+					return;
+				}
+				setStreaming((live) => append(live, delta));
+			},
 		});
 	}, [personaId]);
 
-	return { events, streaming, loaded };
+	return { events, streaming, loaded, pulling };
 }
 
 /**
@@ -168,7 +180,7 @@ function settle(live: Streaming[], item: TranscriptEvent): Streaming[] {
 	return next;
 }
 
-function append(live: Streaming[], delta: StreamDelta): Streaming[] {
+function append(live: Streaming[], delta: Exclude<StreamDelta, { type: "computer_pull" }>): Streaming[] {
 	const kind = delta.type === "agent_delta" ? "agent" : "thought";
 	const at = live.findIndex((one) => one.messageId === delta.messageId);
 	if (at === -1) return [...live, { messageId: delta.messageId, kind, text: delta.text }];

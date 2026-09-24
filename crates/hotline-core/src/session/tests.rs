@@ -1171,16 +1171,10 @@ async fn a_computer_that_cannot_start_leaves_the_teammate_answering_without_one(
 
     let preamble = lock(&agents.preambles).last().cloned().unwrap();
     assert!(!preamble.contains("You have a computer"), "{preamble}");
-    let notice = tape(&room, "ada")
-        .into_iter()
-        .find(|event| event["kind"] == "notice" && event["level"] == "warn")
-        .expect("the tape says the computer did not start");
-    let text = notice["text"].as_str().unwrap();
     assert!(
-        text.starts_with("Ada's computer could not start: No container runtime was found"),
-        "{text}"
+        notices(&room, "ada").is_empty(),
+        "the conversation carries on without a word about the computer"
     );
-    assert!(text.contains("Stop the session"), "{text}");
     assert!(
         room.persona("ada")
             .unwrap()
@@ -1458,6 +1452,7 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
         streamed.push(match delta {
             StreamDelta::AgentDelta { message_id, .. } => format!("agent:{message_id}"),
             StreamDelta::ThoughtDelta { message_id, .. } => format!("thought:{message_id}"),
+            StreamDelta::ComputerPull { .. } => "pull".to_string(),
         });
     }
     assert_eq!(
@@ -1613,15 +1608,7 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
         )])
     );
     let told = notices(&room, "ada");
-    assert!(
-        told.iter()
-            .any(|text| text.contains("not stored any more: GONE_TOKEN")),
-        "{told:?}"
-    );
-    assert!(
-        !told.iter().any(|text| text.contains("cannot take secrets")),
-        "{told:?}"
-    );
+    assert!(told.is_empty(), "handing secrets is not narrated: {told:?}");
 
     // The agent hears the names and that it will never see a value; the
     // value itself is on no tape and in no preamble.
@@ -1675,11 +1662,7 @@ async fn a_changed_secret_is_handed_again_to_every_running_computer() {
         sets[2].is_empty(),
         "a deleted secret is gone from the machine"
     );
-    assert!(
-        notices(&room, "ada")
-            .iter()
-            .any(|text| text.contains("not stored any more: GITHUB_TOKEN")),
-    );
+    assert!(notices(&room, "ada").is_empty());
 
     // A stopped computer is not chased: it gets the set at its next start.
     room.stop("ada").unwrap();
@@ -1691,12 +1674,11 @@ async fn a_changed_secret_is_handed_again_to_every_running_computer() {
     assert_eq!(taken.sets().len(), 3, "nothing handed to a stopped machine");
 }
 
-/// An image from before secrets answers 404. Granted nothing, that is
-/// nothing to say; granted something, the tape says the release cannot
-/// take it and points at the update.
+/// An image from before secrets answers 404. Granted nothing or something,
+/// the conversation says nothing about it: the teammate still starts.
 #[cfg(unix)]
 #[tokio::test]
-async fn a_computer_from_before_secrets_is_named_only_when_something_was_granted() {
+async fn a_computer_from_before_secrets_leaves_the_conversation_alone() {
     let ComputerRoom { room, .. } =
         computer_room("computer-secrets-old-quiet", None, TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
@@ -1718,12 +1700,8 @@ async fn a_computer_from_before_secrets_is_named_only_when_something_was_granted
     grant_secrets(&room, &["GITHUB_TOKEN"]);
     room.start("ada").await.unwrap();
     let told = notices(&room, "ada");
-    assert!(
-        told.iter().any(|text| text.contains(
-            "cannot take secrets, so GITHUB_TOKEN is not in its shell. Update the computer"
-        )),
-        "{told:?}"
-    );
+    assert!(told.is_empty(), "{told:?}");
+    assert!(room.session("ada").is_ok());
 }
 
 /// A passkey is made under an arming and nowhere else: the desk arms one
@@ -2340,10 +2318,8 @@ async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask
         .map(|event| event["text"].as_str().unwrap().to_string())
         .collect();
     assert!(
-        notices
-            .iter()
-            .any(|text| text.contains("did not hand over its guide")),
-        "{notices:?}"
+        notices.is_empty(),
+        "a missing guide is not the conversation's: {notices:?}"
     );
     let status = room.computer_status("ada").await.unwrap();
     assert_eq!(status.release, None);
@@ -2457,10 +2433,8 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
         "{commands:?}"
     );
     assert!(
-        notices(&room, "ada")
-            .iter()
-            .any(|text| text.contains("is updated and rejoins now")),
-        "the tape says when it swapped"
+        notices(&room, "ada").is_empty(),
+        "the swap is seamless: nothing on the tape"
     );
 }
 
@@ -2550,54 +2524,51 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
 }
 
 /// An image the runtime does not have is pulled before the computer is
-/// made, and the pull is one line on the tape that fills in: named when it
-/// starts, counted as each layer lands, and left saying done with the
-/// time it took. One line, because every report carries the same id.
+/// made, and the pull shows only as live progress for the computer's
+/// button: counted as each layer lands, then done. Nothing about it is
+/// written on the tape.
 #[cfg(unix)]
 #[tokio::test]
-async fn a_pulled_image_is_one_line_on_the_tape_that_fills_in() {
+async fn a_pulled_image_is_live_progress_and_never_on_the_tape() {
     let desk = computer_room("computer-pull", Some("0.9.1"), TWO_RELEASES, false).await;
     std::fs::write(desk.root.join("state.noimage"), "").unwrap();
+    let mut deltas = desk.room.subscribe_deltas();
     desk.room.start("ada").await.unwrap();
-    // The start no longer waits for a download; the line finishes behind it.
+    // The start no longer waits for a download; it finishes behind it.
+    let mut seen = Vec::new();
     let finished = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if tape(&desk.room, "ada")
-                .iter()
-                .any(|event| event["kind"] == "computer_pull" && event["status"] == "done")
+            if let Ok(StreamDelta::ComputerPull {
+                persona_id,
+                layers_done,
+                layers_total,
+                status,
+            }) = deltas.recv().await
             {
-                break;
+                assert_eq!(persona_id, "ada");
+                seen.push((layers_done, layers_total, status));
+                if status == crate::contract::PullStatus::Done {
+                    break;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await;
     assert!(finished.is_ok(), "the pull finishes behind the start");
+    assert_eq!(seen.last().map(|seen| (seen.0, seen.1)), Some((2, 2)));
+    assert!(seen.len() > 1, "it is counted as it lands: {seen:?}");
     let pulled = runtime_commands(&desk.root)
         .into_iter()
         .filter(|line| line.starts_with("pull "))
         .count();
     assert_eq!(pulled, 1, "the image was pulled once");
-    let lines: Vec<Value> = tape(&desk.room, "ada")
-        .into_iter()
-        .filter(|event| event["kind"] == "computer_pull")
-        .collect();
-    assert_eq!(lines.len(), 1, "one line, rewritten in place: {lines:?}");
-    let line = &lines[0];
-    assert_eq!(line["status"], "done");
-    assert_eq!(line["layersDone"], 2);
-    assert_eq!(line["layersTotal"], 2);
     assert!(
-        line["image"].as_str().unwrap().contains("hotline-computer"),
-        "{line}"
-    );
-    assert!(line["elapsedMs"].is_i64(), "{line}");
-    assert!(
-        notices(&desk.room, "ada")
+        tape(&desk.room, "ada")
             .iter()
-            .all(|text| !text.contains("Pulling")),
-        "the pull is no longer a notice"
+            .all(|event| event["kind"] != "computer_pull"),
+        "the pull is not on the tape"
     );
+    assert!(notices(&desk.room, "ada").is_empty());
 }
 
 /// A download never keeps a teammate from answering. The start goes ahead
@@ -2675,10 +2646,8 @@ async fn a_download_starts_the_teammate_at_once_and_the_computer_joins_after_the
     let last = lock(&desk.agents.preambles).last().cloned().unwrap();
     assert!(last.contains("You have a computer"), "{last}");
     assert!(
-        notices(&desk.room, "ada")
-            .iter()
-            .any(|text| text.contains("finished downloading and joins now")),
-        "the tape says when it joined"
+        notices(&desk.room, "ada").is_empty(),
+        "the computer joins without a word on the tape"
     );
     let pulls = runtime_commands(&desk.root)
         .into_iter()
@@ -3814,16 +3783,11 @@ async fn a_chapter_no_model_would_summarise_closes_titled_from_the_first_message
     assert_eq!(closed.note, None);
     assert_eq!(closed.status, Some(ChapterStatus::Done));
 
-    let events = tape(&room, "ada");
-    let notice = events.last().expect("something was written");
-    assert_eq!(notice["kind"], "notice");
-    assert_eq!(notice["level"], "warn");
     assert!(
-        notice["text"]
-            .as_str()
-            .unwrap()
-            .contains("without a handoff note"),
-        "{notice}"
+        tape(&room, "ada")
+            .iter()
+            .all(|event| event["kind"] != "notice"),
+        "a missing handoff is not the conversation's business"
     );
 }
 
@@ -4141,11 +4105,10 @@ async fn resume_points_the_checkpoint_back_at_the_previous_chapters_session() {
         .filter(|event| event["kind"] == "notice")
         .collect();
     assert!(
-        notices.iter().any(|notice| notice["text"]
-            .as_str()
-            .unwrap()
-            .contains("could not be reopened")),
-        "a scripted child does not restore, so the tape says so: {notices:?}"
+        !notices
+            .iter()
+            .any(|notice| notice["text"].as_str().unwrap().contains("reopened")),
+        "a scripted child does not restore, and the conversation carries on regardless: {notices:?}"
     );
 }
 

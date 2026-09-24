@@ -1152,6 +1152,8 @@ async fn stream_events(
                 Err(broadcast::error::RecvError::Closed) => return,
             },
             delta = delta => match delta {
+                // The phone draws words; a download ring is the desk's.
+                Ok(StreamDelta::ComputerPull { .. }) if seat == Seat::Phone => {}
                 Ok(delta) if delta_persona(&delta) == persona_id => {
                     if !send(&sender, json!({ "sub": id, "ephemeral": delta })) {
                         return;
@@ -1169,7 +1171,8 @@ async fn stream_events(
 fn delta_persona(delta: &StreamDelta) -> &str {
     match delta {
         StreamDelta::AgentDelta { persona_id, .. }
-        | StreamDelta::ThoughtDelta { persona_id, .. } => persona_id,
+        | StreamDelta::ThoughtDelta { persona_id, .. }
+        | StreamDelta::ComputerPull { persona_id, .. } => persona_id,
     }
 }
 

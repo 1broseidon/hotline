@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, InfoIcon, MoreIcon, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, InfoIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
 import { useTape } from "../tape";
@@ -74,7 +74,7 @@ export function Conversation({
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const { events, streaming, loaded } = useTape(personaId);
+	const { events, streaming, loaded, pulling } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 	/* What was said, from the moment it was said. The core writes the line
 	 * only once a session is up, and starting one is a second or two in which
@@ -259,7 +259,21 @@ export function Conversation({
 					</button>
 				)}
 
-				{openScreen !== undefined && (
+				{/* A computer on its way fills in where its button will be; the
+				 * conversation carries on around it. */}
+				{pulling !== null ? (
+					<span
+						role="progressbar"
+						className="control btn-icon text-ink-3"
+						title={pulling.total > 0 ? `Setting up the computer · ${Math.round((pulling.done / pulling.total) * 100)}%` : "Setting up the computer"}
+						aria-label="Setting up the teammate's computer"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						{...(pulling.total > 0 ? { "aria-valuenow": Math.round((pulling.done / pulling.total) * 100) } : {})}
+					>
+						<ProgressRing value={pulling.total > 0 ? pulling.done / pulling.total : null} />
+					</span>
+				) : openScreen !== undefined && (
 					<button
 						type="button"
 						className="control btn-icon"

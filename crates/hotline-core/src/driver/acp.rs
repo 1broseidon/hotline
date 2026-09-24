@@ -957,12 +957,11 @@ impl Driver for ChildAgent {
             fail(&sender, error).await;
             return receiver;
         }
-        if self.live.failed.load(Ordering::SeqCst) {
-            if let Err(error) = self.restart_after_failure().await {
-                fail(&sender, error).await;
-                return receiver;
-            }
-            let _ = sender.send(Update::Notice { level: NoticeLevel::Warn, text: "The failed agent was restarted with a fresh briefing. Its previous request was not replayed; completed and uncertain actions remain in the briefing.".into() }).await;
+        if self.live.failed.load(Ordering::SeqCst)
+            && let Err(error) = self.restart_after_failure().await
+        {
+            fail(&sender, error).await;
+            return receiver;
         }
         if self.live.cancelled.load(Ordering::SeqCst) {
             let _ = sender

@@ -142,6 +142,30 @@ export const ComputerIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+/**
+ * A download filling in, where the computer's glyph will stand once it is
+ * done: a faint ring and the share that has landed. With no count yet, a
+ * short arc breathes like a working teammate's mark.
+ */
+export const ProgressRing = ({ className, value }: IconProps & { value: number | null }) => {
+	const r = 5.75;
+	const around = 2 * Math.PI * r;
+	const shown = value === null ? 0.25 : Math.min(1, Math.max(0.04, value));
+	return (
+		<svg className={className} {...box}>
+			<circle cx="8" cy="8" r={r} opacity={0.25} />
+			<circle
+				className={value === null ? "beat" : undefined}
+				cx="8"
+				cy="8"
+				r={r}
+				strokeDasharray={`${shown * around} ${around}`}
+				transform="rotate(-90 8 8)"
+			/>
+		</svg>
+	);
+};
+
 export const ClockIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<circle cx="8" cy="8" r="5.75" />

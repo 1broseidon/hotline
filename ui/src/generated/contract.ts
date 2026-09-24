@@ -954,7 +954,7 @@ export type SlashCommand = { name: string, description?: string, hint?: string, 
  * `streamDelta`: text arriving as the agent writes it. Never persisted — the
  * durable line is the `TranscriptEvent` that lands when the message is whole.
  */
-export type StreamDelta = { "type": "agent_delta", personaId: string, messageId: string, text: string, } | { "type": "thought_delta", personaId: string, messageId: string, text: string, };
+export type StreamDelta = { "type": "agent_delta", personaId: string, messageId: string, text: string, } | { "type": "thought_delta", personaId: string, messageId: string, text: string, } | { "type": "computer_pull", personaId: string, layersDone: number, layersTotal: number, status: PullStatus, };
 
 /**
  * Where a subagent's run has got to.

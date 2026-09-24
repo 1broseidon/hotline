@@ -19,6 +19,7 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod instance;
 #[cfg(target_os = "linux")]
 mod linux_package;
 mod remote;
@@ -238,10 +239,31 @@ pub fn run() {
     #[cfg(unix)]
     shell_path::restore();
 
+    // One desk per room, settled before the room opens: a second launch
+    // shows the running window and leaves (see `instance`). A development
+    // build runs beside the installed app instead.
+    let root = data_root();
+    let instance = if tauri::is_dev() || cfg!(debug_assertions) {
+        None
+    } else {
+        match instance::claim(&root) {
+            Ok(instance::Claim::Held(instance)) => Some(instance),
+            Ok(instance::Claim::Elsewhere) => return,
+            // A file system without locks still holds a room to open; it is
+            // only unguarded.
+            Err(error) => {
+                eprintln!(
+                    "[instance] {} could not be locked, so a second launch is not kept out: {error}",
+                    root.display()
+                );
+                None
+            }
+        }
+    };
+
     // Opened inside the async runtime because the room it stands up owns
     // background work — the idle chapter sweep — and a task has to be spawned
     // onto a runtime that is already there.
-    let root = data_root();
     let desk = Arc::new(
         tauri::async_runtime::block_on(async { Desk::open(&root) }).expect("the desk did not open"),
     );
@@ -379,6 +401,22 @@ pub fn run() {
             });
             install_tray(app)?;
             updater::start(app.handle().clone());
+            if let Some(instance) = instance {
+                let app = app.handle().clone();
+                instance.answer(move || {
+                    // Shown on the main thread, and said only once it was: a
+                    // desk on its way out never runs this, and the launch that
+                    // asked waits for the room instead.
+                    let (shown, done) = std::sync::mpsc::channel();
+                    let handle = app.clone();
+                    app.run_on_main_thread(move || {
+                        show_main_window(&handle);
+                        let _ = shown.send(());
+                    })
+                    .is_ok()
+                        && done.recv_timeout(std::time::Duration::from_secs(2)).is_ok()
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

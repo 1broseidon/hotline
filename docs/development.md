@@ -272,6 +272,21 @@ settings, streams, tapes or agent descriptors.
 Tests use temporary directories of their own. Never point a test, a
 harness, or `HOTLINE_DATA_DIR` at a real Hotline data directory.
 
+One desk runs per data directory. Before the room opens, a release build
+takes an exclusive lock on `desk.lock` there and writes, beside it, the
+loopback port it answers on to `desk.wake`. A second launch finds the lock
+held, asks the running desk to show its window, and exits once that desk
+says it has. Two desks on one room would both fire its schedules, both
+answer its phones and both write its streams. The system releases the lock
+however the process ends. A desk that holds the lock without answering is
+waited on for twenty seconds, because a restart after an update starts the
+new process while the old one is still leaving, and a desk that is still
+opening answers only once its window exists. After that the launch exits
+and the room stays with the desk that has it. A desk on another data
+directory is another room and runs alongside. A development build (`make
+dev`, `cargo tauri dev`, any debug build) takes no lock, so a checkout runs
+next to the installed app. The code is `crates/hotline-app/src/instance.rs`.
+
 ## The computer
 
 A teammate with `computer.enabled` gets a container Hotline starts on session

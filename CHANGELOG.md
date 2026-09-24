@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Opening Hotline while it is already running brings its window back
+  instead of starting a second copy. Two copies on the same data would
+  both run its schedules, answer its phones and write its conversations.
+  After an update, the new version waits for the old one to close rather
+  than giving up. A development build still runs next to the installed app.
 - The desk can show a paired phone a teammate's scheduled jobs and loops,
   kept current as they are made, fire and are cancelled, ready for the
   phone app to list them. The phone can only read them: making,

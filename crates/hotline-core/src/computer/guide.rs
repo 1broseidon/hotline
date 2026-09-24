@@ -477,6 +477,15 @@ pub(crate) mod fake {
         (major, minor) >= (0, 9)
     }
 
+    /// Whether a release has the download door: 0.10 and later do.
+    fn has_download_door(version: &str) -> bool {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        (major, minor) >= (0, 10)
+    }
+
     /// Whether a release has the passkey door: 0.8 and later do.
     fn has_passkeys(version: &str) -> bool {
         let mut parts = version
@@ -601,8 +610,10 @@ pub(crate) mod fake {
             );
         let mut app = axum::Router::new()
             .route("/health", axum::routing::get(|| async { "ok" }))
-            .route("/files/download", axum::routing::get(download))
             .nest_service("/mcp", service);
+        if version.is_some_and(has_download_door) {
+            app = app.route("/files/download", axum::routing::get(download));
+        }
         if version.is_some() {
             app = app.route("/secrets", axum::routing::put(take_secrets));
         }

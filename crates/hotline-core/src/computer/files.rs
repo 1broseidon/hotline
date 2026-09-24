@@ -38,7 +38,8 @@ pub(crate) fn on_computer(requested: &str) -> String {
 
 /// The file at `path` on the computer, whole, or a sentence saying why not.
 /// A file over `limit` is refused as soon as its size is known, before any
-/// more of it is read.
+/// more of it is read. A release from before the download door (0.10)
+/// answers 404, which is said as the pane's Update.
 pub(crate) async fn download(
     ready: &Ready,
     path: &str,
@@ -59,6 +60,12 @@ pub(crate) async fn download(
         .send()
         .await
         .map_err(|error| format!("The computer did not answer: {error}"))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(
+            "Your computer's release cannot hand over files. The person can update it from your pane; a screenshot still works."
+                .to_string(),
+        );
+    }
     if !response.status().is_success() {
         let status = response.status();
         let reason = response
@@ -212,6 +219,14 @@ mod tests {
             download(&stranger, "/home/agent/report.txt", 1024, over)
                 .await
                 .is_err()
+        );
+
+        let (old, _) = fake::serve_taking(Some("0.9.1")).await;
+        assert_eq!(
+            download(&self::ready(old), "/home/agent/report.txt", 1024, over)
+                .await
+                .unwrap_err(),
+            "Your computer's release cannot hand over files. The person can update it from your pane; a screenshot still works."
         );
     }
 

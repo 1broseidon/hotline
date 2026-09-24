@@ -46,6 +46,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   finished command's output is shown once, not again when the teammate
   waits on it. Tools from a granted server are cut at 64 KiB, and the
   whole result is kept on disk as before.
+- New computers are created on Hotline Computer 0.10.1 or newer: a
+  repository describes itself in a manifest and its desktop app builds and
+  launches, a screenshot can be of one window or region, and a long
+  command answers with its end and where the rest is. It is the first
+  release whose screen a teammate can send you. An existing computer keeps
+  the release it runs until it is updated or removed; on one older than
+  0.10, sending a screenshot says so and points at the teammate's Update.
 
 ## [0.18.1] - 2026-09-23
 

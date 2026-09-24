@@ -1582,7 +1582,7 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
         agents,
         taken,
         ..
-    } = computer_room("computer-secrets", Some("0.9.1"), TWO_RELEASES, true).await;
+    } = computer_room("computer-secrets", Some("0.10.1"), TWO_RELEASES, true).await;
     let vault = room.vault.as_ref().unwrap();
     vault
         .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
@@ -1632,7 +1632,7 @@ async fn a_computers_granted_secrets_are_handed_to_it_at_start_by_name_and_never
 async fn a_changed_secret_is_handed_again_to_every_running_computer() {
     let ComputerRoom { room, taken, .. } = computer_room(
         "computer-secrets-changed",
-        Some("0.9.1"),
+        Some("0.10.1"),
         TWO_RELEASES,
         true,
     )
@@ -1717,7 +1717,7 @@ async fn a_passkey_is_made_under_an_arming_stored_and_ticked_for_the_teammate() 
     use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
 
     let ComputerRoom { room, taken, .. } =
-        computer_room("computer-passkey", Some("0.9.1"), TWO_RELEASES, true).await;
+        computer_room("computer-passkey", Some("0.10.1"), TWO_RELEASES, true).await;
     let vault = room.vault.as_ref().unwrap();
 
     // Nothing armed: idle, and nothing to cancel.
@@ -1891,7 +1891,7 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
         agents,
         taken,
         ..
-    } = computer_room("computer-login", Some("0.9.1"), TWO_RELEASES, true).await;
+    } = computer_room("computer-login", Some("0.10.1"), TWO_RELEASES, true).await;
     let vault = room.vault.as_ref().unwrap();
     vault
         .set_shared_secret("GITHUB_TOKEN", "ghp_notarealtoken0001")
@@ -1948,8 +1948,13 @@ async fn a_login_is_handed_to_the_computer_as_a_record_and_named_by_its_sites() 
 #[tokio::test]
 async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
     use crate::contract::{CookieImport, CookieSite};
-    let ComputerRoom { room, taken, .. } =
-        computer_room("computer-cookies-forget", Some("0.9.1"), TWO_RELEASES, true).await;
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-cookies-forget",
+        Some("0.10.1"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
     assert!(room.computer_cookies_list("ada").is_empty());
     let recorded = vec![CookieImport {
         browser_id: "chrome".to_string(),
@@ -2069,7 +2074,7 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
     use crate::contract::{PasskeyRegistrationState, SharedSecretKind};
     let ComputerRoom { room, taken, .. } = computer_room(
         "computer-passkey-unwatched",
-        Some("0.9.1"),
+        Some("0.10.1"),
         TWO_RELEASES,
         true,
     )
@@ -2159,8 +2164,13 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
 #[tokio::test]
 async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_expires() {
     use crate::contract::PasskeyRegistrationState;
-    let ComputerRoom { room, taken, .. } =
-        computer_room("computer-passkey-denied", Some("0.9.1"), TWO_RELEASES, true).await;
+    let ComputerRoom { room, taken, .. } = computer_room(
+        "computer-passkey-denied",
+        Some("0.10.1"),
+        TWO_RELEASES,
+        true,
+    )
+    .await;
     let vault = room.vault.as_ref().unwrap();
     room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
         .await
@@ -2233,7 +2243,7 @@ async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_exp
 }
 
 #[cfg(unix)]
-const TWO_RELEASES: &str = r#"[{"tag_name":"v0.9.2"},{"tag_name":"v0.9.1"}]"#;
+const TWO_RELEASES: &str = r#"[{"tag_name":"v0.10.2"},{"tag_name":"v0.10.1"}]"#;
 
 /// The command names the scripted runtime was given, in order.
 #[cfg(unix)]
@@ -2254,21 +2264,21 @@ fn runtime_commands(root: &std::path::Path) -> Vec<String> {
 async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs() {
     let ComputerRoom {
         room, agents, cwd, ..
-    } = computer_room("computer-skill", Some("0.9.1"), TWO_RELEASES, true).await;
+    } = computer_room("computer-skill", Some("0.10.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
 
     let folder = cwd.join(".agents/skills/hotline-computer");
     assert_eq!(
         std::fs::read_to_string(folder.join("SKILL.md")).unwrap(),
-        crate::computer::guide::fake::skill_of("0.9.1")
+        crate::computer::guide::fake::skill_of("0.10.1")
     );
     let marker = std::fs::read_to_string(folder.join(".managed-by-hotline")).unwrap();
-    assert!(marker.starts_with("computer 0.9.1 "), "{marker}");
+    assert!(marker.starts_with("computer 0.10.1 "), "{marker}");
 
     let entry = crate::skills::computer_entry(&cwd).expect("listed");
     assert_eq!(entry.source, crate::contract::SkillSource::Computer);
     assert_eq!(entry.name, "hotline-computer");
-    assert_eq!(entry.version.as_deref(), Some("0.9.1"));
+    assert_eq!(entry.version.as_deref(), Some("0.10.1"));
     assert_eq!(entry.path, ".agents/skills/hotline-computer/SKILL.md");
     assert_eq!(entry.invalid, None);
 
@@ -2289,7 +2299,7 @@ async fn a_computers_guide_is_the_hotline_computer_skill_of_the_release_it_runs(
     // The pane sees the release running against the one it would be made
     // on now, which is the image tag the teammate asked for.
     let status = room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release.as_deref(), Some("0.9.1"));
+    assert_eq!(status.release.as_deref(), Some("0.10.1"));
     assert_eq!(status.available.as_deref(), Some("test"));
 }
 
@@ -2334,7 +2344,7 @@ async fn a_computer_without_a_guide_leaves_no_skill_and_the_preamble_says_to_ask
 #[tokio::test]
 async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
     let ComputerRoom { room, root, .. } =
-        computer_room("computer-update", Some("0.9.1"), TWO_RELEASES, true).await;
+        computer_room("computer-update", Some("0.10.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     let session = room.session("ada").unwrap();
     assert!(session.computer);
@@ -2444,7 +2454,7 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
 #[tokio::test]
 async fn a_failed_update_is_told_in_the_pane_not_the_conversation() {
     let ComputerRoom { room, root, .. } =
-        computer_room("computer-update-fails", Some("0.9.1"), TWO_RELEASES, true).await;
+        computer_room("computer-update-fails", Some("0.10.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     std::fs::write(root.join("state.noimage"), "").unwrap();
     std::fs::write(root.join("state.pullfail"), "").unwrap();
@@ -2479,7 +2489,7 @@ async fn a_failed_update_is_told_in_the_pane_not_the_conversation() {
 #[tokio::test]
 async fn updating_a_resting_teammates_computer_removes_it_at_once() {
     let ComputerRoom { room, root, .. } =
-        computer_room("computer-update-idle", Some("0.9.1"), TWO_RELEASES, true).await;
+        computer_room("computer-update-idle", Some("0.10.1"), TWO_RELEASES, true).await;
     room.start("ada").await.unwrap();
     room.stop("ada").unwrap();
     room.computer_update("ada").await.unwrap();
@@ -2499,29 +2509,29 @@ async fn updating_a_resting_teammates_computer_removes_it_at_once() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks() {
-    let fresh = computer_room("computer-newest", Some("0.9.2"), TWO_RELEASES, false).await;
+    let fresh = computer_room("computer-newest", Some("0.10.2"), TWO_RELEASES, false).await;
     fresh.room.start("ada").await.unwrap();
     let created = runtime_commands(&fresh.root)
         .into_iter()
         .find(|line| line.starts_with("create "))
         .unwrap();
     assert!(
-        created.contains("ghcr.io/1broseidon/hotline-computer:0.9.2"),
+        created.contains("ghcr.io/1broseidon/hotline-computer:0.10.2"),
         "{created}"
     );
     assert_eq!(fresh.asked.load(std::sync::atomic::Ordering::SeqCst), 1);
     let status = fresh.room.computer_status("ada").await.unwrap();
-    assert_eq!(status.release.as_deref(), Some("0.9.2"));
+    assert_eq!(status.release.as_deref(), Some("0.10.2"));
     assert_eq!(status.available, None);
     let known = fresh.room.computer_releases();
     assert_eq!(known.floor, crate::computer::COMPUTER_VERSION);
     assert_eq!(known.repository, crate::computer::COMPUTER_REPOSITORY);
-    assert_eq!(known.newest.as_deref(), Some("0.9.2"));
-    assert_eq!(known.releases, ["0.9.2", "0.9.1"]);
+    assert_eq!(known.newest.as_deref(), Some("0.10.2"));
+    assert_eq!(known.releases, ["0.10.2", "0.10.1"]);
     assert!(known.checked_at.is_some(), "{known:?}");
     assert_eq!(known.error, None);
 
-    let pinned = computer_room("computer-pinned", Some("0.9.2"), TWO_RELEASES, true).await;
+    let pinned = computer_room("computer-pinned", Some("0.10.2"), TWO_RELEASES, true).await;
     pinned.room.start("ada").await.unwrap();
     let created = runtime_commands(&pinned.root)
         .into_iter()
@@ -2540,7 +2550,7 @@ async fn a_fresh_computer_is_created_on_the_newest_release_and_a_pin_never_asks(
 #[cfg(unix)]
 #[tokio::test]
 async fn offline_a_fresh_computer_is_created_on_the_floor() {
-    let offline = computer_room("computer-offline", Some("0.9.1"), "not a list", false).await;
+    let offline = computer_room("computer-offline", Some("0.10.1"), "not a list", false).await;
     offline.room.start("ada").await.unwrap();
     let created = runtime_commands(&offline.root)
         .into_iter()
@@ -2565,7 +2575,7 @@ async fn offline_a_fresh_computer_is_created_on_the_floor() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_pulled_image_is_live_progress_and_never_on_the_tape() {
-    let desk = computer_room("computer-pull", Some("0.9.1"), TWO_RELEASES, false).await;
+    let desk = computer_room("computer-pull", Some("0.10.1"), TWO_RELEASES, false).await;
     std::fs::write(desk.root.join("state.noimage"), "").unwrap();
     let mut deltas = desk.room.subscribe_deltas();
     desk.room.start("ada").await.unwrap();
@@ -2616,7 +2626,7 @@ async fn a_pulled_image_is_live_progress_and_never_on_the_tape() {
 async fn a_download_starts_the_teammate_at_once_and_the_computer_joins_after_the_turn() {
     let desk = computer_room(
         "computer-download-behind",
-        Some("0.9.1"),
+        Some("0.10.1"),
         TWO_RELEASES,
         false,
     )
@@ -2700,7 +2710,7 @@ async fn a_download_starts_the_teammate_at_once_and_the_computer_joins_after_the
 #[tokio::test]
 async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
     use std::sync::atomic::Ordering;
-    let desk = computer_room("computer-check-now", Some("0.9.1"), TWO_RELEASES, false).await;
+    let desk = computer_room("computer-check-now", Some("0.10.1"), TWO_RELEASES, false).await;
     desk.room.start("ada").await.unwrap();
     assert_eq!(desk.asked.load(Ordering::SeqCst), 1);
     let checked = desk.room.computer_releases_check().await;
@@ -2709,10 +2719,16 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
         2,
         "the button does not wait six hours"
     );
-    assert_eq!(checked.releases, ["0.9.2", "0.9.1"]);
+    assert_eq!(checked.releases, ["0.10.2", "0.10.1"]);
     assert_eq!(checked.error, None);
 
-    let offline = computer_room("computer-check-offline", Some("0.9.1"), "not a list", false).await;
+    let offline = computer_room(
+        "computer-check-offline",
+        Some("0.10.1"),
+        "not a list",
+        false,
+    )
+    .await;
     let refused = offline.room.computer_releases_check().await;
     assert_eq!(refused.newest, None);
     assert!(refused.releases.is_empty());
@@ -2737,7 +2753,7 @@ async fn an_older_computer_is_offered_the_newest_release_on_the_six_hour_clock()
     older.room.start("ada").await.unwrap();
     let status = older.room.computer_status("ada").await.unwrap();
     assert_eq!(status.release.as_deref(), Some("0.8.0"));
-    assert_eq!(status.available.as_deref(), Some("0.9.2"));
+    assert_eq!(status.available.as_deref(), Some("0.10.2"));
 
     let asked_at_start = older.asked.load(Ordering::SeqCst);
     let now = now_ms();

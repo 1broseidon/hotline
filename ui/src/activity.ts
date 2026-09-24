@@ -12,7 +12,7 @@ import type { Streaming } from "./tape";
  * to fill a gap, because a mark that moves for reasons you cannot name is
  * decoration.
  */
-export type ActivityPhase = "thinking" | "read" | "search" | "edit" | "execute" | "doing" | "blocked" | "writing";
+export type ActivityPhase = "thinking" | "read" | "search" | "edit" | "execute" | "doing" | "blocked" | "writing" | "landed";
 
 export type Activity = {
 	phase: ActivityPhase;
@@ -46,7 +46,15 @@ const WORDS: Record<ActivityPhase, string> = {
 	doing: "Working",
 	blocked: "Waiting on you",
 	writing: "",
+	landed: "",
 };
+
+/**
+ * The reply has landed and the turn is over, but the mark stays a moment to
+ * hang up: never read off the tape, only held by the transcript for the
+ * glyph's LANDED_MS after a turn that ended while writing.
+ */
+export const LANDED: Activity = { phase: "landed", word: "" };
 
 /** What the tape says is happening in a turn that is running. */
 export function activityOf(events: TranscriptEvent[], streaming: Streaming[], queued = false): Activity {

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { ActivityPhase } from "../activity";
+import { RECEIVER, receiverLine, receiverPath } from "./receiver";
 
 /**
  * The Hotline mark, moving because of something.
@@ -7,27 +8,61 @@ import type { ActivityPhase } from "../activity";
  * Every pose is a pure function of (phase, seconds in that phase, stall).
  * That is the whole constraint: a movement that can also fire at random
  * cannot mean anything, so the only decorative motion left is the blink, and
- * it shares no vocabulary with the rest. Reading sweeps, searching darts,
- * editing presses, running ratchets — and when a permission request lands
- * the mark stops dead and looks at you, because stillness is the loudest
- * thing available when everything else moves.
+ * it shares no vocabulary with the rest.
  *
- * Once the reply is on its way it collapses into the three dots every
- * messages app uses. The eyes already sit twelve units either side of
- * centre, so the row they fall into is the one they were always standing on.
+ * The receiver is the largest thing that moves at 30px, so it carries each
+ * phase, and every phase differs from every other on at least two of three
+ * channels — where the handset is held, what the eyes do, how the body
+ * moves. At rest it is on the cradle. Thinking holds it up at the ear and
+ * looks up. Reading parks it low and squints down the page. Searching snaps
+ * the head from place to place with the handset swinging against it.
+ * Editing tucks it at the shoulder, the way you hold a phone to type, and
+ * the body takes each keystroke. Running hops. Waiting on you puts it back
+ * on the cradle and rings, then stares. A blink marks each change into a
+ * new kind of work, so the change is seen.
  *
- * The drawing is assets/hotline-mark.svg, the same one HotlineMark draws still;
- * here the pupils are painted in the ground's colour rather than masked,
- * because a mask cannot be animated part by part and a blink needs the eye
- * and its pupil to squash together.
+ * The reply is the call itself: the handset comes off the head and unbends
+ * into a voice line, the toad folding into it, and the line moves for as
+ * long as the words are on their way. When the turn ends the transcript
+ * holds the mark in `landed` for LANDED_MS: the line reels back into a
+ * handset, drops onto the cradle with a clunk, and the toad winks — done,
+ * over to you. The hang-up is where the call ends, not where the reply
+ * starts.
+ *
+ * The drawing is assets/hotline-mark.svg, the same one HotlineMark draws
+ * still; here the pupils are painted in the ground's colour rather than
+ * masked, because a mask cannot be animated part by part and a blink needs
+ * the eye and its pupil to squash together.
  */
 
-type Pose = { pupil: number; eyeL: number; eyeR: number; body: number; rot: number; dy: number };
+type Pose = {
+	pupil: number;
+	pupilY: number;
+	eyeL: number;
+	eyeR: number;
+	/** Both axes of the eyes: only the stare widens them. */
+	wide: number;
+	body: number;
+	rot: number;
+	dy: number;
+	/** The handset, off the cradle: up, turned, across. */
+	lift: number;
+	tilt: number;
+	hx: number;
+	/** The handset's own jolt, on top of where it is held: the ring. */
+	hy: number;
+	ht: number;
+};
 
-const REST: Pose = { pupil: 0, eyeL: 1, eyeR: 1, body: 1, rot: 0, dy: 0 };
+const REST: Pose = { pupil: 0, pupilY: 0, eyeL: 1, eyeR: 1, wide: 1, body: 1, rot: 0, dy: 0, lift: 0, tilt: 0, hx: 0, hy: 0, ht: 0 };
 
 /** Uneven on purpose — a regular sweep would read as reading. */
 const DARTS = [-1, 0.6, -0.3, 1, -0.8, 0.2, 0.9, -0.6];
+
+/** Typing has a rhythm, not a metronome: key times within one phrase. */
+const KEYS = [0, 0.12, 0.22, 0.4, 0.49, 0.63, 0.71, 0.86];
+const PHRASE = 1.15;
+const HOP = 0.62;
 
 /**
  * Where a tool stops looking like progress. Past this the motion drags
@@ -39,14 +74,24 @@ const STALL_AFTER = 6;
 const STALL_OVER = 6;
 
 /**
- * The one flourish, and why it is allowed. A wink is directed in a way a
- * blink is not, so it cannot sit anywhere it might be read as a verdict —
- * not after a tool call, not on a timer while one runs. But the moment work
- * stops and a reply starts is neither: it is a state change that has
- * already happened and is about to be visible anyway. A beat there is
- * punctuation, and it gives the collapse into dots its anticipation.
+ * Two rings when a permission request lands and two more half a minute
+ * later if it is still waiting; then the stare holds on its own. A phone
+ * that rang for as long as you ignored it would be the loudest thing in the
+ * window, and the stare is meant to be.
  */
-const HANDOFF = 560;
+const RING_AGAIN = 30;
+
+/** The reply: the handset unbends over MORPH, and landing reels it back. */
+const LINE_POINTS = 80;
+const MORPH = 0.5;
+const REEL = 0.4;
+const DROP = 0.3;
+const CLUNK = 0.12;
+const WINK = 0.56;
+/** How long the transcript keeps the mark after the turn so it can land. */
+export const LANDED_MS = (REEL + DROP + CLUNK + WINK) * 1000 + 100;
+
+const LINE_WIDTH = 3.6;
 
 /** Shut quicker than opened, then a moment with both eyes open: a gesture, not a twitch. */
 function winkAt(p: number): number {
@@ -59,56 +104,138 @@ function winkAt(p: number): number {
 const REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 const ease = (p: number) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+const easeIn = (p: number) => p ** 3;
+const clamp01 = (p: number) => Math.max(0, Math.min(1, p));
+
+/** Brrring, brrring: the handset jumps on the cradle. */
+function ring(t: number): { hy: number; ht: number } {
+	const c = t >= RING_AGAIN ? t - RING_AGAIN : t;
+	const on = t < RING_AGAIN + 1.3 && (c < 0.5 || (c > 0.8 && c < 1.3));
+	if (!on) return { hy: 0, ht: 0 };
+	const w = Math.sin(t * Math.PI * 2 * 15);
+	return { hy: -1.1 * Math.abs(w), ht: 3.2 * w };
+}
+
+/** Crouch, spring, land: one hop is one step of a command. */
+function hop(t: number): { dy: number; body: number } {
+	const p = (((t % HOP) + HOP) % HOP) / HOP;
+	if (p < 0.2) {
+		const k = ease(p / 0.2);
+		return { dy: 1.4 * k, body: 1 - 0.16 * k };
+	}
+	if (p < 0.72) {
+		const q = (p - 0.2) / 0.52;
+		return { dy: 1.4 - 7.4 * Math.sin(q * Math.PI) - 1.4 * q, body: q < 0.3 ? 0.84 + 0.24 * ease(q / 0.3) : 1.08 - 0.08 * ease((q - 0.3) / 0.7) };
+	}
+	const q = (p - 0.72) / 0.28;
+	return { dy: 1.2 * Math.sin(q * Math.PI), body: 1 - 0.12 * Math.sin(q * Math.PI) };
+}
 
 function poseOf(phase: ActivityPhase, t: number, stall: number): Pose {
-	const speed = 1 - 0.72 * stall;
+	const s = t * (1 - 0.72 * stall);
 	switch (phase) {
-		/* Reading is eye movement: steadily across, then a flick back. */
-		case "read": {
-			const p = ((t * speed) / 1.7) % 1;
-			const x = p < 0.82 ? -1 + (p / 0.82) * 2 : 1 - ((p - 0.82) / 0.18) * 2;
-			return { ...REST, pupil: x * 2.6 };
-		}
-		/* Looking for a thing rather than at one, so the rhythm is irregular. */
-		case "search": {
-			const step = Math.floor((t * speed) / 0.34);
-			const n = ((step % DARTS.length) + DARTS.length) % DARTS.length;
-			return { ...REST, pupil: DARTS[n]! * 2.8 };
-		}
-		/* Work with weight behind it. */
-		case "edit": {
-			const push = Math.sin((((t * speed) / 0.95) % 1) * Math.PI);
-			return { ...REST, body: 1 + 0.2 * push, dy: 1.6 * push };
-		}
-		/* Geared steps — a command is a discrete thing happening. */
-		case "execute": {
-			const steps = (t * speed) / 0.46;
-			const f = ease(steps - Math.floor(steps));
-			return { ...REST, body: 1 + 0.13 * Math.sin(f * Math.PI), rot: -1.5 + 3 * f };
-		}
-		/* A tool that named no kind. Says work is happening and nothing more. */
-		case "doing":
-			return { ...REST, body: 1 + 0.07 * Math.sin(t * speed * 3.4) };
+		/* Up at the ear and looking up: the one phase held high. */
 		case "thinking":
 			return {
 				...REST,
-				rot: -3.6 * Math.sin(t * speed * 0.7),
-				dy: 2.2 * Math.sin(t * speed * 0.5),
-				pupil: 0.9 * Math.sin(t * speed * 0.42),
+				rot: -3.6 * Math.sin(t * 0.7),
+				dy: 2.2 * Math.sin(t * 0.5),
+				pupil: 1.8 * Math.sin(t * 0.42),
+				pupilY: -2.2,
+				lift: 8,
+				tilt: -16 + 3 * Math.sin(t * 0.6),
 			};
-		/* Motionless, but not dead: one slow blink, so it reads as held
-		 * rather than hung. Nothing else in the vocabulary is this still. */
+		/* Parked low and level, squinting down the page: steadily across, then a flick back. */
+		case "read": {
+			const p = (s / 1.7) % 1;
+			const x = p < 0.82 ? -1 + (p / 0.82) * 2 : 1 - ((p - 0.82) / 0.18) * 2;
+			return { ...REST, pupil: x * 2.8, pupilY: 1.3, eyeL: 0.62, eyeR: 0.62, lift: 3 };
+		}
+		/* Looking for a thing rather than at one: the head snaps to each new
+		 * place and the handset swings the other way. */
+		case "search": {
+			const step = t / 0.42;
+			const n = Math.floor(step) % DARTS.length;
+			const prev = DARTS[(n + DARTS.length - 1) % DARTS.length]!;
+			const d = prev + (DARTS[n]! - prev) * ease(clamp01((step - Math.floor(step)) / 0.28));
+			return { ...REST, pupil: d * 3, pupilY: DARTS[(n + 3) % DARTS.length]! * 1.4, rot: d * 5, lift: 5, tilt: -d * 9 };
+		}
+		/* On the phone while typing: the handset tucked at the shoulder, eyes
+		 * down on the caret, the body taking each keystroke. */
+		case "edit": {
+			const c = s % PHRASE;
+			let tap = 0;
+			let side = 1;
+			let keys = 0;
+			for (let i = 0; i < KEYS.length && c >= KEYS[i]!; i++) {
+				keys = i + 1;
+				side = i % 2 ? -1 : 1;
+				tap = Math.exp(-(c - KEYS[i]!) / 0.05);
+			}
+			return {
+				...REST,
+				pupil: -2.6 + (5.2 * keys) / KEYS.length,
+				pupilY: 1.5,
+				body: 1 - 0.06 * tap,
+				dy: 0.7 * tap,
+				rot: 1.3 * side * tap,
+				lift: 2.5,
+				hx: 3,
+				tilt: 20,
+				hy: -0.4 * tap,
+			};
+		}
+		/* A toad running is a toad hopping, the handset trailing each hop by a beat. */
+		case "execute": {
+			const h = hop(s);
+			const lag = hop(s - 0.07);
+			return { ...REST, body: h.body, dy: h.dy, pupilY: -0.4, lift: 4, tilt: -3, hy: lag.dy - h.dy };
+		}
+		/* A tool that named no kind. Says work is happening and nothing more. */
+		case "doing":
+			return { ...REST, body: 1 + 0.07 * Math.sin(s * 3.4), lift: 4 + 1.4 * Math.sin(s * 2.2), tilt: -4 };
+		/* On the cradle, sat up a little so the widened eyes keep their cut,
+		 * ringing, then the stare: nothing else in the vocabulary is this still.
+		 * One slow blink, so it reads as held rather than hung. */
 		case "blocked": {
 			const shut = t % 5 > 4.75 ? 0.12 : 1;
-			return { ...REST, eyeL: shut, eyeR: shut };
+			return { ...REST, wide: 1.12, eyeL: shut, eyeR: shut, lift: 2.4, ...ring(t) };
 		}
-		/* A copy, never REST itself: the loop writes the blink and the wink
-		 * into the pose it is handed, and a shared constant with a shut eye
-		 * written into it is a mark with no eyes for the rest of the day. */
+		/* The loop draws these: they are a line, not a pose. A copy, never
+		 * REST itself — the loop writes into the pose it is handed. */
 		case "writing":
+		case "landed":
 			return { ...REST };
 	}
 }
+
+/** The voice line: a wave that moves along itself, tapered at both ends. */
+function voiceLine(t: number): [number, number][] {
+	const points: [number, number][] = [];
+	for (let i = 0; i < LINE_POINTS; i++) {
+		const u = i / (LINE_POINTS - 1);
+		const x = 9 + 46 * u;
+		const amp = 4.4 * Math.sin(Math.PI * u) ** 0.6 * (0.72 + 0.28 * Math.sin(x * 0.55 - t * 3.1));
+		points.push([x, 36 + amp * Math.sin((2 * Math.PI * x) / 10.5 - 2 * Math.PI * 1.4 * t)]);
+	}
+	return points;
+}
+
+const HANDSET = receiverLine(RECEIVER, LINE_POINTS);
+
+/** The handset's centreline where the painted handset is. */
+function heldLine(lift: number, tilt: number, hx: number): [number, number][] {
+	const [cx, cy] = HANDSET.centre;
+	const a = (tilt * Math.PI) / 180;
+	const c = Math.cos(a);
+	const s = Math.sin(a);
+	return HANDSET.points.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s + hx, cy + (x - cx) * s + (y - cy) * c - lift]);
+}
+
+const mix = (a: [number, number][], b: [number, number][], m: number): [number, number][] =>
+	a.map(([x, y], i) => [x + (b[i]![0] - x) * m, y + (b[i]![1] - y) * m]);
+
+type Line = { points: [number, number][]; width: number };
 
 export function Glyph({ phase }: { phase: ActivityPhase }) {
 	const root = useRef<SVGSVGElement>(null);
@@ -121,39 +248,44 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 		since.current = -1;
 	}
 
-	/* The dots are held back for one beat so the wink has somewhere to play:
-	 * once the class flips, CSS owns the eyes and nothing the loop paints on
-	 * them can show. */
-	const [showDots, setShowDots] = useState(phase === "writing");
-	const dots = useRef(showDots);
-	dots.current = showDots;
-
 	useEffect(() => {
-		if (phase !== "writing") {
-			setShowDots(false);
-			return;
-		}
-		const timer = setTimeout(() => setShowDots(true), HANDOFF);
-		return () => clearTimeout(timer);
+		if (!REDUCED_MOTION) return;
+		/* Held still: the pose at rest, or the line flat while a reply is on its way. */
+		const node = root.current;
+		if (!node) return;
+		if (phase === "writing") paint(node, { ...REST }, { lift: 0, tilt: 0, hx: 0 }, { points: voiceLine(0), width: LINE_WIDTH }, 1);
+		else paint(node, { ...REST }, { lift: 0, tilt: 0, hx: 0 }, null, 0);
 	}, [phase]);
 
 	useEffect(() => {
 		if (REDUCED_MOTION) return;
 		let frame = 0;
+		let last = performance.now();
 		let blinkAt = -1;
 		let nextBlink = 2 + Math.random() * 3;
+		/* The handset eases between holds — picking up a phone takes a
+		 * moment — and everything else is painted raw. */
+		const held = { lift: 0, tilt: 0, hx: 0 };
+		let entry = { ...held };
+		/* Where the voice line had got to, so landing reels in from there. */
+		let spoken = 0;
 
 		const draw = (now: number) => {
 			frame = requestAnimationFrame(draw);
 			const node = root.current;
 			if (!node) return;
-			if (since.current < 0) since.current = now;
-
+			const dt = Math.min(0.05, (now - last) / 1000);
+			last = now;
 			const phase = live.current;
-			const held = (now - since.current) / 1000;
+			if (since.current < 0) {
+				since.current = now;
+				entry = { ...held };
+				if (phase !== "writing" && phase !== "landed") blinkAt = now / 1000;
+			}
+			const t = (now - since.current) / 1000;
 			const stall =
 				phase === "read" || phase === "edit" || phase === "execute" || phase === "doing"
-					? Math.min(1, Math.max(0, (held - STALL_AFTER) / STALL_OVER))
+					? Math.min(1, Math.max(0, (t - STALL_AFTER) / STALL_OVER))
 					: 0;
 
 			// The blink is the one thing here that is not caused, and it is
@@ -166,23 +298,43 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			const gap = clock - blinkAt;
 			const blink = gap >= 0 && gap < 0.18 ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
 
-			const pose = poseOf(phase, held, stall);
+			const pose = poseOf(phase, t, stall);
 			pose.eyeL = Math.min(pose.eyeL, blink);
 			pose.eyeR = Math.min(pose.eyeR, blink);
+			const k = 1 - Math.exp(-dt / 0.08);
+			let line: Line | null = null;
+			let fold = 0;
 
-			/* The handoff: while the dots are held back, the mark is at rest
-			 * and winks once — then the class flips and it collapses. */
-			if (phase === "writing" && !dots.current) {
-				const p = Math.min(1, (held * 1000) / HANDOFF);
-				pose.pupil = 0;
-				pose.body = 1;
-				pose.rot = 0;
-				pose.dy = 0;
-				pose.eyeL = winkAt(p);
-				pose.eyeR = 1;
+			if (phase === "writing") {
+				/* Off the head and into the line, the toad folding in after it. */
+				const m = ease(clamp01(t / MORPH));
+				line = { points: mix(heldLine(entry.lift, entry.tilt, entry.hx), voiceLine(t), m), width: RECEIVER.thick + (LINE_WIDTH - RECEIVER.thick) * m };
+				fold = m;
+				spoken = t;
+			} else if (phase === "landed") {
+				/* Reel in, drop onto the cradle, clunk, wink. */
+				if (t < REEL) {
+					const m = ease(t / REEL);
+					line = { points: mix(voiceLine(spoken + t), heldLine(3, 0, 0), m), width: LINE_WIDTH + (RECEIVER.thick - LINE_WIDTH) * m };
+					fold = 1 - m;
+					Object.assign(held, { lift: 3, tilt: 0, hx: 0 });
+				} else {
+					const c = t - REEL;
+					held.lift = c < DROP ? 3 * (1 - easeIn(c / DROP)) : 0;
+					const d = c - DROP;
+					if (d >= 0 && d < CLUNK) pose.body = 1 - 0.1 * Math.sin((d / CLUNK) * Math.PI);
+					else if (d >= CLUNK && d < CLUNK + WINK) pose.eyeL = Math.min(pose.eyeL, winkAt((d - CLUNK) / WINK));
+				}
+			} else if (phase === "search" && t > 0.25) {
+				/* The swing is the search; easing it would blunt every snap. */
+				Object.assign(held, { lift: pose.lift, tilt: pose.tilt, hx: pose.hx });
+			} else {
+				held.lift += (pose.lift - held.lift) * k;
+				held.tilt += (pose.tilt - held.tilt) * k;
+				held.hx += (pose.hx - held.hx) * k;
 			}
 
-			paint(node, pose);
+			paint(node, pose, held, line, fold);
 		};
 
 		frame = requestAnimationFrame(draw);
@@ -190,22 +342,11 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 	}, []);
 
 	return (
-		<svg
-			ref={root}
-			className={`glyph ${showDots ? "glyph-dots" : "glyph-mark"}`}
-			viewBox="4 15 56 34"
-			width="30"
-			height="18"
-			aria-hidden="true"
-			focusable="false"
-		>
+		<svg ref={root} className="glyph" viewBox="4 8 56 40" width="30" height="21.43" aria-hidden="true" focusable="false">
 			<g className="g-all">
 				<g className="g-body">
 					<rect x="4" y="30" width="56" height="18" rx="6" />
 				</g>
-				{/* Grows in as the body shrinks out, so the row lands on three
-				    of the same thing rather than two dots and a squashed bar. */}
-				<circle className="g-dot" cx="32" cy="39" r="4.2" />
 				<g className="g-eyeL">
 					<circle cx="20" cy="30" r="10.5" />
 				</g>
@@ -216,6 +357,10 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 					<rect x="14.5" y="28" width="11" height="4" rx="2" />
 					<rect x="38.5" y="28" width="11" height="4" rx="2" />
 				</g>
+				<g className="g-hand">
+					<path className="g-receiver" d={receiverPath(RECEIVER)} />
+				</g>
+				<path className="g-line" d="" opacity="0" />
 			</g>
 		</svg>
 	);
@@ -224,18 +369,33 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 /**
  * The only place that touches the DOM. Attributes rather than React state:
  * this runs every frame, and re-rendering a component sixty times a second
- * to move two rectangles would cost more than the animation does.
+ * to move a handful of shapes would cost more than the animation does.
+ * `fold` is how far the toad has folded into the voice line, 0 to 1.
  */
-function paint(root: SVGSVGElement, pose: Pose): void {
-	const set = (selector: string, name: string, value: string) =>
-		root.querySelector(selector)?.setAttribute(name, value);
-	const l = pose.eyeL.toFixed(3);
-	const r = pose.eyeR.toFixed(3);
+function paint(root: SVGSVGElement, pose: Pose, held: { lift: number; tilt: number; hx: number }, line: Line | null, fold: number): void {
+	const set = (selector: string, name: string, value: string) => root.querySelector(selector)?.setAttribute(name, value);
+	const keep = 1 - fold;
+	const w = pose.wide;
+	const gone = fold > 0.97 ? "0" : "1";
+	const f = (v: number) => Math.max(0.001, v).toFixed(3);
 	set(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
-	set(".g-body", "transform", `scale(1 ${pose.body.toFixed(3)})`);
-	set(".g-eyeL", "transform", `scale(1 ${l})`);
-	set(".g-eyeR", "transform", `scale(1 ${r})`);
+	set(".g-body", "transform", `scale(${f(1 - 0.3 * fold)} ${f(pose.body * keep)})`);
+	set(".g-body", "opacity", gone);
+	// The eyes shrink in toward the line as the toad folds into it.
+	set(".g-eyeL", "transform", `translate(${(6 * fold).toFixed(2)} ${(6 * fold).toFixed(2)}) scale(${f(w * keep)} ${f(pose.eyeL * w * keep)})`);
+	set(".g-eyeR", "transform", `translate(${(-6 * fold).toFixed(2)} ${(6 * fold).toFixed(2)}) scale(${f(w * keep)} ${f(pose.eyeR * w * keep)})`);
+	set(".g-eyeL", "opacity", gone);
+	set(".g-eyeR", "opacity", gone);
 	// The pupils are one group, so an uneven wink squashes them by the lesser
 	// of the two — the open eye keeps its slit and the shut one has nothing to show.
-	set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} 0) scale(1 ${Math.max(pose.eyeL, pose.eyeR).toFixed(3)})`);
+	set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w * keep)})`);
+	set(".g-pupils", "opacity", keep.toFixed(3));
+	set(".g-hand", "transform", `translate(${held.hx.toFixed(2)} ${(pose.hy - held.lift).toFixed(2)})`);
+	set(".g-receiver", "transform", `rotate(${(held.tilt + pose.ht).toFixed(2)})`);
+	set(".g-hand", "opacity", line ? "0" : "1");
+	set(".g-line", "opacity", line ? "1" : "0");
+	if (line) {
+		set(".g-line", "d", `M${line.points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L")}`);
+		set(".g-line", "stroke-width", line.width.toFixed(2));
+	}
 }

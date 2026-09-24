@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -2.5 64 64" role="img" aria-label="Hotline">
+	<!--
+		The Hotline mark at 24px and under: the same drawing as hotline-mark.svg with
+		the receiver's cut widened from 2.2 to 3.4 units, so it stays about a pixel at
+		16px instead of fusing the handset and eyes into goggles. receiverPath(RECEIVER_SMALL)
+		from ui/src/ui/receiver.ts, written out.
+	-->
+	<mask id="hotline-pupils-small" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+		<rect width="64" height="64" fill="#fff" />
+		<rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000" />
+		<rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000" />
+	</mask>
+	<g fill="currentColor">
+		<g mask="url(#hotline-pupils-small)">
+			<rect x="4" y="30" width="56" height="18" rx="6" />
+			<circle cx="20" cy="30" r="10.5" />
+			<circle cx="44" cy="30" r="10.5" />
+		</g>
+		<path d="M1.86 25.48A18.7 18.7 0 0 1 26.85 12.6L37.15 12.6A18.7 18.7 0 0 1 62.14 25.48A2.4 2.4 0 0 1 57.49 26.64A13.9 13.9 0 0 0 44 16.1L20 16.1A13.9 13.9 0 0 0 6.51 26.64A2.4 2.4 0 0 1 1.86 25.48Z" />
+	</g>
+</svg>

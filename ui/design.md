@@ -29,11 +29,14 @@ One family, **Workbench**, for every screen:
   the window is one more pane on the desk; maximised, it is square. macOS
   keeps its traffic lights in the left corner, on the strip's centre
   line, and the strip leaves room for them.
-- The **mark** is one shape in one colour, `ui/src/ui/HotlineMark.tsx`. In
-  chrome it is ink-3, the colour of a reading, never the accent: the
-  accent is for what is happening, and the mark is furniture. The app
-  tile is the same drawing in the accent on a dark rounded square
-  (`assets/hotline-tile.svg`).
+- The **mark** is one shape in one colour, `ui/src/ui/HotlineMark.tsx`:
+  the toad with a telephone receiver resting across its eyes, where a
+  desk phone's handset sits in the cradle, cut from them by a gap. At
+  24px and under it draws the small receiver, whose wider cut survives
+  as a pixel (`ui/src/ui/receiver.ts` holds both). In chrome it is ink-3,
+  the colour of a reading, never the accent: the accent is for what is
+  happening, and the mark is furniture. The app tile is the same drawing
+  in the accent on a dark rounded square (`assets/hotline-tile.svg`).
 - The **well** is the window's ground. The rail stands directly in it.
 - A **pane** is a rounded canvas set 8px into the well with one hairline
   at its edge and a 1px light along its top: the conversation, the
@@ -53,8 +56,10 @@ One family, **Workbench**, for every screen:
   they work the mark floats above the composer — not in a bubble, because
   it is not a message — with one word for what kind of work: Reading,
   Searching, Editing, Running, Thinking, or Waiting on you. Nothing
-  streams. A reply lands whole, the way a text does, and the mark
-  collapses into three dots while it is on its way. A press on the mark
+  streams. A reply lands whole, the way a text does; while it is on its
+  way the receiver unbends into a moving voice line and the toad folds
+  into it, and when it lands the line reels back into the handset, which
+  hangs up and winks before the mark goes. A press on the mark
   opens the work behind it for that turn. The band is the name and the
   tools; the model and effort are on the window's strip, and everything
   else about a teammate — its mode included — lives under the inspector.
@@ -147,9 +152,14 @@ One curve, `cubic-bezier(0.16, 1, 0.3, 1)`, three durations: 90ms answers
 a press, 130ms opens something small, 220ms moves something across a pane.
 No overshoot, no hover scale, no transition-all. A working teammate's dot
 breathes at 1800ms, and the mark above the composer moves only because of
-something: a read sweeps the eyes, a search darts them, an edit presses,
-a command ratchets, a permission request stops it dead to look at you.
-Every pose is a function of the phase and the time in it; the blink is
+something, and each kind of work differs from every other on at least two
+of the receiver, the eyes and the body: thinking holds the receiver at
+the ear and looks up, a read parks it low and squints down the page, a
+search snaps the head about with the receiver swinging against it, an
+edit tucks it at the shoulder and takes each keystroke, a command hops,
+and a permission request puts it back on the cradle, rings twice, and
+stares at you. A blink marks each change into a new kind of work. Every
+pose is a function of the phase and the time in it; the idle blink is
 the one motion that is not caused. Reduced motion removes every
 transition and animation, and holds the mark still.
 

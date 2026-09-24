@@ -17,8 +17,8 @@ import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
 import type { Streaming } from "../tape";
-import { activityOf } from "../activity";
-import { Glyph } from "../ui/Glyph";
+import { type Activity, type ActivityPhase, activityOf, LANDED } from "../activity";
+import { Glyph, LANDED_MS } from "../ui/Glyph";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
@@ -148,6 +148,7 @@ export function Transcript({
 	// Hooks before the empty-state return, so their order never changes.
 	const arrived = toBlocks(events, streaming);
 	const hidden = useCadence(personaId, arrived);
+	const activity = useLanding(personaId, live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null);
 
 	if (empty) {
 		return (
@@ -160,7 +161,6 @@ export function Transcript({
 	}
 
 	const blocks = hidden.size === 0 ? arrived : arrived.filter((block) => !(block.kind === "event" && hidden.has(block.event.id)));
-	const activity = live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null;
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -249,6 +249,38 @@ export function Transcript({
 		)}
 		</div>
 	);
+}
+
+/**
+ * The mark hangs up after the reply lands. A turn that ended while it was
+ * writing keeps the mark for LANDED_MS in the `landed` phase, so the voice
+ * line can reel back into the handset and drop onto the cradle; any other
+ * ending — a cancel mid-tool, a refusal — lets it go at once, because
+ * nothing was said to hang up on. Worked out during render rather than after
+ * it, so the mark is never gone for a frame between writing and landing.
+ */
+function useLanding(personaId: string, activity: Activity | null): Activity | null {
+	const last = useRef<ActivityPhase | null>(null);
+	const [landing, setLanding] = useState(false);
+	const phase = activity?.phase ?? null;
+	const ended = phase === null && (landing || last.current === "writing");
+	useEffect(() => {
+		last.current = null;
+		setLanding(false);
+	}, [personaId]);
+	useEffect(() => {
+		if (phase !== null) {
+			last.current = phase;
+			setLanding(false);
+			return;
+		}
+		if (last.current !== "writing") return;
+		last.current = null;
+		setLanding(true);
+		const timer = window.setTimeout(() => setLanding(false), LANDED_MS);
+		return () => window.clearTimeout(timer);
+	}, [phase]);
+	return activity ?? (ended ? LANDED : null);
 }
 
 /**

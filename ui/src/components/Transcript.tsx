@@ -595,21 +595,31 @@ function Row({
 				</button>
 			);
 
-		/* An answer that came back to the teammate after it moved on. It is
-		 * the reason the turn below it began, not something anyone said to
-		 * the person, so it is a quiet line like the thread it came from, and
-		 * pressing it opens that thread. */
-		case "delivery":
+		/* An answer that came back to the teammate after it moved on: a
+		 * colleague's, or yours to a card. It is the reason the turn below it
+		 * began, not something anyone said, so it is a quiet line; a
+		 * colleague's opens the thread it came from. Your answer is already
+		 * on its card. */
+		case "delivery": {
+			const cause = event.cause;
+			const style = deliveryMissed(event) ? { color: "var(--warn)" } : undefined;
+			if (cause.kind !== "peer")
+				return (
+					<p className="rule-line rule-line-plain" style={style}>
+						<span className="min-w-0 truncate">{deliveryLine(event)}</span>
+					</p>
+				);
 			return (
 				<button
 					type="button"
 					className="rule-line rule-line-plain w-full"
-					style={event.cause.status === "failed" ? { color: "var(--warn)" } : undefined}
-					onClick={() => onOpenThread?.({ threadKey: event.cause.threadKey, withName: event.cause.name })}
+					style={style}
+					onClick={() => onOpenThread?.({ threadKey: cause.threadKey, withName: cause.name })}
 				>
 					<span className="min-w-0 truncate">{deliveryLine(event)}</span>
 				</button>
 			);
+		}
 
 		/* Work the teammate handed to a subagent: one quiet line that fills
 		 * in as the run goes, the way a peer thread is one. Pressing it opens
@@ -644,11 +654,25 @@ export type ThreadRef = { threadKey: string; withName: string };
 
 type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
 
-/** A delivery's line: who answered, and which message it answers. */
+/** A delivery's line: who answered, and what it answers. */
 export function deliveryLine(event: DeliveryEvent): string {
-	const { name, status, about } = event.cause;
-	const what = status === "failed" ? `${name} didn't answer` : `${name} answered`;
-	return about === "" ? what : `${what} · ${about}`;
+	const cause = event.cause;
+	const what =
+		cause.kind === "peer"
+			? cause.status === "failed"
+				? `${cause.name} didn't answer`
+				: `${cause.name} answered`
+			: cause.status === "done"
+				? "Picking up your answer"
+				: cause.status === "dismissed"
+					? "You declined"
+					: "Unanswered for a day";
+	return cause.about === "" ? what : `${what} · ${cause.about}`;
+}
+
+/** Whether a delivery says something did not come back. */
+export function deliveryMissed(event: DeliveryEvent): boolean {
+	return event.cause.status === "failed" || event.cause.status === "expired";
 }
 
 /** Where a subagent's run has got to, in the words its line ends with. */

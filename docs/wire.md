@@ -243,9 +243,12 @@ Whole machine authority. `list_teammates` returns only each other teammate's
 `personaId` and `name`.
 
 `human.answer` is the same fact for a `request_human` card: `done` or
-`declined`, with an optional `note` the agent receives word for word,
-refused when the deadline passed, the session stopped, the room restarted,
-or somebody else answered first. The tape still writes `dismissed` for a
+`declined`, with an optional `note` the agent receives word for word. A card
+that `delivers` is answered off the tape at any time until it is settled,
+across restarts, and the answer reaches the teammate as a `delivery`. A card
+a tool is waiting on (a colleague's side session asked it) is refused once
+the deadline passed, the session stopped, the room restarted, or somebody
+else answered first. The tape still writes `dismissed` for a
 decline, which is the previous edition's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,

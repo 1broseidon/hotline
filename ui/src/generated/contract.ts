@@ -275,6 +275,10 @@ export type DeliveryCause = { "kind": "peer", personaId: string, name: string, t
 /**
  * The start of the message this answers, clipped to a line.
  */
+about: string, } | { "kind": "answer", actionId: string, status: HumanActionStatus, 
+/**
+ * The start of the card's reason, clipped to a line.
+ */
 about: string, };
 
 /**
@@ -1170,7 +1174,15 @@ elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, data
 /**
  * What the person said with their answer, when they said anything.
  */
-note?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+note?: string, 
+/**
+ * The asking turn did not wait: the answer comes back to the
+ * teammate as a [`TranscriptEvent::Delivery`], whenever it comes.
+ * Such a card is not orphaned by a restart or a stop, because
+ * nothing was parked on it; only the person, or a day going by,
+ * settles it. Absent on a card a tool is waiting on.
+ */
+delivers?: boolean, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
 /**
  * The name the passkey is stored under once made.
  */

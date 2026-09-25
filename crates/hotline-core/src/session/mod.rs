@@ -115,6 +115,10 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 /// shorter deadline; the tool uses this.
 pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
+/// How long a `request_human` card that delivers stays up unanswered before
+/// it is expired and the teammate told.
+const ASK_TTL: i64 = 24 * 60 * 60_000;
+
 /// How Hotline Agent reaches a provider: a key, a login directory, or a
 /// configured endpoint with its own protocol and optional key.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -547,6 +551,9 @@ pub struct Room {
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
     human_waits: Mutex<HashMap<String, HumanWait>>,
+    /// Held while a card that delivers is read and settled, so two answers,
+    /// or an answer and the expiry sweep, cannot both deliver.
+    answering_later: Mutex<()>,
     /// The phones paired with this desk, told when a reply lands or a card
     /// needs the person.
     push: crate::push::Push,
@@ -647,6 +654,7 @@ impl Room {
             schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
+            answering_later: Mutex::new(()),
             push,
             computers,
             vault,
@@ -2601,6 +2609,7 @@ impl Room {
                 reason: reason.clone(),
                 status: HumanActionStatus::Pending,
                 note: None,
+                delivers: None,
             },
         );
         self.push.notify(
@@ -2621,13 +2630,49 @@ impl Room {
         Ok(human_outcome(answer))
     }
 
-    /// Resolves a waiting `request_human` and supersedes its card.
+    /// Posts a `human_action` card and returns: the asking turn goes on,
+    /// and the person's answer comes back to the teammate as a delivery
+    /// whenever they give it (see [`Room::answer_human`]). The card is the
+    /// record, so it outlives the turn, a stop, and a restart.
+    pub fn ask_human(&self, persona_id: &str, reason: &str) -> Result<String, String> {
+        self.persona(persona_id)?;
+        let reason = reason.trim();
+        if reason.len() < 3 {
+            return Err("request_human needs a `reason` of at least three characters.".to_string());
+        }
+        let reason: String = reason.chars().take(500).collect();
+        let action_id = new_id();
+        self.write(
+            persona_id,
+            &TranscriptEvent::HumanAction {
+                id: format!("human:{action_id}"),
+                ts: now_ms(),
+                action_id: action_id.clone(),
+                reason: reason.clone(),
+                status: HumanActionStatus::Pending,
+                note: None,
+                delivers: Some(true),
+            },
+        );
+        self.push.notify(
+            &self.needs_you(persona_id),
+            &reason,
+            persona_id,
+            Some(crate::push::Waiting::Human { action_id }),
+        );
+        Ok("Asked. The card is in front of the person now. Their answer, and anything they type with it, will arrive later as its own message in this conversation. Carry on with whatever does not depend on it; if nothing does, say what you are waiting for and end your reply.".to_string())
+    }
+
+    /// Resolves a `request_human` card and supersedes it.
     ///
-    /// Refused when nothing is behind that id any more — the deadline
-    /// passed, the session stopped, or somebody else answered first — so a
-    /// stale button cannot quietly settle a wait that is already gone.
+    /// A card a tool is waiting on is answered through that wait. One that
+    /// delivers is answered off the tape, so it can be answered after a
+    /// restart, and the answer goes to the teammate as a delivery. Refused
+    /// when nothing is behind that id any more — the deadline passed, the
+    /// session stopped, or somebody else answered first — so a stale button
+    /// cannot quietly settle a wait that is already gone.
     pub fn answer_human(
-        &self,
+        self: &Arc<Self>,
         persona_id: &str,
         action_id: &str,
         status: HumanAnswer,
@@ -2642,7 +2687,7 @@ impl Room {
             .filter(|note| !note.is_empty());
         let wait = lock(&self.human_waits).remove(action_id);
         let Some(wait) = wait else {
-            return Err("That request is no longer waiting for an answer.".to_string());
+            return self.answer_later(persona_id, action_id, status, note);
         };
         if wait.persona_id != persona_id {
             lock(&self.human_waits).insert(action_id.to_string(), wait);
@@ -2651,6 +2696,99 @@ impl Room {
         self.supersede_human(persona_id, action_id, status, note.clone());
         let _ = wait.sender.send(HumanAnswered { status, note });
         Ok(())
+    }
+
+    /// The answer to a card that delivers: superseded on the tape, then
+    /// handed to the teammate. The card is the one lock, so two answers
+    /// racing each other settle it once.
+    fn answer_later(
+        self: &Arc<Self>,
+        persona_id: &str,
+        action_id: &str,
+        status: HumanActionStatus,
+        note: Option<String>,
+    ) -> Result<(), String> {
+        let _answering = lock(&self.answering_later);
+        let Some(TranscriptEvent::HumanAction {
+            reason,
+            status: HumanActionStatus::Pending,
+            delivers: Some(true),
+            ..
+        }) = self.human_card(persona_id, action_id)
+        else {
+            return Err("That request is no longer waiting for an answer.".to_string());
+        };
+        self.supersede_human(persona_id, action_id, status, note.clone());
+        self.deliver_answer(persona_id, action_id, &reason, status, note);
+        Ok(())
+    }
+
+    /// An answer, or the lack of one, on its way to the teammate that asked.
+    fn deliver_answer(
+        self: &Arc<Self>,
+        persona_id: &str,
+        action_id: &str,
+        reason: &str,
+        status: HumanActionStatus,
+        note: Option<String>,
+    ) {
+        let cause = DeliveryCause::Answer {
+            action_id: action_id.to_string(),
+            status,
+            about: peers::about(reason),
+        };
+        let room = self.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            if let Err(error) = room
+                .deliver_into(&persona_id, cause, note.unwrap_or_default())
+                .await
+            {
+                eprintln!("an answer to {persona_id}'s request could not be delivered: {error}");
+            }
+        });
+    }
+
+    /// Cards that deliver and have waited [`ASK_TTL`] without an answer:
+    /// expired, and the teammate told, so neither the card nor the
+    /// teammate's "waiting on you" stays up forever.
+    pub(super) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
+        for persona in crate::room::roster(&self.log) {
+            for event in self.tape(&persona.id) {
+                let Ok(TranscriptEvent::HumanAction {
+                    ts,
+                    action_id,
+                    reason,
+                    status: HumanActionStatus::Pending,
+                    delivers: Some(true),
+                    ..
+                }) = serde_json::from_value::<TranscriptEvent>(event)
+                else {
+                    continue;
+                };
+                if now - ts < ASK_TTL {
+                    continue;
+                }
+                let _answering = lock(&self.answering_later);
+                if !matches!(
+                    self.human_card(&persona.id, &action_id),
+                    Some(TranscriptEvent::HumanAction {
+                        status: HumanActionStatus::Pending,
+                        ..
+                    })
+                ) {
+                    continue;
+                }
+                self.supersede_human(&persona.id, &action_id, HumanActionStatus::Expired, None);
+                self.deliver_answer(
+                    &persona.id,
+                    &action_id,
+                    &reason,
+                    HumanActionStatus::Expired,
+                    None,
+                );
+            }
+        }
     }
 
     /// The card this request wrote, read back off the tape it was written to.
@@ -2721,7 +2859,13 @@ impl Room {
         let Some(card) = self.human_card(persona_id, action_id) else {
             return;
         };
-        let TranscriptEvent::HumanAction { id, reason, .. } = card else {
+        let TranscriptEvent::HumanAction {
+            id,
+            reason,
+            delivers,
+            ..
+        } = card
+        else {
             return;
         };
         self.write(
@@ -2733,6 +2877,7 @@ impl Room {
                 reason,
                 status,
                 note,
+                delivers,
             },
         );
     }
@@ -4140,6 +4285,7 @@ fn sweep_idle_chapters(room: Weak<Room>) {
                     // nothing to arm when a message lands and nothing to
                     // cancel when a teammate is deleted.
                     room.sweep_peers(now_ms());
+                    room.expire_stale_asks(now_ms());
                     room.sweep_computers().await;
                 }
                 None => return,

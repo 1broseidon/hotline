@@ -257,11 +257,14 @@ There is no plaintext fallback for migrated credentials.
 
 Existing JSON credentials migrate on first use. A failed migration preserves
 the original bytes and refuses credential use. MCP launch arguments and
-environment values migrate when the vault opens or a source connects. The
-core atomically rewrites the room fold after storing those values, removing
-superseded settings that also contained secrets. An unavailable store leaves
-the original room untouched, keeps Settings accessible, and prevents that
-source from starting. Window responses and subscriptions redact unmigrated
+environment values migrate once, when the vault opens; starting a source
+only reads the settings fold. The core atomically rewrites the room fold
+after storing those values, removing superseded settings that also contained
+secrets. An unavailable store, or a room line the pass cannot read, leaves
+the original room untouched, is logged, and keeps Settings accessible, where
+each source it could not move shows as waiting for migration. Only those
+sources are held back: starting one retries the migration and refuses to
+start it with the values still in the room. Window responses and subscriptions redact unmigrated
 launch values. HTTP endpoints cannot contain userinfo, queries or fragments;
 tokens belong in the authentication fields. Legacy endpoints with those parts
 are hidden and cannot connect until replaced in Settings. Replacing or deleting

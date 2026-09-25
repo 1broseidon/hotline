@@ -96,6 +96,15 @@ impl Vault {
         Ok(Value::Array(servers))
     }
 
+    /// A source as the room's settings fold keeps it.
+    fn saved_mcp_server(&self, id: &str) -> Option<Value> {
+        crate::room::settings(&self.log)
+            .get("mcpServers")
+            .and_then(Value::as_array)
+            .and_then(|servers| servers.iter().find(|saved| saved["id"] == id))
+            .cloned()
+    }
+
     pub(crate) fn migrate_mcp_settings(&self) -> io::Result<()> {
         self.log
             .migrate_mcp_settings(|value| self.protect_mcp_settings(value))
@@ -108,12 +117,27 @@ impl Vault {
         let McpTransport::Stdio { command, .. } = &server.transport else {
             return Ok(server.clone());
         };
-        self.migrate_mcp_settings()?;
-        let settings = crate::room::settings(&self.log);
-        let saved = settings
-            .get("mcpServers")
-            .and_then(Value::as_array)
-            .and_then(|servers| servers.iter().find(|saved| saved["id"] == server.id));
+        // The move into the credential store ran when the vault opened; a
+        // source it reached is only read here. One it could not reach keeps
+        // its values in plaintext on the room stream, and never connects
+        // with them: the move is tried again for it, which is what retrying
+        // the source after unlocking the store means.
+        let mut saved = self.saved_mcp_server(&server.id);
+        if saved
+            .as_ref()
+            .is_some_and(crate::mcp::launch_values_pending)
+        {
+            self.migrate_mcp_settings()?;
+            saved = self.saved_mcp_server(&server.id);
+            if saved
+                .as_ref()
+                .is_some_and(crate::mcp::launch_values_pending)
+            {
+                return Err(io::Error::other(
+                    "This tool source's launch values still need credential migration. Unlock the OS credential store and retry it, or replace its launch values.",
+                ));
+            }
+        }
         let Some(saved) = saved else {
             return Ok(server.clone());
         };
@@ -218,6 +242,94 @@ mod tests {
         let mut swapped = renamed;
         swapped[0]["command"] = json!("another-server");
         assert!(vault.protect_mcp_settings(&swapped).is_err());
+    }
+
+    fn stdio_args(resolved: McpServer) -> Vec<String> {
+        let McpTransport::Stdio { args, .. } = resolved.transport else {
+            panic!("stdio")
+        };
+        args
+    }
+
+    #[test]
+    fn starting_a_migrated_source_reads_the_room_and_never_rewrites_it() {
+        let root = tempfile::tempdir().unwrap();
+        let log = Log::open(root.path());
+        log.append(
+            &StreamId::Room,
+            &json!({"kind":"setting", "id":"mcpServers", "value":[{
+                "id":"example", "name":"Example", "type":"stdio", "command":"example-server",
+                "args":["--key", "moved-at-open"]
+            }]}),
+        )
+        .unwrap();
+        let vault =
+            Vault::open_with_store(root.path(), log.clone(), Arc::new(MemoryStore::default()))
+                .unwrap();
+        // History the fold would drop: a pass over the room would rewrite it.
+        for theme in ["dark", "light"] {
+            log.append(
+                &StreamId::Room,
+                &json!({"kind":"setting", "id":"theme", "value": theme}),
+            )
+            .unwrap();
+        }
+        let before = fs::read(root.path().join("room.jsonl")).unwrap();
+        let server = crate::mcp::servers(&crate::room::settings(&log)).remove(0);
+        for _ in 0..2 {
+            let resolved = vault.resolve_mcp_server(&server).unwrap();
+            assert_eq!(stdio_args(resolved), ["--key", "moved-at-open"]);
+        }
+        assert_eq!(before, fs::read(root.path().join("room.jsonl")).unwrap());
+    }
+
+    #[test]
+    fn an_unreadable_room_line_holds_back_only_the_source_it_kept_in_plaintext() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Arc::new(MemoryStore::default());
+        let log = Log::open(root.path());
+        log.append(
+            &StreamId::Room,
+            &json!({"kind":"setting", "id":"mcpServers", "value":[{
+                "id":"moved", "name":"Moved", "type":"stdio", "command":"moved-server",
+                "args":["--key", "in-the-store"]
+            }]}),
+        )
+        .unwrap();
+        Vault::open_with_store(root.path(), log.clone(), store.clone()).unwrap();
+        let moved = crate::room::settings(&log)["mcpServers"][0].clone();
+        assert!(moved.get("credentialRef").is_some(), "{moved}");
+        // A legacy source lands beside it, and then a line nobody can read:
+        // the next open cannot move anything.
+        log.append(
+            &StreamId::Room,
+            &json!({"kind":"setting", "id":"mcpServers", "value":[moved, {
+                "id":"legacy", "name":"Legacy", "type":"stdio", "command":"legacy-server",
+                "args":["--key", "still-plaintext"]
+            }]}),
+        )
+        .unwrap();
+        let mut room = fs::OpenOptions::new()
+            .append(true)
+            .open(root.path().join("room.jsonl"))
+            .unwrap();
+        std::io::Write::write_all(&mut room, b"{\"kind\":\"setting\",\"id\"\n").unwrap();
+        let before = fs::read(root.path().join("room.jsonl")).unwrap();
+        let vault = Vault::open_with_store(root.path(), log.clone(), store).unwrap();
+        let servers = crate::mcp::servers(&crate::room::settings(&log));
+
+        // The source that was moved starts with its values from the store.
+        let resolved = vault.resolve_mcp_server(&servers[0]).unwrap();
+        assert_eq!(stdio_args(resolved), ["--key", "in-the-store"]);
+        // The one still in plaintext is refused, with the reason, and never
+        // starts with what the room holds.
+        let refused = vault.resolve_mcp_server(&servers[1]).unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::InvalidData, "{refused}");
+        assert!(
+            refused.to_string().contains("incomplete record"),
+            "{refused}"
+        );
+        assert_eq!(before, fs::read(root.path().join("room.jsonl")).unwrap());
     }
 
     struct Locked;

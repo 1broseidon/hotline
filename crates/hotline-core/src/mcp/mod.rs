@@ -215,6 +215,18 @@ pub(crate) fn validate_http_url(raw: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Whether a stdio source still keeps its launch values on the room stream,
+/// which the move into the credential store has not reached yet: a locked
+/// store, or a room line it could not read, held it back.
+pub(crate) fn launch_values_pending(server: &Value) -> bool {
+    server["args"]
+        .as_array()
+        .is_some_and(|args| !args.is_empty())
+        || server
+            .get("env")
+            .is_some_and(|env| env.as_object().is_none_or(|env| !env.is_empty()))
+}
+
 /// A locked store may leave legacy configuration on disk for recovery. Those
 /// values still must not be copied into a window subscription or response.
 pub(crate) fn public_servers(value: &Value) -> Value {
@@ -227,13 +239,7 @@ pub(crate) fn public_servers(value: &Value) -> Value {
             }
             continue;
         }
-        let pending = server["args"]
-            .as_array()
-            .is_some_and(|args| !args.is_empty())
-            || server
-                .get("env")
-                .is_some_and(|env| env.as_object().is_none_or(|env| !env.is_empty()));
-        if pending {
+        if launch_values_pending(server) {
             server["args"] = json!([]);
             server
                 .as_object_mut()

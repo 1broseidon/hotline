@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-24
+
 ### Added
 
 - A reply sent to your phone can arrive as the teammate's own message,

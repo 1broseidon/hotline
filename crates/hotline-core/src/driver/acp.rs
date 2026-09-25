@@ -93,6 +93,20 @@ const TITLE_CHARS: usize = 120;
 const STEERING_METHOD: &str = "_session/steering";
 /// One operator line: the words, and the files handed over with them.
 type Line = (String, Vec<Attachment>);
+/// The running turn's way in for lines sent while it works.
+struct Lane {
+    admit: mpsc::UnboundedSender<Line>,
+    /// Raised by Stop. A line still waiting on the agent's answer is dropped
+    /// with the turn rather than keeping the turn from ending.
+    stop: CancellationToken,
+}
+
+impl Lane {
+    fn stop(self) {
+        self.stop.cancel();
+    }
+}
+
 /// How long a steered line may wait for the agent to say whether it took it.
 /// An agent that never answers hands the line back, to be said as a prompt.
 const STEER_REPLY: Duration = Duration::from_secs(30);
@@ -423,7 +437,7 @@ struct Live {
     /// Where a line sent during the running turn goes. Open only while a
     /// `session/prompt` is out and not stopped; the rest of the time `steer`
     /// says no and the session keeps the line queued.
-    steering: Mutex<Option<mpsc::UnboundedSender<Line>>>,
+    steering: Mutex<Option<Lane>>,
     /// Lines let into a turn that the agent did not take, handed back to the
     /// session to be said as prompts of their own.
     unconsumed: Mutex<Vec<Line>>,
@@ -1061,17 +1075,24 @@ impl Driver for ChildAgent {
             let over = CancellationToken::new();
             let lane = live.steerable.load(Ordering::SeqCst).then(|| {
                 let (admit, lines) = mpsc::unbounded_channel();
-                *lock(&live.steering) = Some(admit);
+                let stop = CancellationToken::new();
+                *lock(&live.steering) = Some(Lane {
+                    admit,
+                    stop: stop.clone(),
+                });
                 tokio::spawn(steer_lane(
                     live.clone(),
                     connection.clone(),
                     session_id.clone(),
                     lines,
                     over.clone(),
+                    stop,
                 ))
             });
             if live.cancelled.load(Ordering::SeqCst) {
-                lock(&live.steering).take();
+                if let Some(lane) = lock(&live.steering).take() {
+                    lane.stop();
+                }
                 let _ = connection.send_notification(CancelNotification::new(session_id));
             }
             let answered = request.block_task().await;
@@ -1142,7 +1163,7 @@ impl Driver for ChildAgent {
         }
         lock(&self.live.steering)
             .as_ref()
-            .is_some_and(|lane| lane.send((text, attachments)).is_ok())
+            .is_some_and(|lane| lane.admit.send((text, attachments)).is_ok())
     }
 
     fn take_unconsumed(&self) -> Vec<(String, Vec<Attachment>)> {
@@ -1151,7 +1172,9 @@ impl Driver for ChildAgent {
 
     fn cancel(&self) {
         self.live.cancelled.store(true, Ordering::SeqCst);
-        lock(&self.live.steering).take();
+        if let Some(lane) = lock(&self.live.steering).take() {
+            lane.stop();
+        }
         self.live.settle_permissions();
         let Some(connection) = lock(&self.live.connection).clone() else {
             return;
@@ -2311,10 +2334,11 @@ async fn steer_lane(
     session_id: SessionId,
     mut lines: mpsc::UnboundedReceiver<Line>,
     over: CancellationToken,
+    stop: CancellationToken,
 ) -> Vec<Line> {
     let mut refused = Vec::new();
     while let Some((text, attachments)) = lines.recv().await {
-        if !refused.is_empty() || over.is_cancelled() {
+        if !refused.is_empty() || over.is_cancelled() || stop.is_cancelled() {
             refused.push((text, attachments));
             continue;
         }
@@ -2327,11 +2351,16 @@ async fn steer_lane(
             }),
         );
         let answer = match request {
-            Ok(request) => {
-                tokio::time::timeout(STEER_REPLY, connection.send_request(request).block_task())
-                    .await
-                    .ok()
-            }
+            Ok(request) => tokio::select! {
+                biased;
+                // Stop drops this line with the rest, so there is nothing
+                // left to learn from the agent's answer.
+                () = stop.cancelled() => break,
+                answer = tokio::time::timeout(
+                    STEER_REPLY,
+                    connection.send_request(request).block_task(),
+                ) => answer.ok(),
+            },
             Err(_) => None,
         };
         let outcome = match &answer {
@@ -3952,7 +3981,8 @@ mod tests {
     /// An agent that offers the steering extension and holds its turn open
     /// until a line is steered into it, then answers the line with `outcome`
     /// and ends the turn. `None` answers that it has no such method, which is
-    /// an agent that advertised more than it serves.
+    /// an agent that advertised more than it serves; `"silent"` never answers
+    /// and ends the turn only when told to stop.
     fn steering_agent(
         steered: Steered,
         outcome: Option<&'static str>,
@@ -3961,8 +3991,10 @@ mod tests {
         async move {
             let ends = Arc::new(tokio::sync::Notify::new());
             let ending = ends.clone();
+            let stopping = ends.clone();
             let requests = steered.requests.clone();
             let cancels = steered.cancels.clone();
+            let stopped = steered.cancels.clone();
             let mut meta = acp::Meta::new();
             meta.insert(
                 "steering".to_string(),
@@ -3993,10 +4025,17 @@ mod tests {
                           responder: Responder<PromptResponse>,
                           cx: ConnectionTo<Client>| {
                         let ends = ends.clone();
+                        let stopped = stopped.clone();
                         async move {
                             cx.spawn(async move {
                                 ends.notified().await;
-                                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                                responder.respond(PromptResponse::new(
+                                    if stopped.load(Ordering::SeqCst) > 0 {
+                                        StopReason::Cancelled
+                                    } else {
+                                        StopReason::EndTurn
+                                    },
+                                ))
                             })?;
                             Ok(())
                         }
@@ -4006,12 +4045,18 @@ mod tests {
                 .on_receive_request(
                     move |request: agent_client_protocol::UntypedMessage,
                           responder: Responder<Value>,
-                          _cx| {
+                          cx: ConnectionTo<Client>| {
                         let requests = requests.clone();
                         let ending = ending.clone();
                         async move {
                             assert_eq!(request.method, STEERING_METHOD);
                             requests.lock().unwrap().push(request.params);
+                            if outcome == Some("silent") {
+                                return cx.spawn(async move {
+                                    std::future::pending::<()>().await;
+                                    responder.respond(Value::Null)
+                                });
+                            }
                             ending.notify_one();
                             match outcome {
                                 Some(outcome) => {
@@ -4028,8 +4073,10 @@ mod tests {
                 .on_receive_notification(
                     move |_notification: CancelNotification, _cx| {
                         let cancels = cancels.clone();
+                        let stopping = stopping.clone();
                         async move {
                             cancels.fetch_add(1, Ordering::SeqCst);
+                            stopping.notify_one();
                             Ok(())
                         }
                     },
@@ -4203,5 +4250,45 @@ mod tests {
             }
             assert_eq!(messages, expected);
         }
+    }
+
+    /// Stop ends a turn at once even while the agent sits on a steered line
+    /// without answering it: the line is dropped with the turn, and nothing
+    /// waits out the reply's timeout first.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_does_not_wait_on_a_steered_line_the_agent_never_answers() {
+        let held = room("silent-steer-room");
+        let steered = Steered::default();
+        let agent = steering_agent(steered.clone(), Some("silent"));
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch("silent-steer"),
+            "cursor".to_string(),
+            "briefing".to_string(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        driver.handshake(&ada, client_transport()).await.unwrap();
+
+        let mut updates = driver
+            .prompt(
+                "check the south pier".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        steer_into(&driver, "actually, the north pier").await;
+        for _ in 0..200 {
+            if !steered.requests.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(steered.requests.lock().unwrap().len(), 1);
+
+        driver.cancel();
+        // `next` gives each update five seconds, well short of STEER_REPLY.
+        assert_eq!(turn_end(&mut updates).await, "cancelled");
+        assert!(driver.take_unconsumed().is_empty());
     }
 }

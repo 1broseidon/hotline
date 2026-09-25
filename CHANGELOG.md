@@ -20,6 +20,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - Your phone stays quiet while you are using Hotline on the desk, and a
   teammate's reply reaches it as one notification when the teammate is
   done, instead of one for every message along the way.
+- A Hotline Agent teammate with tool servers granted sends much less with
+  every request: it keeps a list of those servers' tools, one line each,
+  and reads a tool's full description only when it is about to use it.
+  Large servers, such as Linear's, no longer cost more than the rest of
+  the conversation on every step.
 
 ### Fixed
 

@@ -944,11 +944,18 @@ come out of `message_teammate` (`session/peers.rs`):
   session, which is also how far apart two exchanges may be and still be
   drawn as one line: ten minutes idle, then the session is stopped.
 
-`list_teammates` is public roster metadata only — id and name,
-never anyone's conversation, session details, working path or tool inventory,
-and never the caller. The caller may be mid-turn on its own tape while the
-delivery runs: nothing here touches the caller's session, only its tape's
-marker.
+`list_teammates` is public roster metadata: id, name, and the same state a
+desk window would show — `idle`, `working`, `waiting` (on the person) or
+`stopped` — read from the roster's own `activity_on`/`waiting_on`, so it
+costs nothing beyond a tape's tail and never wakes or starts anyone. A
+working colleague's `activity` names the tool still running, and
+`workingOn` says what for: the open chapter's title once a resume has given
+it one, its goal until then, and when it last spoke. None of it is
+conversation: never a message's text, never what anyone said, never a
+working path or tool inventory, and never the caller. A teammate can check
+this before `message_teammate` to know whether a colleague is mid-turn, and
+the caller may itself be mid-turn on its own tape while the delivery runs:
+nothing here touches the caller's session, only its tape's marker.
 
 A pair is refused a second delivery while one is running (`"That thread is
 already answering."`). A teammate cannot message itself. A message is at

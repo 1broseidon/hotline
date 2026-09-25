@@ -2457,6 +2457,13 @@ pub struct RosterEntry {
     /// session is thinking. Absent, not null, when there is none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity: Option<String>,
+    /// A card on this tape is still waiting on the person: a permission with
+    /// no decision, or a `request_human` or passkey card still pending.
+    ///
+    /// On the row so a phone can say "Needs you" for every teammate on
+    /// every desk from one roster, without opening each tape. Always
+    /// written, so a phone can tell `false` from a desk that predates it.
+    pub waiting: bool,
     pub session: SessionInfo,
 }
 

@@ -137,7 +137,8 @@ fn row_for(
 }
 
 /// Forwards this teammate's id whenever the row would change: either side
-/// said something, a tool moved, or a turn ended. Only the id: the preview
+/// said something, a tool moved, a turn ended, or a card was asked or
+/// answered. Only the id: the preview
 /// and the activity are read from the tape when the row is rebuilt, so the
 /// event itself has nowhere to go.
 fn watch(
@@ -161,8 +162,18 @@ fn watch(
                 event = events.recv() => match event {
                     Ok(event) => {
                         let kind = event.get("kind").and_then(Value::as_str);
-                        if !matches!(kind, Some("user") | Some("agent") | Some("tool") | Some("turn"))
-                        {
+                        if !matches!(
+                            kind,
+                            Some(
+                                "user"
+                                    | "agent"
+                                    | "tool"
+                                    | "turn"
+                                    | "permission"
+                                    | "human_action"
+                                    | "passkey_ask"
+                            )
+                        ) {
                             continue;
                         }
                         if spoke.send(persona_id.clone()).is_err() {

@@ -214,7 +214,16 @@ On each turn it is given:
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
 | Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
-| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`) and registers each listed tool, named `{server name as a slug}__{tool}` |
+| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
+
+Every tool definition goes out with every request, and a large server's can
+outweigh the rest of the request, so Hotline Agent keeps a granted server's
+schemas out of it until the agent asks for one. The two tools that stand in
+for them are the same whatever is granted, so the tool list is a stable
+cached prefix; the preamble's list changes only when the granted servers do,
+which restarts the session anyway. A `call_tool` shows in the transcript as
+the tool it called, and a call the server refuses comes back with that
+tool's parameters, so the next try has them.
 
 Settings → Tools is the MCP gateway: configuring a server makes it available
 to grant, not automatically available to every teammate. New teammates start

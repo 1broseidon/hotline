@@ -402,12 +402,13 @@ async fn run_inner(
             } else {
                 call.function.arguments.clone()
             };
+            let (shown, shown_arguments) = granted::shown(&call.function.name, &arguments);
             send(
                 sender,
                 Update::ToolCall {
                     call_id: call_id.clone(),
-                    title: describe_tool(&call.function.name, &arguments),
-                    kind: call.function.name.clone(),
+                    title: describe_tool(&shown, &shown_arguments),
+                    kind: shown,
                 },
             )
             .await;

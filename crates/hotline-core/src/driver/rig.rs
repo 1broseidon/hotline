@@ -4,6 +4,7 @@
 //! Steering replaces an inference attempt while preserving completed context;
 //! Stop ends the activity. Provider construction and wire formats remain Rig's.
 
+mod granted;
 mod images;
 mod recovery;
 mod strict;
@@ -94,9 +95,10 @@ impl Budget {
     };
 
     /// A tool's budget by its name: a granted server's tools, the
-    /// computer's among them, are named `{server}__{tool}`.
+    /// computer's among them, are named `{server}__{tool}`, and a granted
+    /// tool may also be reached through `call_tool`.
     fn of(tool: &str) -> Self {
-        if tool.contains("__") {
+        if tool.contains("__") || tool == granted::CALL {
             Self::EXTERNAL
         } else {
             Self::BUILT_IN
@@ -395,8 +397,18 @@ impl Driver for InProcess {
         let steering = Arc::new(turn::Steering::default());
         *lock(&self.steering) = Some(steering.clone());
         let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
-        if let Some(connected) = lock(&self.mcp).as_ref() {
-            mcp_tools.extend(connected.tools.iter().cloned().map(mcp_dynamic));
+        // The computer's tools are definitions; a granted server's are named
+        // in the preamble and reached through two fixed tools.
+        let (granted, computer): (Vec<_>, Vec<_>) = lock(&self.mcp)
+            .as_ref()
+            .map(|connected| connected.tools.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .partition(granted::is_granted);
+        mcp_tools.extend(computer.into_iter().map(mcp_dynamic));
+        let index = granted::index(&granted);
+        if !granted.is_empty() {
+            mcp_tools.extend(granted::tools(granted));
         }
         if let Some(escalation) = lock(&self.escalation).take() {
             mcp_tools.push(tell_person(escalation));
@@ -417,7 +429,11 @@ impl Driver for InProcess {
                 .get(&model)
                 .and_then(|m| m.context_limit),
             effort: lock(&self.effort).clone(),
-            preamble: self.preamble.clone(),
+            preamble: if index.is_empty() {
+                self.preamble.clone()
+            } else {
+                format!("{}\n\n{index}", self.preamble)
+            },
             cwd: lock(&self.cwd).clone(),
             reach,
             history: self.history.clone(),
@@ -1844,6 +1860,7 @@ mod tests {
     fn a_granted_servers_tools_get_the_external_budget() {
         assert_eq!(Budget::of("computer__shell"), Budget::EXTERNAL);
         assert_eq!(Budget::of("linear__get_issue"), Budget::EXTERNAL);
+        assert_eq!(Budget::of(granted::CALL), Budget::EXTERNAL);
         assert_eq!(Budget::of("read"), Budget::BUILT_IN);
         assert_eq!(Budget::of("search_thread"), Budget::BUILT_IN);
     }
@@ -2286,6 +2303,86 @@ mod tests {
             )
             .await;
         assert!(!second.is_success(), "{second:?}");
+    }
+
+    /// A granted server's tools reach the model as two fixed tools and a
+    /// line each in the preamble; the schema is read on demand and the call
+    /// lands on the server as if the tool had been in the list.
+    #[tokio::test]
+    async fn a_granted_tool_is_read_and_called_through_the_fixed_pair() {
+        use crate::mcp::{McpServer, McpTransport};
+        use rig::tool::ToolSet;
+
+        let connected = mcp::connect(
+            "mcp-granted-pair",
+            &[McpServer {
+                id: "echo".into(),
+                name: "Echo".into(),
+                transport: McpTransport::Stdio {
+                    command: echo_command(),
+                    args: Vec::new(),
+                    env: HashMap::new(),
+                },
+                refuse: None,
+            }],
+        )
+        .await;
+        assert!(connected.failed.is_empty(), "{:?}", connected.failed);
+        let echo = connected.tools.clone();
+        assert!(echo.iter().all(granted::is_granted));
+        let name = echo[0].name.clone();
+
+        // The list the model sees does not depend on what is granted.
+        let definitions = |tools: Vec<mcp::McpTool>| {
+            ToolSet::from_dynamic_tools(granted::tools(tools).into()).get_tool_definitions()
+        };
+        assert_eq!(definitions(echo.clone()), definitions(Vec::new()));
+        let index = granted::index(&echo);
+        assert!(
+            index.contains(&format!("- {name}: Echo the text back in upper case.")),
+            "{index}"
+        );
+        assert!(granted::index(&[]).is_empty());
+
+        let set = ToolSet::from_dynamic_tools(granted::tools(echo).into());
+        let schema = set
+            .execute(
+                granted::SCHEMA,
+                json!({"tool": name}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(schema.is_success(), "{schema:?}");
+        let schema = schema.output().render();
+        assert!(schema.contains("Parameters (JSON Schema)"), "{schema}");
+        assert!(schema.contains("\"text\""), "{schema}");
+
+        let called = set
+            .execute(
+                granted::CALL,
+                json!({"tool": name, "arguments": "{\"text\": \"harbour\"}"}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(called.is_success(), "{called:?}");
+        assert!(called.output().render().contains("HARBOUR"), "{called:?}");
+
+        let unknown = set
+            .execute(
+                granted::CALL,
+                json!({"tool": "echo__whisper", "arguments": "{}"}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(!unknown.is_success(), "{unknown:?}");
+        let garbled = set
+            .execute(
+                granted::CALL,
+                json!({"tool": name, "arguments": "text=harbour"}).to_string(),
+                &mut ToolContext::new(),
+            )
+            .await;
+        assert!(!garbled.is_success(), "{garbled:?}");
     }
 
     /// A CallToolResult with text and an image becomes text plus an image

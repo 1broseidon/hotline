@@ -655,6 +655,10 @@ impl RoomHandle for Desk {
         self.room.mark_peer_read(key, event_ids)
     }
 
+    fn desk_looking(&self, looking: bool) {
+        self.room.desk_looking(looking);
+    }
+
     async fn credential_refresh_models(
         &self,
         provider_id: &str,

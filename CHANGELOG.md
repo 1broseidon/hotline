@@ -15,6 +15,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   says what kind of request it is and which one, so the phone can offer
   its answers right in the notification.
 
+### Changed
+
+- Your phone stays quiet while you are using Hotline on the desk, and a
+  teammate's reply reaches it as one notification when the teammate is
+  done, instead of one for every message along the way.
+
 ## [0.20.0] - 2026-09-24
 
 ### Added

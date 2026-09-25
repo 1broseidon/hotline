@@ -99,6 +99,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `backends.list` | `{}` | `BackendChoice[]`: Hotline Agent first, then the ACP catalogue |
 | `credential.list` | `{}` | `Credential[]`, never a secret |
 | `welcome` | `{}` | `Welcome`: where a fresh room stands on its way to a first turn |
+| `desk.looking` | `{looking}` | none; whether the person is at the window, which keeps the phone quiet ([Pushes](#pushes)) |
 | `mcp.auth_start` | `{serverId}` | secret free OAuth status plus authorization URL and native callback |
 | `mcp.auth_callback` | `{loginId, callbackUrl}` | secret free OAuth status |
 | `mcp.auth_status` | `{serverId}` | secret free OAuth status |
@@ -642,9 +643,12 @@ anyway, such a desk refuses the target as one it cannot read.
 
 ### Pushes
 
-A phone that registered a token with `mobile.push_register` hears a reply
-and every card that waits on the person as an Expo push
-(`crates/hotline-core/src/push.rs`). Every push is `mutableContent`, so the
+A phone that registered a token with `mobile.push_register` hears each
+turn's reply and every card that waits on the person as an Expo push
+(`crates/hotline-core/src/push.rs`). A turn is one push however many
+bubbles it took: its last reply, sent once the driver is done with the
+line. A card goes the moment it is asked. Nothing goes while the desk's
+window says the person is at it (`desk.looking`, below). Every push is `mutableContent`, so the
 phone's notification service may rewrite it as the teammate's own message.
 `data` always names `desktopId` and `personaId`. A card that waits on the
 person also names its kind as `categoryId` and its request as
@@ -658,6 +662,14 @@ person also names its kind as `categoryId` and its request as
 
 The answer goes over the phone seat like any other, so an answer from the
 notification lands on the tape exactly as one from the conversation.
+
+The window sends `desk.looking {looking: true}` while it has the focus,
+is showing and has been used lately, again every thirty seconds at most
+while that lasts, and `{looking: false}` on a blur or when it is hidden.
+The room holds one `true` for two minutes, so a window left focused on an
+empty desk lets the phone hear again. A desk seat command: a phone cannot
+send it. An open phone already has every tape live, and its own handler
+hides the banner for the conversation on its screen.
 
 ## The token gate
 

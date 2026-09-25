@@ -11,6 +11,7 @@ import { Settings, SettingsRail, type SettingsSection } from "./components/Setti
 import { Shortcuts } from "./components/Shortcuts";
 import { Teammate } from "./components/Teammate";
 import { Subagent, type OpenSubagent } from "./components/Subagent";
+import { Work, type OpenWork } from "./components/Work";
 import { Thread, type OpenThread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
@@ -25,7 +26,7 @@ import { wire, type Connection, type RosterEntry } from "./wire";
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
-type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent };
+type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent } | { kind: "work"; work: OpenWork };
 
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
@@ -201,6 +202,14 @@ export function App() {
 	}, []);
 	const openThread = useCallback((thread: OpenThread) => openAside({ kind: "thread", thread }), [openAside]);
 	const openSubagent = useCallback((run: OpenSubagent) => openAside({ kind: "subagent", run }), [openAside]);
+	/* A caption or the mark, pressed again with its work already open, closes it. */
+	const openWork = useCallback(
+		(work: OpenWork) => {
+			if (aside?.kind === "work" && aside.work.personaId === work.personaId && aside.work.blockId === work.blockId) setAside(null);
+			else openAside({ kind: "work", work });
+		},
+		[aside, openAside],
+	);
 
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string) => {
@@ -416,6 +425,8 @@ export function App() {
 							}}
 							onOpenThread={openThread}
 							onOpenSubagent={openSubagent}
+							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
+							workOpen={aside?.kind === "work" ? aside.work.blockId : undefined}
 						/>
 						{aside?.kind === "thread" ? (
 							<Thread
@@ -423,6 +434,14 @@ export function App() {
 								open={aside.thread}
 								selfId={selected.persona.id}
 								selfName={selected.persona.name}
+								onClose={() => setAside(null)}
+							/>
+						) : aside?.kind === "work" ? (
+							<Work
+								key={`work-${aside.work.personaId}`}
+								open={aside.work}
+								name={selected.persona.name}
+								live={selected.session.state === "thinking"}
 								onClose={() => setAside(null)}
 							/>
 						) : aside?.kind === "subagent" ? (

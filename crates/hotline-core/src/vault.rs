@@ -194,9 +194,16 @@ impl Vault {
             mcp_token_locks: Mutex::new(HashMap::new()),
         };
         vault.check_layout()?;
-        // A locked keychain must not prevent Settings from opening. Resolution
-        // retries migration and surfaces its error before starting a server.
-        let _ = vault.migrate_mcp_settings();
+        // The one pass that moves MCP launch values into the credential
+        // store. A locked keychain or an unreadable room line must not keep
+        // Settings from opening: each source it could not move shows there
+        // as waiting for migration, is retried when it is next started, and
+        // never starts with the values it still holds.
+        if let Err(error) = vault.migrate_mcp_settings() {
+            eprintln!(
+                "[vault] MCP launch values were not moved into the credential store: {error}"
+            );
+        }
         Ok(vault)
     }
 

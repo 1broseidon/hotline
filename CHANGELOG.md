@@ -31,6 +31,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A teammate knows the day and the time of each message you send, so a
   conversation that runs past midnight no longer believes it is still
   yesterday, and a teammate can tell the morning from the evening.
+- A damaged line in the room's records no longer stops every command-line
+  tool source from starting. Only a source whose launch values could not be
+  moved into the system's credential store waits, and it says why.
 
 ## [0.20.0] - 2026-09-24
 

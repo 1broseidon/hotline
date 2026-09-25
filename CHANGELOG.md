@@ -25,6 +25,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and reads a tool's full description only when it is about to use it.
   Large servers, such as Linear's, no longer cost more than the rest of
   the conversation on every step.
+- New computers are created on Hotline Computer 0.10.2 or newer, which
+  fills a field with a saved login even when the teammate also sends an
+  empty text beside it, instead of refusing the fill. An existing computer
+  keeps the release it runs until it is updated or removed.
 
 ### Fixed
 

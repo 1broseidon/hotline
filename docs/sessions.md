@@ -33,8 +33,9 @@ is open, and only then may a scheduled firing open one of its own:
 
 A prompt needs a live session; `session.start` is what brings one up. The
 command returns as soon as the turn is started. Hotline Agent admits new operator
-input into its running activity. An external driver without active-input
-support queues it. Scheduled runs and internal nudges remain queued. Joining
+input into its running activity, and so does an ACP agent that offers steering
+(see [Steering an ACP turn](#steering-an-acp-turn)). A driver without
+active-input support queues it. Scheduled runs and internal nudges remain queued. Joining
 the queue and claiming an idle driver are one decision under one lock, so a
 line cannot be filed behind a turn that has already stopped coming back for
 it. `session.cancel` stops the turn in flight and drops whatever was waiting.
@@ -112,8 +113,8 @@ loop; `capabilities.activeInput` is true without a provider steering endpoint.
 An operator update interrupts inference, including a request still waiting
 for its first response. The next request includes the update and completed
 history. Incomplete tool calls never execute, and completed calls keep their
-result pairing and provider metadata. A notice confirms when the new request
-produces response evidence. Steering produces no extra logical turn boundary;
+result pairing and provider metadata. The line is marked read when the agent
+next says or does something. Steering produces no extra logical turn boundary;
 Stop remains a separate control. The composer offers Send alongside Stop
 while working.
 
@@ -640,6 +641,28 @@ the child gave it.
   prompt on this connection. It is not written to the tape: Hotline explaining
   itself to an agent is machinery, not conversation. A restarted backend
   hears it again; a second prompt on the same connection does not.
+
+### Steering an ACP turn
+
+A line sent while an ACP teammate works reaches the running turn when the
+agent offers the steering extension. The agent says so in `initialize`, under
+`_meta.steering.supported`, which is what sets `capabilities.activeInput`.
+Hotline then sends the line as a `_session/steering` request carrying
+`idleBehavior: "promptRequired"`. Claude Code's and Codex's adapters offer it.
+Gemini CLI, Cursor, opencode and Grok Build did not as of 2026-09-24; their
+lines wait for the turn to end, as every ACP line did before.
+
+Lines go one at a time, in the order they were said, and only while Hotline's
+`session/prompt` is out. A line the agent does not take comes back to the
+session, with every line after it, and is said as a prompt of its own once the
+turn ends. That covers an agent that had already gone idle, an error, and no
+answer within 30 seconds. An agent can start a turn of its own for the line
+anyway (`startedNewTurn`). Codex's adapter does this when a line lands just as
+its turn ends. Hotline cancels that turn and says the line again, because it
+drops updates for a turn it did not open. An agent that advertised the method
+and then answers that it has no such method is not asked again on that
+connection. Stop drops held lines, as it drops queued ones. The agent's own
+message ids keep a reply cut off by a steered line apart from the reply to it.
 
 Hotline's own tools cannot be a function call into another process. The
 same handler Hotline Agent calls directly is served over streamable HTTP on a

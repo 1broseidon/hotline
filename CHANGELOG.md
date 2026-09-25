@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A message you send to a Claude Code or Codex teammate while it works now
+  reaches the task it is on, the way it does for a Hotline Agent teammate,
+  instead of waiting for it to finish. Other agents still read it when they
+  are done.
+
+### Fixed
+
+- A reply from an outside agent that was cut off and followed by another
+  shows as two messages instead of one run together.
+
 ## [0.21.0] - 2026-09-24
 
 ### Added

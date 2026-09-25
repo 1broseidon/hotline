@@ -1171,6 +1171,82 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
     assert_eq!(stopped["ok"], true, "{stopped}");
 }
 
+/// A line sent while a real harness is replying reaches that reply when the
+/// harness offers steering: the turn that was counting ends with the answer
+/// to the line, and no second turn is needed for it. A harness without
+/// steering still answers, in the turn after. Driven by the same
+/// `HOTLINE_HARNESS_ACP` as the turn above, and skipped without it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_sent_mid_turn_reaches_a_real_acp_harness() {
+    let Ok(backend_id) = std::env::var("HOTLINE_HARNESS_ACP") else {
+        eprintln!(
+            "skipped: set HOTLINE_HARNESS_ACP to a backend id (e.g. claude-acp) to drive a harness"
+        );
+        return;
+    };
+    let (root, port) = open("acp-steer").await;
+    let workspace = root.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut client = Client::connect(port).await;
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": {
+                "name": "Ada",
+                "goal": "Answer plainly.",
+                "backendId": backend_id,
+                "cwd": workspace.to_string_lossy(),
+            } }),
+        )
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let tape = client.subscribe(json!({ "tape": persona_id })).await;
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let steerable = started["result"]["capabilities"]["activeInput"] == true;
+
+    let sent = client
+        .call(
+            "session.prompt",
+            json!({ "personaId": persona_id, "text": "Write the numbers from 1 to 300, one per line, and nothing else." }),
+        )
+        .await;
+    assert_eq!(sent["ok"], true, "{sent}");
+    let patience = Duration::from_secs(180);
+    client
+        .next_where(patience, |frame| {
+            is_sub(frame, tape, "ephemeral") && frame["ephemeral"]["type"] == "agent_delta"
+        })
+        .await;
+    let steered = client
+        .call(
+            "session.prompt",
+            json!({ "personaId": persona_id, "text": "Stop counting now. Reply with only the word harbour." }),
+        )
+        .await;
+    assert_eq!(steered["ok"], true, "{steered}");
+
+    let first = said_this_turn(&mut client, tape, patience).await;
+    eprintln!("{backend_id}: activeInput={steerable}");
+    if steerable {
+        assert!(
+            first.to_lowercase().contains("harbour"),
+            "{backend_id} offered steering but answered the line in no running turn: {first:?}"
+        );
+    } else {
+        let second = said_this_turn(&mut client, tape, patience).await;
+        assert!(second.to_lowercase().contains("harbour"), "{second:?}");
+    }
+
+    let stopped = client
+        .call("session.stop", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+}
+
 /// The reach selected over the real wire governs the real tools. No model is
 /// needed to choose an attack command, and a provider cannot skip the probe.
 #[cfg(any(target_os = "linux", target_os = "macos"))]

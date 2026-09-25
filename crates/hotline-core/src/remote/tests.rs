@@ -283,6 +283,16 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     let created: Value =
         serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     let persona = created["result"]["id"].as_str().unwrap();
+    // The window may say the person is at it; a phone may not, or it could
+    // keep its own notifications away.
+    desk.send(Message::text(
+        json!({"id":2,"cmd":"desk.looking","params":{"looking":true}}).to_string(),
+    ))
+    .await
+    .unwrap();
+    let looking: Value =
+        serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(looking["ok"], true, "{looking}");
     let grant = h.pair().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
@@ -291,6 +301,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
         json!({"id":1,"cmd":"settings.update","params":{"patch":{}}}),
         json!({"id":1,"sub":"room"}),
         json!({"id":1,"cmd":"session.prompt","params":{"personaId":persona,"text":"bad","attachments":[]}}),
+        json!({"id":1,"cmd":"desk.looking","params":{"looking":true}}),
     ] {
         send(&mut phone, frame).await;
         assert_eq!(read(&mut phone).await["ok"], false);

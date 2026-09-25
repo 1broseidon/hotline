@@ -252,6 +252,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Marks messages in a peer thread read, answering how many moved.
     fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
 
+    /// Whether the person is at the desk's window, which keeps the phone
+    /// quiet while they are.
+    fn desk_looking(&self, _looking: bool) {}
+
     /// Discovers models through the connection's native Rig client and answers
     /// with the provider's catalogue as [`Self::models_catalog`] would.
     async fn credential_refresh_models(

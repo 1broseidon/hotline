@@ -314,6 +314,10 @@ pub(crate) async fn run(
             );
             Ok(serde_json::to_value(welcome).unwrap_or(Value::Null))
         }
+        Command::DeskLooking { looking } => {
+            room.desk_looking(looking);
+            Ok(Value::Null)
+        }
         Command::ComputerStatus { persona_id } => {
             living(log, &persona_id)?;
             room.computer_status(&persona_id)

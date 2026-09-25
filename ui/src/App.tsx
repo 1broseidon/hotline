@@ -15,6 +15,7 @@ import { Thread, type OpenThread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
 import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
+import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
@@ -66,6 +67,8 @@ export function App() {
 		wire.connect();
 		return wire.onConnection(setConnection);
 	}, []);
+
+	useEffect(() => watchLooking(), []);
 
 	useEffect(() => {
 		return wire.subscribe<RosterEntry>(

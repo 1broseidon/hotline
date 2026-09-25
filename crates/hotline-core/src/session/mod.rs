@@ -354,6 +354,9 @@ struct Session {
     unread: Mutex<Vec<String>>,
     /// The window a quiet schedule is holding this teammate's voice with.
     quiet: Mutex<Option<QuietWindow>>,
+    /// The turn's latest reply, which goes to the phone when the turn ends:
+    /// a chatty turn is one notification, not one per bubble.
+    glance: Mutex<Option<String>>,
     /// The agent's own id for this conversation, waiting for the turn that
     /// makes it worth remembering.
     ///
@@ -925,6 +928,7 @@ impl Room {
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             quiet: Mutex::new(None),
+            glance: Mutex::new(None),
             pending_checkpoint: Mutex::new(
                 reported.session_id.filter(|_| !reported.context_restored),
             ),
@@ -3568,6 +3572,7 @@ impl Room {
                 self.record(&session, update, &mut in_flight, &voice);
             }
             self.fail_in_flight(&session, &mut in_flight);
+            self.send_glance(&session);
             if asked {
                 // A permission the turn left open is a button nobody is
                 // behind. A `request_human` wait is not: the tool is still
@@ -3715,42 +3720,64 @@ impl Room {
                 self.checkpoint(session);
             }
         }
-        // A phone hears a reply the moment it lands, and a question the
-        // agent cannot go on without. A quiet schedule's reply is demoted to
-        // a thought and says nothing anywhere.
-        let glance = match &update {
-            Update::Message {
-                kind: MessageKind::Agent,
-                text,
-                ..
-            } if !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()) => Some((
-                self.persona(&session.persona_id)
-                    .map(|persona| persona.name)
-                    .unwrap_or_else(|_| "Hotline".to_string()),
-                text.clone(),
-                None,
-            )),
+        // A phone hears a turn's reply once the driver is done with the line
+        // ([`Self::send_glance`]), and a question the agent cannot go on
+        // without the moment it is asked. A quiet schedule's reply is demoted
+        // to a thought and says nothing anywhere.
+        if let Update::Message {
+            kind: MessageKind::Agent,
+            text,
+            ..
+        } = &update
+            && !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
+        {
+            *lock(&session.glance) = Some(text.clone());
+        }
+        let card = match &update {
             Update::Permission {
                 request_id,
                 title,
                 options,
             } => Some((
-                self.needs_you(&session.persona_id),
                 title.clone(),
-                Some(crate::push::Waiting::Permission {
+                crate::push::Waiting::Permission {
                     request_id: request_id.clone(),
                     options: options.clone(),
-                }),
+                },
             )),
             _ => None,
         };
         for event in event_of(update, in_flight) {
             self.append(session, event);
         }
-        if let Some((title, body, waiting)) = glance {
-            self.push
-                .notify(&title, &body, &session.persona_id, waiting);
+        if let Some((title, waiting)) = card {
+            self.push.notify(
+                &self.needs_you(&session.persona_id),
+                &title,
+                &session.persona_id,
+                Some(waiting),
+            );
         }
+    }
+
+    /// The desk window has the person, or has lost them; the phone is quiet
+    /// while it has them.
+    pub fn desk_looking(&self, looking: bool) {
+        self.push.looking(looking);
+    }
+
+    /// The turn's reply to the phone, one notification however many bubbles
+    /// it took: the report when the agent worked, or the answer that needed
+    /// no tool.
+    fn send_glance(&self, session: &Session) {
+        let Some(text) = lock(&session.glance).take() else {
+            return;
+        };
+        let name = self
+            .persona(&session.persona_id)
+            .map(|persona| persona.name)
+            .unwrap_or_else(|_| "Hotline".to_string());
+        self.push.notify(&name, &text, &session.persona_id, None);
     }
 
     /// The title of a notification about a card: the teammate needs you.

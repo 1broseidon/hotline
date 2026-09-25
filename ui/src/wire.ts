@@ -163,6 +163,7 @@ type Results = {
 	"secrets.passkey.registration": PasskeyRegistration;
 	"secrets.passkey.answer": PasskeyRegistration;
 	"secrets.passkey.cancel": null;
+	"desk.looking": null;
 	welcome: Welcome;
 };
 

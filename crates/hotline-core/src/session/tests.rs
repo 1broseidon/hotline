@@ -1467,6 +1467,73 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
     );
 }
 
+/// A turn is one notification on the phone however many bubbles it took:
+/// the report, once the driver is done with the line.
+#[tokio::test]
+async fn a_turn_reaches_the_phone_once_with_its_report() {
+    let says = |id: &str, text: &str| Update::Message {
+        kind: MessageKind::Agent,
+        id: id.to_string(),
+        text: text.to_string(),
+    };
+    let calls = |id: &str| {
+        [
+            Update::ToolCall {
+                call_id: id.to_string(),
+                title: format!("cargo {id}"),
+                kind: "bash".to_string(),
+            },
+            Update::ToolResult {
+                call_id: id.to_string(),
+                ok: true,
+                output: "ok".to_string(),
+                images: Vec::new(),
+            },
+        ]
+    };
+    let mut turn = vec![says("m-ack", "on it")];
+    turn.extend(calls("c1"));
+    turn.push(says("m-mid", "Found the failing test, fixing it now."));
+    turn.extend(calls("c2"));
+    turn.push(says("m-done", "Done, all green."));
+    turn.push(Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    });
+    let room = room("one-glance", Fake::new(Scripted::turns(vec![turn])));
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0},
+                "tokenHash": "hash",
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "fix the build", None, None)
+        .await
+        .unwrap();
+    settled(&room, "ada", 7).await;
+    let mut sent = Vec::new();
+    for _ in 0..200 {
+        sent = lock(&room.push.sent).clone();
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["body"], "Done, all green.");
+    assert_eq!(sent[0]["data"]["personaId"], "ada");
+}
+
 /// A teammate on a computer, the way one is started in a test: a scripted
 /// runtime that plays `docker` and reports the port a fake computer serves
 /// on. Answers the room, the fake agents (whose preambles say what the

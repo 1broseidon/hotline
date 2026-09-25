@@ -2235,6 +2235,12 @@ pub enum Command {
     /// Where a fresh room stands on its way to a first turn.
     #[serde(rename = "welcome")]
     Welcome {},
+    /// The window has the person, focused and used lately (`true`, said
+    /// again while they keep at it), or has lost them: blurred, hidden or
+    /// closed (`false`). While it has them, the phone is not notified of
+    /// what the window already shows.
+    #[serde(rename = "desk.looking")]
+    DeskLooking { looking: bool },
     /// A peek: never wakes the container.
     #[serde(rename = "computer.status")]
     ComputerStatus { persona_id: String },

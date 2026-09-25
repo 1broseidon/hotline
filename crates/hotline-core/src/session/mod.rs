@@ -1682,6 +1682,9 @@ impl Room {
                 ask.rp_id
             ),
             persona_id,
+            Some(crate::push::Waiting::Passkey {
+                ask_id: ask.id.clone(),
+            }),
         );
     }
 
@@ -2543,8 +2546,14 @@ impl Room {
                 note: None,
             },
         );
-        self.push
-            .notify(&self.needs_you(persona_id), &reason, persona_id);
+        self.push.notify(
+            &self.needs_you(persona_id),
+            &reason,
+            persona_id,
+            Some(crate::push::Waiting::Human {
+                action_id: action_id.clone(),
+            }),
+        );
         let answer = tokio::select! {
             answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
             _ = tokio::time::sleep(deadline) => {
@@ -3719,17 +3728,28 @@ impl Room {
                     .map(|persona| persona.name)
                     .unwrap_or_else(|_| "Hotline".to_string()),
                 text.clone(),
+                None,
             )),
-            Update::Permission { title, .. } => {
-                Some((self.needs_you(&session.persona_id), title.clone()))
-            }
+            Update::Permission {
+                request_id,
+                title,
+                options,
+            } => Some((
+                self.needs_you(&session.persona_id),
+                title.clone(),
+                Some(crate::push::Waiting::Permission {
+                    request_id: request_id.clone(),
+                    options: options.clone(),
+                }),
+            )),
             _ => None,
         };
         for event in event_of(update, in_flight) {
             self.append(session, event);
         }
-        if let Some((title, body)) = glance {
-            self.push.notify(&title, &body, &session.persona_id);
+        if let Some((title, body, waiting)) = glance {
+            self.push
+                .notify(&title, &body, &session.persona_id, waiting);
         }
     }
 

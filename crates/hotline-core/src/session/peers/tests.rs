@@ -388,7 +388,7 @@ async fn a_peer_reply_is_paced_the_same_way() {
     assert_eq!(agents[0]["text"], first);
     assert_eq!(agents[1]["text"], second);
     assert_eq!(
-        said_in(&events, false),
+        crate::session::tests::words(said_in(&events, false)),
         [Said::User("status?".to_string()), Said::Agent(text),]
     );
 }

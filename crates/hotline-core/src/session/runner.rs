@@ -27,7 +27,9 @@
 //! its policy or deleting it revokes every run it has going, and a run can
 //! never hold more than its parent did.
 
-use super::{Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index};
+use super::{
+    CLOCK, Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index, timed,
+};
 use crate::contract::{
     NoticeLevel, Persona, Reach, SessionInfo, SubagentStatus, ToolStatus, TranscriptEvent,
 };
@@ -35,7 +37,6 @@ use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, Update};
 use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
-use chrono::Local;
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -75,7 +76,9 @@ pub(super) async fn drive(
     cancel: Option<&CancellationToken>,
     mut write: impl FnMut(TranscriptEvent, bool),
 ) -> Driven {
-    let mut updates = driver.prompt(text, Vec::new(), reach).await;
+    let mut updates = driver
+        .prompt(timed(now_ms(), &text), Vec::new(), reach)
+        .await;
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
@@ -359,13 +362,12 @@ fn run_preamble(persona: &Persona, reach: Reach) -> String {
     format!(
         "You are a subagent working for {name}, a teammate in Hotline. {name} handed you one task, and your last message is returned to them as your report. You are not {name}, and you are not talking with the person {name} works for: nobody reads this conversation while you work, and you cannot ask anyone a question. Where something is unclear, make the sensible choice, say which choice you made, and carry on.\n\n\
          Your working directory is {}.{}\n\n\
-         Today is {}.\n\n\
+         {CLOCK}\n\n\
          `search_thread` finds earlier messages in {name}'s conversation with the person, and `list_chapters` lists its chapters, for when the task depends on something said there.\n\n\
          {}\n\n\
          Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left for {name} to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing {name} reads.",
         persona.cwd,
         reach_sentence(Some(reach)),
-        Local::now().format("%A %-d %B %Y"),
         skills_index(persona),
     )
 }

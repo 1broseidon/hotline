@@ -28,6 +28,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   every box of a tool it uses. It can leave out what it is not using, so
   it no longer types an empty text into a password field beside the
   saved login it meant to fill.
+- A teammate knows the day and the time of each message you send, so a
+  conversation that runs past midnight no longer believes it is still
+  yesterday, and a teammate can tell the morning from the evening.
 
 ## [0.20.0] - 2026-09-24
 

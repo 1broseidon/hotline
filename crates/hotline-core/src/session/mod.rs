@@ -4000,7 +4000,7 @@ impl HumanAnswered {
 /// and a test that checks the sentence should see the same words.
 fn human_outcome(answer: HumanAnswered) -> String {
     let outcome = match answer.status {
-        HumanActionStatus::Done => "The person did it.",
+        HumanActionStatus::Done => "The person answered.",
         HumanActionStatus::Dismissed => "The person declined.",
         HumanActionStatus::Expired | HumanActionStatus::Pending => {
             return "Nobody answered in ten minutes.".to_string();

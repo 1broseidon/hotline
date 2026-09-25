@@ -925,7 +925,7 @@ room closes. One pending first-contact decision is held per direction.
 
 ## Peer threads
 
-A teammate asking a colleague is not a line on either tape. Three records
+A teammate asking a colleague is not a line on either tape. Four records
 come out of `message_teammate` (`session/peers.rs`):
 
 - **The thread.** `threads/<key>.jsonl`, one file per pair, belonging to
@@ -943,12 +943,31 @@ come out of `message_teammate` (`session/peers.rs`):
   two are talking and how far they have got. It lives as long as the peer
   session, which is also how far apart two exchanges may be and still be
   drawn as one line: ten minutes idle, then the session is stopped.
+- **The answer.** A `delivery` event on the sender's own tape. The tool
+  returns as soon as the message is sent (`{"sent": true, "to": …}`) and the
+  sender carries on; the exchange, including a first-contact approval, runs
+  on its own task. What came back, or why nothing did (`cause.status` is
+  `done` or `failed`), is written to the sender's tape and then handed to its
+  driver behind the turn in flight, or on a turn of its own, starting the
+  sender if it is not running. A delivery never steers into a turn. The
+  agent hears the answer fenced, as the recipient heard the message, and the
+  seats draw the event as the reason a turn began, not as a bubble.
 
 `list_teammates` is public roster metadata only — id and name,
 never anyone's conversation, session details, working path or tool inventory,
 and never the caller. The caller may be mid-turn on its own tape while the
-delivery runs: nothing here touches the caller's session, only its tape's
-marker.
+exchange runs: nothing touches the caller's session until the answer is
+delivered.
+
+A peer session is the one caller that still waits. It has no conversation of
+its own for an answer to come back into, so a colleague's side session that
+asks a third teammate gets the reply as its tool result, as before.
+
+A delivery is heard exactly once. Its receipt goes `sent` → `read` like a
+message's, and when the room opens it hands the driver any delivery in the
+open chapter that was never read. An exchange whose peer turn died with the
+desk has its markers closed as `failed`, and if it was going within the
+last hour, the sender gets a `failed` delivery saying so.
 
 A pair is refused a second delivery while one is running (`"That thread is
 already answering."`). A teammate cannot message itself. A message is at

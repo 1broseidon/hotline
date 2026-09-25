@@ -251,6 +251,11 @@ impl Fake {
         *lock(&self.driver.cancels)
     }
 
+    /// Every line any driver in this room has been handed, in order.
+    pub(super) fn prompts(&self) -> Vec<String> {
+        lock(&self.driver.prompts).clone()
+    }
+
     /// A room whose summariser is asked and refused, which is the shape of
     /// every desk with no model set up.
     pub(super) fn new(driver: Scripted) -> Arc<Fake> {

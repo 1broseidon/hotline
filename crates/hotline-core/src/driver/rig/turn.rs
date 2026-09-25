@@ -92,6 +92,11 @@ pub(super) async fn run(
             template.preamble.unwrap_or_default(),
         ));
     }
+    if strict::strict_tools(&turn.keys, &turn.model) {
+        for tool in &mut template.tools {
+            strict::nullable_optionals(&mut tool.parameters);
+        }
+    }
     let result = run_inner(model, template, tools, turn, sender, &mut jobs).await;
     turn.steering.close_admission();
     // Stop, revocation, provider failure and ordinary completion all leave
@@ -147,6 +152,7 @@ async fn run_inner(
     let mut repaired = false;
     let mut context_tokens = 0;
     let mut rotated = false;
+    let strict = strict::strict_tools(&turn.keys, &turn.model);
 
     'attempt: for _ in 0..MAX_TURNS {
         for job in jobs.ready()? {
@@ -390,11 +396,17 @@ async fn run_inner(
 
         for call in &calls {
             let call_id = uuid::Uuid::new_v4().to_string();
+            // What the tool reads; history keeps the call as the model made it.
+            let arguments = if strict {
+                strict::without_nulls(&call.function.arguments)
+            } else {
+                call.function.arguments.clone()
+            };
             send(
                 sender,
                 Update::ToolCall {
                     call_id: call_id.clone(),
-                    title: describe_tool(&call.function.name, &call.function.arguments),
+                    title: describe_tool(&call.function.name, &arguments),
                     kind: call.function.name.clone(),
                 },
             )
@@ -418,41 +430,32 @@ async fn run_inner(
             } else {
                 match call.function.name.as_str() {
                     "shell" if jobs.shell_enabled() => {
-                        job_result(jobs.launch(call_id.clone(), call.function.arguments.clone()))
+                        job_result(jobs.launch(call_id.clone(), arguments.clone()))
                     }
                     jobs::SUBAGENT if jobs.delegates() => {
-                        job_result(jobs.delegate(call_id.clone(), call.function.arguments.clone()))
+                        job_result(jobs.delegate(call_id.clone(), arguments.clone()))
                     }
                     "inspect_job" if jobs.enabled() => job_result(
-                        serde_json::from_value::<JobArgs>(call.function.arguments.clone())
+                        serde_json::from_value::<JobArgs>(arguments.clone())
                             .map_err(text)
                             .and_then(|args| jobs.snapshot(&args.job_id))
                             .map(|job| model_job(turn, job)),
                     ),
                     "cancel_job" if jobs.enabled() => job_result(
-                        serde_json::from_value::<JobArgs>(call.function.arguments.clone())
+                        serde_json::from_value::<JobArgs>(arguments.clone())
                             .map_err(text)
                             .and_then(|args| jobs.cancel(args)),
                     ),
                     "wait_jobs" if jobs.enabled() => {
-                        let result = wait_jobs(
-                            jobs,
-                            &call.function.arguments,
-                            turn,
-                            revision,
-                            sender,
-                            &mut job_results,
-                        )
-                        .await?;
+                        let result =
+                            wait_jobs(jobs, &arguments, turn, revision, sender, &mut job_results)
+                                .await?;
                         stopped |= turn.stop.raised.load(Ordering::SeqCst);
                         result
                     }
                     _ => {
-                        let execution = tools.execute(
-                            &call.function.name,
-                            call.function.arguments.to_string(),
-                            &mut context,
-                        );
+                        let execution =
+                            tools.execute(&call.function.name, arguments.to_string(), &mut context);
                         tokio::pin!(execution);
                         loop {
                             tokio::select! {
@@ -951,6 +954,77 @@ mod tests {
         while let Some(update) = receiver.recv().await {
             assert!(!matches!(update, Update::ToolCall { .. }));
         }
+    }
+
+    #[tokio::test]
+    async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it() {
+        let (mut turn, mut request) = fixture();
+        let login = tempfile::tempdir().unwrap();
+        turn.keys = HashMap::from([(
+            "github-copilot".to_string(),
+            ProviderAuth::Login {
+                token_dir: login.path().to_path_buf(),
+            },
+        )]);
+        turn.model = "github-copilot/gpt-5.3-codex".into();
+        let (called, mut calls) = mpsc::unbounded_channel();
+        let mut tools = ToolSet::default();
+        tools.add_dynamic_tool(DynamicTool::new(
+            "fill",
+            "Fill a field with text or a secret",
+            json!({
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string"},
+                    "text": {"type": "string"},
+                    "secret": {"type": "string"}
+                },
+                "required": ["selector"]
+            }),
+            move |_context, arguments| {
+                called.send(arguments).unwrap();
+                Box::pin(async { Ok(ToolOutput::text("filled")) })
+            },
+        ));
+        request.tools = tools.get_tool_definitions();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, first_stream) = mpsc::channel(8);
+        let (last, last_stream) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(first_stream), Some(last_stream)])),
+        };
+        let (updates, _receiver) = mpsc::channel(64);
+        let task =
+            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
+        let sent = receive(&mut requests).await;
+        let schema = &sent.tools[0].parameters["properties"];
+        assert_eq!(schema["selector"]["type"], "string");
+        assert_eq!(schema["text"]["type"], json!(["string", "null"]));
+        assert_eq!(schema["secret"]["type"], json!(["string", "null"]));
+        first
+            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+                "fill",
+                "fill".into(),
+                json!({"selector": "#password", "text": null, "secret": "github"}),
+            ))))
+            .await
+            .unwrap();
+        first
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                rig::completion::Usage::default(),
+            ))))
+            .await
+            .unwrap();
+        drop(first);
+        assert_eq!(
+            receive(&mut calls).await,
+            json!({"selector": "#password", "secret": "github"})
+        );
+        receive(&mut requests).await;
+        answer(last).await;
+        task.await.unwrap().unwrap();
     }
 
     #[tokio::test]

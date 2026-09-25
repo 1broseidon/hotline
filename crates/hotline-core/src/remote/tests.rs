@@ -454,7 +454,10 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     let mut phone = h.socket(token).await.unwrap();
     // The hello is how a phone knows it may ask; a desk from before this
     // list names nothing, and the phone then shows no schedules section.
-    assert_eq!(read(&mut phone).await["capabilities"], json!(["schedules"]));
+    assert_eq!(
+        read(&mut phone).await["capabilities"],
+        json!(["schedules", "threads"])
+    );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
     assert_eq!(read(&mut phone).await, json!({"id": 1, "ok": true}));

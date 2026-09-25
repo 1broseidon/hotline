@@ -771,7 +771,16 @@ latest?: number,
  * The title of the tool still running on this tape, only while the
  * session is thinking. Absent, not null, when there is none.
  */
-activity?: string, session: SessionInfo, };
+activity?: string, 
+/**
+ * A card on this tape is still waiting on the person: a permission with
+ * no decision, or a `request_human` or passkey card still pending.
+ *
+ * On the row so a phone can say "Needs you" for every teammate on
+ * every desk from one roster, without opening each tape. Always
+ * written, so a phone can tell `false` from a desk that predates it.
+ */
+waiting: boolean, session: SessionInfo, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

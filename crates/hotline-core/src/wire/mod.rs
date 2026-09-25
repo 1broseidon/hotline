@@ -26,8 +26,8 @@
 //! teammate and then subscribes must see it.
 
 use crate::contract::{
-    Command, Preview, RosterEntry, SessionConfigCategory, SessionInfo, SessionState, StreamDelta,
-    Target, ToolStatus, TranscriptEvent, ViewName,
+    Command, HumanActionStatus, PasskeyAskStatus, Preview, RosterEntry, SessionConfigCategory,
+    SessionInfo, SessionState, StreamDelta, Target, ToolStatus, TranscriptEvent, ViewName,
 };
 use crate::log::{Log, StreamId};
 use crate::store::previews;
@@ -492,9 +492,15 @@ impl Seat {
             Seat::Desk => true,
             // A teammate's schedules are a read of one list, not the room
             // stream they are kept on, which also carries every setting.
+            // A thread between two teammates is read the way a tape is: the
+            // phone already reads the marker for it on either tape, and the
+            // thread holds what was said, never a setting.
             Seat::Phone => matches!(
                 target,
-                Target::Tape(_) | Target::View(ViewName::Roster) | Target::Schedules(_)
+                Target::Tape(_)
+                    | Target::Thread(_)
+                    | Target::View(ViewName::Roster)
+                    | Target::Schedules(_)
             ),
         }
     }
@@ -955,7 +961,9 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// phone asks only for what the desk it reached understands. `schedules`: the
 /// `{"schedules": "<personaId>"}` subscription. A desk from before this list
 /// sends none, and a phone must read that as "not here", never as "nothing".
-pub(crate) const PHONE_CAPABILITIES: &[&str] = &["schedules"];
+/// `threads`: the `{"thread": "<key>"}` subscription, to read two
+/// teammates' conversation.
+pub(crate) const PHONE_CAPABILITIES: &[&str] = &["schedules", "threads"];
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";
@@ -1289,8 +1297,10 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
         .and_then(|preview| serde_json::from_value(preview).ok());
     let latest = preview.as_ref().map(|preview| preview.at);
     let session = room.info(&persona.id);
+    let tail = previews::tail(log.root(), &persona.id);
     json!(RosterEntry {
-        activity: activity_on(log, &persona.id, &session),
+        activity: activity_on(&tail, &session),
+        waiting: waiting_on(&tail),
         session,
         preview,
         latest,
@@ -1307,13 +1317,13 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
 /// turn ending, or the session leaving thinking clears it. Only the tail is
 /// read: a tool still running is by definition near the end, and a tape is
 /// only bounded by how much has been said.
-fn activity_on(log: &Log, persona_id: &str, session: &SessionInfo) -> Option<String> {
+fn activity_on(tail: &[Value], session: &SessionInfo) -> Option<String> {
     if session.state != SessionState::Thinking {
         return None;
     }
     let mut activity: Option<(String, String)> = None;
-    for event in previews::tail(log.root(), persona_id) {
-        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event) else {
+    for event in tail {
+        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event.clone()) else {
             continue;
         };
         match event {
@@ -1334,4 +1344,32 @@ fn activity_on(log: &Log, persona_id: &str, session: &SessionInfo) -> Option<Str
         }
     }
     activity.map(|(_, title)| title)
+}
+
+/// Whether a card on this tape is still waiting on the person.
+///
+/// A card is rewritten in place when it is answered, so the tail is folded
+/// by id and only each card's latest line counts. Read from the tail, like
+/// the running tool: a teammate waiting on the person has stopped to wait,
+/// so what it waits on is near the end.
+fn waiting_on(tail: &[Value]) -> bool {
+    let mut open: HashMap<String, bool> = HashMap::new();
+    for event in tail {
+        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event.clone()) else {
+            continue;
+        };
+        match event {
+            TranscriptEvent::Permission { id, decision, .. } => {
+                open.insert(id, decision.is_none());
+            }
+            TranscriptEvent::HumanAction { id, status, .. } => {
+                open.insert(id, status == HumanActionStatus::Pending);
+            }
+            TranscriptEvent::PasskeyAsk { id, status, .. } => {
+                open.insert(id, status == PasskeyAskStatus::Pending);
+            }
+            _ => {}
+        }
+    }
+    open.into_values().any(|waiting| waiting)
 }

@@ -1018,6 +1018,48 @@ async fn a_line_in_a_tape_is_the_rosters_preview_of_that_teammate() {
 }
 
 #[tokio::test]
+async fn a_card_waiting_on_the_person_marks_the_row_until_it_is_answered() {
+    let (_root, log, port) = door("roster-waiting");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap().to_string();
+
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert_eq!(snapshot["snapshot"][0]["waiting"], false, "{snapshot}");
+
+    let tape = StreamId::Tape(persona_id);
+    let card = |decision: Option<&str>| {
+        let mut card = json!({
+            "kind": "permission", "id": "p1", "ts": 5, "requestId": "r1",
+            "title": "Run make", "options": [{ "optionId": "allow", "name": "Allow" }],
+        });
+        if let Some(decision) = decision {
+            card["decision"] = json!(decision);
+        }
+        card
+    };
+    log.append(&tape, &card(None)).unwrap();
+    let asked = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(asked["event"]["waiting"], true, "{asked}");
+
+    log.append(&tape, &card(Some("allow"))).unwrap();
+    let answered = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(answered["event"]["waiting"], false, "{answered}");
+
+    log.append(
+        &tape,
+        &json!({
+            "kind": "human_action", "id": "h1", "ts": 6, "actionId": "a1",
+            "reason": "Tap the 2FA prompt", "status": "pending",
+        }),
+    )
+    .unwrap();
+    let human = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(human["event"]["waiting"], true, "{human}");
+}
+
+#[tokio::test]
 async fn the_rosters_latest_is_the_last_message_ts_and_a_tool_does_not_move_it() {
     let (_root, log, port) = door("roster-latest");
     let mut socket = desk(port).await;
@@ -1603,19 +1645,17 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
 }
 
 /// A phone reads one teammate's schedules and nothing it could change them
-/// or the room with: no job made, cancelled or quieted, and no room, thread
-/// or run stream, which is where a setting would reach it.
+/// or the room with: no job made, cancelled or quieted, and no room or run
+/// stream, which is where a setting would reach it. A thread between two
+/// teammates is read like a tape: it holds what they said.
 #[test]
 fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     use crate::contract::ScheduleKind;
     assert!(Seat::Phone.permits_sub(&Target::Schedules("ada".to_string())));
     assert!(Seat::Phone.permits_sub(&Target::Tape("ada".to_string())));
+    assert!(Seat::Phone.permits_sub(&Target::Thread("ada~bob".to_string())));
     assert!(Seat::Phone.permits_sub(&Target::View(ViewName::Roster)));
-    for target in [
-        Target::Room,
-        Target::Thread("ada~bob".to_string()),
-        Target::Run("run-1".to_string()),
-    ] {
+    for target in [Target::Room, Target::Run("run-1".to_string())] {
         assert!(!Seat::Phone.permits_sub(&target), "{target:?}");
     }
     let create = Command::ScheduleCreate {

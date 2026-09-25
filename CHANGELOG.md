@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A reply sent to your phone can arrive as the teammate's own message,
+  with their picture, and a notification about something that needs you
+  says what kind of request it is and which one, so the phone can offer
+  its answers right in the notification.
+
 ## [0.20.0] - 2026-09-24
 
 ### Added

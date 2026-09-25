@@ -125,7 +125,7 @@ impl Room {
         } else {
             caption.to_string()
         };
-        self.push.notify(&persona.name, &body, persona_id);
+        self.push.notify(&persona.name, &body, persona_id, None);
         Ok(sent_sentence(&file))
     }
 

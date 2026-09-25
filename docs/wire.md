@@ -640,6 +640,25 @@ schedules view. A desk from before the list sends no `capabilities`, and a
 phone reads that as "not on this desk", never as "nothing scheduled"; asked
 anyway, such a desk refuses the target as one it cannot read.
 
+### Pushes
+
+A phone that registered a token with `mobile.push_register` hears a reply
+and every card that waits on the person as an Expo push
+(`crates/hotline-core/src/push.rs`). Every push is `mutableContent`, so the
+phone's notification service may rewrite it as the teammate's own message.
+`data` always names `desktopId` and `personaId`. A card that waits on the
+person also names its kind as `categoryId` and its request as
+`data.requestId`, which is the id the answer names:
+
+| `categoryId` | `data.requestId` is | Answered with |
+|---|---|---|
+| `permission` | the request's `requestId` | `session.answer_permission`, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
+| `human_action` | the card's `actionId` | `human.answer` |
+| `passkey_ask` | the ask's `askId` | `secrets.passkey.answer` |
+
+The answer goes over the phone seat like any other, so an answer from the
+notification lands on the tape exactly as one from the conversation.
+
 ## The token gate
 
 The handshake is `GET /ws?token=<token>`. Any other path is 404 (`"This

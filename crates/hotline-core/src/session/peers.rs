@@ -30,7 +30,7 @@
 //! The card is still written to the thread and the marker goes to `waiting`,
 //! so a reader can see what the thread is stopped on.
 
-use super::{Room, fold_said, lock, new_id, now_ms};
+use super::{Room, fold_said, lock, new_id, now_ms, timed};
 use crate::contract::{
     PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, PermissionOption, Persona, Reach,
     Receipt, TranscriptEvent,
@@ -1189,10 +1189,15 @@ fn kind_of(event: &Value) -> &str {
 fn said_in(events: &[Value], flip: bool) -> Vec<Said> {
     fold_said(events.iter().filter_map(|event| {
         let text = event.get("text")?.as_str()?;
+        // What this side heard carries the time it was said, as it did live.
+        let heard = || match event.get("ts").and_then(Value::as_i64) {
+            Some(ts) => timed(ts, text),
+            None => text.to_string(),
+        };
         match kind_of(event) {
             "user" if flip => Some(Said::Agent(text.to_string())),
-            "user" => Some(Said::User(text.to_string())),
-            "agent" if flip => Some(Said::User(text.to_string())),
+            "user" => Some(Said::User(heard())),
+            "agent" if flip => Some(Said::User(heard())),
             "agent" => Some(Said::Agent(text.to_string())),
             _ => None,
         }

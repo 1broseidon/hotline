@@ -190,7 +190,7 @@ answer or approval. Missing usage from an interrupted request is reported as
 unknown.
 
 Before anything else it is told a **preamble**: who it is, the goal, the
-working directory, how far it can reach, today's date, how to use Hotline's
+working directory, how far it can reach, how to read the clock, how to use Hotline's
 own tools, the index of the skills in its workspace (name, description and
 path; the body is read when the task calls for it — a teammate with a
 computer finds that computer's own guide there as `hotline-computer`), and the house style
@@ -199,6 +199,13 @@ is joining a conversation that already has chapters behind it, the
 [wake block](#the-wake-block) follows. It is seeded with what
 was said in the chapter it is joining — user and agent lines only; tool
 calls are the agent's own working memory of a turn, not the conversation.
+
+The preamble carries no date, so it reads the same every day and stays a
+cached prefix. Every line the agent hears opens with the local day and time
+it was said instead, `[Thu 24 Sep 2026, 15:12] …`: a person's message, a
+schedule firing, Hotline's own nudge, a subagent's brief and a colleague's
+question alike, and the seeded conversation carries each line's own time.
+The tape keeps the words alone; the time is already the event's `ts`.
 
 On each turn it is given:
 

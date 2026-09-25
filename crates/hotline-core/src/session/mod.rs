@@ -72,7 +72,7 @@ use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
 use crate::vault::Vault;
 use async_trait::async_trait;
-use chrono::Local;
+use chrono::{Local, TimeZone};
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -2176,7 +2176,7 @@ impl Room {
     pub fn nudge(self: &Arc<Self>, persona_id: &str, text: &str) -> Result<(), String> {
         let _working = self.working()?;
         let session = self.session(persona_id)?;
-        self.dispatch(session, Wired::words(text));
+        self.dispatch(session, Wired::words(timed(now_ms(), text)));
         Ok(())
     }
 
@@ -2185,11 +2185,12 @@ impl Room {
     /// a turn that fails must not lose the message that started it.
     fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
         let id = new_id();
+        let ts = now_ms();
         self.append(
             session,
             TranscriptEvent::User {
                 id: id.clone(),
-                ts: now_ms(),
+                ts,
                 text: sending.shown,
                 attachments: sending.attachments,
                 reactions: None,
@@ -2200,6 +2201,7 @@ impl Room {
             },
         );
         let mut wire = sending.wire;
+        wire.text = timed(ts, &wire.text);
         wire.said = Some(id);
         self.dispatch(session.clone(), wire);
     }
@@ -3615,7 +3617,8 @@ impl Room {
     /// the answer.
     fn escalate(&self, session: &Session, run: ScheduledRun, note: &str) {
         let run = ScheduledRun { quiet: None, ..run };
-        let mut wire = Wired::words(escalation::follow_up(&run, note));
+        let ts = now_ms();
+        let mut wire = Wired::words(timed(ts, &escalation::follow_up(&run, note)));
         wire.scheduled = Some(run.clone());
         mark(&session.pending_scheduled, run);
         let id = new_id();
@@ -3623,7 +3626,7 @@ impl Room {
             session,
             TranscriptEvent::User {
                 id: id.clone(),
-                ts: now_ms(),
+                ts,
                 text: note.to_string(),
                 attachments: None,
                 reactions: None,
@@ -4129,7 +4132,10 @@ fn said(events: &[Value]) -> Vec<Said> {
         event.get("text")?.as_str()?;
         let text = crate::sent::message_text(event);
         match event.get("kind")?.as_str()? {
-            "user" => Some(Said::User(text)),
+            "user" => Some(Said::User(match event.get("ts").and_then(Value::as_i64) {
+                Some(ts) => timed(ts, &text),
+                None => text,
+            })),
             "agent" => Some(Said::Agent(text)),
             _ => None,
         }
@@ -4522,9 +4528,8 @@ pub(crate) fn preamble(
     // cannot drive.
     let skills = skills_index(persona);
     let standing = format!(
-        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\nToday is {}.\n\n{}\n\n{skills}\n\n{}",
+        "{identity}\n\nYour working directory is {}.{reach_sentence}{computer_sentence}{secrets_sentence}\n\n{CLOCK}\n\n{}\n\n{skills}\n\n{}",
         persona.cwd,
-        Local::now().format("%A %-d %B %Y"),
         crate::mcp::server::HOW_TO_USE,
         pacing::HOUSE_STYLE,
     );
@@ -4578,6 +4583,21 @@ fn new_id() -> String {
 
 pub(crate) fn now_ms() -> i64 {
     Local::now().timestamp_millis()
+}
+
+/// What the preamble says in place of a date: the clock is on the lines.
+pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one.";
+
+/// A line as the model hears it: the local day and time it was said, then
+/// the words. The time rides on the line and never in the preamble, so the
+/// preamble reads the same every day and stays a cached prefix, and a
+/// chapter that runs past midnight still knows what day it is.
+pub(crate) fn timed(ts: i64, text: &str) -> String {
+    let at = Local
+        .timestamp_millis_opt(ts)
+        .single()
+        .unwrap_or_else(Local::now);
+    format!("[{}] {text}", at.format("%a %-d %b %Y, %H:%M"))
 }
 
 #[cfg(test)]

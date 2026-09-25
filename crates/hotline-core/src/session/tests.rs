@@ -141,7 +141,7 @@ impl Driver for Scripted {
         attachments: Vec<Attachment>,
         reach: Reach,
     ) -> mpsc::Receiver<Update> {
-        lock(&self.prompts).push(text);
+        lock(&self.prompts).push(words_of(&text));
         lock(&self.attachments).push(attachments);
         lock(&self.reaches).push(reach);
         let (sender, receiver) = mpsc::channel(64);
@@ -201,6 +201,32 @@ impl Driver for Scripted {
         waiting.remove(at);
         true
     }
+}
+
+/// The words of a line a driver heard, once it is checked for the day and
+/// time it was said: every line reaches a driver timed, so every test that
+/// reads what a driver heard checks that, and reads the words.
+pub(super) fn words_of(heard: &str) -> String {
+    let (stamp, words) = heard
+        .strip_prefix('[')
+        .and_then(|rest| rest.split_once("] "))
+        .unwrap_or_else(|| panic!("a line reached the driver untimed: {heard}"));
+    assert!(
+        chrono::NaiveDateTime::parse_from_str(stamp, "%a %d %b %Y, %H:%M").is_ok(),
+        "not a local day and time: [{stamp}]"
+    );
+    words.to_string()
+}
+
+/// A conversation as a driver is seeded with it, each of the person's lines
+/// checked for its time and read as its words.
+pub(super) fn words(said: Vec<Said>) -> Vec<Said> {
+    said.into_iter()
+        .map(|line| match line {
+            Said::User(heard) => Said::User(words_of(&heard)),
+            agent => agent,
+        })
+        .collect()
 }
 
 /// The models this room can reach, all of them scripted.
@@ -1194,7 +1220,10 @@ fn the_preamble_says_who_where_how_far_and_when() {
     assert!(walled.contains("Keep the harbour running."));
     assert!(walled.contains("Your working directory is /tmp/harbour."));
     assert!(walled.contains("a path that leaves it is refused"));
-    assert!(walled.contains(&Local::now().format("%A %-d %B %Y").to_string()));
+    // No date: the clock rides on each line, so the preamble is the same
+    // prefix every day.
+    assert!(walled.contains(CLOCK));
+    assert!(!walled.contains(&Local::now().format("%B %Y").to_string()));
     // Skills are an index, not a body: the name, when to use it, and the
     // file to read, after the tool sentence and before the house style.
     assert!(walled.contains("\n- hotline-room: "));
@@ -1254,6 +1283,25 @@ fn the_preamble_says_who_where_how_far_and_when() {
     );
 }
 
+/// A line carries the local day and time it was said, so a chapter that runs
+/// past midnight hears the new day on the next line.
+#[test]
+fn a_line_says_the_day_and_time_it_was_said() {
+    let before = Local
+        .with_ymd_and_hms(2026, 9, 24, 23, 59, 0)
+        .unwrap()
+        .timestamp_millis();
+    let after = before + 60_000;
+    assert_eq!(
+        timed(before, "still up?"),
+        "[Thu 24 Sep 2026, 23:59] still up?"
+    );
+    assert_eq!(
+        timed(after, "what day is it?"),
+        "[Fri 25 Sep 2026, 00:00] what day is it?"
+    );
+}
+
 /// A teammate naming a backend no agent on this machine answers to is told
 /// so, rather than quietly started on a different agent than the one it names.
 #[tokio::test]
@@ -1278,10 +1326,9 @@ fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
         json!({"kind": "tool", "id": "tool:c1", "ts": 3, "toolCallId": "c1", "title": "ls", "status": "completed"}),
         json!({"kind": "agent", "id": "a1", "ts": 4, "text": "hi"}),
     ];
-    let hello = [
-        Said::User("hello".to_string()),
-        Said::Agent("hi".to_string()),
-    ];
+    // Each of the person's lines comes back with the time it was said, as
+    // the driver heard it live.
+    let hello = [Said::User(timed(1, "hello")), Said::Agent("hi".to_string())];
 
     // A tape nobody has divided reads as one implicit chapter.
     assert_eq!(said(&older), hello);
@@ -1291,7 +1338,7 @@ fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
     let mut divided = older.to_vec();
     divided.push(json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "hotline"}));
     divided.push(json!({"kind": "user", "id": "u2", "ts": 6, "text": "still there?"}));
-    assert_eq!(said(&divided), [Said::User("still there?".to_string())]);
+    assert_eq!(said(&divided), [Said::User(timed(6, "still there?"))]);
 
     // The last chapter closed, so this session starts on nothing: the wake
     // block is what carries the chapter behind it.
@@ -1338,7 +1385,7 @@ async fn a_reply_is_paced_as_chat() {
     assert_eq!(chat[1]["text"], first);
     assert_eq!(chat[2]["text"], second);
     assert_eq!(
-        said(&tape(&room, "ada")),
+        words(said(&tape(&room, "ada"))),
         [Said::User("two bubbles".to_string()), Said::Agent(two),]
     );
 
@@ -1360,7 +1407,7 @@ async fn a_reply_is_paced_as_chat() {
         assert_eq!(agents[i]["text"], *unit);
     }
     assert_eq!(
-        said(&tape(&room, "ada")),
+        words(said(&tape(&room, "ada"))),
         [
             Said::User("two bubbles".to_string()),
             Said::Agent(format!("{first}\n\n{second}")),
@@ -1439,7 +1486,7 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
     assert_eq!(chat[5]["text"], "Running the suite again.");
     assert_eq!(chat[7]["text"], "Done, all green.");
     assert_eq!(
-        said(&tape(&room, "ada")),
+        words(said(&tape(&room, "ada"))),
         [
             Said::User("fix the build".to_string()),
             Said::Agent("on it\n\nDone, all green.".to_string()),
@@ -4225,7 +4272,7 @@ async fn resume_reopens_the_previous_chapter_and_nudges_with_what_was_said_since
     let seeds = lock(&agents.seeds).clone();
     assert_eq!(seeds.len(), 2, "start, then the resume's restart");
     assert_eq!(
-        seeds[1],
+        words(seeds[1].clone()),
         vec![
             Said::User("did the crane jam?".to_string()),
             Said::Agent("It jammed.".to_string()),

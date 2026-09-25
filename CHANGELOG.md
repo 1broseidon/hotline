@@ -21,6 +21,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate's reply reaches it as one notification when the teammate is
   done, instead of one for every message along the way.
 
+### Fixed
+
+- A teammate on GitHub Copilot's GPT Codex models, or on a Copilot model
+  only offered over its newer route, no longer has to put something in
+  every box of a tool it uses. It can leave out what it is not using, so
+  it no longer types an empty text into a password field beside the
+  saved login it meant to fill.
+
 ## [0.20.0] - 2026-09-24
 
 ### Added

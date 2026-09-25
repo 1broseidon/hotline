@@ -676,9 +676,9 @@ fn quoted(result: &Value) -> String {
     )
 }
 
-/// The part of the screen `send_file` was asked for. A strict tool call has
-/// to fill every field, and four zeros is what fills this one when the whole
-/// screen is meant.
+/// The part of the screen `send_file` was asked for. An agent whose tool
+/// calls must fill every field sends four zeros when the whole screen is
+/// meant.
 fn region(arguments: &Value) -> Result<Option<[i64; 4]>, String> {
     let Some(region) = arguments.get("region").filter(|region| !region.is_null()) else {
         return Ok(None);

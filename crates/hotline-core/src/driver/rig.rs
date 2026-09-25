@@ -6,6 +6,7 @@
 
 mod images;
 mod recovery;
+mod strict;
 mod turn;
 use super::failure::{Failure, Kind};
 use images::Input;

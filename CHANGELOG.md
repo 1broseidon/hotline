@@ -8,12 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-25
+
 ### Added
 
 - A message you send to a Claude Code or Codex teammate while it works now
   reaches the task it is on, the way it does for a Hotline Agent teammate,
   instead of waiting for it to finish. Other agents still read it when they
   are done.
+- The desk tells a paired phone which teammates are waiting on you, and
+  lets it read what two teammates said to each other, ready for the phone
+  app to show both.
 
 ### Fixed
 

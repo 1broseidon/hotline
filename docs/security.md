@@ -401,6 +401,7 @@ extend; when a change adds a boundary, it adds a row.
 | What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; the phone can neither list nor take back; expired cookies are left on the host | `session/tests.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
 | Stored secrets are the desk's alone: the phone can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A phone reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room or run stream (a thread between two teammates is read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`, `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
+| A phone adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`, `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
 | A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent from a quiet scheduled run or past the caps, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests.rs` `sent_files::a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `sent_files::what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `sent_files::a_quiet_scheduled_run_sends_nothing_and_says_so`, `sent_files::a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
 | User image readback uses a send-time copy at the original attachment index; default zero, mixed attachments, chunk continuation, real MIME and no transcoding; source replacement/deletion cannot change it, missing/legacy copies never reopen paths; non-image, invalid index/offset, wrong teammate/message, planted file link and over-cap copy are refused; a paired phone can refetch its image but not a user text file | `tests/desk.rs` `user_images_read_back_by_original_index_without_reopening_the_source`; `sent.rs` `user_image_copies_keep_their_bytes_and_cannot_be_replaced`; `remote/tests.rs` `a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time` | Unix for planted link |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
@@ -464,3 +465,44 @@ made it so.
   result is saved produces an explicit uncertain failure, not replayed work;
   inspect side effects before retrying. Stopping a handoff cancels its active
   turn but cannot undo completed effects.
+
+## Add a teammate from the phone (BRO-127)
+
+- **Default and old records:** a persona `mobile.persona_create` writes carries
+  no `reach` (workspace), `cwd` under this desk's own workspaces directory, no
+  `computer`, and `backgroundWork: false` — the same defaults `persona.create`
+  writes for a draft that names none of them, because the phone's params
+  cannot name them at all. There is no legacy record: this is a new command,
+  not a new field.
+- **Grant source:** the phone seat's allowlist in `Seat::permits`
+  (`wire/mod.rs`) now names `Command::MobilePersonaCreate` and
+  `Command::BackendsList`. `mobile.persona_create` is confined in core —
+  `wire/commands.rs`'s `mobile_persona_create` builds a `PersonaDraft` that
+  never sets `reach`, `cwd` or `computer` — rather than by the phone's form
+  leaving fields out, per BRO-117 §7. `backends.list` is unchanged and
+  read-only; it was already desk-only by omission, and is now on the
+  allowlist too.
+- **Enforcement:** `mobile_persona_create` parses `requestId` as a uuid before
+  anything else, refusing an unparseable one; looks it up in `room::roster`
+  and returns the living persona unchanged when it already exists, so a retry
+  never appends twice; refuses a blank name; and resolves `backendId` (or the
+  room's default) against `room.backends().await`, refusing an id absent from
+  that list or carrying `unavailable`. The write itself is the same
+  `build_persona` helper `persona.create` calls, given the phone's id instead
+  of a fresh one.
+- **Tests:** `wire/tests.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`
+  proves the allowlist; `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`
+  proves the written persona has no reach, no computer, no background work and
+  the default workspace even when the params carry `reach`, `cwd` and
+  `computer`; `a_repeated_request_id_does_not_duplicate_the_teammate` and
+  `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`
+  prove idempotency and the four refusals. `remote/tests.rs`
+  `a_phone_creates_a_confined_teammate_but_not_through_persona_create` proves
+  the same through a real paired phone over TLS, that `backends.list` carries
+  only `id`, `name`, `description` and `unavailable`, and that `persona.create`
+  still answers `forbidden` for that seat.
+- **Residual risk:** any paired phone can create a teammate today, the same
+  posture the rest of the phone seat already has — there is no owner-only
+  seat yet (BRO-116). A created teammate's workspace is a fresh empty
+  directory the desk made, so this adds no reach beyond what an operator
+  clicking "New teammate" already grants; it only lets the phone ask for it.

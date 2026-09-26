@@ -478,6 +478,13 @@ impl Seat {
                 Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
                     | Command::MobilePushRegister { .. }
+                    // A narrow create, confined in core rather than by
+                    // leaving fields out of the phone's form: see
+                    // `mobile_persona_create` in `wire/commands.rs`.
+                    | Command::MobilePersonaCreate { .. }
+                    // Which harnesses this desk can run and whether each is
+                    // ready. Read-only, and carries no credential.
+                    | Command::BackendsList { .. }
                     | Command::SessionCancel { .. }
                     | Command::HumanAnswer { .. }
                     | Command::SecretsPasskeyAnswer { .. }
@@ -971,7 +978,7 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// sends none, and a phone must read that as "not here", never as "nothing".
 /// `threads`: the `{"thread": "<key>"}` subscription, to read two
 /// teammates' conversation.
-pub(crate) const PHONE_CAPABILITIES: &[&str] = &["schedules", "threads"];
+pub(crate) const PHONE_CAPABILITIES: &[&str] = &["personaCreate", "schedules", "threads"];
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";

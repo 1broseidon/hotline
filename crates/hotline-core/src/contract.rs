@@ -2060,6 +2060,27 @@ pub enum Command {
     /// which platform it is for. Sent by the phone after it connects.
     #[serde(rename = "mobile.push_register")]
     MobilePushRegister { token: String, platform: String },
+    /// A narrow create for the phone seat. Core builds the whole draft and
+    /// fills in everything posture-related with its safest defaults —
+    /// workspace reach, a workspace this desk makes, no computer, no
+    /// background work — because the phone has no way to ask for more.
+    /// `requestId` is a phone-made uuid and becomes the teammate's id, so a
+    /// retry after a lost acknowledgement returns the teammate already made
+    /// instead of a second one. `backendId` must be a harness `backends.list`
+    /// reports as ready; anything else is refused.
+    #[serde(rename = "mobile.persona_create")]
+    MobilePersonaCreate {
+        request_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        backend_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort_id: Option<String>,
+    },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is

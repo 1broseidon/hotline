@@ -450,6 +450,86 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     task.abort();
 }
 
+/// A paired phone builds its own teammate through the real door: `backends.list`
+/// answers with no secret, `mobile.persona_create` makes a confined teammate a
+/// retry cannot duplicate, and the full `persona.create` stays refused, exactly
+/// as it is for every other posture-changing command.
+#[tokio::test]
+async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
+    let h = Harness::new().await;
+
+    let grant = h.pair().await;
+    let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
+    read(&mut phone).await;
+
+    send(&mut phone, json!({"id": 1, "cmd": "backends.list"})).await;
+    let backends = read(&mut phone).await;
+    assert_eq!(backends["ok"], true, "{backends}");
+    let choices = backends["result"].as_array().unwrap();
+    assert!(
+        choices
+            .iter()
+            .any(|choice| choice["id"] == "hotline" && choice["unavailable"].is_null()),
+        "{choices:?}"
+    );
+    for choice in choices {
+        let fields: Vec<&str> = choice
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        for field in fields {
+            assert!(
+                ["id", "name", "description", "unavailable"].contains(&field),
+                "backends.list carried an unexpected field {field}"
+            );
+        }
+    }
+
+    send(
+        &mut phone,
+        json!({
+            "id": 2,
+            "cmd": "persona.create",
+            "params": {"draft": {"name": "Ada"}},
+        }),
+    )
+    .await;
+    let refused = read(&mut phone).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["code"], "forbidden");
+
+    let request_id = Uuid::new_v4().to_string();
+    let create = json!({
+        "id": 3,
+        "cmd": "mobile.persona_create",
+        "params": {"requestId": request_id, "name": "Ada", "goal": "Help with the harbour"},
+    });
+    send(&mut phone, create.clone()).await;
+    let created = read(&mut phone).await["result"].clone();
+    assert_eq!(created["id"], request_id);
+    assert_eq!(created["name"], "Ada");
+    assert!(created.get("reach").is_none(), "{created}");
+    assert!(created.get("computer").is_none(), "{created}");
+    assert_eq!(created["backgroundWork"], false);
+
+    let mut retry = create;
+    retry["id"] = json!(4);
+    send(&mut phone, retry).await;
+    let retried = read(&mut phone).await["result"].clone();
+    assert_eq!(retried, created);
+    assert_eq!(
+        crate::room::roster(&h.desk.log)
+            .into_iter()
+            .filter(|persona| persona.id == request_id)
+            .count(),
+        1
+    );
+
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
 /// A paired phone reads one teammate's schedules through the real door: an
 /// empty list said out loud, each change as the whole list, a refusal for
 /// anything that would change a job or reach the room, and on reconnecting
@@ -508,7 +588,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     // list names nothing, and the phone then shows no schedules section.
     assert_eq!(
         read(&mut phone).await["capabilities"],
-        json!(["schedules", "threads"])
+        json!(["personaCreate", "schedules", "threads"])
     );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;

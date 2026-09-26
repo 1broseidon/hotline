@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A paired phone can ask the desk to add a teammate: a name, a goal, a
+  harness, a model and an effort are all it may set, and the desk fills in
+  a fresh workspace, workspace reach, no computer and no background work —
+  the posture a phone must never widen. A retried request answers the
+  teammate already made rather than a second one. The phone's own screen
+  for this follows in a later release.
+
 ## [0.23.0] - 2026-09-26
 
 ### Added

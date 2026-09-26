@@ -12,6 +12,7 @@ import type {
 	SessionState,
 	SkillEntry,
 	SkillPolicy,
+	TeammateLink,
 	TeammateToolLedger,
 	ToolLedgerRow,
 } from "../generated/contract";
@@ -311,6 +312,18 @@ export function Teammate({
 								onChange={(skillPolicy) => save({ skillPolicy })}
 							/>
 							<ToolLedger personaId={persona.id} sessionState={session.state} servers={servers} />
+						</div>
+					</section>
+
+					<section>
+						<h3 className="label">Work together</h3>
+						<div className="grouped">
+							<WorkTogetherRows
+								personaId={persona.id}
+								links={roster.find((entry) => entry.persona.id === persona.id)?.links ?? []}
+								roster={roster}
+								disabled={busy}
+							/>
 						</div>
 					</section>
 
@@ -974,6 +987,67 @@ function AddMount({
 				</button>
 			</div>
 		</div>
+	);
+}
+
+/**
+ * Pairwise links for shared work: while two teammates are linked, a message
+ * between them skips the side session and lands straight in the other's own
+ * conversation, so each remembers what was agreed. Ticking a name here links
+ * or unlinks that pair; a paused link (it hit the message cap) still shows,
+ * dimmed, until the person resumes or unlinks it from the card on the tape.
+ */
+function WorkTogetherRows({
+	personaId,
+	links,
+	roster,
+	disabled,
+}: {
+	personaId: string;
+	links: TeammateLink[];
+	roster: RosterEntry[];
+	disabled: boolean;
+}) {
+	const [open, setOpen] = useState(false);
+	const [busyWith, setBusyWith] = useState<string | null>(null);
+	const others = roster.filter((entry) => entry.persona.id !== personaId);
+	const nameFor = (id: string) => roster.find((entry) => entry.persona.id === id)?.persona.name ?? id;
+
+	const toggle = (withPersonaId: string, linked: boolean) => {
+		setBusyWith(withPersonaId);
+		void wire
+			.command(linked ? "teammates.unlink" : "teammates.link", { a: personaId, b: withPersonaId })
+			.finally(() => setBusyWith(null));
+	};
+
+	const value = links.length === 0 ? "none" : links.map((link) => `${nameFor(link.withPersonaId)}${link.paused ? " (paused)" : ""}`).join(", ");
+
+	return (
+		<>
+			<FoldRow title="Work together" value={value} open={open} onToggle={() => setOpen((was) => !was)} />
+			{open &&
+				(others.length === 0 ? (
+					<div className={NESTED}>
+						<RowText title="No other teammates yet" />
+					</div>
+				) : (
+					others.map((entry) => {
+						const link = links.find((one) => one.withPersonaId === entry.persona.id);
+						return (
+							<label key={entry.persona.id} className={`${NESTED} group-row-choice`}>
+								<input
+									type="checkbox"
+									className="check"
+									checked={link !== undefined}
+									disabled={disabled || busyWith === entry.persona.id}
+									onChange={() => toggle(entry.persona.id, link !== undefined)}
+								/>
+								<RowText title={entry.persona.name} {...(link?.paused ? { value: "paused" } : {})} />
+							</label>
+						);
+					})
+				))}
+		</>
 	);
 }
 

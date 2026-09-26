@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { ChainIcon, ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
 import { useTape } from "../tape";
@@ -17,7 +17,7 @@ import { Search } from "./Search";
 import { Starters } from "./Starters";
 import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
-import { Transcript, type ReplyTarget } from "./Transcript";
+import { Transcript, turnCauseLine, type ReplyTarget } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -230,10 +230,20 @@ export function Conversation({
 	 * greyed menu item, read at the moment somebody goes looking for it. */
 	/* The band is the one place that says who this is, so it also says what
 	 * they are doing: the kind of work while a turn runs, else what they are
-	 * for. The window's title bar carries only the mark. */
-	const status = session.state === "thinking" ? (entry.activity ?? "Working") : persona.goal.split("\n")[0]!.trim();
+	 * for. The window's title bar carries only the mark. Before the first
+	 * tool call lands there is no activity yet; if the turn began answering
+	 * a delivery rather than a fresh word from the person, that is worth
+	 * saying instead of a bare "Working". */
+	const status =
+		session.state === "thinking" ? (entry.activity ?? turnCauseLine(events) ?? "Working") : persona.goal.split("\n")[0]!.trim();
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	const links = entry.links ?? [];
+	const nameFor = (id: string) => roster.find((one) => one.persona.id === id)?.persona.name ?? id;
+	const unlink = useCallback(
+		(withPersonaId: string) => void wire.command("teammates.unlink", { a: personaId, b: withPersonaId }),
+		[personaId],
+	);
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
@@ -303,6 +313,20 @@ export function Conversation({
 					<MoreIcon />
 				</MenuButton>
 			</Band>
+
+			{links.length > 0 && (
+				<div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 text-sm text-ink-3">
+					<ChainIcon className="shrink-0" />
+					{links.map((link) => (
+						<span key={link.withPersonaId} className={`flex items-center gap-1.5 ${link.paused ? "text-ink-4" : ""}`}>
+							{`Linked with ${nameFor(link.withPersonaId)}${link.paused ? " · paused" : ""}`}
+							<button type="button" className="control btn-quiet btn-sm" onClick={() => unlink(link.withPersonaId)}>
+								Unlink
+							</button>
+						</span>
+					))}
+				</div>
+			)}
 
 			{notice !== null && (
 				<p

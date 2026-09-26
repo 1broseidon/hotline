@@ -4,6 +4,7 @@ import type {
 	Attachment,
 	HumanActionStatus,
 	HumanAnswer,
+	LinkPauseStatus,
 	PasskeyAskStatus,
 	PermissionOption,
 	PlanEntry,
@@ -219,6 +220,7 @@ export function Transcript({
 							) : (
 								<Row
 									personaId={personaId}
+									ownerName={name}
 									event={block.event}
 									said={said}
 									run={run}
@@ -495,6 +497,7 @@ function useScrollToEvent(
 
 function Row({
 	personaId,
+	ownerName,
 	event,
 	said,
 	run,
@@ -506,6 +509,8 @@ function Row({
 	onJump,
 }: {
 	personaId: string;
+	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
+	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
 	said: Map<string, string>;
 	run: Run;
@@ -580,6 +585,11 @@ function Row({
 
 		case "passkey_ask":
 			return <PasskeyAskCard personaId={personaId} event={event} />;
+
+		/* The pair's link hit its cap: a live card while it waits on the
+		 * person, a quiet rule line once it is settled either way. */
+		case "link_paused":
+			return <LinkPaused personaId={personaId} ownerName={ownerName} event={event} />;
 
 		/* One quiet line, the way a chapter is a date. Pressing it opens
 		 * the thread in the inspector's place. */
@@ -676,6 +686,25 @@ export function deliveryLine(event: DeliveryEvent): string {
 export function deliveryMissed(event: DeliveryEvent): boolean {
 	const cause = event.cause;
 	return cause.kind === "peer" ? cause.status === "failed" : cause.kind === "answer" && cause.status === "expired";
+}
+
+/**
+ * Why a running turn began, when the last thing before it was a delivery
+ * rather than a word from the person: answering a colleague, a linked
+ * partner, or picking up an answer that arrived while the teammate was
+ * away. `null` once a plain message is the more recent thing, so an
+ * ordinary turn says nothing extra.
+ */
+export function turnCauseLine(events: TranscriptEvent[]): string | null {
+	for (let index = events.length - 1; index >= 0; index--) {
+		const event = events[index]!;
+		if (event.kind === "user") return null;
+		if (event.kind === "delivery") {
+			const cause = event.cause;
+			return cause.kind === "answer" ? "Picking up your answer" : `Answering ${cause.name}`;
+		}
+	}
+	return null;
 }
 
 /** Where a subagent's run has got to, in the words its line ends with. */
@@ -1253,6 +1282,57 @@ function PasskeyAskCard({ personaId, event }: { personaId: string; event: Extrac
 				</button>
 			</div>
 			{refusal !== null && <p className="mt-2 text-sm text-danger">{refusal}</p>}
+		</div>
+	);
+}
+
+const LINK_SETTLED: Record<Exclude<LinkPauseStatus, "pending">, string> = {
+	resumed: "Resumed",
+	unlinked: "Unlinked",
+};
+
+/**
+ * A linked pair hit the cap on messages between them and the link paused
+ * behind it: a live card while it waits on the person, speaking of the
+ * tape's own teammate in the third person, since it went back and forth
+ * without them, not with them. Keep going resumes it, counting afresh;
+ * Unlink ends it outright. Settled, either way, it is one quiet rule line.
+ */
+function LinkPaused({
+	personaId,
+	ownerName,
+	event,
+}: {
+	personaId: string;
+	event: Extract<TranscriptEvent, { kind: "link_paused" }>;
+	ownerName: string;
+}) {
+	const [answering, setAnswering] = useState(false);
+
+	if (event.status !== "pending") {
+		return <p className="rule-line rule-line-plain">{LINK_SETTLED[event.status]}</p>;
+	}
+
+	const act = (cmd: "teammates.link_resume" | "teammates.unlink") => {
+		if (answering) return;
+		setAnswering(true);
+		void wire.command(cmd, { a: personaId, b: event.withPersonaId }).catch(() => setAnswering(false));
+	};
+
+	return (
+		<div className="card card-live mt-3">
+			<p className="eyebrow mb-1">Paused</p>
+			<p className="selectable">
+				{ownerName} and {event.withName} paused after {event.exchanges} {event.exchanges === 1 ? "message" : "messages"} without you.
+			</p>
+			<div className="card-actions">
+				<button type="button" disabled={answering} className="control btn-primary" onClick={() => act("teammates.link_resume")}>
+					Keep going
+				</button>
+				<button type="button" disabled={answering} className="control btn" onClick={() => act("teammates.unlink")}>
+					Unlink
+				</button>
+			</div>
 		</div>
 	);
 }

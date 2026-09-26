@@ -1,6 +1,6 @@
 import { type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
-import { SettingsIcon, MoreIcon, PlusIcon } from "../icons";
+import { ChainIcon, SettingsIcon, MoreIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
@@ -54,6 +54,9 @@ export function Rail({
 	compact?: boolean;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
+	/* Who a linked row's partner is, by id: every row needs the whole
+	 * roster's names, not just its own. */
+	const names = new Map(entries.map((one) => [one.persona.id, one.persona.name]));
 	const showTip = (row: HTMLElement | null, name = "", line = "") => {
 		if (row === null) {
 			setTip(null);
@@ -87,6 +90,7 @@ export function Rail({
 						<Row
 							key={entry.persona.id}
 							entry={entry}
+							names={names}
 							shortcut={index < 9 ? index + 1 : null}
 							active={entry.persona.id === selectedId}
 							unread={unreadOf(entry, selectedId, seen)}
@@ -150,6 +154,7 @@ export function Rail({
 
 function Row({
 	entry,
+	names,
 	shortcut,
 	active,
 	unread,
@@ -159,6 +164,8 @@ function Row({
 	onTip,
 }: {
 	entry: RosterEntry;
+	/** Every teammate's name, by id, so a linked row can name its partner. */
+	names: Map<string, string>;
 	shortcut: number | null;
 	active: boolean;
 	unread: boolean;
@@ -176,6 +183,8 @@ function Row({
 		: preview
 			? `${preview.from === "me" ? "You: " : ""}${oneLine(preview.text)}`
 			: vital.label || oneLine(entry.persona.goal);
+	const link = linkBadge(entry, names);
+	const tipLine = link === null ? line : `${line} · Linked with ${link.summary}`;
 	return (
 		<button
 			type="button"
@@ -186,8 +195,8 @@ function Row({
 			onClick={onSelect}
 			{...(onTip !== undefined
 				? {
-						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, entry.persona.name, line),
-						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, entry.persona.name, line),
+						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, entry.persona.name, tipLine),
+						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, entry.persona.name, tipLine),
 						onMouseLeave: () => onTip(null),
 						onBlur: () => onTip(null),
 					}
@@ -224,6 +233,15 @@ function Row({
 					<span className={`min-w-0 flex-1 truncate ${unread ? "font-semibold text-ink" : "font-medium text-ink"}`}>
 						{entry.persona.name}
 					</span>
+					{link !== null && (
+						<span
+							className={`flex shrink-0 items-center gap-1 ${link.paused ? "text-ink-4" : "text-ink-3"}`}
+							title={`Linked with ${link.summary}`}
+						>
+							<ChainIcon className="h-3 w-3 shrink-0" />
+							<span className="max-w-[64px] truncate text-xs">{link.label}</span>
+						</span>
+					)}
 					{shortcut !== null && (
 						<kbd
 							aria-hidden="true"
@@ -266,6 +284,16 @@ export function unreadOf(
 	if (latest == null) return false;
 	const shown = seen[entry.persona.id];
 	return shown == null || latest > shown;
+}
+
+/** The chain badge for a linked row: the partner's name, or `+N` for several, dim while every link is paused. */
+function linkBadge(entry: RosterEntry, names: Map<string, string>): { label: string; summary: string; paused: boolean } | null {
+	const links = entry.links ?? [];
+	if (links.length === 0) return null;
+	const summary = links.map((link) => `${names.get(link.withPersonaId) ?? link.withPersonaId}${link.paused ? " (paused)" : ""}`).join(", ");
+	const paused = links.every((link) => link.paused);
+	if (links.length === 1) return { label: names.get(links[0]!.withPersonaId) ?? links[0]!.withPersonaId, summary, paused };
+	return { label: `+${links.length}`, summary, paused };
 }
 
 /**

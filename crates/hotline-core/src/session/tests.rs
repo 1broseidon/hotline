@@ -81,6 +81,11 @@ impl Scripted {
         }
     }
 
+    pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+
     pub(super) fn with_room_models(mut self) -> (Self, Arc<Mutex<Vec<ConfigChoice>>>) {
         let offered = Arc::new(Mutex::new(self.reported().models));
         self.room_models = Some(offered.clone());
@@ -237,8 +242,8 @@ pub(super) fn words(said: Vec<Said>) -> Vec<Said> {
 /// summariser gets whatever answer the test says a model gave.
 pub(super) struct Fake {
     driver: Arc<Scripted>,
-    preambles: Arc<Mutex<Vec<String>>>,
-    seeds: Arc<Mutex<Vec<Vec<Said>>>>,
+    pub(super) preambles: Arc<Mutex<Vec<String>>>,
+    pub(super) seeds: Arc<Mutex<Vec<Vec<Said>>>>,
     /// Each agent's view of its teammate and the tools it was handed, in the
     /// order the room asked for them.
     views: Arc<Mutex<Vec<Persona>>>,
@@ -1352,6 +1357,43 @@ fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
         json!({"kind": "chapter", "id": "c1", "ts": 5, "backendId": "hotline", "endedAt": 9}),
     );
     assert_eq!(said(&closed), []);
+}
+
+/// Correlated deliveries must be admitted live before they become history;
+/// read work and legacy, uncorrelated deliveries keep their existing context.
+#[test]
+fn seeded_history_only_remembers_read_correlated_deliveries() {
+    let handoff = json!({
+        "kind": "handoff", "requestId": "request", "personaId": "bob",
+        "name": "Bob", "threadKey": "ada~bob", "about": "work"
+    });
+    let result = json!({
+        "kind": "peer", "requestId": "request", "personaId": "bob",
+        "name": "Bob", "threadKey": "ada~bob", "about": "work", "status": "done"
+    });
+    let mut legacy = result.clone();
+    legacy.as_object_mut().unwrap().remove("requestId");
+    for cause in [handoff, result, legacy] {
+        for receipt in [None, Some("sent"), Some("read")] {
+            let mut event = json!({
+                "kind": "delivery", "id": "delivery", "ts": 1,
+                "text": "Do this work", "cause": cause
+            });
+            if let Some(receipt) = receipt {
+                event["receipt"] = json!(receipt);
+            }
+            let expected = if receipt == Some("read") || cause.get("requestId").is_none() {
+                let cause = serde_json::from_value(cause.clone()).unwrap();
+                vec![Said::User(timed(
+                    1,
+                    &peers::delivery_wire(&cause, "Do this work"),
+                ))]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(said(&[event]), expected, "{cause}, {receipt:?}");
+        }
+    }
 }
 
 fn bubble(n: u32) -> String {
@@ -5455,5 +5497,52 @@ mod sent_files {
             files[1]["attachments"][0]["origin"],
             "the computer's screen"
         );
+    }
+}
+
+#[tokio::test]
+async fn aborted_and_revoked_handoffs_return_failure_not_success() {
+    for reason in ["aborted", "revoked"] {
+        let log = scratch(&format!("handoff-{reason}"));
+        enrol(&log, &persona("ada"));
+        enrol(&log, &persona("bob"));
+        let agents = Fake::new(Scripted::turns(vec![vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "partial".into(),
+                text: "Only partly done".into(),
+            },
+            Update::Turn {
+                stop_reason: reason.into(),
+                usage: None,
+            },
+        ]]));
+        let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+        room.allow_sender("bob", "ada").unwrap();
+        let result = crate::mcp::server::TeammateTools::new(&room, "ada")
+            .call(
+                "message_teammate",
+                &json!({
+                    "to": "bob", "message": "Do the work", "intent": "handoff"
+                }),
+            )
+            .await
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&result).unwrap();
+        let request_id = receipt["requestId"].as_str().unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(event) = room.tape("ada").into_iter().find(|event| {
+                    event["kind"] == "delivery" && event["cause"]["requestId"] == request_id
+                }) {
+                    break event;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result["cause"]["status"], "failed", "{reason}: {result}");
+        assert_eq!(result["text"], "Only partly done");
     }
 }

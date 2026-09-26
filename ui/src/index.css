@@ -935,6 +935,11 @@
 		margin: 6px 0 0 8px;
 		color: var(--ink-4);
 	}
+	.rule-line .ticks {
+		float: none;
+		margin: 0;
+		flex-shrink: 0;
+	}
 	.ticks svg {
 		width: 12px;
 		height: 12px;

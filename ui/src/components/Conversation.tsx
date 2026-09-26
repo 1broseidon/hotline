@@ -17,7 +17,7 @@ import { Search } from "./Search";
 import { Starters } from "./Starters";
 import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
-import { Transcript, type ReplyTarget } from "./Transcript";
+import { Transcript, turnCauseLine, type ReplyTarget } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -236,8 +236,12 @@ export function Conversation({
 	 * greyed menu item, read at the moment somebody goes looking for it. */
 	/* The band is the one place that says who this is, so it also says what
 	 * they are doing: the kind of work while a turn runs, else what they are
-	 * for. The window's title bar carries only the mark. */
-	const status = session.state === "thinking" ? (entry.activity ?? "Working") : persona.goal.split("\n")[0]!.trim();
+	 * for. The window's title bar carries only the mark. Before the first
+	 * tool call lands there is no activity yet; if the turn began answering
+	 * a delivery rather than a fresh word from the person, that is worth
+	 * saying instead of a bare "Working". */
+	const status =
+		session.state === "thinking" ? (entry.activity ?? turnCauseLine(events) ?? "Working") : persona.goal.split("\n")[0]!.trim();
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
 
@@ -334,6 +338,7 @@ export function Conversation({
 						onOpenThread({
 							key: event.threadKey,
 							withName: event.withName,
+							...(event.handoff !== undefined ? { handoff: event.handoff } : {}),
 						})
 					}
 					onOpenSubagent={(event) => onOpenSubagent({ runId: event.runId, title: event.title })}

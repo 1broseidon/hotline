@@ -983,6 +983,34 @@ this before `message_teammate` to know whether a colleague is mid-turn. The
 caller may be mid-turn on its own tape while the exchange runs: nothing
 touches the caller's session until the answer is delivered.
 
+**Ask or hand off** (`session/exchanges.rs`). `message_teammate` takes
+`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated side
+session above; Handoff puts the request on the pair's thread and delivers
+it into the recipient's own conversation behind its current turn. The
+`handoff` cause keeps the sender, thread, and `requestId`. The recipient's
+final reply returns automatically as a correlated peer delivery, even when
+the sender has moved on. Neither intent expands the recipient's permissions.
+There is no link record, roster link, or chapter-scoped relationship.
+
+The existing collaboration card now explains both intents. A legacy grant
+still permits Ask but needs informed approval before Handoff. Revocation
+stops queued work and the affected exchange without cancelling unrelated
+work the person is directing.
+
+A durable `exchange_pair` record holds the queue and count. Requests and
+replies share the twelve-message brake across intents; receipts do not
+count. At twelve, both tapes receive an `exchange_paused` card. Further
+queued requests and completed results wait without being discarded.
+`teammates.exchange_resume {a,b}` resets the count and releases them;
+`teammates.exchange_stop {a,b}` stops outstanding exchanges. Both commands
+belong to the person, on desktop or phone. Hearing from the person also
+resets the count. Stopping cannot undo side effects already performed.
+
+Restart recovers unstarted requests and saved results. Work that had begun
+but had not saved its result reports uncertainty instead of automatically
+repeating potentially side-effecting work. Stable request and delivery ids
+prevent a recovered result from being dispatched twice.
+
 A peer session is the one caller that still waits. It has no conversation of
 its own for an answer to come back into, so a colleague's side session that
 asks a third teammate gets the reply as its tool result, as before.

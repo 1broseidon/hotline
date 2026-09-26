@@ -246,6 +246,13 @@ Whole machine authority. `list_teammates` returns each other teammate's
 whichever there is — and `lastTurnAt`). Never a message's text, a working
 path, or a tool inventory.
 
+`teammates.exchange_resume {a,b}` and `teammates.exchange_stop {a,b}`
+answer a pair's `exchange_paused` card from either seat. Keep going resets
+the twelve-message count and releases queued asks, handoffs and replies;
+Stop exchange settles outstanding work without revoking collaboration.
+The card's status becomes `resumed` or `stopped`. These are operator
+commands, not teammate tools. There are no link commands or roster links.
+
 `human.answer` is the same fact for a `request_human` card: `done` or
 `declined`, with an optional `note` the agent receives word for word. A card
 that `delivers` is answered off the tape at any time until it is settled,

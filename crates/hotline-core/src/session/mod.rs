@@ -2699,6 +2699,7 @@ impl Room {
         }
         let reason: String = reason.chars().take(500).collect();
         let action_id = new_id();
+        self.link_handoff_human(persona_id, &action_id)?;
         self.write(
             persona_id,
             &TranscriptEvent::HumanAction {
@@ -2796,9 +2797,10 @@ impl Room {
         };
         let room = self.clone();
         let persona_id = persona_id.to_string();
+        let delivery_id = format!("human-answer:{action_id}");
         tokio::spawn(async move {
             if let Err(error) = room
-                .deliver_into(&persona_id, cause, note.unwrap_or_default())
+                .deliver_identified(&persona_id, &delivery_id, cause, note.unwrap_or_default())
                 .await
             {
                 eprintln!("an answer to {persona_id}'s request could not be delivered: {error}");
@@ -3751,7 +3753,7 @@ impl Room {
                 turns.running = false;
                 break;
             }
-            let handoff = wired
+            let mut handoff = wired
                 .said
                 .as_ref()
                 .and_then(|id| id.strip_prefix("handoff:"))
@@ -3759,6 +3761,18 @@ impl Room {
             if handoff.as_ref().is_some_and(|id| !self.handoff_live(id)) {
                 next = lock(&session.turns).next_line();
                 continue;
+            }
+            if let Some((id, action)) = wired
+                .said
+                .as_deref()
+                .and_then(|said| self.handoff_answer(&session.persona_id, said))
+            {
+                if let Err(error) = self.resume_handoff_answer(&id, &action).await {
+                    eprintln!("handoff answer not started: {error}");
+                    next = lock(&session.turns).next_line();
+                    continue;
+                }
+                handoff = Some(id);
             }
             if wired
                 .said

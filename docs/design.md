@@ -537,3 +537,14 @@ crash can safely repeat arbitrary agent work. Stable delivery ids prevent a
 saved result from appearing twice. Acceptance is reported only after the request
 is saved. Storage failures are logged; startup treats any running request without a saved result as uncertain
 rather than replaying possible side effects.
+
+
+A Handoff that asks the person keeps the human action ids in its pair record.
+Only a clean end of that turn suspends the request: its waiting message is not
+its final result. The later human-answer turn inherits the request's reply
+route, including after restart, and checks collaboration consent again before
+running. Answer deliveries have stable ids; recovery can deliver a saved card
+answer even if the desk stopped before dispatch. Starting that continuation
+is recorded before calling the driver, so an interrupted continuation is still
+uncertain work, never a replay. Old requests without action ids retain the old
+settlement rules; no route is guessed from conversation text.

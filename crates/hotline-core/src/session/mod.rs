@@ -46,13 +46,13 @@ mod quiet;
 pub(crate) mod runner;
 pub(crate) mod schedule;
 
-pub use peers::{DeliverResult, TEAMMATE_MESSAGE_MAX};
+pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
 
 use crate::computer::Computer;
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, CookieSite,
-    HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
+    DeliveryCause, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
     PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
     SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
     ToolOutput, ToolStatus, TranscriptEvent,
@@ -2168,6 +2168,57 @@ impl Room {
         Ok(())
     }
 
+    /// Something that came back for a teammate, into its own conversation:
+    /// written to its tape first, so it survives a restart and is heard once,
+    /// and then handed to the driver behind the turn in flight, or on a turn
+    /// of its own if there is none. It never cuts into a turn, and a teammate
+    /// that is not running is started for it.
+    pub(crate) async fn deliver_into(
+        self: &Arc<Self>,
+        persona_id: &str,
+        cause: DeliveryCause,
+        text: String,
+    ) -> Result<(), String> {
+        let _working = self.working()?;
+        self.start(persona_id).await?;
+        let (session, _held) = self.in_this_chapter(persona_id).await?;
+        let id = new_id();
+        let ts = now_ms();
+        let wire = peers::delivery_wire(&cause, &text);
+        self.append(
+            &session,
+            TranscriptEvent::Delivery {
+                id: id.clone(),
+                ts,
+                cause,
+                text,
+                receipt: Some(Receipt::Sent),
+            },
+        );
+        let mut wired = Wired::words(timed(ts, &wire));
+        wired.said = Some(id);
+        self.dispatch(session, wired);
+        Ok(())
+    }
+
+    /// A delivery already on the tape, handed to the driver again: the record
+    /// stays as it was written, and the receipt it has climbs when it is read.
+    pub(super) async fn redeliver(
+        self: &Arc<Self>,
+        persona_id: &str,
+        id: String,
+        ts: i64,
+        wire: String,
+    ) -> Result<(), String> {
+        let _working = self.working()?;
+        self.start(persona_id).await?;
+        let (session, _held) = self.in_this_chapter(persona_id).await?;
+        let mut wired = Wired::words(timed(ts, &wire));
+        wired.said = Some(id);
+        self.dispatch(session, wired);
+        Ok(())
+    }
+
     /// Hotline's own words to a running teammate — a reopened chapter told what
     /// was said while it was away, never something a person typed.
     ///
@@ -4076,6 +4127,9 @@ fn follow_model_changes(room: Weak<Room>, mut events: broadcast::Receiver<Value>
 fn sweep_idle_chapters(room: Weak<Room>) {
     tokio::spawn(async move {
         tokio::time::sleep(FIRST_SWEEP).await;
+        if let Some(room) = room.upgrade() {
+            room.recover_exchanges().await;
+        }
         let mut looked_again: HashMap<String, i64> = HashMap::new();
         loop {
             match room.upgrade() {
@@ -4137,6 +4191,13 @@ fn said(events: &[Value]) -> Vec<Said> {
                 None => text,
             })),
             "agent" => Some(Said::Agent(text)),
+            // What came back is remembered as it was heard.
+            "delivery" => match serde_json::from_value((*event).clone()).ok()? {
+                TranscriptEvent::Delivery {
+                    ts, cause, text, ..
+                } => Some(Said::User(timed(ts, &peers::delivery_wire(&cause, &text)))),
+                _ => None,
+            },
             _ => None,
         }
     }))

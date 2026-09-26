@@ -268,6 +268,16 @@ export type CustomProviderDraft = { name: string, baseUrl: string, api: OpenAiAp
 secret?: string, };
 
 /**
+ * What a [`TranscriptEvent::Delivery`] answers, so a teammate juggling
+ * several can tell them apart and a seat can say why a turn began.
+ */
+export type DeliveryCause = { "kind": "peer", personaId: string, name: string, threadKey: string, status: PeerStatus, 
+/**
+ * The start of the message this answers, clipped to a line.
+ */
+about: string, };
+
+/**
  * The idle effort picker's reply for one catalogue model: the levels it
  * offers and the one a teammate with none stored runs at, so the strip
  * shows before a session what the session will do.
@@ -1177,7 +1187,7 @@ name: string, rpId: string, origin: string, rpName?: string, userName?: string, 
  * message from outside the room must never look like one from a
  * teammate.
  */
-seat?: PeerSeat, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
+seat?: PeerSeat, } | { "kind": "delivery", id: string, ts: number, cause: DeliveryCause, text: string, receipt?: Receipt, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
 /**
  * When the run started. The line keeps its place as it is rewritten.
  */

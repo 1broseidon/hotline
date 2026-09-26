@@ -461,10 +461,116 @@ async fn the_thread_is_stored_the_same_way_up_whoever_asked() {
     assert_eq!(events[2]["text"], "on it");
 }
 
+/// Waits for the `count`th delivery on a teammate's tape to have been heard
+/// and its turn to have ended, so a test never races the exchange's task or
+/// the turn the answer started.
+async fn delivered(room: &Room, persona_id: &str, count: usize) -> Value {
+    for _ in 0..300 {
+        let tape = room.tape(persona_id);
+        let deliveries: Vec<&Value> = tape
+            .iter()
+            .filter(|event| kind_of(event) == "delivery")
+            .collect();
+        if let Some(delivery) = deliveries.get(count - 1)
+            && delivery["receipt"] == "read"
+            && tape
+                .iter()
+                .skip_while(|event| event["id"] != delivery["id"])
+                .any(|event| kind_of(event) == "turn")
+        {
+            return (*delivery).clone();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{persona_id} was never handed delivery {count}")
+}
+
+/// A teammate's own session sends and moves on: the tool says the message
+/// went, and the answer comes back into the sender's conversation as a
+/// delivery the agent is handed on a turn of its own.
 #[tokio::test]
-async fn the_tool_hands_the_caller_the_recipients_reply() {
-    let room = room("tool", Fake::new(Scripted::new(answers("a1", "the winch"))));
+async fn the_tool_returns_once_sent_and_the_answer_is_delivered() {
+    let agents = Fake::new(Scripted::turns(vec![
+        answers("a1", "the winch"),
+        answers("a2", "thanks, fixing it"),
+    ]));
+    let room = room("tool", agents.clone());
+    let sent = TeammateTools::new(&room, "ada")
+        .call(
+            "message_teammate",
+            &serde_json::json!({ "to": "Bob", "message": "what broke?\nthe crane stopped" }),
+        )
+        .await
+        .unwrap();
+
+    let sent: Value = serde_json::from_str(&sent).unwrap();
+    assert_eq!(sent["sent"], true);
+    assert_eq!(sent["to"], "Bob");
+    assert!(
+        sent.get("reply").is_none(),
+        "the answer is not in the result"
+    );
+
+    let delivery = delivered(&room, "ada", 1).await;
+    assert_eq!(delivery["text"], "the winch");
+    assert_eq!(delivery["cause"]["kind"], "peer");
+    assert_eq!(delivery["cause"]["personaId"], "bob");
+    assert_eq!(delivery["cause"]["name"], "Bob");
+    assert_eq!(delivery["cause"]["threadKey"], "ada~bob");
+    assert_eq!(delivery["cause"]["status"], "done");
+    assert_eq!(delivery["cause"]["about"], "what broke?");
+    let heard = agents.prompts();
+    let last = heard.last().unwrap();
+    assert!(
+        last.contains("Bob answered the message you sent them (\"what broke?\")")
+            && last.contains("the winch"),
+        "{last}"
+    );
+    assert_eq!(marker_on(&room, "ada")["status"], "done");
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|event| kind_of(event) != "user"),
+        "a delivery is not a message from the person"
+    );
+}
+
+/// An exchange that ends without an answer is delivered too, so the sender
+/// is never left expecting one.
+#[tokio::test]
+async fn a_refused_exchange_is_delivered_as_unanswered() {
+    let room = workspace_room(
+        "tool-denied",
+        Fake::new(Scripted::new(answers("a1", "noted"))),
+    );
+    let sent = TeammateTools::new(&room, "ada")
+        .call(
+            "message_teammate",
+            &json!({ "to": "bob", "message": "can I use your build?" }),
+        )
+        .await
+        .unwrap();
+    assert!(sent.contains("\"sent\":true"), "{sent}");
+    let card = collaboration_card(&room, "ada").await;
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), DENY)
+        .await
+        .unwrap();
+
+    let delivery = delivered(&room, "ada", 1).await;
+    assert_eq!(delivery["cause"]["status"], "failed");
+    assert_eq!(delivery["cause"]["about"], "can I use your build?");
+}
+
+/// A peer session has no conversation of its own to be answered in, so what
+/// it sends a third teammate waits for the reply as before.
+#[tokio::test]
+async fn a_peer_session_still_waits_for_its_answer() {
+    let room = room(
+        "tool-peer",
+        Fake::new(Scripted::new(answers("a1", "the winch"))),
+    );
     let answered = TeammateTools::new(&room, "ada")
+        .for_peer()
         .call(
             "message_teammate",
             &serde_json::json!({ "to": "Bob", "message": "what broke?" }),
@@ -475,6 +581,110 @@ async fn the_tool_hands_the_caller_the_recipients_reply() {
     let answered: Value = serde_json::from_str(&answered).unwrap();
     assert_eq!(answered["from"], "Bob");
     assert_eq!(answered["reply"], "the winch");
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|event| kind_of(event) != "delivery")
+    );
+}
+
+/// What a restart left: a delivery the agent never read is handed to it
+/// again, once, and an exchange cut off mid-turn is closed and its sender
+/// told, while an old one is only closed.
+#[tokio::test]
+async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
+    let agents = Fake::new(Scripted::new(answers("a1", "ok")));
+    let room = room("recover", agents.clone());
+    room.start("ada").await.unwrap();
+    let now = now_ms();
+    let cause = DeliveryCause::Peer {
+        persona_id: "bob".to_string(),
+        name: "Bob".to_string(),
+        thread_key: "ada~bob".to_string(),
+        status: PeerStatus::Done,
+        about: "what broke?".to_string(),
+    };
+    room.write(
+        "ada",
+        &TranscriptEvent::Delivery {
+            id: "d-unheard".to_string(),
+            ts: now,
+            cause: cause.clone(),
+            text: "the winch".to_string(),
+            receipt: Some(Receipt::Sent),
+        },
+    );
+    room.write(
+        "ada",
+        &TranscriptEvent::Delivery {
+            id: "d-heard".to_string(),
+            ts: now,
+            cause,
+            text: "already heard".to_string(),
+            receipt: Some(Receipt::Read),
+        },
+    );
+    for (id, ts) in [
+        ("xthread:recent", now - 60_000),
+        ("xthread:old", now - 3 * 60 * 60_000),
+    ] {
+        for (whose, other, name, role) in [
+            ("ada", "bob", "Bob", PeerRole::Caller),
+            ("bob", "ada", "Ada", PeerRole::Target),
+        ] {
+            room.write(
+                whose,
+                &TranscriptEvent::Peer {
+                    id: id.to_string(),
+                    ts,
+                    thread_key: if id.ends_with("recent") {
+                        "ada~bob"
+                    } else {
+                        "ada~old"
+                    }
+                    .to_string(),
+                    with_persona_id: other.to_string(),
+                    with_name: name.to_string(),
+                    role,
+                    exchanges: 0,
+                    status: PeerStatus::Open,
+                    seat: None,
+                },
+            );
+        }
+    }
+
+    room.recover_exchanges().await;
+
+    let heard = delivered(&room, "ada", 1).await;
+    assert_eq!(heard["id"], "d-unheard");
+    let prompts = agents.prompts();
+    assert_eq!(
+        prompts
+            .iter()
+            .filter(|line| line.contains("the winch"))
+            .count(),
+        1
+    );
+    assert!(prompts.iter().all(|line| !line.contains("already heard")));
+    for whose in ["ada", "bob"] {
+        let tape = room.tape(whose);
+        for id in ["xthread:recent", "xthread:old"] {
+            let marker = tape.iter().rev().find(|event| event["id"] == id).unwrap();
+            assert_eq!(marker["status"], "failed", "{whose} {id}");
+        }
+    }
+    let told = delivered(&room, "ada", 3).await;
+    assert_eq!(told["cause"]["status"], "failed");
+    assert_eq!(told["cause"]["personaId"], "bob");
+    assert_eq!(
+        room.tape("ada")
+            .iter()
+            .filter(|event| kind_of(event) == "delivery" && event["cause"]["status"] == "failed")
+            .count(),
+        1,
+        "only the recent exchange is worth waking for"
+    );
 }
 
 #[tokio::test]
@@ -670,7 +880,8 @@ async fn peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does
         .await
         .unwrap();
     let first_result: Value = serde_json::from_str(&first.await.unwrap().unwrap()).unwrap();
-    assert_eq!(first_result["reply"], "first");
+    assert_eq!(first_result["sent"], true);
+    assert_eq!(delivered(&room, "ada", 1).await["text"], "first");
 
     let first_peer = lock(&room.peers.sessions)
         .get(&(String::from("ada"), String::from("bob")))
@@ -691,6 +902,13 @@ async fn peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does
             .await
             .is_err()
     );
+    // The answer to the next message is delivered into Ada's conversation,
+    // and a delivery after a chapter closed opens the next one on a fresh
+    // session, as the person's next message would. Open it first, so what is
+    // under test is the peer session and not that restart.
+    room.in_this_chapter("ada").await.unwrap();
+    let main_tools = TeammateTools::new(&room, "ada")
+        .with_capability(room.session("ada").unwrap().capability.clone());
 
     let second = {
         let tools = main_tools.clone();
@@ -708,6 +926,7 @@ async fn peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does
         .await
         .unwrap();
     assert!(second.await.unwrap().is_ok());
+    delivered(&room, "ada", 2).await;
     let second_peer = lock(&room.peers.sessions)
         .get(&(String::from("ada"), String::from("bob")))
         .cloned()
@@ -905,9 +1124,11 @@ async fn revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_s
     )
     .await
     .unwrap();
+    delivered(&room, "ada", 1).await;
     let outer = lock(&room.peers.sessions)[&("ada".to_string(), "bob".to_string())].clone();
-    let bob_delegated =
-        TeammateTools::new(&room, "bob").with_capability(outer.target_capability.clone());
+    let bob_delegated = TeammateTools::new(&room, "bob")
+        .with_capability(outer.target_capability.clone())
+        .for_peer();
     bob_delegated
         .call(
             "message_teammate",

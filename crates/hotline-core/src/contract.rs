@@ -1203,6 +1203,19 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         seat: Option<PeerSeat>,
     },
+    /// Something that came back to this teammate after it had moved on: a
+    /// colleague's answer to a message it sent. Nobody typed it and it is not
+    /// a bubble; the tape keeps it so it reaches the agent exactly once, in
+    /// order, across a restart, and so the turn it starts can say why it
+    /// started. `text` is what came back; the agent hears it framed.
+    Delivery {
+        id: String,
+        ts: i64,
+        cause: DeliveryCause,
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        receipt: Option<Receipt>,
+    },
     Turn {
         id: String,
         ts: i64,
@@ -1328,6 +1341,29 @@ pub enum RingIntent {
 pub enum Receipt {
     Sent,
     Read,
+}
+
+/// What a [`TranscriptEvent::Delivery`] answers, so a teammate juggling
+/// several can tell them apart and a seat can say why a turn began.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts")]
+pub enum DeliveryCause {
+    /// A colleague answered a message this teammate sent it, or could not.
+    /// `status` is `done` for an answer and `failed` for none; the words of
+    /// the message and the answer are in the thread named by `threadKey`.
+    Peer {
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        status: PeerStatus,
+        /// The start of the message this answers, clipped to a line.
+        about: String,
+    },
 }
 
 /// What a firing stamps on the user event it writes.

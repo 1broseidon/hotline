@@ -254,10 +254,12 @@ pub(crate) async fn run(
         Command::FileRead {
             persona_id,
             event_id,
+            index,
             offset,
         } => {
             living(log, &persona_id)?;
-            crate::sent::read(log.root(), &persona_id, &event_id, offset).map(|chunk| json!(chunk))
+            crate::sent::read_message(log, &persona_id, &event_id, index.unwrap_or(0), offset)
+                .map(|chunk| json!(chunk))
         }
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room

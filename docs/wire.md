@@ -239,8 +239,12 @@ choice is held against both live capability leases. An always choice appends
 the caller's stable id to the recipient's `allowedSenders` list. A workspace
 caller gets a card on first contact in each direction; an explicit Whole
 machine Hotline Agent caller does not. ACP mode and Computer access do not imply
-Whole machine authority. `list_teammates` returns only each other teammate's
-`personaId` and `name`.
+Whole machine authority. `list_teammates` returns each other teammate's
+`personaId` and `name`, plus what the roster already knows about it: `state`
+(`idle`, `working`, `waiting` or `stopped`), the running tool's title as
+`activity`, and `workingOn` (`title` — the open chapter's or the goal's,
+whichever there is — and `lastTurnAt`). Never a message's text, a working
+path, or a tool inventory.
 
 `teammates.exchange_resume {a,b}` and `teammates.exchange_stop {a,b}`
 answer a pair's `exchange_paused` card from either seat. Keep going resets

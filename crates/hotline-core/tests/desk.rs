@@ -2445,3 +2445,218 @@ async fn the_persons_own_skills_are_offered_by_switch_and_granted_like_the_gatew
     assert!(!folder.join("cut-release").exists());
     assert!(home.join("cut-release/SKILL.md").exists());
 }
+
+/// User readback is a send-time snapshot, not permission to reopen whichever
+/// file happens to occupy a path from the tape today.
+#[tokio::test(flavor = "multi_thread")]
+async fn user_images_read_back_by_original_index_without_reopening_the_source() {
+    use base64::{Engine, prelude::BASE64_STANDARD};
+    use hotline_core::log::{Log, StreamId};
+    const CHUNK: usize = 512 * 1024;
+    const CAP: u64 = 25 * 1024 * 1024;
+    let root = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let small = png.into_inner();
+    let mut original = small.clone();
+    original.resize(CHUNK + 123, 42);
+    let first_path = source.path().join("first.jpg");
+    let second_path = source.path().join("second.png");
+    let text_path = source.path().join("not-an-image.png");
+    let large_path = source.path().join("large.png");
+    std::fs::write(&first_path, &original).unwrap();
+    std::fs::write(&second_path, &small).unwrap();
+    std::fs::write(&text_path, "private non-image contents").unwrap();
+    std::fs::File::create(&large_path)
+        .unwrap()
+        .set_len(CAP + 1)
+        .unwrap();
+    let image = |path: &Path, size: u64| json!({"kind":"image", "name":path.file_name().unwrap().to_str().unwrap(), "path":path, "mimeType":"image/jpeg", "size":size});
+    // A legacy event has only a path, and not enough evidence to establish
+    // what it pointed at when sent. Seed it before the core starts.
+    let log = Log::open(root.path());
+    log.append(&StreamId::Tape("legacy".into()), &json!({"kind":"user", "id":"old", "ts":1, "text":"old picture", "attachments":[image(&first_path, original.len() as u64)]})).unwrap();
+    log.append(&StreamId::Room, &json!({"kind":"persona", "id":"legacy", "name":"Legacy", "goal":"", "backendId":"hotline", "cwd":root.path(), "mcpPolicy":{"mode":"none","serverIds":[]}, "sessionCheckpoints":[], "createdAt":1, "updatedAt":1})).unwrap();
+    drop(log);
+    let port = open_at(root.path());
+    let mut client = Client::connect(port).await;
+    // A disposable local provider is enough to start a real session. No
+    // model response is needed to persist the user's line or read it back.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, axum::Router::new().route("/v1/chat/completions", axum::routing::post(|| async {
+            ([("Content-Type", "text/event-stream")], "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Received\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+        }))).await.unwrap();
+    });
+    let saved = client.call("credential.custom_save", json!({"draft":{"name":"Readback fixture", "baseUrl":base, "api":"chat_completions", "models":["test"]}})).await;
+    assert_eq!(saved["ok"], true, "{saved}");
+    let created = client
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Ada", "cwd":root.path()}}),
+        )
+        .await;
+    let persona = created["result"]["id"].as_str().unwrap().to_string();
+    let other = client
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Bob", "cwd":root.path()}}),
+        )
+        .await;
+    let other = other["result"]["id"].as_str().unwrap().to_string();
+    let subscription = client.subscribe(json!({"tape":persona})).await;
+    let started = client
+        .call("session.start", json!({"personaId":persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let legacy = client
+        .call("file.read", json!({"personaId":"legacy", "eventId":"old"}))
+        .await;
+    assert_eq!(legacy["ok"], false, "{legacy}");
+    assert!(
+        legacy["error"]
+            .as_str()
+            .unwrap()
+            .contains("no retained copy"),
+        "{legacy}"
+    );
+    let sent = client.call("session.prompt", json!({"personaId":persona, "text":"Pictures", "attachments":[
+        image(&first_path, original.len() as u64),
+        {"kind":"file", "name":"not-an-image.png", "path":text_path, "mimeType":"image/png"},
+        image(&second_path, small.len() as u64),
+        image(&large_path, CAP + 1),
+        image(&text_path, 26),
+        image(&source.path().join("missing.png"), 10)
+    ]})).await;
+    assert_eq!(sent["ok"], true, "{sent}");
+    let event = client
+        .next_where(Duration::from_secs(10), |frame| {
+            is_sub(frame, subscription, "event") && frame["event"]["kind"] == "user"
+        })
+        .await;
+    let id = event["event"]["id"].as_str().unwrap().to_string();
+    let params = json!({"personaId":persona,"eventId":id});
+    let first = client.call("file.read", params.clone()).await;
+    assert_eq!(first["ok"], true, "{first}");
+    let first = &first["result"];
+    assert_eq!(first["name"], "first.jpg");
+    assert_eq!(first["mimeType"], "image/png");
+    assert_eq!(first["size"], original.len());
+    assert_eq!(first["offset"], 0);
+    assert_eq!(first["next"], CHUNK);
+    let mut whole = BASE64_STANDARD
+        .decode(first["data"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(whole.len(), CHUNK);
+    // Same-size replacement and deletion cannot change either chunk or the
+    // other attachment. The MIME is the actual bytes', not the supplied one.
+    std::fs::write(&first_path, vec![7; original.len()]).unwrap();
+    std::fs::remove_file(&second_path).unwrap();
+    let rest = client
+        .call(
+            "file.read",
+            json!({"personaId":persona,"eventId":id,"offset":CHUNK}),
+        )
+        .await;
+    assert_eq!(rest["ok"], true, "{rest}");
+    assert_eq!(rest["result"]["size"], original.len());
+    assert_eq!(rest["result"]["offset"], CHUNK);
+    assert!(rest["result"].get("next").is_none());
+    whole.extend(
+        BASE64_STANDARD
+            .decode(rest["result"]["data"].as_str().unwrap())
+            .unwrap(),
+    );
+    assert_eq!(whole, original);
+    let second = client
+        .call(
+            "file.read",
+            json!({"personaId":persona,"eventId":id,"index":2}),
+        )
+        .await;
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(
+        BASE64_STANDARD
+            .decode(second["result"]["data"].as_str().unwrap())
+            .unwrap(),
+        small
+    );
+    let zero = client
+        .call(
+            "file.read",
+            json!({"personaId":persona,"eventId":id,"index":0}),
+        )
+        .await;
+    assert_eq!(&zero["result"], first);
+    let end = client
+        .call(
+            "file.read",
+            json!({"personaId":persona,"eventId":id,"offset":original.len()}),
+        )
+        .await;
+    assert_eq!(end["ok"], true, "{end}");
+    assert_eq!(end["result"]["data"], "");
+    assert!(end["result"].get("next").is_none());
+    for denied in [
+        json!({"index":-1}),
+        json!({"index":1.5}),
+        json!({"index":"2"}),
+        json!({"index":6}),
+        json!({"index":1}),
+        json!({"index":3}),
+        json!({"index":4}),
+        json!({"index":5}),
+        json!({"offset":-1}),
+        json!({"offset":original.len()+1}),
+        json!({"personaId":other}),
+        json!({"personaId":"nobody"}),
+        json!({"eventId":"missing"}),
+        json!({"eventId":"../old"}),
+        json!({"eventId":first_path}),
+        json!({"personaId":"legacy","eventId":"old"}),
+    ] {
+        let mut request = params.clone();
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(denied.as_object().unwrap().clone());
+        let refused = client.call("file.read", request.clone()).await;
+        assert_eq!(refused["ok"], false, "{request}: {refused}");
+        assert!(refused.get("result").is_none());
+    }
+    // A caller's extra path cannot select different bytes; the only address
+    // is the message. Loss of a retained copy does not fall back to a source.
+    let mut request = params.clone();
+    request["path"] = json!(text_path);
+    assert_eq!(client.call("file.read", request).await["result"], *first);
+    let retained = hotline_core::paths::sent_file_dir(root.path(), &persona, &id)
+        .unwrap()
+        .join("user/0");
+    std::fs::remove_file(&retained).unwrap();
+    let refused = client.call("file.read", params.clone()).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    // A symlink planted where the copy belonged is not a retained image.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&first_path, &retained).unwrap();
+        assert_eq!(client.call("file.read", params.clone()).await["ok"], false);
+        std::fs::remove_file(&retained).unwrap();
+    }
+    // The actual retained-file size is also capped, even if tape metadata
+    // claims it is smaller (e.g. damage in the data directory).
+    std::fs::File::create(&retained)
+        .unwrap()
+        .set_len(CAP + 1)
+        .unwrap();
+    let refused = client.call("file.read", params).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused["error"].as_str().unwrap().contains("25 MB"));
+    client
+        .call("session.stop", json!({"personaId":persona}))
+        .await;
+    server.abort();
+}

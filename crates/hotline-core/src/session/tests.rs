@@ -4626,7 +4626,7 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
     room.answer_human("ada", &action_id, HumanAnswer::Done, Some("  ".to_string()))
         .unwrap();
     let text = waiting.await.unwrap().unwrap();
-    assert_eq!(text, "The person did it.");
+    assert_eq!(text, "The person answered.");
 
     let card = tape(&room, "ada")
         .into_iter()
@@ -4639,6 +4639,43 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
         room.answer_human("ada", &action_id, HumanAnswer::Declined, None)
             .is_err()
     );
+}
+
+/// An answered question carries the person's note on both the result and card.
+#[tokio::test]
+async fn an_answered_human_request_carries_the_note() {
+    let room = room("human-answered-note", Fake::new(Scripted::new(vec![])));
+    let tools = TeammateTools::new(&room, "ada").for_peer();
+    let waiting = {
+        let tools = tools.clone();
+        tokio::spawn(async move {
+            tools
+                .call(
+                    "request_human",
+                    &json!({ "reason": "Which branch should I use?" }),
+                )
+                .await
+        })
+    };
+    let action_id = pending_human(&room, "ada").await;
+    room.answer_human(
+        "ada",
+        &action_id,
+        HumanAnswer::Done,
+        Some(" Use the release branch. ".to_string()),
+    )
+    .unwrap();
+    let text = waiting.await.unwrap().unwrap();
+    assert_eq!(
+        text,
+        "The person answered. They said: Use the release branch."
+    );
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .expect("the card is on the tape");
+    assert_eq!(card["status"], "done");
+    assert_eq!(card["note"], "Use the release branch.");
 }
 
 /// The person's note reaches the agent word for word, on the sentence and

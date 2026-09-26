@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-09-26
+
+### Added
+
+- You can rename a teammate, change what it's for, or delete it from your
+  phone, from Edit on its card. The phone can change only the name and the
+  goal; how far a teammate reaches, its tools and its computer still change
+  only at the desktop.
+
 ## [0.24.0] - 2026-09-26
 
 ### Added

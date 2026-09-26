@@ -402,6 +402,7 @@ extend; when a change adds a boundary, it adds a row.
 | Stored secrets are the desk's alone: the phone can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A phone reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room or run stream (a thread between two teammates is read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`, `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
 | A phone adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`, `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
+| A phone renames a teammate or changes its goal only through `mobile.persona_update`, never `persona.update`: the patch core builds holds `name` and `goal` and nothing else, whatever the phone's JSON names for reach, path, computer or background work; a blank name, an edit naming neither field and an unknown teammate are refused; the phone may `persona.delete` | `wire/tests.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`, `mobile_persona_update_changes_only_the_name_and_goal`; `remote/tests.rs` `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update` | — |
 | A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent from a quiet scheduled run or past the caps, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests.rs` `sent_files::a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `sent_files::what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `sent_files::a_quiet_scheduled_run_sends_nothing_and_says_so`, `sent_files::a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
 | User image readback uses a send-time copy at the original attachment index; default zero, mixed attachments, chunk continuation, real MIME and no transcoding; source replacement/deletion cannot change it, missing/legacy copies never reopen paths; non-image, invalid index/offset, wrong teammate/message, planted file link and over-cap copy are refused; a paired phone can refetch its image but not a user text file | `tests/desk.rs` `user_images_read_back_by_original_index_without_reopening_the_source`; `sent.rs` `user_image_copies_keep_their_bytes_and_cannot_be_replaced`; `remote/tests.rs` `a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time` | Unix for planted link |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
@@ -532,3 +533,30 @@ made it so.
   seat yet (BRO-116). A created teammate's workspace is a fresh empty
   directory the desk made, so this adds no reach beyond what an operator
   clicking "New teammate" already grants; it only lets the phone ask for it.
+
+## Edit or remove a teammate from the phone (BRO-117)
+
+- **Default and old records:** nothing new is stored. `mobile.persona_update`
+  writes the same persona record `persona.update` does, with only `name` and
+  `goal` changed; `persona.delete` writes the same tombstone.
+- **Grant source:** the phone seat's allowlist in `Seat::permits`
+  (`wire/mod.rs`) now names `Command::MobilePersonaUpdate` and
+  `Command::PersonaDelete`, and the hello lists `personaEdit`.
+  `mobile.persona_update` is confined by its shape: the command has fields
+  for a name and a goal and nowhere to carry anything else, and
+  `wire/commands.rs`'s `mobile_persona_patch` builds the patch from those two
+  alone. `persona.update` stays desk-seat only.
+- **Enforcement:** the patch goes through the same `apply_persona_update`
+  path as `persona.update`, under the policy gate; a changed goal restarts a
+  live session exactly as it does from the desk. A blank name and an edit
+  naming neither field are refused before anything is written.
+- **Tests:** `wire/tests.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`
+  proves the allowlist; `mobile_persona_update_changes_only_the_name_and_goal`
+  proves reach, path, computer and background work are untouched even when
+  the params carry them, and the refusals. `remote/tests.rs`
+  `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update`
+  proves the same over a real paired phone, including the delete.
+- **Residual risk:** any paired phone can now remove a teammate, with no
+  owner-only seat yet (BRO-116). Removal takes no reach and grants nothing,
+  and the tape is kept, but it is destructive; the phone asks the person to
+  confirm first.

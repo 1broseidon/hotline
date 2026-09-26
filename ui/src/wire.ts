@@ -120,6 +120,7 @@ type Results = {
 	"mobile.attachment": { offset: number; complete: boolean };
 	"mobile.push_register": null;
 	"mobile.persona_create": Persona;
+	"mobile.persona_update": Persona;
 	"session.cancel": null;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;

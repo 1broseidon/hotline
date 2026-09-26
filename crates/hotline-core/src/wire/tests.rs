@@ -1489,7 +1489,94 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
         persona_id: persona_id.clone()
     }));
     assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
-    assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
+}
+
+/// Who a teammate is — its name and goal — and whether it stays are the
+/// person's to change from anywhere; the patch that reaches its grants is
+/// not, so the phone gets a narrow edit and never `persona.update`.
+#[test]
+fn the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one() {
+    assert!(Seat::Phone.permits(&Command::MobilePersonaUpdate {
+        id: "ada".to_string(),
+        name: Some("Ada Lovelace".to_string()),
+        goal: None,
+    }));
+    assert!(Seat::Phone.permits(&Command::PersonaDelete {
+        id: "ada".to_string()
+    }));
+    assert!(!Seat::Phone.permits(&Command::PersonaUpdate {
+        id: "ada".to_string(),
+        patch: json!({ "name": "Ada Lovelace" }),
+    }));
+}
+
+/// The phone's edit writes a name and a goal and nothing else, whatever
+/// else its JSON carries; a blank name, an empty edit and a teammate the
+/// room does not hold are each refused with a sentence.
+#[tokio::test]
+async fn mobile_persona_update_changes_only_the_name_and_goal() {
+    let (_root, log, port) = door("mobile-update");
+    let mut socket = desk(port).await;
+    let created = create(&mut socket, 1, "Ada").await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "mobile.persona_update",
+            "params": {
+                "id": id,
+                "name": "  Ada Lovelace ",
+                "goal": "Keep the harbour running",
+                "reach": "machine",
+                "cwd": "/etc",
+                "backgroundWork": true,
+                "computer": { "enabled": true },
+            },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    let updated = &answer["result"];
+    assert_eq!(updated["name"], "Ada Lovelace");
+    assert_eq!(updated["goal"], "Keep the harbour running");
+    assert!(updated.get("reach").is_none(), "{updated}");
+    assert!(updated.get("computer").is_none(), "{updated}");
+    assert_eq!(updated["backgroundWork"], false);
+    assert_eq!(updated["cwd"], created["cwd"]);
+
+    // An absent field is left alone; an empty goal clears it.
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "mobile.persona_update", "params": { "id": id, "goal": " " } }),
+    )
+    .await;
+    let cleared = answered(&mut socket, 3).await["result"].clone();
+    assert_eq!(cleared["name"], "Ada Lovelace");
+    assert_eq!(cleared["goal"], "");
+
+    for (n, params, needle) in [
+        (4, json!({ "id": id, "name": "   " }), "needs a name"),
+        (5, json!({ "id": id }), "Nothing to change"),
+        (6, json!({ "id": "nobody", "name": "Bob" }), ""),
+    ] {
+        ask(
+            &mut socket,
+            json!({ "id": n, "cmd": "mobile.persona_update", "params": params }),
+        )
+        .await;
+        let refused = answered(&mut socket, n).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(
+            refused["error"].as_str().unwrap().contains(needle),
+            "{refused}"
+        );
+    }
+    let kept = room::roster(&log);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].name, "Ada Lovelace");
 }
 
 /// The phone gets a narrow create of its own, and a read of what harnesses

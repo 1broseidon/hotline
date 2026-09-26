@@ -673,6 +673,7 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
         });
         room.settle_tapes();
+        room.reconcile_exchanges();
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
         sweep_idle_chapters(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
@@ -1896,7 +1897,6 @@ impl Room {
     /// inside the wire's invalidate-to-append window.
     pub fn invalidate(&self, persona_id: &str) -> Result<(), String> {
         self.persona(persona_id)?;
-        self.revoke_exchanges(persona_id);
         self.forget_informed_collaboration(persona_id);
         {
             let _lifecycle = lock(&self.lifecycle);
@@ -1907,6 +1907,7 @@ impl Room {
             }
         }
         self.drop_peer_sessions(persona_id);
+        self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
@@ -1977,8 +1978,8 @@ impl Room {
 
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
-        self.revoke_exchanges(persona_id);
         self.stop_with_capability(persona_id);
+        self.revoke_exchanges(persona_id);
         Ok(())
     }
 
@@ -3746,7 +3747,7 @@ impl Room {
                 .said
                 .as_ref()
                 .and_then(|id| id.strip_prefix("exchange-result:"))
-                .is_some_and(|id| !self.exchange_result_live(id))
+                .is_some_and(|id| !self.begin_exchange_result(id))
             {
                 next = lock(&session.turns).next_line();
                 continue;

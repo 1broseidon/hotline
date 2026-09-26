@@ -519,10 +519,30 @@ pub struct Sent {
     pub request_id: String,
 }
 
+// A request's scoped leases cover approval, startup and execution, including
+// dependencies inherited through a peer. No room-stream polling is needed.
+pub(super) async fn capabilities_expired(a: &CapabilityLease, b: &CapabilityLease) {
+    while a.is_current() && b.is_current() {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
+// Dropping a startup future must also close the driver it has not cached yet.
+struct StartingPeer(Option<Arc<dyn Driver>>);
+impl Drop for StartingPeer {
+    fn drop(&mut self) {
+        if let Some(driver) = self.0.take() {
+            driver.invalidate();
+        }
+    }
+}
+
 impl Room {
     pub(super) fn cancel_peer_exchange(&self, from: &str, to: &str) {
-        if let Some(session) = lock(&self.peers.sessions).get(&(from.into(), to.into())) {
-            session.driver.cancel();
+        if let Some(session) = lock(&self.peers.sessions).remove(&(from.into(), to.into())) {
+            session.caller_capability.revoke();
+            session.target_capability.revoke();
+            session.driver.invalidate();
         }
     }
     /// One teammate's message to another, answered.
@@ -648,6 +668,8 @@ impl Room {
                 authorization.scope,
             )
             .await?;
+        caller_capability.check()?;
+        target_capability.check()?;
         if !session.valid() {
             return Err("That peer session's capabilities have been revoked.".to_string());
         }
@@ -1234,26 +1256,14 @@ impl Room {
                 .for_peer(),
             extra_mcp,
         )?;
-        if let Err(error) = driver.start(&view).await {
-            driver.invalidate();
-            return Err(error);
-        }
-        if let Err(error) = caller_capability.check() {
-            driver.invalidate();
-            return Err(error);
-        }
-        if let Err(error) = peer_caller_capability.check() {
-            driver.invalidate();
-            return Err(error);
-        }
-        if let Err(error) = target_capability.check() {
-            driver.invalidate();
-            return Err(error);
-        }
+        let mut starting = StartingPeer(Some(driver.clone()));
+        driver.start(&view).await?;
+        caller_capability.check()?;
+        peer_caller_capability.check()?;
+        target_capability.check()?;
         if let Some(scope) = scope
             && !self.peers.scope_current(&caller_id, &target_id, scope)
         {
-            driver.invalidate();
             return Err("That collaboration approval expired before work started.".to_string());
         }
 
@@ -1274,20 +1284,17 @@ impl Room {
         });
         let _lifecycle = lock(&self.lifecycle);
         if !live.valid() {
-            live.driver.invalidate();
             return Err("That peer session's capabilities have been revoked.".to_string());
         }
         if let Some(scope) = scope
             && !self.peers.scope_current(&caller_id, &target_id, scope)
         {
-            live.driver.invalidate();
             return Err("That collaboration approval expired before work started.".to_string());
         }
         if let Some(existing) = lock(&self.peers.sessions).get(&pair).cloned() {
             if existing.valid() {
                 live.caller_capability.revoke();
                 live.target_capability.revoke();
-                live.driver.invalidate();
                 return Ok(existing);
             }
             lock(&self.peers.sessions).remove(&pair);
@@ -1296,6 +1303,7 @@ impl Room {
             existing.driver.invalidate();
         }
         lock(&self.peers.sessions).insert(pair, live.clone());
+        starting.0 = None;
         Ok(live)
     }
 

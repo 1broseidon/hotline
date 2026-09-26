@@ -44,6 +44,8 @@ struct Request {
     inline: bool,
     #[serde(default)]
     started: bool,
+    #[serde(default)]
+    result_consumed: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Pair {
@@ -140,8 +142,10 @@ impl Room {
         let key = thread_key(&caller.id, &target.id).ok_or("Invalid teammate pair")?;
         let id = new_id();
         let leases = (
-            capability.unwrap_or_else(|| self.capability_lease(&caller.id)),
-            self.capability_lease(&target.id),
+            capability
+                .unwrap_or_else(|| self.capability_lease(&caller.id))
+                .scoped(),
+            self.capability_lease(&target.id).scoped(),
         );
         {
             let _guard = lock(&self.exchange_lock);
@@ -166,10 +170,11 @@ impl Room {
                 request_counted: false,
                 inline,
                 started: false,
+                result_consumed: false,
             });
             self.save_pair(&pair)?;
+            lock(&self.exchange_leases).insert(id.clone(), leases);
         }
-        lock(&self.exchange_leases).insert(id.clone(), leases);
         self.wake_exchange(&key);
         Ok(peers::Sent {
             to: target.name,
@@ -194,7 +199,7 @@ impl Room {
             .ok_or("There is no exchange for this pair")?;
         if stop {
             for request in &mut pair.requests {
-                if !matches!(request.phase, Phase::Done | Phase::Stopped) {
+                if Self::exchange_pending(request) {
                     self.cancel_handoff(request);
                     request.phase = Phase::Stopped;
                     request.failed = true;
@@ -261,14 +266,22 @@ impl Room {
         self.write_value(&request.from, &json!({"kind":"notice", "id":format!("exchange-ended:{}",request.id),
             "ts":now_ms(), "level":"info", "text":format!("Message to {} ({}): {}",request.to,peers::about(&request.message),request.reply)}));
     }
+    fn exchange_pending(request: &Request) -> bool {
+        request.phase != Phase::Stopped
+            && (request.phase != Phase::Done || (!request.inline && !request.result_consumed))
+    }
     pub(super) fn revoke_exchanges(&self, persona: &str) {
+        self.stop_revoked_exchanges(Some(persona));
+    }
+    fn stop_revoked_exchanges(&self, persona: Option<&str>) {
         let _guard = lock(&self.exchange_lock);
         for mut pair in self.exchange_pairs() {
-            if pair.a != persona && pair.b != persona {
-                continue;
-            }
+            let mut changed = false;
             for request in &mut pair.requests {
-                if matches!(request.phase, Phase::Done | Phase::Stopped) {
+                if !Self::exchange_pending(request)
+                    || (!persona.is_some_and(|id| pair.a == id || pair.b == id)
+                        && self.exchange_lease_current(&request.id))
+                {
                     continue;
                 }
                 self.cancel_handoff(request);
@@ -276,30 +289,40 @@ impl Room {
                 request.failed = true;
                 request.reply = "Collaboration was revoked or a participant stopped. Send again if still needed.".into();
                 self.exchange_notice(request);
+                changed = true;
             }
-            if let Err(error) = self.save_pair(&pair) {
+            if changed && let Err(error) = self.save_pair(&pair) {
                 eprintln!("revoke exchange: {error}");
             }
         }
     }
     pub(super) fn handoff_live(&self, id: &str) -> bool {
-        self.exchange_pairs().iter().any(|p| {
-            p.requests
-                .iter()
-                .any(|r| r.id == id && r.phase == Phase::Running)
-        })
+        self.exchange_lease_current(id)
+            && self.exchange_pairs().iter().any(|p| {
+                p.requests
+                    .iter()
+                    .any(|r| r.id == id && r.phase == Phase::Running)
+            })
     }
     fn exchange_lease_current(&self, id: &str) -> bool {
         lock(&self.exchange_leases)
             .get(id)
             .is_none_or(|(a, b)| a.is_current() && b.is_current())
     }
-    pub(super) fn exchange_result_live(&self, id: &str) -> bool {
-        self.exchange_pairs().iter().any(|p| {
-            p.requests
-                .iter()
-                .any(|r| r.id == id && matches!(r.phase, Phase::Reply | Phase::Done))
-        })
+    pub(super) fn begin_exchange_result(&self, id: &str) -> bool {
+        let _guard = lock(&self.exchange_lock);
+        if !self.exchange_lease_current(id) {
+            return false;
+        }
+        for mut pair in self.exchange_pairs() {
+            if let Some(request) = pair.requests.iter_mut().find(|r| {
+                r.id == id && matches!(r.phase, Phase::Reply | Phase::Done) && !r.result_consumed
+            }) {
+                request.result_consumed = true;
+                return self.save_pair(&pair).is_ok();
+            }
+        }
+        false
     }
     pub(super) fn forget_informed_collaboration(&self, persona: &str) {
         for mut event in self.log.load(&StreamId::Room) {
@@ -314,8 +337,15 @@ impl Room {
         }
     }
     fn cancel_handoff(&self, request: &Request) {
+        if let Some((caller, target)) = lock(&self.exchange_leases).get(&request.id) {
+            caller.revoke();
+            target.revoke();
+        }
+        self.settle_invalid_collaboration();
         if request.intent == Intent::Ask {
-            self.cancel_peer_exchange(&request.from, &request.to);
+            if request.phase == Phase::Running {
+                self.cancel_peer_exchange(&request.from, &request.to);
+            }
             return;
         }
         if request.intent == Intent::Handoff
@@ -329,6 +359,9 @@ impl Room {
     }
     pub(super) fn begin_handoff(&self, id: &str) -> Result<(), String> {
         let _guard = lock(&self.exchange_lock);
+        if !self.exchange_lease_current(id) {
+            return Err("This handoff’s originating capability expired.".into());
+        }
         for mut pair in self.exchange_pairs() {
             if let Some(r) = pair
                 .requests
@@ -360,7 +393,9 @@ impl Room {
             break;
         }
     }
-    pub(super) fn recover_queued_exchanges(self: &Arc<Self>) {
+    // Reconcile before Room is published. The delayed recovery task must never
+    // mistake work accepted by this process for an interrupted previous turn.
+    pub(super) fn reconcile_exchanges(&self) {
         {
             let _guard = lock(&self.exchange_lock);
             for mut pair in self.exchange_pairs() {
@@ -391,6 +426,8 @@ impl Room {
                 }
             }
         }
+    }
+    pub(super) fn recover_queued_exchanges(self: &Arc<Self>) {
         for pair in self.exchange_pairs() {
             self.wake_exchange(&pair.id);
         }
@@ -411,6 +448,19 @@ impl Room {
                 if let Err(error) = room.exchange_step(&key).await {
                     eprintln!("exchange {key} waiting after error: {error}");
                 }
+                {
+                    // Serialize retirement with enqueue so a new request cannot
+                    // lose its worker between the empty check and removal.
+                    let _guard = lock(&room.exchange_lock);
+                    if room.exchange_pair(&key).is_none_or(|pair| {
+                        pair.requests
+                            .iter()
+                            .all(|r| matches!(r.phase, Phase::Done | Phase::Stopped))
+                    }) {
+                        lock(&room.exchange_workers).remove(&key);
+                        break;
+                    }
+                }
                 drop(room);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
@@ -428,8 +478,8 @@ impl Room {
         else {
             return Ok(());
         };
-        if request.phase == Phase::Queued && !self.exchange_lease_current(&request.id) {
-            self.revoke_exchanges(&request.from);
+        if !self.exchange_lease_current(&request.id) {
+            self.stop_revoked_exchanges(None);
             return Ok(());
         }
         if pair.paused
@@ -451,15 +501,20 @@ impl Room {
                         )
                     })
                     .clone();
-                let auth = self
-                    .authorize_collaboration(
+                let auth = tokio::select! {
+                    biased;
+                    () = peers::capabilities_expired(&caller_capability, &target_capability) => {
+                        self.stop_revoked_exchanges(None);
+                        return Ok(());
+                    }
+                    auth = self.authorize_collaboration(
                         &caller,
                         &target,
                         &caller_capability,
                         &target_capability,
                         request.intent == Intent::Handoff,
-                    )
-                    .await;
+                    ) => auth,
+                };
                 if let Err(error) = auth {
                     self.set_exchange_reply(key, &request.id, error, true)?;
                     return Ok(());
@@ -491,12 +546,16 @@ impl Room {
                 if request.intent == Intent::Handoff {
                     self.dispatch_handoff(key, &request).await?;
                 } else {
-                    let outcome = match self.ask(&request.from, &request.to, &request.message) {
-                        Ok(asked) => self
-                            .exchange(asked, Some(caller_capability))
-                            .await
-                            .map(|r| r.reply),
-                        Err(e) => Err(e),
+                    let outcome = tokio::select! {
+                        biased;
+                        () = peers::capabilities_expired(&caller_capability, &target_capability) => {
+                            self.stop_revoked_exchanges(None);
+                            return Ok(());
+                        }
+                        result = async {
+                            let asked = self.ask(&request.from, &request.to, &request.message)?;
+                            self.exchange(asked, Some(caller_capability.clone())).await.map(|r| r.reply)
+                        } => result,
                     };
                     let (reply, failed) = match outcome {
                         Ok(r) => (r, false),

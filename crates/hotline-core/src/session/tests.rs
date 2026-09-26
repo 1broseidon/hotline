@@ -4603,7 +4603,7 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
 #[tokio::test]
 async fn an_answered_human_request_carries_the_note() {
     let room = room("human-answered-note", Fake::new(Scripted::new(vec![])));
-    let tools = TeammateTools::new(&room, "ada");
+    let tools = TeammateTools::new(&room, "ada").for_peer();
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {

@@ -976,6 +976,30 @@ and never the caller. The caller may be mid-turn on its own tape while the
 exchange runs: nothing touches the caller's session until the answer is
 delivered.
 
+**Linked teammates** (`session/links.rs`). The person can link two
+teammates for shared work with `teammates.link {a, b}` (either seat; no
+teammate tool can). The link is a `link` record on the room stream, `id`
+being the pair's thread key, and each teammate's roster row carries
+`links: [{withPersonaId, paused}]`. While they are linked, `message_teammate`
+between them skips the side session: the message goes on the thread on the
+sender's side, and into the recipient's own conversation as a `delivery`
+with `cause.kind: "linked"`, so the one answering has everything it knows
+and both remember what was agreed. The tool says `"linked": true`. An
+answer is just the recipient's own `message_teammate` back.
+
+A link ends when the person unlinks the pair (`teammates.unlink`) or either
+teammate's chapter closes, so later casual messages go to a side session
+again. Messages between a linked pair are counted, and the person speaking
+to either teammate resets the count. At 12 (`LINK_CAP`) the link pauses
+behind the message that reached it: a `link_paused` card lands on both tapes
+(it counts as waiting on the person), the phone is pushed, and the next
+message between the two is refused with a sentence saying why. The count is
+taken under one lock before the tool returns, so two sends at once cannot
+slip past the cap. `teammates.link_resume` is the only thing that resumes a
+link, and it counts afresh. It is idempotent, and it is refused for a pair
+that is no longer linked. Unlinking or a pause never recalls a message
+already delivered; only the next send changes.
+
 A peer session is the one caller that still waits. It has no conversation of
 its own for an answer to come back into, so a colleague's side session that
 asks a third teammate gets the reply as its tool result, as before.

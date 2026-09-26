@@ -14,6 +14,9 @@
 //!   [`schedules`] is every one that is not deleted. The event's kind is
 //!   always `schedule`; a loop is the job that carries `every`.
 //!
+//! - `link` carries two teammates the person linked for shared work, `id`
+//!   being their thread's key, and [`links`] is every one not ended.
+//!
 //! - `models` says the room's model choices changed where no other event
 //!   shows it: a discovery refresh, a manual model id, a sign-in's account
 //!   list. It carries no data. It always has the same id, so the stream
@@ -148,6 +151,59 @@ pub fn settings(log: &Log) -> Map<String, Value> {
     );
     settings.insert("mcpServers".into(), Value::Array(normalised));
     settings
+}
+
+/// Two teammates the person linked, as the room stream keeps them: `id` is
+/// their thread's key, which names the pair whichever way round. `exchanges`
+/// counts messages between them since the person last spoke to either, and
+/// `paused` is set when that count reached the cap.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Link {
+    pub id: String,
+    pub a: String,
+    pub b: String,
+    pub since: i64,
+    #[serde(default)]
+    pub exchanges: i64,
+    #[serde(default)]
+    pub paused: bool,
+}
+
+impl Link {
+    /// The other side of the link from this teammate, if it is on it.
+    pub(crate) fn other(&self, persona_id: &str) -> Option<&str> {
+        match persona_id {
+            id if id == self.a => Some(&self.b),
+            id if id == self.b => Some(&self.a),
+            _ => None,
+        }
+    }
+}
+
+/// Every link that has not been ended, in the order they were made.
+pub(crate) fn links(log: &Log) -> Vec<Link> {
+    log.load(&StreamId::Room)
+        .iter()
+        .filter(|event| is_kind(event, "link") && !is_deleted(event))
+        .filter_map(|event| Link::deserialize(event).ok())
+        .collect()
+}
+
+pub(crate) fn append_link(log: &Log, link: &Link) -> Result<(), String> {
+    let body = serde_json::to_value(link).map_err(|error| error.to_string())?;
+    log.append(&StreamId::Room, &room_event("link", body))
+        .map(|_| ())
+        .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
+pub(crate) fn tombstone_link(log: &Log, id: &str) -> Result<(), String> {
+    log.append(
+        &StreamId::Room,
+        &json!({"kind": "link", "id": id, "deleted": true}),
+    )
+    .map(|_| ())
+    .map_err(|error| format!("The room's stream could not be written: {error}."))
 }
 
 /// The jobs still waiting to fire, soonest first.

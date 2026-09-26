@@ -227,6 +227,18 @@ impl RoomHandle for CoreHandle {
         self.room.answer_human(persona_id, action_id, status, note)
     }
 
+    fn link_teammates(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.link_teammates(a, b)
+    }
+
+    fn unlink_teammates(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.unlink_teammates(a, b)
+    }
+
+    fn resume_link(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.resume_link(a, b)
+    }
+
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,
@@ -517,6 +529,18 @@ impl RoomHandle for Quiet {
         _status: crate::contract::HumanAnswer,
         _note: Option<String>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn link_teammates(&self, _a: &str, _b: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn unlink_teammates(&self, _a: &str, _b: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resume_link(&self, _a: &str, _b: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -1593,6 +1617,27 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
         id: "ada".to_string(),
         patch: serde_json::json!({"computer": {"enabled": true, "secrets": ["GITHUB_TOKEN"]}}),
     }));
+}
+
+/// Linking is the person's, from either of their seats: a phone links,
+/// unlinks and resumes a pair the same as the window.
+#[test]
+fn the_phone_seat_links_teammates_for_the_person() {
+    let (a, b) = ("ada".to_string(), "bob".to_string());
+    for command in [
+        Command::TeammatesLink {
+            a: a.clone(),
+            b: b.clone(),
+        },
+        Command::TeammatesUnlink {
+            a: a.clone(),
+            b: b.clone(),
+        },
+        Command::TeammatesLinkResume { a, b },
+    ] {
+        assert!(Seat::Desk.permits(&command), "{command:?}");
+        assert!(Seat::Phone.permits(&command), "{command:?}");
+    }
 }
 
 /// A phone answers what a teammate is waiting on and sets how it thinks.

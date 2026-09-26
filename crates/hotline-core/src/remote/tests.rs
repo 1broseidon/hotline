@@ -1027,6 +1027,15 @@ impl RoomHandle for Computered {
     ) -> Result<(), String> {
         self.desk.answer_human(persona_id, action_id, status, note)
     }
+    fn link_teammates(&self, a: &str, b: &str) -> Result<(), String> {
+        self.desk.link_teammates(a, b)
+    }
+    fn unlink_teammates(&self, a: &str, b: &str) -> Result<(), String> {
+        self.desk.unlink_teammates(a, b)
+    }
+    fn resume_link(&self, a: &str, b: &str) -> Result<(), String> {
+        self.desk.resume_link(a, b)
+    }
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,

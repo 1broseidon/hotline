@@ -39,6 +39,7 @@ mod escalation;
 pub(crate) mod files;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
+mod links;
 mod narration;
 mod pacing;
 mod peers;
@@ -554,6 +555,8 @@ pub struct Room {
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,
+    /// Held while a message is counted against a link.
+    link_counts: Mutex<()>,
     /// The phones paired with this desk, told when a reply lands or a card
     /// needs the person.
     push: crate::push::Push,
@@ -655,6 +658,7 @@ impl Room {
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
+            link_counts: Mutex::new(()),
             push,
             computers,
             vault,
@@ -2121,6 +2125,7 @@ impl Room {
     ) -> Result<(), String> {
         let _working = self.working()?;
         let (session, _held) = self.in_this_chapter(persona_id).await?;
+        self.heard_from_person(persona_id);
         if let Some(answered) = reply_to {
             mark(&session.pending_reply, answered);
         }
@@ -3493,6 +3498,7 @@ impl Room {
             self.drop_peer_sessions(persona_id);
         }
         self.settle_collaboration(persona_id);
+        self.end_links_of(persona_id);
         let persona = self.persona(persona_id).ok()?;
         let slice = chapter_view::slice_of(&events, &open).to_vec();
         // An idle close ends the chapter when the conversation stopped, not

@@ -603,7 +603,7 @@ function Row({
 		case "delivery": {
 			const cause = event.cause;
 			const style = deliveryMissed(event) ? { color: "var(--warn)" } : undefined;
-			if (cause.kind !== "peer")
+			if (cause.kind === "answer")
 				return (
 					<p className="rule-line rule-line-plain" style={style}>
 						<span className="min-w-0 truncate">{deliveryLine(event)}</span>
@@ -662,17 +662,20 @@ export function deliveryLine(event: DeliveryEvent): string {
 			? cause.status === "failed"
 				? `${cause.name} didn't answer`
 				: `${cause.name} answered`
-			: cause.status === "done"
-				? "Picking up your answer"
-				: cause.status === "dismissed"
-					? "You declined"
-					: "Unanswered for a day";
+			: cause.kind === "linked"
+				? `From ${cause.name}`
+				: cause.status === "done"
+					? "Picking up your answer"
+					: cause.status === "dismissed"
+						? "You declined"
+						: "Unanswered for a day";
 	return cause.about === "" ? what : `${what} · ${cause.about}`;
 }
 
 /** Whether a delivery says something did not come back. */
 export function deliveryMissed(event: DeliveryEvent): boolean {
-	return event.cause.status === "failed" || event.cause.status === "expired";
+	const cause = event.cause;
+	return cause.kind === "peer" ? cause.status === "failed" : cause.kind === "answer" && cause.status === "expired";
 }
 
 /** Where a subagent's run has got to, in the words its line ends with. */

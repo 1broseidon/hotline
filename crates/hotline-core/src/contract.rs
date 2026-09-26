@@ -1223,6 +1223,18 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         receipt: Option<Receipt>,
     },
+    /// Two linked teammates have gone back and forth `exchanges` times
+    /// without the person, so their link paused. On both of their tapes, one
+    /// card each, superseded by id when the person resumes the link
+    /// (`teammates.link_resume`) or unlinks them (`teammates.unlink`).
+    LinkPaused {
+        id: String,
+        ts: i64,
+        with_persona_id: String,
+        with_name: String,
+        exchanges: i64,
+        status: LinkPauseStatus,
+    },
     Turn {
         id: String,
         ts: i64,
@@ -1350,6 +1362,26 @@ pub enum Receipt {
     Read,
 }
 
+/// Where a paused link's card has got to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum LinkPauseStatus {
+    Pending,
+    Resumed,
+    Unlinked,
+}
+
+/// One teammate this one is linked with, as its roster row carries it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct TeammateLink {
+    pub with_persona_id: String,
+    /// The link hit its cap and waits on the person to resume it.
+    pub paused: bool,
+}
+
 /// What a [`TranscriptEvent::Delivery`] answers, so a teammate juggling
 /// several can tell them apart and a seat can say why a turn began.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -1369,6 +1401,16 @@ pub enum DeliveryCause {
         thread_key: String,
         status: PeerStatus,
         /// The start of the message this answers, clipped to a line.
+        about: String,
+    },
+    /// A message from a teammate the person linked this one with. Linked
+    /// messages land in each other's own conversations rather than a side
+    /// session; `text` is the message itself, and the thread keeps it too.
+    Linked {
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        /// The start of the message, clipped to a line.
         about: String,
     },
     /// The person answered a `request_human` card the teammate did not wait
@@ -2206,6 +2248,19 @@ pub enum Command {
         request_id: String,
         option_id: String,
     },
+    /// Links two teammates for shared work: while linked, a message from
+    /// one lands in the other's own conversation. Only the person links;
+    /// there is no tool for it. Linking a linked pair changes nothing.
+    #[serde(rename = "teammates.link")]
+    TeammatesLink { a: String, b: String },
+    /// Ends a link. Messages already delivered stay delivered; the next
+    /// message between the two goes to a side session again.
+    #[serde(rename = "teammates.unlink")]
+    TeammatesUnlink { a: String, b: String },
+    /// Resumes a link its cap paused, counting afresh. Resuming one that is
+    /// not paused changes nothing; one that is gone is refused.
+    #[serde(rename = "teammates.link_resume")]
+    TeammatesLinkResume { a: String, b: String },
     /// Answers a card the agent posted with `request_human`. Refused when
     /// nothing is waiting any more — the deadline passed, the session
     /// stopped, the room restarted, or somebody else answered first. The
@@ -2516,6 +2571,10 @@ pub struct RosterEntry {
     /// every desk from one roster, without opening each tape. Always
     /// written, so a phone can tell `false` from a desk that predates it.
     pub waiting: bool,
+    /// The teammates the person has linked this one with for shared work.
+    /// Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<TeammateLink>,
     pub session: SessionInfo,
 }
 

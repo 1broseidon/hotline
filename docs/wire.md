@@ -242,6 +242,13 @@ machine Hotline Agent caller does not. ACP mode and Computer access do not imply
 Whole machine authority. `list_teammates` returns only each other teammate's
 `personaId` and `name`.
 
+`teammates.link {a, b}`, `teammates.unlink {a, b}` and
+`teammates.link_resume {a, b}` are the person's, from either seat. A link
+puts one teammate's messages into the other's own conversation, so no
+teammate tool reaches these commands. Linking a linked pair and unlinking an
+unlinked one change nothing. Resuming refuses a pair that is not linked. The
+roster row's `links` carries each partner and whether the link is paused.
+
 `human.answer` is the same fact for a `request_human` card: `done` or
 `declined`, with an optional `note` the agent receives word for word. A card
 that `delivers` is answered off the tape at any time until it is settled,

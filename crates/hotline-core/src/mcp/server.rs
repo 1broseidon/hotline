@@ -517,10 +517,16 @@ impl TeammateTools {
                     message,
                     self.capability.clone(),
                 )?;
+                let note = if sent.linked {
+                    "The person has linked the two of you, so this went into their own conversation, and anything they send back will arrive here as its own message. Carry on meanwhile; if there is nothing else to do, end your reply."
+                } else {
+                    "Their answer will arrive later as its own message in this conversation. Carry on meanwhile; if there is nothing else to do, end your reply and the answer will wake you."
+                };
                 Ok(json!({
                     "sent": true,
                     "to": sent.to,
-                    "note": "Their answer will arrive later as its own message in this conversation. Carry on meanwhile; if there is nothing else to do, end your reply and the answer will wake you.",
+                    "linked": sent.linked,
+                    "note": note,
                 })
                 .to_string())
             }

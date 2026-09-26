@@ -808,7 +808,7 @@ waiting: boolean,
  * The teammates the person has linked this one with for shared work.
  * Absent when there are none.
  */
-links: Array<TeammateLink>, session: SessionInfo, };
+links?: Array<TeammateLink>, session: SessionInfo, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

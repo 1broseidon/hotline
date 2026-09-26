@@ -2574,6 +2574,7 @@ pub struct RosterEntry {
     /// The teammates the person has linked this one with for shared work.
     /// Absent when there are none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<TeammateLink>>", optional)]
     pub links: Vec<TeammateLink>,
     pub session: SessionInfo,
 }

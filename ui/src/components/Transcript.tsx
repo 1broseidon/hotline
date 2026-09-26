@@ -186,7 +186,18 @@ export function Transcript({
 		);
 	}
 
-	const blocks = hidden.size === 0 ? arrived : arrived.filter((block) => !(block.kind === "event" && hidden.has(block.event.id)));
+	// A thread is said once: as its answer when one came back, else as its
+	// marker. Your own answer to a card is on the card, so it draws no row.
+	const answered = superseded(events);
+	const blocks = arrived.filter(
+		(block) =>
+			!(
+				block.kind === "event" &&
+				(hidden.has(block.event.id) ||
+					answered.has(block.event.id) ||
+					(block.event.kind === "delivery" && block.event.cause.kind === "answer"))
+			),
+	);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -607,45 +618,43 @@ function Row({
 		case "exchange_paused":
 			return <ExchangePaused personaId={personaId} ownerName={ownerName} event={event} />;
 
-		/* One quiet line, the way a chapter is a date. Pressing it opens
-		 * the thread in the inspector's place. */
+		/* A thread with a colleague while it has no answer to show: hung
+		 * under the row before it, the way a reply's steps are, so the
+		 * conversation reads the same either side of the answer arriving.
+		 * Pressing it opens the thread in the inspector's place. */
 		case "peer":
 			return (
-				<button type="button" className="rule-line rule-line-plain w-full" onClick={() => onOpenThread?.(event)}>
-					{[
-						`With ${event.seat === "client" ? `${event.withName} (outside the room)` : event.withName}`,
-						event.role,
-						event.exchanges === 1 ? "1 exchange" : `${event.exchanges} exchanges`,
-						event.status,
-					].join(" · ")}
+				<button type="button" className="hung-line" data-missed={event.status === "failed" || undefined} onClick={() => onOpenThread?.(event)}>
+					<Avatar id={event.withPersonaId} name={event.withName} size={16} />
+					<span className="min-w-0 truncate">{peerLine(event)}</span>
+					<ChevronRightIcon />
 				</button>
 			);
 
-		/* A handoff or an answer explains why the turn below it began.
-		 * A colleague's opens its originating thread, with the handoff's
-		 * request and reply route. Your answer is already on its card. */
+		/* A colleague's answer or handoff, in their voice: their face, their
+		 * name and the start of what they said, hung under the row before
+		 * it. It opens the originating thread, with the handoff's request and
+		 * reply route. Your own answer never gets here: it is on its card. */
 		case "delivery": {
 			const cause = event.cause;
-			const style = deliveryMissed(event) ? { color: "var(--warn)" } : undefined;
-			if (cause.kind === "answer")
-				return (
-					<p className="rule-line rule-line-plain" style={style}>
-						<span className="min-w-0 truncate">{deliveryLine(event)}</span>
-					</p>
-				);
+			const line = deliveryLine(event);
+			if (cause.kind === "answer" || line === null) return null;
 			return (
 				<button
 					type="button"
-					className="rule-line rule-line-plain w-full"
-					style={style}
+					className="hung-line"
+					data-missed={deliveryMissed(event) || undefined}
 					onClick={() => onOpenThread?.({
 						threadKey: cause.threadKey,
 						withName: cause.name,
 						...(cause.kind === "handoff" ? { handoff: cause } : {}),
 					})}
 				>
-					<span className="min-w-0 truncate">{deliveryLine(event)}</span>
-					{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
+					<Avatar id={cause.personaId} name={line.name} size={16} />
+					<span className="min-w-0 truncate">
+						<span className="hung-line-name">{line.name}</span> {line.said}
+					</span>
+					<ChevronRightIcon />
 				</button>
 			);
 		}
@@ -687,28 +696,64 @@ export type ThreadRef = {
 
 type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
 
-/** A delivery's line: who handed off work or answered, and what it concerns. */
-export function deliveryLine(event: DeliveryEvent): string {
+/**
+ * A colleague's delivery, in the colleague's voice: who, and the start of
+ * what they said. The answer is what happened, so the line quotes it rather
+ * than the question it answers. `null` for your own answer to a card: the
+ * card already says it.
+ */
+export function deliveryLine(event: DeliveryEvent): { name: string; said: string } | null {
 	const cause = event.cause;
+	if (cause.kind === "answer") return null;
+	if (cause.kind === "peer" && cause.status === "failed")
+		return { name: cause.name, said: cause.about ? `didn't answer · ${cause.about}` : "didn't answer" };
+	const said = plain(firstLine(event.text)) || cause.about;
+	if (cause.kind !== "handoff") return { name: cause.name, said };
+	// A handoff still behind the teammate's current turn says so; once taken up it is just what was handed.
+	return { name: cause.name, said: `handed you: ${said}${event.receipt === "sent" ? " · queued" : ""}` };
+}
+
+/** A quoted line reads as words, not as the markdown it was written in. */
+function plain(line: string): string {
+	return line.replace(/[`*_]+/g, "");
+}
+
+type PeerEvent = Extract<TranscriptEvent, { kind: "peer" }>;
+
+/**
+ * The marker's line, in plain words: who, whether it is still going, and how
+ * much was said. Once its answer is delivered the marker is dropped (see
+ * `superseded`), so this mostly reads while a reply is awaited, or on the
+ * side that was asked.
+ */
+export function peerLine(event: PeerEvent): string {
+	const who = event.seat === "client" ? `${event.withName} (outside the room)` : event.withName;
 	const what =
-		cause.kind === "peer"
-			? cause.status === "failed"
-				? `${cause.name} didn't answer`
-				: `${cause.name} answered`
-			: cause.kind === "handoff"
-				? `Handed off from ${cause.name}`
-				: cause.status === "done"
-					? "Picking up your answer"
-					: cause.status === "dismissed"
-						? "You declined"
-						: "Unanswered for a day";
-	return cause.about === "" ? what : `${what} · ${cause.about}`;
+		event.status === "failed"
+			? `${who} didn't answer`
+			: event.role === "caller"
+				? event.status === "done"
+					? `Talked with ${who}`
+					: `Waiting on ${who}`
+				: `${who} asked`;
+	return event.exchanges > 1 ? `${what} · ${event.exchanges} messages` : what;
+}
+
+/** Markers a later delivery already stands for, in the same conversation. */
+export function superseded(events: readonly TranscriptEvent[]): Set<string> {
+	const answered = new Set<string>();
+	const hidden = new Set<string>();
+	for (let at = events.length - 1; at >= 0; at--) {
+		const event = events[at]!;
+		if (event.kind === "delivery" && event.cause.kind !== "answer") answered.add(event.cause.threadKey);
+		else if (event.kind === "peer" && event.status !== "waiting" && answered.has(event.threadKey)) hidden.add(event.id);
+	}
+	return hidden;
 }
 
 /** Whether a delivery says something did not come back. */
 export function deliveryMissed(event: DeliveryEvent): boolean {
-	const cause = event.cause;
-	return cause.kind === "peer" ? cause.status === "failed" : cause.kind === "answer" && cause.status === "expired";
+	return event.cause.kind === "peer" && event.cause.status === "failed";
 }
 
 /**
@@ -1239,9 +1284,11 @@ function HumanAction({
 	if (event.status !== "pending") {
 		return (
 			<div className="card mt-3">
-				<p className="eyebrow mb-1">Needed you · {AFTERLIFE[event.status]}</p>
+				<p className="eyebrow mb-1">
+					Needed you · {AFTERLIFE[event.status]}
+					{event.note?.trim() ? <span className="normal-case"> · {event.note.trim()}</span> : null}
+				</p>
 				<p className="selectable text-ink-2">{event.reason}</p>
-				{event.note ? <p className="selectable mt-1 text-ink-2">You said: {event.note}</p> : null}
 			</div>
 		);
 	}

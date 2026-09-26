@@ -3874,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-app"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "block2",
  "hotline-core",
@@ -3900,7 +3900,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-core"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "agent-client-protocol",
  "async-trait",

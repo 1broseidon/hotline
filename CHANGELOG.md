@@ -8,6 +8,37 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-26
+
+### Added
+
+- A teammate can hand work to a colleague as well as ask it something. A
+  question is answered on the side and leaves the colleague's conversation
+  with you alone; a handoff waits for the colleague to finish what it is
+  doing, arrives in its own conversation with everything it knows, and the
+  result comes back to the teammate that asked. The approval you give a
+  pair covers both, and a pair you approved before this release asks once
+  more before its first handoff.
+- Two teammates that go back and forth twelve times without you pause and
+  ask whether to keep going.
+- A teammate can see what its colleagues are doing: whether each is idle,
+  working, waiting on you or stopped, and what it is working on, never
+  what anyone said.
+- On the desktop, a reply's steps open in a pane beside the conversation
+  that follows the newest line, instead of expanding inside it.
+- A paired phone can read back pictures you sent, including ones sent from
+  the desktop.
+
+### Changed
+
+- A teammate no longer sits waiting while a colleague answers it or while
+  you answer a request. It carries on, and the answer arrives later as its
+  own message, waking the teammate if it was idle. A turn that began this
+  way says why. Answers survive a restart of the desk and are heard once;
+  a request nobody answers in a day is taken down and the teammate told.
+- A teammate told you answered a request hears "The person answered"
+  rather than "The person did it".
+
 ## [0.22.0] - 2026-09-25
 
 ### Added

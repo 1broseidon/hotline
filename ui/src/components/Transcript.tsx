@@ -2,6 +2,8 @@ import { ErrorCard } from "./ErrorCard";
 import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import type {
 	Attachment,
+	DeliveryCause,
+	ExchangePauseStatus,
 	HumanActionStatus,
 	HumanAnswer,
 	PasskeyAskStatus,
@@ -219,6 +221,7 @@ export function Transcript({
 							) : (
 								<Row
 									personaId={personaId}
+									ownerName={name}
 									event={block.event}
 									said={said}
 									run={run}
@@ -495,6 +498,7 @@ function useScrollToEvent(
 
 function Row({
 	personaId,
+	ownerName,
 	event,
 	said,
 	run,
@@ -506,6 +510,8 @@ function Row({
 	onJump,
 }: {
 	personaId: string;
+	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
+	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
 	said: Map<string, string>;
 	run: Run;
@@ -581,6 +587,11 @@ function Row({
 		case "passkey_ask":
 			return <PasskeyAskCard personaId={personaId} event={event} />;
 
+		/* The pair's exchange hit its cap: a live card while it waits on the
+		 * person, a quiet rule line once it is settled either way. */
+		case "exchange_paused":
+			return <ExchangePaused personaId={personaId} ownerName={ownerName} event={event} />;
+
 		/* One quiet line, the way a chapter is a date. Pressing it opens
 		 * the thread in the inspector's place. */
 		case "peer":
@@ -595,11 +606,9 @@ function Row({
 				</button>
 			);
 
-		/* An answer that came back to the teammate after it moved on: a
-		 * colleague's, or yours to a card. It is the reason the turn below it
-		 * began, not something anyone said, so it is a quiet line; a
-		 * colleague's opens the thread it came from. Your answer is already
-		 * on its card. */
+		/* A handoff or an answer explains why the turn below it began.
+		 * A colleague's opens its originating thread, with the handoff's
+		 * request and reply route. Your answer is already on its card. */
 		case "delivery": {
 			const cause = event.cause;
 			const style = deliveryMissed(event) ? { color: "var(--warn)" } : undefined;
@@ -614,9 +623,14 @@ function Row({
 					type="button"
 					className="rule-line rule-line-plain w-full"
 					style={style}
-					onClick={() => onOpenThread?.({ threadKey: cause.threadKey, withName: cause.name })}
+					onClick={() => onOpenThread?.({
+						threadKey: cause.threadKey,
+						withName: cause.name,
+						...(cause.kind === "handoff" ? { handoff: cause } : {}),
+					})}
 				>
 					<span className="min-w-0 truncate">{deliveryLine(event)}</span>
+					{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
 				</button>
 			);
 		}
@@ -650,11 +664,15 @@ function Row({
 export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
 
 /** What opens a thread: a peer marker is one, and a delivery names one. */
-export type ThreadRef = { threadKey: string; withName: string };
+export type ThreadRef = {
+	threadKey: string;
+	withName: string;
+	handoff?: Extract<DeliveryCause, { kind: "handoff" }>;
+};
 
 type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
 
-/** A delivery's line: who answered, and what it answers. */
+/** A delivery's line: who handed off work or answered, and what it concerns. */
 export function deliveryLine(event: DeliveryEvent): string {
 	const cause = event.cause;
 	const what =
@@ -676,6 +694,26 @@ export function deliveryLine(event: DeliveryEvent): string {
 export function deliveryMissed(event: DeliveryEvent): boolean {
 	const cause = event.cause;
 	return cause.kind === "peer" ? cause.status === "failed" : cause.kind === "answer" && cause.status === "expired";
+}
+
+/**
+ * Why a running turn began, when the last thing before it was a delivery
+ * rather than a word from the person: answering a colleague or picking up
+ * an answer that arrived while the teammate was away. A person's message
+ * or a completed turn ends that cause, so a later turn cannot inherit it.
+ */
+export function turnCauseLine(events: TranscriptEvent[]): string | null {
+	for (let index = events.length - 1; index >= 0; index--) {
+		const event = events[index]!;
+		if (event.kind === "user" || event.kind === "turn") return null;
+		if (event.kind === "delivery") {
+			// A queued delivery must not rename the person's current turn.
+			if (event.receipt !== "read") continue;
+			const cause = event.cause;
+			return cause.kind === "answer" ? "Picking up your answer" : `Answering ${cause.name}`;
+		}
+	}
+	return null;
 }
 
 /** Where a subagent's run has got to, in the words its line ends with. */
@@ -1253,6 +1291,61 @@ function PasskeyAskCard({ personaId, event }: { personaId: string; event: Extrac
 				</button>
 			</div>
 			{refusal !== null && <p className="mt-2 text-sm text-danger">{refusal}</p>}
+		</div>
+	);
+}
+
+const EXCHANGE_SETTLED: Record<Exclude<ExchangePauseStatus, "pending">, string> = {
+	resumed: "Exchange resumed",
+	stopped: "Exchange stopped",
+};
+
+/**
+ * Both asks and handoffs count toward the pair's message cap. Keep going
+ * releases queued work and starts counting afresh; Stop exchange ends the
+ * exchange, not the collaboration grant. Either outcome becomes a quiet line.
+ */
+function ExchangePaused({
+	personaId,
+	ownerName,
+	event,
+}: {
+	personaId: string;
+	event: Extract<TranscriptEvent, { kind: "exchange_paused" }>;
+	ownerName: string;
+}) {
+	const [answering, setAnswering] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+
+	if (event.status !== "pending") {
+		return <p className="rule-line rule-line-plain">{EXCHANGE_SETTLED[event.status]}</p>;
+	}
+
+	const act = (cmd: "teammates.exchange_resume" | "teammates.exchange_stop") => {
+		if (answering) return;
+		setAnswering(true);
+		setRefusal(null);
+		void wire.command(cmd, { a: personaId, b: event.withPersonaId }).catch(() => {
+			setAnswering(false);
+			setRefusal("Could not update this exchange. Try again.");
+		});
+	};
+
+	return (
+		<div className="card card-live mt-3">
+			<p className="eyebrow mb-1">Paused</p>
+			<p className="selectable">
+				{ownerName} and {event.withName} paused after {event.exchanges} {event.exchanges === 1 ? "message" : "messages"} without you.
+			</p>
+			<div className="card-actions">
+				<button type="button" disabled={answering} className="control btn-primary" onClick={() => act("teammates.exchange_resume")}>
+					Keep going
+				</button>
+				<button type="button" disabled={answering} className="control btn" onClick={() => act("teammates.exchange_stop")}>
+					Stop exchange
+				</button>
+			</div>
+			{refusal !== null && <p role="alert" className="mt-2 text-sm text-danger">{refusal}</p>}
 		</div>
 	);
 }

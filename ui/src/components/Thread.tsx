@@ -5,7 +5,7 @@ import { CloseIcon } from "../icons";
 import { useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
-import { Transcript } from "./Transcript";
+import { Transcript, type ThreadRef } from "./Transcript";
 
 /**
  * A conversation between two teammates, in the inspector's place.
@@ -19,6 +19,7 @@ import { Transcript } from "./Transcript";
 export type OpenThread = {
 	key: string;
 	withName: string;
+	handoff?: ThreadRef["handoff"];
 };
 
 export function Thread({
@@ -51,6 +52,20 @@ export function Thread({
 					<CloseIcon />
 				</button>
 			</Band>
+			{open.handoff !== undefined && (
+				<details open className="mx-4 mb-3 text-sm text-ink-3">
+					<summary className="cursor-pointer">Handed off from {open.handoff.name}</summary>
+					<dl className="selectable mt-2 space-y-2 break-words">
+						<div><dt className="eyebrow">Sender</dt><dd>{open.handoff.name} · {open.handoff.personaId}</dd></div>
+						<div><dt className="eyebrow">Request</dt><dd>{open.handoff.requestId}</dd></div>
+						<div>
+							<dt className="eyebrow">Reply goes to</dt>
+							<dd>{open.handoff.name} in this originating exchange, even if they have moved on.</dd>
+							<dd className="mt-1 font-mono text-xs">{open.handoff.threadKey}</dd>
+						</div>
+					</dl>
+				</details>
+			)}
 			<Transcript
 				personaId={selfId}
 				name={selfName}

@@ -2,9 +2,10 @@ import { ErrorCard } from "./ErrorCard";
 import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import type {
 	Attachment,
+	DeliveryCause,
+	ExchangePauseStatus,
 	HumanActionStatus,
 	HumanAnswer,
-	LinkPauseStatus,
 	PasskeyAskStatus,
 	PermissionOption,
 	PlanEntry,
@@ -586,10 +587,10 @@ function Row({
 		case "passkey_ask":
 			return <PasskeyAskCard personaId={personaId} event={event} />;
 
-		/* The pair's link hit its cap: a live card while it waits on the
+		/* The pair's exchange hit its cap: a live card while it waits on the
 		 * person, a quiet rule line once it is settled either way. */
-		case "link_paused":
-			return <LinkPaused personaId={personaId} ownerName={ownerName} event={event} />;
+		case "exchange_paused":
+			return <ExchangePaused personaId={personaId} ownerName={ownerName} event={event} />;
 
 		/* One quiet line, the way a chapter is a date. Pressing it opens
 		 * the thread in the inspector's place. */
@@ -605,11 +606,9 @@ function Row({
 				</button>
 			);
 
-		/* An answer that came back to the teammate after it moved on: a
-		 * colleague's, or yours to a card. It is the reason the turn below it
-		 * began, not something anyone said, so it is a quiet line; a
-		 * colleague's opens the thread it came from. Your answer is already
-		 * on its card. */
+		/* A handoff or an answer explains why the turn below it began.
+		 * A colleague's opens its originating thread, with the handoff's
+		 * request and reply route. Your answer is already on its card. */
 		case "delivery": {
 			const cause = event.cause;
 			const style = deliveryMissed(event) ? { color: "var(--warn)" } : undefined;
@@ -624,9 +623,14 @@ function Row({
 					type="button"
 					className="rule-line rule-line-plain w-full"
 					style={style}
-					onClick={() => onOpenThread?.({ threadKey: cause.threadKey, withName: cause.name })}
+					onClick={() => onOpenThread?.({
+						threadKey: cause.threadKey,
+						withName: cause.name,
+						...(cause.kind === "handoff" ? { handoff: cause } : {}),
+					})}
 				>
 					<span className="min-w-0 truncate">{deliveryLine(event)}</span>
+					{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
 				</button>
 			);
 		}
@@ -660,11 +664,15 @@ function Row({
 export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
 
 /** What opens a thread: a peer marker is one, and a delivery names one. */
-export type ThreadRef = { threadKey: string; withName: string };
+export type ThreadRef = {
+	threadKey: string;
+	withName: string;
+	handoff?: Extract<DeliveryCause, { kind: "handoff" }>;
+};
 
 type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
 
-/** A delivery's line: who answered, and what it answers. */
+/** A delivery's line: who handed off work or answered, and what it concerns. */
 export function deliveryLine(event: DeliveryEvent): string {
 	const cause = event.cause;
 	const what =
@@ -672,8 +680,8 @@ export function deliveryLine(event: DeliveryEvent): string {
 			? cause.status === "failed"
 				? `${cause.name} didn't answer`
 				: `${cause.name} answered`
-			: cause.kind === "linked"
-				? `From ${cause.name}`
+			: cause.kind === "handoff"
+				? `Handed off from ${cause.name}`
 				: cause.status === "done"
 					? "Picking up your answer"
 					: cause.status === "dismissed"
@@ -690,15 +698,14 @@ export function deliveryMissed(event: DeliveryEvent): boolean {
 
 /**
  * Why a running turn began, when the last thing before it was a delivery
- * rather than a word from the person: answering a colleague, a linked
- * partner, or picking up an answer that arrived while the teammate was
- * away. `null` once a plain message is the more recent thing, so an
- * ordinary turn says nothing extra.
+ * rather than a word from the person: answering a colleague or picking up
+ * an answer that arrived while the teammate was away. A person's message
+ * or a completed turn ends that cause, so a later turn cannot inherit it.
  */
 export function turnCauseLine(events: TranscriptEvent[]): string | null {
 	for (let index = events.length - 1; index >= 0; index--) {
 		const event = events[index]!;
-		if (event.kind === "user") return null;
+		if (event.kind === "user" || event.kind === "turn") return null;
 		if (event.kind === "delivery") {
 			const cause = event.cause;
 			return cause.kind === "answer" ? "Picking up your answer" : `Answering ${cause.name}`;
@@ -1286,37 +1293,40 @@ function PasskeyAskCard({ personaId, event }: { personaId: string; event: Extrac
 	);
 }
 
-const LINK_SETTLED: Record<Exclude<LinkPauseStatus, "pending">, string> = {
-	resumed: "Resumed",
-	unlinked: "Unlinked",
+const EXCHANGE_SETTLED: Record<Exclude<ExchangePauseStatus, "pending">, string> = {
+	resumed: "Exchange resumed",
+	stopped: "Exchange stopped",
 };
 
 /**
- * A linked pair hit the cap on messages between them and the link paused
- * behind it: a live card while it waits on the person, speaking of the
- * tape's own teammate in the third person, since it went back and forth
- * without them, not with them. Keep going resumes it, counting afresh;
- * Unlink ends it outright. Settled, either way, it is one quiet rule line.
+ * Both asks and handoffs count toward the pair's message cap. Keep going
+ * releases queued work and starts counting afresh; Stop exchange ends the
+ * exchange, not the collaboration grant. Either outcome becomes a quiet line.
  */
-function LinkPaused({
+function ExchangePaused({
 	personaId,
 	ownerName,
 	event,
 }: {
 	personaId: string;
-	event: Extract<TranscriptEvent, { kind: "link_paused" }>;
+	event: Extract<TranscriptEvent, { kind: "exchange_paused" }>;
 	ownerName: string;
 }) {
 	const [answering, setAnswering] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
 
 	if (event.status !== "pending") {
-		return <p className="rule-line rule-line-plain">{LINK_SETTLED[event.status]}</p>;
+		return <p className="rule-line rule-line-plain">{EXCHANGE_SETTLED[event.status]}</p>;
 	}
 
-	const act = (cmd: "teammates.link_resume" | "teammates.unlink") => {
+	const act = (cmd: "teammates.exchange_resume" | "teammates.exchange_stop") => {
 		if (answering) return;
 		setAnswering(true);
-		void wire.command(cmd, { a: personaId, b: event.withPersonaId }).catch(() => setAnswering(false));
+		setRefusal(null);
+		void wire.command(cmd, { a: personaId, b: event.withPersonaId }).catch(() => {
+			setAnswering(false);
+			setRefusal("Could not update this exchange. Try again.");
+		});
 	};
 
 	return (
@@ -1326,13 +1336,14 @@ function LinkPaused({
 				{ownerName} and {event.withName} paused after {event.exchanges} {event.exchanges === 1 ? "message" : "messages"} without you.
 			</p>
 			<div className="card-actions">
-				<button type="button" disabled={answering} className="control btn-primary" onClick={() => act("teammates.link_resume")}>
+				<button type="button" disabled={answering} className="control btn-primary" onClick={() => act("teammates.exchange_resume")}>
 					Keep going
 				</button>
-				<button type="button" disabled={answering} className="control btn" onClick={() => act("teammates.unlink")}>
-					Unlink
+				<button type="button" disabled={answering} className="control btn" onClick={() => act("teammates.exchange_stop")}>
+					Stop exchange
 				</button>
 			</div>
+			{refusal !== null && <p role="alert" className="mt-2 text-sm text-danger">{refusal}</p>}
 		</div>
 	);
 }

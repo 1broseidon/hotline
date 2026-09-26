@@ -207,11 +207,3 @@ export const WarningIcon = ({ className }: IconProps) => (
 		<circle cx="8" cy="11" r="0.6" fill="currentColor" stroke="none" />
 	</svg>
 );
-
-/** Two linked teammates: a chain, drawn as two capsules crossing at the centre. */
-export const ChainIcon = ({ className }: IconProps) => (
-	<svg className={className} {...box}>
-		<rect x="1.25" y="6.25" width="7" height="3.5" rx="1.75" transform="rotate(-45 4.75 8)" />
-		<rect x="7.75" y="6.25" width="7" height="3.5" rx="1.75" transform="rotate(-45 11.25 8)" />
-	</svg>
-);

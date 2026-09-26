@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ChainIcon, ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { revealPath } from "../native";
 import { nextText } from "../room";
 import { useTape } from "../tape";
@@ -238,12 +238,6 @@ export function Conversation({
 		session.state === "thinking" ? (entry.activity ?? turnCauseLine(events) ?? "Working") : persona.goal.split("\n")[0]!.trim();
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
-	const links = entry.links ?? [];
-	const nameFor = (id: string) => roster.find((one) => one.persona.id === id)?.persona.name ?? id;
-	const unlink = useCallback(
-		(withPersonaId: string) => void wire.command("teammates.unlink", { a: personaId, b: withPersonaId }),
-		[personaId],
-	);
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
@@ -314,20 +308,6 @@ export function Conversation({
 				</MenuButton>
 			</Band>
 
-			{links.length > 0 && (
-				<div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 text-sm text-ink-3">
-					<ChainIcon className="shrink-0" />
-					{links.map((link) => (
-						<span key={link.withPersonaId} className={`flex items-center gap-1.5 ${link.paused ? "text-ink-4" : ""}`}>
-							{`Linked with ${nameFor(link.withPersonaId)}${link.paused ? " · paused" : ""}`}
-							<button type="button" className="control btn-quiet btn-sm" onClick={() => unlink(link.withPersonaId)}>
-								Unlink
-							</button>
-						</span>
-					))}
-				</div>
-			)}
-
 			{notice !== null && (
 				<p
 					role="status"
@@ -352,6 +332,7 @@ export function Conversation({
 						onOpenThread({
 							key: event.threadKey,
 							withName: event.withName,
+							...(event.handoff !== undefined ? { handoff: event.handoff } : {}),
 						})
 					}
 					onOpenSubagent={(event) => onOpenSubagent({ runId: event.runId, title: event.title })}

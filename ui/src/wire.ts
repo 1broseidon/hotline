@@ -124,9 +124,8 @@ type Results = {
 	"session.set_mode": SessionInfo;
 	"session.set_config": SessionInfo;
 	"session.answer_permission": null;
-	"teammates.link": null;
-	"teammates.unlink": null;
-	"teammates.link_resume": null;
+	"teammates.exchange_resume": null;
+	"teammates.exchange_stop": null;
 	"human.answer": null;
 	"search.thread": ThreadSearchResult;
 	"search.all": GlobalSearchResult;

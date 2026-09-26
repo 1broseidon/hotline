@@ -1478,3 +1478,68 @@ async fn a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends() {
         "a thread whose turn ended still says somebody is waiting"
     );
 }
+
+/// Exercise the asynchronous tool route, not the old synchronous peer helper:
+/// an approval covers later asks and handoffs even after another operator turn.
+#[tokio::test]
+async fn collaboration_consent_covers_separate_operator_turns_and_both_intents() {
+    for decision in [ALLOW_SESSION, ALLOW_ALWAYS] {
+        let room = workspace_room(
+            &format!("consent-across-turns-{decision}"),
+            Fake::new(Scripted::turns(
+                (0..30)
+                    .map(|i| answers(&format!("answer-{i}"), "done"))
+                    .collect(),
+            )),
+        );
+        room.start("ada").await.unwrap();
+        for (index, intent) in ["ask", "handoff", "ask"].iter().enumerate() {
+            room.prompt("ada", "Please ask Bob for another check", None, None)
+                .await
+                .unwrap();
+            let result = TeammateTools::new(&room, "ada")
+                .call(
+                    "message_teammate",
+                    &json!({
+                        "to": "bob", "message": format!("check {index}"), "intent": intent
+                    }),
+                )
+                .await
+                .unwrap();
+            let result: Value = serde_json::from_str(&result).unwrap();
+            let request_id = result["requestId"].as_str().unwrap();
+            if index == 0 {
+                let card = collaboration_card(&room, "ada").await;
+                room.answer_permission("ada", card["requestId"].as_str().unwrap(), decision)
+                    .await
+                    .unwrap();
+            }
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    if let Some(result) = room.tape("ada").iter().find(|event| {
+                        event["kind"] == "delivery" && event["cause"]["requestId"] == request_id
+                    }) {
+                        assert_eq!(result["cause"]["status"], "done", "{result}");
+                        break;
+                    }
+                    assert!(
+                        room.tape("ada").iter().all(|event| {
+                            event["kind"] != "permission" || event.get("decision").is_some()
+                        }),
+                        "{decision} requested approval again for {intent}"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("the approved request should return a result");
+        }
+        assert_eq!(
+            room.tape("ada")
+                .iter()
+                .filter(|event| event["kind"] == "permission")
+                .count(),
+            1
+        );
+    }
+}

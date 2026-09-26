@@ -466,6 +466,32 @@ made it so.
   inspect side effects before retrying. Stopping a handoff cancels its active
   turn but cannot undo completed effects.
 
+
+### Human-gated handoff continuation (BRO-128)
+
+- **Default / old records:** a request's missing `human_actions` means no linked
+  human gate. Existing tape/card shapes are unchanged. Only a successfully
+  completed turn with linked unanswered actions enters `waitinghuman`; a card
+  alone never makes an interrupted turn safe to replay.
+- **Grant source:** unchanged directional collaboration consent. A human answer
+  is not a grant; session consent does not survive restart.
+- **Enforcement:** `ask_human` durably links the card to the active handoff;
+  `resume_handoff_answer` checks scoped leases and `authorize_collaboration`
+  before recording continuation start. Turn admission refuses stopped,
+  revoked, already-consumed or uncertain continuations. No tools or reach are
+  added, and both drivers use the same session funnel.
+- **Tests:** `session/exchanges/tests.rs`
+  `a_human_gated_handoff_routes_its_final_result_after_restart_for_done_and_declined`,
+  `a_saved_human_answer_recovers_the_gap_before_delivery`,
+  `stopped_or_revoked_human_handoffs_cannot_resume_after_restart`,
+  `a_human_answer_does_not_replace_collaboration_consent_after_restart`, and
+  `restart_does_not_replay_an_interrupted_human_answer_turn` exercise the real
+  tool/answer handlers and scripted drivers.
+- **Residual risk:** starting a continuation before a crash can have effects
+  that cannot be undone; the caller receives an uncertain failure and must
+  inspect those effects before retrying. Pre-fix requests have no saved gate
+  association and cannot have one safely reconstructed.
+
 ## Add a teammate from the phone (BRO-127)
 
 - **Default and old records:** a persona `mobile.persona_create` writes carries

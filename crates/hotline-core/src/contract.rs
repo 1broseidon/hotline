@@ -1160,6 +1160,13 @@ pub enum TranscriptEvent {
         /// What the person said with their answer, when they said anything.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// The asking turn did not wait: the answer comes back to the
+        /// teammate as a [`TranscriptEvent::Delivery`], whenever it comes.
+        /// Such a card is not orphaned by a restart or a stop, because
+        /// nothing was parked on it; only the person, or a day going by,
+        /// settles it. Absent on a card a tool is waiting on.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delivers: Option<bool>,
     },
     /// A site asked the teammate's browser to make a passkey, under an
     /// arming the person started for that site: the request waits in the
@@ -1202,6 +1209,19 @@ pub enum TranscriptEvent {
         /// teammate.
         #[serde(skip_serializing_if = "Option::is_none")]
         seat: Option<PeerSeat>,
+    },
+    /// Something that came back to this teammate after it had moved on: a
+    /// colleague's answer to a message it sent. Nobody typed it and it is not
+    /// a bubble; the tape keeps it so it reaches the agent exactly once, in
+    /// order, across a restart, and so the turn it starts can say why it
+    /// started. `text` is what came back; the agent hears it framed.
+    Delivery {
+        id: String,
+        ts: i64,
+        cause: DeliveryCause,
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        receipt: Option<Receipt>,
     },
     Turn {
         id: String,
@@ -1331,6 +1351,38 @@ pub enum RingIntent {
 pub enum Receipt {
     Sent,
     Read,
+}
+
+/// What a [`TranscriptEvent::Delivery`] answers, so a teammate juggling
+/// several can tell them apart and a seat can say why a turn began.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts")]
+pub enum DeliveryCause {
+    /// A colleague answered a message this teammate sent it, or could not.
+    /// `status` is `done` for an answer and `failed` for none; the words of
+    /// the message and the answer are in the thread named by `threadKey`.
+    Peer {
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        status: PeerStatus,
+        /// The start of the message this answers, clipped to a line.
+        about: String,
+    },
+    /// The person answered a `request_human` card the teammate did not wait
+    /// on, or a day went by without an answer (`expired`). `text` is the
+    /// note they typed with it, or empty.
+    Answer {
+        action_id: String,
+        status: HumanActionStatus,
+        /// The start of the card's reason, clipped to a line.
+        about: String,
+    },
 }
 
 /// What a firing stamps on the user event it writes.

@@ -349,6 +349,7 @@ mod tests {
                 reason: "Tap 2FA".to_string(),
                 status: HumanActionStatus::Pending,
                 note: None,
+                delivers: None,
             },
         ];
         let (tape, _) = run(Some(open(false)), events.clone(), NOW);

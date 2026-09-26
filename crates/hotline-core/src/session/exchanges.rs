@@ -237,19 +237,27 @@ impl Room {
     }
     fn exchange_card(&self, pair: &Pair, status: ExchangePauseStatus) {
         for (whose, other) in [(&pair.a, &pair.b), (&pair.b, &pair.a)] {
-            let id = format!("exchange-paused:{}:{whose}", pair.id);
-            if status != ExchangePauseStatus::Pending
-                && !self
-                    .tape(whose)
-                    .iter()
-                    .any(|e| e["id"] == id && e["status"] == "pending")
-            {
+            if status != ExchangePauseStatus::Pending {
+                // Settle the actual open cards, including the pair-wide ids
+                // older versions wrote. Keep the pause's time and count, not
+                // the reset counter, and publish the settlement to both tapes.
+                for mut event in self.tape(whose).into_iter().filter(|event| {
+                    event["kind"] == "exchange_paused"
+                        && event["withPersonaId"] == *other
+                        && event["status"] == "pending"
+                }) {
+                    event["status"] = json!(status);
+                    self.write_value(whose, &event);
+                }
                 continue;
             }
             self.write(
                 whose,
                 &TranscriptEvent::ExchangePaused {
-                    id,
+                    // A pause is a new decision, not a revival of the previous
+                    // card. Reusing its id folds it back into old history and
+                    // retains the mounted button's already-answering state.
+                    id: format!("exchange-paused:{}", new_id()),
                     ts: now_ms(),
                     with_persona_id: other.clone(),
                     with_name: self

@@ -1,3 +1,5 @@
+mod pause;
+
 use super::*;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;

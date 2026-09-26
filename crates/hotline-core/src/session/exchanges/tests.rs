@@ -413,6 +413,13 @@ async fn handoff_waits_behind_the_persons_turn_and_stop_does_not_cancel_that_tur
         1,
         "stopped handoff never reaches the driver"
     );
+    room.stop("bob").unwrap();
+    room.start("bob").await.unwrap();
+    assert_eq!(
+        crate::session::tests::words(lock(&agents.seeds).last().unwrap().clone()),
+        [crate::driver::rig::Said::User("the person's work".into())],
+        "a stopped queued handoff must not reappear in the restarted main history"
+    );
 }
 
 #[tokio::test]
@@ -545,6 +552,7 @@ impl Driver for ControlledDriver {
 struct ControlledAgents {
     drivers: HashMap<String, Arc<ControlledDriver>>,
     tools: Mutex<HashMap<String, TeammateTools>>,
+    seeds: Mutex<Vec<Vec<crate::driver::rig::Said>>>,
 }
 #[async_trait::async_trait]
 impl Agents for ControlledAgents {
@@ -552,10 +560,11 @@ impl Agents for ControlledAgents {
         &self,
         persona: &Persona,
         _preamble: String,
-        _said: Vec<crate::driver::rig::Said>,
+        said: Vec<crate::driver::rig::Said>,
         tools: TeammateTools,
         _mcp: Vec<crate::mcp::McpServer>,
     ) -> Result<Arc<dyn Driver>, String> {
+        lock(&self.seeds).push(said);
         lock(&self.tools).insert(persona.id.clone(), tools);
         Ok(self.drivers[&persona.id].clone())
     }
@@ -573,6 +582,7 @@ fn controlled(name: &str) -> (Arc<Room>, Arc<ControlledAgents>) {
     let agents = Arc::new(ControlledAgents {
         drivers,
         tools: Mutex::new(HashMap::new()),
+        seeds: Mutex::new(Vec::new()),
     });
     (
         Room::with_agents(log, Arc::new(DeskKeys), agents.clone()),
@@ -700,6 +710,16 @@ async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_
     agents.drivers["ada"].updates.add_permits(2);
     until(|| !room.mid_turn("ada")).await;
     assert_eq!(agents.drivers["ada"].prompts(), 1);
+    room.stop("ada").unwrap();
+    room.start("ada").await.unwrap();
+    assert_eq!(
+        crate::session::tests::words(lock(&agents.seeds).last().unwrap().clone()),
+        [
+            crate::driver::rig::Said::User("person still working".into()),
+            crate::driver::rig::Said::Agent("true result".into()),
+        ],
+        "a stopped queued result must not reappear in the restarted main history"
+    );
 }
 
 #[tokio::test]

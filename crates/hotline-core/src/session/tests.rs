@@ -1359,6 +1359,43 @@ fn the_conversation_a_driver_is_seeded_with_is_the_words_of_its_own_chapter() {
     assert_eq!(said(&closed), []);
 }
 
+/// Correlated deliveries must be admitted live before they become history;
+/// read work and legacy, uncorrelated deliveries keep their existing context.
+#[test]
+fn seeded_history_only_remembers_read_correlated_deliveries() {
+    let handoff = json!({
+        "kind": "handoff", "requestId": "request", "personaId": "bob",
+        "name": "Bob", "threadKey": "ada~bob", "about": "work"
+    });
+    let result = json!({
+        "kind": "peer", "requestId": "request", "personaId": "bob",
+        "name": "Bob", "threadKey": "ada~bob", "about": "work", "status": "done"
+    });
+    let mut legacy = result.clone();
+    legacy.as_object_mut().unwrap().remove("requestId");
+    for cause in [handoff, result, legacy] {
+        for receipt in [None, Some("sent"), Some("read")] {
+            let mut event = json!({
+                "kind": "delivery", "id": "delivery", "ts": 1,
+                "text": "Do this work", "cause": cause
+            });
+            if let Some(receipt) = receipt {
+                event["receipt"] = json!(receipt);
+            }
+            let expected = if receipt == Some("read") || cause.get("requestId").is_none() {
+                let cause = serde_json::from_value(cause.clone()).unwrap();
+                vec![Said::User(timed(
+                    1,
+                    &peers::delivery_wire(&cause, "Do this work"),
+                ))]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(said(&[event]), expected, "{cause}, {receipt:?}");
+        }
+    }
+}
+
 fn bubble(n: u32) -> String {
     format!("Paragraph {n} is long enough to stand as its own bubble in the chat.")
 }

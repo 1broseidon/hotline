@@ -4443,8 +4443,28 @@ fn said(events: &[Value]) -> Vec<Said> {
             // What came back is remembered as it was heard.
             "delivery" => match serde_json::from_value((*event).clone()).ok()? {
                 TranscriptEvent::Delivery {
-                    ts, cause, text, ..
-                } => Some(Said::User(timed(ts, &peers::delivery_wire(&cause, &text)))),
+                    ts,
+                    cause,
+                    text,
+                    receipt,
+                    ..
+                } => {
+                    // Queued work is not history: replay must pass exchange
+                    // admission, so a restart cannot resurrect a stopped request.
+                    if receipt != Some(Receipt::Read)
+                        && matches!(
+                            cause,
+                            DeliveryCause::Handoff { .. }
+                                | DeliveryCause::Peer {
+                                    request_id: Some(_),
+                                    ..
+                                }
+                        )
+                    {
+                        return None;
+                    }
+                    Some(Said::User(timed(ts, &peers::delivery_wire(&cause, &text))))
+                }
                 _ => None,
             },
             _ => None,

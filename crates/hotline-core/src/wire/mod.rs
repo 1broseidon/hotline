@@ -457,6 +457,11 @@ impl Seat {
             // Which model and how hard it thinks are settings the person
             // owns anywhere.
             //
+            // Who a teammate is — its name and its goal — the person owns
+            // anywhere too, through the narrow `mobile.persona_update`; and
+            // letting one go takes nothing a teammate could use, so the
+            // phone may `persona.delete` as the desk does.
+            //
             // What stays at the desk is the standing grant rather than the
             // single answer: how far a teammate reaches, which tools and
             // servers it has, whether it keeps a computer — all of that is
@@ -482,6 +487,9 @@ impl Seat {
                     // leaving fields out of the phone's form: see
                     // `mobile_persona_create` in `wire/commands.rs`.
                     | Command::MobilePersonaCreate { .. }
+                    // Name and goal only, confined by the command's shape.
+                    | Command::MobilePersonaUpdate { .. }
+                    | Command::PersonaDelete { .. }
                     // Which harnesses this desk can run and whether each is
                     // ready. Read-only, and carries no credential.
                     | Command::BackendsList { .. }
@@ -977,8 +985,10 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `{"schedules": "<personaId>"}` subscription. A desk from before this list
 /// sends none, and a phone must read that as "not here", never as "nothing".
 /// `threads`: the `{"thread": "<key>"}` subscription, to read two
-/// teammates' conversation.
-pub(crate) const PHONE_CAPABILITIES: &[&str] = &["personaCreate", "schedules", "threads"];
+/// teammates' conversation. `personaEdit`: `mobile.persona_update` and
+/// `persona.delete`, renaming, re-aiming and removing a teammate.
+pub(crate) const PHONE_CAPABILITIES: &[&str] =
+    &["personaCreate", "personaEdit", "schedules", "threads"];
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";

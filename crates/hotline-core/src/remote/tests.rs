@@ -530,6 +530,69 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
+/// A paired phone renames, re-aims and deletes a teammate through the real
+/// door, but `persona.update` — the patch that reaches a teammate's grants —
+/// still answers `forbidden` for that seat.
+#[tokio::test]
+async fn a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update() {
+    let h = Harness::new().await;
+    let grant = h.pair().await;
+    let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
+    read(&mut phone).await;
+
+    let request_id = Uuid::new_v4().to_string();
+    send(
+        &mut phone,
+        json!({
+            "id": 1,
+            "cmd": "mobile.persona_create",
+            "params": {"requestId": request_id, "name": "Ada"},
+        }),
+    )
+    .await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+
+    send(
+        &mut phone,
+        json!({
+            "id": 2,
+            "cmd": "persona.update",
+            "params": {"id": request_id, "patch": {"reach": "machine"}},
+        }),
+    )
+    .await;
+    let refused = read(&mut phone).await;
+    assert_eq!(refused["code"], "forbidden", "{refused}");
+
+    send(
+        &mut phone,
+        json!({
+            "id": 3,
+            "cmd": "mobile.persona_update",
+            "params": {"id": request_id, "name": "Ada Lovelace", "goal": "Chart the harbour"},
+        }),
+    )
+    .await;
+    let renamed = read(&mut phone).await;
+    assert_eq!(renamed["result"]["name"], "Ada Lovelace", "{renamed}");
+    assert_eq!(renamed["result"]["goal"], "Chart the harbour");
+    assert!(renamed["result"].get("reach").is_none());
+
+    send(
+        &mut phone,
+        json!({"id": 4, "cmd": "persona.delete", "params": {"id": request_id}}),
+    )
+    .await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+    assert!(
+        crate::room::roster(&h.desk.log)
+            .iter()
+            .all(|persona| persona.id != request_id)
+    );
+
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
 /// A paired phone reads one teammate's schedules through the real door: an
 /// empty list said out loud, each change as the whole list, a refusal for
 /// anything that would change a job or reach the room, and on reconnecting
@@ -588,7 +651,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     // list names nothing, and the phone then shows no schedules section.
     assert_eq!(
         read(&mut phone).await["capabilities"],
-        json!(["personaCreate", "schedules", "threads"])
+        json!(["personaCreate", "personaEdit", "schedules", "threads"])
     );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;

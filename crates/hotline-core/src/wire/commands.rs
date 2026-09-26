@@ -47,18 +47,12 @@ pub(crate) async fn run(
             )
             .await
         }
-        Command::PersonaCreate { draft } => create_persona(log, draft),
-        Command::PersonaUpdate { id, patch } => {
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
-            let (updated, reattaches) = update_persona(log, room, &id, &patch)?;
-            if reattaches {
-                room.reattach(&id).await?;
-            } else if patch.get("computer").is_some() {
-                room.computer_settings_changed(&id).await;
-            }
-            Ok(updated)
+        Command::MobilePersonaUpdate { id, name, goal } => {
+            let patch = mobile_persona_patch(name, goal)?;
+            apply_persona_update(log, room, &id, &patch).await
         }
+        Command::PersonaCreate { draft } => create_persona(log, draft),
+        Command::PersonaUpdate { id, patch } => apply_persona_update(log, room, &id, &patch).await,
         Command::PersonaDelete { id } => {
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
@@ -588,6 +582,47 @@ async fn mobile_persona_create(
         background_work: None,
     };
     build_persona(log, id, draft)
+}
+
+/// `mobile.persona_update`'s whole patch: only `name` and `goal` can be in
+/// it, because the command has nowhere to carry anything else. A name is
+/// trimmed and must not be blank; a goal is trimmed and may be, which
+/// clears it.
+fn mobile_persona_patch(name: Option<String>, goal: Option<String>) -> Result<Value, String> {
+    let mut patch = Map::new();
+    if let Some(name) = name {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("A teammate needs a name.".to_string());
+        }
+        patch.insert("name".into(), Value::from(name));
+    }
+    if let Some(goal) = goal {
+        patch.insert("goal".into(), Value::from(goal.trim()));
+    }
+    if patch.is_empty() {
+        return Err("Nothing to change: name a new name or goal.".to_string());
+    }
+    Ok(Value::Object(patch))
+}
+
+/// `persona.update` and `mobile.persona_update` both land here, under the
+/// policy gate, restarting a live session when the patch asks for it.
+async fn apply_persona_update(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    id: &str,
+    patch: &Value,
+) -> Result<Value, String> {
+    let gate = room.policy_update_lock();
+    let _held = gate.lock().await;
+    let (updated, reattaches) = update_persona(log, room, id, patch)?;
+    if reattaches {
+        room.reattach(id).await?;
+    } else if patch.get("computer").is_some() {
+        room.computer_settings_changed(id).await;
+    }
+    Ok(updated)
 }
 
 /// The patch over the record, and the whole record written again: a stream

@@ -2081,6 +2081,19 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         effort_id: Option<String>,
     },
+    /// A narrow edit for the phone seat: a new name, a new goal, or both,
+    /// and nothing else a patch could carry. An absent field is left as it
+    /// is; an empty goal clears it; a blank name is refused. Everything
+    /// that is a standing grant — reach, tools, servers, computer,
+    /// background work — stays behind `persona.update` at the desk.
+    #[serde(rename = "mobile.persona_update")]
+    MobilePersonaUpdate {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<String>,
+    },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is

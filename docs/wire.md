@@ -88,6 +88,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | --- | --- | --- |
 | `persona.create` | `{draft}` | the created `Persona` |
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
+| `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
@@ -660,18 +661,22 @@ reads. It may add a teammate through `mobile.persona_create`, a narrow
 create confined in core rather than by what the phone's form leaves out,
 and read `backends.list` to know which harness to offer; the full
 `persona.create` — reach, path and computer included — is still refused.
+It may rename a teammate or change its goal through `mobile.persona_update`,
+and remove one with `persona.delete`; `persona.update`, which can reach a
+teammate's grants, is refused.
 Anything else is refused with `"code": "forbidden"`.
 
 The phone's socket opens with a hello before any answer:
 
 ```json
 {"type": "hello", "protocolVersion": 1, "desktopId": "…", "mode": "team",
- "capabilities": ["personaCreate", "schedules", "threads"]}
+ "capabilities": ["personaCreate", "personaEdit", "schedules", "threads"]}
 ```
 
 `capabilities` names what this desk can do beyond protocol 1, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
-`mobile.persona_create`; `schedules` is the schedules view; `threads` is
+`mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
+`persona.delete`; `schedules` is the schedules view; `threads` is
 reading a thread between two teammates the way a tape is read. A desk from
 before one of these sends it absent, and a phone reads that as "not on this
 desk", never as "nothing there"; asked anyway, such a desk refuses the

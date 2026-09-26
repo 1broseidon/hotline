@@ -11,9 +11,14 @@
 //! ([`crate::images`]) and is kept as the JPEG that makes. Anything else is
 //! kept byte for byte, up to [`MAX_BYTES`]. No type is refused: the person
 //! opens a file by choice, and the desk never opens one on its own.
+//!
+//! User images have separate, byte-for-byte readback copies under each
+//! message's `user/<attachment index>`. Their original paths remain on the
+//! tape, but readback never reopens them: later edits are not earlier pictures.
 
-use crate::contract::{AttachmentKind, FileChunk};
+use crate::contract::{Attachment, AttachmentKind, FileChunk};
 use crate::images::{self, Unfit};
+use crate::log::{Log, StreamId};
 use crate::paths;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use serde_json::Value;
@@ -243,19 +248,154 @@ fn kept(root: &Path, persona_id: &str, event_id: &str) -> Option<PathBuf> {
     files.next().is_none().then(|| only.path())
 }
 
-/// Part of the file one message carries, from `offset`. Only a file the desk
-/// kept for a teammate's message can be read: the message's directory is
-/// the authority, and a path is never taken from the asker.
+/// The readback copy of a user image. Its original array position is part
+/// of the address; neither the attachment name nor its source path is one.
+fn user_image_path(root: &Path, persona_id: &str, event_id: &str, index: u32) -> Option<PathBuf> {
+    Some(
+        paths::sent_file_dir(root, persona_id, event_id)?
+            .join("user")
+            .join(index.to_string()),
+    )
+}
+
+/// Best-effort readback copies do not change whether a prompt is delivered.
+/// An unavailable, oversized or unrecognized source remains an attachment for
+/// the agent, but is never later reopened on behalf of a phone.
+pub(crate) fn retain_user_images(
+    root: &Path,
+    persona_id: &str,
+    event_id: &str,
+    attachments: &[Attachment],
+) {
+    for (index, attachment) in attachments.iter().enumerate() {
+        if attachment.kind != AttachmentKind::Image {
+            continue;
+        }
+        let Ok(index) = u32::try_from(index) else {
+            continue;
+        };
+        if let Err(error) = retain_user_image(root, persona_id, event_id, index, attachment) {
+            eprintln!("Could not retain user image {event_id}/{index}: {error}");
+        }
+    }
+}
+
+fn retain_user_image(
+    root: &Path,
+    persona_id: &str,
+    event_id: &str,
+    index: u32,
+    attachment: &Attachment,
+) -> io::Result<()> {
+    let invalid =
+        || io::Error::other("The image is unavailable, changed, unsupported or over 25 MiB.");
+    // Check before opening so a named pipe is not an unbounded wait. The
+    // authenticated desk chooses this source; the phone supplies upload IDs.
+    let metadata = fs::metadata(&attachment.path)?;
+    if !metadata.is_file() || metadata.len() > MAX_BYTES {
+        return Err(invalid());
+    }
+    let mut source = File::open(&attachment.path)?;
+    let before = source.metadata()?;
+    if !before.is_file()
+        || before.len() > MAX_BYTES
+        || before.len() != metadata.len()
+        || before.modified()? != metadata.modified()?
+    {
+        return Err(invalid());
+    }
+    let mut bytes = Vec::new();
+    (&mut source).take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    let after = source.metadata()?;
+    if bytes.len() as u64 != before.len()
+        || after.len() != before.len()
+        || after.modified()? != before.modified()?
+        || !images::readable(&bytes)
+    {
+        return Err(invalid());
+    }
+    let path = user_image_path(root, persona_id, event_id, index).ok_or_else(invalid)?;
+    let dir = path.parent().unwrap();
+    fs::create_dir_all(dir)?;
+    // Publish only complete copies, and never replace one already published.
+    let mut copy = tempfile::NamedTempFile::new_in(dir)?;
+    copy.write_all(&bytes)?;
+    copy.as_file().sync_all()?;
+    copy.persist_noclobber(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+/// Read authority is a message and an attachment position, never a source
+/// path. Old user events lack a send-time copy and fail closed: even matching
+/// size or MIME cannot prove their source has not since been replaced.
+pub(crate) fn read_message(
+    log: &Log,
+    persona_id: &str,
+    event_id: &str,
+    index: u32,
+    offset: i64,
+) -> Result<FileChunk, String> {
+    let missing = || "That message has no file.".to_string();
+    paths::sent_file_dir(log.root(), persona_id, event_id).ok_or_else(missing)?;
+    let tape = log
+        .try_load(&StreamId::Tape(persona_id.to_string()))
+        .map_err(|_| "That conversation could not be read.".to_string())?;
+    let event = tape.iter().find(|event| event["id"] == event_id);
+    if let Some(event) = event.filter(|event| event["kind"] == "user") {
+        let attachment = event["attachments"]
+            .as_array()
+            .and_then(|attachments| attachments.get(index as usize))
+            .ok_or_else(|| "That attachment index is outside the message.".to_string())?;
+        if attachment["kind"] != "image" {
+            return Err("That attachment is not an image.".to_string());
+        }
+        let name = attachment["name"].as_str().unwrap_or("image");
+        if attachment["size"]
+            .as_u64()
+            .is_some_and(|size| size > MAX_BYTES)
+        {
+            return Err(too_large(name, attachment["size"].as_u64()));
+        }
+        let path = user_image_path(log.root(), persona_id, event_id, index).ok_or_else(missing)?;
+        let mut chunk = read_path(&path, offset, true)?;
+        chunk.name = name.to_string();
+        return Ok(chunk);
+    }
+    if index != 0 {
+        return Err("A teammate's file has only attachment index zero.".to_string());
+    }
+    read(log.root(), persona_id, event_id, offset)
+}
+
+/// The existing teammate readback remains independent of the tape's age.
 pub(crate) fn read(
     root: &Path,
     persona_id: &str,
     event_id: &str,
     offset: i64,
 ) -> Result<FileChunk, String> {
-    let missing = || "That message has no file.".to_string();
-    let path = kept(root, persona_id, event_id).ok_or_else(missing)?;
-    let mut file = File::open(&path).map_err(|_| missing())?;
+    let path =
+        kept(root, persona_id, event_id).ok_or_else(|| "That message has no file.".to_string())?;
+    read_path(&path, offset, false)
+}
+
+fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
+    let missing = || {
+        if image_only {
+            "That image has no retained copy. Send it again to make it available.".to_string()
+        } else {
+            "That message has no file.".to_string()
+        }
+    };
+    // A copy is a regular file, not a link out of its message directory.
+    if !fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+        return Err(missing());
+    }
+    let mut file = File::open(path).map_err(|_| missing())?;
     let size = file.metadata().map_err(|_| missing())?.len();
+    if size > MAX_BYTES {
+        return Err(too_large("The file", Some(size)));
+    }
     let start = u64::try_from(offset)
         .ok()
         .filter(|start| *start <= size)
@@ -265,12 +405,18 @@ pub(crate) fn read(
         .take(32)
         .read_to_end(&mut head)
         .map_err(|error| error.to_string())?;
+    if image_only && !images::readable(&head) {
+        return Err("The retained attachment is not a supported image.".to_string());
+    }
     file.seek(SeekFrom::Start(start))
         .map_err(|error| error.to_string())?;
     let mut data = Vec::new();
-    file.take(CHUNK_BYTES)
+    file.take(CHUNK_BYTES.min(size - start))
         .read_to_end(&mut data)
         .map_err(|error| error.to_string())?;
+    if data.len() as u64 != CHUNK_BYTES.min(size - start) {
+        return Err("The kept file changed while it was being read.".to_string());
+    }
     let end = start + data.len() as u64;
     let name = path
         .file_name()
@@ -473,6 +619,67 @@ mod tests {
         // A second file beside it makes the directory no one message's.
         fs::write(path.with_file_name("other.txt"), "x").unwrap();
         assert!(read(root.path(), "ada", event, 0).is_err());
+    }
+
+    #[test]
+    fn user_image_copies_keep_their_bytes_and_cannot_be_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("picture");
+        for (index, format) in [
+            image::ImageFormat::Png,
+            image::ImageFormat::Jpeg,
+            image::ImageFormat::Gif,
+            image::ImageFormat::WebP,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut encoded = io::Cursor::new(Vec::new());
+            image::DynamicImage::new_rgb8(2, 2)
+                .write_to(&mut encoded, format)
+                .unwrap();
+            let bytes = encoded.into_inner();
+            fs::write(&path, &bytes).unwrap();
+            let attachment: Attachment = serde_json::from_value(json!({
+                "kind":"image", "name":"picture", "path":path,
+            }))
+            .unwrap();
+            let event = format!("image-{index}");
+            retain_user_image(root.path(), "ada", &event, 0, &attachment).unwrap();
+            // Even a second capture of the same address cannot overwrite it.
+            fs::write(&path, png(3, 3)).unwrap();
+            assert!(retain_user_image(root.path(), "ada", &event, 0, &attachment).is_err());
+            let kept = user_image_path(root.path(), "ada", &event, 0).unwrap();
+            let chunk = read_path(&kept, 0, true).unwrap();
+            assert_eq!(chunk.mime_type, format.to_mime_type());
+            assert_eq!(BASE64_STANDARD.decode(chunk.data).unwrap(), bytes);
+        }
+        // The cap is inclusive, and is measured from the opened file, not
+        // an optional or stale size supplied with the attachment.
+        fs::write(&path, png(2, 2)).unwrap();
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(MAX_BYTES).unwrap();
+        let attachment: Attachment = serde_json::from_value(json!({
+            "kind":"image", "name":"picture", "path":path, "size":1,
+        }))
+        .unwrap();
+        retain_user_image(root.path(), "ada", "at-cap", 0, &attachment).unwrap();
+        let chunk = read_path(
+            &user_image_path(root.path(), "ada", "at-cap", 0).unwrap(),
+            0,
+            true,
+        )
+        .unwrap();
+        assert_eq!(chunk.size, MAX_BYTES as i64);
+        assert_eq!(chunk.next, Some(CHUNK_BYTES as i64));
+        file.set_len(MAX_BYTES + 1).unwrap();
+        assert!(retain_user_image(root.path(), "ada", "over-cap", 0, &attachment).is_err());
+        assert!(
+            !user_image_path(root.path(), "ada", "over-cap", 0)
+                .unwrap()
+                .exists()
+        );
     }
 
     #[test]

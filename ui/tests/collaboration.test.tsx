@@ -4,7 +4,7 @@ import type { TranscriptEvent } from "../src/generated/contract";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { Transcript, deliveryLine, deliveryMissed, turnCauseLine, stepRuns, stepsSummary } = await import("../src/components/Transcript");
+const { Transcript, deliveryLine, deliveryMissed, peerLine, superseded, turnCauseLine, stepRuns, stepsSummary } = await import("../src/components/Transcript");
 const { Thread } = await import("../src/components/Thread");
 
 const handoff = {
@@ -44,21 +44,21 @@ describe("Ask or hand off", () => {
 		expect(runs.map((run) => run.id)).toEqual(["old-thought", "new-thought"]);
 	});
 
-	test("a handoff is quiet, inspectable and has read receipts", () => {
-		expect(deliveryLine(delivery)).toBe("Handed off from Mack · Implement the fix");
+	test("a handoff is quiet and inspectable, and says when it is still queued", () => {
+		expect(deliveryLine(delivery)).toEqual({ name: "Mack", said: "handed you: Implement the fix and report back." });
 		expect(deliveryMissed(delivery)).toBe(false);
 		const html = transcript([delivery]);
 		expect(html).toContain("<button");
-		expect(html).toContain("Handed off from Mack");
-		expect(html).toContain('aria-label="Read"');
+		expect(html).toContain("handed you: Implement the fix");
+		expect(html).not.toContain("queued");
 		expect(html).not.toContain("Linked with");
+		const queued = transcript([{ ...delivery, receipt: "sent" }]);
+		expect(queued).toContain("· queued");
+		expect(turnCauseLine([{ ...delivery, receipt: "sent" }])).toBeNull();
 	});
 
-	test("a queued handoff has a sent receipt, not a read receipt", () => {
-		const html = transcript([{ ...delivery, receipt: "sent" }]);
-		expect(html).toContain('aria-label="Sent"');
-		expect(html).not.toContain('aria-label="Read"');
-		expect(turnCauseLine([{ ...delivery, receipt: "sent" }])).toBeNull();
+	test("a quoted line reads as words, not markdown", () => {
+		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" })?.said).toBe("handed you: GET /receipts is live");
 	});
 
 	test("the inspector retains sender, request and originating reply route", () => {
@@ -101,8 +101,38 @@ describe("Ask or hand off", () => {
 
 	test("ask replies still open as answers, not handoffs", () => {
 		const answer = { ...delivery, cause: { ...handoff, kind: "peer" as const, status: "done" as const } };
-		expect(deliveryLine(answer)).toBe("Mack answered · Implement the fix");
+		expect(deliveryLine({ ...answer, text: "pong" })).toEqual({ name: "Mack", said: "pong" });
 		expect(turnCauseLine([answer])).toBe("Answering Mack");
-		expect(deliveryLine({ ...answer, cause: { ...answer.cause, status: "failed" } })).toBe("Mack didn't answer · Implement the fix");
+		expect(deliveryLine({ ...answer, cause: { ...answer.cause, status: "failed" } })).toEqual({
+			name: "Mack",
+			said: "didn't answer · Implement the fix",
+		});
+	});
+
+	const marker: Extract<TranscriptEvent, { kind: "peer" }> = {
+		kind: "peer", id: "peer-1", ts: 0, threadKey: "ada~mack", withPersonaId: "mack", withName: "Mack",
+		role: "caller", exchanges: 1, status: "done",
+	};
+
+	test("a thread is said once: as its answer when one came back", () => {
+		const answer = { ...delivery, text: "pong", cause: { ...handoff, kind: "peer" as const, status: "done" as const } };
+		expect([...superseded([marker, answer])]).toEqual(["peer-1"]);
+		expect([...superseded([{ ...marker, status: "waiting" }, answer])]).toEqual([]);
+		const html = transcript([marker, answer]);
+		expect(html).toContain("pong");
+		expect(html).not.toContain("Talked with Mack");
+		expect(peerLine(marker)).toBe("Talked with Mack");
+		expect(peerLine({ ...marker, status: "waiting" })).toBe("Waiting on Mack");
+		expect(peerLine({ ...marker, role: "target", exchanges: 3 })).toBe("Mack asked · 3 messages");
+	});
+
+	test("your answer to a card is on the card, not a line after it", () => {
+		const html = transcript([
+			{ kind: "human_action", id: "h", ts: 0, actionId: "a", reason: "Which colour?", status: "done", note: "blue" },
+			{ kind: "delivery", id: "d", ts: 1, text: "blue", cause: { kind: "answer", actionId: "a", status: "done", about: "Which colour?" } },
+		]);
+		expect(html).toContain("blue");
+		expect(html).not.toContain("Picking up your answer");
+		expect(html.match(/blue/g)?.length).toBe(1);
 	});
 });

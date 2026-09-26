@@ -8,14 +8,31 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-26
+
 ### Added
 
-- A paired phone can ask the desk to add a teammate: a name, a goal, a
-  harness, a model and an effort are all it may set, and the desk fills in
-  a fresh workspace, workspace reach, no computer and no background work —
-  the posture a phone must never widen. A retried request answers the
-  teammate already made rather than a second one. The phone's own screen
-  for this follows in a later release.
+- You can add a teammate from your phone. It may set a name, a goal and a
+  harness, and the desk gives the teammate a fresh workspace, workspace
+  reach, no computer and no background work: a phone never widens that,
+  and the desktop still can. Only a harness ready on this desk is accepted,
+  and a retried request answers the teammate already made rather than a
+  second one.
+
+### Changed
+
+- A colleague's answer reads as part of the conversation: their face,
+  their name and the start of what they said, hung under the row before
+  it. A "talked with" marker whose answer has arrived no longer shows
+  twice, and your own answer to a request stays on its card.
+
+### Fixed
+
+- A pause between two teammates that go back and forth offers live
+  controls every time, and keeping going or stopping settles both sides,
+  instead of the next pause showing up in old history with dead buttons.
+- The result of a handoff that waited on you comes back to the teammate
+  that asked for it, even if the desk restarted in between.
 
 ## [0.23.0] - 2026-09-26
 

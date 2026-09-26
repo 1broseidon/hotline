@@ -732,7 +732,7 @@ fn teammate_roster_entry(room: &Room, persona: crate::contract::Persona, caller_
     let waiting = wire::waiting_on(&tail);
     let link = crate::room::links(room.log())
         .into_iter()
-        .find(|link| link.other(caller_id).as_deref() == Some(persona.id.as_str()));
+        .find(|link| link.other(caller_id) == Some(persona.id.as_str()));
     let mut entry = json!({
         "personaId": persona.id,
         "name": persona.name,

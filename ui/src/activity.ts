@@ -110,7 +110,8 @@ const activity = (phase: ActivityPhase): Activity => ({ phase, word: WORDS[phase
  * The last thing in this turn that says what is happening: a permission
  * still waiting, or the newest tool call, running or done. Walked backwards
  * and stopped at the first answer or at the turn's start (the previous
- * turn's end, or your message), because the answer is always near the end
+ * turn's end, your message, or an answer delivered to the teammate),
+ * because the answer is always near the end
  * and this runs on every event of a live turn.
  */
 function scan(events: TranscriptEvent[]): { blocked: boolean; worked?: boolean; kind?: string | undefined } {
@@ -118,7 +119,7 @@ function scan(events: TranscriptEvent[]): { blocked: boolean; worked?: boolean; 
 		const event = events[index]!;
 		if (event.kind === "permission" && event.decision === undefined) return { blocked: true };
 		if (event.kind === "tool") return { blocked: false, worked: true, kind: event.toolKind };
-		if (event.kind === "turn" || event.kind === "user") break;
+		if (event.kind === "turn" || event.kind === "user" || event.kind === "delivery") break;
 	}
 	return { blocked: false };
 }

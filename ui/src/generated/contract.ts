@@ -268,6 +268,20 @@ export type CustomProviderDraft = { name: string, baseUrl: string, api: OpenAiAp
 secret?: string, };
 
 /**
+ * What a [`TranscriptEvent::Delivery`] answers, so a teammate juggling
+ * several can tell them apart and a seat can say why a turn began.
+ */
+export type DeliveryCause = { "kind": "peer", personaId: string, name: string, threadKey: string, status: PeerStatus, 
+/**
+ * The start of the message this answers, clipped to a line.
+ */
+about: string, } | { "kind": "answer", actionId: string, status: HumanActionStatus, 
+/**
+ * The start of the card's reason, clipped to a line.
+ */
+about: string, };
+
+/**
  * The idle effort picker's reply for one catalogue model: the levels it
  * offers and the one a teammate with none stored runs at, so the strip
  * shows before a session what the session will do.
@@ -1160,7 +1174,15 @@ elapsedMs?: number, } | { "kind": "computer_frame", id: string, ts: number, data
 /**
  * What the person said with their answer, when they said anything.
  */
-note?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+note?: string, 
+/**
+ * The asking turn did not wait: the answer comes back to the
+ * teammate as a [`TranscriptEvent::Delivery`], whenever it comes.
+ * Such a card is not orphaned by a restart or a stop, because
+ * nothing was parked on it; only the person, or a day going by,
+ * settles it. Absent on a card a tool is waiting on.
+ */
+delivers?: boolean, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
 /**
  * The name the passkey is stored under once made.
  */
@@ -1177,7 +1199,7 @@ name: string, rpId: string, origin: string, rpName?: string, userName?: string, 
  * message from outside the room must never look like one from a
  * teammate.
  */
-seat?: PeerSeat, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
+seat?: PeerSeat, } | { "kind": "delivery", id: string, ts: number, cause: DeliveryCause, text: string, receipt?: Receipt, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
 /**
  * When the run started. The line keeps its place as it is rewritten.
  */

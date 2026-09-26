@@ -89,7 +89,7 @@ export function Transcript({
 	/** A peer thread names both sides; the tape with the person does not. */
 	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
-	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
+	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
@@ -511,7 +511,7 @@ function Row({
 	run: Run;
 	speakers: Speakers | undefined;
 	onReply?(target: ReplyTarget): void;
-	onOpenThread?(event: Extract<TranscriptEvent, { kind: "peer" }>): void;
+	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;
@@ -595,6 +595,32 @@ function Row({
 				</button>
 			);
 
+		/* An answer that came back to the teammate after it moved on: a
+		 * colleague's, or yours to a card. It is the reason the turn below it
+		 * began, not something anyone said, so it is a quiet line; a
+		 * colleague's opens the thread it came from. Your answer is already
+		 * on its card. */
+		case "delivery": {
+			const cause = event.cause;
+			const style = deliveryMissed(event) ? { color: "var(--warn)" } : undefined;
+			if (cause.kind !== "peer")
+				return (
+					<p className="rule-line rule-line-plain" style={style}>
+						<span className="min-w-0 truncate">{deliveryLine(event)}</span>
+					</p>
+				);
+			return (
+				<button
+					type="button"
+					className="rule-line rule-line-plain w-full"
+					style={style}
+					onClick={() => onOpenThread?.({ threadKey: cause.threadKey, withName: cause.name })}
+				>
+					<span className="min-w-0 truncate">{deliveryLine(event)}</span>
+				</button>
+			);
+		}
+
 		/* Work the teammate handed to a subagent: one quiet line that fills
 		 * in as the run goes, the way a peer thread is one. Pressing it opens
 		 * the run in the inspector's place. */
@@ -622,6 +648,32 @@ function Row({
 }
 
 export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
+
+/** What opens a thread: a peer marker is one, and a delivery names one. */
+export type ThreadRef = { threadKey: string; withName: string };
+
+type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;
+
+/** A delivery's line: who answered, and what it answers. */
+export function deliveryLine(event: DeliveryEvent): string {
+	const cause = event.cause;
+	const what =
+		cause.kind === "peer"
+			? cause.status === "failed"
+				? `${cause.name} didn't answer`
+				: `${cause.name} answered`
+			: cause.status === "done"
+				? "Picking up your answer"
+				: cause.status === "dismissed"
+					? "You declined"
+					: "Unanswered for a day";
+	return cause.about === "" ? what : `${what} · ${cause.about}`;
+}
+
+/** Whether a delivery says something did not come back. */
+export function deliveryMissed(event: DeliveryEvent): boolean {
+	return event.cause.status === "failed" || event.cause.status === "expired";
+}
 
 /** Where a subagent's run has got to, in the words its line ends with. */
 export function subagentState(event: SubagentEvent): string {

@@ -393,6 +393,58 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
             break;
         }
     }
+    // Image uploads follow the same send-time retention path as the desk.
+    // A phone can refetch its own evicted copy, but not a user text file.
+    use base64::{Engine, prelude::BASE64_STANDARD};
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let png = png.into_inner();
+    let image_id = Uuid::new_v4();
+    send(&mut phone, json!({"id":31,"cmd":"mobile.attachment","params":{"upload":{"id":image_id,"name":"picture.png","mimeType":"image/png","size":png.len(),"offset":0,"data":BASE64_STANDARD.encode(&png)}}})).await;
+    loop {
+        let frame = read(&mut phone).await;
+        if frame["id"] == 31 {
+            assert_eq!(frame["result"]["complete"], true, "{frame}");
+            break;
+        }
+    }
+    send(&mut phone, json!({"id":32,"cmd":"mobile.prompt","params":{"operationId":Uuid::new_v4(),"personaId":persona,"text":"picture","attachmentIds":[image_id]}})).await;
+    loop {
+        let frame = read(&mut phone).await;
+        if frame["id"] == 32 {
+            assert_eq!(frame["result"]["state"], "accepted", "{frame}");
+            break;
+        }
+    }
+    let tape = h.desk.log.load(&crate::log::StreamId::Tape(persona.into()));
+    let picture = tape
+        .iter()
+        .find(|event| event["kind"] == "user" && event["text"] == "picture")
+        .unwrap();
+    // Losing the original uploaded payload does not lose readback.
+    fs::remove_file(picture["attachments"][0]["path"].as_str().unwrap()).unwrap();
+    for (request_id, event, allowed) in [(33, picture, true), (34, users[0], false)] {
+        send(&mut phone, json!({"id":request_id,"cmd":"file.read","params":{"personaId":persona,"eventId":event["id"]}})).await;
+        loop {
+            let frame = read(&mut phone).await;
+            if frame["id"] == request_id {
+                assert_eq!(frame["ok"], allowed, "{frame}");
+                if allowed {
+                    assert_eq!(frame["result"]["mimeType"], "image/png");
+                    assert_eq!(
+                        BASE64_STANDARD
+                            .decode(frame["result"]["data"].as_str().unwrap())
+                            .unwrap(),
+                        png
+                    );
+                    assert!(frame["result"].get("next").is_none());
+                }
+                break;
+            }
+        }
+    }
     h.remote.configure(false, network::ALL).await.unwrap();
     model.abort();
     task.abort();

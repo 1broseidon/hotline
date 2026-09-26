@@ -2140,7 +2140,8 @@ impl Room {
                 },
                 attachments,
             },
-        );
+        )
+        .await;
         Ok(())
     }
 
@@ -2172,7 +2173,8 @@ impl Room {
                 wire,
                 attachments: None,
             },
-        );
+        )
+        .await;
         Ok(())
     }
 
@@ -2242,8 +2244,23 @@ impl Room {
     /// The user's line onto the tape, and then the driver's turn. The order is
     /// the invariant: what was said is a fact the moment somebody said it, and
     /// a turn that fails must not lose the message that started it.
-    fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
+    async fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
         let id = new_id();
+        if let Some(attachments) = &sending.attachments {
+            let root = self.log.root().to_path_buf();
+            let persona_id = session.persona_id.clone();
+            let event_id = id.clone();
+            let attachments = attachments.clone();
+            // Keep the bytes at send time, never on the phone's first read:
+            // the source path may hold a different picture by then.
+            if let Err(error) = tokio::task::spawn_blocking(move || {
+                crate::sent::retain_user_images(&root, &persona_id, &event_id, &attachments);
+            })
+            .await
+            {
+                eprintln!("Could not retain user images for {id}: {error}");
+            }
+        }
         let ts = now_ms();
         self.append(
             session,

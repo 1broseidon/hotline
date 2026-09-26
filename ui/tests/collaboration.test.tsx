@@ -4,7 +4,7 @@ import type { TranscriptEvent } from "../src/generated/contract";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { Transcript, deliveryLine, deliveryMissed, turnCauseLine } = await import("../src/components/Transcript");
+const { Transcript, deliveryLine, deliveryMissed, turnCauseLine, stepRuns, stepsSummary } = await import("../src/components/Transcript");
 const { Thread } = await import("../src/components/Thread");
 
 const handoff = {
@@ -31,6 +31,19 @@ function transcript(events: TranscriptEvent[]): string {
 }
 
 describe("Ask or hand off", () => {
+	test("step counts belong to each run, not the whole thread", () => {
+		const events: TranscriptEvent[] = [
+			{ kind: "thought", id: "old-thought", ts: 1, text: "Earlier work" },
+			{ kind: "turn", id: "old-turn", ts: 2, stopReason: "end_turn" },
+			delivery,
+			{ kind: "thought", id: "new-thought", ts: 3, text: "New work" },
+			{ kind: "thought", id: "new-thought-2", ts: 4, text: "Another step" },
+		];
+		const runs = stepRuns(events, []);
+		expect(runs.map((run) => stepsSummary(run.items))).toEqual(["1 step", "2 steps"]);
+		expect(runs.map((run) => run.id)).toEqual(["old-thought", "new-thought"]);
+	});
+
 	test("a handoff is quiet, inspectable and has read receipts", () => {
 		expect(deliveryLine(delivery)).toBe("Handed off from Mack · Implement the fix");
 		expect(deliveryMissed(delivery)).toBe(false);

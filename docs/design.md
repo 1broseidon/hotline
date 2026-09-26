@@ -480,3 +480,38 @@ until Phase 1 replaces it.
 
 The iOS app is untouched until Phase 3 gives it a door. The old repository
 is read-only reference and is not modified by work here.
+
+### Teammate messages: ask or hand off
+
+`message_teammate(to, message, intent)` defaults to `ask`: a bounded answer or
+review in a side session with none of the recipient's main conversation. Ask
+is not tool-free: the recipient uses its own workspace and granted tools.
+`handoff` delivers into that teammate's main conversation, behind its current
+turn (or wakes it idle), to implement or continue work in its own context.
+The recipient never silently promotes an Ask. Neither intent overrides the
+person or expands the recipient's permissions.
+
+One directional collaboration approval explains and covers both intents. Old
+standing approvals remain valid for Ask, but the first Handoff requires informed
+consent. The room records that consent separately; removing authority invalidates
+queued work too. There is no room link, link/unlink tool, roster link or chapter
+link lifecycle. Old link records are inert.
+
+A room `exchange_pair` record keeps each pair's durable request queue, result,
+and message count together. A Handoff delivery retains sender, thread and
+`requestId`; its final turn result returns automatically as a correlated Peer
+delivery, even when the sender has moved on. Both intents remain readable in
+the pair's thread. Twelve automatic messages, including replies and across
+intents, pause the pair. Receipts do not count. Queued requests and completed
+results wait without loss. The person's Keep going resets the counter; Stop
+exchange settles outstanding work and writes an explicit notice. Hearing from
+the person also resets the pair. These actions do not create new grants.
+
+Restart recovery preserves paused queues and completed results. Work known to
+have started is not blindly replayed: an interrupted turn returns an explicit
+failure advising inspection before retrying. An unstarted handoff resumes from
+its saved request. This chooses at-most-once side effects over pretending that a
+crash can safely repeat arbitrary agent work. Stable delivery ids prevent a
+saved result from appearing twice. Acceptance is reported only after the request
+is saved. Storage failures are logged; startup treats any running request without a saved result as uncertain
+rather than replaying possible side effects.

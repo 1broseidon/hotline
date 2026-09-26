@@ -227,16 +227,12 @@ impl RoomHandle for CoreHandle {
         self.room.answer_human(persona_id, action_id, status, note)
     }
 
-    fn link_teammates(&self, a: &str, b: &str) -> Result<(), String> {
-        self.room.link_teammates(a, b)
+    fn stop_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.stop_exchange(a, b)
     }
 
-    fn unlink_teammates(&self, a: &str, b: &str) -> Result<(), String> {
-        self.room.unlink_teammates(a, b)
-    }
-
-    fn resume_link(&self, a: &str, b: &str) -> Result<(), String> {
-        self.room.resume_link(a, b)
+    fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.resume_exchange(a, b)
     }
 
     async fn start_fresh_chapter(
@@ -532,15 +528,11 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn link_teammates(&self, _a: &str, _b: &str) -> Result<(), String> {
+    fn stop_exchange(&self, _a: &str, _b: &str) -> Result<(), String> {
         Ok(())
     }
 
-    fn unlink_teammates(&self, _a: &str, _b: &str) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn resume_link(&self, _a: &str, _b: &str) -> Result<(), String> {
+    fn resume_exchange(&self, _a: &str, _b: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -919,7 +911,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert!(request_id.starts_with("collab:"), "{card}");
     assert_eq!(
         card["event"]["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can use its workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nBob can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
     );
 
     ask(
@@ -1619,21 +1611,16 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
     }));
 }
 
-/// Linking is the person's, from either of their seats: a phone links,
-/// unlinks and resumes a pair the same as the window.
+/// Only person seats stop or resume automatic exchanges.
 #[test]
-fn the_phone_seat_links_teammates_for_the_person() {
+fn the_phone_seat_resumes_and_stops_exchanges_for_the_person() {
     let (a, b) = ("ada".to_string(), "bob".to_string());
     for command in [
-        Command::TeammatesLink {
+        Command::TeammatesExchangeStop {
             a: a.clone(),
             b: b.clone(),
         },
-        Command::TeammatesUnlink {
-            a: a.clone(),
-            b: b.clone(),
-        },
-        Command::TeammatesLinkResume { a, b },
+        Command::TeammatesExchangeResume { a, b },
     ] {
         assert!(Seat::Desk.permits(&command), "{command:?}");
         assert!(Seat::Phone.permits(&command), "{command:?}");

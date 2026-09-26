@@ -126,15 +126,11 @@ pub trait RoomHandle: Send + Sync + 'static {
         option_id: &str,
     ) -> Result<(), String>;
 
-    /// Links two teammates for shared work. Only the person's seats reach
-    /// this; no teammate tool does.
-    fn link_teammates(&self, a: &str, b: &str) -> Result<(), String>;
+    /// Stops a pair’s queued automatic exchange.
+    fn stop_exchange(&self, a: &str, b: &str) -> Result<(), String>;
 
-    /// Ends a link between two teammates.
-    fn unlink_teammates(&self, a: &str, b: &str) -> Result<(), String>;
-
-    /// Resumes a link its cap paused.
-    fn resume_link(&self, a: &str, b: &str) -> Result<(), String>;
+    /// Resumes a pair its message cap paused.
+    fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String>;
 
     /// Answers a `request_human` card, refusing when nothing is waiting.
     fn answer_human(
@@ -493,9 +489,8 @@ impl Seat {
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
                     | Command::FileRead { .. }
-                    | Command::TeammatesLink { .. }
-                    | Command::TeammatesUnlink { .. }
-                    | Command::TeammatesLinkResume { .. }
+                    | Command::TeammatesExchangeStop { .. }
+                    | Command::TeammatesExchangeResume { .. }
             ),
         }
     }
@@ -1311,20 +1306,9 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
     let latest = preview.as_ref().map(|preview| preview.at);
     let session = room.info(&persona.id);
     let tail = previews::tail(log.root(), &persona.id);
-    let links = crate::room::links(log)
-        .into_iter()
-        .filter_map(|link| {
-            link.other(&persona.id)
-                .map(|other| crate::contract::TeammateLink {
-                    with_persona_id: other.to_string(),
-                    paused: link.paused,
-                })
-        })
-        .collect();
     json!(RosterEntry {
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),
-        links,
         session,
         preview,
         latest,
@@ -1392,8 +1376,8 @@ fn waiting_on(tail: &[Value]) -> bool {
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 open.insert(id, status == PasskeyAskStatus::Pending);
             }
-            TranscriptEvent::LinkPaused { id, status, .. } => {
-                open.insert(id, status == crate::contract::LinkPauseStatus::Pending);
+            TranscriptEvent::ExchangePaused { id, status, .. } => {
+                open.insert(id, status == crate::contract::ExchangePauseStatus::Pending);
             }
             _ => {}
         }

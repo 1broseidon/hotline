@@ -81,6 +81,11 @@ impl Scripted {
         }
     }
 
+    pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+
     pub(super) fn with_room_models(mut self) -> (Self, Arc<Mutex<Vec<ConfigChoice>>>) {
         let offered = Arc::new(Mutex::new(self.reported().models));
         self.room_models = Some(offered.clone());
@@ -237,8 +242,8 @@ pub(super) fn words(said: Vec<Said>) -> Vec<Said> {
 /// summariser gets whatever answer the test says a model gave.
 pub(super) struct Fake {
     driver: Arc<Scripted>,
-    preambles: Arc<Mutex<Vec<String>>>,
-    seeds: Arc<Mutex<Vec<Vec<Said>>>>,
+    pub(super) preambles: Arc<Mutex<Vec<String>>>,
+    pub(super) seeds: Arc<Mutex<Vec<Vec<Said>>>>,
     /// Each agent's view of its teammate and the tools it was handed, in the
     /// order the room asked for them.
     views: Arc<Mutex<Vec<Persona>>>,

@@ -187,7 +187,7 @@ fn watch(
                                     | "permission"
                                     | "human_action"
                                     | "passkey_ask"
-                                    | "link_paused"
+                                    | "exchange_paused"
                                     | "delivery"
                             )
                         ) {

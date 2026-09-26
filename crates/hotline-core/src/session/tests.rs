@@ -5425,3 +5425,50 @@ mod sent_files {
         );
     }
 }
+
+#[tokio::test]
+async fn aborted_and_revoked_handoffs_return_failure_not_success() {
+    for reason in ["aborted", "revoked"] {
+        let log = scratch(&format!("handoff-{reason}"));
+        enrol(&log, &persona("ada"));
+        enrol(&log, &persona("bob"));
+        let agents = Fake::new(Scripted::turns(vec![vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "partial".into(),
+                text: "Only partly done".into(),
+            },
+            Update::Turn {
+                stop_reason: reason.into(),
+                usage: None,
+            },
+        ]]));
+        let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+        room.allow_sender("bob", "ada").unwrap();
+        let result = crate::mcp::server::TeammateTools::new(&room, "ada")
+            .call(
+                "message_teammate",
+                &json!({
+                    "to": "bob", "message": "Do the work", "intent": "handoff"
+                }),
+            )
+            .await
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&result).unwrap();
+        let request_id = receipt["requestId"].as_str().unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(event) = room.tape("ada").into_iter().find(|event| {
+                    event["kind"] == "delivery" && event["cause"]["requestId"] == request_id
+                }) {
+                    break event;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result["cause"]["status"], "failed", "{reason}: {result}");
+        assert_eq!(result["text"], "Only partly done");
+    }
+}

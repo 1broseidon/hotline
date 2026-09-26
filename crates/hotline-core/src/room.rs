@@ -14,8 +14,8 @@
 //!   [`schedules`] is every one that is not deleted. The event's kind is
 //!   always `schedule`; a loop is the job that carries `every`.
 //!
-//! - `link` carries two teammates the person linked for shared work, `id`
-//!   being their thread's key, and [`links`] is every one not ended.
+//! - `exchange_pair` carries the durable queue and message brake for two
+//!   teammates. `session::exchanges` owns its transitions.
 //!
 //! - `models` says the room's model choices changed where no other event
 //!   shows it: a discovery refresh, a manual model id, a sign-in's account

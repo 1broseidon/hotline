@@ -67,7 +67,7 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
     let request_id = card["requestId"].as_str().unwrap().to_string();
     assert_eq!(
         card["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can use its workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nBob can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
     );
     assert_eq!(card["options"][0]["name"], "Allow this session");
     assert_eq!(card["options"][1]["name"], "Always allow Ada");
@@ -134,6 +134,7 @@ async fn collaboration_rechecks_reach_after_discovery() {
                 &target,
                 &room.capability_lease("ada"),
                 &room.capability_lease("bob"),
+                false,
             )
             .await
         })
@@ -598,6 +599,7 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
     room.start("ada").await.unwrap();
     let now = now_ms();
     let cause = DeliveryCause::Peer {
+        request_id: None,
         persona_id: "bob".to_string(),
         name: "Bob".to_string(),
         thread_key: "ada~bob".to_string(),
@@ -1475,147 +1477,4 @@ async fn a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends() {
             .all(|thread| !thread.waiting),
         "a thread whose turn ended still says somebody is waiting"
     );
-}
-
-/// Linked teammates talk in their own conversations.
-mod linked {
-    use super::*;
-    use crate::session::links::LINK_CAP;
-
-    fn send(room: &Arc<Room>, from: &str, to: &str, message: &str) -> Result<Sent, String> {
-        room.send_with_capability(from, to, message, None)
-    }
-
-    /// While linked, a message lands in the other teammate's own
-    /// conversation, and the thread keeps it; no side session is started.
-    #[tokio::test]
-    async fn a_linked_message_lands_in_the_other_teammates_own_conversation() {
-        let agents = Fake::new(Scripted::new(answers("b1", "on it")));
-        let room = room("linked", agents.clone());
-        room.link_teammates("ada", "bob").unwrap();
-        room.link_teammates("bob", "ada").unwrap();
-        assert_eq!(
-            crate::room::links(room.log()).len(),
-            1,
-            "a pair is one link"
-        );
-
-        let sent = send(&room, "ada", "bob", "take the backend\nI have mobile").unwrap();
-        assert!(sent.linked);
-        let delivery = delivered(&room, "bob", 1).await;
-        assert_eq!(delivery["cause"]["kind"], "linked");
-        assert_eq!(delivery["cause"]["personaId"], "ada");
-        assert_eq!(delivery["cause"]["about"], "take the backend");
-        assert_eq!(delivery["text"], "take the backend\nI have mobile");
-        assert!(
-            agents
-                .prompts()
-                .last()
-                .unwrap()
-                .contains("whom the person has linked with you for shared work")
-        );
-        let thread = thread_of(&room, "ada~bob");
-        assert_eq!(kinds(&thread), ["user"], "ada is the key's user side");
-        assert_eq!(thread[0]["text"], "take the backend\nI have mobile");
-        assert!(lock(&room.peers.sessions).is_empty(), "no side session");
-        assert!(
-            room.tape("ada")
-                .iter()
-                .all(|event| kind_of(event) != "delivery"),
-            "nothing comes back until bob sends something"
-        );
-
-        room.unlink_teammates("bob", "ada").unwrap();
-        let sent = send(&room, "ada", "bob", "one more").unwrap();
-        assert!(
-            !sent.linked,
-            "unlinked, a message goes to a side session again"
-        );
-        delivered(&room, "ada", 1).await;
-    }
-
-    /// Two linked teammates that go back and forth without the person pause,
-    /// both are shown a card, the next message is refused, and the person's
-    /// word resumes them counting afresh.
-    #[tokio::test]
-    async fn a_link_pauses_at_its_cap_until_the_person_resumes_it() {
-        let room = room("linked-cap", Fake::new(Scripted::new(answers("x", "ok"))));
-        room.link_teammates("ada", "bob").unwrap();
-        for turn in 0..LINK_CAP {
-            let (from, to) = if turn % 2 == 0 {
-                ("ada", "bob")
-            } else {
-                ("bob", "ada")
-            };
-            send(&room, from, to, &format!("message {turn}")).unwrap();
-        }
-        for _ in 0..300 {
-            let tapes = [room.tape("ada"), room.tape("bob")];
-            if tapes
-                .iter()
-                .all(|tape| tape.iter().any(|event| kind_of(event) == "link_paused"))
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        let link = room.link_between("ada", "bob").unwrap();
-        assert!(link.paused);
-        assert_eq!(link.exchanges, LINK_CAP);
-        let refused = send(&room, "ada", "bob", "one more").unwrap_err();
-        assert!(refused.contains("paused"), "{refused}");
-        let card = |whose: &str| {
-            room.tape(whose)
-                .into_iter()
-                .find(|event| kind_of(event) == "link_paused")
-                .expect("a pause card")
-        };
-        assert_eq!(card("ada")["status"], "pending");
-        assert_eq!(card("ada")["withPersonaId"], "bob");
-        assert_eq!(card("bob")["status"], "pending");
-
-        room.resume_link("ada", "bob").unwrap();
-        room.resume_link("ada", "bob").unwrap();
-        assert_eq!(card("ada")["status"], "resumed");
-        assert_eq!(card("bob")["status"], "resumed");
-        let link = room.link_between("ada", "bob").unwrap();
-        assert!(!link.paused);
-        assert_eq!(link.exchanges, 0);
-        assert!(send(&room, "ada", "bob", "carrying on").unwrap().linked);
-    }
-
-    /// The person speaking to either teammate counts the pair afresh, and a
-    /// chapter closing ends the link and settles a card still up.
-    #[tokio::test]
-    async fn the_person_resets_the_count_and_a_chapter_close_ends_the_link() {
-        let room = room("linked-reset", Fake::new(Scripted::new(answers("x", "ok"))));
-        room.link_teammates("ada", "bob").unwrap();
-        send(&room, "ada", "bob", "first").unwrap();
-        for _ in 0..300 {
-            if room.link_between("ada", "bob").unwrap().exchanges == 1 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        delivered(&room, "bob", 1).await;
-        room.prompt("bob", "how is it going?", None, None)
-            .await
-            .unwrap();
-        assert_eq!(room.link_between("ada", "bob").unwrap().exchanges, 0);
-
-        room.start_fresh_chapter("bob", ChapterClose::User)
-            .await
-            .unwrap();
-        assert!(room.link_between("ada", "bob").is_none());
-        assert!(!send(&room, "ada", "bob", "after").unwrap().linked);
-    }
-
-    /// Nobody links a teammate with itself, or with one that is not here.
-    #[tokio::test]
-    async fn a_link_needs_two_teammates_of_this_room() {
-        let room = room("linked-refused", Fake::new(Scripted::new(Vec::new())));
-        assert!(room.link_teammates("ada", "ada").is_err());
-        assert!(room.link_teammates("ada", "nobody").is_err());
-        assert!(room.resume_link("ada", "bob").is_err(), "not linked");
-    }
 }

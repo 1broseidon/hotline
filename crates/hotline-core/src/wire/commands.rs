@@ -232,9 +232,10 @@ pub(crate) async fn run(
             .answer_permission(&persona_id, &request_id, &option_id)
             .await
             .map(|()| Value::Null),
-        Command::TeammatesLink { a, b } => room.link_teammates(&a, &b).map(|()| Value::Null),
-        Command::TeammatesUnlink { a, b } => room.unlink_teammates(&a, &b).map(|()| Value::Null),
-        Command::TeammatesLinkResume { a, b } => room.resume_link(&a, &b).map(|()| Value::Null),
+        Command::TeammatesExchangeStop { a, b } => room.stop_exchange(&a, &b).map(|()| Value::Null),
+        Command::TeammatesExchangeResume { a, b } => {
+            room.resume_exchange(&a, &b).map(|()| Value::Null)
+        }
         Command::HumanAnswer {
             persona_id,
             action_id,

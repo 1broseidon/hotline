@@ -662,8 +662,8 @@ export function deliveryLine(event: DeliveryEvent): string {
 			? cause.status === "failed"
 				? `${cause.name} didn't answer`
 				: `${cause.name} answered`
-			: cause.kind === "linked"
-				? `From ${cause.name}`
+			: cause.kind === "handoff"
+				? `Handed off from ${cause.name}`
 				: cause.status === "done"
 					? "Picking up your answer"
 					: cause.status === "dismissed"

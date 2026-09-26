@@ -261,16 +261,12 @@ impl RoomHandle for Desk {
         self.room.answer_human(persona_id, action_id, status, note)
     }
 
-    fn link_teammates(&self, a: &str, b: &str) -> Result<(), String> {
-        self.room.link_teammates(a, b)
+    fn stop_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.stop_exchange(a, b)
     }
 
-    fn unlink_teammates(&self, a: &str, b: &str) -> Result<(), String> {
-        self.room.unlink_teammates(a, b)
-    }
-
-    fn resume_link(&self, a: &str, b: &str) -> Result<(), String> {
-        self.room.resume_link(a, b)
+    fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.resume_exchange(a, b)
     }
 
     fn info(&self, persona_id: &str) -> SessionInfo {

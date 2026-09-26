@@ -1133,6 +1133,50 @@
 		opacity: 1;
 	}
 
+	/* A colleague's answer, a handoff, or a thread still waiting on one:
+	 * hung under the row before it like a reply's steps, in the colleague's
+	 * voice, so it reads as part of the conversation rather than a rule
+	 * between its turns. */
+	.hung-line {
+		display: flex;
+		max-width: 88%;
+		min-height: 24px;
+		align-items: center;
+		gap: 7px;
+		margin: 2px 0 8px -6px;
+		padding: 2px 6px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+		text-align: left;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.hung-line:hover {
+		background: var(--fill-hover);
+	}
+	.hung-line[data-missed] {
+		color: var(--warn);
+	}
+	.hung-line .avatar {
+		flex-shrink: 0;
+	}
+	.hung-line-name {
+		font-weight: 600;
+		color: var(--ink-2);
+	}
+	.hung-line > svg {
+		flex-shrink: 0;
+		width: 12px;
+		height: 12px;
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.hung-line:hover > svg,
+	.hung-line:focus-visible > svg {
+		opacity: 1;
+	}
+
 	/* One row per step once the caption is open: a status mark, an
 	 * instrument title, and the output behind a press. */
 	.step {

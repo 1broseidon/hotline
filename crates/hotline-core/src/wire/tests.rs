@@ -1076,6 +1076,30 @@ async fn a_card_waiting_on_the_person_marks_the_row_until_it_is_answered() {
 }
 
 #[tokio::test]
+async fn an_exchange_pause_updates_the_live_roster_until_resumed_or_stopped() {
+    let (_root, log, port) = door("roster-exchange-pause");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let tape = StreamId::Tape(ada["id"].as_str().unwrap().to_string());
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+
+    for status in ["pending", "resumed", "pending", "stopped"] {
+        log.append(
+            &tape,
+            &json!({
+                "kind": "exchange_paused", "id": "pause-1", "ts": 5,
+                "withPersonaId": "mack", "withName": "Mack", "exchanges": 12,
+                "status": status,
+            }),
+        )
+        .unwrap();
+        let row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+        assert_eq!(row["event"]["waiting"], status == "pending", "{row}");
+    }
+}
+
+#[tokio::test]
 async fn the_rosters_latest_is_the_last_message_ts_and_a_tool_does_not_move_it() {
     let (_root, log, port) = door("roster-latest");
     let mut socket = desk(port).await;

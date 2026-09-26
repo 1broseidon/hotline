@@ -75,6 +75,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         request_counted: false,
         inline: false,
         started: false,
+        result_consumed: false,
     }
 }
 fn seed(room: &Room, request: Request, count: i64, paused: bool) {
@@ -120,6 +121,35 @@ async fn handoff_uses_main_context_and_returns_the_matching_request_without_anot
             .any(|s| format!("{s:?}").contains("recipient main context"))
     );
     assert_eq!(room.log.load(&StreamId::Thread("ada~bob".into())).len(), 2);
+}
+
+#[tokio::test]
+async fn aborted_or_revoked_handoff_turns_return_failure_not_success() {
+    for reason in ["aborted", "revoked"] {
+        let log = scratch(&format!("handoff-{reason}"));
+        enrol(&log, &persona("ada"));
+        enrol(&log, &persona("bob"));
+        let agents = Fake::new(Scripted::new(vec![Update::Turn {
+            stop_reason: reason.into(),
+            usage: None,
+        }]));
+        let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+        room.allow_sender("bob", "ada").unwrap();
+        let id = send(&room, "handoff").await;
+        done(&room, &id).await;
+        let answer = room
+            .tape("ada")
+            .into_iter()
+            .find(|v| v["cause"]["requestId"] == id)
+            .unwrap();
+        assert_eq!(answer["cause"]["status"], "failed", "{reason}");
+        assert!(
+            answer["text"]
+                .as_str()
+                .unwrap()
+                .contains("inspect before retrying")
+        );
+    }
 }
 
 #[tokio::test]
@@ -242,6 +272,7 @@ async fn restart_never_replays_started_work_and_delivers_an_explicit_failure() {
     request.started = true;
     request.request_counted = true;
     seed(&room, request, 1, false);
+    room.reconcile_exchanges();
     room.recover_queued_exchanges();
     done(&room, "started").await;
     assert_eq!(agents.prompts().len(), 1, "only sender hears the failure");
@@ -435,4 +466,354 @@ async fn recovery_and_the_result_worker_dispatch_a_saved_reply_only_once() {
             .count(),
         1
     );
+}
+
+// Separate drivers matter here: cancelling a peer must not cancel a person's
+// turn on another teammate, something the shared-driver Fake cannot prove.
+use crate::contract::{Attachment, Persona, Reach};
+use crate::driver::{Driver, DriverInfo};
+use crate::session::Agents;
+use std::collections::HashMap;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+use tokio::sync::{Semaphore, mpsc};
+
+struct ControlledDriver {
+    script: Scripted,
+    startup: Arc<Semaphore>,
+    updates: Arc<Semaphore>,
+    starts: AtomicUsize,
+    prompts: AtomicUsize,
+    cancels: AtomicUsize,
+}
+impl ControlledDriver {
+    fn new() -> Arc<Self> {
+        let updates = Arc::new(Semaphore::new(0));
+        Arc::new(Self {
+            script: Scripted::new(vec![
+                Update::Message {
+                    kind: MessageKind::Agent,
+                    id: "answer".into(),
+                    text: "true result".into(),
+                },
+                Update::Turn {
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                },
+            ])
+            .gated(updates.clone()),
+            startup: Arc::new(Semaphore::new(100)),
+            updates,
+            starts: AtomicUsize::new(0),
+            prompts: AtomicUsize::new(0),
+            cancels: AtomicUsize::new(0),
+        })
+    }
+    fn prompts(&self) -> usize {
+        self.prompts.load(Ordering::SeqCst)
+    }
+    fn cancels(&self) -> usize {
+        self.cancels.load(Ordering::SeqCst)
+    }
+}
+#[async_trait::async_trait]
+impl Driver for ControlledDriver {
+    async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
+        self.starts.fetch_add(1, Ordering::SeqCst);
+        self.startup.acquire().await.unwrap().forget();
+        self.script.start(persona).await
+    }
+    async fn prompt(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        self.prompts.fetch_add(1, Ordering::SeqCst);
+        self.script.prompt(text, attachments, reach).await
+    }
+    fn cancel(&self) {
+        self.cancels.fetch_add(1, Ordering::SeqCst);
+        self.script.cancel();
+    }
+    async fn set_model(&self, model: &str) -> Result<DriverInfo, String> {
+        self.script.set_model(model).await
+    }
+}
+struct ControlledAgents {
+    drivers: HashMap<String, Arc<ControlledDriver>>,
+    tools: Mutex<HashMap<String, TeammateTools>>,
+}
+#[async_trait::async_trait]
+impl Agents for ControlledAgents {
+    fn agent(
+        &self,
+        persona: &Persona,
+        _preamble: String,
+        _said: Vec<crate::driver::rig::Said>,
+        tools: TeammateTools,
+        _mcp: Vec<crate::mcp::McpServer>,
+    ) -> Result<Arc<dyn Driver>, String> {
+        lock(&self.tools).insert(persona.id.clone(), tools);
+        Ok(self.drivers[&persona.id].clone())
+    }
+    async fn complete(&self, _model: &str, _system: &str, _prompt: &str) -> Result<String, String> {
+        Err("not needed".into())
+    }
+}
+fn controlled(name: &str) -> (Arc<Room>, Arc<ControlledAgents>) {
+    let log = scratch(name);
+    let mut drivers = HashMap::new();
+    for id in ["ada", "bob", "cara"] {
+        enrol(&log, &persona(id));
+        drivers.insert(id.into(), ControlledDriver::new());
+    }
+    let agents = Arc::new(ControlledAgents {
+        drivers,
+        tools: Mutex::new(HashMap::new()),
+    });
+    (
+        Room::with_agents(log, Arc::new(DeskKeys), agents.clone()),
+        agents,
+    )
+}
+
+#[tokio::test]
+async fn delayed_boot_recovery_preserves_a_new_long_running_handoff_and_its_real_result() {
+    let (room, agents) = controlled("live-during-boot-recovery");
+    room.allow_sender("bob", "ada").unwrap();
+    let id = send(&room, "handoff").await;
+    until(|| agents.drivers["bob"].prompts() == 1).await;
+    // Cross the real startup recovery deadline, not a substitute recovery path.
+    tokio::time::sleep(Duration::from_millis(5300)).await;
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    assert_eq!(pair.requests[0].phase, Phase::Running);
+    assert!(pair.requests[0].started);
+    agents.drivers["bob"].updates.add_permits(2);
+    done(&room, &id).await;
+    let pair = room.exchange_pair("ada~bob").unwrap();
+    assert_eq!(pair.requests[0].reply, "true result");
+    assert!(!pair.requests[0].failed);
+    agents.drivers["ada"].updates.add_permits(2);
+}
+
+async fn nested_handoff(active: bool, expire_dependency_only: bool) {
+    let (room, agents) = controlled(if active {
+        if expire_dependency_only {
+            "nested-scope-active"
+        } else {
+            "nested-revoke-active"
+        }
+    } else {
+        "nested-revoke-queued"
+    });
+    room.allow_sender("bob", "ada").unwrap();
+    room.allow_sender("cara", "bob").unwrap();
+    if !active {
+        room.start("cara").await.unwrap();
+        room.prompt("cara", "person's task", None, None)
+            .await
+            .unwrap();
+        until(|| agents.drivers["cara"].prompts() == 1).await;
+    }
+    let _outer = send(&room, "ask").await;
+    until(|| agents.drivers["bob"].prompts() == 1).await;
+    // These are the actual delegated tools issued to B's side session for A.
+    let tools = lock(&agents.tools)["bob"].clone();
+    let nested = tokio::spawn(async move {
+        tools
+            .call(
+                "message_teammate",
+                &json!({"to":"cara", "message":"nested task", "intent":"handoff"}),
+            )
+            .await
+    });
+    until(|| {
+        room.exchange_pair("bob~cara")
+            .is_some_and(|p| p.requests[0].phase == Phase::Running)
+    })
+    .await;
+    if active {
+        until(|| agents.drivers["cara"].prompts() == 1).await;
+    }
+    if expire_dependency_only {
+        // Stopping A-B revokes the scoped delegated authority without changing
+        // A's room epoch. B-C's running worker must notice that dependency too.
+        room.stop_exchange("ada", "bob").unwrap();
+    } else {
+        room.invalidate("ada").unwrap();
+    }
+    until(|| room.exchange_pair("bob~cara").unwrap().requests[0].phase == Phase::Stopped).await;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), nested)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    if active {
+        assert!(agents.drivers["cara"].cancels() > 0);
+        until(|| !room.mid_turn("cara")).await;
+    } else {
+        assert_eq!(agents.drivers["cara"].cancels(), 0);
+        assert!(room.mid_turn("cara"));
+        agents.drivers["cara"].updates.add_permits(2);
+        until(|| !room.mid_turn("cara")).await;
+        assert_eq!(agents.drivers["cara"].prompts(), 1);
+    }
+}
+#[tokio::test]
+async fn three_party_revocation_refuses_a_handoff_waiting_behind_the_person() {
+    nested_handoff(false, false).await;
+}
+#[tokio::test]
+async fn three_party_revocation_cancels_only_the_active_handoff() {
+    nested_handoff(true, false).await;
+}
+#[tokio::test]
+async fn a_running_handoff_continuously_checks_its_scoped_dependency() {
+    nested_handoff(true, true).await;
+}
+
+#[tokio::test]
+async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_persons_turn() {
+    let (room, agents) = controlled("stop-dispatched-result");
+    room.allow_sender("bob", "ada").unwrap();
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "person still working", None, None)
+        .await
+        .unwrap();
+    until(|| agents.drivers["ada"].prompts() == 1).await;
+    let mut reply = saved_request("twelfth-reply", Intent::Ask, Phase::Reply);
+    reply.request_counted = true;
+    reply.reply = "queued answer".into();
+    seed(&room, reply, 11, false);
+    room.recover_queued_exchanges();
+    done(&room, "twelfth-reply").await;
+    assert!(room.exchange_pair("ada~bob").unwrap().paused);
+    assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].result_consumed);
+    room.stop_exchange("ada", "bob").unwrap();
+    assert!(room.mid_turn("ada"));
+    assert_eq!(agents.drivers["ada"].cancels(), 0);
+    agents.drivers["ada"].updates.add_permits(2);
+    until(|| !room.mid_turn("ada")).await;
+    assert_eq!(agents.drivers["ada"].prompts(), 1);
+}
+
+#[tokio::test]
+async fn stop_settles_pending_approval_and_the_next_request_does_not_wait_for_its_deadline() {
+    let (room, _) = setup("stop-pending-approval");
+    // Legacy grant triggers informed approval only for Handoff.
+    let mut bob = room.persona("bob").unwrap();
+    bob.allowed_senders.push("ada".into());
+    crate::room::append_persona(&room.log, &bob).unwrap();
+    let old = send(&room, "handoff").await;
+    until(|| {
+        room.tape("ada")
+            .iter()
+            .any(|e| e["kind"] == "permission" && e.get("decision").is_none())
+    })
+    .await;
+    room.stop_exchange("ada", "bob").unwrap();
+    let card = room
+        .tape("ada")
+        .into_iter()
+        .find(|e| e["kind"] == "permission")
+        .unwrap();
+    assert_eq!(card["decision"], "expired");
+    assert!(
+        room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_always")
+            .await
+            .is_err()
+    );
+    let next = send(&room, "ask").await;
+    tokio::time::timeout(Duration::from_secs(2), done(&room, &next))
+        .await
+        .unwrap();
+    assert_eq!(
+        room.exchange_pair("ada~bob")
+            .unwrap()
+            .requests
+            .iter()
+            .find(|r| r.id == old)
+            .unwrap()
+            .phase,
+        Phase::Stopped
+    );
+}
+
+#[tokio::test]
+async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_worker() {
+    let (room, agents) = controlled("stop-slow-peer-startup");
+    agents.drivers["bob"].startup.forget_permits(100);
+    let old = send(&room, "ask").await;
+    until(|| agents.drivers["bob"].starts.load(Ordering::SeqCst) == 1).await;
+    room.stop_exchange("ada", "bob").unwrap();
+    until(|| agents.drivers["bob"].cancels() > 0).await;
+    assert_eq!(agents.drivers["bob"].prompts(), 0);
+    assert_eq!(
+        room.exchange_pair("ada~bob")
+            .unwrap()
+            .requests
+            .iter()
+            .find(|r| r.id == old)
+            .unwrap()
+            .phase,
+        Phase::Stopped
+    );
+    until(|| lock(&room.exchange_workers).is_empty()).await;
+    agents.drivers["bob"].startup.add_permits(1);
+    agents.drivers["bob"].updates.add_permits(10);
+    agents.drivers["ada"].updates.add_permits(10);
+    let next = send(&room, "ask").await;
+    tokio::time::timeout(Duration::from_secs(2), done(&room, &next))
+        .await
+        .unwrap();
+    assert_eq!(agents.drivers["bob"].prompts(), 1);
+}
+
+#[tokio::test]
+async fn turn_admission_refuses_expired_dependency_before_the_worker_observes_it() {
+    let (room, _) = setup("handoff-admission-lease");
+    let origin = room.capability_lease("ada");
+    let delegated = room.capability_lease("bob").with_dependency(&origin);
+    seed(
+        &room,
+        saved_request("expired-at-admission", Intent::Handoff, Phase::Running),
+        1,
+        false,
+    );
+    lock(&room.exchange_leases).insert(
+        "expired-at-admission".into(),
+        (delegated, room.capability_lease("bob")),
+    );
+    origin.revoke();
+    assert!(room.begin_handoff("expired-at-admission").is_err());
+    assert!(!room.exchange_pair("ada~bob").unwrap().requests[0].started);
+}
+
+#[tokio::test]
+async fn revocation_invalidates_a_dispatched_result_waiting_behind_the_person() {
+    let (room, agents) = controlled("revoke-dispatched-result");
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "person still working", None, None)
+        .await
+        .unwrap();
+    until(|| agents.drivers["ada"].prompts() == 1).await;
+    let mut reply = saved_request("revoked-result", Intent::Ask, Phase::Reply);
+    reply.reply = "queued answer".into();
+    seed(&room, reply, 1, false);
+    room.recover_queued_exchanges();
+    done(&room, "revoked-result").await;
+    room.invalidate("bob").unwrap();
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        Phase::Stopped
+    );
+    assert_eq!(agents.drivers["ada"].cancels(), 0);
+    agents.drivers["ada"].updates.add_permits(2);
+    until(|| !room.mid_turn("ada")).await;
+    assert_eq!(agents.drivers["ada"].prompts(), 1);
 }

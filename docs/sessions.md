@@ -976,29 +976,33 @@ and never the caller. The caller may be mid-turn on its own tape while the
 exchange runs: nothing touches the caller's session until the answer is
 delivered.
 
-**Linked teammates** (`session/links.rs`). The person can link two
-teammates for shared work with `teammates.link {a, b}` (either seat; no
-teammate tool can). The link is a `link` record on the room stream, `id`
-being the pair's thread key, and each teammate's roster row carries
-`links: [{withPersonaId, paused}]`. While they are linked, `message_teammate`
-between them skips the side session: the message goes on the thread on the
-sender's side, and into the recipient's own conversation as a `delivery`
-with `cause.kind: "linked"`, so the one answering has everything it knows
-and both remember what was agreed. The tool says `"linked": true`. An
-answer is just the recipient's own `message_teammate` back.
+**Ask or hand off** (`session/exchanges.rs`). `message_teammate` takes
+`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated side
+session above; Handoff puts the request on the pair's thread and delivers
+it into the recipient's own conversation behind its current turn. The
+`handoff` cause keeps the sender, thread, and `requestId`. The recipient's
+final reply returns automatically as a correlated peer delivery, even when
+the sender has moved on. Neither intent expands the recipient's permissions.
+There is no link record, roster link, or chapter-scoped relationship.
 
-A link ends when the person unlinks the pair (`teammates.unlink`) or either
-teammate's chapter closes, so later casual messages go to a side session
-again. Messages between a linked pair are counted, and the person speaking
-to either teammate resets the count. At 12 (`LINK_CAP`) the link pauses
-behind the message that reached it: a `link_paused` card lands on both tapes
-(it counts as waiting on the person), the phone is pushed, and the next
-message between the two is refused with a sentence saying why. The count is
-taken under one lock before the tool returns, so two sends at once cannot
-slip past the cap. `teammates.link_resume` is the only thing that resumes a
-link, and it counts afresh. It is idempotent, and it is refused for a pair
-that is no longer linked. Unlinking or a pause never recalls a message
-already delivered; only the next send changes.
+The existing collaboration card now explains both intents. A legacy grant
+still permits Ask but needs informed approval before Handoff. Revocation
+stops queued work and the affected exchange without cancelling unrelated
+work the person is directing.
+
+A durable `exchange_pair` record holds the queue and count. Requests and
+replies share the twelve-message brake across intents; receipts do not
+count. At twelve, both tapes receive an `exchange_paused` card. Further
+queued requests and completed results wait without being discarded.
+`teammates.exchange_resume {a,b}` resets the count and releases them;
+`teammates.exchange_stop {a,b}` stops outstanding exchanges. Both commands
+belong to the person, on desktop or phone. Hearing from the person also
+resets the count. Stopping cannot undo side effects already performed.
+
+Restart recovers unstarted requests and saved results. Work that had begun
+but had not saved its result reports uncertainty instead of automatically
+repeating potentially side-effecting work. Stable request and delivery ids
+prevent a recovered result from being dispatched twice.
 
 A peer session is the one caller that still waits. It has no conversation of
 its own for an answer to come back into, so a colleague's side session that

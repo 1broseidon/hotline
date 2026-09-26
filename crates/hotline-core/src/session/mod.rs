@@ -3838,8 +3838,10 @@ impl Room {
                     }
                     if let Update::Turn { stop_reason, .. } = &update {
                         handoff_finished = true;
-                        handoff_failed |=
-                            matches!(stop_reason.as_str(), "failed" | "cancelled" | "canceled");
+                        handoff_failed |= matches!(
+                            stop_reason.as_str(),
+                            "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
+                        );
                     }
                     asked |= matches!(update, Update::Permission { .. });
                     self.record(&session, update, &mut in_flight, &voice);

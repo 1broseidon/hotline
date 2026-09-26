@@ -124,6 +124,35 @@ async fn handoff_uses_main_context_and_returns_the_matching_request_without_anot
 }
 
 #[tokio::test]
+async fn aborted_or_revoked_handoff_turns_return_failure_not_success() {
+    for reason in ["aborted", "revoked"] {
+        let log = scratch(&format!("handoff-{reason}"));
+        enrol(&log, &persona("ada"));
+        enrol(&log, &persona("bob"));
+        let agents = Fake::new(Scripted::new(vec![Update::Turn {
+            stop_reason: reason.into(),
+            usage: None,
+        }]));
+        let room = Room::with_agents(log, Arc::new(DeskKeys), agents);
+        room.allow_sender("bob", "ada").unwrap();
+        let id = send(&room, "handoff").await;
+        done(&room, &id).await;
+        let answer = room
+            .tape("ada")
+            .into_iter()
+            .find(|v| v["cause"]["requestId"] == id)
+            .unwrap();
+        assert_eq!(answer["cause"]["status"], "failed", "{reason}");
+        assert!(
+            answer["text"]
+                .as_str()
+                .unwrap()
+                .contains("inspect before retrying")
+        );
+    }
+}
+
+#[tokio::test]
 async fn default_ask_never_enters_or_reads_the_recipient_main_conversation() {
     let (room, agents) = setup("ask-isolated");
     room.write_value(

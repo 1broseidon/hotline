@@ -38,8 +38,8 @@
 
 use super::{Room, fold_said, lock, new_id, now_ms, timed};
 use crate::contract::{
-    DeliveryCause, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary, PermissionOption, Persona,
-    Reach, Receipt, TranscriptEvent,
+    DeliveryCause, HumanActionStatus, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary,
+    PermissionOption, Persona, Reach, Receipt, TranscriptEvent,
 };
 use crate::driver::rig::Said;
 use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, acp};
@@ -1532,7 +1532,7 @@ fn cut_off(tape: &[Value]) -> Vec<TranscriptEvent> {
 const ABOUT_MAX: usize = 120;
 
 /// The first line of a message, clipped, for a delivery to name it by.
-fn about(message: &str) -> String {
+pub(super) fn about(message: &str) -> String {
     let line = message
         .lines()
         .find(|line| !line.trim().is_empty())
@@ -1554,7 +1554,37 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
         "" => String::new(),
         about => format!(" (\"{about}\")"),
     };
+    let said = |text: &str| match text.trim() {
+        "" => String::new(),
+        note => format!(
+            " They said, word for word:\n{}",
+            crate::fence::fenced("hotline_person_note", note)
+        ),
+    };
     match cause {
+        DeliveryCause::Answer {
+            status: HumanActionStatus::Done,
+            about,
+            ..
+        } => format!(
+            "The person answered your request{}.{}",
+            named(about),
+            said(text)
+        ),
+        DeliveryCause::Answer {
+            status: HumanActionStatus::Dismissed,
+            about,
+            ..
+        } => format!(
+            "The person declined your request{}.{}",
+            named(about),
+            said(text)
+        ),
+        DeliveryCause::Answer { about, .. } => format!(
+            "Your request{} went a day without an answer and has been taken down. \
+             Ask again if you still need it.",
+            named(about)
+        ),
         DeliveryCause::Peer {
             name,
             status: PeerStatus::Failed,

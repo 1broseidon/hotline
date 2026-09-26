@@ -106,7 +106,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and waits; whatever they type with their answer comes back to you word for word. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once; their answer, and whatever they type with it, arrives later as its own message. You are not the only teammate here: `list_teammates` says who else is in this room by public name, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -168,7 +168,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             REQUEST_HUMAN,
-            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation. This call waits until they do it, they decline, or ten minutes pass, and returns whatever note they typed with their answer. Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it while you wait, so get the page that needs them on screen before you ask.",
+            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. (Answering a colleague in a private thread, the call waits up to ten minutes instead.) Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -533,8 +533,12 @@ impl TeammateTools {
                     .ok_or_else(|| {
                         "request_human needs a `reason` of at least three characters.".to_string()
                     })?;
-                room.request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
-                    .await
+                if self.peer {
+                    return room
+                        .request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
+                        .await;
+                }
+                room.ask_human(&self.persona_id, reason)
             }
             REACT => {
                 let emoji = arguments

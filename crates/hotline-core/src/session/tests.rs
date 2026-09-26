@@ -4390,12 +4390,188 @@ async fn pending_human(room: &Room, persona_id: &str) -> String {
     panic!("no pending human_action landed");
 }
 
+/// Waits for the `count`th delivery on a teammate's tape to have been heard
+/// and its turn to have ended.
+async fn heard_delivery(room: &Room, persona_id: &str, count: usize) -> Value {
+    for _ in 0..300 {
+        let tape = tape(room, persona_id);
+        let deliveries: Vec<&Value> = tape
+            .iter()
+            .filter(|event| event["kind"] == "delivery")
+            .collect();
+        if let Some(delivery) = deliveries.get(count - 1)
+            && delivery["receipt"] == "read"
+            && tape
+                .iter()
+                .skip_while(|event| event["id"] != delivery["id"])
+                .any(|event| event["kind"] == "turn")
+        {
+            return (*delivery).clone();
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{persona_id} was never handed delivery {count}")
+}
+
+/// A teammate's own session asks and moves on: the tool returns at once,
+/// and the person's answer, note and all, comes back as a delivery the
+/// agent is handed on a turn of its own.
+#[tokio::test]
+async fn request_human_returns_at_once_and_the_answer_is_delivered() {
+    let agents = Fake::new(Scripted::new(saying("a1", "on it")));
+    let room = room("human-async", agents.clone());
+    let asked = TeammateTools::new(&room, "ada")
+        .call(
+            "request_human",
+            &json!({ "reason": "Which branch should I ship?" }),
+        )
+        .await
+        .unwrap();
+    assert!(asked.starts_with("Asked."), "{asked}");
+    let action_id = pending_human(&room, "ada").await;
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .unwrap();
+    assert_eq!(card["delivers"], true);
+
+    room.answer_human(
+        "ada",
+        &action_id,
+        HumanAnswer::Done,
+        Some(" The release branch. ".to_string()),
+    )
+    .unwrap();
+    assert!(
+        room.answer_human("ada", &action_id, HumanAnswer::Declined, None)
+            .is_err(),
+        "a card is answered once"
+    );
+
+    let delivery = heard_delivery(&room, "ada", 1).await;
+    assert_eq!(delivery["cause"]["kind"], "answer");
+    assert_eq!(delivery["cause"]["actionId"], action_id.as_str());
+    assert_eq!(delivery["cause"]["status"], "done");
+    assert_eq!(delivery["cause"]["about"], "Which branch should I ship?");
+    assert_eq!(delivery["text"], "The release branch.");
+    let heard = lock(&agents.driver.prompts).clone();
+    let last = heard.last().unwrap();
+    assert!(
+        last.contains("The person answered your request (\"Which branch should I ship?\")")
+            && last.contains("The release branch."),
+        "{last}"
+    );
+    let card = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "human_action")
+        .unwrap();
+    assert_eq!(card["status"], "done");
+    assert_eq!(card["note"], "The release branch.");
+    assert_eq!(card["delivers"], true);
+}
+
+/// Nothing is parked on a card that delivers, so neither a cancelled turn nor
+/// a restart takes it down: it is still answered, and still delivered.
+#[tokio::test]
+async fn a_card_that_delivers_outlives_a_cancel_and_a_restart() {
+    let log = scratch("human-async-restart");
+    enrol(&log, &persona("ada"));
+    let room = Room::with_agents(
+        log.clone(),
+        Arc::new(DeskKeys),
+        Fake::new(Scripted::new(saying("a1", "on it"))),
+    );
+    room.start("ada").await.unwrap();
+    TeammateTools::new(&room, "ada")
+        .call("request_human", &json!({ "reason": "Tap the 2FA prompt" }))
+        .await
+        .unwrap();
+    let action_id = pending_human(&room, "ada").await;
+    room.cancel("ada").unwrap();
+    room.stop("ada").unwrap();
+    drop(room);
+
+    for expired in
+        crate::log::expire_orphaned_permissions(&log.load(&StreamId::Tape("ada".into())), now_ms())
+    {
+        log.append(&StreamId::Tape("ada".into()), &expired).unwrap();
+    }
+    let agents = Fake::new(Scripted::new(saying("a2", "thanks")));
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    assert_eq!(pending_human(&room, "ada").await, action_id);
+    room.answer_human("ada", &action_id, HumanAnswer::Declined, None)
+        .unwrap();
+    let delivery = heard_delivery(&room, "ada", 1).await;
+    assert_eq!(delivery["cause"]["status"], "dismissed");
+    assert!(
+        lock(&agents.driver.prompts)
+            .last()
+            .unwrap()
+            .contains("The person declined your request (\"Tap the 2FA prompt\").")
+    );
+}
+
+/// A card that delivers and goes a day unanswered is taken down, and the
+/// teammate that asked is told once.
+#[tokio::test]
+async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
+    let agents = Fake::new(Scripted::new(saying("a1", "ok")));
+    let room = room("human-async-stale", agents.clone());
+    room.write(
+        "ada",
+        &TranscriptEvent::HumanAction {
+            id: "human:old".to_string(),
+            ts: now_ms() - ASK_TTL - 1,
+            action_id: "old".to_string(),
+            reason: "Approve the deploy".to_string(),
+            status: HumanActionStatus::Pending,
+            note: None,
+            delivers: Some(true),
+        },
+    );
+    room.write(
+        "ada",
+        &TranscriptEvent::HumanAction {
+            id: "human:fresh".to_string(),
+            ts: now_ms(),
+            action_id: "fresh".to_string(),
+            reason: "Approve the other deploy".to_string(),
+            status: HumanActionStatus::Pending,
+            note: None,
+            delivers: Some(true),
+        },
+    );
+
+    room.expire_stale_asks(now_ms());
+    room.expire_stale_asks(now_ms());
+
+    let delivery = heard_delivery(&room, "ada", 1).await;
+    assert_eq!(delivery["cause"]["status"], "expired");
+    assert_eq!(delivery["cause"]["actionId"], "old");
+    let tape = tape(&room, "ada");
+    let status = |id: &str| {
+        tape.iter()
+            .find(|event| event["id"] == id)
+            .map(|event| event["status"].clone())
+            .unwrap()
+    };
+    assert_eq!(status("human:old"), "expired");
+    assert_eq!(status("human:fresh"), "pending");
+    assert_eq!(
+        tape.iter()
+            .filter(|event| event["kind"] == "delivery")
+            .count(),
+        1
+    );
+}
+
 /// The agent asked the person; the answer flips the same card and unblocks
-/// the tool with the sentence the agent reads.
+/// the tool with the sentence the agent reads. A colleague's side session
+/// asks this way: it has no conversation of its own to be answered in.
 #[tokio::test]
 async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
     let room = room("human-done", Fake::new(Scripted::new(vec![])));
-    let tools = TeammateTools::new(&room, "ada");
+    let tools = TeammateTools::new(&room, "ada").for_peer();
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {
@@ -4429,7 +4605,7 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
 #[tokio::test]
 async fn a_declined_human_request_carries_the_note() {
     let room = room("human-declined", Fake::new(Scripted::new(vec![])));
-    let tools = TeammateTools::new(&room, "ada");
+    let tools = TeammateTools::new(&room, "ada").for_peer();
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {
@@ -4569,7 +4745,7 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
 async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
     let room = room("human-cancel", Fake::new(Scripted::new(vec![])));
     room.start("ada").await.unwrap();
-    let tools = TeammateTools::new(&room, "ada");
+    let tools = TeammateTools::new(&room, "ada").for_peer();
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {

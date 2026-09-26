@@ -1160,6 +1160,13 @@ pub enum TranscriptEvent {
         /// What the person said with their answer, when they said anything.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// The asking turn did not wait: the answer comes back to the
+        /// teammate as a [`TranscriptEvent::Delivery`], whenever it comes.
+        /// Such a card is not orphaned by a restart or a stop, because
+        /// nothing was parked on it; only the person, or a day going by,
+        /// settles it. Absent on a card a tool is waiting on.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delivers: Option<bool>,
     },
     /// A site asked the teammate's browser to make a passkey, under an
     /// arming the person started for that site: the request waits in the
@@ -1362,6 +1369,15 @@ pub enum DeliveryCause {
         thread_key: String,
         status: PeerStatus,
         /// The start of the message this answers, clipped to a line.
+        about: String,
+    },
+    /// The person answered a `request_human` card the teammate did not wait
+    /// on, or a day went by without an answer (`expired`). `text` is the
+    /// note they typed with it, or empty.
+    Answer {
+        action_id: String,
+        status: HumanActionStatus,
+        /// The start of the card's reason, clipped to a line.
         about: String,
     },
 }

@@ -87,6 +87,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | cmd | params | result |
 | --- | --- | --- |
 | `persona.create` | `{draft}` | the created `Persona` |
+| `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
@@ -216,7 +217,22 @@ now, so a rotation or a revocation lands without a restart (see
 `backends.list` is every harness this machine can start, and the ones it
 knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always
 first. `unavailable` is absent when the row can be started here and a
-sentence naming what is missing when it cannot.
+sentence naming what is missing when it cannot. It carries only `id`, `name`,
+`description` and `unavailable`, nothing that needs a credential to read, so
+the phone seat may ask it too.
+
+`mobile.persona_create` is the phone's own narrow `persona.create`: it names
+a teammate and, optionally, a goal, a harness, a model and an effort, and
+core fills in the rest with what the phone posture must never widen — the
+workspace as reach, a fresh workspace under the data directory as `cwd`, no
+computer, no background work. `requestId` is a uuid the phone mints; it
+becomes the teammate's id, so a retry after a lost acknowledgement answers
+the teammate already made rather than making a second one. `backendId`
+defaults the way `persona.create`'s does and must otherwise name a row
+`backends.list` reports with no `unavailable`; naming anything else, an
+unparseable `requestId`, or a blank name are each refused with a sentence.
+The full `persona.create` — reach, path and computer included — stays
+desk-seat only.
 
 `welcome` is what the window's welcome pane reads in place of an empty
 room: the providers with a live credential, by name; the ACP harnesses this
@@ -640,20 +656,26 @@ three kinds of subscription — a tape, the roster, and a teammate's
 schedules. It never opens the room stream, a thread or a run, and it can
 neither make, cancel nor quiet a job. It reads a file a teammate sent with
 `file.read`, because the file is part of the conversation it already
-reads. Anything else is refused with `"code": "forbidden"`.
+reads. It may add a teammate through `mobile.persona_create`, a narrow
+create confined in core rather than by what the phone's form leaves out,
+and read `backends.list` to know which harness to offer; the full
+`persona.create` — reach, path and computer included — is still refused.
+Anything else is refused with `"code": "forbidden"`.
 
 The phone's socket opens with a hello before any answer:
 
 ```json
 {"type": "hello", "protocolVersion": 1, "desktopId": "…", "mode": "team",
- "capabilities": ["schedules"]}
+ "capabilities": ["personaCreate", "schedules", "threads"]}
 ```
 
 `capabilities` names what this desk can do beyond protocol 1, so a phone
-asks only for what the desk it reached understands. `schedules` is the
-schedules view. A desk from before the list sends no `capabilities`, and a
-phone reads that as "not on this desk", never as "nothing scheduled"; asked
-anyway, such a desk refuses the target as one it cannot read.
+asks only for what the desk it reached understands. `personaCreate` is
+`mobile.persona_create`; `schedules` is the schedules view; `threads` is
+reading a thread between two teammates the way a tape is read. A desk from
+before one of these sends it absent, and a phone reads that as "not on this
+desk", never as "nothing there"; asked anyway, such a desk refuses the
+command as forbidden or the subscription as one it cannot read.
 
 ### Pushes
 

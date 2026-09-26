@@ -27,6 +27,26 @@ pub(crate) async fn run(
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),
+        Command::MobilePersonaCreate {
+            request_id,
+            name,
+            goal,
+            backend_id,
+            model_id,
+            effort_id,
+        } => {
+            mobile_persona_create(
+                log,
+                room,
+                &request_id,
+                name,
+                goal,
+                backend_id,
+                model_id,
+                effort_id,
+            )
+            .await
+        }
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => {
             let gate = room.policy_update_lock();
@@ -436,19 +456,30 @@ fn given(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// The backend a draft takes when it names none: the room's chosen default,
+/// or Hotline Agent itself.
+fn default_backend_id(log: &Log) -> String {
+    room::settings(log)
+        .get("defaultBackendId")
+        .and_then(Value::as_str)
+        .unwrap_or(HOTLINE_BACKEND_ID)
+        .to_string()
+}
+
 /// A teammate as the previous edition's `createPersona` made one: a fresh uuid,
 /// the room's default backend, a workspace under the data directory, and
 /// every capability its policy can give.
 fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
-    let id = Uuid::new_v4().to_string();
-    let settings = room::settings(log);
-    let default_backend = settings
-        .get("defaultBackendId")
-        .and_then(Value::as_str)
-        .unwrap_or("hotline")
-        .to_string();
+    build_persona(log, Uuid::new_v4().to_string(), draft)
+}
+
+/// The write behind both `persona.create` and `mobile.persona_create`: the
+/// id is the caller's, a fresh uuid for the desk and a phone's own
+/// `requestId` for a mobile create, so a retried create finds the teammate
+/// already made instead of a second one.
+fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, String> {
     let stamped = now();
-    let backend_id = given(draft.backend_id).unwrap_or(default_backend);
+    let backend_id = given(draft.backend_id).unwrap_or_else(|| default_backend_id(log));
     // A Hotline Agent draft that leaves the model blank takes the room's
     // standing choice, so the teammate starts on what Settings named
     // rather than whichever model happens to lead the catalogue.
@@ -456,7 +487,7 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
         if backend_id != HOTLINE_BACKEND_ID {
             return None;
         }
-        crate::models::preferred_model(&settings)
+        crate::models::preferred_model(&room::settings(log))
     });
     let persona = Persona {
         node: None,
@@ -496,6 +527,67 @@ fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
     };
     room::append_persona(log, &persona)?;
     Ok(json!(persona))
+}
+
+/// `mobile.persona_create`: the phone's own narrow create. `requestId`
+/// becomes the id, so a lost acknowledgement's retry finds the teammate
+/// already made rather than making a second one. Everything the phone
+/// cannot express — reach, cwd, computer, background work — is left at
+/// [`build_persona`]'s safest default by never being named in the draft.
+#[allow(clippy::too_many_arguments)]
+async fn mobile_persona_create(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    request_id: &str,
+    name: String,
+    goal: Option<String>,
+    backend_id: Option<String>,
+    model_id: Option<String>,
+    effort_id: Option<String>,
+) -> Result<Value, String> {
+    let id = Uuid::parse_str(request_id)
+        .map_err(|_| "requestId must be a uuid.".to_string())?
+        .to_string();
+    if let Some(existing) = room::roster(log)
+        .into_iter()
+        .find(|persona| persona.id == id)
+    {
+        return Ok(json!(existing));
+    }
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("A teammate needs a name.".to_string());
+    }
+    let backend_id = given(backend_id).unwrap_or_else(|| default_backend_id(log));
+    match room
+        .backends()
+        .await
+        .into_iter()
+        .find(|backend| backend.id == backend_id)
+    {
+        None => return Err(format!("There is no harness {backend_id} on this desk.")),
+        Some(backend) if backend.unavailable.is_some() => {
+            return Err(format!(
+                "{} is not ready: {}",
+                backend.name,
+                backend.unavailable.unwrap_or_default()
+            ));
+        }
+        Some(_) => {}
+    }
+    let draft = PersonaDraft {
+        name,
+        goal,
+        team: None,
+        backend_id: Some(backend_id),
+        cwd: None,
+        reach: None,
+        model_id,
+        effort_id,
+        computer: None,
+        background_work: None,
+    };
+    build_persona(log, id, draft)
 }
 
 /// The patch over the record, and the whole record written again: a stream

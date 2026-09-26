@@ -591,8 +591,24 @@ impl RoomHandle for Quiet {
         Err(format!("There is no login {login_id}."))
     }
 
+    /// Hotline Agent, as every real room reports it, plus one harness this
+    /// desk knows of but cannot run, for the mobile create's validation to
+    /// have something to refuse.
     async fn backends(&self) -> Vec<crate::contract::BackendChoice> {
-        Vec::new()
+        vec![
+            crate::contract::BackendChoice {
+                id: "hotline".to_string(),
+                name: "Hotline Agent".to_string(),
+                description: "Built in: runs on the desk's provider keys.".to_string(),
+                unavailable: None,
+            },
+            crate::contract::BackendChoice {
+                id: "cursor".to_string(),
+                name: "Cursor".to_string(),
+                description: "An external harness.".to_string(),
+                unavailable: Some("Not signed in.".to_string()),
+            },
+        ]
     }
 
     fn skills(
@@ -1474,6 +1490,36 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     }));
     assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
     assert!(!Seat::Phone.permits(&Command::PersonaDelete { id: persona_id }));
+}
+
+/// The phone gets a narrow create of its own, and a read of what harnesses
+/// this desk can run — but never the full `persona.create`, which can name
+/// a reach, a path and a computer the phone posture must not touch.
+#[test]
+fn the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create() {
+    assert!(Seat::Phone.permits(&Command::MobilePersonaCreate {
+        request_id: "3fbb7d63-0a3e-4c6a-9c0e-8f6f8e8e6b39".to_string(),
+        name: "Ada".to_string(),
+        goal: None,
+        backend_id: None,
+        model_id: None,
+        effort_id: None,
+    }));
+    assert!(Seat::Phone.permits(&Command::BackendsList {}));
+    assert!(!Seat::Phone.permits(&Command::PersonaCreate {
+        draft: PersonaDraft {
+            name: "Ada".to_string(),
+            goal: None,
+            team: None,
+            backend_id: None,
+            cwd: None,
+            reach: None,
+            model_id: None,
+            effort_id: None,
+            computer: None,
+            background_work: None,
+        }
+    }));
 }
 
 /// A file a teammate sent is part of the conversation the phone reads, so
@@ -2475,6 +2521,123 @@ async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
         listed.iter().all(|id| id != "nope"),
         "the fixture must pick a model that does not list nope"
     );
+}
+
+/// The phone's own create builds exactly the draft it cannot express: a
+/// workspace reach, this desk's default workspace, no computer and no
+/// background work — proved by reading the fields back off the written
+/// persona, not by trusting the params the phone sent. Unknown fields the
+/// phone JSON might carry, `reach`, `cwd` and `computer` among them, are
+/// ignored on this command the same way they are on every other mobile one:
+/// none of the `Command` variants sets `deny_unknown_fields`.
+#[tokio::test]
+async fn mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express() {
+    let (root, log, port) = door("mobile-create-confined");
+    let mut socket = desk(port).await;
+    let request_id = "b1f0c8b2-1c2b-4e2a-9a3d-6e4b5b6a7c8d";
+    ask(
+        &mut socket,
+        json!({
+            "id": 1,
+            "cmd": "mobile.persona_create",
+            "params": {
+                "requestId": request_id,
+                "name": "Ada",
+                "goal": "Keep the harbour running",
+                "reach": "machine",
+                "cwd": "/etc",
+                "computer": { "enabled": true },
+            },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 1).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    let created = answer["result"].clone();
+    assert_eq!(created["id"], request_id);
+    assert_eq!(created["name"], "Ada");
+    assert_eq!(created["goal"], "Keep the harbour running");
+    assert_eq!(created["backendId"], "hotline");
+    assert!(created.get("reach").is_none(), "{created}");
+    assert!(created.get("computer").is_none(), "{created}");
+    assert_eq!(created["backgroundWork"], false);
+    assert_eq!(
+        created["cwd"],
+        json!(paths::default_workspace(&root, request_id).to_string_lossy())
+    );
+    assert_eq!(room::roster(&log).len(), 1);
+}
+
+/// A retried `requestId` after a lost acknowledgement returns the teammate
+/// already made rather than a second one.
+#[tokio::test]
+async fn a_repeated_request_id_does_not_duplicate_the_teammate() {
+    let (_root, log, port) = door("mobile-create-idempotent");
+    let mut socket = desk(port).await;
+    let request_id = "c2a1d9c3-2d3c-4f3b-8b4e-7f5c6c7b8d9e";
+    let make = json!({
+        "id": 1,
+        "cmd": "mobile.persona_create",
+        "params": { "requestId": request_id, "name": "Ada" },
+    });
+    ask(&mut socket, make.clone()).await;
+    let first = answered(&mut socket, 1).await["result"].clone();
+
+    let mut retry = make.clone();
+    retry["id"] = json!(2);
+    ask(&mut socket, retry).await;
+    let second = answered(&mut socket, 2).await["result"].clone();
+
+    assert_eq!(first, second);
+    assert_eq!(room::roster(&log).len(), 1);
+}
+
+/// A bad uuid, a blank name, an unknown backend and one `backends.list`
+/// reports unavailable are each refused with a sentence a phone can show.
+#[tokio::test]
+async fn mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready() {
+    let (_root, _log, port) = door("mobile-create-refusals");
+    let mut socket = desk(port).await;
+    for (n, params, needle) in [
+        (
+            1,
+            json!({ "requestId": "not-a-uuid", "name": "Ada" }),
+            "requestId must be a uuid",
+        ),
+        (
+            2,
+            json!({ "requestId": "d3b2e0d4-3e4d-405c-9c5f-8a6d7d8c9e0f", "name": "   " }),
+            "needs a name",
+        ),
+        (
+            3,
+            json!({
+                "requestId": "e4c3f1e5-4f5e-416d-ad6a-9b7e8e9dafa0",
+                "name": "Ada",
+                "backendId": "nope",
+            }),
+            "no harness nope",
+        ),
+        (
+            4,
+            json!({
+                "requestId": "f5d4a2f6-5a6f-427e-be7b-ac8f9fabab11",
+                "name": "Ada",
+                "backendId": "cursor",
+            }),
+            "not ready",
+        ),
+    ] {
+        ask(
+            &mut socket,
+            json!({ "id": n, "cmd": "mobile.persona_create", "params": params }),
+        )
+        .await;
+        let refused = answered(&mut socket, n).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        let error = refused["error"].as_str().unwrap();
+        assert!(error.contains(needle), "{error}");
+    }
 }
 
 #[tokio::test]

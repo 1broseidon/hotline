@@ -55,8 +55,8 @@ pub(super) async fn view(
                             .and_then(Value::as_str)
                             .and_then(crate::paths::thread_participants);
                         if let Some((a, b)) = pair
-                            && !(row_for(&log, &handle, &sender, id, &a)
-                                && row_for(&log, &handle, &sender, id, &b))
+                            && !(row_for(&log, &handle, &sender, id, a)
+                                && row_for(&log, &handle, &sender, id, b))
                         {
                             return;
                         }

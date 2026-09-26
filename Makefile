@@ -14,7 +14,7 @@ check: ui-check
 # build however green the Rust is. `bun install` is a no-op when the lockfile
 # is already satisfied.
 ui-check:
-	cd ui && bun install --frozen-lockfile && bun run typecheck
+	cd ui && bun install --frozen-lockfile && bun run typecheck && bun run test
 
 # The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
 # It runs from the shell crate, where tauri.conf.json is, and starts Vite for

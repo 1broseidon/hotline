@@ -45,6 +45,7 @@ describe("Ask or hand off", () => {
 		const html = transcript([{ ...delivery, receipt: "sent" }]);
 		expect(html).toContain('aria-label="Sent"');
 		expect(html).not.toContain('aria-label="Read"');
+		expect(turnCauseLine([{ ...delivery, receipt: "sent" }])).toBeNull();
 	});
 
 	test("the inspector retains sender, request and originating reply route", () => {

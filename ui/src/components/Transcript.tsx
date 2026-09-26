@@ -707,6 +707,8 @@ export function turnCauseLine(events: TranscriptEvent[]): string | null {
 		const event = events[index]!;
 		if (event.kind === "user" || event.kind === "turn") return null;
 		if (event.kind === "delivery") {
+			// A queued delivery must not rename the person's current turn.
+			if (event.receipt !== "read") continue;
 			const cause = event.cause;
 			return cause.kind === "answer" ? "Picking up your answer" : `Answering ${cause.name}`;
 		}

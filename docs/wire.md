@@ -239,13 +239,20 @@ choice is held against both live capability leases. An always choice appends
 the caller's stable id to the recipient's `allowedSenders` list. A workspace
 caller gets a card on first contact in each direction; an explicit Whole
 machine Hotline Agent caller does not. ACP mode and Computer access do not imply
-Whole machine authority. `list_teammates` returns only each other teammate's
-`personaId` and `name`.
+Whole machine authority. `list_teammates` returns each other teammate's
+`personaId` and `name`, plus what the roster already knows about it: `state`
+(`idle`, `working`, `waiting` or `stopped`), the running tool's title as
+`activity`, and `workingOn` (`title` — the open chapter's or the goal's,
+whichever there is — and `lastTurnAt`). Never a message's text, a working
+path, or a tool inventory.
 
 `human.answer` is the same fact for a `request_human` card: `done` or
-`declined`, with an optional `note` the agent receives word for word,
-refused when the deadline passed, the session stopped, the room restarted,
-or somebody else answered first. The tape still writes `dismissed` for a
+`declined`, with an optional `note` the agent receives word for word. A card
+that `delivers` is answered off the tape at any time until it is settled,
+across restarts, and the answer reaches the teammate as a `delivery`. A card
+a tool is waiting on (a colleague's side session asked it) is refused once
+the deadline passed, the session stopped, the room restarted, or somebody
+else answered first. The tape still writes `dismissed` for a
 decline, which is the previous edition's word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,

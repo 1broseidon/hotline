@@ -181,6 +181,28 @@ reserve space within a 256 MiB / 1,024-file limit per device, including abandone
 uploads. Files remain because tape attachments refer to their paths; retention
 cleanup, push, offline history, and mobile approval actions are later work.
 
+`file.read {personaId, eventId, index?, offset?}` reads a teammate's kept file
+or a user's retained image, never a caller-supplied path. `index` defaults to
+zero and names the original position in `attachments`, including non-images;
+a user non-image or out-of-range position is refused, and a teammate file only
+accepts zero. Chunks contain at most 512 KiB of original bytes as base64, with
+`name`, byte-sniffed `mimeType`, the whole `size`, `offset`, and `next` only
+when more bytes remain. Files over 25 MiB are refused before any chunk is sent.
+
+At prompt time the core keeps byte-for-byte copies of user PNG, JPEG, GIF and
+WebP attachments under `files/<teammate>/<message>/user/<index>`. This is a
+readback copy, not model image preparation: nothing is transcoded and the
+original attachment fields and driver input remain unchanged. Completed copies
+are published without overwriting, before the user event; source changes or
+deletion afterwards cannot change what the phone reads. A source unavailable,
+unsupported, changing during capture or over the cap is not retained, but the
+prompt still goes through. Readback then says it has no retained copy. Legacy
+user events also fail closed: their recorded path, size and MIME cannot prove
+which bytes were sent, so the core never retroactively snapshots or reopens
+those paths. Resending makes a new readback copy. No tape shape or importer
+changes are needed. Copies share the existing kept-file retention policy (no
+automatic cleanup); they are additional storage, including for phone uploads.
+
 Types are defined once in Rust with serde and the TypeScript is generated
 (ts-rs), so the window and the core cannot drift. `hotline_core::contract`
 already holds the room's types from the migration and moves over as is.

@@ -1443,6 +1443,7 @@ fn the_phone_seat_reads_a_sent_file_by_its_message() {
     assert!(Seat::Phone.permits(&Command::FileRead {
         persona_id: "ada".to_string(),
         event_id: "e1".to_string(),
+        index: None,
         offset: 0,
     }));
 }
@@ -1500,6 +1501,11 @@ async fn a_sent_file_is_read_by_its_message_a_part_at_a_time() {
             7,
             json!({ "personaId": "nobody", "eventId": "e1" }),
             "There is no teammate nobody.",
+        ),
+        (
+            8,
+            json!({ "personaId": id, "eventId": "e1", "index": 1 }),
+            "A teammate's file has only attachment index zero.",
         ),
     ] {
         ask(

@@ -490,7 +490,8 @@ pub(crate) fn fold(events: impl Iterator<Item = Value>) -> Vec<Value> {
 ///
 /// A permission with a `decision` of `null` is left alone — a decision
 /// somebody wrote is a decision. A human-action card that is no longer
-/// `pending` is the same fact.
+/// `pending` is the same fact. So is one that `delivers`: its answer goes to
+/// the tape, not to a resolver, so a restart leaves it as live as it was.
 pub fn expire_orphaned_permissions(events: &[Value], ts: i64) -> Vec<Value> {
     events
         .iter()
@@ -502,7 +503,8 @@ pub fn expire_orphaned_permissions(events: &[Value], ts: i64) -> Vec<Value> {
                 Some(Value::Object(expired))
             }
             Some("human_action")
-                if event.get("status").and_then(Value::as_str) == Some("pending") =>
+                if event.get("status").and_then(Value::as_str) == Some("pending")
+                    && event.get("delivers").and_then(Value::as_bool) != Some(true) =>
             {
                 let mut expired = event.as_object()?.clone();
                 expired.insert("ts".into(), Value::from(ts));

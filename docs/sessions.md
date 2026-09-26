@@ -811,17 +811,34 @@ fact: the agent is told the request was cancelled.
 
 `request_human` is one of Hotline's own tools, on both agent kinds. The agent
 says what it cannot do — credentials, a tap, a CAPTCHA, a question only
-the person can answer — and the call waits. A `human_action` event lands
-on the tape, id `human:<actionId>`, status `pending`. The room holds a
-oneshot by that id. `human.answer` resolves it with `done` or `declined`
+the person can answer. A `human_action` event lands on the tape, id
+`human:<actionId>`, status `pending`, and a phone is pushed.
+
+From a teammate's own session the call **returns at once** ("Asked. …") and
+the card carries `delivers: true`. Nothing is parked on it, so the turn goes
+on, and neither a cancelled turn, a stopped session nor a restart expires
+it: the orphan fold leaves a card that delivers alone. `human.answer` reads
+it off the tape, supersedes it with the outcome and the note, and hands the
+teammate a `delivery` with `cause: {kind: "answer", actionId, status,
+about}` and the note as its `text`, behind the turn in flight or on a turn
+of its own. The agent hears "The person answered your request (…)" or
+"The person declined your request (…)", then the note fenced, word for word.
+One lock settles a card once, however many answers race for it. A card that
+delivers and goes a day (`ASK_TTL`) without an answer is expired by the
+room's sweep, and the teammate is told the same way.
+
+A colleague's side session (`TeammateTools::for_peer`) has no conversation
+of its own to be answered in, so there the call still waits, as it always
+has. The room holds a oneshot by the action id. `human.answer` resolves it with `done` or `declined`
 and an optional `note`, and supersedes the card with both; declined is
 written as `dismissed`, the previous edition's word for that afterlife. The
 tool returns a sentence: "The person did it.", "The person declined.", or
 "Nobody answered in ten minutes.", and when the person typed a note it
-follows word for word: "They said: …". A card left pending when the turn
-is cancelled, the session stops or the room restarts is expired by the same
-fold that expires orphaned permission cards: the tool call is inside the
-turn, so a turn that ended is an agent that has stopped listening.
+follows word for word: "They said: …". A waiting card left pending when
+the turn is cancelled, the session stops or the room restarts is expired by
+the same fold that expires orphaned permission cards: the tool call is
+inside the turn, so a turn that ended is an agent that has stopped
+listening.
 
 A teammate with a computer is told in its preamble that the person can see
 that desktop and take it over, and to get the page that needs them on
@@ -925,7 +942,7 @@ room closes. One pending first-contact decision is held per direction.
 
 ## Peer threads
 
-A teammate asking a colleague is not a line on either tape. Three records
+A teammate asking a colleague is not a line on either tape. Four records
 come out of `message_teammate` (`session/peers.rs`):
 
 - **The thread.** `threads/<key>.jsonl`, one file per pair, belonging to
@@ -943,12 +960,38 @@ come out of `message_teammate` (`session/peers.rs`):
   two are talking and how far they have got. It lives as long as the peer
   session, which is also how far apart two exchanges may be and still be
   drawn as one line: ten minutes idle, then the session is stopped.
+- **The answer.** A `delivery` event on the sender's own tape. The tool
+  returns as soon as the message is sent (`{"sent": true, "to": …}`) and the
+  sender carries on; the exchange, including a first-contact approval, runs
+  on its own task. What came back, or why nothing did (`cause.status` is
+  `done` or `failed`), is written to the sender's tape and then handed to its
+  driver behind the turn in flight, or on a turn of its own, starting the
+  sender if it is not running. A delivery never steers into a turn. The
+  agent hears the answer fenced, as the recipient heard the message, and the
+  seats draw the event as the reason a turn began, not as a bubble.
 
-`list_teammates` is public roster metadata only — id and name,
-never anyone's conversation, session details, working path or tool inventory,
-and never the caller. The caller may be mid-turn on its own tape while the
-delivery runs: nothing here touches the caller's session, only its tape's
-marker.
+`list_teammates` is public roster metadata: id, name, and the same state a
+desk window would show — `idle`, `working`, `waiting` (on the person) or
+`stopped` — read from the roster's own `activity_on`/`waiting_on`, so it
+costs nothing beyond a tape's tail and never wakes or starts anyone. A
+working colleague's `activity` names the tool still running, and
+`workingOn` says what for: the open chapter's title once a resume has given
+it one, its goal until then, and when it last spoke. None of it is
+conversation: never a message's text, never what anyone said, never a
+working path or tool inventory, and never the caller. A teammate can check
+this before `message_teammate` to know whether a colleague is mid-turn. The
+caller may be mid-turn on its own tape while the exchange runs: nothing
+touches the caller's session until the answer is delivered.
+
+A peer session is the one caller that still waits. It has no conversation of
+its own for an answer to come back into, so a colleague's side session that
+asks a third teammate gets the reply as its tool result, as before.
+
+A delivery is heard exactly once. Its receipt goes `sent` → `read` like a
+message's, and when the room opens it hands the driver any delivery in the
+open chapter that was never read. An exchange whose peer turn died with the
+desk has its markers closed as `failed`, and if it was going within the
+last hour, the sender gets a `failed` delivery saying so.
 
 A pair is refused a second delivery while one is running (`"That thread is
 already answering."`). A teammate cannot message itself. A message is at

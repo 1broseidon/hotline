@@ -1325,7 +1325,11 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
 /// turn ending, or the session leaving thinking clears it. Only the tail is
 /// read: a tool still running is by definition near the end, and a tape is
 /// only bounded by how much has been said.
-fn activity_on(tail: &[Value], session: &SessionInfo) -> Option<String> {
+///
+/// `pub(crate)`, not private: `list_teammates` reads it the same way the
+/// roster row does, so a colleague's activity is the one the desk shows and
+/// not a second guess at it.
+pub(crate) fn activity_on(tail: &[Value], session: &SessionInfo) -> Option<String> {
     if session.state != SessionState::Thinking {
         return None;
     }
@@ -1360,7 +1364,11 @@ fn activity_on(tail: &[Value], session: &SessionInfo) -> Option<String> {
 /// by id and only each card's latest line counts. Read from the tail, like
 /// the running tool: a teammate waiting on the person has stopped to wait,
 /// so what it waits on is near the end.
-fn waiting_on(tail: &[Value]) -> bool {
+///
+/// `pub(crate)`: `list_teammates` asks the same question of a colleague's
+/// tape, so a teammate can tell a colleague is waiting on the person before
+/// interrupting them.
+pub(crate) fn waiting_on(tail: &[Value]) -> bool {
     let mut open: HashMap<String, bool> = HashMap::new();
     for event in tail {
         let Ok(event) = serde_json::from_value::<TranscriptEvent>(event.clone()) else {

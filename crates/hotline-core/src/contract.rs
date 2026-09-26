@@ -1294,6 +1294,9 @@ pub enum TranscriptEvent {
 /// before it is ever attached. That keeps one shape on the wire, keeps base64
 /// out of the transcript on disk, and means an attachment can still be opened
 /// months later from the record of the conversation that mentioned it.
+/// For phone readback the desk separately retains supported user images at
+/// send time; `file.read` selects that copy by message id and attachment index,
+/// never by `path`. Older messages without a retained copy cannot be read back.
 ///
 /// Sent by a teammate with `send_file`, the file is the desk's own copy,
 /// under `files/` in the data directory, and `path` is where that copy is. A
@@ -1994,7 +1997,7 @@ pub struct MobileAttachmentChunk {
     pub data: String,
 }
 
-/// Part of a file a teammate sent, as `file.read` answers it. `data` is
+/// Part of a kept file, as `file.read` answers it. `data` is
 /// base64 and at most 512 KiB of the file; `next` is where the next part
 /// starts, and is absent once `data` reaches the end.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -2041,13 +2044,15 @@ pub enum Command {
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },
-    /// Part of a file a teammate sent: the message `eventId` on that
-    /// teammate's tape, from `offset`. The answer is a [`FileChunk`]; a large
-    /// file is read a chunk at a time, when the person opens it.
+    /// A teammate file or a retained user image on that teammate's tape.
+    /// `index` selects the original attachment position, defaulting to zero;
+    /// teammate files accept only zero. The answer is a [`FileChunk`].
     #[serde(rename = "file.read")]
     FileRead {
         persona_id: String,
         event_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<u32>,
         #[serde(default)]
         offset: i64,
     },

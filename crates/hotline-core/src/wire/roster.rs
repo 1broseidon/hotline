@@ -47,21 +47,6 @@ pub(super) async fn view(
         tokio::select! {
             event = room_events.recv() => match event {
                 Ok(event) => {
-                    // A link names its pair by their thread's key, so a
-                    // tombstone still says whose rows to send again.
-                    if event.get("kind").and_then(Value::as_str) == Some("link") {
-                        let pair = event
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .and_then(crate::paths::thread_participants);
-                        if let Some((a, b)) = pair
-                            && !(row_for(&log, &handle, &sender, id, a)
-                                && row_for(&log, &handle, &sender, id, b))
-                        {
-                            return;
-                        }
-                        continue;
-                    }
                     if event.get("kind").and_then(Value::as_str) != Some("persona") {
                         continue;
                     }

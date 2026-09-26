@@ -22,6 +22,7 @@ pub(crate) enum Intent {
 enum Phase {
     Queued,
     Running,
+    WaitingHuman,
     Reply,
     Done,
     Stopped,
@@ -46,6 +47,13 @@ struct Request {
     started: bool,
     #[serde(default)]
     result_consumed: bool,
+    #[serde(default)]
+    human_actions: Vec<HumanGate>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct HumanGate {
+    id: String,
+    consumed: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Pair {
@@ -171,6 +179,7 @@ impl Room {
                 inline,
                 started: false,
                 result_consumed: false,
+                human_actions: vec![],
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(id.clone(), leases);
@@ -392,7 +401,13 @@ impl Room {
             else {
                 continue;
             };
-            request.phase = Phase::Reply;
+            // Only a cleanly completed turn establishes a safe suspension point.
+            // A crash or a failed turn is uncertain even if it posted a card.
+            request.phase = if !failed && request.human_actions.iter().any(|g| !g.consumed) {
+                Phase::WaitingHuman
+            } else {
+                Phase::Reply
+            };
             request.reply = reply;
             request.failed = failed;
             if let Err(error) = self.save_pair(&pair) {
@@ -401,6 +416,119 @@ impl Room {
             break;
         }
     }
+    /// Keep routing in the pair record, not the lifetime of the asking session.
+    pub(super) fn link_handoff_human(&self, persona: &str, action: &str) -> Result<(), String> {
+        let handoff = self
+            .session(persona)
+            .ok()
+            .and_then(|s| lock(&s.active_handoff).clone());
+        let Some(id) = handoff else { return Ok(()) };
+        let _guard = lock(&self.exchange_lock);
+        if !self.exchange_lease_current(&id) {
+            return Err("This handoff’s originating capability expired.".into());
+        }
+        for mut pair in self.exchange_pairs() {
+            if let Some(r) = pair
+                .requests
+                .iter_mut()
+                .find(|r| r.id == id && r.phase == Phase::Running)
+            {
+                r.human_actions.push(HumanGate {
+                    id: action.into(),
+                    consumed: false,
+                });
+                return self.save_pair(&pair);
+            }
+        }
+        Err("This handoff was stopped before it could ask the person.".into())
+    }
+
+    pub(super) fn handoff_answer(&self, persona: &str, delivery: &str) -> Option<(String, String)> {
+        let event = self
+            .tape(persona)
+            .into_iter()
+            .find(|v| v["id"] == delivery)?;
+        let TranscriptEvent::Delivery {
+            cause: DeliveryCause::Answer { action_id, .. },
+            ..
+        } = serde_json::from_value(event).ok()?
+        else {
+            return None;
+        };
+        self.exchange_pairs()
+            .iter()
+            .flat_map(|p| &p.requests)
+            .find(|r| r.to == persona && r.human_actions.iter().any(|g| g.id == action_id))
+            .map(|r| (r.id.clone(), action_id))
+    }
+
+    /// Restart loses session consent. Recheck today's directional grant before
+    /// letting an answer start another turn; an answer itself grants nothing.
+    pub(super) async fn resume_handoff_answer(
+        self: &Arc<Self>,
+        id: &str,
+        action: &str,
+    ) -> Result<(), String> {
+        let (key, request) = self
+            .exchange_pairs()
+            .into_iter()
+            .find_map(|p| {
+                p.requests
+                    .into_iter()
+                    .find(|r| r.id == id)
+                    .map(|r| (p.id, r))
+            })
+            .ok_or("Handoff disappeared")?;
+        if request.phase != Phase::WaitingHuman
+            || !self.exchange_lease_current(id)
+            || !request
+                .human_actions
+                .iter()
+                .any(|g| g.id == action && !g.consumed)
+        {
+            return Err("This handoff is no longer waiting for that answer.".into());
+        }
+        let caller = self.persona(&request.from)?;
+        let target = self.persona(&request.to)?;
+        let (a, b) = lock(&self.exchange_leases)
+            .entry(id.into())
+            .or_insert_with(|| {
+                (
+                    self.capability_lease(&caller.id).scoped(),
+                    self.capability_lease(&target.id).scoped(),
+                )
+            })
+            .clone();
+        let auth = tokio::select! {
+            biased;
+            () = peers::capabilities_expired(&a, &b) => Err("Collaboration was revoked.".into()),
+            auth = self.authorize_collaboration(&caller, &target, &a, &b, true) => auth,
+        };
+        if let Err(error) = auth {
+            self.set_exchange_reply(&key, id, error.clone(), true)?;
+            self.wake_exchange(&key);
+            return Err(error);
+        }
+        let _guard = lock(&self.exchange_lock);
+        a.check()?;
+        b.check()?;
+        let mut pair = self.exchange_pair(&key).ok_or("Exchange disappeared")?;
+        let r = pair
+            .requests
+            .iter_mut()
+            .find(|r| r.id == id && r.phase == Phase::WaitingHuman)
+            .ok_or("This handoff was stopped before its answer")?;
+        let gate = r
+            .human_actions
+            .iter_mut()
+            .find(|g| g.id == action && !g.consumed)
+            .ok_or("This answer was already consumed")?;
+        gate.consumed = true;
+        r.phase = Phase::Running;
+        r.started = true;
+        self.save_pair(&pair)
+    }
+
     // Reconcile before Room is published. The delayed recovery task must never
     // mistake work accepted by this process for an interrupted previous turn.
     pub(super) fn reconcile_exchanges(&self) {
@@ -491,7 +619,7 @@ impl Room {
             return Ok(());
         }
         if pair.paused
-            && request.phase != Phase::Running
+            && !matches!(request.phase, Phase::Running | Phase::WaitingHuman)
             && !(request.phase == Phase::Reply && request.reply_counted)
         {
             return Ok(());
@@ -573,12 +701,38 @@ impl Room {
                 }
             }
             Phase::Running => {
-                if request.intent == Intent::Handoff {
+                if request.intent == Intent::Handoff && !request.started {
                     let id = format!("handoff:{}", request.id);
                     // Only the recovery worker needs to dispatch an existing unread
                     // record; live dispatch is tracked by the session's pending ids.
                     if !self.handoff_queued(&request.to, &id) {
                         self.dispatch_handoff(key, &request).await?;
+                    }
+                }
+            }
+            Phase::WaitingHuman => {
+                // The card is durable before dispatch. Repair an answer saved
+                // just before the desk stopped, without replaying an old turn.
+                for gate in request.human_actions.iter().filter(|g| !g.consumed) {
+                    if let Some(TranscriptEvent::HumanAction {
+                        reason,
+                        status,
+                        note,
+                        ..
+                    }) = self.human_card(&request.to, &gate.id)
+                        && status != crate::contract::HumanActionStatus::Pending
+                    {
+                        self.deliver_identified(
+                            &request.to,
+                            &format!("human-answer:{}", gate.id),
+                            DeliveryCause::Answer {
+                                action_id: gate.id.clone(),
+                                status,
+                                about: peers::about(&reason),
+                            },
+                            note.unwrap_or_default(),
+                        )
+                        .await?;
                     }
                 }
             }

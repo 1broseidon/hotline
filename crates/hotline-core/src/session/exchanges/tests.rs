@@ -78,6 +78,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         inline: false,
         started: false,
         result_consumed: false,
+        human_actions: vec![],
     }
 }
 fn seed(room: &Room, request: Request, count: i64, paused: bool) {
@@ -838,4 +839,280 @@ async fn revocation_invalidates_a_dispatched_result_waiting_behind_the_person() 
     agents.drivers["ada"].updates.add_permits(2);
     until(|| !room.mid_turn("ada")).await;
     assert_eq!(agents.drivers["ada"].prompts(), 1);
+}
+
+/// Drive the real handoff and request_human handlers, stopping only the fake
+/// model's updates so the tool call happens inside its actual handoff turn.
+async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
+    let log = scratch(name);
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::new(vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "waiting".into(),
+                text: "Waiting for the person".into(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ])
+        .gated(gate.clone()),
+    );
+    let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    room.allow_sender("bob", "ada").unwrap();
+    let id = send(&room, "handoff").await;
+    until(|| agents.prompts().len() == 1).await;
+    TeammateTools::new(&room, "bob")
+        .call("request_human", &json!({"reason":"Approve the deployment"}))
+        .await
+        .unwrap();
+    let action = room
+        .tape("bob")
+        .iter()
+        .find(|v| v["kind"] == "human_action")
+        .unwrap()["actionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    gate.add_permits(2);
+    until(|| {
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
+            && !room.mid_turn("bob")
+    })
+    .await;
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|v| v["cause"]["requestId"] != id),
+        "waiting is not a final result"
+    );
+    (room, id, action)
+}
+
+fn restart_human_room(old: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {
+    let log = old.log.clone();
+    drop(old);
+    let agents = Fake::new(Scripted::new(vec![
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "finished".into(),
+            text: "Finished after the human answer".into(),
+        },
+        Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        },
+    ]));
+    (
+        Room::with_agents(log, Arc::new(DeskKeys), agents.clone()),
+        agents,
+    )
+}
+
+#[tokio::test]
+async fn a_human_gated_handoff_routes_its_final_result_after_restart_for_done_and_declined() {
+    for answer in [
+        crate::contract::HumanAnswer::Done,
+        crate::contract::HumanAnswer::Declined,
+    ] {
+        let (old, id, action) = suspended_handoff("human-handoff-restart").await;
+        let (room, agents) = restart_human_room(old);
+        room.recover_exchanges().await;
+        assert!(
+            agents.prompts().is_empty(),
+            "no old work is replayed while waiting"
+        );
+        room.answer_human("bob", &action, answer, Some("operator note".into()))
+            .unwrap();
+        done(&room, &id).await;
+        until(|| agents.prompts().len() == 2).await;
+        let result = room
+            .tape("ada")
+            .into_iter()
+            .find(|v| v["cause"]["requestId"] == id)
+            .unwrap();
+        assert_eq!(result["text"], "Finished after the human answer");
+        assert_eq!(result["cause"]["status"], "done");
+        assert!(agents.prompts()[0].contains("operator note"));
+        assert!(!agents.prompts()[0].contains("work handoff"));
+        room.recover_exchanges().await;
+        assert_eq!(
+            room.tape("ada")
+                .iter()
+                .filter(|v| v["cause"]["requestId"] == id)
+                .count(),
+            1
+        );
+        assert!(
+            room.answer_human("bob", &action, crate::contract::HumanAnswer::Done, None)
+                .is_err()
+        );
+        assert_eq!(room.exchange_pair("ada~bob").unwrap().exchanges, 2);
+    }
+}
+
+#[tokio::test]
+async fn a_saved_human_answer_recovers_the_gap_before_delivery() {
+    for paused in [false, true] {
+        let (old, id, action) = suspended_handoff("human-answer-dispatch-gap").await;
+        if paused {
+            let mut pair = old.exchange_pair("ada~bob").unwrap();
+            pair.exchanges = EXCHANGE_CAP;
+            pair.paused = true;
+            old.save_pair(&pair).unwrap();
+        }
+        old.supersede_human(
+            "bob",
+            &action,
+            crate::contract::HumanActionStatus::Done,
+            Some("saved answer".into()),
+        );
+        let (room, agents) = restart_human_room(old);
+        room.recover_exchanges().await;
+        if paused {
+            until(|| room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply)
+                .await;
+            assert_eq!(
+                agents.prompts().len(),
+                1,
+                "the existing work continues, but its automatic reply waits at the cap"
+            );
+            room.resume_exchange("ada", "bob").unwrap();
+        }
+        done(&room, &id).await;
+        until(|| agents.prompts().len() == 2).await;
+        assert!(agents.prompts()[0].contains("saved answer"));
+    }
+}
+
+#[tokio::test]
+async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
+    for revoke in [false, true] {
+        let (old, id, action) = suspended_handoff("human-handoff-cancel").await;
+        let (room, agents) = restart_human_room(old);
+        if revoke {
+            room.invalidate("bob").unwrap();
+        } else {
+            room.stop_exchange("ada", "bob").unwrap();
+        }
+        room.answer_human("bob", &action, crate::contract::HumanAnswer::Done, None)
+            .unwrap();
+        room.recover_exchanges().await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(agents.prompts().is_empty());
+        assert_eq!(
+            room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+            Phase::Stopped
+        );
+        assert!(
+            room.tape("ada")
+                .iter()
+                .any(|v| v["id"] == format!("exchange-ended:{id}"))
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_human_answer_does_not_replace_collaboration_consent_after_restart() {
+    let (old, id, action) = suspended_handoff("human-handoff-denied").await;
+    // Model a session-only approval: neither a standing sender nor informed
+    // standing consent is available to the new process.
+    let mut target = old.persona("bob").unwrap();
+    target.allowed_senders.clear();
+    crate::room::append_persona(&old.log, &target).unwrap();
+    old.forget_informed_collaboration("bob");
+    let mut caller = old.persona("ada").unwrap();
+    caller.reach = Some(crate::contract::Reach::Workspace);
+    crate::room::append_persona(&old.log, &caller).unwrap();
+    let (room, agents) = restart_human_room(old);
+    room.answer_human("bob", &action, crate::contract::HumanAnswer::Done, None)
+        .unwrap();
+    until(|| {
+        room.tape("ada")
+            .iter()
+            .any(|v| v["kind"] == "permission" && v.get("decision").is_none())
+    })
+    .await;
+    assert!(
+        agents.prompts().is_empty(),
+        "human approval grants no collaboration authority"
+    );
+    let card = room
+        .tape("ada")
+        .into_iter()
+        .find(|v| v["kind"] == "permission" && v.get("decision").is_none())
+        .unwrap();
+    room.answer_permission("ada", card["requestId"].as_str().unwrap(), "deny")
+        .await
+        .unwrap();
+    done(&room, &id).await;
+    let result = room
+        .tape("ada")
+        .into_iter()
+        .find(|v| v["cause"]["requestId"] == id)
+        .unwrap();
+    assert_eq!(result["cause"]["status"], "failed");
+    assert!(room.tape("bob").iter().all(|v| v["id"] != "finished"));
+}
+
+#[tokio::test]
+async fn restart_does_not_replay_an_interrupted_human_answer_turn() {
+    let (old, id, action) = suspended_handoff("human-answer-interrupted").await;
+    let log = old.log.clone();
+    drop(old);
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let agents = Fake::new(
+        Scripted::new(vec![Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        }])
+        .gated(gate),
+    );
+    let active = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+    active
+        .answer_human("bob", &action, crate::contract::HumanAnswer::Done, None)
+        .unwrap();
+    until(|| agents.prompts().len() == 1).await;
+    // A crash snapshot while the answer turn has started but produced no
+    // update (not even a read receipt). No concurrent writers share a log.
+    let snapshot = scratch("human-answer-crash-snapshot");
+    for stream in [
+        StreamId::Room,
+        StreamId::Tape("ada".into()),
+        StreamId::Tape("bob".into()),
+        StreamId::Thread("ada~bob".into()),
+    ] {
+        for event in active.log.load(&stream) {
+            snapshot.append(&stream, &event).unwrap();
+        }
+    }
+    active.stop_exchange("ada", "bob").unwrap();
+    let agents = Fake::new(Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".into(),
+        usage: None,
+    }]));
+    let room = Room::with_agents(snapshot, Arc::new(DeskKeys), agents.clone());
+    room.recover_exchanges().await;
+    done(&room, &id).await;
+    until(|| agents.prompts().len() == 1).await;
+    let result = room
+        .tape("ada")
+        .into_iter()
+        .find(|v| v["cause"]["requestId"] == id)
+        .unwrap();
+    assert_eq!(result["cause"]["status"], "failed");
+    assert!(
+        result["text"]
+            .as_str()
+            .unwrap()
+            .contains("inspect before retrying")
+    );
+    assert!(
+        agents.prompts()[0].contains("inspect before retrying"),
+        "only the caller hears the uncertainty; the recipient's answer turn is not replayed"
+    );
 }

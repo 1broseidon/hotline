@@ -10,6 +10,10 @@ pub(crate) enum Kind {
     RateLimit,
     Quota,
     Auth,
+    /// An ACP harness's own sign-in — Claude Code's, Codex's — is gone or
+    /// expired. Nothing in Hotline's Settings fixes it; the harness's login
+    /// does.
+    AgentAuth,
     Context,
     Replay,
     Configuration,
@@ -157,6 +161,25 @@ impl Failure {
         } else {
             Kind::Unknown
         };
+        // A harness that lost its sign-in says so in its own words, and ACP's
+        // `auth_required` is code -32000. Either way it is the harness's
+        // login that has to run again, not a Hotline credential.
+        let kind = if phase.starts_with("acp")
+            && (kind == Kind::Auth
+                || contains(&[
+                    "auth_required",
+                    "authentication required",
+                    "authentication_failed",
+                    "failed to authenticate",
+                    "oauth session expired",
+                    "not logged in",
+                    "please run /login",
+                    "\"code\":-32000",
+                ])) {
+            Kind::AgentAuth
+        } else {
+            kind
+        };
         let retry_after_seconds = value.as_ref().and_then(|value| retry_hint(value, 0));
         let mut failure = Self {
             kind,
@@ -202,6 +225,10 @@ impl Failure {
             Kind::Auth => (
                 "Provider sign-in required",
                 "The provider refused this connection. Check its credentials in Settings.",
+            ),
+            Kind::AgentAuth => (
+                "Agent sign-in expired",
+                "This teammate's harness is signed out. Sign in to it again on the computer running Hotline, then send another message.",
             ),
             Kind::Context => (
                 "Context limit reached",
@@ -429,6 +456,37 @@ mod tests {
             assert_eq!(failure.kind, kind);
             assert!(failure.retry_delay(0).is_none());
         }
+    }
+
+    /// Claude Code's expired OAuth, as it reached a phone, and ACP's own
+    /// `auth_required`, are the harness's sign-in; a provider's 401 outside
+    /// an ACP session stays a Hotline credential.
+    #[test]
+    fn a_harness_that_lost_its_sign_in_is_told_apart_from_a_provider_key() {
+        let expired = Failure::classify(
+            r#"Internal error: Failed to authenticate: OAuth session expired and could not be refreshed: {
+  "errorKind": "authentication_failed"
+} The backend said: [session/create] sessionId=f1333926 phase=models durationMs=1"#,
+            None,
+            "acp_prompt",
+        );
+        assert_eq!(expired.kind, Kind::AgentAuth);
+        assert_eq!(expired.title, "Agent sign-in expired");
+        assert!(expired.retry_delay(0).is_none());
+        let required = Failure::classify(
+            r#"The agent would not open a session: {"code":-32000,"message":"Authentication required"}"#,
+            None,
+            "acp_start",
+        );
+        assert_eq!(required.kind, Kind::AgentAuth);
+        let provider = Failure::classify(
+            r#"{"error":{"code":"invalid_api_key"}}"#,
+            Some(401),
+            "request",
+        );
+        assert_eq!(provider.kind, Kind::Auth);
+        let other = Failure::classify("Internal error: tool crashed", None, "acp_prompt");
+        assert_eq!(other.kind, Kind::Acp);
     }
 
     #[test]

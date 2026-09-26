@@ -53,6 +53,8 @@ export function Conversation({
 	onPick,
 	onOpenThread,
 	onOpenSubagent,
+	onOpenWork,
+	workOpen,
 	models,
 	onSaid,
 }: {
@@ -75,6 +77,10 @@ export function Conversation({
 	onPick(personaId: string, eventId: string): void;
 	onOpenThread(thread: OpenThread): void;
 	onOpenSubagent(run: OpenSubagent): void;
+	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
+	onOpenWork(blockId: string | null): void;
+	/** Which turn's work is open beside it, if any. */
+	workOpen: string | null | undefined;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -336,6 +342,8 @@ export function Conversation({
 						})
 					}
 					onOpenSubagent={(event) => onOpenSubagent({ runId: event.runId, title: event.title })}
+					onOpenWork={onOpenWork}
+					workOpen={workOpen}
 				/>
 				{untouched && (
 					<div className="relative shrink-0 px-6">

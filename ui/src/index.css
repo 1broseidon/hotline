@@ -1774,6 +1774,49 @@
 		width: 320px;
 		flex-shrink: 0;
 	}
+	/* A turn's work beside the conversation: wider than the inspector, and a
+	 * window rather than a page, so it sits a step down in the well with
+	 * the steps in the instrument voice, following the newest. */
+	.work-pane {
+		width: 400px;
+	}
+	.work-window {
+		min-height: 0;
+		flex: 1;
+		overflow-y: auto;
+		margin: 0 8px 8px;
+		padding: 8px 4px;
+		border-radius: var(--radius-card);
+		background: var(--well);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.work-window .step {
+		align-items: flex-start;
+	}
+	.work-window .step-mark {
+		margin-top: 7px;
+	}
+	.work-window .step-title {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.work-window .step-out {
+		margin-left: 22px;
+		background: var(--canvas);
+	}
+	.work-empty {
+		padding: 24px 12px;
+		text-align: center;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-3);
+	}
+	.work-newest {
+		position: absolute;
+		bottom: 20px;
+		left: 50%;
+		transform: translateX(-50%);
+	}
 	/* The inspector takes the conversation's place once the conversation
 	 * beside it would be narrower than its band: 716px of main is a 980px
 	 * window beside a rail at its usual width, and it holds wherever the rail

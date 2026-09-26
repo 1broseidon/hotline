@@ -79,6 +79,8 @@ export function Transcript({
 	onOpenThread,
 	onOpenSubagent,
 	onOpenScreen,
+	onOpenWork,
+	workOpen,
 }: {
 	personaId: string;
 	name: string;
@@ -95,6 +97,14 @@ export function Transcript({
 	onOpenSubagent?(event: SubagentEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
+	/**
+	 * Opens a turn's work in the pane beside the conversation: a run of
+	 * steps by its block id, or `null` for the turn running now. Without it
+	 * the steps open in place, as a thread or a run draws them.
+	 */
+	onOpenWork?(blockId: string | null): void;
+	/** What the work pane is showing, so its caption reads as open. */
+	workOpen?: string | null | undefined;
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	/* Following the conversation is the default and stays true until you
@@ -217,7 +227,12 @@ export function Transcript({
 						<div key={id} data-event-id={id}>
 							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
 							{block.kind === "steps" ? (
-								<Steps items={block.items} live={live && index === blocks.length - 1} shown={workShown} />
+								<Steps
+									items={block.items}
+									live={live && index === blocks.length - 1}
+									shown={workShown}
+									{...(onOpenWork !== undefined ? { onOpen: () => onOpenWork(block.id), open: workOpen === block.id } : {})}
+								/>
 							) : (
 								<Row
 									personaId={personaId}
@@ -245,9 +260,9 @@ export function Transcript({
 						type="button"
 						className="ambient-mark"
 						data-sleeping={sleeping || undefined}
-						aria-expanded={workShown}
-						title={workShown ? "Hide the work" : "Show the work"}
-						onClick={() => setWorkShown((was) => !was)}
+						aria-expanded={onOpenWork !== undefined ? workOpen === null : workShown}
+						title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
+						onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
 					>
 						<Glyph phase={activity.phase} />
 						{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
@@ -744,37 +759,92 @@ function runWords(ms: number): string {
 /**
  * The machinery between two messages, as one caption: a count, closed
  * until you open it. While the agent is still on it there is no caption at
- * all — the typing bubble is the caption — and the rows show only if you
- * pressed that bubble to see the work.
+ * all — the typing bubble is the caption. In a conversation the caption
+ * opens the work in the pane beside it (`onOpen`); in a thread or a run it
+ * opens in place, and the live rows show only if you pressed the bubble.
  */
-function Steps({ items, live, shown }: { items: Step[]; live: boolean; shown: boolean }) {
+function Steps({
+	items,
+	live,
+	shown,
+	onOpen,
+	open: paneOpen,
+}: {
+	items: Step[];
+	live: boolean;
+	shown: boolean;
+	onOpen?(): void;
+	open?: boolean;
+}) {
 	const [toggled, setToggled] = useState(false);
-	const open = live ? shown : toggled;
+	const inPane = onOpen !== undefined;
+	const open = inPane ? false : live ? shown : toggled;
+	const summary = stepsSummary(items);
 	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
-	const summary = `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
 
 	return (
 		<div className="my-2">
 			{!live && (
-				<button type="button" className="steps-caption" aria-expanded={open} onClick={() => setToggled(!open)}>
+				<button
+					type="button"
+					className="steps-caption"
+					aria-expanded={inPane ? paneOpen === true : open}
+					onClick={() => (inPane ? onOpen() : setToggled(!open))}
+				>
 					<span className={`truncate ${failed ? "text-danger" : ""}`}>{summary}</span>
 					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
 				</button>
 			)}
 			{open && (
 				<div className="steps ml-[11px]">
-					{items.map((item) =>
-						item.kind === "thought" ? (
-							<Thought key={item.id} id={item.id} text={item.text} />
-						) : (
-							<Tool key={item.id} id={item.id} title={item.title} status={item.status} output={item.output} />
-						),
-					)}
+					<StepRows items={items} />
 				</div>
 			)}
 		</div>
 	);
 }
+
+/** "12 steps", "12 steps · one failed": the caption, and the work pane's line. */
+export function stepsSummary(items: Step[]): string {
+	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
+	return `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
+}
+
+/** Each step as a row: a thought in italics, a tool with its output behind a press. */
+export function StepRows({ items }: { items: Step[] }) {
+	return items.map((item) =>
+		item.kind === "thought" ? (
+			<Thought key={item.id} id={item.id} text={item.text} />
+		) : (
+			<Tool key={item.id} id={item.id} title={item.title} status={item.status} output={item.output} />
+		),
+	);
+}
+
+/**
+ * The runs of steps in a tape, in order, each under the id its caption
+ * opens it by. What is streaming joins the last run, as it does on screen.
+ */
+export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[] }[] {
+	return toBlocks(events, streaming).flatMap((block) => (block.kind === "steps" ? [{ id: block.id, items: block.items }] : []));
+}
+
+/**
+ * How a run of steps ended: still going, or stopped short by a turn that
+ * did not end in its own time. Read from the first turn line after it.
+ */
+export function runEnding(events: TranscriptEvent[], items: Step[]): "done" | "stopped" {
+	const last = items[items.length - 1];
+	if (last === undefined) return "done";
+	const at = events.findIndex((event) => event.id === last.id);
+	if (at < 0) return "done";
+	for (const event of events.slice(at + 1)) {
+		if (event.kind === "turn") return event.stopReason === "end_turn" ? "done" : "stopped";
+	}
+	return "done";
+}
+
+export type { Step };
 
 /**
  * An agent's line, focusable so R can answer it without a pointer. A file

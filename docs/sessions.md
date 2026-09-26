@@ -970,11 +970,20 @@ come out of `message_teammate` (`session/peers.rs`):
   agent hears the answer fenced, as the recipient heard the message, and the
   seats draw the event as the reason a turn began, not as a bubble.
 
-`list_teammates` is public roster metadata only — id and name,
-never anyone's conversation, session details, working path or tool inventory,
-and never the caller. The caller may be mid-turn on its own tape while the
-exchange runs: nothing touches the caller's session until the answer is
-delivered.
+`list_teammates` is public roster metadata: id, name, and the same state a
+desk window would show — `idle`, `working`, `waiting` (on the person) or
+`stopped` — read from the roster's own `activity_on`/`waiting_on`, so it
+costs nothing beyond a tape's tail and never wakes or starts anyone. A
+working colleague's `activity` names the tool still running, and
+`workingOn` says what for: the open chapter's title once a resume has given
+it one, its goal until then, and when it last spoke. It also says `linked`
+— whether the caller and that colleague are linked — and, once they are,
+`linkPaused`. None of it is conversation: never a message's text, never
+what anyone said, never a working path or tool inventory, and never the
+caller. A teammate can check this before `message_teammate` to know
+whether a colleague is mid-turn, and the caller may itself be mid-turn on
+its own tape while the delivery runs: nothing here touches the caller's
+session, only its tape's marker.
 
 **Linked teammates** (`session/links.rs`). The person can link two
 teammates for shared work with `teammates.link {a, b}` (either seat; no

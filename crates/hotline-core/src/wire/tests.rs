@@ -227,6 +227,14 @@ impl RoomHandle for CoreHandle {
         self.room.answer_human(persona_id, action_id, status, note)
     }
 
+    fn stop_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.stop_exchange(a, b)
+    }
+
+    fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.room.resume_exchange(a, b)
+    }
+
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,
@@ -517,6 +525,14 @@ impl RoomHandle for Quiet {
         _status: crate::contract::HumanAnswer,
         _note: Option<String>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn stop_exchange(&self, _a: &str, _b: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resume_exchange(&self, _a: &str, _b: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -895,7 +911,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert!(request_id.starts_with("collab:"), "{card}");
     assert_eq!(
         card["event"]["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can use its workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nBob can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
     );
 
     ask(
@@ -1057,6 +1073,30 @@ async fn a_card_waiting_on_the_person_marks_the_row_until_it_is_answered() {
     .unwrap();
     let human = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
     assert_eq!(human["event"]["waiting"], true, "{human}");
+}
+
+#[tokio::test]
+async fn an_exchange_pause_updates_the_live_roster_until_resumed_or_stopped() {
+    let (_root, log, port) = door("roster-exchange-pause");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let tape = StreamId::Tape(ada["id"].as_str().unwrap().to_string());
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+
+    for status in ["pending", "resumed", "pending", "stopped"] {
+        log.append(
+            &tape,
+            &json!({
+                "kind": "exchange_paused", "id": "pause-1", "ts": 5,
+                "withPersonaId": "mack", "withName": "Mack", "exchanges": 12,
+                "status": status,
+            }),
+        )
+        .unwrap();
+        let row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+        assert_eq!(row["event"]["waiting"], status == "pending", "{row}");
+    }
 }
 
 #[tokio::test]
@@ -1599,6 +1639,22 @@ fn only_the_desk_seat_may_touch_stored_secrets() {
         id: "ada".to_string(),
         patch: serde_json::json!({"computer": {"enabled": true, "secrets": ["GITHUB_TOKEN"]}}),
     }));
+}
+
+/// Only person seats stop or resume automatic exchanges.
+#[test]
+fn the_phone_seat_resumes_and_stops_exchanges_for_the_person() {
+    let (a, b) = ("ada".to_string(), "bob".to_string());
+    for command in [
+        Command::TeammatesExchangeStop {
+            a: a.clone(),
+            b: b.clone(),
+        },
+        Command::TeammatesExchangeResume { a, b },
+    ] {
+        assert!(Seat::Desk.permits(&command), "{command:?}");
+        assert!(Seat::Phone.permits(&command), "{command:?}");
+    }
 }
 
 /// A phone answers what a teammate is waiting on and sets how it thinks.

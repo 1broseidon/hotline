@@ -435,3 +435,32 @@ described as planned, in the board or in Linear, never in a settings card
 or in this document's present tense. When a row in the matrix stops being
 true, this document is wrong, and fixing it is part of the change that
 made it so.
+
+## Ask and handoff collaboration (BRO-123)
+
+- **Default and old records:** `intent` defaults to Ask. No standing sender
+  grant is the default. Missing informed-consent records on legacy grants do
+  not authorize Handoff. Old `link` records grant nothing and are ignored.
+- **Grant source:** the existing directional collaboration permission card,
+  answered by the person over `permission.answer`, explains main-context
+  handoffs as well as workspace/tool delegation. Session consent is bound to
+  both live leases; a standing approval records the sender's stable id and an
+  informed-consent room record. Phone seats may answer session consent but
+  not standing consent. Keep going and Stop exchange are person-seat commands,
+  not teammate tools, and do not grant collaboration authority.
+- **Enforcement:** `session/exchanges.rs` persists acceptance and checks live
+  leases and `authorize_collaboration` before starting either intent. Handoff
+  uses the recipient's existing main session and permissions; Ask uses its
+  isolated peer session. `invalidate`, stop and grant revocation settle queued
+  work; turn dispatch rejects stopped handoffs/results. A cap counts requests
+  and automatic replies together, never receipts, and survives restart.
+- **Tests:** `session/exchanges/tests.rs` covers default Ask isolation, main
+  context Handoff and automatic request correlation, cross-intent counting,
+  a held twelfth-message reply, paused restart, started-work crash settlement,
+  Stop/revocation and legacy informed approval. `wire/tests.rs` covers both
+  person seats' resume/stop authority and existing permission-card handling.
+- **Residual risk:** a recipient may use every permission it already has and
+  disclose context in its answer. A crash after work starts but before its
+  result is saved produces an explicit uncertain failure, not replayed work;
+  inspect side effects before retrying. Stopping a handoff cancels its active
+  turn but cannot undo completed effects.

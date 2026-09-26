@@ -36,6 +36,7 @@
 
 mod chapters;
 mod escalation;
+pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
@@ -356,6 +357,8 @@ struct Session {
     /// word. Taking the wire is not enough: a prompt the model errored on
     /// before it read it is the one case a read tick would lie about.
     unread: Mutex<Vec<String>>,
+    active_handoff: Mutex<Option<String>>,
+    dispatched_deliveries: Mutex<std::collections::HashSet<String>>,
     /// The window a quiet schedule is holding this teammate's voice with.
     quiet: Mutex<Option<QuietWindow>>,
     /// The turn's latest reply, which goes to the phone when the turn ends:
@@ -554,6 +557,10 @@ pub struct Room {
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,
+    /// Serializes each durable exchange queue and its pair-wide brake.
+    exchange_lock: Mutex<()>,
+    exchange_workers: Mutex<std::collections::HashSet<String>>,
+    exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
     /// The phones paired with this desk, told when a reply lands or a card
     /// needs the person.
     push: crate::push::Push,
@@ -655,6 +662,9 @@ impl Room {
             peers: peers::Peers::default(),
             human_waits: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
+            exchange_lock: Mutex::new(()),
+            exchange_workers: Mutex::new(Default::default()),
+            exchange_leases: Mutex::new(Default::default()),
             push,
             computers,
             vault,
@@ -663,6 +673,7 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
         });
         room.settle_tapes();
+        room.reconcile_exchanges();
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
         sweep_idle_chapters(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
@@ -935,6 +946,8 @@ impl Room {
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
+            active_handoff: Mutex::new(None),
+            dispatched_deliveries: Mutex::new(Default::default()),
             quiet: Mutex::new(None),
             glance: Mutex::new(None),
             pending_checkpoint: Mutex::new(
@@ -1884,6 +1897,7 @@ impl Room {
     /// inside the wire's invalidate-to-append window.
     pub fn invalidate(&self, persona_id: &str) -> Result<(), String> {
         self.persona(persona_id)?;
+        self.forget_informed_collaboration(persona_id);
         {
             let _lifecycle = lock(&self.lifecycle);
             self.capability_epoch(persona_id).invalidate();
@@ -1893,6 +1907,7 @@ impl Room {
             }
         }
         self.drop_peer_sessions(persona_id);
+        self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
         self.release_human_waits(persona_id);
@@ -1933,6 +1948,9 @@ impl Room {
             }
             sessions
         };
+        for persona_id in &roster_ids {
+            self.revoke_exchanges(persona_id);
+        }
         self.peers.invalidate_all();
         self.settle_all_collaboration();
         for session in sessions {
@@ -1961,6 +1979,7 @@ impl Room {
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
         self.stop_with_capability(persona_id);
+        self.revoke_exchanges(persona_id);
         Ok(())
     }
 
@@ -2121,6 +2140,7 @@ impl Room {
     ) -> Result<(), String> {
         let _working = self.working()?;
         let (session, _held) = self.in_this_chapter(persona_id).await?;
+        self.heard_from_person(persona_id);
         if let Some(answered) = reply_to {
             mark(&session.pending_reply, answered);
         }
@@ -2189,42 +2209,61 @@ impl Room {
         cause: DeliveryCause,
         text: String,
     ) -> Result<(), String> {
+        self.deliver_identified(persona_id, &new_id(), cause, text)
+            .await
+    }
+
+    pub(super) fn handoff_queued(&self, persona_id: &str, id: &str) -> bool {
+        self.session(persona_id).is_ok_and(|session| {
+            lock(&session.unread).iter().any(|v| v == id)
+                || lock(&session.turns)
+                    .waiting
+                    .iter()
+                    .any(|w| w.said.as_deref() == Some(id))
+        })
+    }
+
+    pub(super) async fn deliver_identified(
+        self: &Arc<Self>,
+        persona_id: &str,
+        id: &str,
+        cause: DeliveryCause,
+        text: String,
+    ) -> Result<(), String> {
         let _working = self.working()?;
+        if self.handoff_queued(persona_id, id) {
+            return Ok(());
+        }
+        let existing = self.tape(persona_id).into_iter().find(|v| v["id"] == id);
+        if existing.as_ref().is_some_and(|v| v["receipt"] == "read") {
+            return Ok(());
+        }
         self.start(persona_id).await?;
         let (session, _held) = self.in_this_chapter(persona_id).await?;
-        let id = new_id();
-        let ts = now_ms();
+        if lock(&session.dispatched_deliveries).contains(id) {
+            return Ok(());
+        }
+        let ts = existing
+            .as_ref()
+            .and_then(|v| v["ts"].as_i64())
+            .unwrap_or_else(now_ms);
         let wire = peers::delivery_wire(&cause, &text);
-        self.append(
-            &session,
-            TranscriptEvent::Delivery {
-                id: id.clone(),
+        if existing.is_none() {
+            let event = TranscriptEvent::Delivery {
+                id: id.into(),
                 ts,
                 cause,
                 text,
                 receipt: Some(Receipt::Sent),
-            },
-        );
+            };
+            let value = serde_json::to_value(event).map_err(|e| e.to_string())?;
+            self.log
+                .append(&StreamId::Tape(persona_id.into()), &value)
+                .map_err(|e| e.to_string())?;
+        }
         let mut wired = Wired::words(timed(ts, &wire));
-        wired.said = Some(id);
-        self.dispatch(session, wired);
-        Ok(())
-    }
-
-    /// A delivery already on the tape, handed to the driver again: the record
-    /// stays as it was written, and the receipt it has climbs when it is read.
-    pub(super) async fn redeliver(
-        self: &Arc<Self>,
-        persona_id: &str,
-        id: String,
-        ts: i64,
-        wire: String,
-    ) -> Result<(), String> {
-        let _working = self.working()?;
-        self.start(persona_id).await?;
-        let (session, _held) = self.in_this_chapter(persona_id).await?;
-        let mut wired = Wired::words(timed(ts, &wire));
-        wired.said = Some(id);
+        wired.said = Some(id.into());
+        lock(&session.dispatched_deliveries).insert(id.into());
         self.dispatch(session, wired);
         Ok(())
     }
@@ -2383,6 +2422,7 @@ impl Room {
         let session = self.session(persona_id)?;
         lock(&session.turns).waiting.clear();
         lock(&session.unread).clear();
+        lock(&session.dispatched_deliveries).clear();
         session.driver.cancel();
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
@@ -3711,6 +3751,36 @@ impl Room {
                 turns.running = false;
                 break;
             }
+            let handoff = wired
+                .said
+                .as_ref()
+                .and_then(|id| id.strip_prefix("handoff:"))
+                .map(str::to_string);
+            if handoff.as_ref().is_some_and(|id| !self.handoff_live(id)) {
+                next = lock(&session.turns).next_line();
+                continue;
+            }
+            if wired
+                .said
+                .as_ref()
+                .and_then(|id| id.strip_prefix("exchange-result:"))
+                .is_some_and(|id| !self.begin_exchange_result(id))
+            {
+                next = lock(&session.turns).next_line();
+                continue;
+            }
+            *lock(&session.active_handoff) = handoff.clone();
+            if let Some(id) = &handoff
+                && let Err(error) = self.begin_handoff(id)
+            {
+                eprintln!("handoff not started: {error}");
+                *lock(&session.active_handoff) = None;
+                next = lock(&session.turns).next_line();
+                continue;
+            }
+            let mut handoff_replies = Vec::new();
+            let mut handoff_finished = false;
+            let mut handoff_failed = false;
             self.set_state(&session, SessionState::Thinking);
             let reach = self.reach_of(&session.persona_id);
             if !session.capability.is_current() || !self.current_session(&session) {
@@ -3775,6 +3845,21 @@ impl Room {
                         }
                         continue;
                     }
+                    if let Update::Message {
+                        kind: MessageKind::Agent,
+                        text,
+                        ..
+                    } = &update
+                    {
+                        handoff_replies.push(text.clone());
+                    }
+                    if let Update::Turn { stop_reason, .. } = &update {
+                        handoff_finished = true;
+                        handoff_failed |= matches!(
+                            stop_reason.as_str(),
+                            "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
+                        );
+                    }
                     asked |= matches!(update, Update::Permission { .. });
                     self.record(&session, update, &mut in_flight, &voice);
                 }
@@ -3784,8 +3869,26 @@ impl Room {
             // and a card nobody is behind. A line it was still holding is the
             // last thing it said.
             for update in voice.finish() {
+                if let Update::Message {
+                    kind: MessageKind::Agent,
+                    text,
+                    ..
+                } = &update
+                {
+                    handoff_replies.push(text.clone());
+                }
                 self.record(&session, update, &mut in_flight, &voice);
             }
+            if let Some(id) = handoff {
+                let failed = handoff_failed || !handoff_finished;
+                let reply = if failed && handoff_replies.is_empty() {
+                    "The handoff turn ended without a result; inspect before retrying.".to_string()
+                } else {
+                    handoff_replies.join("\n\n")
+                };
+                self.finish_handoff(&id, reply, failed);
+            }
+            *lock(&session.active_handoff) = None;
             self.fail_in_flight(&session, &mut in_flight);
             self.send_glance(&session);
             if asked {
@@ -4357,8 +4460,28 @@ fn said(events: &[Value]) -> Vec<Said> {
             // What came back is remembered as it was heard.
             "delivery" => match serde_json::from_value((*event).clone()).ok()? {
                 TranscriptEvent::Delivery {
-                    ts, cause, text, ..
-                } => Some(Said::User(timed(ts, &peers::delivery_wire(&cause, &text)))),
+                    ts,
+                    cause,
+                    text,
+                    receipt,
+                    ..
+                } => {
+                    // Queued work is not history: replay must pass exchange
+                    // admission, so a restart cannot resurrect a stopped request.
+                    if receipt != Some(Receipt::Read)
+                        && matches!(
+                            cause,
+                            DeliveryCause::Handoff { .. }
+                                | DeliveryCause::Peer {
+                                    request_id: Some(_),
+                                    ..
+                                }
+                        )
+                    {
+                        return None;
+                    }
+                    Some(Said::User(timed(ts, &peers::delivery_wire(&cause, &text))))
+                }
                 _ => None,
             },
             _ => None,

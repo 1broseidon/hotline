@@ -1223,6 +1223,16 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         receipt: Option<Receipt>,
     },
+    /// A pair reached the automatic message cap. Its queue waits for the
+    /// person to Keep going or Stop exchange, across intents and restarts.
+    ExchangePaused {
+        id: String,
+        ts: i64,
+        with_persona_id: String,
+        with_name: String,
+        exchanges: i64,
+        status: ExchangePauseStatus,
+    },
     Turn {
         id: String,
         ts: i64,
@@ -1353,6 +1363,16 @@ pub enum Receipt {
     Read,
 }
 
+/// Where a paused exchange's card has got to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ExchangePauseStatus {
+    Pending,
+    Resumed,
+    Stopped,
+}
+
 /// What a [`TranscriptEvent::Delivery`] answers, so a teammate juggling
 /// several can tell them apart and a seat can say why a turn began.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -1367,11 +1387,24 @@ pub enum DeliveryCause {
     /// `status` is `done` for an answer and `failed` for none; the words of
     /// the message and the answer are in the thread named by `threadKey`.
     Peer {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        request_id: Option<String>,
         persona_id: String,
         name: String,
         thread_key: String,
         status: PeerStatus,
         /// The start of the message this answers, clipped to a line.
+        about: String,
+    },
+    /// Work explicitly handed into this teammate's main conversation.
+    /// The result returns automatically to requestId on the sender's tape.
+    Handoff {
+        request_id: String,
+        persona_id: String,
+        name: String,
+        thread_key: String,
+        /// The start of the message, clipped to a line.
         about: String,
     },
     /// The person answered a `request_human` card the teammate did not wait
@@ -2211,6 +2244,12 @@ pub enum Command {
         request_id: String,
         option_id: String,
     },
+    /// Resets a paused pair's message count and releases its durable queue.
+    #[serde(rename = "teammates.exchange_resume")]
+    TeammatesExchangeResume { a: String, b: String },
+    /// Stops a pair's queued automatic exchange without changing its grants.
+    #[serde(rename = "teammates.exchange_stop")]
+    TeammatesExchangeStop { a: String, b: String },
     /// Answers a card the agent posted with `request_human`. Refused when
     /// nothing is waiting any more — the deadline passed, the session
     /// stopped, the room restarted, or somebody else answered first. The

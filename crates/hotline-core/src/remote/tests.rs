@@ -1079,6 +1079,12 @@ impl RoomHandle for Computered {
     ) -> Result<(), String> {
         self.desk.answer_human(persona_id, action_id, status, note)
     }
+    fn stop_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.desk.stop_exchange(a, b)
+    }
+    fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String> {
+        self.desk.resume_exchange(a, b)
+    }
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,

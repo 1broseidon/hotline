@@ -126,6 +126,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         option_id: &str,
     ) -> Result<(), String>;
 
+    /// Stops a pair’s queued automatic exchange.
+    fn stop_exchange(&self, a: &str, b: &str) -> Result<(), String>;
+
+    /// Resumes a pair its message cap paused.
+    fn resume_exchange(&self, a: &str, b: &str) -> Result<(), String>;
+
     /// Answers a `request_human` card, refusing when nothing is waiting.
     fn answer_human(
         &self,
@@ -483,6 +489,8 @@ impl Seat {
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
                     | Command::FileRead { .. }
+                    | Command::TeammatesExchangeStop { .. }
+                    | Command::TeammatesExchangeResume { .. }
             ),
         }
     }
@@ -1375,6 +1383,9 @@ pub(crate) fn waiting_on(tail: &[Value]) -> bool {
             }
             TranscriptEvent::PasskeyAsk { id, status, .. } => {
                 open.insert(id, status == PasskeyAskStatus::Pending);
+            }
+            TranscriptEvent::ExchangePaused { id, status, .. } => {
+                open.insert(id, status == crate::contract::ExchangePauseStatus::Pending);
             }
             _ => {}
         }

@@ -1,6 +1,7 @@
 //! The real `hotline` binary, on a temporary room, with no display and no
 //! session bus: it serves, keeps its room to itself, keeps a key in the file
 //! store across a restart, and stops cleanly on SIGTERM.
+#![cfg(unix)]
 
 use std::io::Write;
 use std::path::Path;

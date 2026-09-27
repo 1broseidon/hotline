@@ -10,7 +10,7 @@ and drive a teammate's computer.
 
 :::note[Beta]
 Hotline for iPhone is in beta on TestFlight and not yet on the App Store.
-[Join the beta](TESTFLIGHT_PUBLIC_LINK), then install it from TestFlight.
+[Join the beta](https://testflight.apple.com/join/wwK11AS7), then install it from TestFlight.
 :::
 
 ## What the phone can do

@@ -2362,20 +2362,35 @@ fn pump_stderr(live: Arc<Live>, stderr: tokio::process::ChildStderr) {
         use tokio::io::AsyncReadExt;
         let mut stderr = stderr;
         let mut bytes = [0; 4096];
+        // Raw bytes go to a running sign-in, which may prompt without a
+        // newline. Otherwise the tail keeps whole, non-blank lines, as before.
+        let mut line = Vec::new();
         while let Ok(n) = stderr.read(&mut bytes).await {
             if n == 0 {
                 break;
             }
-            if let Some(attempt) = lock(&live.auth).as_ref() {
-                if attempt.running() {
-                    attempt.output(&bytes[..n]);
-                }
+            if let Some(attempt) = lock(&live.auth).as_ref().filter(|a| a.running()) {
+                attempt.output(&bytes[..n]);
+                line.clear();
                 continue;
             }
-            let mut tail = lock(&live.stderr);
-            tail.push_back(String::from_utf8_lossy(&bytes[..n]).into_owned());
-            if tail.len() > STDERR_LINES {
-                tail.pop_front();
+            for &byte in &bytes[..n] {
+                if byte != b'\n' && line.len() < 4096 {
+                    line.push(byte);
+                    continue;
+                }
+                if byte == b'\n' {
+                    let text = String::from_utf8_lossy(&line).trim_end().to_string();
+                    line.clear();
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    let mut tail = lock(&live.stderr);
+                    tail.push_back(text);
+                    if tail.len() > STDERR_LINES {
+                        tail.pop_front();
+                    }
+                }
             }
         }
     });

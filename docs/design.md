@@ -142,7 +142,7 @@ addresses are not choices; old loopback settings migrate to all host IPs. The
 all-address listener accepts IPv4 and IPv6, falling back to IPv4 on hosts without
 IPv6 support. The active route is preferred for the pairing QR.
 
-A two-minute QR invitation carries the certificate fingerprint; its claim grants
+The desktop's legacy two-minute QR invitation carries the certificate fingerprint; its claim grants
 one phone a bearer credential. The TLS key lives in the OS credential store, and
 only credential hashes and device metadata live on disk. A new certificate covers
 all advertised host IPs. The certificate, port, and grants are reused when the
@@ -152,9 +152,34 @@ again, and so does a certificate the desk can no longer read: corrupt, gone from
 the OS store, or written by an earlier edition into a store this build cannot
 name, as a room moved over from Toad holds. A store that is merely locked or
 unavailable is reported, not replaced. A phone using an address excluded by a
-new restriction also needs a fresh pairing QR. Disable and revoke close the affected sockets immediately.
+new restriction also needs a fresh pairing QR. TLS rotation retains grant records;
+legacy phones must re-pair when their pin changes, while sealed phones keep
+trusting the independent desk identity. Disable and revoke close the affected
+sockets immediately.
 
-Manual pairing is the same two-minute session for a phone that cannot scan: the
+A served desk instead requires one explicit fixed listen address and public
+HTTPS URL. It retries that exact socket if the address is late, never widening
+or falling back to an ephemeral port. Its only phone routes use Noise IK inside
+TLS WebSockets, authenticated by a persistent X25519 desk identity in the
+selected SecretStore and the phone's granted public key. TLS certificates can
+rotate without changing this trust. The desktop also offers sealed pairing;
+its legacy routes remain for existing phones.
+
+`hotline pair` opens a two-minute, atomic single-use QR invitation and keeps
+it open only while its local desk-seat connection lives. No empty grant list
+bootstraps an owner. Owner and companion are stored roles with the same limited
+phone allowlist until owner onboarding is implemented. Remote administration
+is desk-seat wire commands, shared by the window and CLI, not Tauri wrappers.
+The served listener never mounts manual or legacy bearer routes.
+
+All sealed application frames, including computer traffic, travel inside
+Noise. A viewer's authenticated handshake binds both its purpose and persona,
+so an untrusted TLS proxy cannot redirect controls by rewriting the HTTP path.
+The desk alone resolves the viewer address and supplies its bearer. The proxy
+still sees paths, timing and sizes and can deny service. Protocol and limits
+are in `docs/wire.md`; listener setup is in `docs/serve.md`.
+
+Desktop manual pairing is the same two-minute session for a phone that cannot scan: the
 panel shows the address, port, and a six-digit code next to the QR. Six digits
 cannot carry a certificate fingerprint, so the code is never a bearer secret; it
 is the password of a CPace-shaped PAKE over ristretto255 (`remote/pake.rs`

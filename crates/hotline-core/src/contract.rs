@@ -2029,6 +2029,27 @@ pub struct FileChunk {
 )]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
+    /// Listener and pairing controls belong to the local desk, never a remote owner.
+    #[serde(rename = "remote.status")]
+    RemoteStatus {},
+    #[serde(rename = "remote.configure")]
+    RemoteConfigure { enabled: bool, host: String },
+    #[serde(rename = "remote.devices")]
+    RemoteDevices {},
+    #[serde(rename = "remote.revoke")]
+    RemoteRevoke { device_id: String },
+    /// Start a v2 invitation, poll/cancel its id, or explicitly request desktop legacy pairing.
+    #[serde(rename = "remote.pairing")]
+    RemotePairing {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<crate::remote::DeviceRole>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default)]
+        cancel: bool,
+        #[serde(default)]
+        legacy: bool,
+    },
     /// A paired phone supplies a stable operation id; retries never run twice.
     /// `replyTo` is the id of the message this one answers, as on
     /// `session.prompt`.

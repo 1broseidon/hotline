@@ -37,6 +37,9 @@ impl Harness {
             let room = Arc::new(Computered {
                 desk,
                 viewer: std::sync::Mutex::new(None),
+                pending_stop: std::sync::Mutex::new(None),
+                infos: broadcast::channel(16).0,
+                deltas: broadcast::channel(16).0,
             });
             handle = Some(room.clone());
             room
@@ -796,6 +799,7 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
         let response = h
             .http
             .get(format!("{endpoint}/missing"))
+            .header("connection", "close")
             .timeout(Duration::from_secs(3))
             .send()
             .await
@@ -895,7 +899,7 @@ fn locked() -> io::Error {
 /// A room moved over from Toad holds that edition's reference to the
 /// listener's certificate, which this build cannot read. Remote comes up on
 /// a fresh certificate rather than refusing to turn on, and the phones that
-/// pinned the old one are forgotten, as when an address changes. A store
+/// pinned the old one need to pair again, but retain their records. A store
 /// that is merely locked is the other case: what it holds is reported,
 /// never replaced.
 #[tokio::test]
@@ -911,6 +915,8 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
             id: "phone".into(),
             name: "Phone".into(),
             paired_at: now(),
+            role: DeviceRole::Owner,
+            public_key: None,
         },
         token_hash: hash("token"),
         push: None,
@@ -946,7 +952,7 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
     let status = restored.configure(true, network::ALL).await.unwrap();
     assert!(status.enabled);
     assert!(status.error.is_none());
-    assert!(status.devices.is_empty());
+    assert_eq!(status.devices.len(), 1);
     let replaced = fs::read(&identity).unwrap();
     assert!(String::from_utf8_lossy(&replaced).contains("hotlineCredential"));
     assert_ne!(replaced, ours);
@@ -1142,11 +1148,21 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
-/// The desk with a computer it does not have: every call forwards to the real
-/// desk except the one the door asks, which answers with the viewer set here.
+/// A synthetic computer behind the real desk: tests control its viewer and
+/// can hold a stop indefinitely. Separate broadcasts make subscription lifetime
+/// observable without counting the desk's own background receivers.
 struct Computered {
     desk: Arc<Desk>,
     viewer: std::sync::Mutex<Option<String>>,
+    pending_stop: std::sync::Mutex<Option<Arc<BlockedStop>>>,
+    infos: broadcast::Sender<SessionInfo>,
+    deltas: broadcast::Sender<StreamDelta>,
+}
+
+#[derive(Default)]
+struct BlockedStop {
+    entered: CancellationToken,
+    dropped: CancellationToken,
 }
 
 #[async_trait::async_trait]
@@ -1244,10 +1260,10 @@ impl RoomHandle for Computered {
         self.desk.info(persona_id)
     }
     fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo> {
-        self.desk.subscribe_info()
+        self.infos.subscribe()
     }
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
-        self.desk.subscribe_deltas()
+        self.deltas.subscribe()
     }
     fn credential_create(
         &self,
@@ -1360,6 +1376,12 @@ impl RoomHandle for Computered {
         })
     }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
+        let pending = self.pending_stop.lock().unwrap().clone();
+        if let Some(pending) = pending {
+            let _dropped = pending.dropped.clone().drop_guard();
+            pending.entered.cancel();
+            std::future::pending::<()>().await;
+        }
         self.desk.computer_stop(persona_id).await
     }
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String> {
@@ -1540,4 +1562,716 @@ fn the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running(
         )),
         None
     );
+}
+
+mod sealed_network {
+    use super::*;
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    fn initiator(private: &[u8; 32], public: &[u8; 32]) -> snow::HandshakeState {
+        snow::Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
+            .prologue(b"hotline/2")
+            .unwrap()
+            .local_private_key(private)
+            .unwrap()
+            .remote_public_key(public)
+            .unwrap()
+            .build_initiator()
+            .unwrap()
+    }
+    fn invitation(pairing: &SealedPairing) -> ([u8; 32], String) {
+        let url = url::Url::parse(&pairing.url).unwrap();
+        let params: HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(params["v"], "2");
+        (
+            URL_SAFE_NO_PAD
+                .decode(&params["k"])
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            params["s"].clone(),
+        )
+    }
+    async fn exchange(
+        h: &Harness,
+        path: &str,
+        private: &[u8; 32],
+        public: &[u8; 32],
+        payload: &[u8],
+    ) -> Option<(Socket, snow::TransportState, Vec<u8>)> {
+        let mut socket = h.socket_at(path, "").await.ok()?;
+        let mut noise = initiator(private, public);
+        let mut buffer = [0u8; 4096];
+        let size = noise.write_message(payload, &mut buffer).unwrap();
+        socket
+            .send(Message::Binary(buffer[..size].to_vec().into()))
+            .await
+            .ok()?;
+        let result = tokio::time::timeout(Duration::from_secs(3), socket.next())
+            .await
+            .unwrap();
+        let Some(Ok(Message::Binary(bytes))) = result else {
+            return None;
+        };
+        let size = noise.read_message(&bytes, &mut buffer).ok()?;
+        Some((
+            socket,
+            noise.into_transport_mode().unwrap(),
+            buffer[..size].to_vec(),
+        ))
+    }
+    async fn claim(h: &Harness, pairing: &SealedPairing, private: &[u8; 32]) -> Option<Value> {
+        let (public, secret) = invitation(pairing);
+        let payload = json!({"secret":secret, "name":"Sealed test phone"}).to_string();
+        let (_, _, answer) = exchange(h, "/v2/pair", private, &public, payload.as_bytes()).await?;
+        Some(serde_json::from_slice(&answer).unwrap())
+    }
+    async fn read_sealed(socket: &mut Socket, state: &mut snow::TransportState) -> Value {
+        let mut decoder = sealed::Decoder::new(channel::FRAME_MAX);
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let Message::Binary(bytes) = frame else {
+                panic!("no unsealed banner or answer");
+            };
+            if let Some(text) = decoder.decode(state, &bytes).unwrap() {
+                return serde_json::from_str(&text).unwrap();
+            }
+        }
+    }
+    async fn send_sealed(socket: &mut Socket, state: &mut snow::TransportState, value: Value) {
+        for bytes in sealed::encode(state, &value.to_string()).unwrap() {
+            socket.send(Message::Binary(bytes.into())).await.unwrap();
+        }
+    }
+    async fn closed(socket: &mut Socket) {
+        let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
+            .await
+            .unwrap();
+        assert!(!matches!(
+            frame,
+            Some(Ok(Message::Text(_) | Message::Binary(_)))
+        ));
+    }
+
+    #[tokio::test]
+    async fn explicit_pairing_is_atomic_and_both_roles_are_not_desk_seats() {
+        let h = Harness::new().await;
+        assert!(h.socket_at("/v2/pair", "").await.is_err());
+        let (first, _) = sealed::keypair().unwrap();
+        let (second, _) = sealed::keypair().unwrap();
+        let (_, public) = h.remote.noise_keys().unwrap();
+        // An empty grant set is not an owner invitation; unknown keys hear nothing.
+        assert!(exchange(&h, "/v2", &first, &public, &[]).await.is_none());
+        for role in [DeviceRole::Owner, DeviceRole::Companion] {
+            let pairing = h.remote.pairing_v2(role).unwrap();
+            assert!(h.remote.pairing_result(&pairing.id).unwrap().is_none());
+            let (a, b) = tokio::join!(claim(&h, &pairing, &first), claim(&h, &pairing, &second));
+            assert_ne!(
+                a.is_some(),
+                b.is_some(),
+                "one invitation can create only one grant"
+            );
+            let private = if a.is_some() { &first } else { &second };
+            assert_eq!(
+                a.or(b).unwrap()["role"],
+                serde_json::to_value(role).unwrap()
+            );
+            let device = h.remote.pairing_result(&pairing.id).unwrap().unwrap();
+            assert_eq!(device.role, role);
+            assert!(device.public_key.is_some());
+            assert!(claim(&h, &pairing, private).await.is_none());
+            let (mut socket, mut state, payload) =
+                exchange(&h, "/v2", private, &public, &[]).await.unwrap();
+            assert!(payload.is_empty());
+            assert_eq!(
+                read_sealed(&mut socket, &mut state).await["protocolVersion"],
+                2
+            );
+            send_sealed(
+                &mut socket,
+                &mut state,
+                json!({"id":1,"cmd":"backends.list"}),
+            )
+            .await;
+            assert_eq!(read_sealed(&mut socket, &mut state).await["ok"], true);
+            send_sealed(
+                &mut socket,
+                &mut state,
+                json!({"id":2,"cmd":"settings.update","params":{"patch":{}}}),
+            )
+            .await;
+            assert_eq!(
+                read_sealed(&mut socket, &mut state).await["code"],
+                "forbidden"
+            );
+            send_sealed(&mut socket, &mut state, json!({"id":3,"sub":"room"})).await;
+            assert_eq!(
+                read_sealed(&mut socket, &mut state).await["code"],
+                "forbidden"
+            );
+            h.remote.revoke(&device.id).unwrap();
+            closed(&mut socket).await;
+            assert!(exchange(&h, "/v2", private, &public, &[]).await.is_none());
+        }
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn revocation_and_disable_drop_blocked_commands_and_release_subscriptions() {
+        for role in [DeviceRole::Owner, DeviceRole::Companion] {
+            for disable in [false, true] {
+                let (h, room) = Harness::with_computer().await;
+                let pairing = h.remote.pairing_v2(role).unwrap();
+                let (private, _) = sealed::keypair().unwrap();
+                let (public, _) = invitation(&pairing);
+                claim(&h, &pairing, &private).await.unwrap();
+                let device = h.remote.pairing_result(&pairing.id).unwrap().unwrap();
+                let (mut socket, mut state, _) =
+                    exchange(&h, "/v2", &private, &public, &[]).await.unwrap();
+                assert_eq!(
+                    read_sealed(&mut socket, &mut state).await["protocolVersion"],
+                    2
+                );
+                send_sealed(&mut socket, &mut state, json!({"id":0,"cmd":"mobile.persona_create","params":{"requestId":Uuid::new_v4(),"name":"Ada"}})).await;
+                let created = read_sealed(&mut socket, &mut state).await;
+                assert_eq!(created["ok"], true, "{created}");
+                let persona = created["result"]["id"].as_str().unwrap();
+                for (id, target) in [(1, json!({"view":"roster"})), (2, json!({"tape":persona}))] {
+                    send_sealed(&mut socket, &mut state, json!({"id":id,"sub":target})).await;
+                    assert_eq!(
+                        read_sealed(&mut socket, &mut state).await,
+                        json!({"id":id,"ok":true})
+                    );
+                    let snapshot = read_sealed(&mut socket, &mut state).await;
+                    assert_eq!(snapshot["sub"], id);
+                    assert!(snapshot["snapshot"].is_array());
+                }
+                assert_eq!(room.infos.receiver_count(), 1);
+                assert_eq!(room.deltas.receiver_count(), 1);
+                let pending = Arc::new(BlockedStop::default());
+                *room.pending_stop.lock().unwrap() = Some(pending.clone());
+                send_sealed(
+                    &mut socket,
+                    &mut state,
+                    json!({"id":3,"cmd":"computer.stop","params":{"personaId":persona}}),
+                )
+                .await;
+                tokio::time::timeout(Duration::from_secs(3), pending.entered.cancelled())
+                    .await
+                    .unwrap();
+                // No timer or release in the handler: only dropping its future can end it.
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    if disable {
+                        h.remote.configure(false, network::ALL).await.unwrap();
+                    } else {
+                        h.remote.revoke(&device.id).unwrap();
+                    }
+                    closed(&mut socket).await;
+                    pending.dropped.cancelled().await;
+                    loop {
+                        if room.infos.receiver_count() == 0
+                            && room.deltas.receiver_count() == 0
+                            && h.remote.connections.lock().unwrap().is_empty()
+                            && h.remote.slots.available_permits() == 16
+                        {
+                            break;
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                }).await.expect("revocation must release command, socket, subscriptions and connection permits without waiting for the computer");
+                if !disable {
+                    assert!(exchange(&h, "/v2", &private, &public, &[]).await.is_none());
+                    h.remote.configure(false, network::ALL).await.unwrap();
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_expired_and_wrong_secret_pairings_never_grant() {
+        let h = Harness::new().await;
+        let (private, _) = sealed::keypair().unwrap();
+        let first = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+        let (public, _) = invitation(&first);
+        assert!(
+            exchange(
+                &h,
+                "/v2/pair",
+                &private,
+                &public,
+                br#"{"secret":"wrong","name":"x"}"#
+            )
+            .await
+            .is_none()
+        );
+        assert!(h.remote.devices().is_empty());
+        h.remote.cancel_pairing(&first.id).unwrap();
+        assert!(claim(&h, &first, &private).await.is_none());
+        let second = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+        h.remote.cancel_pairing(&first.id).unwrap();
+        assert!(
+            h.remote.pairing_open(),
+            "a stale cancel must not close a new invitation"
+        );
+        // Expiry is checked under the same lock as consumption, not only at HTTP upgrade.
+        h.remote
+            .state
+            .lock()
+            .unwrap()
+            .sealed_pairing
+            .as_mut()
+            .unwrap()
+            .expires_at = now() - 1;
+        assert!(h.remote.pairing_result(&second.id).is_err());
+        assert!(claim(&h, &second, &private).await.is_none());
+        assert!(h.remote.devices().is_empty());
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn noise_handshakes_are_binary_bounded_and_expire_without_a_banner() {
+        let h = Harness::new().await;
+        for message in [
+            Message::Text("not Noise".into()),
+            Message::Binary(vec![0; 4097].into()),
+        ] {
+            let mut socket = h.socket_at("/v2", "").await.unwrap();
+            let _ = socket.send(message).await;
+            closed(&mut socket).await;
+        }
+        let mut socket = h.socket_at("/v2", "").await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(7), socket.next())
+            .await
+            .unwrap();
+        assert!(!matches!(
+            result,
+            Some(Ok(Message::Text(_) | Message::Binary(_)))
+        ));
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sealed_wire_rejects_plaintext_tampering_and_replay() {
+        let h = Harness::new().await;
+        let (private, _) = sealed::keypair().unwrap();
+        let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+        let (public, _) = invitation(&pairing);
+        claim(&h, &pairing, &private).await.unwrap();
+        for attack in ["text", "tamper", "replay", "oversize"] {
+            let (mut socket, mut state, _) =
+                exchange(&h, "/v2", &private, &public, &[]).await.unwrap();
+            read_sealed(&mut socket, &mut state).await;
+            let command = json!({"id":1,"cmd":"backends.list"}).to_string();
+            let mut frame = sealed::encode(&mut state, &command).unwrap().remove(0);
+            match attack {
+                "text" => socket.send(Message::Text(command.into())).await.unwrap(),
+                "tamper" => {
+                    frame[0] ^= 1;
+                    socket.send(Message::Binary(frame.into())).await.unwrap();
+                }
+                "replay" => {
+                    socket
+                        .send(Message::Binary(frame.clone().into()))
+                        .await
+                        .unwrap();
+                    assert_eq!(read_sealed(&mut socket, &mut state).await["ok"], true);
+                    socket.send(Message::Binary(frame.into())).await.unwrap();
+                }
+                "oversize" => {
+                    let _ = socket.send(Message::Binary(vec![0u8; 65536].into())).await;
+                }
+                _ => unreachable!(),
+            }
+            closed(&mut socket).await;
+        }
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn manual_retry_requires_the_original_confirmation_and_a_live_window() {
+        let h = Harness::new().await;
+        let pairing = h.remote.pairing().unwrap();
+        let phone = TypingPhone::new(&pairing.manual.code);
+        let started = phone.start(&h).await.json().await.unwrap();
+        let tags = phone.confirm(&started, &pairing.invitation.certificate_sha256);
+        assert_eq!(phone.finish(&h, &tags.phone).await.status(), 200);
+        assert_eq!(phone.finish(&h, &"0".repeat(64)).await.status(), 403);
+        assert_eq!(phone.finish(&h, &tags.phone).await.status(), 200);
+        h.remote
+            .state
+            .lock()
+            .unwrap()
+            .manual
+            .as_mut()
+            .unwrap()
+            .expires_at = now() - 1;
+        assert_eq!(phone.finish(&h, &tags.phone).await.status(), 403);
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn tls_rotation_preserves_noise_identity_and_grants_across_restart() {
+        let h = Harness::new().await;
+        h.pair().await;
+        let (private, _) = sealed::keypair().unwrap();
+        let pairing = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+        claim(&h, &pairing, &private).await.unwrap();
+        let keys = h.remote.noise_keys().unwrap();
+        let before = h.remote.identity.read().unwrap().unwrap();
+        h.remote.configure(false, network::ALL).await.unwrap();
+        // Corrupt TLS, not Noise. A new certificate is not a new desk identity.
+        h.remote.identity.write(b"broken TLS").unwrap();
+        let reopened = Remote::open_with_store(
+            h.root.path(),
+            h.desk.log.clone(),
+            h.desk.clone(),
+            h.store.clone(),
+        )
+        .unwrap();
+        reopened.configure(true, network::ALL).await.unwrap();
+        assert_ne!(reopened.identity.read().unwrap().unwrap(), before);
+        assert_eq!(reopened.noise_keys().unwrap(), keys);
+        assert_eq!(reopened.devices().len(), 2);
+        assert!(reopened.devices().iter().any(|d| d.public_key.is_none()));
+        assert!(
+            reopened
+                .authenticate_v2(&sealed::keypair().unwrap().1)
+                .is_none()
+        );
+        let public = reopened
+            .devices()
+            .into_iter()
+            .find_map(|d| d.public_key)
+            .unwrap();
+        assert!(
+            reopened
+                .authenticate_v2(&URL_SAFE_NO_PAD.decode(public).unwrap())
+                .is_some()
+        );
+        reopened.configure(false, network::ALL).await.unwrap();
+        // An unreadable Noise key is not silently replaced either.
+        reopened.noise_identity.write(b"broken Noise").unwrap();
+        assert!(reopened.configure(true, network::ALL).await.is_err());
+        assert!(!reopened.status().enabled);
+    }
+
+    #[tokio::test]
+    async fn sealed_computer_handshake_binds_purpose_and_target_before_upstream() {
+        let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = upstream.local_addr().unwrap().port();
+        let (h, room) = Harness::with_computer().await;
+        // The fake room reports a running viewer for both Ada and Bob, so a
+        // rewritten target cannot be refused merely because Bob is missing.
+        *room.viewer.lock().unwrap() = Some(format!("http://127.0.0.1:{port}/#secret-bearer"));
+        let (private, _) = sealed::keypair().unwrap();
+        let pairing = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+        let (public, _) = invitation(&pairing);
+        claim(&h, &pairing, &private).await.unwrap();
+
+        let binding = br#"{"purpose":"computer","personaId":"ada"}"#;
+        let refused: &[(&str, &[u8])] = &[
+            // A proxy forwards Ada's unchanged Noise message to Bob's HTTP path.
+            ("/v2/computer/bob/ws", binding),
+            ("/v2/computer/ada/ws", b""),
+            (
+                "/v2/computer/ada/ws",
+                br#"{"purpose":"wire","personaId":"ada"}"#,
+            ),
+            (
+                "/v2/computer/ada/ws",
+                br#"{"purpose":"computer","personaId":"Ada"}"#,
+            ),
+            (
+                "/v2/computer/ada/ws",
+                br#"{"purpose":"computer","personaId":""}"#,
+            ),
+            (
+                "/v2/computer/ada/ws",
+                br#"{"purpose":"computer","personaId":"ada","extra":true}"#,
+            ),
+            ("/v2/computer/ada/ws", br#"{"purpose":"computer"}"#),
+            ("/v2/computer/ada/ws", br#"{"personaId":"ada"}"#),
+            ("/v2/computer/ada/ws", b"not JSON"),
+            ("/v2/computer/ada/ws", b"\xff"),
+            // Redirecting a viewer to the ordinary wire must fail as well.
+            ("/v2", binding),
+        ];
+        for (path, payload) in refused {
+            assert!(
+                exchange(&h, path, &private, &public, payload)
+                    .await
+                    .is_none(),
+                "accepted {path} with {payload:?}"
+            );
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), upstream.accept())
+                .await
+                .is_err(),
+            "a refused binding reached the upstream computer"
+        );
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant() {
+        use base64::engine::general_purpose::STANDARD;
+        let (port, asked) = fake_computer().await;
+        let (h, room) = Harness::with_computer().await;
+        *room.viewer.lock().unwrap() = Some(format!("http://127.0.0.1:{port}/#secret-bearer"));
+        let (private, _) = sealed::keypair().unwrap();
+        let pairing = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+        let (public, _) = invitation(&pairing);
+        let binding = br#"{"purpose":"computer","personaId":"ada"}"#;
+        // Unknown keys cannot discover a running viewer or see its first frame,
+        // even with a valid target binding.
+        assert!(
+            exchange(&h, "/v2/computer/ada/ws", &private, &public, binding)
+                .await
+                .is_none()
+        );
+        claim(&h, &pairing, &private).await.unwrap();
+        let (mut socket, mut state, _) =
+            exchange(&h, "/v2/computer/ada/ws", &private, &public, binding)
+                .await
+                .unwrap();
+        assert_eq!(
+            read_sealed(&mut socket, &mut state).await,
+            json!({"type":"binary", "data":STANDARD.encode(b"\x89PNG frame")})
+        );
+        send_sealed(
+            &mut socket,
+            &mut state,
+            json!({"type":"text", "data":"{\"t\":\"control\",\"take\":true}"}),
+        )
+        .await;
+        assert_eq!(
+            read_sealed(&mut socket, &mut state).await,
+            json!({"type":"text", "data":"{\"t\":\"control\",\"take\":true}"})
+        );
+        assert_eq!(
+            asked.lock().unwrap().as_deref(),
+            Some("token=secret-bearer")
+        );
+        let device = h.remote.pairing_result(&pairing.id).unwrap().unwrap();
+        h.remote.revoke(&device.id).unwrap();
+        closed(&mut socket).await;
+        h.remote.configure(false, network::ALL).await.unwrap();
+    }
+
+    #[test]
+    fn missing_roles_migrate_to_owner_but_never_create_an_empty_room_grant() {
+        let old: RemoteDevice =
+            serde_json::from_value(json!({"id":"old", "name":"Phone", "pairedAt":0})).unwrap();
+        assert_eq!(old.role, DeviceRole::Owner);
+        assert!(old.public_key.is_none());
+        assert!(Saved::default().grants.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn served_listener_waits_for_exact_socket_and_has_no_legacy_routes() {
+    let root = tempfile::tempdir().unwrap();
+    let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listen = occupied.local_addr().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let options = ServeOptions {
+        listen,
+        public_url: format!("https://{listen}/room"),
+        tls_cert: None,
+        tls_key: None,
+    };
+    let remote = Remote::open_served_with_store(
+        root.path(),
+        desk.log.clone(),
+        desk.clone(),
+        store,
+        options.clone(),
+    )
+    .unwrap();
+    assert!(!remote.status().enabled);
+    tokio::time::timeout(Duration::from_secs(2), remote.restore())
+        .await
+        .unwrap();
+    assert!(!remote.status().enabled);
+    assert!(remote.status().error.unwrap().contains("Waiting"));
+    assert!(remote.configure(true, "0.0.0.0").await.is_err());
+    assert!(remote.pairing().is_err());
+    drop(occupied);
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while !remote.status().enabled {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(remote.status().host, listen.to_string());
+    assert_eq!(
+        remote.status().endpoint.as_deref(),
+        Some(options.public_url.as_str())
+    );
+    let identity: Identity =
+        serde_json::from_slice(&remote.identity.read().unwrap().unwrap()).unwrap();
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .add_root_certificate(reqwest::Certificate::from_der(&identity.certificate).unwrap())
+        .build()
+        .unwrap();
+    for path in ["/pair", "/pair/manual/start", "/pair/manual/finish"] {
+        assert_eq!(
+            http.post(format!("{}{path}", options.public_url))
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            404
+        );
+    }
+    for path in ["/ws", "/computer/ada/ws", "/v2/pair"] {
+        assert_eq!(
+            http.get(format!("{}{path}", options.public_url))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            404
+        );
+    }
+    remote.configure(false, &listen.to_string()).await.unwrap();
+    assert!(TcpStream::connect(listen).await.is_err());
+}
+
+#[test]
+fn served_listen_validation_never_permits_wildcard_or_implicit_tls() {
+    let mut options = ServeOptions {
+        listen: "127.0.0.1:8788".parse().unwrap(),
+        public_url: "https://desk.example/room".into(),
+        tls_cert: None,
+        tls_key: None,
+    };
+    assert!(options.validate().is_ok());
+    for address in [
+        "0.0.0.0:8788",
+        "[::]:8788",
+        "127.0.0.1:0",
+        "[::ffff:127.0.0.1]:8788",
+    ] {
+        options.listen = address.parse().unwrap();
+        assert!(options.validate().is_err(), "{address}");
+    }
+    options.listen = "127.0.0.1:8788".parse().unwrap();
+    for url in [
+        "http://desk.example",
+        "https://user:password@desk.example",
+        "https://desk.example/?token=x",
+        "https://desk.example/#secret",
+    ] {
+        options.public_url = url.into();
+        assert!(options.validate().is_err(), "{url}");
+    }
+    options.public_url = "https://desk.example".into();
+    options.tls_cert = Some("cert.pem".into());
+    assert!(options.validate().is_err());
+}
+
+#[tokio::test]
+async fn half_open_connections_have_per_ip_and_global_budgets_and_a_deadline() {
+    use tokio::io::AsyncReadExt;
+    let h = Harness::new().await;
+    let address = h.endpoint().trim_start_matches("https://").to_owned();
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(TcpStream::connect(&address).await.unwrap());
+    }
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while h.remote.connections.lock().unwrap().values().sum::<usize>() != 4 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut extra = TcpStream::connect(&address).await.unwrap();
+    let mut byte = [0];
+    let refused = tokio::time::timeout(Duration::from_secs(1), extra.read(&mut byte))
+        .await
+        .unwrap();
+    assert!(matches!(refused, Ok(0) | Err(_)));
+    // TLS never started, so the absolute five-second deadline releases all slots.
+    tokio::time::timeout(Duration::from_secs(7), async {
+        while !h.remote.connections.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(h.remote.slots.available_permits(), 16);
+    // Exhaust the common semaphore independently of source IP: the accept gate
+    // must refuse before allocating TLS or HTTP state.
+    let budget = h.remote.slots.clone().acquire_many_owned(16).await.unwrap();
+    let mut extra = TcpStream::connect(&address).await.unwrap();
+    let refused = tokio::time::timeout(Duration::from_secs(1), extra.read(&mut byte))
+        .await
+        .unwrap();
+    assert!(matches!(refused, Ok(0) | Err(_)));
+    drop(budget);
+    drop(held);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn served_listener_uses_supplied_pem_certificate_and_key() {
+    let root = tempfile::tempdir().unwrap();
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listen = reserved.local_addr().unwrap();
+    drop(reserved);
+    let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+    let cert_path = root.path().join("cert.pem");
+    let key_path = root.path().join("key.pem");
+    fs::write(&cert_path, cert.cert.pem()).unwrap();
+    fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let options = ServeOptions {
+        listen,
+        public_url: format!("https://{listen}"),
+        tls_cert: Some(cert_path),
+        tls_key: Some(key_path),
+    };
+    let remote =
+        Remote::open_served_with_store(root.path(), desk.log.clone(), desk, store, options.clone())
+            .unwrap();
+    remote.restore().await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !remote.status().enabled {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .add_root_certificate(reqwest::Certificate::from_der(cert.cert.der()).unwrap())
+        .build()
+        .unwrap();
+    assert_eq!(
+        client
+            .get(format!("{}/v2/pair", options.public_url))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    assert!(
+        remote.identity.read().unwrap().is_none(),
+        "supplied TLS must not create an unrelated self-signed identity"
+    );
+    assert!(remote.noise_identity.read().unwrap().is_some());
+    remote.configure(false, &listen.to_string()).await.unwrap();
 }

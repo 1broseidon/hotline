@@ -67,58 +67,96 @@ async fn body<T: serde::de::DeserializeOwned>(
     serde_json::from_slice(&body.to_bytes()).map_err(|_| "invalid_claim")
 }
 
-pub(super) async fn run(
+pub(super) fn run(
     remote: Arc<Remote>,
     listener: TcpListener,
     tls: TlsAcceptor,
     cancel: CancellationToken,
-) {
-    loop {
-        let accepted = tokio::select! { biased; _ = cancel.cancelled() => break, accepted = listener.accept() => accepted };
-        let (socket, _) = match accepted {
-            Ok(v) => v,
-            Err(_) => {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        let Ok(slot) = remote.slots.clone().try_acquire_owned() else {
-            continue;
-        };
-        let slot = Arc::new(slot);
-        let remote = remote.clone();
-        let tls = tls.clone();
-        let cancel = cancel.clone();
-        tokio::spawn(async move {
-            let Ok(Ok(socket)) =
-                tokio::time::timeout(Duration::from_secs(5), tls.accept(socket)).await
-            else {
-                return;
+) -> futures_util::future::BoxFuture<'static, ()> {
+    Box::pin(async move {
+        loop {
+            let accepted = tokio::select! { biased; _ = cancel.cancelled() => break, accepted = listener.accept() => accepted };
+            let (socket, peer) = match accepted {
+                Ok(v) => v,
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
             };
-            let service = service_fn(move |request| handle(remote.clone(), request, slot.clone()));
-            let mut builder = http1::Builder::new();
-            builder
-                .timer(TokioTimer::new())
-                .header_read_timeout(Duration::from_secs(10));
-            let connection = builder
-                .serve_connection(TokioIo::new(socket), service)
-                .with_upgrades();
-            tokio::select! { _ = cancel.cancelled() => {}, _ = connection => {} }
-        });
-    }
+            let Ok(slot) = remote.slots.clone().try_acquire_owned() else {
+                continue;
+            };
+            let ip = match peer.ip() {
+                IpAddr::V6(ip) => ip
+                    .to_ipv4_mapped()
+                    .map(IpAddr::V4)
+                    .unwrap_or(IpAddr::V6(ip)),
+                ip => ip,
+            };
+            {
+                let mut connections = remote.connections.lock().unwrap();
+                let count = connections.entry(ip).or_default();
+                if *count >= 4 {
+                    continue;
+                }
+                *count += 1;
+            }
+            let slot = Arc::new(ConnectionPermit {
+                remote: remote.clone(),
+                ip,
+                _global: slot,
+            });
+            let remote = remote.clone();
+            let tls = tls.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                let accepted = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return,
+                    accepted = tokio::time::timeout(Duration::from_secs(5), tls.accept(socket)) => accepted,
+                };
+                let Ok(Ok(socket)) = accepted else {
+                    return;
+                };
+                let service =
+                    service_fn(move |request| handle(remote.clone(), request, slot.clone()));
+                let mut builder = http1::Builder::new();
+                builder
+                    .timer(TokioTimer::new())
+                    .header_read_timeout(Duration::from_secs(10));
+                let connection = builder
+                    .serve_connection(TokioIo::new(socket), service)
+                    .with_upgrades();
+                tokio::select! { _ = cancel.cancelled() => {}, _ = connection => {} }
+            });
+        }
+    })
 }
 async fn handle(
     remote: Arc<Remote>,
     mut request: Request<Incoming>,
-    slot: Arc<tokio::sync::OwnedSemaphorePermit>,
+    slot: Arc<ConnectionPermit>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     // Pairing and wire credentials belong to native clients. Browser origins
     // cannot spend them, and no CORS or query-token route is offered here.
     if request.headers().contains_key("origin") || request.uri().query().is_some() {
         return Ok(error(StatusCode::FORBIDDEN, "native_clients_only"));
     }
+    let Some(path) = remote.route_path(request.uri().path()).map(str::to_owned) else {
+        return Ok(error(StatusCode::NOT_FOUND, "not_found"));
+    };
+    if request.method() == "GET"
+        && (path == "/v2" || path == "/v2/pair" || path.starts_with("/v2/computer/"))
+    {
+        return Ok(sealed_door(remote, request, slot, &path).await);
+    }
+    // Served listeners have no bearer or manual pairing surface, including
+    // when an old desktop grant remains on disk for a later desktop launch.
+    if remote.served.is_some() {
+        return Ok(error(StatusCode::NOT_FOUND, "not_found"));
+    }
     if request.method() == "POST" {
-        let outcome = match request.uri().path() {
+        let outcome = match path.as_str() {
             "/pair" => body::<Claim>(request)
                 .await
                 .and_then(|claim| remote.claim(claim)),
@@ -145,10 +183,10 @@ async fn handle(
     if request.method() != "GET" {
         return Ok(error(StatusCode::NOT_FOUND, "not_found"));
     }
-    if let Some(persona_id) = computer_path(request.uri().path()).map(str::to_owned) {
+    if let Some(persona_id) = computer_path(&path).map(str::to_owned) {
         return Ok(computer_door(remote, request, slot, &persona_id).await);
     }
-    if request.uri().path() != "/ws" {
+    if path != "/ws" {
         return Ok(error(StatusCode::NOT_FOUND, "not_found"));
     }
     let Some(phone) = remote.authenticate(bearer(&request)) else {
@@ -231,7 +269,7 @@ pub(crate) fn computer_target(status: &crate::contract::ComputerStatus) -> Optio
 async fn computer_door(
     remote: Arc<Remote>,
     mut request: Request<Incoming>,
-    slot: Arc<tokio::sync::OwnedSemaphorePermit>,
+    slot: Arc<ConnectionPermit>,
     persona_id: &str,
 ) -> Response<Full<Bytes>> {
     let Some(phone) = remote.authenticate(bearer(&request)) else {
@@ -309,4 +347,199 @@ async fn pipe<P, C>(
     }
     let _ = phone.close(None).await;
     let _ = computer.close(None).await;
+}
+
+/// The connection budget covers TLS, HTTP, Noise and the upgraded lifetime.
+/// Keeping the permit in the upgrade task prevents reconnect floods from
+/// evading the per-IP limit after their HTTP connection has returned.
+struct ConnectionPermit {
+    remote: Arc<Remote>,
+    ip: IpAddr,
+    _global: tokio::sync::OwnedSemaphorePermit,
+}
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        let mut connections = self.remote.connections.lock().unwrap();
+        if let Some(count) = connections.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                connections.remove(&self.ip);
+            }
+        }
+    }
+}
+
+async fn sealed_door(
+    remote: Arc<Remote>,
+    mut request: Request<Incoming>,
+    slot: Arc<ConnectionPermit>,
+    path: &str,
+) -> Response<Full<Bytes>> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct ComputerBinding {
+        purpose: String,
+        persona_id: String,
+    }
+
+    let pairing = path == "/v2/pair";
+    let persona = path
+        .strip_prefix("/v2")
+        .and_then(computer_path)
+        .map(str::to_owned);
+    if (!pairing && path != "/v2" && persona.is_none()) || (pairing && !remote.pairing_open()) {
+        return error(StatusCode::NOT_FOUND, "not_found");
+    }
+    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let upgraded = hyper::upgrade::on(&mut request);
+    let Ok(reply) = create_response(&request.map(|_| ())) else {
+        return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
+    };
+    tokio::spawn(async move {
+        let _slot = slot;
+        // The same deadline covers upgrade plus both Noise messages. The
+        // initial WebSocket cap prevents allocation of an unbounded handshake.
+        let handshake = async {
+            let upgraded = upgraded.await.ok()?;
+            let config = WebSocketConfig::default()
+                .max_message_size(Some(65535))
+                .max_frame_size(Some(65535));
+            let mut socket = WebSocketStream::from_raw_socket(
+                TokioIo::new(upgraded),
+                Role::Server,
+                Some(config),
+            )
+            .await;
+            let (private, _) = remote.noise_keys().ok()?;
+            let mut noise = sealed::responder(&private).ok()?;
+            let Message::Binary(first) = socket.next().await?.ok()? else {
+                return None;
+            };
+            if first.len() > 4096 {
+                return None;
+            }
+            let mut payload = [0u8; 4096];
+            let size = noise.read_message(&first, &mut payload).ok()?;
+            let public = noise.get_remote_static()?.to_vec();
+            let (phone, answer) = if pairing {
+                let role = remote.claim_v2(&public, &payload[..size]).ok()?;
+                (
+                    None,
+                    serde_json::to_vec(&json!({"role": role, "deskName": desktop_name()})).ok()?,
+                )
+            } else {
+                // A TLS proxy can rewrite the HTTP target, but not this
+                // authenticated Noise payload. Bind it before looking up or
+                // connecting to any computer; ordinary wire payloads stay empty.
+                if let Some(persona) = persona.as_deref() {
+                    let binding: ComputerBinding = serde_json::from_slice(&payload[..size]).ok()?;
+                    if binding.purpose != "computer" || binding.persona_id != persona {
+                        return None;
+                    }
+                } else if size != 0 {
+                    return None;
+                }
+                (Some(remote.authenticate_v2(&public)?), Vec::new())
+            };
+            let mut response = [0u8; 4096];
+            let size = noise.write_message(&answer, &mut response).ok()?;
+            socket
+                .send(Message::Binary(response[..size].to_vec().into()))
+                .await
+                .ok()?;
+            if pairing {
+                return None;
+            }
+            let state = noise.into_transport_mode().ok()?;
+            Some((super::channel::Channel::new(socket, state), phone?))
+        };
+        let established = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            result = tokio::time::timeout(Duration::from_secs(5), handshake) => result,
+        };
+        let Ok(Some((socket, phone))) = established else {
+            return;
+        };
+        if let Some(persona) = persona {
+            let revoked = phone.cancel.clone();
+            tokio::select! {
+                biased;
+                _ = revoked.cancelled() => {},
+                _ = sealed_computer(remote.clone(), socket, &persona) => {},
+            }
+        } else {
+            // The wire owns its writer and subscription tasks and must reach
+            // their cleanup on revocation; dropping that future leaks them.
+            let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
+            let _ = crate::wire::seated_phone_v2(
+                socket,
+                remote.log.clone(),
+                remote.room.clone(),
+                phone,
+                &desktop_id,
+            )
+            .await;
+        }
+    });
+    reply.map(|_| Full::new(Bytes::new()))
+}
+
+/// A viewer uses the very same sealed connection, but its plaintext frame is
+/// an envelope: {"type":"text","data":"…"} or {"type":"binary","data":"<base64>"}.
+/// Inputs are text envelopes only. Container addresses and bearers never leave.
+async fn sealed_computer<S>(
+    remote: Arc<Remote>,
+    mut phone: super::channel::Channel<S>,
+    persona: &str,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Input {
+        r#type: String,
+        data: String,
+    }
+    let Ok(status) = remote.room.computer_status(persona).await else {
+        return;
+    };
+    let Some((port, token)) = computer_target(&status) else {
+        return;
+    };
+    let address = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(COMPUTER_MESSAGE_MAX))
+        .max_frame_size(Some(COMPUTER_MESSAGE_MAX));
+    let Ok(Ok((mut computer, _))) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async_with_config(address, Some(config), false),
+    )
+    .await
+    else {
+        return;
+    };
+    loop {
+        tokio::select! {
+            input = phone.next() => match input {
+                Some(Ok(Message::Text(text))) => {
+                    let Ok(input) = serde_json::from_str::<Input>(&text) else { break; };
+                    if input.r#type != "text" || input.data.len() > 65536 { break; }
+                    if computer.send(Message::Text(input.data.into())).await.is_err() { break; }
+                }
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {},
+                _ => break,
+            },
+            output = computer.next() => {
+                let value = match output {
+                    Some(Ok(Message::Text(text))) => json!({"type":"text", "data":text.as_str()}),
+                    Some(Ok(Message::Binary(bytes))) => json!({"type":"binary", "data":STANDARD.encode(bytes)}),
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
+                    _ => break,
+                };
+                if phone.send(Message::Text(value.to_string().into())).await.is_err() { break; }
+            }
+        }
+    }
 }

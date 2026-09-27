@@ -726,3 +726,87 @@ uses a token of its own. There is no other way through the door.
 The streams these subscriptions read are [log.md](log.md). What a session
 does with a command is [sessions.md](sessions.md). How to run the room is
 [development.md](development.md).
+
+## Sealed channel v2
+
+BRO-114's desk/phone interoperability contract. The Rust responder and
+fixed-key vectors implement this protocol; Swift uses the same vectors.
+
+- Pattern: `Noise_IK_25519_ChaChaPoly_SHA256`; prologue is the ASCII bytes
+  `hotline/2`. The desk static X25519 private key lives in its SecretStore,
+  independently of TLS certificates. Each phone holds its own device key.
+- Session path: `<public-url>/v2`. Pairing path: `<public-url>/v2/pair`.
+  Both are WebSockets over TLS. The pairing path returns 404 unless an
+  explicit two-minute pairing window is open. No served PAKE route exists.
+- Each handshake message is one binary WebSocket message. Message 1 is the
+  initiator's `(e, es, s, ss)`; message 2 the responder's `(e, ee, se)`.
+  Room session payloads are empty. Viewer payloads bind the target as
+  described below. For pairing, message 1 carries UTF-8 JSON
+  `{"secret":"<b64url>","name":"<device name>"}` and message 2 carries
+  `{"role":"owner"|"companion","deskName":"…"}`. The desk closes after
+  message 2. Grant creation and single-use secret consumption are atomic;
+  scanning one QR with two devices yields only one grant.
+- No wire hello or banner precedes authentication. An unknown session
+  device key closes silently. Connection limits apply per IP, together
+  with a global half-open handshake cap, handshake deadline and byte cap.
+- Each transport message is one binary WebSocket message, at most 65535
+  bytes including the Noise authentication tag. Plaintext is `[flag u8]
+  [chunk]`; flag 0 continues the current frame and flag 1 ends it. Chunks
+  concatenate to exactly one existing UTF-8 JSON wire frame. Reassembly is
+  bounded independently of the per-message cap. Text WebSocket messages
+  are forbidden. The authenticated hello has `protocolVersion: 2`.
+- QR: `hotline://pair?v=2&k=<desk static public key>&u=<public URL>&s=<secret>`.
+  `k` and `s` are 32-byte values encoded base64url without padding; `u` is
+  URL-encoded. No bearer token travels in v2 requests or transport.
+- The phone validates publicly trusted certificates normally and allows
+  self-signed TLS for this pinned Noise desk identity. Identity trust is
+  the Noise key, not the certificate. A wrong key fails even with a valid
+  certificate; rotating certificates does not revoke v2 grants. Existing
+  pinned-certificate grants retain their legacy route until re-pairing.
+- Grants record the device public key and explicit `owner` or `companion`
+  role. Missing legacy roles migrate to owner; an empty grant set never
+  bootstraps an owner. Companion retains the existing phone allowlist;
+  owner is not the unrestricted desk seat (BRO-116 adds its commands).
+- Fixed-key interoperability vectors are at
+  `crates/hotline-core/tests/fixtures/noise_v2.json`: desk/device static keys,
+  both ephemerals, and expected handshake and first transport bytes.
+
+Computer-viewer transport uses `<public-url>/v2/computer/{personaId}/ws`.
+Noise message 1 carries UTF-8 JSON
+`{"purpose":"computer","personaId":"<id>"}`; the desk requires an exact match
+with the HTTP target before opening the upstream viewer. Missing, extra or
+mismatched fields are refused. A TLS proxy cannot redirect authenticated
+controls to a different computer by changing the path. Message 2 is empty;
+there is no viewer hello. Transport plaintexts are JSON envelopes:
+`{"type":"text","data":"…"}` or
+`{"type":"binary","data":"<standard padded base64>"}`. Inputs accept text
+only. The desk resolves the upstream from its own running computer status;
+the viewer address and bearer never leave the desk.
+
+Remote controls are desk-seat wire commands, used by both the window and CLI:
+
+| cmd | params | result |
+| --- | --- | --- |
+| `remote.status` | `{}` | `RemoteStatus` |
+| `remote.configure` | `{enabled, host}` | `RemoteStatus`; a served address cannot change |
+| `remote.devices` | `{}` | `RemoteDevice[]` with roles and public keys, never secrets |
+| `remote.revoke` | `{deviceId}` | `RemoteStatus` after immediate revocation |
+| `remote.pairing` | `{role?}` | `SealedPairing` with id, QR, URI and expiry; owner by default |
+| `remote.pairing` | `{id}` | paired device, or explicit JSON `null` while waiting |
+| `remote.pairing` | `{id, cancel: true}` | none; ends only the matching invitation |
+| `remote.pairing` | `{legacy: true}` | desktop-only legacy QR/manual invitation |
+
+The socket creating a sealed invitation owns its disconnect cleanup. A new
+invitation replaces the previous one; disconnecting an old socket cannot
+cancel the replacement. The CLI keeps its socket open until success,
+cancellation or expiry. Neither owner nor companion may invoke these controls.
+A served listener mounts only v2 routes. Desktop legacy routes remain for old
+pairings; manual retries recheck expiry and original confirmation.
+
+Connection budgets are 16 total and 4 per source IP, including established
+room and viewer sockets, not only half-open handshakes. Upgrade and Noise
+share a five-second deadline; the first Noise message is limited to 4096
+bytes and WebSocket records to 65535. Reassembly is capped at 32 MiB; the
+remote wire additionally retains its existing 1 MiB output frame limit and
+64-frame outbox. These limits can deny service behind a shared NAT but never
+widen a seat or fall back to plaintext.

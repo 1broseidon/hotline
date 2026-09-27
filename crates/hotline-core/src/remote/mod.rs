@@ -1,9 +1,15 @@
 //! A paired phone enters the real wire through a separate, opt-in TLS listener.
 //! Its identity key uses the same OS credential store as provider credentials.
 mod attachments;
+mod channel;
 mod network;
 mod pake;
+mod sealed;
+mod served;
 mod server;
+mod v2;
+pub use served::ServeOptions;
+pub use v2::SealedPairing;
 
 use crate::contract::MobileAttachmentChunk;
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_write};
@@ -50,6 +56,16 @@ fn pairing_code() -> String {
     }
 }
 
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum DeviceRole {
+    /// Legacy phones retain their authority, never the unrestricted desk seat.
+    #[default]
+    Owner,
+    Companion,
+}
+
 #[derive(Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -57,11 +73,17 @@ pub struct RemoteDevice {
     pub id: String,
     pub name: String,
     pub paired_at: i64,
+    #[serde(default)]
+    pub role: DeviceRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub public_key: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Grant {
     device: RemoteDevice,
+    #[serde(default)]
     token_hash: String,
     /// Where a notification for this phone goes, once it has said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -196,7 +218,7 @@ struct Manual {
     expires_at: i64,
     failures: u8,
     sessions: HashMap<String, Session>,
-    claimed: Option<(String, Value)>,
+    claimed: Option<(String, String, Value)>,
 }
 const MANUAL_ATTEMPTS: u8 = 5;
 const MANUAL_SESSIONS: usize = 8;
@@ -206,6 +228,7 @@ struct Live {
     fingerprint: String,
     invitation: Option<Invitation>,
     manual: Option<Manual>,
+    sealed_pairing: Option<v2::Window>,
     cancel: CancellationToken,
     devices: HashMap<String, CancellationToken>,
     error: Option<String>,
@@ -221,6 +244,9 @@ struct Receipt {
 pub struct Remote {
     root: PathBuf,
     identity: CredentialFile,
+    noise_identity: CredentialFile,
+    served: Option<ServeOptions>,
+    connections: Mutex<HashMap<IpAddr, usize>>,
     state: Mutex<Live>,
     server: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     lifecycle: AsyncMutex<()>,
@@ -233,9 +259,13 @@ pub struct Remote {
 pub(crate) struct Phone {
     remote: Arc<Remote>,
     id: String,
+    role: DeviceRole,
     pub cancel: CancellationToken,
 }
 impl Phone {
+    pub(crate) fn role(&self) -> DeviceRole {
+        self.role
+    }
     pub(crate) async fn prompt(
         &self,
         operation_id: &str,
@@ -301,6 +331,15 @@ impl Remote {
         room: Arc<dyn RoomHandle>,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
+        Self::open_options(root, log, room, store, None)
+    }
+    fn open_options(
+        root: &Path,
+        log: Log,
+        room: Arc<dyn RoomHandle>,
+        store: Arc<dyn SecretStore>,
+        served: Option<ServeOptions>,
+    ) -> io::Result<Arc<Self>> {
         fs::create_dir_all(root)?;
         let mut saved: Saved = match fs::read(root.join("remote.json")) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
@@ -321,17 +360,27 @@ impl Remote {
         {
             saved.host = network::ALL.into();
         }
-        let identity =
-            CredentialFiles::new(root.to_path_buf(), store).file(root.join("remote-identity.json"));
+        if let Some(options) = &served {
+            saved.host = options.listen.to_string();
+            saved.port = options.listen.port();
+            saved.enabled = false;
+        }
+        let files = CredentialFiles::new(root.to_path_buf(), store);
+        let identity = files.file(root.join("remote-identity.json"));
+        let noise_identity = files.file(root.join("remote-noise-identity.json"));
         Ok(Arc::new(Self {
             root: root.to_path_buf(),
             identity,
+            noise_identity,
+            served,
+            connections: Mutex::new(HashMap::new()),
             state: Mutex::new(Live {
                 saved,
                 endpoints: Vec::new(),
                 fingerprint: String::new(),
                 invitation: None,
                 manual: None,
+                sealed_pairing: None,
                 cancel: CancellationToken::new(),
                 devices: HashMap::new(),
                 error: None,
@@ -373,6 +422,10 @@ impl Remote {
         }
     }
     pub async fn restore(self: &Arc<Self>) {
+        if self.served.is_some() {
+            self.restore_served().await;
+            return;
+        }
         let (enabled, host) = {
             let s = self.state.lock().unwrap();
             (s.saved.enabled, s.saved.host.clone())
@@ -386,6 +439,9 @@ impl Remote {
         enabled: bool,
         host: &str,
     ) -> Result<RemoteStatus, String> {
+        if self.served.is_some() {
+            return self.configure_served(enabled, host).await;
+        }
         let _held = self.lifecycle.lock().await;
         let addresses = Self::addresses();
         if host != network::ALL && !host.parse::<IpAddr>().is_ok_and(network::reachable) {
@@ -423,6 +479,7 @@ impl Remote {
             s.endpoints.clear();
             s.invitation = None;
             s.manual = None;
+            s.sealed_pairing = None;
             s.devices.clear();
             s.saved.enabled = false;
             s.saved.host = host.into();
@@ -477,12 +534,12 @@ impl Remote {
                 self.identity
                     .write(&serde_json::to_vec(&identity).map_err(message)?)
                     .map_err(message)?;
-                let mut s = self.state.lock().unwrap();
-                s.saved.grants.clear();
-                self.save(&s.saved)?;
+                // TLS rotation changes no device authority. Legacy phones
+                // keep their records until explicitly revoked or re-paired.
                 identity
             }
         };
+        self.noise_keys()?;
         let tls = server::tls(&identity)?;
         let cancel = CancellationToken::new();
         {
@@ -510,6 +567,9 @@ impl Remote {
         Ok(self.status())
     }
     pub fn pairing(&self) -> Result<RemotePairing, String> {
+        if self.served.is_some() {
+            return Err("Served desks offer sealed v2 pairing only.".into());
+        }
         let mut s = self.state.lock().unwrap();
         let endpoint = s
             .endpoints
@@ -540,6 +600,7 @@ impl Remote {
             code: pairing_code(),
             expires_at: invitation.expires_at,
         };
+        s.sealed_pairing = None;
         s.invitation = Some(Invitation {
             value: invitation.clone(),
             claimed: None,
@@ -561,14 +622,23 @@ impl Remote {
         let mut s = self.state.lock().unwrap();
         let mut saved = s.saved.clone();
         saved.grants.retain(|g| g.device.id != id);
-        self.save(&saved)?;
-        s.saved = saved;
+        // Close the live authority even if persistence fails. A failed revoke
+        // must never leave a socket executing under the grant being removed.
         if let Some(cancel) = s.devices.remove(id) {
             cancel.cancel();
+        }
+        let result = self.save(&saved);
+        s.saved = saved;
+        if let Err(error) = result {
+            s.cancel.cancel();
+            s.endpoints.clear();
+            s.error = Some(error.clone());
+            return Err(error);
         }
         // An idempotent pairing retry must never recover a revoked grant.
         s.invitation = None;
         s.manual = None;
+        s.sealed_pairing = None;
         drop(s);
         Ok(self.status())
     }
@@ -600,6 +670,8 @@ impl Remote {
                 id: id.clone(),
                 name: name.trim().into(),
                 paired_at: now(),
+                role: DeviceRole::Owner,
+                public_key: None,
             },
             token_hash: hash(&token),
             push: None,
@@ -697,8 +769,11 @@ impl Remote {
         let desktop_id = s.saved.desktop_id.clone();
         let fingerprint = s.fingerprint.clone();
         let manual = s.manual.as_mut().ok_or("pairing_closed")?;
-        if let Some((id, answer)) = &manual.claimed {
-            return if id == &finish.claim_id {
+        if manual.expires_at <= now() {
+            return Err("expired");
+        }
+        if let Some((id, confirmation, answer)) = &manual.claimed {
+            return if id == &finish.claim_id && pake::same_tag(&finish.confirm, confirmation) {
                 Ok(answer.clone())
             } else {
                 Err("pairing_closed")
@@ -738,7 +813,7 @@ impl Remote {
         answer["certificateSha256"] = json!(fingerprint);
         answer["confirm"] = json!(tags.desktop);
         let manual = s.manual.as_mut().unwrap();
-        manual.claimed = Some((finish.claim_id, answer.clone()));
+        manual.claimed = Some((finish.claim_id, finish.confirm, answer.clone()));
         manual.sessions.clear();
         s.invitation = None;
         Ok(answer)
@@ -757,6 +832,7 @@ impl Remote {
         Some(Phone {
             remote: self.clone(),
             id: grant.device.id.clone(),
+            role: grant.device.role,
             cancel: s.devices.get(&grant.device.id)?.child_token(),
         })
     }

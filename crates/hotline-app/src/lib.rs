@@ -24,7 +24,6 @@ mod files;
 mod instance;
 #[cfg(target_os = "linux")]
 mod linux_package;
-mod remote;
 mod updater;
 
 #[cfg(unix)]
@@ -277,6 +276,7 @@ pub fn run() {
     let token = random_token();
     let remote = hotline_core::remote::Remote::open(&root, desk.log.clone(), desk.clone())
         .expect("remote access settings did not open");
+    desk.set_remote(&remote);
     tauri::async_runtime::block_on(remote.restore());
     let door = Door::bind(desk.log.clone(), token.clone(), desk.clone())
         .expect("the room's door did not bind");
@@ -325,10 +325,6 @@ pub fn run() {
         updater::check_update,
         updater::install_update,
         updater::cancel_update,
-        remote::remote_status,
-        remote::remote_configure,
-        remote::remote_pairing,
-        remote::remote_revoke
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -338,10 +334,6 @@ pub fn run() {
         updater::check_update,
         updater::install_update,
         updater::cancel_update,
-        remote::remote_status,
-        remote::remote_configure,
-        remote::remote_pairing,
-        remote::remote_revoke
     ]);
     builder
         .setup(move |app| {

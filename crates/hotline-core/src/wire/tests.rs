@@ -62,7 +62,16 @@ fn thinking(persona_id: &str) -> SessionInfo {
 /// A room where nothing is running unless a test says otherwise: every
 /// session is idle until `set_info` names one, and the vault answers with
 /// what it was handed.
+#[derive(Default)]
+struct PendingStop {
+    entered: tokio_util::sync::CancellationToken,
+    release: tokio_util::sync::CancellationToken,
+    completed: tokio_util::sync::CancellationToken,
+    dropped: tokio_util::sync::CancellationToken,
+}
+
 struct Quiet {
+    pending_stop: Option<Arc<PendingStop>>,
     auth_owner: Mutex<Option<tokio_util::sync::CancellationToken>>,
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
@@ -75,6 +84,7 @@ struct Quiet {
 impl Quiet {
     fn new() -> Self {
         Self {
+            pending_stop: None,
             auth_owner: Mutex::new(None),
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
@@ -796,6 +806,12 @@ impl RoomHandle for Quiet {
     }
 
     async fn computer_stop(&self, _persona_id: &str) -> Result<(), String> {
+        if let Some(pending) = &self.pending_stop {
+            let _dropped = pending.dropped.clone().drop_guard();
+            pending.entered.cancel();
+            pending.release.cancelled().await;
+            pending.completed.cancel();
+        }
         Ok(())
     }
 
@@ -2104,6 +2120,7 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
         auth_attempts: Arc::default(),
+        pairing: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3228,6 +3245,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
         auth_attempts: Arc::default(),
+        pairing: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3307,4 +3325,242 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         .await
         .unwrap();
     assert!(log.load(&StreamId::Tape("ada".into())).is_empty());
+}
+
+/// Exercise the same frame reader and seat gate as both socket transports.
+async fn remote_control_answer(
+    seat: Seat,
+    room: &Arc<dyn RoomHandle>,
+    log: &Log,
+    frame: Value,
+) -> Value {
+    let (tx, mut frames) = mpsc::unbounded_channel();
+    let outbox = Outbox {
+        auth_attempts: Arc::default(),
+        pairing: Arc::default(),
+        sender: Outgoing::Desk(tx),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        max: usize::MAX,
+    };
+    let mut subscriptions = HashMap::new();
+    answer(
+        &frame.to_string(),
+        seat,
+        log,
+        room,
+        &outbox,
+        &mut subscriptions,
+        None,
+    )
+    .await;
+    let response = serde_json::from_str(&frames.recv().await.unwrap()).unwrap();
+    for handle in subscriptions.into_values() {
+        handle.abort();
+    }
+    response
+}
+
+#[tokio::test]
+async fn remote_controls_belong_only_to_the_desk_not_an_owner_or_companion() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let remote =
+        crate::remote::Remote::open_with_store(root.path(), desk.log.clone(), room.clone(), store)
+            .unwrap();
+    desk.set_remote(&remote);
+
+    for seat in [Seat::Owner, Seat::Phone] {
+        for (cmd, params) in [
+            ("remote.status", json!({})),
+            ("remote.configure", json!({"enabled":true,"host":"all"})),
+            ("remote.devices", json!({})),
+            ("remote.revoke", json!({"deviceId":"any"})),
+            ("remote.pairing", json!({})),
+            ("remote.pairing", json!({"role":"companion"})),
+            ("remote.pairing", json!({"legacy":true})),
+            ("remote.pairing", json!({"id":"any"})),
+            ("remote.pairing", json!({"id":"any","cancel":true})),
+            (
+                "persona.update",
+                json!({"id":"any","patch":{"reach":"machine"}}),
+            ),
+            ("settings.update", json!({"patch":{"remote":true}})),
+        ] {
+            let response = remote_control_answer(
+                seat,
+                &room,
+                &desk.log,
+                json!({"id":1,"cmd":cmd,"params":params}),
+            )
+            .await;
+            assert_eq!(response["code"], FORBIDDEN, "{seat:?} {cmd}: {response}");
+        }
+        let response =
+            remote_control_answer(seat, &room, &desk.log, json!({"id":1,"sub":"room"})).await;
+        assert_eq!(response["code"], FORBIDDEN, "{seat:?}: {response}");
+        // Both roles retain the same useful, read-only phone command.
+        let response =
+            remote_control_answer(seat, &room, &desk.log, json!({"id":1,"cmd":"models.list"}))
+                .await;
+        assert_eq!(response["ok"], true, "{seat:?}: {response}");
+    }
+    assert!(
+        !remote.status().enabled,
+        "denied configure must not reach Remote"
+    );
+    assert!(remote.devices().is_empty());
+
+    for (cmd, params) in [
+        ("remote.status", json!({})),
+        ("remote.configure", json!({"enabled":false,"host":"all"})),
+        ("remote.devices", json!({})),
+        ("remote.revoke", json!({"deviceId":"already-absent"})),
+    ] {
+        let response = remote_control_answer(
+            Seat::Desk,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":cmd,"params":params}),
+        )
+        .await;
+        assert_eq!(response["ok"], true, "{cmd}: {response}");
+    }
+    let weak = Arc::downgrade(&remote);
+    drop(remote);
+    assert!(
+        weak.upgrade().is_none(),
+        "desk controls must not form a strong cycle"
+    );
+    assert!(desk.remote().is_none());
+    let response = remote_control_answer(
+        Seat::Desk,
+        &room,
+        &desk.log,
+        json!({"id":1,"cmd":"remote.status"}),
+    )
+    .await;
+    assert_eq!(response["ok"], false);
+    assert!(
+        response["error"]
+            .as_str()
+            .unwrap()
+            .contains("not available")
+    );
+}
+
+#[tokio::test]
+async fn desk_pairing_commands_start_poll_cancel_and_preserve_manual_pairing() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let remote =
+        crate::remote::Remote::open_with_store(root.path(), desk.log.clone(), room.clone(), store)
+            .unwrap();
+    desk.set_remote(&remote);
+    let response = remote_control_answer(
+        Seat::Desk,
+        &room,
+        &desk.log,
+        json!({"id":1,"cmd":"remote.configure","params":{"enabled":true,"host":"all"}}),
+    )
+    .await;
+    assert_eq!(response["ok"], true, "{response}");
+    for params in [json!({}), json!({"role":"companion"})] {
+        let response = remote_control_answer(
+            Seat::Desk,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":"remote.pairing","params":params}),
+        )
+        .await;
+        assert_eq!(response["ok"], true, "{response}");
+        assert!(
+            response["result"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("hotline://pair?v=2")
+        );
+        assert!(response["result"].get("manual").is_none());
+        let id = response["result"]["id"].as_str().unwrap();
+        let pending = remote_control_answer(
+            Seat::Desk,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":"remote.pairing","params":{"id":id}}),
+        )
+        .await;
+        assert_eq!(pending, json!({"id":1,"ok":true,"result":null}));
+        let cancelled = remote_control_answer(
+            Seat::Desk,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":"remote.pairing","params":{"id":id,"cancel":true}}),
+        )
+        .await;
+        assert_eq!(cancelled, json!({"id":1,"ok":true}));
+    }
+    let legacy = remote_control_answer(
+        Seat::Desk,
+        &room,
+        &desk.log,
+        json!({"id":1,"cmd":"remote.pairing","params":{"legacy":true}}),
+    )
+    .await;
+    assert_eq!(legacy["ok"], true, "{legacy}");
+    assert_eq!(legacy["result"]["invitation"]["version"], 1);
+    assert_eq!(
+        legacy["result"]["manual"]["code"].as_str().unwrap().len(),
+        6
+    );
+    for params in [
+        json!({"cancel":true}),
+        json!({"legacy":true,"role":"companion"}),
+        json!({"id":"any","role":"owner"}),
+    ] {
+        let refused = remote_control_answer(
+            Seat::Desk,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":"remote.pairing","params":params}),
+        )
+        .await;
+        assert_eq!(refused["ok"], false, "{refused}");
+    }
+    remote.configure(false, "all").await.unwrap();
+}
+
+#[tokio::test]
+async fn a_desktop_disconnect_does_not_drop_an_inflight_mutation() {
+    let pending = Arc::new(PendingStop::default());
+    let mut room = Quiet::new();
+    room.pending_stop = Some(pending.clone());
+    let (_root, _log, port) = door_with("desk-pending-stop", Arc::new(room));
+    let mut socket = desk(port).await;
+    let persona = create(&mut socket, 0, "Ada").await;
+    ask(
+        &mut socket,
+        json!({"id":1,"cmd":"computer.stop","params":{"personaId":persona["id"]}}),
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(3), pending.entered.cancelled())
+        .await
+        .unwrap();
+    socket.close(None).await.unwrap();
+    drop(socket);
+    // Unlike a revoked phone, the local desk's mutation must finish.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), pending.dropped.cancelled())
+            .await
+            .is_err()
+    );
+    pending.release.cancel();
+    tokio::time::timeout(Duration::from_secs(3), pending.dropped.cancelled())
+        .await
+        .unwrap();
+    assert!(pending.completed.is_cancelled());
 }

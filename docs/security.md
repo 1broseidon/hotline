@@ -616,3 +616,48 @@ made it so.
   account authorized even if a later session restart fails. The phone flow is
   deferred because Claude's remote method is a TUI, not a structured device-code
   interface; no unsupported terminal parser or alternate token path is used.
+
+
+## Sealed served connections and explicit pairing (BRO-114)
+
+- **Default and grant source:** desktop Remote remains opt-in with existing
+  legacy grants retained. `serve` requires an explicit non-wildcard fixed
+  listen address and public HTTPS URL; it starts that listener and never
+  widens or chooses an ephemeral fallback. A local desk-seat operator opens
+  a two-minute single-use QR invitation. Empty grants never bootstrap an
+  owner. Old grants without roles become owner; owner and companion both
+  keep the existing phone allowlist until BRO-116.
+- **Enforcement:** `remote/v2.rs` persists a separate X25519 identity in the
+  selected SecretStore and atomically consumes the invitation with grant
+  creation. `remote/server.rs`, `sealed.rs` and `channel.rs` authenticate
+  Noise IK before any hello or application frame. Unknown devices close
+  silently. Viewer purpose and persona are authenticated handshake content,
+  checked against the HTTP target, so a TLS proxy cannot redirect controls.
+  Only the desk resolves computer addresses and presents viewer bearers.
+  `Seat::permits` refuses all remote administration to both phone roles.
+- **Lifetime:** explicit revoke or Remote disable invalidates active sockets,
+  even while a remote command is waiting on a driver or computer. Pending
+  remote calls are dropped and subscriptions/writers are cleaned up; this is
+  not rollback of already dispatched effects or persisted choices. Local
+  desk mutations still finish when their socket disconnects.
+  The wire cancels only its own invitation on disconnect; CLI Ctrl-C, process
+  death and SSH disconnect close that window. Pairing has no six-digit route
+  on a served listener. Desktop manual retries now require an unexpired
+  invitation and matching original confirmation before replaying an answer.
+- **Tests:** `remote::sealed::tests` and `tests/fixtures/noise_v2.json` cover
+  framing and fixed-key interoperability. `remote::tests::sealed_network`
+  covers real TLS/Noise, replay/tamper/plaintext rejection, atomic pairing,
+  roles, certificate rotation, viewer binding and revocation. Other Remote
+  tests cover supplied TLS, exact late binding, absent served legacy routes,
+  handshake budgets and manual retry hardening. `wire::tests` checks owner
+  and companion refusals through the real handler; `hotline-cli/tests/pair.rs`
+  proves SIGINT and SIGKILL close the claim route through the running CLI.
+- **Residual risk:** this is not traffic-analysis protection: a proxy sees
+  paths, timing and sizes and can deny service. The limits (16 total, 4/IP)
+  include established connections and can constrain phones behind one NAT.
+  The local desk seat, service account, secret store and QR display are
+  trusted. QR scrollback remains sensitive until consumption or expiry.
+  Desktop legacy TLS/bearer/manual routes remain intentionally available;
+  sealed transport does not retroactively protect those legacy sessions.
+  Physical iOS and real certificate/proxy deployment QA remain separate from
+  Rust network harnesses and shared deterministic vectors.

@@ -24,6 +24,41 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::RemoteStatus {} => Ok(json!(remote(room)?.status())),
+        Command::RemoteConfigure { enabled, host } => {
+            Ok(json!(remote(room)?.configure(enabled, &host).await?))
+        }
+        Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
+        Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
+        Command::RemotePairing {
+            role,
+            id,
+            cancel,
+            legacy,
+        } => {
+            let remote = remote(room)?;
+            if legacy {
+                if role.is_some() || id.is_some() || cancel {
+                    return Err("Legacy pairing cannot name a role or a v2 invitation.".into());
+                }
+                return Ok(json!(remote.pairing()?));
+            }
+            if let Some(id) = id {
+                if role.is_some() {
+                    return Err("A pairing role is chosen when the invitation is created.".into());
+                }
+                if cancel {
+                    remote.cancel_pairing(&id)?;
+                    Ok(Value::Null)
+                } else {
+                    Ok(json!(remote.pairing_result(&id)?))
+                }
+            } else if cancel {
+                Err("Name the pairing invitation to cancel.".into())
+            } else {
+                Ok(json!(remote.pairing_v2(role.unwrap_or_default())?))
+            }
+        }
         // All authentication traffic needs socket ownership checked by the wire.
         Command::AgentAuthStart { .. }
         | Command::AgentAuthPoll { .. }
@@ -1105,4 +1140,9 @@ mod welcome_tests {
         );
         assert_eq!(missing.teammates, 2);
     }
+}
+
+fn remote(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::remote::Remote>, String> {
+    room.remote()
+        .ok_or_else(|| "Remote access is not available in this room.".into())
 }

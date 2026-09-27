@@ -19,6 +19,16 @@ fn hotline(root: &Path, args: &[&str]) -> Command {
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DBUS_SESSION_BUS_ADDRESS")
         .env_remove("HOTLINE_DATA_DIR");
+    if args.first() == Some(&"serve") {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        command.args([
+            "--listen",
+            &addr.to_string(),
+            "--public-url",
+            &format!("https://{addr}"),
+        ]);
+    }
     command
 }
 

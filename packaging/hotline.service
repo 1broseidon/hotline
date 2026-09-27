@@ -2,8 +2,8 @@
 #
 # Install: copy the `hotline` binary to /usr/local/bin, create the account
 # (`useradd --system --create-home --home-dir /var/lib/hotline hotline`),
-# copy this file to /etc/systemd/system/, set --listen below once pairing
-# lands, then `systemctl enable --now hotline`.
+# copy this file to /etc/systemd/system/, set --listen and --public-url below
+# for this host, then `systemctl enable --now hotline`.
 #
 # The environment is spelled out rather than borrowed from a login shell:
 # HOME and PATH are where the teammates' tools (git, node, npx, docker) are
@@ -23,7 +23,8 @@ Group=hotline
 Environment=HOME=/var/lib/hotline
 Environment=HOTLINE_DATA_DIR=/var/lib/hotline/room
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/bin/hotline serve --store file
+# Replace this documentation address and hostname before enabling the unit.
+ExecStart=/usr/local/bin/hotline serve --store file --listen 192.0.2.10:9443 --public-url https://desk.example:9443
 # The desk waits up to 30 s for running work, then leaves.
 TimeoutStopSec=45
 KillMode=mixed

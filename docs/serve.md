@@ -3,8 +3,8 @@
 `hotline serve` runs the desk with no window: the same room, teammates,
 scheduler and Remote access as the desktop app, on a Linux machine you
 reach over SSH. It needs no display and no session bus. This page covers
-what ships today; pairing a phone to it (BRO-114) and setting it up from the
-phone (BRO-116) are the next steps of BRO-16.
+the sealed phone connection. Owner onboarding from the phone (BRO-116)
+is separate; until then use the local Door for setup.
 
 ## Install
 
@@ -16,15 +16,66 @@ tar xzf hotline-server_*_linux_x86_64.tar.gz
 sudo install -m 0755 hotline-server_*/hotline /usr/local/bin/hotline
 sudo useradd --system --create-home --home-dir /var/lib/hotline --shell /usr/sbin/nologin hotline
 sudo install -m 0644 hotline-server_*/hotline.service /etc/systemd/system/hotline.service
+# Edit the unit's --listen and --public-url for this host before starting.
+sudo systemctl edit --full hotline
 sudo systemctl daemon-reload
 sudo systemctl enable --now hotline
 ```
 
-The unit runs `hotline serve --store file` as `hotline`, with the room at
+The unit runs `hotline serve --store file` with explicit network flags as
+`hotline`, with the room at
 `/var/lib/hotline/room`. It sets `HOME`, `PATH` and `HOTLINE_DATA_DIR`
 itself instead of reading a login shell, so add to its `PATH` whatever
 your teammates' tools need (Node for `npx`, a harness's install directory).
 Docker or Podman is needed only for teammates with a computer.
+
+## Listen and TLS
+
+Choose exactly one local IP and a fixed port. The public URL is where the
+phone connects, and may be a DNS name or a TLS-terminating proxy:
+
+```sh
+hotline serve --store file --listen 192.0.2.10:9443 \
+  --public-url https://desk.example:9443 --tls self
+```
+
+Replace the example address with this host's actual address. Wildcards,
+port zero and fallback to a different address are refused. If the address
+is late at boot, Remote waits for it without widening; the local Door stays
+available for status. `--listen` and `--public-url` are required. IPv6 uses
+brackets (`--listen '[2001:db8::10]:9443'`). For a supplied certificate use
+`--tls-cert /path/fullchain.pem --tls-key /path/key.pem` instead of
+`--tls self`; both PEM files must be readable by the service account.
+
+The remote endpoint still uses TLS, but phone identity trust is the desk's
+persistent X25519 Noise key, not the TLS certificate. Certificates can
+rotate without revoking sealed pairings. A proxy terminates TLS and
+forwards WebSockets to the desk's TLS listener; it only sees Noise
+ciphertext for the handshake payloads and application frames. It can
+still observe connection timing and sizes and deny service. Do not put
+credentials in `--public-url` or its query string.
+
+## Pair a phone
+
+As the service account, on the machine running the desk:
+
+```sh
+sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair
+# Or grant the existing limited phone seat explicitly:
+sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair --companion
+sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline devices
+sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline revoke DEVICE_ID
+```
+
+Scan the terminal QR with Hotline on the phone. The two-minute invitation
+is single-use; the command waits and prints the device name and role.
+Treat the QR and terminal scrollback as sensitive until it expires. Cancel
+with Ctrl-C. A served desk does not offer the six-digit manual pairing
+route, and its v2 claim endpoint is absent when no pairing window is open.
+Removing every device does not open an owner bootstrap route: run `pair`
+again locally. Owner and companion currently have the same phone command
+allowlist; neither is the unrestricted local desk seat. Owner onboarding
+commands come separately.
 
 ## Check on it
 

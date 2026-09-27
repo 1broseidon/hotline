@@ -32,7 +32,7 @@ use crate::contract::{
 use crate::log::{Log, StreamId};
 use crate::store::previews;
 use async_trait::async_trait;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io;
@@ -68,9 +68,18 @@ mod tests;
 /// not as the answer to the command. The async ones wait on something short:
 /// a driver coming up, or, for `prompt`, the agent whose chapter closed being
 /// replaced before it hears the message. The read loop awaits them, so a
-/// socket's commands are still answered one at a time, in order.
+/// socket's commands are still answered one at a time, in order. Remote-seat
+/// calls can be dropped at any await when the device is revoked or Remote is
+/// disabled. Implementations must release guards on drop; dropping a call does
+/// not roll back already dispatched side effects. Desk-seat mutations instead
+/// run to completion.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
+    /// Remote owns a room handle, so implementations retain only a weak reference.
+    fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
+        None
+    }
+
     /// Move confidential launch configuration into the credential vault before
     /// settings or subscriptions can retain it.
     fn protect_mcp_settings(&self, value: &Value) -> Result<Value, String> {
@@ -462,10 +471,24 @@ pub trait RoomHandle: Send + Sync + 'static {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Seat {
     Desk,
+    /// An authenticated owner is not the unrestricted local desk.
+    Owner,
+    /// A companion retains the existing phone permissions.
     Phone,
 }
 
 impl Seat {
+    fn for_phone(phone: &crate::remote::Phone) -> Self {
+        match phone.role() {
+            crate::remote::DeviceRole::Owner => Self::Owner,
+            crate::remote::DeviceRole::Companion => Self::Phone,
+        }
+    }
+
+    fn is_remote(self) -> bool {
+        matches!(self, Self::Owner | Self::Phone)
+    }
+
     pub fn permits(&self, command: &Command) -> bool {
         match self {
             Seat::Desk => true,
@@ -499,7 +522,7 @@ impl Seat {
             // already reads, so the phone reads the file too. `file.read`
             // names a message, never a path, and serves only what the desk
             // kept for that message.
-            Seat::Phone => matches!(
+            Seat::Owner | Seat::Phone => matches!(
                 command,
                 Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
@@ -539,7 +562,7 @@ impl Seat {
             // A thread between two teammates is read the way a tape is: the
             // phone already reads the marker for it on either tape, and the
             // thread holds what was said, never a setting.
-            Seat::Phone => matches!(
+            Seat::Owner | Seat::Phone => matches!(
                 target,
                 Target::Tape(_)
                     | Target::Thread(_)
@@ -718,6 +741,8 @@ pub(super) struct Outbox {
     max: usize,
     /// Attempts are private to the socket that started them, not bearer UUIDs.
     auth_attempts: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    /// Only this socket's latest invitation is cancelled on disconnect.
+    pairing: Arc<std::sync::Mutex<Option<String>>>,
 }
 #[derive(Clone)]
 enum Outgoing {
@@ -774,7 +799,36 @@ where
             .to_string(),
         ))
         .await?;
-    seated_inner(socket, Seat::Phone, log, room, Some(phone)).await
+    seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
+}
+
+/// Only the authenticated sealed transport calls this: the hello itself is encrypted.
+pub(crate) async fn seated_phone_v2<S>(
+    mut socket: S,
+    log: Log,
+    room: Arc<dyn RoomHandle>,
+    phone: crate::remote::Phone,
+    desktop_id: &str,
+) -> Result<(), Error>
+where
+    S: Stream<Item = Result<Message, Error>>
+        + Sink<Message, Error = Error>
+        + Unpin
+        + Send
+        + 'static,
+{
+    tokio::select! {
+        biased;
+        _ = phone.cancel.cancelled() => return Ok(()),
+        result = socket.send(Message::text(json!({
+            "type": "hello",
+            "protocolVersion": 2,
+            "desktopId": desktop_id,
+            "mode": "team",
+            "capabilities": PHONE_CAPABILITIES,
+        }).to_string())) => result?,
+    }
+    seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
 }
 
 async fn seated<S>(
@@ -790,18 +844,22 @@ where
 }
 
 async fn seated_inner<S>(
-    socket: WebSocketStream<S>,
+    socket: S,
     seat: Seat,
     log: Log,
     room: Arc<dyn RoomHandle>,
     phone: Option<crate::remote::Phone>,
 ) -> Result<(), Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: Stream<Item = Result<Message, Error>>
+        + Sink<Message, Error = Error>
+        + Unpin
+        + Send
+        + 'static,
 {
     let (mut sink, mut incoming) = socket.split();
     let cancel = phone.as_ref().map(|p| p.cancel.clone()).unwrap_or_default();
-    let (sender, mut outbox) = if seat == Seat::Phone {
+    let (sender, mut outbox) = if seat.is_remote() {
         let (tx, rx) = mpsc::channel::<String>(64);
         (Outgoing::Phone(tx), IncomingOutput::Phone(rx))
     } else {
@@ -810,9 +868,10 @@ where
     };
     let sender = Outbox {
         auth_attempts: Arc::default(),
+        pairing: Arc::default(),
         sender,
         cancel: cancel.clone(),
-        max: if seat == Seat::Phone {
+        max: if seat.is_remote() {
             1_048_576
         } else {
             usize::MAX
@@ -835,7 +894,7 @@ where
             None | Some(Ok(Message::Close(_))) => break Ok(()),
             Some(Err(error)) => break Err(error),
             Some(Ok(Message::Text(text))) => {
-                answer(
+                let answer = answer(
                     &text,
                     seat,
                     &log,
@@ -843,18 +902,44 @@ where
                     &sender,
                     &mut subscriptions,
                     phone.as_ref(),
-                )
-                .await;
+                );
+                if seat.is_remote() {
+                    // Revocation cannot wait for a driver or computer to answer.
+                    // Drop this socket's pending call, not the cleanup below.
+                    // This is not rollback: persisted choices and dispatched
+                    // effects survive; an interrupted mobile prompt keeps its
+                    // durable unknown receipt. Desk mutations still run to completion.
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => break Ok(()),
+                        _ = answer => {}
+                    }
+                } else {
+                    answer.await;
+                }
             }
             Some(Ok(_)) => {}
         }
     };
 
     cancel.cancel();
-    for handle in subscriptions.into_values() {
+    if let Some(id) = sender
+        .pairing
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+        && let Some(remote) = room.remote()
+    {
+        let _ = remote.cancel_pairing(&id);
+    }
+    for handle in subscriptions.values() {
         handle.abort();
     }
     writer.abort();
+    for handle in subscriptions.into_values() {
+        let _ = handle.await;
+    }
+    let _ = writer.await;
     result
 }
 
@@ -889,8 +974,37 @@ async fn answer(
                 // `teammate.tools` answers JSON null when there is no ledger,
                 // and that null is a value, not a void — collapsing it would
                 // make a missing ledger look like delete or stop.
-                let keep_null = matches!(command, Command::TeammateTools { .. });
+                let keep_null = matches!(
+                    command,
+                    Command::TeammateTools { .. }
+                        | Command::RemotePairing {
+                            id: Some(_),
+                            cancel: false,
+                            ..
+                        }
+                );
                 let result = match (&command, phone) {
+                    (
+                        Command::RemotePairing {
+                            id: None,
+                            legacy: false,
+                            cancel: false,
+                            ..
+                        },
+                        _,
+                    ) => {
+                        let result = commands::run(command, log, room).await;
+                        if let Ok(value) = &result
+                            && let Some(id) = value.get("id").and_then(Value::as_str)
+                        {
+                            *sender
+                                .pairing
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                Some(id.to_owned());
+                        }
+                        result
+                    }
                     (
                         Command::AgentAuthStart {
                             persona_id,
@@ -1143,7 +1257,7 @@ fn subscribe(
     // would otherwise be "already open" for a subscription that will never
     // deliver.
     subscriptions.retain(|_, handle| !handle.is_finished());
-    if seat == Seat::Phone && subscriptions.len() >= 8 {
+    if seat.is_remote() && subscriptions.len() >= 8 {
         return Err(String::from("A phone can open at most eight subscriptions.").into());
     }
     if subscriptions.contains_key(&id) {
@@ -1355,7 +1469,7 @@ async fn stream_events(
             event = events.recv() => match event {
                 Ok(event) => {
                     let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { event };
-                    if !send(&sender, json!({ "sub": id, "event": if seat == Seat::Phone { phone_event(event) } else { event } })) {
+                    if !send(&sender, json!({ "sub": id, "event": if seat.is_remote() { phone_event(event) } else { event } })) {
                         return;
                     }
                 }
@@ -1371,7 +1485,7 @@ async fn stream_events(
             },
             delta = delta => match delta {
                 // The phone draws words; a download ring is the desk's.
-                Ok(StreamDelta::ComputerPull { .. }) if seat == Seat::Phone => {}
+                Ok(StreamDelta::ComputerPull { .. }) if seat.is_remote() => {}
                 Ok(delta) if delta_persona(&delta) == persona_id => {
                     if !send(&sender, json!({ "sub": id, "ephemeral": delta })) {
                         return;

@@ -70,7 +70,7 @@ fn alive(pid: u32) -> bool {
 }
 
 /// The running desk's Door, or why there is none.
-fn running(root: &Path) -> Result<DoorFile, String> {
+pub(crate) fn running(root: &Path) -> Result<DoorFile, String> {
     match read(root) {
         Ok(door) if alive(door.pid) => Ok(door),
         Ok(door) => Err(format!(
@@ -133,7 +133,7 @@ pub async fn ask(door: &DoorFile, cmd: &str, params: Value) -> Result<Value, Str
     }
 }
 
-fn runtime() -> tokio::runtime::Runtime {
+pub(crate) fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

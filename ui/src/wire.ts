@@ -20,6 +20,10 @@ import type {
 	Persona,
 	Provider,
 	Report,
+	RemoteDevice,
+	RemotePairing,
+	RemoteStatus,
+	SealedPairing,
 	RosterEntry,
 	RuntimeReport,
 	ScheduledJob,
@@ -82,6 +86,11 @@ type Params<N extends CommandName> = Extract<Command, { cmd: N }> extends {
  * this table is the window's one remaining spelling of the reply.
  */
 type Results = {
+    "remote.status": RemoteStatus;
+    "remote.configure": RemoteStatus;
+    "remote.devices": RemoteDevice[];
+    "remote.revoke": RemoteStatus;
+    "remote.pairing": RemotePairing | SealedPairing | RemoteDevice | null;
     "agent.auth.start": { id: string };
     "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };
     "agent.auth.input": null;

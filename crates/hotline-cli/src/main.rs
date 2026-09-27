@@ -8,6 +8,7 @@
 //! See `docs/serve.md`.
 
 mod door;
+mod remote;
 mod serve;
 
 use std::path::PathBuf;
@@ -15,8 +16,12 @@ use std::process::ExitCode;
 
 const USAGE: &str = "\
 usage:
-  hotline serve --store file|native [--data <dir>]
+  hotline serve --store file|native --listen <IP:port> --public-url <https://host:port>
+      [--tls self | --tls-cert <PEM> --tls-key <PEM>] [--data <dir>]
   hotline status [--data <dir>]
+  hotline pair [--companion] [--data <dir>]
+  hotline devices [--data <dir>]
+  hotline revoke <device-id> [--data <dir>]
   hotline wire <command> [--data <dir>] < params.json
 
 `--data` defaults to HOTLINE_DATA_DIR, then the platform's data directory.
@@ -44,11 +49,20 @@ fn main() -> ExitCode {
                 }
                 Err(error) => return usage(&error),
             };
+            let options = match serve_options(&mut args) {
+                Ok(options) => options,
+                Err(error) => return usage(&error),
+            };
             if !args.is_empty() {
                 return usage(&format!("serve does not take {}", args.join(" ")));
             }
-            serve::run(root, &store)
+            serve::run(root, &store, options)
         }
+        "pair" if args.is_empty() || args == ["--companion"] => {
+            remote::pair(&root, !args.is_empty())
+        }
+        "devices" if args.is_empty() => remote::devices(&root),
+        "revoke" if args.len() == 1 => remote::revoke(&root, &args[0]),
         "status" if args.is_empty() => door::status(&root),
         "wire" if args.len() == 1 => door::wire(&root, &args[0]),
         "help" | "--help" | "-h" => {
@@ -88,4 +102,88 @@ fn usage(problem: &str) -> ExitCode {
     }
     eprintln!("{USAGE}");
     ExitCode::from(2)
+}
+
+fn serve_options(args: &mut Vec<String>) -> Result<hotline_core::remote::ServeOptions, String> {
+    let listen = take_value(args, "--listen")?
+        .ok_or("serve needs --listen with one explicit IP:port")?
+        .parse::<std::net::SocketAddr>()
+        .map_err(|_| "--listen must be an IP:port, with IPv6 in brackets")?;
+    if listen.ip().is_unspecified() || listen.port() == 0 {
+        return Err("--listen cannot be a wildcard or port zero".into());
+    }
+    let public_url =
+        take_value(args, "--public-url")?.ok_or("serve needs --public-url for the phone's QR")?;
+    let tls = take_value(args, "--tls")?;
+    let tls_cert = take_value(args, "--tls-cert")?.map(PathBuf::from);
+    let tls_key = take_value(args, "--tls-key")?.map(PathBuf::from);
+    if tls.as_deref().is_some_and(|value| value != "self") {
+        return Err("--tls only accepts self; use --tls-cert and --tls-key for PEM files".into());
+    }
+    if tls_cert.is_some() != tls_key.is_some() || (tls.is_some() && tls_cert.is_some()) {
+        return Err("supply both --tls-cert and --tls-key, or --tls self, not both".into());
+    }
+    let options = hotline_core::remote::ServeOptions {
+        listen,
+        public_url,
+        tls_cert,
+        tls_key,
+    };
+    options.validate()?;
+    Ok(options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn options(flags: &[&str]) -> Result<hotline_core::remote::ServeOptions, String> {
+        serve_options(&mut flags.iter().map(|s| s.to_string()).collect())
+    }
+    #[test]
+    fn served_network_is_explicit_and_never_wildcard_or_ephemeral() {
+        assert!(options(&[]).is_err());
+        for address in ["0.0.0.0:9443", "[::]:9443", "127.0.0.1:0", "host:9443"] {
+            assert!(
+                options(&["--listen", address, "--public-url", "https://desk.example"]).is_err()
+            );
+        }
+        let valid = options(&[
+            "--listen",
+            "127.0.0.1:9443",
+            "--public-url",
+            "https://desk.example",
+        ])
+        .unwrap();
+        assert_eq!(valid.listen.port(), 9443);
+        assert!(valid.tls_cert.is_none());
+    }
+    #[test]
+    fn public_urls_cannot_smuggle_credentials_or_an_unencrypted_route() {
+        for url in [
+            "http://desk.example",
+            "https://person:secret@desk.example",
+            "https://desk.example?token=secret",
+            "https://desk.example/#secret",
+        ] {
+            assert!(options(&["--listen", "127.0.0.1:9443", "--public-url", url]).is_err());
+        }
+    }
+    #[test]
+    fn tls_flags_cannot_silently_fall_back() {
+        for extra in [
+            vec!["--tls", "none"],
+            vec!["--tls-cert", "cert"],
+            vec!["--tls-key", "key"],
+            vec!["--tls", "self", "--tls-cert", "cert", "--tls-key", "key"],
+        ] {
+            let mut flags = vec![
+                "--listen",
+                "127.0.0.1:9443",
+                "--public-url",
+                "https://desk.example",
+            ];
+            flags.extend(extra);
+            assert!(options(&flags).is_err());
+        }
+    }
 }

@@ -46,6 +46,8 @@ mime_guess = "2.0.5"
 http = "1"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 sha2 = "0.10"
+# The pinned desk identity and encrypted v2 frames use the Noise IK pattern.
+snow = "0.10"
 rcgen = "0.14"
 tokio-rustls = "0.26"
 hyper = { version = "1", features = ["server", "http1"] }

@@ -19,7 +19,7 @@
 use crate::door;
 use hotline_core::credentials::{Backend, FileStore, NativeStore, SecretStore, claim_backend};
 use hotline_core::desk::Desk;
-use hotline_core::remote::Remote;
+use hotline_core::remote::{Remote, ServeOptions};
 use hotline_core::room_lock::RoomLock;
 use hotline_core::wire::Door;
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ use std::time::Duration;
 
 const DRAIN: Duration = Duration::from_secs(30);
 
-pub fn run(root: PathBuf, store: &str) -> ExitCode {
+pub fn run(root: PathBuf, store: &str, options: ServeOptions) -> ExitCode {
     let backend = match store {
         "file" => Backend::File,
         "native" => Backend::Native,
@@ -38,7 +38,7 @@ pub fn run(root: PathBuf, store: &str) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match serve(root, backend) {
+    match serve(root, backend, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("hotline: {error}");
@@ -47,7 +47,7 @@ pub fn run(root: PathBuf, store: &str) -> ExitCode {
     }
 }
 
-fn serve(root: PathBuf, backend: Backend) -> Result<(), String> {
+fn serve(root: PathBuf, backend: Backend, options: ServeOptions) -> Result<(), String> {
     let root = std::path::absolute(&root).map_err(|error| error.to_string())?;
     let _room = RoomLock::take(&root).map_err(|error| error.to_string())?;
     claim_backend(&root, backend).map_err(|error| error.to_string())?;
@@ -65,8 +65,10 @@ fn serve(root: PathBuf, backend: Backend) -> Result<(), String> {
             Desk::open_with_store(&root, store.clone())
                 .map_err(|error| format!("the desk did not open: {error}"))?,
         );
-        let remote = Remote::open_with_store(&root, desk.log.clone(), desk.clone(), store)
-            .map_err(|error| format!("remote access settings did not open: {error}"))?;
+        let remote =
+            Remote::open_served_with_store(&root, desk.log.clone(), desk.clone(), store, options)
+                .map_err(|error| format!("remote access settings did not open: {error}"))?;
+        desk.set_remote(&remote);
         remote.restore().await;
 
         let token = token();

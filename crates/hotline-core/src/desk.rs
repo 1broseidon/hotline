@@ -25,7 +25,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -72,6 +72,7 @@ enum LoginOutcome {
 
 /// Everything that runs behind one data directory.
 pub struct Desk {
+    remote: Mutex<Weak<crate::remote::Remote>>,
     pub log: Log,
     room: Arc<Room>,
     vault: Arc<Vault>,
@@ -80,6 +81,11 @@ pub struct Desk {
 }
 
 impl Desk {
+    /// Remote holds this desk strongly; the controls must not keep it alive in return.
+    pub fn set_remote(&self, remote: &Arc<crate::remote::Remote>) {
+        *self.remote.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(remote);
+    }
+
     /// Opens the log, the vault and the room over one data directory.
     pub fn open(root: &Path) -> io::Result<Desk> {
         Self::open_with_store(root, crate::credentials::default_store())
@@ -118,6 +124,7 @@ impl Desk {
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
             mcp_oauth,
+            remote: Mutex::new(Weak::new()),
         })
     }
 
@@ -164,6 +171,13 @@ impl Drop for Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
+        self.remote
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .upgrade()
+    }
+
     async fn agent_auth_start(
         &self,
         persona_id: &str,
@@ -1202,6 +1216,7 @@ mod tests {
         let room = Room::with_agents(log.clone(), Arc::new(TestKeys), agents.clone());
         let vault = Arc::new(Vault::open(&root, log.clone()).unwrap());
         let desk = Desk {
+            remote: Mutex::default(),
             log: log.clone(),
             room,
             mcp_oauth: Arc::new(crate::mcp::McpOAuthService::new(vault.clone())),

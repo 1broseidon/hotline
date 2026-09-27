@@ -47,6 +47,29 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Phone',
+					items: [
+						{ label: 'Hotline on your phone', slug: 'phone' },
+						{ label: 'Link a desk', slug: 'phone/pair' },
+						{ label: 'Talk to your teammates', slug: 'phone/chat' },
+						{ label: 'Notifications', slug: 'phone/notifications' },
+						{ label: "A teammate's computer", slug: 'phone/computer' },
+						{ label: 'Updates', slug: 'phone/updates' },
+					],
+				},
+				{
+					label: 'Server',
+					items: [
+						{ label: 'Hotline on a server', slug: 'server' },
+						{ label: 'Install', slug: 'server/install' },
+						{ label: 'Pair your phone', slug: 'server/pair' },
+						{ label: 'Connect a model', slug: 'server/models' },
+						{ label: 'Teammates and computers', slug: 'server/computers' },
+						{ label: 'Day to day', slug: 'server/operate' },
+						{ label: 'Troubleshooting', slug: 'server/troubleshooting' },
+					],
+				},
+				{
 					label: 'Reference',
 					items: [
 						{ label: 'Keyboard shortcuts', slug: 'reference/shortcuts' },

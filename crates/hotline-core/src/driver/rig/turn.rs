@@ -76,6 +76,7 @@ impl Steering {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub(super) async fn run(
     model: &impl CompletionModel,
     mut template: CompletionRequest,
@@ -128,6 +129,7 @@ pub(super) async fn run(
     }
 }
 
+#[allow(clippy::result_large_err)]
 async fn run_inner(
     model: &impl CompletionModel,
     template: CompletionRequest,
@@ -550,7 +552,7 @@ async fn run_inner(
 }
 
 // Retrying happens before accepting another response, so no tool dispatch is replayed.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
 async fn recover(
     failure: &Failure,
     retries: &mut u32,

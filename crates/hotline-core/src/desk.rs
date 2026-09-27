@@ -157,6 +157,30 @@ impl Drop for Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    async fn agent_auth_start(
+        &self,
+        persona_id: &str,
+        method_id: &str,
+        owner: tokio_util::sync::CancellationToken,
+    ) -> Result<String, String> {
+        self.room
+            .agent_auth_start(persona_id, method_id, owner)
+            .await
+    }
+    fn agent_auth_poll(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::driver::auth::AuthStatus, String> {
+        self.room.agent_auth_poll(persona_id, id)
+    }
+    fn agent_auth_input(&self, persona_id: &str, id: &str, input: &str) -> Result<(), String> {
+        self.room.agent_auth_input(persona_id, id, input)
+    }
+    fn agent_auth_cancel(&self, persona_id: &str, id: &str) -> Result<(), String> {
+        self.room.agent_auth_cancel(persona_id, id)
+    }
+
     fn protect_mcp_settings(&self, value: &serde_json::Value) -> Result<serde_json::Value, String> {
         self.vault
             .protect_mcp_settings(value)

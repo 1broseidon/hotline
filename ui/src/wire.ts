@@ -82,6 +82,10 @@ type Params<N extends CommandName> = Extract<Command, { cmd: N }> extends {
  * this table is the window's one remaining spelling of the reply.
  */
 type Results = {
+    "agent.auth.start": { id: string };
+    "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };
+    "agent.auth.input": null;
+    "agent.auth.cancel": null;
 	"persona.create": Persona;
 	"persona.update": Persona;
 	"persona.delete": null;

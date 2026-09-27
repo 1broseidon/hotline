@@ -1,6 +1,7 @@
+import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
 
-function errorDetails(text: string): { title: string; summary: string; details: string; context?: string } {
+export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction } {
     const start = text.indexOf('{"hotlineFailure":');
     if (start !== -1) {
         try {
@@ -11,7 +12,8 @@ function errorDetails(text: string): { title: string; summary: string; details: 
                     typeof failure.code === "string" ? failure.code : null,
                     typeof failure.retryAfterSeconds === "number" ? `Retry after ${failure.retryAfterSeconds}s` : null,
                 ].filter(Boolean).join(" · ");
-                return { title: failure.title, summary: failure.summary, details: failure.details, context };
+                const signIn = signInAction(failure);
+                return { title: failure.title, summary: failure.summary, details: failure.details, context, ...(signIn ? { signIn } : {}) };
             }
         } catch { /* Older notices are plain text. */ }
     }
@@ -23,7 +25,17 @@ function errorDetails(text: string): { title: string; summary: string; details: 
     return { title: "Turn failed", summary: "The activity could not finish. View the reported error below.", details };
 }
 
-export function ErrorCard({ text }: { text: string }) {
+function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignInAction | undefined {
+    if (failure.kind !== "agent_auth" || !failure.signIn || typeof failure.signIn !== "object") return;
+    const action = failure.signIn as Partial<AgentSignInAction>;
+    if (typeof action.harnessName !== "string" || !Array.isArray(action.methods)) return;
+    const methods = action.methods.filter((method) => method && typeof method.id === "string" && method.id !== "" && typeof method.name === "string")
+        .map((method) => ({ id: method.id, name: method.name, ...(typeof method.description === "string" ? { description: method.description } : {}) }));
+    if (methods.length === 0) return;
+    return { harnessName: action.harnessName, methods };
+}
+
+export function ErrorCard({ text, personaId, onRetry }: { text: string; personaId?: string; onRetry?: () => void }) {
     const error = errorDetails(text);
     return (
         <section className="my-2 min-w-0 max-w-full rounded-lg border border-line bg-raised p-3" aria-label={error.title}>
@@ -32,6 +44,7 @@ export function ErrorCard({ text }: { text: string }) {
                 <span className="font-medium">{error.title}</span>
             </div>
             <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
+            {error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
             <details className="mt-2 min-w-0">
                 <summary className="cursor-pointer text-xs text-ink-3 focus-visible:outline focus-visible:outline-2">Error details</summary>
                 {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}

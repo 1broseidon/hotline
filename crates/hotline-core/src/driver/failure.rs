@@ -37,6 +37,8 @@ pub(crate) struct Failure {
     pub code: Option<String>,
     pub retry_after_seconds: Option<u64>,
     pub tools_may_have_run: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<super::auth::SignIn>,
 }
 
 impl Failure {
@@ -191,6 +193,7 @@ impl Failure {
             code: code.map(|code| sanitize(&code)),
             retry_after_seconds,
             tools_may_have_run: false,
+            sign_in: None,
         };
         failure.set_kind(kind);
         failure

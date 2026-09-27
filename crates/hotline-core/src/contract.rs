@@ -2235,6 +2235,22 @@ pub enum Command {
     /// when the id is unknown or the model has no `effort` option.
     #[serde(rename = "models.efforts")]
     ModelsEfforts { model_id: String },
+    /// Desktop-only harness sign-in. Executable configuration never crosses this wire.
+    #[serde(rename = "agent.auth.start")]
+    AgentAuthStart {
+        persona_id: String,
+        method_id: String,
+    },
+    #[serde(rename = "agent.auth.poll")]
+    AgentAuthPoll { persona_id: String, id: String },
+    #[serde(rename = "agent.auth.input")]
+    AgentAuthInput {
+        persona_id: String,
+        id: String,
+        input: String,
+    },
+    #[serde(rename = "agent.auth.cancel")]
+    AgentAuthCancel { persona_id: String, id: String },
     #[serde(rename = "session.start")]
     SessionStart { persona_id: String },
     #[serde(rename = "session.stop")]

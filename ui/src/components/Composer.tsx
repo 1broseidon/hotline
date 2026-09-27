@@ -42,6 +42,7 @@ export function Composer({
 	refill,
 	onCancel,
 	onClearReply,
+	onDraftChange,
 }: {
 	personaId: string;
 	name: string;
@@ -52,12 +53,14 @@ export function Composer({
 	refill?: Refill;
 	onCancel(): void;
 	onClearReply(): void;
+	onDraftChange?(hasContent: boolean): void;
 }) {
 	const [text, setText] = useState("");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
 	const hasContent = text.trim().length > 0 || attachments.length > 0;
+	useEffect(() => { onDraftChange?.(hasContent); }, [hasContent, onDraftChange]);
 
 	// Grow with content, up to a ceiling. Before paint, because measuring after
 	// it draws a wrapped line at the old height for one frame first.
@@ -112,7 +115,7 @@ export function Composer({
 	useEffect(() => {
 		if (attachments.length === 0) return;
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
+			if (event.key !== "Escape" || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
 			event.preventDefault();
 			event.stopPropagation();
 			setAttachments([]);

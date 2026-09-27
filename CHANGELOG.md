@@ -8,6 +8,36 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-09-26
+
+### Added
+
+- Hotline runs on a server. `hotline serve` is the desk with no window, the
+  same room, teammates, schedules and computers, run under systemd on Linux
+  and reached from your phone. Each release now carries
+  `hotline-server_<version>_linux_x86_64.tar.gz` and `_linux_aarch64.tar.gz`,
+  with the binary and a systemd unit. It keeps its secrets in owner-only files
+  under the room (`--store file`) and refuses to open a room that another desk,
+  the desktop app or an import has open. `hotline status` checks on it.
+- A phone pairs with a server by scanning the QR code `hotline pair` prints.
+  After that, every connection is a sealed channel to the server's own key,
+  so a self-signed certificate or a proxy in front is fine, and no token
+  travels. `hotline devices` and `hotline revoke` manage the phones. The
+  phone can open a teammate's computer over the same channel.
+- Stopping or restarting a served desk is clean. What you said that was still
+  waiting is kept and delivered after the restart, turns running get 30
+  seconds, and a turn that has to be cut off says so in its conversation.
+- Settings → Remote on the desktop can also show a sealed QR code for phones
+  that support it. The six-digit pairing is unchanged.
+- The docs have a Server section and a Phone section at hotline.dev/docs.
+
+### Fixed
+
+- A harness whose own sign-in expired says so and signs in again privately,
+  instead of failing with "Agent connection failed" and replaying the turn.
+- What a harness writes about a failure reaches its hint in whole lines, and
+  only while a sign-in is actually running.
+
 ## [0.25.0] - 2026-09-26
 
 ### Added

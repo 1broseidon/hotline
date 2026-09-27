@@ -7,13 +7,18 @@
 //! none of them opens the room itself, so none of them contends for its lock.
 //! See `docs/serve.md`.
 
+#[cfg(unix)]
 mod door;
+#[cfg(unix)]
 mod remote;
+#[cfg(unix)]
 mod serve;
 
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+#[cfg(unix)]
 const USAGE: &str = "\
 usage:
   hotline serve --store file|native --listen <IP:port> --public-url <https://host:port>
@@ -28,6 +33,17 @@ usage:
 `wire` reads the command's params as JSON on stdin, never from arguments,
 so a secret in them does not reach shell history or the process list.";
 
+/// The desk with no window is a Unix service: it stops on SIGTERM and keeps
+/// its files owner-only. On Windows, the Hotline app is the desk.
+#[cfg(not(unix))]
+fn main() -> ExitCode {
+    eprintln!(
+        "hotline: the headless desk runs on Linux and macOS; on Windows, use the Hotline app."
+    );
+    ExitCode::FAILURE
+}
+
+#[cfg(unix)]
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let data = match take_value(&mut args, "--data") {
@@ -80,6 +96,7 @@ fn main() -> ExitCode {
 }
 
 /// Removes `--flag value` or `--flag=value` from `args`.
+#[cfg(unix)]
 fn take_value(args: &mut Vec<String>, flag: &str) -> Result<Option<String>, String> {
     let prefix = format!("{flag}=");
     if let Some(at) = args.iter().position(|arg| arg.starts_with(&prefix)) {
@@ -96,6 +113,7 @@ fn take_value(args: &mut Vec<String>, flag: &str) -> Result<Option<String>, Stri
     Ok(Some(args.remove(at)))
 }
 
+#[cfg(unix)]
 fn usage(problem: &str) -> ExitCode {
     if !problem.is_empty() {
         eprintln!("hotline: {problem}\n");
@@ -104,6 +122,7 @@ fn usage(problem: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
+#[cfg(unix)]
 fn serve_options(args: &mut Vec<String>) -> Result<hotline_core::remote::ServeOptions, String> {
     let listen = take_value(args, "--listen")?
         .ok_or("serve needs --listen with one explicit IP:port")?
@@ -133,7 +152,7 @@ fn serve_options(args: &mut Vec<String>) -> Result<hotline_core::remote::ServeOp
     Ok(options)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     fn options(flags: &[&str]) -> Result<hotline_core::remote::ServeOptions, String> {

@@ -726,3 +726,50 @@ uses a token of its own. There is no other way through the door.
 The streams these subscriptions read are [log.md](log.md). What a session
 does with a command is [sessions.md](sessions.md). How to run the room is
 [development.md](development.md).
+
+## Sealed channel v2
+
+BRO-114's desk/phone interoperability contract. This section is committed
+before implementation so the Rust responder and Swift initiator share one
+protocol; the implementation and its tests land in the following commits.
+
+- Pattern: `Noise_IK_25519_ChaChaPoly_SHA256`; prologue is the ASCII bytes
+  `hotline/2`. The desk static X25519 private key lives in its SecretStore,
+  independently of TLS certificates. Each phone holds its own device key.
+- Session path: `<public-url>/v2`. Pairing path: `<public-url>/v2/pair`.
+  Both are WebSockets over TLS. The pairing path returns 404 unless an
+  explicit two-minute pairing window is open. No served PAKE route exists.
+- Each handshake message is one binary WebSocket message. Message 1 is the
+  initiator's `(e, es, s, ss)`; message 2 the responder's `(e, ee, se)`.
+  Session payloads are empty. For pairing, message 1 carries UTF-8 JSON
+  `{"secret":"<b64url>","name":"<device name>"}` and message 2 carries
+  `{"role":"owner"|"companion","deskName":"…"}`. The desk closes after
+  message 2. Grant creation and single-use secret consumption are atomic;
+  scanning one QR with two devices yields only one grant.
+- No wire hello or banner precedes authentication. An unknown session
+  device key closes silently. Connection limits apply per IP, together
+  with a global half-open handshake cap, handshake deadline and byte cap.
+- Each transport message is one binary WebSocket message, at most 65535
+  bytes including the Noise authentication tag. Plaintext is `[flag u8]
+  [chunk]`; flag 0 continues the current frame and flag 1 ends it. Chunks
+  concatenate to exactly one existing UTF-8 JSON wire frame. Reassembly is
+  bounded independently of the per-message cap. Text WebSocket messages
+  are forbidden. The authenticated hello has `protocolVersion: 2`.
+- QR: `hotline://pair?v=2&k=<desk static public key>&u=<public URL>&s=<secret>`.
+  `k` and `s` are 32-byte values encoded base64url without padding; `u` is
+  URL-encoded. No bearer token travels in v2 requests or transport.
+- The phone validates publicly trusted certificates normally and allows
+  self-signed TLS for this pinned Noise desk identity. Identity trust is
+  the Noise key, not the certificate. A wrong key fails even with a valid
+  certificate; rotating certificates does not revoke v2 grants. Existing
+  pinned-certificate grants retain their legacy route until re-pairing.
+- Grants record the device public key and explicit `owner` or `companion`
+  role. Missing legacy roles migrate to owner; an empty grant set never
+  bootstraps an owner. Companion retains the existing phone allowlist;
+  owner is not the unrestricted desk seat (BRO-116 adds its commands).
+- Fixed-key interoperability vectors are at
+  `crates/hotline-core/tests/fixtures/noise_v2.json`: desk/device static keys,
+  both ephemerals, and expected handshake and first transport bytes.
+
+Computer-viewer transport uses the same authenticated sealed channel; its
+path and JSON envelope are agreed separately before either client changes.

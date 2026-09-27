@@ -641,6 +641,7 @@ struct Turn {
 }
 
 impl Turn {
+    #[allow(clippy::result_large_err)]
     async fn run(&self, sender: &mpsc::Sender<Update>, message: Message) -> Result<(), Failure> {
         // Keep admitted input even if workspace or provider construction fails.
         self.history.lock().await.push(message);

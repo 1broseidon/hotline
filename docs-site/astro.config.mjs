@@ -47,6 +47,18 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Server',
+					items: [
+						{ label: 'Hotline on a server', slug: 'server' },
+						{ label: 'Install', slug: 'server/install' },
+						{ label: 'Pair your phone', slug: 'server/pair' },
+						{ label: 'Connect a model', slug: 'server/models' },
+						{ label: 'Teammates and computers', slug: 'server/computers' },
+						{ label: 'Day to day', slug: 'server/operate' },
+						{ label: 'Troubleshooting', slug: 'server/troubleshooting' },
+					],
+				},
+				{
 					label: 'Reference',
 					items: [
 						{ label: 'Keyboard shortcuts', slug: 'reference/shortcuts' },

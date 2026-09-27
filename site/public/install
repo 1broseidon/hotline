@@ -1,0 +1,270 @@
+#!/bin/sh
+# Install Hotline from its latest GitHub release.
+#
+#   curl -fsSL https://hotline.dev/install | sh                  the desktop app
+#   curl -fsSL https://hotline.dev/install | sh -s -- --server   the desk with no window
+#
+# Server options, asked for when they are missing and a terminal is attached:
+#   --listen IP:PORT             one local address and a fixed port
+#   --public-url https://HOST:PORT  where phones reach the desk
+# Either mode takes --version X.Y.Z. Run it again to upgrade: a server keeps
+# its unit and room, and only the binary changes.
+#
+# Windows: irm https://hotline.dev/install.ps1 | iex
+# Docs: https://hotline.dev/docs/
+
+# Everything is in functions and runs from the last line, so a download cut
+# short runs nothing.
+
+RELEASES=https://github.com/1broseidon/hotline/releases
+UNIT=/etc/systemd/system/hotline.service
+ROOM=/var/lib/hotline/room
+
+say() { printf '%s\n' "$*"; }
+fail() {
+    printf 'hotline: %s\n' "$*" >&2
+    exit 1
+}
+need() { command -v "$1" >/dev/null 2>&1 || fail "this needs $1"; }
+
+fetch() {
+    curl --proto '=https' --tlsv1.2 -fsSL -o "$2" "$1" || fail "could not download $1"
+}
+
+# Root runs commands itself; anyone else asks sudo.
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
+as_hotline() {
+    if [ "$(id -u)" -eq 0 ]; then
+        runuser -u hotline -- env HOTLINE_DATA_DIR="$ROOM" "$@"
+    else
+        sudo -u hotline env HOTLINE_DATA_DIR="$ROOM" "$@"
+    fi
+}
+
+# Reads an answer from the terminal even though the script is on stdin.
+ask() {
+    printf '%s [%s]: ' "$1" "$2" >/dev/tty
+    read -r answer </dev/tty || answer=
+    [ -n "$answer" ] || answer=$2
+}
+
+has_tty() { (: </dev/tty) 2>/dev/null; }
+
+latest_version() {
+    fetch "$RELEASES/latest/download/latest.json" "$work/latest.json"
+    sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$work/latest.json" | head -n 1
+}
+
+sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d ' ' -f 1
+    else
+        shasum -a 256 "$1" | cut -d ' ' -f 1
+    fi
+}
+
+# Downloads one release asset into $work and checks it against checksums.txt.
+asset() {
+    base="$RELEASES/download/desktop-v$version"
+    [ -f "$work/checksums.txt" ] || fetch "$base/checksums.txt" "$work/checksums.txt"
+    expected=$(awk -v f="$1" '$2 == f { print $1 }' "$work/checksums.txt")
+    [ -n "$expected" ] || fail "release $version has no $1"
+    say "Downloading $1"
+    fetch "$base/$1" "$work/$1"
+    [ "$(sha256 "$work/$1")" = "$expected" ] || fail "$1 does not match its checksum"
+}
+
+arch() {
+    case "$(uname -m)" in
+        x86_64 | amd64) echo x86_64 ;;
+        aarch64 | arm64) echo aarch64 ;;
+        *) fail "no Hotline build for $(uname -m)" ;;
+    esac
+}
+
+desktop_macos() {
+    machine=$(arch)
+    # A shell under Rosetta reports x86_64 on Apple silicon.
+    [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ] && machine=aarch64
+    file="hotline_${version}_macos_${machine}.app.tar.gz"
+    asset "$file"
+    tar -xzf "$work/$file" -C "$work"
+    [ -d "$work/Hotline.app" ] || fail "$file has no Hotline.app"
+    target=/Applications
+    [ -w "$target" ] || target="$HOME/Applications"
+    mkdir -p "$target"
+    rm -rf "$target/Hotline.app"
+    mv "$work/Hotline.app" "$target/Hotline.app"
+    xattr -dr com.apple.quarantine "$target/Hotline.app" 2>/dev/null || true
+    say ""
+    say "Hotline $version is in $target. Open it with: open -a Hotline"
+}
+
+desktop_linux() {
+    [ "$(arch)" = x86_64 ] || fail "the desktop app is x86_64 only on Linux; for a server, add --server"
+    if command -v apt-get >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1; then
+        asset "hotline_${version}_linux_x86_64.deb"
+        # apt reads a local package as its own sandbox user.
+        chmod 0755 "$work"
+        chmod 0644 "$work/hotline_${version}_linux_x86_64.deb"
+        as_root apt-get install -y "$work/hotline_${version}_linux_x86_64.deb"
+    elif command -v dnf >/dev/null 2>&1; then
+        asset "hotline_${version}_linux_x86_64.rpm"
+        as_root dnf install -y "$work/hotline_${version}_linux_x86_64.rpm"
+    elif command -v zypper >/dev/null 2>&1; then
+        asset "hotline_${version}_linux_x86_64.rpm"
+        as_root zypper --non-interactive install --allow-unsigned-rpm "$work/hotline_${version}_linux_x86_64.rpm"
+    else
+        asset "hotline_${version}_linux_x86_64.AppImage"
+        mkdir -p "$HOME/.local/bin"
+        install -m 0755 "$work/hotline_${version}_linux_x86_64.AppImage" "$HOME/.local/bin/Hotline.AppImage"
+        say ""
+        say "Hotline $version is at ~/.local/bin/Hotline.AppImage."
+        say "The tray needs libayatana-appindicator3 from your package manager."
+        return
+    fi
+    say ""
+    say "Hotline $version is installed. Open it from your applications menu, or run hotline-app."
+}
+
+# The address this host reaches the internet from: a good first guess for
+# both the listen address and the one phones connect to.
+host_address() {
+    ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1
+}
+
+server() {
+    [ "$(uname -s)" = Linux ] || fail "the server install is for Linux with systemd; see https://hotline.dev/docs/server/"
+    command -v systemctl >/dev/null 2>&1 || fail "the server install needs systemd; see https://hotline.dev/docs/server/install/"
+    [ "$(id -u)" -eq 0 ] || need sudo
+    machine=$(arch)
+    dir="hotline-server_${version}_linux_${machine}"
+    asset "$dir.tar.gz"
+    tar -xzf "$work/$dir.tar.gz" -C "$work"
+
+    fresh=1
+    [ -f "$UNIT" ] && fresh=
+    if [ -n "$fresh" ] || [ -n "$listen$public_url" ]; then
+        guess=$(host_address)
+        if [ -z "$listen" ]; then
+            has_tty || fail "pass --listen IP:PORT (and --public-url) when no terminal is attached"
+            ask "Listen on" "${guess:-127.0.0.1}:9443"
+            listen=$answer
+        fi
+        if [ -z "$public_url" ]; then
+            has_tty || fail "pass --public-url https://HOST:PORT when no terminal is attached"
+            port=${listen##*:}
+            ask "Phones connect to" "https://${guess:-${listen%:*}}:$port"
+            public_url=$answer
+        fi
+    fi
+
+    as_root install -m 0755 "$work/$dir/hotline" /usr/local/bin/hotline
+    if ! id hotline >/dev/null 2>&1; then
+        nologin=$(command -v nologin || echo /usr/sbin/nologin)
+        as_root useradd --system --create-home --home-dir /var/lib/hotline --shell "$nologin" hotline
+    fi
+    if [ -n "$fresh" ]; then
+        as_root install -m 0644 "$work/$dir/hotline.service" "$UNIT"
+    fi
+    if [ -z "$fresh" ] && [ -n "$listen" ]; then
+        as_root cp "$UNIT" "$UNIT.previous"
+    fi
+    if [ -n "$listen" ]; then
+        exec_start="ExecStart=/usr/local/bin/hotline serve --store file --listen $listen --public-url $public_url"
+        as_root sed -i -e '/^# Replace this documentation address/d' \
+            -e "s|^ExecStart=.*|$exec_start|" "$UNIT"
+    fi
+    as_root systemctl daemon-reload
+    if [ -n "$fresh" ]; then
+        as_root systemctl enable --now hotline
+    else
+        as_root systemctl restart hotline
+    fi
+
+    tries=0
+    until as_hotline /usr/local/bin/hotline status >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 20 ] || ! as_root systemctl is-active --quiet hotline; then
+            as_root journalctl -u hotline -n 20 --no-pager >&2 || true
+            if [ -f "$UNIT.previous" ]; then
+                as_root mv "$UNIT.previous" "$UNIT"
+                as_root systemctl daemon-reload
+                as_root systemctl restart hotline || true
+                fail "the desk did not start with those settings, so the previous unit is back; the log is above"
+            fi
+            fail "the desk did not start; the log is above, the unit is $UNIT"
+        fi
+        sleep 1
+    done
+    say ""
+    as_hotline /usr/local/bin/hotline status || true
+    say ""
+    if [ -z "$fresh" ]; then
+        as_root rm -f "$UNIT.previous"
+        say "Hotline $version is running, with the same room and pairings."
+        return
+    fi
+    say "Open the port for your phones and nothing else. Teammates that run"
+    say "through npx need Node on the unit's PATH: sudo systemctl edit hotline."
+    say ""
+    if has_tty; then
+        as_hotline /usr/local/bin/hotline pair </dev/tty ||
+            say "Pair later with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair"
+    else
+        say "Pair a phone with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair"
+    fi
+    say "Next, connect a model: https://hotline.dev/docs/server/models/"
+}
+
+main() {
+    set -eu
+    mode=desktop
+    version=
+    listen=
+    public_url=
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --server) mode=server ;;
+            --version) version=${2:?--version needs a value}; shift ;;
+            --version=*) version=${1#*=} ;;
+            --listen) listen=${2:?--listen needs a value}; shift ;;
+            --listen=*) listen=${1#*=} ;;
+            --public-url) public_url=${2:?--public-url needs a value}; shift ;;
+            --public-url=*) public_url=${1#*=} ;;
+            -h | --help)
+                say "usage: install [--server [--listen IP:PORT] [--public-url https://HOST:PORT]] [--version X.Y.Z]"
+                say "Docs: https://hotline.dev/docs/"
+                return
+                ;;
+            *) fail "unknown option $1" ;;
+        esac
+        shift
+    done
+    if [ "$mode" = desktop ] && [ -n "$listen$public_url" ]; then
+        fail "--listen and --public-url are for --server"
+    fi
+    need curl
+    need tar
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    [ -n "$version" ] || version=$(latest_version)
+    [ -n "$version" ] || fail "could not find the latest release"
+    version=${version#v}
+
+    case "$mode" in
+        server) server ;;
+        desktop)
+            case "$(uname -s)" in
+                Darwin) desktop_macos ;;
+                Linux) desktop_linux ;;
+                *) fail "on Windows, run: irm https://hotline.dev/install.ps1 | iex" ;;
+            esac
+            ;;
+    esac
+}
+
+main "$@"

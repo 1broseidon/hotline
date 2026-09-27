@@ -3,6 +3,27 @@ title: Install on a server
 description: The binary, a service account, and a systemd unit.
 ---
 
+## Quick install
+
+On a Linux server with systemd:
+
+```sh
+curl -fsSL https://hotline.dev/install | sh -s -- --server
+```
+
+It downloads the server build for your architecture, checks it against the
+release's checksums, installs `hotline` to `/usr/local/bin`, creates the
+`hotline` account and the unit below, and starts the desk. It asks for the
+[listen address and public URL](#listen-address-and-tls), or takes them as
+`--listen` and `--public-url`. Once the desk is up it shows a pairing QR, so
+keep your phone handy.
+
+Run it again to upgrade. The unit and the room stay as they are and the new
+binary restarts. Pass `--listen` and `--public-url` again to change them; if
+the desk won't start with the new values, the previous unit goes back.
+
+The rest of this page is the same install done by hand.
+
 ## Get the binary
 
 Each [release](https://github.com/1broseidon/hotline/releases/latest) from

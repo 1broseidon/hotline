@@ -771,6 +771,34 @@ impl Room {
         }
     }
 
+    pub async fn agent_auth_start(
+        &self,
+        persona_id: &str,
+        method_id: &str,
+        owner: tokio_util::sync::CancellationToken,
+    ) -> Result<String, String> {
+        let _working = self.working()?;
+        let session = self.session(persona_id)?;
+        if lock(&session.info).state == SessionState::Thinking {
+            return Err("Stop this teammate's turn before signing in.".into());
+        }
+        session.driver.clone().auth_start(method_id, owner).await
+    }
+    pub fn agent_auth_poll(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::driver::auth::AuthStatus, String> {
+        self.session(persona_id)?.driver.auth_poll(id)
+    }
+
+    pub fn agent_auth_input(&self, persona_id: &str, id: &str, input: &str) -> Result<(), String> {
+        self.session(persona_id)?.driver.auth_input(id, input)
+    }
+    pub fn agent_auth_cancel(&self, persona_id: &str, id: &str) -> Result<(), String> {
+        self.session(persona_id)?.driver.auth_cancel(id)
+    }
+
     /// Brings a teammate up, on the driver its backend names. One caller at a
     /// time per teammate; see [`Room::starts`]. A teammate that is already up
     /// is the answer: the second caller — a schedule firing as the window
@@ -921,7 +949,22 @@ impl Room {
             return Err(error);
         }
         let mut info = idle_info(&persona.id);
-        info.state = SessionState::Ready;
+        info.state = if driver.startup_failure().is_some() {
+            SessionState::Error
+        } else {
+            SessionState::Ready
+        };
+        if let Some(text) = driver.startup_failure() {
+            self.write(
+                &persona.id,
+                &TranscriptEvent::Notice {
+                    id: new_id(),
+                    ts: now_ms(),
+                    level: NoticeLevel::Error,
+                    text,
+                },
+            );
+        }
         info.agent_name = Some(reported.agent_name);
         info.agent_version = reported.agent_version;
         info.session_id = reported.session_id.clone();
@@ -2488,6 +2531,10 @@ impl Room {
         }
         let info = {
             let mut info = lock(&session.info);
+            if session.driver.take_auth_success() && info.state == SessionState::Error {
+                info.state = SessionState::Ready;
+                info.error = None;
+            }
             if info.session_id != reported.session_id {
                 *lock(&session.pending_checkpoint) = reported.session_id.clone();
                 info.session_id = reported.session_id.clone();

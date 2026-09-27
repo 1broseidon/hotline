@@ -63,6 +63,7 @@ fn thinking(persona_id: &str) -> SessionInfo {
 /// session is idle until `set_info` names one, and the vault answers with
 /// what it was handed.
 struct Quiet {
+    auth_owner: Mutex<Option<tokio_util::sync::CancellationToken>>,
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
     states: Mutex<HashMap<String, SessionInfo>>,
@@ -74,6 +75,7 @@ struct Quiet {
 impl Quiet {
     fn new() -> Self {
         Self {
+            auth_owner: Mutex::new(None),
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
             states: Mutex::new(HashMap::new()),
@@ -399,6 +401,41 @@ impl RoomHandle for CoreHandle {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    async fn agent_auth_start(
+        &self,
+        persona_id: &str,
+        method_id: &str,
+        owner: tokio_util::sync::CancellationToken,
+    ) -> Result<String, String> {
+        assert_eq!(persona_id, "ada");
+        assert_eq!(method_id, "fixture");
+        *self.auth_owner.lock().unwrap() = Some(owner);
+        Ok("fixture-attempt".into())
+    }
+    fn agent_auth_poll(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::driver::auth::AuthStatus, String> {
+        assert_eq!((persona_id, id), ("ada", "fixture-attempt"));
+        Ok(crate::driver::auth::AuthStatus {
+            state: "running",
+            output: "ephemeral fixture output".into(),
+            error: None,
+        })
+    }
+    fn agent_auth_input(&self, persona_id: &str, id: &str, input: &str) -> Result<(), String> {
+        assert_eq!(
+            (persona_id, id, input),
+            ("ada", "fixture-attempt", "fixture input")
+        );
+        Ok(())
+    }
+    fn agent_auth_cancel(&self, persona_id: &str, id: &str) -> Result<(), String> {
+        assert_eq!((persona_id, id), ("ada", "fixture-attempt"));
+        Ok(())
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.policy_updates.clone()
     }
@@ -2066,6 +2103,7 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
     }
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
+        auth_attempts: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3180,4 +3218,93 @@ async fn computer_commands_and_the_runtime_setting() {
             .contains("There is no teammate nobody"),
         "{missing}"
     );
+}
+
+#[tokio::test]
+async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("auth-wire", quiet.clone());
+    let room: Arc<dyn RoomHandle> = quiet.clone();
+    let (tx, mut frames) = mpsc::unbounded_channel();
+    let outbox = Outbox {
+        auth_attempts: Arc::default(),
+        sender: Outgoing::Desk(tx),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        max: usize::MAX,
+    };
+    let commands = [
+        (
+            "agent.auth.start",
+            json!({"personaId":"ada","methodId":"fixture", "command":"ignored-ui-command", "args":["ignored"]}),
+        ),
+        (
+            "agent.auth.poll",
+            json!({"personaId":"ada","id":"fixture-attempt"}),
+        ),
+        (
+            "agent.auth.input",
+            json!({"personaId":"ada","id":"fixture-attempt","input":"fixture input"}),
+        ),
+        (
+            "agent.auth.cancel",
+            json!({"personaId":"ada","id":"fixture-attempt"}),
+        ),
+    ];
+    for (cmd, params) in &commands {
+        let frame = json!({"id":1,"cmd":cmd,"params":params}).to_string();
+        answer(
+            &frame,
+            Seat::Phone,
+            &log,
+            &room,
+            &outbox,
+            &mut HashMap::new(),
+            None,
+        )
+        .await;
+        let response: Value = serde_json::from_str(&frames.recv().await.unwrap()).unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["code"], FORBIDDEN, "{response}");
+    }
+    assert!(
+        quiet.auth_owner.lock().unwrap().is_none(),
+        "phone never reached auth"
+    );
+    let mut socket = desk(port).await;
+    for (index, (cmd, params)) in commands.iter().enumerate() {
+        let id = index as i64 + 1;
+        ask(&mut socket, json!({"id":id,"cmd":cmd,"params":params})).await;
+        let response = heard_where(&mut socket, |frame| frame["id"] == id).await;
+        assert_eq!(response["ok"], true, "{response}");
+        if index == 0 {
+            assert_eq!(response["result"]["id"], "fixture-attempt");
+        }
+        if index == 1 {
+            assert_eq!(response["result"]["output"], "ephemeral fixture output");
+        }
+    }
+    // A second authenticated desk knows the UUID but cannot use it as authority.
+    let mut other = desk(port).await;
+    for (index, (cmd, params)) in commands.iter().enumerate().skip(1) {
+        let id = index as i64 + 10;
+        ask(&mut other, json!({"id":id,"cmd":cmd,"params":params})).await;
+        let response = answered(&mut other, id).await;
+        assert_eq!(response["ok"], false, "{response}");
+        assert!(
+            response["error"]
+                .as_str()
+                .unwrap()
+                .contains("another desktop")
+        );
+    }
+    ask(&mut socket, json!({"id":20,"cmd":"agent.auth.poll","params":{"personaId":"ada","id":"fixture-attempt"}})).await;
+    let response = answered(&mut socket, 20).await;
+    assert_eq!(response["result"]["output"], "ephemeral fixture output");
+    let owner = quiet.auth_owner.lock().unwrap().clone().unwrap();
+    assert!(!owner.is_cancelled());
+    socket.close(None).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), owner.cancelled())
+        .await
+        .unwrap();
+    assert!(log.load(&StreamId::Tape("ada".into())).is_empty());
 }

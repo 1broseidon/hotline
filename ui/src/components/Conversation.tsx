@@ -91,6 +91,7 @@ export function Conversation({
 	 * a composer that has already emptied looks like it did nothing. */
 	const [saying, setSaying] = useState<Saying | null>(null);
 	const [refill, setRefill] = useState<Refill | null>(null);
+	const [draftHasContent, setDraftHasContent] = useState(false);
 	/* A refusal the core handed up: a chapter that would not open, a message
 	 * that would not send. The band is the one place with room for a sentence. */
 	const [refused, setRefused] = useState<string | null>(null);
@@ -333,6 +334,11 @@ export function Conversation({
 					live={session.state === "thinking"}
 					focus={focus}
 					onReply={setReplying}
+					{...(!draftHasContent ? { onRetryMessage: (message: Extract<TranscriptEvent, { kind: "user" }>) => {
+						setRefill({ text: message.text, attachments: message.attachments ?? [], nonce: Date.now() });
+						const original = events.find((event) => event.id === message.replyTo);
+						setReplying(message.replyTo ? { eventId: message.replyTo, text: original && "text" in original ? original.text : "Earlier message" } : null);
+					} } : {})}
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={(event) =>
 						onOpenThread({
@@ -351,6 +357,7 @@ export function Conversation({
 					</div>
 				)}
 				<Composer
+					onDraftChange={setDraftHasContent}
 					personaId={personaId}
 					name={persona.name}
 					state={session.state}

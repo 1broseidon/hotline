@@ -24,6 +24,13 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        // All authentication traffic needs socket ownership checked by the wire.
+        Command::AgentAuthStart { .. }
+        | Command::AgentAuthPoll { .. }
+        | Command::AgentAuthInput { .. }
+        | Command::AgentAuthCancel { .. } => {
+            Err("Sign-in requires its owning desktop connection.".into())
+        }
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),

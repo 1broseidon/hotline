@@ -224,7 +224,16 @@ pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
     match (backend.unavailable, backend.launch) {
         (Some(reason), _) => Err(format!("{} cannot start: it {reason}.", backend.name)),
         (None, None) => Err(format!("{} has no launch command.", backend.name)),
-        (None, Some(launch)) => Ok(launch),
+        (None, Some(mut launch)) => {
+            // Capture the executable once; terminal auth must not resolve a new
+            // PATH after initialize (its advertised environment can change PATH).
+            let binary = which(&launch.command).ok_or("The harness executable is unavailable.")?;
+            launch.command = std::path::absolute(binary)
+                .map_err(|_| "Could not resolve the harness executable.")?
+                .to_string_lossy()
+                .into_owned();
+            Ok(launch)
+        }
     }
 }
 

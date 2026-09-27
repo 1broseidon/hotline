@@ -11,9 +11,10 @@
 //! not start a login shell to recover PATH: the unit sets `HOME`, `PATH` and
 //! `HOTLINE_DATA_DIR` itself (see `packaging/hotline.service`).
 //!
-//! On SIGTERM or SIGINT the desk waits, for up to 30 seconds, until no turn
-//! or queued work is running, then syncs its streams and leaves. Work still
-//! running after that is stopped with the process.
+//! On SIGTERM or SIGINT the desk stops for a restart (`Desk::stop_for_restart`):
+//! new work is refused, the person's lines still waiting behind a turn are
+//! kept for the next start, running turns get up to 30 seconds to finish, and
+//! any still running after that are stopped and marked on their tape.
 
 use crate::door;
 use hotline_core::credentials::{Backend, FileStore, NativeStore, SecretStore, claim_backend};
@@ -24,7 +25,7 @@ use hotline_core::wire::Door;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const DRAIN: Duration = Duration::from_secs(30);
 
@@ -102,21 +103,21 @@ fn serve(root: PathBuf, backend: Backend) -> Result<(), String> {
             "Stopping: waiting up to {}s for running work to finish.",
             DRAIN.as_secs()
         );
-        let started = Instant::now();
-        let held = loop {
-            match desk.prepare_restart() {
-                Ok(held) => break Some(held),
-                Err(_) if started.elapsed() < DRAIN => {
-                    tokio::time::sleep(Duration::from_millis(250)).await
-                }
-                Err(still) => {
-                    eprintln!("Stopping anyway: {still}");
-                    break None;
-                }
-            }
-        };
+        let stopped = desk.stop_for_restart(DRAIN).await;
+        if stopped.kept > 0 {
+            eprintln!(
+                "Kept {} waiting message(s) for the next start.",
+                stopped.kept
+            );
+        }
+        if !stopped.interrupted.is_empty() {
+            eprintln!(
+                "Stopped {} running turn(s); each teammate's conversation says so.",
+                stopped.interrupted.len()
+            );
+        }
         door::remove(&root);
-        drop(held);
+        drop(stopped);
         eprintln!("Stopped.");
         Ok(())
     })

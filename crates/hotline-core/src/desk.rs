@@ -121,6 +121,13 @@ impl Desk {
         })
     }
 
+    /// Stops for a restart: refuses new work, keeps the person's waiting lines
+    /// for the next start, lets running turns finish within `drain`, and
+    /// stops and marks the rest. See `session::stopping`.
+    pub async fn stop_for_restart(&self, drain: std::time::Duration) -> crate::session::Stopped {
+        self.room.stop_for_restart(drain).await
+    }
+
     /// Hold through installation and restart; release on failure to allow work again.
     pub fn prepare_restart(&self) -> Result<tokio::sync::OwnedRwLockWriteGuard<()>, String> {
         self.room.prepare_restart()

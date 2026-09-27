@@ -71,11 +71,23 @@ while it runs. The lock goes with the process, however it ends.
 
 ## Stopping
 
-On SIGTERM (`systemctl stop`, `restart`) the desk waits up to 30 seconds for
-running turns and queued work to finish, syncs its streams, and exits. Work
-still running after that is stopped with the process. Durable recovery of
-work that was queued but not started, and an honest "interrupted" marker on
-a turn cut off by a restart, are the rest of BRO-113.
+On SIGTERM (`systemctl stop`, `restart`) the desk stops for a restart:
+
+1. New work is refused with "Hotline is restarting. Try again in a moment."
+   A schedule that comes due meanwhile is retried after the restart.
+2. What the person said that is still waiting behind a teammate's turn is
+   written to `pending.json` straight away.
+3. Turns already running get up to 30 seconds to finish.
+4. A turn still running after that is stopped, and the teammate's
+   conversation says so. It is not run again: it may already have done part
+   of its work, and doing that twice is worse than asking.
+5. Every stream is synced, and the process exits.
+
+On the next start, each line in `pending.json` is handed to its teammate
+once, in order, and the file is removed. A line the teammate has read
+meanwhile is skipped; a scheduled line whose teammate lost background work
+is dropped. None of this is exactly-once. A desk killed outright
+(`SIGKILL`, power loss) keeps what was already written and nothing more.
 
 ## Files
 
@@ -85,3 +97,4 @@ a turn cut off by a restart, are the rest of BRO-113.
 | `door.json` | The Door's loopback port and this process's token, 0600, removed on a clean stop. |
 | `store.json` | Which secret store the room uses. |
 | `secrets/` | The file store, 0700, one 0600 file per record. |
+| `pending.json` | Lines kept by the last stop for the next start; absent otherwise. |

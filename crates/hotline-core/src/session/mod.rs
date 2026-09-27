@@ -46,6 +46,8 @@ mod peers;
 mod quiet;
 pub(crate) mod runner;
 pub(crate) mod schedule;
+mod stopping;
+pub use stopping::Stopped;
 
 pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
@@ -578,6 +580,9 @@ pub struct Room {
     policy_updates: Arc<TokioMutex<()>>,
     /// Work holds a read lease; an installer can pause an idle room atomically.
     activity: Arc<tokio::sync::RwLock<()>>,
+    /// Set once the desk is stopping for a restart: new work is refused while
+    /// the turns already running drain (see `stopping`).
+    closing: std::sync::atomic::AtomicBool,
 }
 
 impl Room {
@@ -671,9 +676,18 @@ impl Room {
             passkey_armings: Mutex::new(HashMap::new()),
             policy_updates: Arc::new(TokioMutex::new(())),
             activity: Arc::new(tokio::sync::RwLock::new(())),
+            closing: std::sync::atomic::AtomicBool::new(false),
         });
         room.settle_tapes();
         room.reconcile_exchanges();
+        // What the person said that was still waiting when the last desk
+        // stopped is handed on once, now that the room is up.
+        let resuming = Arc::downgrade(&room);
+        tokio::spawn(async move {
+            if let Some(room) = resuming.upgrade() {
+                room.resume_pending().await;
+            }
+        });
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
         sweep_idle_chapters(Arc::downgrade(&room));
         schedule::start(Arc::downgrade(&room), room.schedule_changed.clone());
@@ -681,6 +695,15 @@ impl Room {
     }
 
     fn working(&self) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, String> {
+        if self.closing() {
+            return Err("Hotline is restarting. Try again in a moment.".to_string());
+        }
+        self.lease()
+    }
+
+    /// A work lease even while the room is closing: for work already admitted
+    /// that hands a line on, never for anything new.
+    fn lease(&self) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, String> {
         self.activity.clone().try_read_owned().map_err(|_| {
             "Hotline is preparing to restart for an update. Try again when it finishes.".to_string()
         })
@@ -2396,7 +2419,7 @@ impl Room {
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
     fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
-        let working = self.working().expect("dispatch caller holds a work lease");
+        let working = self.lease().expect("dispatch caller holds a work lease");
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.

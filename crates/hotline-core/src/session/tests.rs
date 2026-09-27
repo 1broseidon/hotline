@@ -5546,3 +5546,68 @@ async fn aborted_and_revoked_handoffs_return_failure_not_success() {
         assert_eq!(result["text"], "Only partly done");
     }
 }
+
+/// A desk stopped for a restart keeps what the person said behind a running
+/// turn, stops the turn that would not finish and says so, and the next room
+/// on the same data hands the kept line on once.
+#[tokio::test]
+async fn a_restart_keeps_the_waiting_line_and_says_which_turn_it_cut_off() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    }]);
+    driver.gate = Some(gate.clone());
+    let agents = Fake::new(driver);
+    let room = room("restart", agents);
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "first", None, None).await.unwrap();
+    until_state(&room, "ada", SessionState::Thinking).await;
+    room.prompt("ada", "second", None, None).await.unwrap();
+    settled(&room, "ada", 2).await;
+
+    let stopped = room.stop_for_restart(Duration::from_millis(200)).await;
+    assert_eq!(stopped.kept, 1);
+    assert_eq!(stopped.interrupted, ["ada"]);
+    // Nothing new is admitted once the room is closing.
+    let refused = room.prompt("ada", "third", None, None).await.unwrap_err();
+    assert!(refused.contains("restarting"), "{refused}");
+    let notice = tape(&room, "ada")
+        .into_iter()
+        .find(|event| event["kind"] == "notice")
+        .expect("the cut-off turn is said on the tape");
+    assert!(notice["text"].as_str().unwrap().contains("restarted"));
+    assert!(room.log.root().join(stopping::PENDING_FILE).exists());
+    let root = room.log.root().to_path_buf();
+    drop(stopped);
+    drop(room);
+
+    // The next desk on the same data hands "second" on, and only that.
+    let agents = Fake::new(Scripted::new(vec![Update::Turn {
+        stop_reason: "end_turn".to_string(),
+        usage: None,
+    }]));
+    let driver = agents.driver.clone();
+    let next = Room::with_agents_and_computers(
+        Log::open(root.clone()),
+        Arc::new(DeskKeys),
+        agents,
+        crate::computer::Computer::with_path(std::env::temp_dir().join("no-runtime")),
+    );
+    for _ in 0..200 {
+        if !lock(&driver.prompts).is_empty() && !root.join(stopping::PENDING_FILE).exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(*lock(&driver.prompts), ["second"]);
+    assert!(!root.join(stopping::PENDING_FILE).exists());
+    until_state(&next, "ada", SessionState::Ready).await;
+    // "first" was never run again, and "second" was not written twice.
+    let users: Vec<String> = tape(&next, "ada")
+        .into_iter()
+        .filter(|event| event["kind"] == "user")
+        .map(|event| event["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(users, ["first", "second"]);
+}

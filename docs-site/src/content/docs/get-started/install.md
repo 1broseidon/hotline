@@ -3,7 +3,25 @@ title: Install
 description: Download Hotline for macOS, Windows or Linux, and what each platform needs.
 ---
 
-Every build is on the [latest GitHub release](https://github.com/1Broseidon/hotline/releases/latest).
+On macOS or Linux:
+
+```sh
+curl -fsSL https://hotline.dev/install | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://hotline.dev/install.ps1 | iex
+```
+
+Either one downloads the latest release for your machine, checks it against the
+release's checksums and installs it: into Applications on macOS, through apt or
+dnf on Linux (an AppImage in `~/.local/bin` elsewhere), and per-user on Windows.
+Read [the script](https://hotline.dev/install) first if you like; it is short.
+
+To download a build yourself, every one is on the
+[latest GitHub release](https://github.com/1Broseidon/hotline/releases/latest).
 Pick the file for your machine:
 
 | Platform | File |

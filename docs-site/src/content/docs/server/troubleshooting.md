@@ -23,7 +23,7 @@ A pairing code lasts two minutes. Open the scanner on the phone first
 
 ## "Update the Hotline app to link to this server"
 
-The phone is running a version from before servers. Update it.
+The phone is running a version from before servers. Update it from TestFlight.
 
 ## "This phone is no longer paired with the desktop"
 

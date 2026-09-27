@@ -23,7 +23,8 @@ and the server shows up on the phone's team list.
   while no `hotline pair` is waiting.
 
 If your phone says **Update the Hotline app to link to this server**, it is
-a version from before servers. Update it and scan again.
+a version from before servers. Update it from TestFlight and scan again.
+Hotline for iPhone is [in beta](/docs/phone/).
 
 ## Owner and companion
 

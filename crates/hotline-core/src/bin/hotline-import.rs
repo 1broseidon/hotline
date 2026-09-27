@@ -35,6 +35,11 @@ fn run(from: PathBuf, to: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(reason) = overlap_reason(&from, &to) {
         return Err(reason.into());
     }
+    // The importer writes a room, so it keeps it to itself like any desk.
+    let _room = hotline_core::room_lock::RoomLock::take(&to)?;
+    // It writes keys into the OS keychain, so the room it makes is a
+    // keychain room, and a file-backed one is refused.
+    hotline_core::credentials::claim_backend(&to, hotline_core::credentials::Backend::Native)?;
     let log = Log::open(&to);
     let vault = Vault::open(&to, log.clone())?;
     let report = import::import(&from, &log, &vault)?;

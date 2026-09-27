@@ -1,0 +1,37 @@
+# Hotline, the desk with no window (docs/serve.md).
+#
+# Install: copy the `hotline` binary to /usr/local/bin, create the account
+# (`useradd --system --create-home --home-dir /var/lib/hotline hotline`),
+# copy this file to /etc/systemd/system/, set --listen below once pairing
+# lands, then `systemctl enable --now hotline`.
+#
+# The environment is spelled out rather than borrowed from a login shell:
+# HOME and PATH are where the teammates' tools (git, node, npx, docker) are
+# found, and HOTLINE_DATA_DIR is the room. Add to PATH what your teammates
+# need, e.g. a Node install under /opt.
+
+[Unit]
+Description=Hotline desk
+Documentation=https://hotline.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=hotline
+Group=hotline
+Environment=HOME=/var/lib/hotline
+Environment=HOTLINE_DATA_DIR=/var/lib/hotline/room
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/hotline serve --store file
+# The desk waits up to 30 s for running work, then leaves.
+TimeoutStopSec=45
+KillMode=mixed
+Restart=on-failure
+RestartSec=5
+UMask=0077
+# Kept deliberately light: teammates run tools, sandboxes (bubblewrap, user
+# namespaces) and containers that heavier hardening would break.
+
+[Install]
+WantedBy=multi-user.target

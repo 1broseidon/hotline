@@ -27,6 +27,7 @@ mod providers;
 pub mod push;
 pub mod remote;
 pub mod room;
+pub mod room_lock;
 mod sent;
 pub mod session;
 pub mod skills;

@@ -80,6 +80,19 @@ decision for George, not a bug fix.
   compatibility guarantee. Windows has no confinement Hotline can ship, so the
   confined shell is not offered there. No platform has resource limits or
   syscall filtering on the shell.
+- **A served desk's secrets are files.** `hotline serve --store file`
+  keeps provider keys, stored secrets and the Remote identity as 0600 files
+  under `<data>/secrets/` (0700), because a server has no session bus and no
+  unlocked Secret Service. It is chosen by the operator on the command line
+  and recorded in the room (`store.json`); nothing falls back to it from the
+  native store, and a desk started on the other store refuses the room
+  instead of starting empty. There is no encryption layer of its own: a key
+  handed in by systemd (`LoadCredentialEncrypted=`) would protect only these
+  files, while the ChatGPT and Copilot login tokens Rig keeps in
+  `vault/logins/` are already plain owner-only files. What protects all of
+  them is the service account and the disk. Root on the machine, or a copy
+  of its disk, snapshots or backups, reads every one: encrypt the volume and
+  its backups (`docs/serve.md`).
 - **The person is asked nothing at call time.** There are no approval cards
   for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.

@@ -5,9 +5,10 @@ description: The binary, a service account, and a systemd unit.
 
 ## Get the binary
 
-Releases after 0.25.0 carry `hotline-server_<version>_linux_x86_64.tar.gz`
-and `hotline-server_<version>_linux_aarch64.tar.gz`, each with the `hotline`
-binary and a systemd unit. Until one is out, build it from the repository:
+Each [release](https://github.com/1broseidon/hotline/releases/latest) from
+0.26.0 carries `hotline-server_<version>_linux_x86_64.tar.gz` and
+`hotline-server_<version>_linux_aarch64.tar.gz`, each with the `hotline`
+binary and a systemd unit. To build it yourself instead:
 
 ```sh
 cargo build --release -p hotline-cli   # target/release/hotline

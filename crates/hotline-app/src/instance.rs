@@ -21,11 +21,13 @@
 //! launch ends.
 //!
 //! The lock is the room's, not the app's: a desk on another data directory
-//! (`HOTLINE_DATA_DIR`) is another room and runs beside this one. A
-//! development build takes no lock at all, so a checkout runs next to the
-//! installed app.
+//! (`HOTLINE_DATA_DIR`) is another room and runs beside this one. `make dev`
+//! points a checkout at its own `.hotline-dev`, so it runs next to the
+//! installed app without skipping the lock. The lock itself is core's
+//! `RoomLock`, the same one `hotline serve` and `hotline-import` take.
 
-use std::fs::{self, File, OpenOptions, TryLockError};
+use hotline_core::room_lock::RoomLock;
+use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
@@ -39,7 +41,6 @@ const ANSWER: Duration = Duration::from_secs(2);
 /// Between one look at the lock and the next.
 const AGAIN: Duration = Duration::from_millis(200);
 
-const LOCK: &str = "desk.lock";
 const WAKE: &str = "desk.wake";
 
 pub(crate) enum Claim {
@@ -51,7 +52,7 @@ pub(crate) enum Claim {
 
 /// The room's lock, and where the next launch can find this desk.
 pub(crate) struct Instance {
-    lock: File,
+    lock: RoomLock,
     wake: Option<TcpListener>,
 }
 
@@ -61,28 +62,16 @@ pub(crate) fn claim(root: &Path) -> io::Result<Claim> {
 }
 
 fn claim_within(root: &Path, patience: Duration) -> io::Result<Claim> {
-    fs::create_dir_all(root)?;
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(root.join(LOCK))?;
     let deadline = Instant::now() + patience;
     loop {
-        match lock.try_lock() {
-            Ok(()) => {
-                let wake = listen(root);
-                return Ok(Claim::Held(Instance { lock, wake }));
-            }
-            Err(TryLockError::WouldBlock) => {
-                if wake(root) || Instant::now() >= deadline {
-                    return Ok(Claim::Elsewhere);
-                }
-                std::thread::sleep(AGAIN);
-            }
-            Err(TryLockError::Error(error)) => return Err(error),
+        if let Some(lock) = RoomLock::try_take(root)? {
+            let wake = listen(root);
+            return Ok(Claim::Held(Instance { lock, wake }));
         }
+        if wake(root) || Instant::now() >= deadline {
+            return Ok(Claim::Elsewhere);
+        }
+        std::thread::sleep(AGAIN);
     }
 }
 

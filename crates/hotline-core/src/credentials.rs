@@ -15,8 +15,12 @@ const SERVICE: &str = "dev.hotline.credentials";
 const CHUNK_BYTES: usize = 2000;
 const MAX_BYTES: usize = 1024 * 1024;
 
+#[cfg(unix)]
+mod file;
 #[cfg(windows)]
 pub(crate) mod windows;
+#[cfg(unix)]
+pub use file::FileStore;
 
 /// Persistence for opaque secret chunks. A missing record is distinct from
 /// an unavailable store. Applications normally use [`NativeStore`]; harnesses
@@ -63,6 +67,79 @@ impl SecretStore for NativeStore {
         match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(native_error(error)),
+        }
+    }
+}
+
+/// Which store a room's secrets are in. A room records it the first time a
+/// desk opens it (`store.json`), and a desk started on the other one refuses:
+/// the references on disk name chunks only that store holds, so opening them
+/// against another would look like every key and pairing had vanished, and
+/// the Remote identity would be replaced and every phone orphaned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    /// The OS keychain, Credential Manager or Secret Service.
+    Native,
+    /// Owner-only files under `<data>/secrets`, chosen with `--store file`.
+    File,
+}
+
+impl Backend {
+    pub fn name(self) -> &'static str {
+        match self {
+            Backend::Native => "native",
+            Backend::File => "file",
+        }
+    }
+}
+
+pub const BACKEND_FILE: &str = "store.json";
+
+#[derive(Serialize, Deserialize)]
+struct BackendMarker {
+    backend: Backend,
+}
+
+/// Records `backend` as the room's store, or refuses when the room already
+/// uses another. A room from before the marker existed was always native:
+/// it is marked so, and a file-backed desk refuses it rather than starting
+/// on an empty store beside keys it cannot reach.
+pub fn claim_backend(root: &Path, backend: Backend) -> io::Result<()> {
+    let path = root.join(BACKEND_FILE);
+    let recorded = match fs::read(&path) {
+        Ok(bytes) => Some(
+            serde_json::from_slice::<BackendMarker>(&bytes)
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("{} is not a store marker Hotline wrote.", path.display()),
+                    )
+                })?
+                .backend,
+        ),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let recorded = recorded.or_else(|| {
+        let lived_in = root.join("vault").exists() || root.join("remote-identity.json").exists();
+        lived_in.then_some(Backend::Native)
+    });
+    match recorded {
+        Some(recorded) if recorded != backend => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "This room keeps its secrets in the {} store, not the {} one. Start it with the store it was made with; moving between them means entering keys and pairing phones again in a new room.",
+                recorded.name(),
+                backend.name()
+            ),
+        )),
+        Some(_) if path.exists() => Ok(()),
+        _ => {
+            fs::create_dir_all(root)?;
+            let staged = root.join(format!("{BACKEND_FILE}.{}", std::process::id()));
+            fs::write(&staged, serde_json::to_vec(&BackendMarker { backend })?)?;
+            fs::rename(&staged, &path)
         }
     }
 }

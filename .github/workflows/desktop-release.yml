@@ -207,9 +207,53 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  # The server edition: `hotline`, the desk with no window, for `hotline
+  # serve` under systemd (docs/serve.md). A tarball of the binary and its
+  # unit, beside the desktop packages in the same release; no updater.
+  server:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            suffix: linux_x86_64
+          - runner: ubuntu-24.04-arm
+            suffix: linux_aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: server-${{ matrix.suffix }}
+          cache-on-failure: true
+      # libdbus only because the core links the keyring crate; `--store
+      # file` never talks to it.
+      - name: Install the build's libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libssl-dev libdbus-1-dev pkg-config
+      - name: Test the server edition
+        run: cargo test -p hotline-cli --locked
+      - name: Build and pack
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          version="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          cargo build --release -p hotline-cli --locked
+          name="hotline-server_${version}_${SUFFIX}"
+          mkdir -p "pack/$name" out
+          cp target/release/hotline packaging/hotline.service docs/serve.md LICENSE-APACHE LICENSE-MIT "pack/$name/"
+          tar -C pack -czf "out/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-${{ matrix.suffix }}
+          path: out/*
+          if-no-files-found: error
+
   publish:
     if: github.event_name == 'push'
-    needs: build
+    needs: [build, server]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -218,6 +262,11 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: server-*
           path: dist
           merge-multiple: true
       - name: Verify manifest generation
@@ -239,10 +288,10 @@ jobs:
         run: |
           python3 scripts/updater_manifest.py dist --version "${GITHUB_REF_NAME#desktop-v}" --repository "$GITHUB_REPOSITORY" --notes dist/notes.md
           cd dist
-          sha256sum hotline_* > checksums.txt
+          sha256sum hotline_* hotline-server_* > checksums.txt
       - name: Publish only after all packages and the manifest are uploaded
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber dist/hotline_* dist/checksums.txt dist/updater-*.json dist/latest.json
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber dist/hotline_* dist/hotline-server_* dist/checksums.txt dist/updater-*.json dist/latest.json
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest --title "$GITHUB_REF_NAME"

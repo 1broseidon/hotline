@@ -246,26 +246,27 @@ pub fn run() {
     shell_path::restore();
 
     // One desk per room, settled before the room opens: a second launch
-    // shows the running window and leaves (see `instance`). A development
-    // build runs beside the installed app instead.
+    // shows the running window and leaves (see `instance`). Every build
+    // takes the lock; `make dev` runs on its own data directory instead.
     let root = data_root();
-    let instance = if tauri::is_dev() || cfg!(debug_assertions) {
-        None
-    } else {
-        match instance::claim(&root) {
-            Ok(instance::Claim::Held(instance)) => Some(instance),
-            Ok(instance::Claim::Elsewhere) => return,
-            // A file system without locks still holds a room to open; it is
-            // only unguarded.
-            Err(error) => {
-                eprintln!(
-                    "[instance] {} could not be locked, so a second launch is not kept out: {error}",
-                    root.display()
-                );
-                None
-            }
+    let instance = match instance::claim(&root) {
+        Ok(instance::Claim::Held(instance)) => instance,
+        Ok(instance::Claim::Elsewhere) => return,
+        // A room that cannot be kept to one desk is not opened: two writers
+        // on it would both run its schedules and both write its streams.
+        Err(error) => {
+            eprintln!("[instance] {error}");
+            std::process::exit(1);
         }
     };
+    // The keychain is this app's store, and a room made by `hotline serve
+    // --store file` is refused rather than opened on an empty keychain.
+    if let Err(error) =
+        hotline_core::credentials::claim_backend(&root, hotline_core::credentials::Backend::Native)
+    {
+        eprintln!("[store] {error}");
+        std::process::exit(1);
+    }
 
     // Opened inside the async runtime because the room it stands up owns
     // background work — the idle chapter sweep — and a task has to be spawned
@@ -411,7 +412,7 @@ pub fn run() {
             });
             install_tray(app)?;
             updater::start(app.handle().clone());
-            if let Some(instance) = instance {
+            {
                 let app = app.handle().clone();
                 instance.answer(move || {
                     // Shown on the main thread, and said only once it was: a

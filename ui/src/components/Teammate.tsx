@@ -553,6 +553,7 @@ function ComputerRows({
 	onChange(computer: PersonaComputer): void;
 }) {
 	const current: PersonaComputer = computer ?? { enabled: false };
+	const enabled = current.enabled;
 	const mounts = current.mounts ?? [];
 	const granted = current.secrets ?? [];
 	const [image, setImage] = useState(current.image ?? "");
@@ -604,12 +605,14 @@ function ComputerRows({
 				});
 		};
 		ask();
-		const timer = setInterval(ask, COMPUTER_STATUS_EVERY_MS);
+		// Without the grant, one look is enough to find a computer left from
+		// before it was turned off; every tick costs the desk a runtime probe.
+		const timer = enabled ? setInterval(ask, COMPUTER_STATUS_EVERY_MS) : undefined;
 		return () => {
 			gone = true;
 			clearInterval(timer);
 		};
-	}, [personaId]);
+	}, [personaId, enabled]);
 
 	const commitText = (key: "image" | "memory", draft: string, setDraft: (value: string) => void) => {
 		const trimmed = draft.trim();

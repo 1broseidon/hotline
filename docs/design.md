@@ -276,6 +276,23 @@ session update, a permission is a request with options. The in-process
 driver produces the same updates from Rig's stream. A driver has no idea
 what a tape is.
 
+An ACP harness that reports `AgentAuth` can offer **Sign in** on the desktop
+failure card. Initialize retains the harness's supported authentication methods;
+the card holds only their names and ids. Agent methods use ACP `authenticate`.
+On Linux and macOS, terminal methods run the configured harness with its advertised argument suffix
+and environment overrides in a private interactive terminal. They never pass
+through `authenticate`, a shell command string, or a conversation draft. The
+terminal and its input are transient; the harness, not Hotline's provider vault,
+owns the account and credentials. A successful login reopens the agent session
+without replaying the failed message. The person can put that message back in
+the composer for review; a failed turn may already have performed work.
+
+This recovery is desktop-only. Claude's `NO_BROWSER` method starts its interactive
+CLI, not a structured URL/device-code protocol. Hotline does not scrape that TUI
+into a phone login form or relay Claude session tokens. Unsupported methods and
+older failure notices keep the manual sign-in guidance. Proactive auth-status
+badges are not inferred from missing notifications or offered by this recovery.
+
 ### 4. Tools as MCP, served in-process
 
 Hotline's own teammate tools (search the thread, chapters, message a teammate,

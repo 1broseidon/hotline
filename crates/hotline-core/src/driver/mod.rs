@@ -13,6 +13,7 @@
 //! reason.
 
 pub mod acp;
+pub mod auth;
 pub(crate) mod failure;
 pub mod rig;
 
@@ -320,6 +321,31 @@ pub trait Escalate: Send + Sync {
 /// One agent, driven.
 #[async_trait]
 pub trait Driver: Send + Sync {
+    /// Only the desk may call these; auth I/O is never a driver Update.
+    async fn auth_start(
+        self: Arc<Self>,
+        _method: &str,
+        _owner: tokio_util::sync::CancellationToken,
+    ) -> Result<String, String> {
+        Err("This agent does not offer sign-in.".into())
+    }
+    fn auth_poll(&self, _id: &str) -> Result<auth::AuthStatus, String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn auth_input(&self, _id: &str, _input: &str) -> Result<(), String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn auth_cancel(&self, _id: &str) -> Result<(), String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn take_auth_success(&self) -> bool {
+        false
+    }
+    /// A signed-out child is initialized and recoverable, but has no session yet.
+    fn startup_failure(&self) -> Option<String> {
+        None
+    }
+
     /// Brings the agent up for this teammate. Everything a driver needs that
     /// is not on the persona — a preamble, the conversation so far — it was
     /// built with.

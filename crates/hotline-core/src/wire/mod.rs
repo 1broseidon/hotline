@@ -86,6 +86,27 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_settings_changed(&self, _persona_id: &str) {}
     /// Serializes policy persistence and reattachment across client sockets.
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>>;
+    async fn agent_auth_start(
+        &self,
+        _persona_id: &str,
+        _method_id: &str,
+        _owner: tokio_util::sync::CancellationToken,
+    ) -> Result<String, String> {
+        Err("This room does not offer agent sign-in.".into())
+    }
+    fn agent_auth_poll(
+        &self,
+        _persona_id: &str,
+        _id: &str,
+    ) -> Result<crate::driver::auth::AuthStatus, String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn agent_auth_input(&self, _persona_id: &str, _id: &str, _input: &str) -> Result<(), String> {
+        Err("That sign-in is no longer available.".into())
+    }
+    fn agent_auth_cancel(&self, _persona_id: &str, _id: &str) -> Result<(), String> {
+        Err("That sign-in is no longer available.".into())
+    }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
     /// Revokes existing execution before a new policy is written to the log.
@@ -695,6 +716,8 @@ pub(super) struct Outbox {
     sender: Outgoing,
     cancel: tokio_util::sync::CancellationToken,
     max: usize,
+    /// Attempts are private to the socket that started them, not bearer UUIDs.
+    auth_attempts: Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 #[derive(Clone)]
 enum Outgoing {
@@ -786,6 +809,7 @@ where
         (Outgoing::Desk(tx), IncomingOutput::Desk(rx))
     };
     let sender = Outbox {
+        auth_attempts: Arc::default(),
         sender,
         cancel: cancel.clone(),
         max: if seat == Seat::Phone {
@@ -826,6 +850,7 @@ where
         }
     };
 
+    cancel.cancel();
     for handle in subscriptions.into_values() {
         handle.abort();
     }
@@ -866,6 +891,65 @@ async fn answer(
                 // make a missing ledger look like delete or stop.
                 let keep_null = matches!(command, Command::TeammateTools { .. });
                 let result = match (&command, phone) {
+                    (
+                        Command::AgentAuthStart {
+                            persona_id,
+                            method_id,
+                        },
+                        _,
+                    ) => room
+                        .agent_auth_start(persona_id, method_id, sender.cancel.clone())
+                        .await
+                        .map(|id| {
+                            sender
+                                .auth_attempts
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .insert(persona_id.clone(), id.clone());
+                            json!({"id": id})
+                        }),
+                    (
+                        Command::AgentAuthPoll {
+                            persona_id,
+                            id: attempt_id,
+                        }
+                        | Command::AgentAuthInput {
+                            persona_id,
+                            id: attempt_id,
+                            ..
+                        }
+                        | Command::AgentAuthCancel {
+                            persona_id,
+                            id: attempt_id,
+                        },
+                        _,
+                    ) => {
+                        let owned = sender
+                            .auth_attempts
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .get(persona_id)
+                            .is_some_and(|owned| owned == attempt_id);
+                        if !owned || sender.cancel.is_cancelled() {
+                            Err("That sign-in belongs to another desktop connection.".into())
+                        } else {
+                            match &command {
+                                Command::AgentAuthPoll { .. } => room
+                                    .agent_auth_poll(persona_id, attempt_id)
+                                    .and_then(|status| {
+                                        serde_json::to_value(status)
+                                            .map_err(|_| "Could not read sign-in status.".into())
+                                    }),
+                                Command::AgentAuthInput { input, .. } => room
+                                    .agent_auth_input(persona_id, attempt_id, input)
+                                    .map(|()| Value::Null),
+                                Command::AgentAuthCancel { .. } => room
+                                    .agent_auth_cancel(persona_id, attempt_id)
+                                    .map(|()| Value::Null),
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
                     (
                         Command::MobilePrompt {
                             operation_id,

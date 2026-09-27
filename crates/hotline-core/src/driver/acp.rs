@@ -25,6 +25,9 @@
 //! tape, and block the agent until somebody answers. Whether the agent asks at
 //! all is its own configuration and not Hotline's — see [`containment_notice`].
 
+mod auth;
+#[cfg(test)]
+mod auth_tests;
 pub mod registry;
 
 use super::{
@@ -257,6 +260,8 @@ pub struct ChildAgent {
     oauth_refused: Mutex<HashMap<String, String>>,
     served: Mutex<Option<Served>>,
     live: Arc<Live>,
+    launch: Mutex<Option<registry::Launch>>,
+    operation_gate: tokio::sync::Mutex<()>,
 }
 
 impl ChildAgent {
@@ -283,6 +288,8 @@ impl ChildAgent {
             oauth_refused: Mutex::new(HashMap::new()),
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
+            launch: Mutex::new(None),
+            operation_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -301,6 +308,9 @@ impl ChildAgent {
         let configs = lock(&self.live.session).info.configs.clone();
         let persona = self.abandon_failed_session().await?;
         self.start(&persona).await?;
+        if lock(&self.live.startup_failure).is_some() {
+            return Ok(());
+        }
         for config in configs {
             if let Some(value) = config.current_id {
                 self.set_config(&config.id, &value).await?;
@@ -405,6 +415,11 @@ impl ChildAgent {
 /// Everything one connection owns, shared with the handlers running on it.
 #[derive(Default)]
 struct Live {
+    auth_succeeded: AtomicBool,
+    auth_methods: Mutex<Vec<acp::AuthMethod>>,
+    auth: Mutex<Option<Arc<crate::driver::auth::Attempt>>>,
+    startup_failure: Mutex<Option<String>>,
+    terminal_done: Mutex<Option<tokio::task::JoinHandle<()>>>,
     connection: Mutex<Option<ConnectionTo<Agent>>>,
     connection_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     session: Mutex<Session>,
@@ -940,9 +955,34 @@ impl Drop for ChildAgent {
 
 #[async_trait]
 impl Driver for ChildAgent {
+    async fn auth_start(
+        self: Arc<Self>,
+        method: &str,
+        owner: tokio_util::sync::CancellationToken,
+    ) -> Result<String, String> {
+        auth::start(self, method, owner).await
+    }
+    fn auth_poll(&self, id: &str) -> Result<crate::driver::auth::AuthStatus, String> {
+        auth::poll(self, id)
+    }
+    fn auth_input(&self, id: &str, input: &str) -> Result<(), String> {
+        auth::attempt(self, id)?.input(input)
+    }
+    fn auth_cancel(&self, id: &str) -> Result<(), String> {
+        auth::attempt(self, id)?.cancel.cancel();
+        Ok(())
+    }
+    fn take_auth_success(&self) -> bool {
+        self.live.auth_succeeded.swap(false, Ordering::SeqCst)
+    }
+    fn startup_failure(&self) -> Option<String> {
+        lock(&self.live.startup_failure).clone()
+    }
+
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         self.check_capability()?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
+        *lock(&self.launch) = Some(launch.clone());
         let mut command = tokio::process::Command::new(&launch.command);
         command
             .args(&launch.args)
@@ -995,7 +1035,16 @@ impl Driver for ChildAgent {
         attachments: Vec<Attachment>,
         _reach: Reach,
     ) -> mpsc::Receiver<Update> {
+        let _gate = self.operation_gate.lock().await;
         let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        if lock(&self.live.auth).as_ref().is_some_and(|a| a.running()) {
+            fail(
+                &sender,
+                "Finish signing in before sending a message.".into(),
+            )
+            .await;
+            return receiver;
+        }
         self.live.cancelled.store(false, Ordering::SeqCst);
         if let Err(error) = self.check_capability() {
             fail(&sender, error).await;
@@ -1005,6 +1054,21 @@ impl Driver for ChildAgent {
             && let Err(error) = self.restart_after_failure().await
         {
             fail(&sender, error).await;
+            return receiver;
+        }
+        if let Some(text) = self.startup_failure() {
+            let _ = sender
+                .send(Update::Notice {
+                    level: NoticeLevel::Error,
+                    text,
+                })
+                .await;
+            let _ = sender
+                .send(Update::Turn {
+                    stop_reason: "failed".into(),
+                    usage: None,
+                })
+                .await;
             return receiver;
         }
         if self.live.cancelled.load(Ordering::SeqCst) {
@@ -1130,9 +1194,9 @@ impl Driver for ChildAgent {
                     live.briefed.store(false, Ordering::SeqCst);
                     let cancelled = live.cancelled.load(Ordering::SeqCst);
                     if !cancelled {
-                        let failure = super::failure::Failure::classify(
+                        let failure = auth::failure(
+                            &live,
                             &format!("{error}{}", live.stderr_hint()),
-                            None,
                             "acp_prompt",
                         );
                         let _ = sender
@@ -1192,6 +1256,9 @@ impl Driver for ChildAgent {
     }
 
     fn invalidate(&self) {
+        if let Some(attempt) = lock(&self.live.auth).as_ref() {
+            attempt.cancel.cancel();
+        }
         if let Some(capability) = &self.capability {
             capability.revoke();
         }
@@ -1299,10 +1366,12 @@ impl ChildAgent {
                 InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
                     // Hotline answers file reads and writes on the agent's behalf
                     // so an agent that expects an editor to own the files gets
-                    // one; nothing here is a terminal, so none is offered.
-                    ClientCapabilities::new().fs(FileSystemCapabilities::new()
-                        .read_text_file(true)
-                        .write_text_file(true)),
+                    // one. Login's PTY is desktop-owned, not an agent terminal tool.
+                    ClientCapabilities::new()
+                        .fs(FileSystemCapabilities::new()
+                            .read_text_file(true)
+                            .write_text_file(true))
+                        .auth(acp::AuthCapabilities::new().terminal(cfg!(unix))),
                 ),
             )
             .block_task()
@@ -1324,6 +1393,8 @@ impl ChildAgent {
         };
         self.check_capability()?;
 
+        *lock(&self.live.auth_methods) = initialized.auth_methods.clone();
+        *lock(&self.live.startup_failure) = None;
         let capabilities = capabilities_of(&initialized);
         self.live
             .steerable
@@ -1350,8 +1421,17 @@ impl ChildAgent {
         // and then refused `session/new` keeps the ledger it was handed,
         // because the rows were declared to it whether or not it went on.
         self.publish_ledger(persona, serving);
-        self.open_session(&connection, persona, capabilities)
-            .await?;
+        if let Err(error) = self.open_session(&connection, persona, capabilities).await {
+            let failure = auth::failure(&self.live, &error, "acp_start");
+            if failure.kind == super::failure::Kind::AgentAuth && failure.sign_in.is_some() {
+                *lock(&self.live.startup_failure) = Some(failure.notice());
+                self.live.failed.store(true, Ordering::SeqCst);
+                lock(&self.live.session).id = None;
+                lock(&self.live.session).info.session_id = None;
+                return Ok(self.live.publish_info());
+            }
+            return Err(error);
+        }
         self.check_capability()?;
         self.adopt_disposition(persona).await;
         self.check_capability()?;
@@ -1738,7 +1818,11 @@ async fn connect(
                 move |notification: SessionNotification, _cx| {
                     let live = updates.clone();
                     async move {
-                        translate(&live, notification.update).await;
+                        // Harness login is not a conversation, including unsolicited
+                        // session/update notifications emitted by authenticate.
+                        if !lock(&live.auth).as_ref().is_some_and(|a| a.running()) {
+                            translate(&live, notification.update).await;
+                        }
                         Ok(())
                     }
                 },
@@ -1927,6 +2011,12 @@ async fn ask_permission(
     request: RequestPermissionRequest,
     responder: Responder<RequestPermissionResponse>,
 ) {
+    if lock(&live.auth).as_ref().is_some_and(|a| a.running()) {
+        let _ = responder.respond(RequestPermissionResponse::new(
+            RequestPermissionOutcome::Cancelled,
+        ));
+        return;
+    }
     let request_id = new_id();
     let title = describe_request(&live, &request.tool_call);
     let options: Vec<CardOption> = request
@@ -2269,16 +2359,38 @@ fn choices_of(select: &acp::SessionConfigSelect) -> Vec<crate::contract::ConfigC
 
 fn pump_stderr(live: Arc<Live>, stderr: tokio::process::ChildStderr) {
     tokio::spawn(async move {
-        use tokio::io::AsyncBufReadExt;
-        let mut lines = tokio::io::BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if line.trim().is_empty() {
+        use tokio::io::AsyncReadExt;
+        let mut stderr = stderr;
+        let mut bytes = [0; 4096];
+        // Raw bytes go to a running sign-in, which may prompt without a
+        // newline. Otherwise the tail keeps whole, non-blank lines, as before.
+        let mut line = Vec::new();
+        while let Ok(n) = stderr.read(&mut bytes).await {
+            if n == 0 {
+                break;
+            }
+            if let Some(attempt) = lock(&live.auth).as_ref().filter(|a| a.running()) {
+                attempt.output(&bytes[..n]);
+                line.clear();
                 continue;
             }
-            let mut tail = lock(&live.stderr);
-            tail.push_back(line);
-            if tail.len() > STDERR_LINES {
-                tail.pop_front();
+            for &byte in &bytes[..n] {
+                if byte != b'\n' && line.len() < 4096 {
+                    line.push(byte);
+                    continue;
+                }
+                if byte == b'\n' {
+                    let text = String::from_utf8_lossy(&line).trim_end().to_string();
+                    line.clear();
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    let mut tail = lock(&live.stderr);
+                    tail.push_back(text);
+                    if tail.len() > STDERR_LINES {
+                        tail.pop_front();
+                    }
+                }
             }
         }
     });
@@ -2535,16 +2647,16 @@ mod tests {
 
     /// A room the driver's teammate tools point back at. Held by the test,
     /// because the tools hold it weakly.
-    fn room(name: &str) -> Arc<crate::session::Room> {
+    pub(super) fn room(name: &str) -> Arc<crate::session::Room> {
         crate::session::Room::new(crate::log::Log::open(scratch(name)), Arc::new(NoKeys))
     }
 
     /// A directory that exists on every platform; `/tmp` is not one on Windows.
-    fn scratch_cwd() -> String {
+    pub(super) fn scratch_cwd() -> String {
         std::env::temp_dir().to_string_lossy().into_owned()
     }
 
-    fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona {
+    pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona {
         Persona {
             node: None,
             id: "ada".to_string(),
@@ -2576,7 +2688,7 @@ mod tests {
         }
     }
 
-    fn scratch(name: &str) -> PathBuf {
+    pub(super) fn scratch(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "hotline-core-acp-{name}-{}-{}",
             std::process::id(),
@@ -2604,7 +2716,7 @@ mod tests {
     /// Every scripted agent below is the crate's own agent side over one of
     /// these, so what runs is the same JSON on the same protocol a real
     /// harness would send.
-    fn agent_pipes() -> ByteStreams<
+    pub(super) fn agent_pipes() -> ByteStreams<
         impl futures_util::AsyncWrite + Send + 'static,
         impl futures_util::AsyncRead + Send + 'static,
     > {
@@ -2787,7 +2899,7 @@ mod tests {
             const { std::cell::RefCell::new(None) };
     }
 
-    fn client_transport() -> ByteStreams<
+    pub(super) fn client_transport() -> ByteStreams<
         impl futures_util::AsyncWrite + Send + 'static,
         impl futures_util::AsyncRead + Send + 'static,
     > {

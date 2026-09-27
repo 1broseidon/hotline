@@ -7,6 +7,7 @@ edition.workspace = true
 [dependencies]
 rig.workspace = true
 gethostname = "1.1"
+portable-pty = "0.9"
 async-trait = "0.1.92"
 serde.workspace = true
 serde_json.workspace = true
@@ -24,11 +25,10 @@ futures-util = "0.3.34"
 tokio-tungstenite = "0.30"
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
 ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
-# Pinned: the two features below are the SDK's own "unstable", and a minor
-# release is allowed to change them. `unstable_end_turn_token_usage` is how a
-# turn's token count reaches the tape; `unstable_session_fork` is how the
-# session's fork capability is reported honestly rather than as a flat no.
-agent-client-protocol = { version = "=2.0.0", features = ["unstable_end_turn_token_usage", "unstable_session_fork"] }
+# Pinned: these features are the SDK's own "unstable", and a minor release
+# may change them. They expose turn token counts, session fork capability,
+# and v1 authentication methods (still feature-gated despite protocol stability).
+agent-client-protocol = { version = "=2.0.0", features = ["unstable_end_turn_token_usage", "unstable_session_fork", "unstable_auth_methods"] }
 # `compat`: the ACP SDK speaks futures-io and the child speaks tokio-io.
 tokio-util = { version = "0.7", features = ["compat"] }
 # Only the day-cached fetch of the ACP registry's catalogue, so the smallest

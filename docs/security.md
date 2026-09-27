@@ -573,3 +573,46 @@ made it so.
   owner-only seat yet (BRO-116). Removal takes no reach and grants nothing,
   and the tape is kept, but it is destructive; the phone asks the person to
   confirm first.
+
+### Harness sign-in is a private desktop operation (BRO-132)
+
+- **Default and grant source:** choosing an ACP harness already trusts that
+  external program with its host permissions. Sign-in adds no agent tool or
+  standing grant. Only an authenticated desk seat may invoke `agent.auth.*`;
+  the phone allowlist and advertised phone capabilities remain unchanged.
+  Poll, input, and cancel also require the exact desktop socket that started
+  the attempt; knowing its id does not let another desktop read or drive it.
+- **Enforcement:** the driver resolves a method id against the current
+  initialized harness, not the failure card's saved descriptor. Terminal
+  authentication is offered on Linux and macOS only and uses the captured
+  executable with its configured arguments
+  plus the advertised suffix and environment; no client-supplied executable,
+  arguments, environment or shell string is accepted. Agent authentication
+  calls ACP `authenticate`. Login does not advertise ACP terminal tool access.
+- **Private data:** the card records only harness/method labels and ids.
+  Terminal input and bounded, drained output use dedicated commands, not a
+  draft, transcript event, subscription, model prompt, or provider vault.
+  Authentication errors use fixed messages instead of raw harness responses.
+  The harness owns its credential storage; Hotline does not extract or relay
+  Claude session tokens. The terminal only follows HTTP(S) links after a click.
+- **Lifetime:** one attempt per teammate. Its session lease, explicit cancel,
+  owning desktop disconnect, and five-minute timeout end the attempt. A
+  successful sign-in opens a fresh session but never resends the failed turn;
+  the person may review its message in an empty composer and choose to send.
+- **Tests:** `driver::acp::auth_tests` exercises signed-out startup, safe
+  descriptors, success without replay, sanitized failures, cancellation,
+  disconnect, revocation, and cancellable replacement initialization.
+  `driver::auth::tests` exercises bounded output and real PTY success/failure
+  and cleanup, including descendants that keep a slave open in another group.
+  `wire::tests::auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner`
+  proves desk-only access, socket ownership, no tape writes, and disconnect.
+  UI tests cover failure-card parsing and explicit retry selection; browser
+  fixtures additionally exercise terminal lifecycle and private input.
+- **Residual risk:** a trusted external harness can print sensitive material,
+  open its own browser, write its own logs, spawn processes, and retain its
+  own credentials. This is not a sandbox around the harness. The authenticated
+  desktop and local process memory are trusted; clearing transient buffers is
+  not a cryptographic memory-erasure guarantee. Terminal sign-in can leave an
+  account authorized even if a later session restart fails. The phone flow is
+  deferred because Claude's remote method is a TUI, not a structured device-code
+  interface; no unsupported terminal parser or alternate token path is used.

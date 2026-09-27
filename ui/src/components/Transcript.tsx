@@ -76,6 +76,7 @@ export function Transcript({
 	focus,
 	speakers,
 	onReply,
+	onRetryMessage,
 	onOpenThread,
 	onOpenSubagent,
 	onOpenScreen,
@@ -93,6 +94,7 @@ export function Transcript({
 	/** A peer thread names both sides; the tape with the person does not. */
 	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
+	onRetryMessage?(message: Extract<TranscriptEvent, { kind: "user" }>): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
@@ -252,6 +254,7 @@ export function Transcript({
 									said={said}
 									run={run}
 									speakers={speakers}
+									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retryForNotice(events, block.event.id, onRetryMessage) } : {})}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenSubagent !== undefined ? { onOpenSubagent } : {})}
@@ -522,6 +525,19 @@ function useScrollToEvent(
 	}, [focus, found, scroller, pinned]);
 }
 
+/** Only an operator message from this turn can be offered again. A schedule,
+ * peer delivery, or a later message is not a failed draft to replay. */
+export function retryForNotice(events: TranscriptEvent[], noticeId: string,
+    refill: (message: Extract<TranscriptEvent, { kind: "user" }>) => void): (() => void) | undefined {
+    const index = events.findIndex((event) => event.id === noticeId);
+    if (index < 0 || events.slice(index + 1).some((event) => ["user", "delivery", "chapter"].includes(event.kind))) return;
+    for (let at = index - 1; at >= 0; at--) {
+        const event = events[at]!;
+        if (event.kind === "user") return event.scheduled === undefined ? () => refill(event) : undefined;
+        if (["delivery", "chapter", "turn"].includes(event.kind)) return;
+    }
+}
+
 function Row({
 	personaId,
 	ownerName,
@@ -530,6 +546,7 @@ function Row({
 	run,
 	speakers,
 	onReply,
+	onRetry,
 	onOpenThread,
 	onOpenSubagent,
 	onOpenScreen,
@@ -542,6 +559,7 @@ function Row({
 	said: Map<string, string>;
 	run: Run;
 	speakers: Speakers | undefined;
+	onRetry?: (() => void) | undefined;
 	onReply?(target: ReplyTarget): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
@@ -577,7 +595,7 @@ function Row({
 			return <p className="instrument mt-1 text-right text-ink-4">{event.stopReason.replace(/_/g, " ")}</p>;
 
 		case "notice":
-			if (event.level === "error") return <ErrorCard text={event.text} />;
+			if (event.level === "error") return <ErrorCard text={event.text} {...(!speakers ? { personaId } : {})} {...(onRetry ? { onRetry } : {})} />;
 			return (
 				<p
 					className="rule-line rule-line-plain gap-1.5"

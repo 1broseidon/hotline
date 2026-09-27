@@ -191,25 +191,24 @@ fn with_detail(sentence: &str, detail: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     const DEB: &[u8] = b"!<arch>\ndebian-binary   rest of the package";
 
-    /// A pkexec stand-in that runs what it is given, and an installer that
+    /// A pkexec stand-in that runs the installer it is given, and one that
     /// behaves as `body` says, recording its arguments beside itself.
     fn programs(dir: &Path, body: &str) -> Programs {
-        let script = |name: &str, text: &str| {
-            let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{text}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-            path
-        };
+        // The shell reads the installer rather than executing it: a script
+        // just written can be "Text file busy" to exec while a test running
+        // alongside forks with its write handle still open.
+        let installer = dir.join("dpkg");
+        std::fs::write(
+            &installer,
+            format!("echo \"$@\" > \"{}/args\"\n{body}\n", dir.display()),
+        )
+        .unwrap();
         Programs {
-            pkexec: script("pkexec", "exec \"$@\""),
-            installer: script(
-                "dpkg",
-                &format!("echo \"$@\" > \"{}/args\"\n{body}", dir.display()),
-            ),
+            pkexec: PathBuf::from("/bin/sh"),
+            installer,
             argument: "-i",
         }
     }

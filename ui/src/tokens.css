@@ -118,55 +118,55 @@
 }
 
 /* Light re-values every name. The ladder inverts: the well is the darkest
- * thing and a pop surface is white, so depth still reads as lightness. */
-@media (prefers-color-scheme: light) {
-	:root {
-		color-scheme: light;
+ * thing and a pop surface is white, so depth still reads as lightness.
+ * It applies when <html data-theme="light">, which theme.ts sets from the
+ * person's choice in Settings, or from the system's when they chose System. */
+:root[data-theme="light"] {
+	color-scheme: light;
 
-		--well: oklch(92.5% 0.005 250);
-		--edge: oklch(78% 0.02 252);
-		--canvas: oklch(98.5% 0.003 250);
-		--raised: oklch(96.5% 0.004 250);
-		--pop: oklch(100% 0 0);
-		--pressed: oklch(95% 0.005 250);
-		--top-light: inset 0 1px 0 oklch(100% 0 0 / 0.6);
+	--well: oklch(92.5% 0.005 250);
+	--edge: oklch(78% 0.02 252);
+	--canvas: oklch(98.5% 0.003 250);
+	--raised: oklch(96.5% 0.004 250);
+	--pop: oklch(100% 0 0);
+	--pressed: oklch(95% 0.005 250);
+	--top-light: inset 0 1px 0 oklch(100% 0 0 / 0.6);
 
-		--ink: oklch(20% 0.01 250);
-		--ink-2: oklch(42% 0.01 250);
-		--ink-3: oklch(56% 0.01 250);
-		--ink-4: oklch(68% 0.008 250);
+	--ink: oklch(20% 0.01 250);
+	--ink-2: oklch(42% 0.01 250);
+	--ink-3: oklch(56% 0.01 250);
+	--ink-4: oklch(68% 0.008 250);
 
-		--fill-hover: oklch(20% 0.01 250 / 0.06);
-		--fill-active: oklch(20% 0.01 250 / 0.1);
-		--fill-selected: oklch(20% 0.01 250 / 0.08);
-		--fill-code: oklch(20% 0.01 250 / 0.05);
+	--fill-hover: oklch(20% 0.01 250 / 0.06);
+	--fill-active: oklch(20% 0.01 250 / 0.1);
+	--fill-selected: oklch(20% 0.01 250 / 0.08);
+	--fill-code: oklch(20% 0.01 250 / 0.05);
 
-		--line: oklch(20% 0.01 250 / 0.1);
-		--line-strong: oklch(20% 0.01 250 / 0.2);
-		--thumb: oklch(80% 0.008 250);
-		--thumb-hover: oklch(68% 0.008 250);
+	--line: oklch(20% 0.01 250 / 0.1);
+	--line-strong: oklch(20% 0.01 250 / 0.2);
+	--thumb: oklch(80% 0.008 250);
+	--thumb-hover: oklch(68% 0.008 250);
 
-		--accent: oklch(54% 0.16 145);
-		--accent-hover: oklch(49% 0.16 145);
-		--on-accent: oklch(99% 0.01 145);
-		--accent-soft: oklch(54% 0.16 145 / 0.14);
-		--said-me: oklch(93.5% 0.02 255);
-		--said-them: oklch(95% 0.005 250);
+	--accent: oklch(54% 0.16 145);
+	--accent-hover: oklch(49% 0.16 145);
+	--on-accent: oklch(99% 0.01 145);
+	--accent-soft: oklch(54% 0.16 145 / 0.14);
+	--said-me: oklch(93.5% 0.02 255);
+	--said-them: oklch(95% 0.005 250);
 
-		--warn: oklch(64% 0.15 75);
-		--danger: oklch(55% 0.19 27);
-		--danger-soft: oklch(55% 0.19 27 / 0.1);
+	--warn: oklch(64% 0.15 75);
+	--danger: oklch(55% 0.19 27);
+	--danger-soft: oklch(55% 0.19 27 / 0.1);
 
-		--face-l: 76%;
-		--face-c: 0.10;
-		--face-ink: oklch(22% 0.02 250);
+	--face-l: 76%;
+	--face-c: 0.10;
+	--face-ink: oklch(22% 0.02 250);
 
-		--shadow-float:
-			0 0 0 var(--hairline) oklch(20% 0.01 250 / 0.1),
-			0 1px 2px oklch(20% 0.01 250 / 0.08),
-			0 12px 32px -8px oklch(20% 0.01 250 / 0.22);
-		--scrim: oklch(20% 0.01 250 / 0.28);
-	}
+	--shadow-float:
+		0 0 0 var(--hairline) oklch(20% 0.01 250 / 0.1),
+		0 1px 2px oklch(20% 0.01 250 / 0.08),
+		0 12px 32px -8px oklch(20% 0.01 250 / 0.22);
+	--scrim: oklch(20% 0.01 250 / 0.28);
 }
 
 /* A hairline is one device pixel, not one CSS pixel. */

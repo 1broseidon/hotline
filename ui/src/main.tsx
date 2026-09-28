@@ -2,9 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { platform } from "./native";
+import { startTheme } from "./theme";
 import "./index.css";
 
 document.documentElement.dataset.platform = platform();
+startTheme();
 
 // A key pressed with a pointer does not keep the focus, the way a desktop
 // button does not. Left to the web's default it would, and the next

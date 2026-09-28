@@ -8,6 +8,43 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-09-28
+
+### Added
+
+- Every message has react, reply and copy. Hover a bubble for a small bar
+  beside it, or right-click it with nothing selected for the same actions as
+  a menu; with a few words selected, right-click still copies just those.
+  React offers the phone's six emoji. Reactions sent from the phone now show
+  as reactions on the desktop too, instead of as messages.
+- Settings → General → Appearance picks the theme: System, Light or Dark. The
+  window's own title bar and frame follow the choice.
+
+### Changed
+
+- The window stays responsive while a teammate streams a reply into a long
+  chapter, and coming back to a teammate shows their conversation at once.
+- Search no longer slows down as history grows. The first launch after this
+  update rebuilds the search index once, which takes a few seconds on a large
+  room.
+- The desktop holds one connection to the room instead of several, loads
+  Settings the first time you open it, and draws the working teammate's mark
+  far more cheaply, most noticeably on machines without a GPU. The mark now
+  breathes in small steps rather than a smooth fade.
+- Launching no longer waits on your login shell: the PATH it gave last time
+  is used at once and checked again in the background. A change to your PATH
+  applies from the launch after it is noticed.
+
+### Fixed
+
+- A search that cannot read its index says search is unavailable, in the
+  window and to teammates searching their own conversations, instead of
+  reporting no matches.
+- A teammate's state in the list can no longer stay out of date after a burst
+  of activity.
+- The install script reports a server whose desk runs as another user as
+  running, instead of not started.
+
 ## [0.27.0] - 2026-09-27
 
 ### Added

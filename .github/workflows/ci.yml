@@ -1,0 +1,74 @@
+# The checks a release runs, on every pull request, before the tag.
+#
+# Pull requests from this repository's own branches run on grizzly, the
+# self-hosted Linux box and its Windows VM, where toolchains and build output
+# stay warm between jobs. A pull request from a fork never reaches those
+# machines: it runs on GitHub's runners, like everything did before.
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            hosted: ubuntu-24.04
+          - os: windows
+            hosted: windows-2025
+    # Ours (a branch here, or a manual run) goes to grizzly; a fork's goes to GitHub.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON(format('["self-hosted","grizzly-{0}"]', matrix.os)) || matrix.hosted }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      # grizzly keeps target/ on its own disk; only GitHub's runners need the cache.
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          key: ci-${{ matrix.os }}
+          cache-on-failure: true
+
+      # grizzly's Linux image has these baked in.
+      - name: Install the Linux toolkit
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf build-essential libssl-dev libdbus-1-dev
+
+      - name: Install the window's dependencies
+        working-directory: ui
+        run: bun install --frozen-lockfile
+
+      - name: Check the core and window on this operating system
+        shell: bash
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+          bun run --cwd ui typecheck
+          python3 -m unittest discover -s scripts -p 'test_updater_manifest.py' || python -m unittest discover -s scripts -p 'test_updater_manifest.py'

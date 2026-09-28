@@ -16,6 +16,12 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_TERMINATE, ResumeThread, THREAD_SUSPEND_RESUME,
 };
 
+/// A console program started by the windowed app gets a console window of its
+/// own unless told not to: every `docker ps` would flash one on screen.
+pub(crate) fn quiet(command: &mut tokio::process::Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
 pub(crate) fn prepare(command: &mut tokio::process::Command) {
     command.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
     command.kill_on_drop(true);

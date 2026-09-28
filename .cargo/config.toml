@@ -8,3 +8,13 @@
 [env]
 TS_RS_EXPORT_DIR = { value = "ui/src/generated", relative = true }
 TS_RS_LARGE_INT = "number"
+
+# Link the C runtime statically on Windows. The MSVC default is the DLL
+# (VCRUNTIME140.dll, VCRUNTIME140_1.dll), which a clean Windows does not have:
+# without this the app dies at launch with "VCRUNTIME140_1.dll was not found",
+# before it can say anything itself.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -206,17 +206,19 @@ fn looks_stopped(said: &str) -> bool {
 }
 
 async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, Failure> {
-    let child = Command::new(cmd)
+    let mut command = Command::new(cmd);
+    command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| Failure {
-            state: RuntimeState::Failed,
-            detail: format!("{} could not be started: {error}", cmd.display()),
-        })?;
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    crate::process_windows::quiet(&mut command);
+    let child = command.spawn().map_err(|error| Failure {
+        state: RuntimeState::Failed,
+        detail: format!("{} could not be started: {error}", cmd.display()),
+    })?;
     match tokio::time::timeout(PROBE_TIMEOUT, child.wait_with_output()).await {
         Ok(Ok(output)) if output.status.success() => {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

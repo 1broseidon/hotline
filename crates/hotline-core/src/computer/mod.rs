@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
 
 /// The Hotline Computer release this desktop is built against: the floor. A
@@ -67,6 +67,9 @@ const DEFAULT_PIDS: u32 = 1024;
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_PROBE: Duration = Duration::from_secs(2);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long `status` trusts its last runtime pick. The panes ask every few
+/// seconds; probing every runtime each time spawns a handful of CLIs a tick.
+const PICK_FOR_STATUS: Duration = Duration::from_secs(30);
 const PULL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -181,6 +184,14 @@ struct Inner {
     containers: HashMap<String, Live>,
     /// The newest release the desk has heard of, and when to ask again.
     known: releases::Known,
+    /// The runtime `status` last picked, for [`PICK_FOR_STATUS`].
+    picked: Option<Picked>,
+}
+
+struct Picked {
+    prefer: Option<Runtime>,
+    at: Instant,
+    answer: Result<(Runtime, PathBuf), String>,
 }
 
 #[derive(Clone)]
@@ -200,6 +211,7 @@ impl Computer {
             inner: Arc::new(Mutex::new(Inner {
                 containers: HashMap::new(),
                 known: releases::Known::default(),
+                picked: None,
             })),
             bins: BinSearch::from_env(),
             releases_url: releases::RELEASES_URL.to_string(),
@@ -215,6 +227,7 @@ impl Computer {
             inner: Arc::new(Mutex::new(Inner {
                 containers: HashMap::new(),
                 known: releases::Known::default(),
+                picked: None,
             })),
             bins: BinSearch::only(path),
             releases_url: "http://127.0.0.1:1/releases".to_string(),
@@ -277,6 +290,25 @@ impl Computer {
 
     pub async fn runtimes(&self) -> Vec<RuntimeReport> {
         runtime::detect_with(&self.bins).await
+    }
+
+    /// `pick_runtime`, remembered for [`PICK_FOR_STATUS`]. Only `status` uses
+    /// it: it is what the panes poll, and a stale answer there costs a few
+    /// seconds of an old state, where starting a computer needs a fresh one.
+    async fn pick_for_status(&self, prefer: Option<Runtime>) -> Result<(Runtime, PathBuf), String> {
+        if let Some(picked) = &self.lock().picked
+            && picked.prefer == prefer
+            && picked.at.elapsed() < PICK_FOR_STATUS
+        {
+            return picked.answer.clone();
+        }
+        let answer = pick_runtime(prefer, &self.bins).await;
+        self.lock().picked = Some(Picked {
+            prefer,
+            at: Instant::now(),
+            answer: answer.clone(),
+        });
+        answer
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -463,7 +495,7 @@ impl Computer {
             status.release = live.release.clone();
             return Ok(status);
         }
-        let Ok((runtime, cmd)) = pick_runtime(prefer, &self.bins).await else {
+        let Ok((runtime, cmd)) = self.pick_for_status(prefer).await else {
             return Ok(ComputerStatus {
                 state: ComputerState::Absent,
                 url: None,
@@ -916,12 +948,16 @@ async fn pull(
     };
     report(progress(&tally, PullOutcome::Pulling));
 
-    let mut child = Command::new(cmd)
+    let mut command = Command::new(cmd);
+    command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    crate::process_windows::quiet(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|error| format!("{} could not be started: {error}", cmd.display()))?;
     let stdout = child.stdout.take().expect("stdout was piped");
@@ -1191,12 +1227,16 @@ fn is_not_found(error: &str) -> bool {
 }
 
 async fn run(cmd: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
-    let child = Command::new(cmd)
+    let mut command = Command::new(cmd);
+    command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    crate::process_windows::quiet(&mut command);
+    let child = command
         .spawn()
         .map_err(|error| format!("{} could not be started: {error}", cmd.display()))?;
     match tokio::time::timeout(timeout, child.wait_with_output()).await {

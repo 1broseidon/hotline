@@ -7,8 +7,8 @@
 # Server options, asked for when they are missing and a terminal is attached:
 #   --listen IP:PORT             one local address and a fixed port
 #   --public-url https://HOST:PORT  where phones reach the desk
-# Either mode takes --version X.Y.Z. Run it again to upgrade: a server keeps
-# its unit and room, and only the binary changes.
+# Either mode takes --version X.Y.Z, --yes (skip confirmation), and --force
+# (reinstall even the same version). For future server updates: sudo hotline update.
 #
 # Windows: irm https://hotline.dev/install.ps1 | iex
 # Docs: https://hotline.dev/docs/
@@ -19,6 +19,7 @@
 RELEASES=https://github.com/1broseidon/hotline/releases
 UNIT=/etc/systemd/system/hotline.service
 ROOM=/var/lib/hotline/room
+BINARY=/usr/local/bin/hotline
 
 say() { printf '%s\n' "$*"; }
 fail() {
@@ -85,6 +86,96 @@ arch() {
     esac
 }
 
+# Never launch a desktop app to ask its version. Packages and app bundles carry
+# metadata; older standalone installs may have no readable version at all.
+installed_version() {
+    installed=
+    current=
+    if [ "$mode" = server ]; then
+        if [ -f "$BINARY" ] || [ -f "$UNIT" ]; then
+            installed=1
+            if [ -x "$BINARY" ]; then
+                current=$("$BINARY" --version 2>/dev/null | sed -n 's/^[Hh]otline \([0-9][^ ]*\)$/\1/p' | head -n 1)
+            fi
+            # Releases before --version exposed the running version in door.json.
+            # Do not ask for sudo or contact a desk merely to detect an install.
+            if [ -z "$current" ] && [ -r "$ROOM/door.json" ]; then
+                pid=$(sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' "$ROOM/door.json" | head -n 1)
+                # A stale door, or an older process after binary replacement, is
+                # not evidence of the version currently installed on disk.
+                if [ -n "$pid" ] && [ "$BINARY" -ef "/proc/$pid/exe" ]; then
+                    current=$(sed -n 's/.*"version": *"\([^" ]*\)".*/\1/p' "$ROOM/door.json" | head -n 1)
+                fi
+            fi
+        fi
+    else
+        case "$(uname -s)" in
+            Darwin)
+                target=/Applications
+                [ -w "$target" ] || target="$HOME/Applications"
+                app="$target/Hotline.app"
+                if [ ! -d "$app" ] && [ -d /Applications/Hotline.app ]; then
+                    app=/Applications/Hotline.app
+                fi
+                if [ ! -d "$app" ] && [ -d "$HOME/Applications/Hotline.app" ]; then
+                    app="$HOME/Applications/Hotline.app"
+                fi
+                if [ -d "$app" ]; then
+                    installed=1
+                    current=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist" 2>/dev/null || true)
+                fi
+                ;;
+            Linux)
+                if command -v dpkg-query >/dev/null 2>&1; then
+                    current=$(dpkg-query -W -f='${Status} ${Version}\n' hotline 2>/dev/null | sed -n 's/^install ok installed //p')
+                    # Debian epochs/revisions describe packaging, not the app.
+                    current=${current#*:}
+                    current=$(printf '%s\n' "$current" | sed 's/-[0-9][^-]*$//')
+                fi
+                if [ -z "$current" ] && command -v rpm >/dev/null 2>&1; then
+                    current=$(rpm -q --qf '%{VERSION}' hotline 2>/dev/null) || current=
+                fi
+                if [ -n "$current" ]; then
+                    installed=1
+                elif [ -f "$HOME/.local/bin/Hotline.AppImage" ]; then
+                    installed=1
+                    if [ -r "$HOME/.local/bin/Hotline.AppImage.version" ]; then
+                        # The app's own updater can replace the binary without this
+                        # marker. Only trust a version bound to these exact bytes.
+                        marker="$HOME/.local/bin/Hotline.AppImage.version"
+                        recorded_hash=$(sed -n '2p' "$marker")
+                        if [ -n "$recorded_hash" ] && [ "$recorded_hash" = "$(sha256 "$HOME/.local/bin/Hotline.AppImage")" ]; then
+                            current=$(sed -n '1p' "$marker")
+                        fi
+                    fi
+                fi
+                ;;
+        esac
+    fi
+    current=${current#v}
+    [ -n "$current" ] || current=unknown
+}
+
+confirm_install() {
+    installed_version
+    if [ -n "$installed" ]; then
+        say "Hotline $current is installed; $version is available."
+        if [ "$current" = "$version" ] && [ -z "$force" ]; then
+            say "Already up to date. Use --force to reinstall."
+            return 1
+        fi
+    else
+        say "Hotline $version is available."
+    fi
+    if [ -z "$yes" ] && has_tty; then
+        ask "Install Hotline $version? (y/N)" N
+        case "$answer" in
+            y | Y | yes | YES | Yes) ;;
+            *) say "Not installed; nothing changed."; return 1 ;;
+        esac
+    fi
+}
+
 desktop_macos() {
     machine=$(arch)
     # A shell under Rosetta reports x86_64 on Apple silicon.
@@ -110,17 +201,30 @@ desktop_linux() {
         # apt reads a local package as its own sandbox user.
         chmod 0755 "$work"
         chmod 0644 "$work/hotline_${version}_linux_x86_64.deb"
-        as_root apt-get install -y "$work/hotline_${version}_linux_x86_64.deb"
+        if [ -n "$force" ]; then
+            as_root apt-get install --reinstall -y "$work/hotline_${version}_linux_x86_64.deb"
+        else
+            as_root apt-get install -y "$work/hotline_${version}_linux_x86_64.deb"
+        fi
     elif command -v dnf >/dev/null 2>&1; then
         asset "hotline_${version}_linux_x86_64.rpm"
-        as_root dnf install -y "$work/hotline_${version}_linux_x86_64.rpm"
+        if [ -n "$force" ] && [ "$current" = "$version" ]; then
+            as_root dnf reinstall -y "$work/hotline_${version}_linux_x86_64.rpm"
+        else
+            as_root dnf install -y "$work/hotline_${version}_linux_x86_64.rpm"
+        fi
     elif command -v zypper >/dev/null 2>&1; then
         asset "hotline_${version}_linux_x86_64.rpm"
-        as_root zypper --non-interactive install --allow-unsigned-rpm "$work/hotline_${version}_linux_x86_64.rpm"
+        if [ -n "$force" ]; then
+            as_root zypper --non-interactive install --force --allow-unsigned-rpm "$work/hotline_${version}_linux_x86_64.rpm"
+        else
+            as_root zypper --non-interactive install --allow-unsigned-rpm "$work/hotline_${version}_linux_x86_64.rpm"
+        fi
     else
         asset "hotline_${version}_linux_x86_64.AppImage"
         mkdir -p "$HOME/.local/bin"
         install -m 0755 "$work/hotline_${version}_linux_x86_64.AppImage" "$HOME/.local/bin/Hotline.AppImage"
+        printf '%s\n%s\n' "$version" "$(sha256 "$HOME/.local/bin/Hotline.AppImage")" >"$HOME/.local/bin/Hotline.AppImage.version"
         say ""
         say "Hotline $version is at ~/.local/bin/Hotline.AppImage."
         say "The tray needs libayatana-appindicator3 from your package manager."
@@ -203,6 +307,7 @@ server() {
     say ""
     as_hotline /usr/local/bin/hotline status || true
     say ""
+    say "Next time, update with: sudo hotline update (or sudo hotline update --check)"
     if [ -z "$fresh" ]; then
         as_root rm -f "$UNIT.previous"
         say "Hotline $version is running, with the same room and pairings."
@@ -226,9 +331,13 @@ main() {
     version=
     listen=
     public_url=
+    yes=
+    force=
     while [ $# -gt 0 ]; do
         case "$1" in
             --server) mode=server ;;
+            -y | --yes) yes=1 ;;
+            --force) force=1 ;;
             --version) version=${2:?--version needs a value}; shift ;;
             --version=*) version=${1#*=} ;;
             --listen) listen=${2:?--listen needs a value}; shift ;;
@@ -236,7 +345,7 @@ main() {
             --public-url) public_url=${2:?--public-url needs a value}; shift ;;
             --public-url=*) public_url=${1#*=} ;;
             -h | --help)
-                say "usage: install [--server [--listen IP:PORT] [--public-url https://HOST:PORT]] [--version X.Y.Z]"
+                say "usage: install [--server [--listen IP:PORT] [--public-url https://HOST:PORT]] [--version X.Y.Z] [--yes] [--force]"
                 say "Docs: https://hotline.dev/docs/"
                 return
                 ;;
@@ -254,6 +363,8 @@ main() {
     [ -n "$version" ] || version=$(latest_version)
     [ -n "$version" ] || fail "could not find the latest release"
     version=${version#v}
+    printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || fail "invalid version $version"
+    confirm_install || return 0
 
     case "$mode" in
         server) server ;;

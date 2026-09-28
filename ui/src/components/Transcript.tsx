@@ -1,5 +1,5 @@
 import { ErrorCard } from "./ErrorCard";
-import { useEffect, useReducer, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import type {
 	Attachment,
 	DeliveryCause,
@@ -127,11 +127,20 @@ export function Transcript({
 	const [jumped, setJumped] = useState<{ eventId: string; at: number } | null>(null);
 	const landing = jumped !== null && (focus === null || jumped.at > focus.at) ? jumped : focus;
 
-	const said = new Map<string, string>();
-	for (const event of events) {
-		const line = quotedLine(event);
-		if (line !== undefined) said.set(event.id, line);
-	}
+	/* Everything derived from the written events is worked out once per
+	 * change to them, not once per streamed word: a reply streams into a
+	 * chapter that can hold hundreds of rows, and only its own bubble moves. */
+	const said = useMemo(() => {
+		const lines = new Map<string, string>();
+		for (const event of events) {
+			const line = quotedLine(event);
+			if (line !== undefined) lines.set(event.id, line);
+		}
+		return lines;
+	}, [events]);
+	const answered = useMemo(() => superseded(events), [events]);
+	const written = useMemo(() => toBlocks(events), [events]);
+	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 
 	useScrollToEvent(scroller, pinned, landing, events);
 
@@ -174,7 +183,7 @@ export function Transcript({
 	}, [empty]);
 
 	// Hooks before the empty-state return, so their order never changes.
-	const arrived = toBlocks(events, streaming);
+	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null)));
 
@@ -190,7 +199,6 @@ export function Transcript({
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
-	const answered = superseded(events);
 	const blocks = arrived.filter(
 		(block) =>
 			!(
@@ -237,29 +245,31 @@ export function Transcript({
 						bottom: side !== null && sideAfter(index) === side,
 					};
 					return (
-						<div key={id} data-event-id={id}>
+						<div key={id} data-event-id={id} className="tape-row">
 							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
 							{block.kind === "steps" ? (
 								<Steps
+									id={block.id}
 									items={block.items}
 									live={live && index === blocks.length - 1}
 									shown={workShown}
-									{...(onOpenWork !== undefined ? { onOpen: () => onOpenWork(block.id), open: workOpen === block.id } : {})}
+									{...(onOpenWork !== undefined ? { onOpenWork, open: workOpen === block.id } : {})}
 								/>
 							) : (
 								<Row
 									personaId={personaId}
 									ownerName={name}
 									event={block.event}
-									said={said}
-									run={run}
+									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
+									top={run.top}
+									bottom={run.bottom}
 									speakers={speakers}
 									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retryForNotice(events, block.event.id, onRetryMessage) } : {})}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenSubagent !== undefined ? { onOpenSubagent } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
-									onJump={(eventId) => setJumped({ eventId, at: Date.now() })}
+									onJump={onJump}
 								/>
 							)}
 						</div>
@@ -454,7 +464,8 @@ function runClass(run: Run): string {
  * bubble that will still grow, cut the way the desk will write it and under
  * the ids it will use, so the written lines replace them in place.
  */
-function toBlocks(events: TranscriptEvent[], streaming: Streaming[]): Block[] {
+/** The written events as rows: runs of thoughts and tool calls fold into one block of steps. */
+function toBlocks(events: TranscriptEvent[]): Block[] {
 	const blocks: Block[] = [];
 	for (const event of events) {
 		if (event.kind === "computer_pull") continue;
@@ -466,6 +477,17 @@ function toBlocks(events: TranscriptEvent[], streaming: Streaming[]): Block[] {
 			blocks.push({ kind: "event", event });
 		}
 	}
+	return blocks;
+}
+
+/**
+ * The written rows, then what is streaming after them. The written blocks are
+ * shared with the last render, so their rows are skipped; a streamed thought
+ * joining the last block of steps gets a copy of that block, never an edit.
+ */
+function withStreaming(written: Block[], streaming: Streaming[]): Block[] {
+	if (streaming.length === 0) return written;
+	const blocks = written.slice();
 	for (const one of streaming) {
 		if (one.kind === "agent") {
 			const base = one.bubbleOf?.base ?? one.messageId;
@@ -480,7 +502,7 @@ function toBlocks(events: TranscriptEvent[], streaming: Streaming[]): Block[] {
 		}
 		const thought: Step = { kind: "thought", id: one.messageId, ts: Date.now(), text: one.text };
 		const tail = blocks[blocks.length - 1];
-		if (tail?.kind === "steps") tail.items.push(thought);
+		if (tail?.kind === "steps") blocks[blocks.length - 1] = { ...tail, items: [...tail.items, thought] };
 		else blocks.push({ kind: "steps", id: thought.id, ts: thought.ts, items: [thought] });
 	}
 	return blocks;
@@ -538,12 +560,17 @@ export function retryForNotice(events: TranscriptEvent[], noticeId: string,
     }
 }
 
-function Row({
+/**
+ * One written row. Memoized: while a reply streams, every row above it gets
+ * the same props and is skipped, so the cost of a word is the live bubble's.
+ */
+const Row = memo(function Row({
 	personaId,
 	ownerName,
 	event,
-	said,
-	run,
+	quote,
+	top,
+	bottom,
 	speakers,
 	onReply,
 	onRetry,
@@ -556,8 +583,10 @@ function Row({
 	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
-	said: Map<string, string>;
-	run: Run;
+	/** What the message this one replies to said, when it is on the tape. */
+	quote: string | undefined;
+	top: boolean;
+	bottom: boolean;
 	speakers: Speakers | undefined;
 	onRetry?: (() => void) | undefined;
 	onReply?(target: ReplyTarget): void;
@@ -566,6 +595,7 @@ function Row({
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;
 }) {
+	const run: Run = { top, bottom };
 	switch (event.kind) {
 		case "user":
 			return event.scheduled !== undefined ? (
@@ -573,7 +603,7 @@ function Row({
 			) : speakers !== undefined ? (
 				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
-				<UserBubble event={event} said={said} run={run} onJump={onJump} />
+				<UserBubble event={event} quote={quote} run={run} onJump={onJump} />
 			);
 
 		case "agent":
@@ -701,7 +731,7 @@ function Row({
 		case "computer_pull":
 			return null;
 	}
-}
+});
 
 export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
 
@@ -826,21 +856,23 @@ function runWords(ms: number): string {
  * opens the work in the pane beside it (`onOpen`); in a thread or a run it
  * opens in place, and the live rows show only if you pressed the bubble.
  */
-function Steps({
+const Steps = memo(function Steps({
+	id,
 	items,
 	live,
 	shown,
-	onOpen,
+	onOpenWork,
 	open: paneOpen,
 }: {
+	id: string;
 	items: Step[];
 	live: boolean;
 	shown: boolean;
-	onOpen?(): void;
+	onOpenWork?(blockId: string): void;
 	open?: boolean;
 }) {
 	const [toggled, setToggled] = useState(false);
-	const inPane = onOpen !== undefined;
+	const inPane = onOpenWork !== undefined;
 	const open = inPane ? false : live ? shown : toggled;
 	const summary = stepsSummary(items);
 	const failed = items.some((one) => one.kind === "tool" && one.status === "failed");
@@ -852,7 +884,7 @@ function Steps({
 					type="button"
 					className="steps-caption"
 					aria-expanded={inPane ? paneOpen === true : open}
-					onClick={() => (inPane ? onOpen() : setToggled(!open))}
+					onClick={() => (inPane ? onOpenWork(id) : setToggled(!open))}
 				>
 					<span className={`truncate ${failed ? "text-danger" : ""}`}>{summary}</span>
 					{open ? <ChevronDownIcon /> : <ChevronRightIcon />}
@@ -865,7 +897,7 @@ function Steps({
 			)}
 		</div>
 	);
-}
+});
 
 /** "12 steps", "12 steps · one failed": the caption, and the work pane's line. */
 export function stepsSummary(items: Step[]): string {
@@ -889,7 +921,7 @@ export function StepRows({ items }: { items: Step[] }) {
  * opens it by. What is streaming joins the last run, as it does on screen.
  */
 export function stepRuns(events: TranscriptEvent[], streaming: Streaming[]): { id: string; items: Step[] }[] {
-	return toBlocks(events, streaming).flatMap((block) => (block.kind === "steps" ? [{ id: block.id, items: block.items }] : []));
+	return withStreaming(toBlocks(events), streaming).flatMap((block) => (block.kind === "steps" ? [{ id: block.id, items: block.items }] : []));
 }
 
 /**
@@ -990,17 +1022,16 @@ function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: str
 
 function UserBubble({
 	event,
-	said,
+	quote,
 	run,
 	onJump,
 }: {
 	event: Extract<TranscriptEvent, { kind: "user" }>;
-	said: Map<string, string>;
+	quote: string | undefined;
 	run: Run;
 	onJump(eventId: string): void;
 }) {
 	const answered = event.replyTo;
-	const quote = answered !== undefined ? said.get(answered) : undefined;
 	const text = quote !== undefined ? unquoted(event.text) : event.text;
 	return (
 		<div className={`flex justify-end ${run.top ? "mt-1" : "mt-3"}`}>

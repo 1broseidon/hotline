@@ -2042,3 +2042,12 @@
 		transition: none !important;
 	}
 }
+
+/* A row of the conversation that is off screen skips layout and paint until
+ * it scrolls into view, keeping the size it last had. A long chapter is
+ * hundreds of rows, and without this each word streamed into the last one
+ * lays out and paints every one of them again. */
+.tape-row {
+	content-visibility: auto;
+	contain-intrinsic-block-size: auto 96px;
+}

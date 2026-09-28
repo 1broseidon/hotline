@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { StreamDelta, TranscriptEvent } from "./generated/contract";
 import { bubbleId, pacedLive } from "./pacing";
 import { wire, type Connection, type Target } from "./wire";
@@ -31,47 +31,158 @@ export type Streaming = {
 /** A computer download under way: layers landed of layers counted, 0 of 0 until the runtime says. */
 export type Pulling = { done: number; total: number };
 
-export function useTape(personaId: string): { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean; pulling: Pulling | null } {
-	const [events, setEvents] = useState<TranscriptEvent[]>([]);
-	const [streaming, setStreaming] = useState<Streaming[]>([]);
-	const [pulling, setPulling] = useState<Pulling | null>(null);
-	/* Whether the snapshot has landed: an empty tape and a tape not yet read
-	 * look the same, and the starter card must not show on the second. */
-	const [loaded, setLoaded] = useState(false);
+type TapeState = { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean; pulling: Pulling | null };
 
-	useEffect(() => {
-		setEvents([]);
-		setStreaming([]);
-		setPulling(null);
-		setLoaded(false);
-		return watchWhenOpen<TranscriptEvent, StreamDelta>({ tape: personaId }, {
+/** How long a tape nobody is showing stays subscribed, so coming back to it draws at once. */
+const LINGER_MS = 60_000;
+/** Tapes kept in memory once unsubscribed, newest first, so a return draws the last known state. */
+const KEEP = 8;
+
+/**
+ * One teammate's tape, shared by every pane that shows it.
+ *
+ * The conversation and the work pane beside it read the same store, so the
+ * desk sends the snapshot once and every delta is folded once. When the last
+ * reader goes the subscription lingers for a minute, and after that the
+ * folded events are kept (up to KEEP tapes), so switching back to a teammate
+ * draws what it last showed while the new snapshot is on its way instead of
+ * an empty column.
+ *
+ * Streaming deltas arrive a word or two at a time, often faster than the
+ * screen draws. They are queued and folded once per animation frame, so a
+ * reply costs one render per frame, not one per token.
+ */
+class TapeStore {
+	state: TapeState = { events: [], streaming: [], loaded: false, pulling: null };
+	private readonly listeners = new Set<() => void>();
+	private readers = 0;
+	private unsub: (() => void) | null = null;
+	private linger: ReturnType<typeof setTimeout> | null = null;
+	private queued: Exclude<StreamDelta, { type: "computer_pull" }>[] = [];
+	private frame: number | null = null;
+
+	constructor(private readonly personaId: string) {}
+
+	subscribe = (listener: () => void) => {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	};
+
+	snapshot = () => this.state;
+
+	get idle(): boolean {
+		return this.readers === 0 && this.unsub === null;
+	}
+
+	acquire() {
+		this.readers++;
+		if (this.linger !== null) {
+			clearTimeout(this.linger);
+			this.linger = null;
+		}
+		if (this.unsub === null) this.open();
+	}
+
+	release() {
+		this.readers--;
+		if (this.readers > 0 || this.linger !== null) return;
+		this.linger = setTimeout(() => {
+			this.linger = null;
+			if (this.readers > 0) return;
+			this.close();
+			forget();
+		}, LINGER_MS);
+	}
+
+	private set(next: Partial<TapeState>) {
+		this.state = { ...this.state, ...next };
+		for (const listener of this.listeners) listener();
+	}
+
+	private open() {
+		this.unsub = watchWhenOpen<TranscriptEvent, StreamDelta>({ tape: this.personaId }, {
 			snapshot: (items) => {
-				setEvents(fold(items));
+				this.drop();
 				// A snapshot is a (re)connect: a download that ended while the
 				// socket was down said so on a frame nobody heard. Still going,
-				// its next report draws the ring again.
-				setPulling(null);
-				setLoaded(true);
+				// its next report draws the ring again. What was streaming is
+				// either in the snapshot now or will stream again.
+				this.set({ events: fold(items), streaming: [], pulling: null, loaded: true });
 			},
 			event: (item) => {
-				setEvents((known) => merge(known, item));
+				// Deltas queued before this line belong before it.
+				this.flush();
 				// The durable line has landed, so the bubble Hotline was drawing
 				// for it is no longer the best thing it has; what it was
 				// drawing after that bubble stays until its own line lands.
-				setStreaming((live) => settle(live, item));
+				this.set({ events: merge(this.state.events, item), streaming: settle(this.state.streaming, item) });
 			},
 			ephemeral: (delta) => {
 				// A download is drawn on the computer's button, not in the talk.
 				if (delta.type === "computer_pull") {
-					setPulling(delta.status === "pulling" ? { done: delta.layersDone, total: delta.layersTotal } : null);
+					this.set({ pulling: delta.status === "pulling" ? { done: delta.layersDone, total: delta.layersTotal } : null });
 					return;
 				}
-				setStreaming((live) => append(live, delta));
+				this.queued.push(delta);
+				this.frame ??= requestAnimationFrame(this.flush);
 			},
 		});
-	}, [personaId]);
+	}
 
-	return { events, streaming, loaded, pulling };
+	private close() {
+		this.unsub?.();
+		this.unsub = null;
+		this.drop();
+		// Kept for the next visit, but what was mid-stream is no longer known.
+		if (this.state.streaming.length > 0 || this.state.pulling !== null) this.set({ streaming: [], pulling: null });
+	}
+
+	private flush = () => {
+		if (this.frame !== null) cancelAnimationFrame(this.frame);
+		this.frame = null;
+		if (this.queued.length === 0) return;
+		let streaming = this.state.streaming;
+		for (const delta of this.queued) streaming = append(streaming, delta);
+		this.queued = [];
+		this.set({ streaming });
+	};
+
+	private drop() {
+		if (this.frame !== null) cancelAnimationFrame(this.frame);
+		this.frame = null;
+		this.queued = [];
+	}
+}
+
+const stores = new Map<string, TapeStore>();
+
+function storeFor(personaId: string): TapeStore {
+	let store = stores.get(personaId);
+	if (store === undefined) {
+		store = new TapeStore(personaId);
+	} else {
+		stores.delete(personaId);
+	}
+	// Most recent last, so the first key is the one to let go of.
+	stores.set(personaId, store);
+	return store;
+}
+
+/** Lets go of the longest-unvisited tapes nobody is reading, beyond KEEP. */
+function forget() {
+	for (const [id, store] of stores) {
+		if (stores.size <= KEEP) break;
+		if (store.idle) stores.delete(id);
+	}
+}
+
+export function useTape(personaId: string): TapeState {
+	const store = useMemo(() => storeFor(personaId), [personaId]);
+	useEffect(() => {
+		store.acquire();
+		return () => store.release();
+	}, [store]);
+	return useSyncExternalStore(store.subscribe, store.snapshot);
 }
 
 /**

@@ -38,6 +38,7 @@ import type {
 	TranscriptEvent,
 	Welcome,
 } from "./generated/contract";
+import { activeDeskId, allDesks, wireFor } from "./desks";
 
 export type { RosterEntry, Target };
 
@@ -240,8 +241,13 @@ type Live = {
 /** How long to wait before dialling again, growing with each failure. */
 const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 
-class Wire {
+/** Where one desk answers: the local Door, or the shell's bridge to a remote desk. */
+export type Endpoint = { origin: string; token: string };
+
+/** One desk's connection. The window holds one per desk; see desks.ts. */
+export class Wire {
 	private socket: WebSocket | null = null;
+	private closed = false;
 	private nextId = 1;
 	private readonly pending = new Map<number, Pending>();
 	private readonly live = new Map<number, Live>();
@@ -250,12 +256,13 @@ class Wire {
 	private retry: ReturnType<typeof setTimeout> | null = null;
 	private state: Connection = "closed";
 
-	/** Opens the socket, and keeps it open for as long as the window lives. */
+	constructor(private readonly endpoint: Endpoint) {}
+
+	/** Opens the socket, and keeps it open until `close`: for as long as the window lives, or the desk stays in it. */
 	connect(): void {
-		const desk = window.__hotlineDesk;
-		if (!desk || this.socket) return;
+		if (this.closed || this.socket) return;
 		this.setState("connecting");
-		const socket = new WebSocket(`${desk.origin}/ws?token=${encodeURIComponent(desk.token)}`);
+		const socket = new WebSocket(`${this.endpoint.origin}/ws?token=${encodeURIComponent(this.endpoint.token)}`);
 		this.socket = socket;
 
 		socket.onopen = () => {
@@ -315,6 +322,18 @@ class Wire {
 		};
 	}
 
+	/** For good: the desk left the window, or its endpoint changed. Nothing reconnects. */
+	close(): void {
+		this.closed = true;
+		if (this.retry !== null) clearTimeout(this.retry);
+		this.retry = null;
+		this.live.clear();
+		const socket = this.socket;
+		this.socket = null;
+		socket?.close();
+		this.setState("closed");
+	}
+
 	// ---------------------------------------------------------------- private
 
 	private setState(next: Connection): void {
@@ -372,7 +391,7 @@ class Wire {
 			waiting.reject(new Error("The connection to Hotline dropped."));
 		}
 		this.pending.clear();
-		if (this.retry !== null) return;
+		if (this.closed || this.retry !== null) return;
 		const wait = BACKOFF_MS[Math.min(this.failures, BACKOFF_MS.length - 1)] ?? 8_000;
 		this.failures++;
 		this.retry = setTimeout(() => {
@@ -382,4 +401,33 @@ class Wire {
 	}
 }
 
-export const wire = new Wire();
+/**
+ * The active desk's connection, for everything on screen: the conversation,
+ * the teammate pane, settings. Each call reaches the desk that is active at
+ * the moment of the call, and a subscription stays with the desk it was
+ * made on (its unsubscribe is that desk's). Switching desks remounts what is
+ * on screen (App keys it by desk), so nothing keeps talking to the old one.
+ * Code that must reach a particular desk, whichever is active, uses
+ * `wireFor(deskId)`.
+ */
+export const wire = {
+	/** Connects to every desk the window holds. */
+	connect(): void {
+		for (const desk of allDesks()) wireFor(desk.id).connect();
+	},
+	onConnection(watcher: (state: Connection) => void): () => void {
+		return activeWire()?.onConnection(watcher) ?? (watcher("closed"), () => {});
+	},
+	command<Name extends CommandName>(cmd: Name, params: Commands[Name]["params"]): Promise<Commands[Name]["result"]> {
+		const one = activeWire();
+		return one ? one.command(cmd, params) : Promise.reject(new Error("No desk is open in this window."));
+	},
+	subscribe<Item, Ephemeral = never>(target: Target, handlers: Handlers<Item, Ephemeral>): () => void {
+		return activeWire()?.subscribe(target, handlers) ?? (() => {});
+	},
+};
+
+function activeWire(): Wire | null {
+	const id = activeDeskId();
+	return id === null ? null : wireFor(id);
+}

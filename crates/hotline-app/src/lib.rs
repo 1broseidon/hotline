@@ -20,6 +20,7 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod desks;
 mod files;
 mod instance;
 #[cfg(target_os = "linux")]
@@ -298,7 +299,8 @@ pub fn run() {
         "dataDir": root.display().to_string(),
         "computerImage": hotline_core::computer::default_image(),
     });
-    let script = format!("window.__hotlineDesk = {injected};");
+    let desks = desks::listed(&format!("http://127.0.0.1:{port}"), &token);
+    let script = format!("window.__hotlineDesk = {injected};\nwindow.__hotlineDesks = {desks};");
 
     let builder = tauri::Builder::default()
         .manage(desk)

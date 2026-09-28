@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { StreamDelta, TranscriptEvent } from "./generated/contract";
 import { bubbleId, pacedLive } from "./pacing";
-import { wire, type Connection, type Target } from "./wire";
+import { activeDeskId, wireFor } from "./desks";
+import type { Connection, Target, Wire } from "./wire";
 
 /**
  * Text arriving as the agent writes it, before the message it belongs to has
@@ -61,7 +62,10 @@ class TapeStore {
 	private queued: Exclude<StreamDelta, { type: "computer_pull" }>[] = [];
 	private frame: number | null = null;
 
-	constructor(private readonly personaId: string) {}
+	constructor(
+		private readonly wire: Wire,
+		private readonly personaId: string,
+	) {}
 
 	subscribe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -100,7 +104,7 @@ class TapeStore {
 	}
 
 	private open() {
-		this.unsub = watchWhenOpen<TranscriptEvent, StreamDelta>({ tape: this.personaId }, {
+		this.unsub = watchWhenOpen<TranscriptEvent, StreamDelta>(this.wire, { tape: this.personaId }, {
 			snapshot: (items) => {
 				this.drop();
 				// A snapshot is a (re)connect: a download that ended while the
@@ -156,15 +160,17 @@ class TapeStore {
 
 const stores = new Map<string, TapeStore>();
 
-function storeFor(personaId: string): TapeStore {
-	let store = stores.get(personaId);
+/** Two desks can each have a teammate with the same id; a tape is one desk's. */
+function storeFor(deskId: string, personaId: string): TapeStore {
+	const key = `${deskId}\u0000${personaId}`;
+	let store = stores.get(key);
 	if (store === undefined) {
-		store = new TapeStore(personaId);
+		store = new TapeStore(wireFor(deskId), personaId);
 	} else {
-		stores.delete(personaId);
+		stores.delete(key);
 	}
 	// Most recent last, so the first key is the one to let go of.
-	stores.set(personaId, store);
+	stores.set(key, store);
 	return store;
 }
 
@@ -177,7 +183,10 @@ function forget() {
 }
 
 export function useTape(personaId: string): TapeState {
-	const store = useMemo(() => storeFor(personaId), [personaId]);
+	// The active desk's: switching desks remounts the conversation, and the
+	// store it comes back to is the other desk's.
+	const deskId = activeDeskId() ?? "";
+	const store = useMemo(() => storeFor(deskId, personaId), [deskId, personaId]);
 	useEffect(() => {
 		store.acquire();
 		return () => store.release();
@@ -194,7 +203,7 @@ export function useThread(key: string): { events: TranscriptEvent[] } {
 
 	useEffect(() => {
 		setEvents([]);
-		return watchWhenOpen<TranscriptEvent>({ thread: key }, {
+		return watchWhenOpen<TranscriptEvent>(activeWire(), { thread: key }, {
 			snapshot: (items) => setEvents(fold(items)),
 			event: (item) => setEvents((known) => merge(known, item)),
 		});
@@ -213,7 +222,7 @@ export function useRun(runId: string): { events: TranscriptEvent[] } {
 
 	useEffect(() => {
 		setEvents([]);
-		return watchWhenOpen<TranscriptEvent>({ run: runId }, {
+		return watchWhenOpen<TranscriptEvent>(activeWire(), { run: runId }, {
 			snapshot: (items) => setEvents(fold(items)),
 			event: (item) => setEvents((known) => merge(known, item)),
 		});
@@ -234,6 +243,7 @@ export function useRun(runId: string): { events: TranscriptEvent[] } {
  * the subscribe is sent once, when it can land.
  */
 function watchWhenOpen<Item, Ephemeral = never>(
+	wire: Wire,
 	target: Target,
 	handlers: {
 		snapshot(items: Item[]): void;
@@ -302,4 +312,9 @@ function append(live: Streaming[], delta: Exclude<StreamDelta, { type: "computer
 	const next = live.slice();
 	next[at] = { ...live[at]!, text: live[at]!.text + delta.text };
 	return next;
+}
+
+/** The desk on screen when a thread or run pane mounts; it remounts with the desk. */
+function activeWire(): Wire {
+	return wireFor(activeDeskId() ?? "");
 }

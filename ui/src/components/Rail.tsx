@@ -5,7 +5,8 @@ import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar } from "../ui/Avatar";
-import { MenuButton, type MenuEntry } from "../ui/Menu";
+import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
+import { setActiveDesk, useActiveDesk, useDesks, type Desk } from "../desks";
 
 /**
  * Each teammate carries a vital sign rather than a status pill: the rail is
@@ -25,6 +26,7 @@ const VITAL: Record<SessionState, { color: string | null; beating: boolean; labe
 
 export function Rail({
 	entries,
+	loaded = true,
 	selectedId,
 	seen,
 	connection,
@@ -38,6 +40,8 @@ export function Rail({
 	compact = false,
 }: {
 	entries: RosterEntry[];
+	/** Whether the desk's roster has arrived; before it, no teammates is not "no teammates yet". */
+	loaded?: boolean;
 	selectedId: string | null;
 	/** The latest ts the window has already shown for each teammate. */
 	seen: Record<string, number>;
@@ -75,9 +79,10 @@ export function Rail({
 			className={`rail flex flex-col ${compact ? "rail-compact" : ""}`}
 			style={width !== undefined ? { width } : undefined}
 		>
+			{!compact && <DeskSwitcher />}
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{entries.length === 0 ? (
-					compact ? null :
+					compact || !loaded ? null :
 					<p className="px-2 py-3 text-sm text-ink-3">
 						No teammates yet. Each one keeps its own working directory, its own goal and its
 						own conversation.
@@ -411,4 +416,46 @@ export function RailEdge({ size, onSize }: { size: RailSize; onSize(next: RailSi
 			}}
 		/>
 	);
+}
+
+/**
+ * Which desk the window shows, when it holds more than one: this computer's
+ * and the remote desks it is paired with (BRO-145). Picking one switches the
+ * whole window to it.
+ */
+function DeskSwitcher() {
+	const desks = useDesks();
+	const active = useActiveDesk();
+	if (desks.length < 2 || active === null) return null;
+	return (
+		<div className="shrink-0 px-2.5 pt-2">
+			<Picker
+				field
+				value={active.id}
+				label="Desk"
+				placeholder={active.name}
+				choices={desks.map((desk) => ({
+					id: desk.id,
+					name: desk.name,
+					detail: deskDetail(desk),
+					group: desk.kind === "local" ? "On this computer" : "Remote",
+				}))}
+				onChange={setActiveDesk}
+			/>
+		</div>
+	);
+}
+
+function deskDetail(desk: Desk): string {
+	if (desk.kind === "local") return "This computer";
+	switch (desk.state) {
+		case "unreachable":
+			return "Can't reach it";
+		case "revoked":
+			return "No longer paired";
+		case "connecting":
+			return "Connecting…";
+		default:
+			return "Remote";
+	}
 }

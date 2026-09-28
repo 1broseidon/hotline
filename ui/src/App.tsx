@@ -21,6 +21,7 @@ import { noticeRoster, setWindowTitle } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
+import { activeDeskId, LOCAL_DESK, useActiveDesk } from "./desks";
 
 /* Settings is opened now and then, not at launch: it loads on first open,
  * which keeps its nine sections out of the startup bundle. */
@@ -34,12 +35,27 @@ type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
 /** What can stand in the inspector's place beside a conversation. */
 type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent } | { kind: "work"; work: OpenWork };
 
+/**
+ * The window for the active desk. Switching desks remounts all of it, so the
+ * roster, the open teammate and every subscription start again on the other
+ * desk and nothing keeps talking to the one left behind (see desks.ts).
+ */
+export function DeskRoot() {
+	const desk = useActiveDesk();
+	return <App key={desk?.id ?? "none"} />;
+}
+
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
-	const [roster, setRoster] = useState<RosterEntry[]>([]);
+	/* The last roster this desk showed, so switching back to it draws at
+	 * once while the fresh snapshot is on its way. */
+	const [roster, setRoster] = useState<RosterEntry[]>(() => rosterCache.get(activeDeskId() ?? "") ?? []);
 	/* Whether the roster snapshot has landed. Before it, an empty roster is
 	 * not an empty room, and the welcome pane would flash on every open. */
-	const [rosterLoaded, setRosterLoaded] = useState(false);
+	const [rosterLoaded, setRosterLoaded] = useState(() => rosterCache.has(activeDeskId() ?? ""));
+	useEffect(() => {
+		if (rosterLoaded) rosterCache.set(activeDeskId() ?? "", roster);
+	}, [roster, rosterLoaded]);
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
@@ -377,6 +393,7 @@ export function App() {
 			) : (
 			<Rail
 				entries={roster}
+				loaded={rosterLoaded}
 				selectedId={selectedId}
 				seen={seen}
 				connection={connection}
@@ -507,13 +524,22 @@ function takeChord(): boolean {
 	return true;
 }
 
+/** Each desk's last roster, for the moment after switching back to it. */
+const rosterCache = new Map<string, RosterEntry[]>();
+
 /** The open teammate survives a reload, which is what makes the tape
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
 const SELECTED_KEY = "hotline.rail.selected";
 
+/** A key of this window's, per desk. The local desk keeps the plain key it always had. */
+function perDesk(key: string): string {
+	const desk = activeDeskId();
+	return desk === null || desk === LOCAL_DESK ? key : `${key}:${desk}`;
+}
+
 function loadSelected(): string | null {
 	try {
-		const id = localStorage.getItem(SELECTED_KEY);
+		const id = localStorage.getItem(perDesk(SELECTED_KEY));
 		return id !== null && id !== "" ? id : null;
 	} catch {
 		return null;
@@ -522,8 +548,8 @@ function loadSelected(): string | null {
 
 function saveSelected(id: string | null): void {
 	try {
-		if (id === null) localStorage.removeItem(SELECTED_KEY);
-		else localStorage.setItem(SELECTED_KEY, id);
+		if (id === null) localStorage.removeItem(perDesk(SELECTED_KEY));
+		else localStorage.setItem(perDesk(SELECTED_KEY), id);
 	} catch {
 		// Quota, private mode.
 	}
@@ -535,7 +561,7 @@ const SEEN_KEY = "hotline.rail.seen";
 
 function loadSeen(): Record<string, number> {
 	try {
-		const raw = localStorage.getItem(SEEN_KEY);
+		const raw = localStorage.getItem(perDesk(SEEN_KEY));
 		if (!raw) return {};
 		const parsed: unknown = JSON.parse(raw);
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
@@ -551,7 +577,7 @@ function loadSeen(): Record<string, number> {
 
 function saveSeen(seen: Record<string, number>): void {
 	try {
-		localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+		localStorage.setItem(perDesk(SEEN_KEY), JSON.stringify(seen));
 	} catch {
 		// Quota, private mode — the next load treats everything as unread.
 	}

@@ -522,9 +522,10 @@ impl Seat {
             // already reads, so the phone reads the file too. `file.read`
             // names a message, never a path, and serves only what the desk
             // kept for that message.
-            Seat::Owner | Seat::Phone => matches!(
-                command,
-                Command::MobilePrompt { .. }
+            Seat::Owner | Seat::Phone => {
+                matches!(
+                    command,
+                    Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
                     | Command::MobilePushRegister { .. }
                     // A narrow create, confined in core rather than by
@@ -550,8 +551,27 @@ impl Seat {
                     | Command::FileRead { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
-            ),
+                ) || (*self == Seat::Owner && Self::owner_only(command))
+            }
         }
+    }
+
+    /// What the owner phone may do that a companion may not: a teammate's
+    /// standing access — its reach or its harness mode, and its background
+    /// work — through one narrow command, never the whole `persona.update`
+    /// patch, which could name a path, a server or a computer.
+    fn owner_only(command: &Command) -> bool {
+        matches!(command, Command::MobilePersonaAccess { .. })
+    }
+
+    /// What this seat's hello says it can do: the phone's list, and
+    /// `personaAccess` for the owner alone.
+    fn capabilities(self) -> Vec<&'static str> {
+        let mut capabilities = PHONE_CAPABILITIES.to_vec();
+        if self == Seat::Owner {
+            capabilities.push("personaAccess");
+        }
+        capabilities
     }
 
     pub fn permits_sub(&self, target: &Target) -> bool {
@@ -794,7 +814,7 @@ where
                 "protocolVersion": 1,
                 "desktopId": desktop_id,
                 "mode": "team",
-                "capabilities": PHONE_CAPABILITIES,
+                "capabilities": Seat::for_phone(&phone).capabilities(),
             })
             .to_string(),
         ))
@@ -825,7 +845,7 @@ where
             "protocolVersion": 2,
             "desktopId": desktop_id,
             "mode": "team",
-            "capabilities": PHONE_CAPABILITIES,
+            "capabilities": Seat::for_phone(&phone).capabilities(),
         }).to_string())) => result?,
     }
     seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
@@ -1185,6 +1205,8 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `threads`: the `{"thread": "<key>"}` subscription, to read two
 /// teammates' conversation. `personaEdit`: `mobile.persona_update` and
 /// `persona.delete`, renaming, re-aiming and removing a teammate.
+/// `personaAccess`, sent to the owner phone only: `mobile.persona_access`,
+/// a teammate's reach or mode and its background work.
 pub(crate) const PHONE_CAPABILITIES: &[&str] =
     &["personaCreate", "personaEdit", "schedules", "threads"];
 

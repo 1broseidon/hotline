@@ -2115,6 +2115,24 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         goal: Option<String>,
     },
+    /// The owner phone's access controls for a teammate: how far a Hotline
+    /// Agent teammate reaches, which mode a harness teammate runs in (for
+    /// some harnesses the mode is the permission posture), and whether it
+    /// may keep its own background work. Owner seat only; a companion phone
+    /// is refused. An absent field is left as it is. Reach and background
+    /// work restart a live session the way `persona.update` does; a mode
+    /// switches live when the teammate is running and is kept for its next
+    /// start either way.
+    #[serde(rename = "mobile.persona_access")]
+    MobilePersonaAccess {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reach: Option<Reach>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        background_work: Option<bool>,
+    },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is

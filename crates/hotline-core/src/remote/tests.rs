@@ -651,10 +651,17 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     let token = grant["token"].as_str().unwrap();
     let mut phone = h.socket(token).await.unwrap();
     // The hello is how a phone knows it may ask; a desk from before this
-    // list names nothing, and the phone then shows no schedules section.
+    // list names nothing, and the phone then shows no schedules section. A
+    // grant from before roles is the owner's, which also changes access.
     assert_eq!(
         read(&mut phone).await["capabilities"],
-        json!(["personaCreate", "personaEdit", "schedules", "threads"])
+        json!([
+            "personaCreate",
+            "personaEdit",
+            "schedules",
+            "threads",
+            "personaAccess"
+        ])
     );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;

@@ -1554,11 +1554,11 @@ fn send(sender: &Outbox, frame: Value) -> bool {
 /// One roster row, joined out of the room stream, the tape's tail and the
 /// live session.
 fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract::Persona) -> Value {
-    let preview: Option<Preview> = previews::preview(log.root(), &persona.id)
-        .and_then(|preview| serde_json::from_value(preview).ok());
+    let tail = previews::tail(log.root(), &persona.id);
+    let preview: Option<Preview> =
+        previews::preview_from_tail(&tail).and_then(|preview| serde_json::from_value(preview).ok());
     let latest = preview.as_ref().map(|preview| preview.at);
     let session = room.info(&persona.id);
-    let tail = previews::tail(log.root(), &persona.id);
     json!(RosterEntry {
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),

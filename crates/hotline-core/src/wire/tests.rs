@@ -76,6 +76,7 @@ struct Quiet {
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
     states: Mutex<HashMap<String, SessionInfo>>,
+    info_reads: Mutex<Vec<String>>,
     reattaches: Mutex<Vec<String>>,
     invalidations: Mutex<Vec<String>>,
     computer_changes: Mutex<Vec<String>>,
@@ -90,6 +91,7 @@ impl Quiet {
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
             states: Mutex::new(HashMap::new()),
+            info_reads: Mutex::new(Vec::new()),
             reattaches: Mutex::new(Vec::new()),
             invalidations: Mutex::new(Vec::new()),
             computer_changes: Mutex::new(Vec::new()),
@@ -602,6 +604,7 @@ impl RoomHandle for Quiet {
     }
 
     fn info(&self, persona_id: &str) -> SessionInfo {
+        self.info_reads.lock().unwrap().push(persona_id.to_string());
         self.states
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1265,6 +1268,153 @@ async fn the_roster_recovers_a_session_update_lost_to_lag() {
             .unwrap();
         assert_eq!(row["session"]["state"], state);
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_roster_tape_burst_reads_each_dirty_teammate_once() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("roster-burst", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    let ids = [ada["id"].as_str().unwrap(), bob["id"].as_str().unwrap()];
+    ask(&mut socket, json!({ "id": 3, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    quiet.info_reads.lock().unwrap().clear();
+
+    // Overrun both tape receivers without letting their pumps or the view
+    // run. Only the final state matters, not the thousand nudges per row.
+    for n in 0..1000 {
+        for persona_id in ids {
+            log.append(
+                &StreamId::Tape(persona_id.to_string()),
+                &json!({
+                    "kind": "agent", "id": format!("a{n}"), "ts": n, "text": format!("line {n}")
+                }),
+            )
+            .unwrap();
+        }
+    }
+    for _ in 0..2 {
+        let frame = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            heard_where(&mut socket, |frame| frame["event"].is_object()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(frame["event"]["preview"]["text"], "line 999");
+        assert_eq!(frame["event"]["latest"], 999);
+    }
+    let mut reads = quiet.info_reads.lock().unwrap().clone();
+    reads.sort();
+    let mut expected = ids.map(str::to_string);
+    expected.sort();
+    assert_eq!(reads, expected);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_roster_session_burst_refreshes_each_teammate_once() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("roster-session-burst", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    let ids = [ada["id"].as_str().unwrap(), bob["id"].as_str().unwrap()];
+    ask(&mut socket, json!({ "id": 3, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    quiet.info_reads.lock().unwrap().clear();
+    for _ in 0..8 {
+        for id in ids {
+            quiet.set_info(thinking(id));
+        }
+    }
+    for _ in 0..2 {
+        let row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+        assert_eq!(row["event"]["session"]["state"], "thinking");
+    }
+    let mut reads = quiet.info_reads.lock().unwrap().clone();
+    reads.sort();
+    let mut expected = ids.map(str::to_string);
+    expected.sort();
+    assert_eq!(reads, expected);
+}
+
+#[tokio::test]
+async fn roster_updates_use_the_cached_persona_after_a_room_edit() {
+    let quiet = Arc::new(Quiet::new());
+    let (root, log, port) = door_with("roster-cached-persona", quiet.clone());
+    let mut socket = desk(port).await;
+    let mut ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap().to_string();
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    ada["kind"] = json!("persona");
+    ada["name"] = json!("Ada updated");
+    log.append(&StreamId::Room, &ada).unwrap();
+    let updated = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(updated["event"]["persona"]["name"], "Ada updated");
+
+    // Make another room read impossible; a session hint should need only
+    // the retained persona and the tape tail, not the room file again.
+    std::fs::rename(root.join("room.jsonl"), root.join("room.saved")).unwrap();
+    quiet.set_info(thinking(&id));
+    let row = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        heard_where(&mut socket, |frame| frame["event"].is_object()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(row["event"]["persona"]["name"], "Ada updated");
+    assert_eq!(row["event"]["session"]["state"], "thinking");
+    std::fs::rename(root.join("room.saved"), root.join("room.jsonl")).unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn room_lag_rebuilds_cached_personas_and_late_hints_cannot_restore_a_deletion() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, log, port) = door_with("roster-room-lag", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let mut bob = create(&mut socket, 2, "Bob").await;
+    let ada_id = ada["id"].as_str().unwrap();
+    let bob_id = bob["id"].as_str().unwrap().to_string();
+    ask(&mut socket, json!({ "id": 3, "sub": { "view": "roster" } })).await;
+    heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    bob["kind"] = json!("persona");
+    bob["name"] = json!("Bob updated");
+    log.append(&StreamId::Room, &bob).unwrap();
+    log.append(
+        &StreamId::Room,
+        &json!({"kind": "persona", "id": ada_id, "deleted": true}),
+    )
+    .unwrap();
+    for n in 0..300 {
+        log.append(
+            &StreamId::Room,
+            &json!({"kind": "setting", "id": "noise", "value": n}),
+        )
+        .unwrap();
+    }
+    let recovered = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        heard_where(&mut socket, |frame| frame["snapshot"].is_array()),
+    )
+    .await
+    .unwrap();
+    let rows = recovered["snapshot"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["persona"]["name"], "Bob updated");
+    quiet.info_reads.lock().unwrap().clear();
+    quiet.set_info(thinking(ada_id));
+    log.append(
+        &StreamId::Tape(ada_id.to_string()),
+        &json!({"kind": "agent", "id": "late", "text": "late", "ts": 1}),
+    )
+    .unwrap();
+    quiet.set_info(thinking(&bob_id));
+    let row = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(row["event"]["persona"]["id"], bob_id);
+    assert_eq!(*quiet.info_reads.lock().unwrap(), [bob_id]);
 }
 
 #[tokio::test]

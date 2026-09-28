@@ -1,24 +1,40 @@
-//! The roster view: every living teammate with its last line, the tool
-//! still running, and its session, kept up to date.
-//!
-//! Nothing logs this. It is a join of three things that change on their own
-//! clocks — the room stream, each teammate's tape, the live sessions — and
-//! the window would otherwise have to make that join itself, from three
-//! subscriptions, on every keystroke an agent writes.
-//!
-//! A tape is watched by a pump of its own, because the log hands out one
-//! broadcast per stream and a roster is as many tapes as there are
-//! teammates. The pumps are stopped by the view ending: dropping its end of
-//! the channel they feed is what every one of them is waiting on.
+//! The roster view joins the cached room fold, each tape's tail and live
+//! session state. Tape pumps remember dirty teammate IDs rather than queueing
+//! one disk read for every event. A single wake covers the pending set.
 
 use super::{RoomHandle, roster_entry, send};
 use crate::contract::{Persona, SessionInfo};
 use crate::log::{Log, StreamId};
 use crate::room;
 use serde_json::{Value, json};
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
+
+/// One pending entry per teammate and at most one queued wake, regardless of
+/// how many events arrive before the view gets to read the current state.
+struct Dirty {
+    ids: Mutex<HashSet<String>>,
+    wake: mpsc::Sender<()>,
+}
+
+impl Dirty {
+    fn mark(&self, id: &str) -> bool {
+        self.ids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id.to_string());
+        match self.wake.try_send(()) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(())) => true,
+            Err(mpsc::error::TrySendError::Closed(())) => false,
+        }
+    }
+
+    fn take(&self) -> HashSet<String> {
+        std::mem::take(&mut *self.ids.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
 
 pub(super) async fn view(
     id: i64,
@@ -29,11 +45,14 @@ pub(super) async fn view(
     sender: super::Outbox,
 ) {
     let mut infos = Some(infos);
-    let (spoke, mut spoken) = mpsc::unbounded_channel::<String>();
-    let mut watched: HashSet<String> = HashSet::new();
-
-    let rows = snapshot(&log, &handle, &spoke, &mut watched);
-    if !send(&sender, json!({ "sub": id, "snapshot": rows })) {
+    let (wake, mut spoken) = mpsc::channel(1);
+    let dirty = Arc::new(Dirty {
+        ids: Mutex::default(),
+        wake,
+    });
+    let mut watched = HashMap::new();
+    let mut personas = refresh(&log, &dirty, &mut watched);
+    if !send_snapshot(id, &log, &handle, &sender, &personas) {
         return;
     }
 
@@ -50,153 +69,219 @@ pub(super) async fn view(
                     if event.get("kind").and_then(Value::as_str) != Some("persona") {
                         continue;
                     }
-                    let Some(persona_id) = event.get("id").and_then(Value::as_str) else {
+                    let Some(persona_id) = event.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
                         continue;
                     };
                     if event.get("deleted").and_then(Value::as_bool) == Some(true) {
+                        personas.retain(|persona| persona.id != persona_id);
+                        if let Some(pump) = watched.remove(persona_id) {
+                            pump.abort();
+                        }
                         if !send(&sender, json!({ "sub": id, "removed": persona_id })) {
                             return;
                         }
                         continue;
                     }
-                    let Ok(persona) = serde_json::from_value::<Persona>(event.clone()) else {
+                    let Ok(persona) = serde_json::from_value::<Persona>(event) else {
                         continue;
                     };
-                    watch(&log, &persona.id, &spoke, &mut watched);
-                    let row = roster_entry(&log, &handle, persona);
-                    if !send(&sender, json!({ "sub": id, "event": row })) {
-                        return;
+                    watch(&log, &persona.id, &dirty, &mut watched);
+                    dirty.mark(&persona.id);
+                    match personas.iter_mut().find(|current| current.id == persona.id) {
+                        Some(current) => *current = persona,
+                        None => personas.push(persona),
                     }
                 }
-                // Too far behind to say which teammates changed, so it says
-                // all of them: a client folding by id absorbs the second
-                // snapshot exactly as it absorbed the first.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    let rows = snapshot(&log, &handle, &spoke, &mut watched);
-                    if !send(&sender, json!({ "sub": id, "snapshot": rows })) {
+                    personas = refresh(&log, &dirty, &mut watched);
+                    dirty.take();
+                    if !send_snapshot(id, &log, &handle, &sender, &personas) {
                         return;
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => return,
             },
-            spoken = spoken.recv() => match spoken {
-                Some(persona_id) => {
-                    if !row_for(&log, &handle, &sender, id, &persona_id) {
-                        return;
-                    }
-                }
-                None => return,
-            },
             info = info => match info {
                 Ok(info) => {
-                    if !row_for(&log, &handle, &sender, id, &info.persona_id) {
-                        return;
+                    mark_session(&personas, &dirty, info);
+                    // Coalesce the queued session burst without preferring
+                    // this branch forever over tape or room updates.
+                    let mut lagged = false;
+                    if let Some(infos) = infos.as_mut() {
+                        for _ in 0..infos.len() {
+                            match infos.try_recv() {
+                                Ok(info) => mark_session(&personas, &dirty, info),
+                                Err(broadcast::error::TryRecvError::Lagged(_)) => lagged = true,
+                                Err(_) => break,
+                            }
+                        }
+                    }
+                    if lagged {
+                        dirty.take();
+                        if !send_snapshot(id, &log, &handle, &sender, &personas) {
+                            return;
+                        }
                     }
                 }
+                // Session notifications are hints, not the state. Every row
+                // must be refreshed when one may have lost its final hint.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    let rows = snapshot(&log, &handle, &spoke, &mut watched);
-                    if !send(&sender, json!({ "sub": id, "snapshot": rows })) {
+                    dirty.take();
+                    if !send_snapshot(id, &log, &handle, &sender, &personas) {
                         return;
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => infos = None,
             },
+            spoken = spoken.recv() => {
+                if spoken.is_none() {
+                    return;
+                }
+                for persona_id in dirty.take() {
+                    // A late session/tape hint cannot restore a deleted row.
+                    let Some(persona) = personas.iter().find(|persona| persona.id == persona_id) else {
+                        continue;
+                    };
+                    let row = roster_entry(&log, &handle, persona.clone());
+                    if !send(&sender, json!({ "sub": id, "event": row })) {
+                        return;
+                    }
+                }
+            },
         }
     }
 }
 
-/// Every living teammate's row, watching any tape not watched already.
-fn snapshot(
-    log: &Log,
-    handle: &Arc<dyn RoomHandle>,
-    spoke: &mpsc::UnboundedSender<String>,
-    watched: &mut HashSet<String>,
-) -> Vec<Value> {
-    room::roster(log)
-        .into_iter()
-        .map(|persona| {
-            watch(log, &persona.id, spoke, watched);
-            roster_entry(log, handle, persona)
-        })
-        .collect()
+fn mark_session(personas: &[Persona], dirty: &Dirty, info: SessionInfo) {
+    if personas.iter().any(|persona| persona.id == info.persona_id) {
+        dirty.mark(&info.persona_id);
+    }
 }
 
-/// One teammate's row again, or nothing at all for one the roster no longer
-/// holds — a session that reports itself after its teammate was deleted is
-/// not a row to put back.
-fn row_for(
+fn send_snapshot(
+    id: i64,
     log: &Log,
     handle: &Arc<dyn RoomHandle>,
     sender: &super::Outbox,
-    id: i64,
-    persona_id: &str,
+    personas: &[Persona],
 ) -> bool {
-    let Some(persona) = room::roster(log)
-        .into_iter()
-        .find(|persona| persona.id == persona_id)
-    else {
-        return true;
-    };
-    let row = roster_entry(log, handle, persona);
-    send(sender, json!({ "sub": id, "event": row }))
+    let rows: Vec<_> = personas
+        .iter()
+        .map(|persona| roster_entry(log, handle, persona.clone()))
+        .collect();
+    send(sender, json!({ "sub": id, "snapshot": rows }))
 }
 
-/// Forwards this teammate's id whenever the row would change: either side
-/// said something, a tool moved, a turn ended, or a card was asked or
-/// answered. Only the id: the preview
-/// and the activity are read from the tape when the row is rebuilt, so the
-/// event itself has nowhere to go.
+/// The room is read once on opening and again only after room-stream lag.
+fn refresh(
+    log: &Log,
+    dirty: &Arc<Dirty>,
+    watched: &mut HashMap<String, JoinHandle<()>>,
+) -> Vec<Persona> {
+    let personas = room::roster(log);
+    watched.retain(|id, pump| {
+        if personas.iter().any(|persona| persona.id == *id) {
+            true
+        } else {
+            pump.abort();
+            false
+        }
+    });
+    for persona in &personas {
+        watch(log, &persona.id, dirty, watched);
+    }
+    personas
+}
+
 fn watch(
     log: &Log,
     persona_id: &str,
-    spoke: &mpsc::UnboundedSender<String>,
-    watched: &mut HashSet<String>,
+    dirty: &Arc<Dirty>,
+    watched: &mut HashMap<String, JoinHandle<()>>,
 ) {
-    if !watched.insert(persona_id.to_string()) {
+    if watched.contains_key(persona_id) {
         return;
     }
     let mut events = log.subscribe(&StreamId::Tape(persona_id.to_string()));
-    let spoke = spoke.clone();
+    let dirty = dirty.clone();
     let persona_id = persona_id.to_string();
-    tokio::spawn(async move {
+    let watched_id = persona_id.clone();
+    let pump = tokio::spawn(async move {
         loop {
             tokio::select! {
-                // The view ended and dropped the channel. Nothing else stops
-                // a pump, and a silent tape must not keep one alive.
-                () = spoke.closed() => return,
-                event = events.recv() => match event {
-                    Ok(event) => {
-                        let kind = event.get("kind").and_then(Value::as_str);
-                        if !matches!(
-                            kind,
-                            Some(
-                                "user"
-                                    | "agent"
-                                    | "tool"
-                                    | "turn"
-                                    | "permission"
-                                    | "human_action"
-                                    | "passkey_ask"
-                                    | "exchange_paused"
-                                    | "delivery"
-                            )
-                        ) {
-                            continue;
-                        }
-                        if spoke.send(persona_id.clone()).is_err() {
-                            return;
+                // Dropping the view closes its receiver, including for tapes
+                // that remain silent forever. No detached pump outlives it.
+                () = dirty.wake.closed() => return,
+                event = events.recv() => {
+                    let mut changed = match event {
+                        Ok(event) => changes_row(&event),
+                        Err(broadcast::error::RecvError::Lagged(_)) => true,
+                        Err(broadcast::error::RecvError::Closed) => return,
+                    };
+                    // Drain the burst already queued before waking the view.
+                    // Take a fixed budget so a busy producer cannot keep this
+                    // pump running forever without yielding to other tasks.
+                    for _ in 0..events.len() {
+                        match events.try_recv() {
+                            Ok(event) => changed |= changes_row(&event),
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => changed = true,
+                            Err(_) => break,
                         }
                     }
-                    // Whatever was missed, the preview is read from the tape
-                    // itself, so one nudge catches up on all of it.
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        if spoke.send(persona_id.clone()).is_err() {
-                            return;
-                        }
+                    if changed && !dirty.mark(&persona_id) {
+                        return;
                     }
-                    Err(broadcast::error::RecvError::Closed) => return,
                 },
             }
         }
     });
+    watched.insert(watched_id, pump);
+}
+
+fn changes_row(event: &Value) -> bool {
+    matches!(
+        event.get("kind").and_then(Value::as_str),
+        Some(
+            "user"
+                | "agent"
+                | "tool"
+                | "turn"
+                | "permission"
+                | "human_action"
+                | "passkey_ask"
+                | "exchange_paused"
+                | "delivery"
+        )
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_burst_keeps_one_dirty_id_per_teammate_and_one_wake() {
+        let (wake, mut receiver) = mpsc::channel(1);
+        let dirty = Dirty {
+            ids: Mutex::default(),
+            wake,
+        };
+        for _ in 0..10_000 {
+            assert!(dirty.mark("ada"));
+            assert!(dirty.mark("bob"));
+        }
+        assert_eq!(receiver.len(), 1);
+        receiver.try_recv().unwrap();
+        assert_eq!(dirty.take(), HashSet::from(["ada".into(), "bob".into()]));
+        assert!(dirty.take().is_empty());
+        assert!(dirty.mark("ada"));
+        // A lag snapshot can clear the IDs while their wake is still queued.
+        assert_eq!(dirty.take(), HashSet::from(["ada".into()]));
+        assert!(dirty.mark("bob"));
+        assert_eq!(receiver.len(), 1);
+        receiver.try_recv().unwrap();
+        assert_eq!(dirty.take(), HashSet::from(["bob".into()]));
+        drop(receiver);
+        assert!(!dirty.mark("bob"));
+    }
 }

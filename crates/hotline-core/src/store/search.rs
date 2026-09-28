@@ -24,7 +24,7 @@ use crate::log::{Log, StreamId, open_epoch};
 use crate::paths::{index_path, transcript_path, transcript_segment_path};
 use crate::store::chapters::{chapters_of, open_chapter, slice_of};
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{Connection, OpenFlags, Row};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::fs;
@@ -274,11 +274,13 @@ pub fn search_all(root: &Path, query: &str, limit: Option<i64>) -> Value {
 
 /// The index's schema, and the only copy of it.
 ///
-/// Word for word `open` in `src/bun/store/search.ts`, tabs included, because
-/// SQLite stores a table's `CREATE` text verbatim and a build that spelled it
-/// differently would leave two shapes of the same file behind. Neither process
-/// migrates this file: a schema change is a new statement here and a rebuild.
-const SCHEMA: [&str; 5] = [
+/// Message identity lives in a B-tree; FTS rowids point to that identity.
+/// An older cache without identities is rebuilt from the tapes by its writer.
+const SCHEMA: [&str; 6] = [
+    "CREATE TABLE IF NOT EXISTS message_ids (
+        id INTEGER PRIMARY KEY, persona_id TEXT NOT NULL, event_id TEXT NOT NULL,
+        UNIQUE(persona_id, event_id)
+    )",
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages USING fts5(
 		persona_id UNINDEXED, event_id UNINDEXED, chapter_id UNINDEXED, kind UNINDEXED, ts UNINDEXED, text,
 		tokenize = 'porter unicode61'
@@ -355,9 +357,24 @@ fn index_message(
     if text.is_empty() {
         return Ok(());
     }
+    let row_id = database
+        .query_row(
+            "INSERT INTO message_ids (persona_id, event_id) VALUES (?, ?)
+             ON CONFLICT(persona_id, event_id) DO NOTHING RETURNING id",
+            rusqlite::params![
+                persona_id,
+                event.get("id").and_then(Value::as_str).unwrap_or_default()
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    let Some(row_id) = row_id else {
+        return Ok(());
+    };
     database.execute(
-        "INSERT INTO messages (persona_id, event_id, chapter_id, kind, ts, text) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO messages (rowid, persona_id, event_id, chapter_id, kind, ts, text) VALUES (?, ?, ?, ?, ?, ?, ?)",
         rusqlite::params![
+            row_id,
             persona_id,
             event.get("id").and_then(Value::as_str).unwrap_or_default(),
             chapter_id,
@@ -418,6 +435,49 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
+/// Rebuild inside the caller's transaction, including schema upgrades.
+fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Result<Option<String>> {
+    let events = log.load(&StreamId::Tape(persona_id.to_string()));
+    for table in [
+        "messages",
+        "message_ids",
+        "chapters",
+        "chapters_fts",
+        "index_state",
+    ] {
+        database.execute(
+            &format!("DELETE FROM {table} WHERE persona_id = ?"),
+            [persona_id],
+        )?;
+    }
+    let chapters = chapters_of(&events);
+    for chapter in &chapters {
+        index_chapter(database, persona_id, chapter)?;
+    }
+    // Messages before the first marker belong to no chapter.
+    let unchaptered = match events
+        .iter()
+        .position(|event| event.get("kind").and_then(Value::as_str) == Some("chapter"))
+    {
+        Some(first) => &events[..first],
+        None => &events[..],
+    };
+    for event in unchaptered {
+        index_message(database, persona_id, None, event)?;
+    }
+    for chapter in &chapters {
+        let id = chapter.get("id").and_then(Value::as_str);
+        for event in slice_of(&events, chapter) {
+            index_message(database, persona_id, id, event)?;
+        }
+    }
+    stamp(database, log.root(), persona_id)?;
+    Ok(open_chapter(&events)
+        .and_then(|chapter| chapter.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string))
+}
+
 /// The one connection that may create this file, migrate it and write to it.
 ///
 /// It holds the open chapter per teammate so that indexing an event does not
@@ -442,16 +502,38 @@ impl Indexer {
         // A directory that cannot be made is a file that cannot be opened, and
         // the open below is the one that says so properly.
         let _ = fs::create_dir_all(log.root());
-        let database = Connection::open(index_path(log.root()))?;
+        let mut database = Connection::open(index_path(log.root()))?;
         // The room holds one writer on this file. Import opens a second, and
         // a teammate mid-turn would otherwise fail the whole import with
         // "database is locked". Waiting out one checkpoint beats that; the
         // read-only question path already waits the same five seconds.
         database.busy_timeout(Duration::from_secs(5))?;
         database.pragma_update(None, "journal_mode", "WAL")?;
+        let transaction = database.transaction()?;
+        let has_identities: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'message_ids')",
+            [],
+            |row| row.get(0),
+        )?;
         for statement in SCHEMA {
-            database.execute(statement, [])?;
+            transaction.execute(statement, [])?;
         }
+        if !has_identities {
+            // Stamps from the old schema cannot certify the new one. Rebuild
+            // all known tapes in this transaction, so readers see either the
+            // old cache or the complete replacement, never a partial upgrade.
+            let personas = transaction
+                .prepare("SELECT persona_id FROM index_state UNION SELECT persona_id FROM messages UNION SELECT persona_id FROM chapters")?
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for table in ["messages", "chapters", "chapters_fts", "index_state"] {
+                transaction.execute(&format!("DELETE FROM {table}"), [])?;
+            }
+            for persona_id in personas {
+                rebuild(&transaction, log, &persona_id)?;
+            }
+        }
+        transaction.commit()?;
         Ok(Self {
             log: log.clone(),
             database,
@@ -494,62 +576,18 @@ impl Indexer {
                 .map(str::to_string);
             self.open_chapters.insert(persona_id.to_string(), open);
         }
-        let seen = self
-            .database
-            .query_one(
-                "SELECT 1 FROM messages WHERE persona_id = ? AND event_id = ? LIMIT 1",
-                rusqlite::params![
-                    persona_id,
-                    event.get("id").and_then(Value::as_str).unwrap_or_default()
-                ],
-                |row| row.get::<_, i64>(0),
-            )
-            .is_ok();
-        if seen {
-            return Ok(());
-        }
         let chapter_id = self.open_chapters.get(persona_id).cloned().flatten();
-        index_message(&self.database, persona_id, chapter_id.as_deref(), event)?;
-        stamp(&self.database, self.log.root(), persona_id)
+        let transaction = self.database.transaction()?;
+        index_message(&transaction, persona_id, chapter_id.as_deref(), event)?;
+        stamp(&transaction, self.log.root(), persona_id)?;
+        transaction.commit()
     }
 
     /// Throws the teammate's rows away and re-reads the tape.
     pub fn reindex(&mut self, persona_id: &str) -> rusqlite::Result<()> {
-        let events = self.tape(persona_id);
         let transaction = self.database.transaction()?;
-        for table in ["messages", "chapters", "chapters_fts"] {
-            transaction.execute(
-                &format!("DELETE FROM {table} WHERE persona_id = ?"),
-                [persona_id],
-            )?;
-        }
-        let chapters = chapters_of(&events);
-        for chapter in &chapters {
-            index_chapter(&transaction, persona_id, chapter)?;
-        }
-        // Messages before the first marker belong to no chapter.
-        let unchaptered = match events
-            .iter()
-            .position(|event| event.get("kind").and_then(Value::as_str) == Some("chapter"))
-        {
-            Some(first) => &events[..first],
-            None => &events[..],
-        };
-        for event in unchaptered {
-            index_message(&transaction, persona_id, None, event)?;
-        }
-        for chapter in &chapters {
-            let id = chapter.get("id").and_then(Value::as_str);
-            for event in slice_of(&events, chapter) {
-                index_message(&transaction, persona_id, id, event)?;
-            }
-        }
-        stamp(&transaction, self.log.root(), persona_id)?;
+        let open = rebuild(&transaction, &self.log, persona_id)?;
         transaction.commit()?;
-        let open = open_chapter(&events)
-            .and_then(|chapter| chapter.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
         self.open_chapters.insert(persona_id.to_string(), open);
         Ok(())
     }
@@ -557,12 +595,20 @@ impl Indexer {
     /// Forgets a teammate entirely — the rows and the stamp that would stop
     /// them being rebuilt.
     pub fn forget(&mut self, persona_id: &str) -> rusqlite::Result<()> {
-        for table in ["messages", "chapters", "chapters_fts", "index_state"] {
-            self.database.execute(
+        let transaction = self.database.transaction()?;
+        for table in [
+            "messages",
+            "message_ids",
+            "chapters",
+            "chapters_fts",
+            "index_state",
+        ] {
+            transaction.execute(
                 &format!("DELETE FROM {table} WHERE persona_id = ?"),
                 [persona_id],
             )?;
         }
+        transaction.commit()?;
         self.open_chapters.remove(persona_id);
         Ok(())
     }
@@ -628,12 +674,17 @@ pub(crate) mod fixture {
     }
 
     pub fn message(database: &Connection, persona_id: &str, id: &str, kind: &str, text: &str) {
-        database
-            .execute(
-                "INSERT INTO messages (persona_id, event_id, chapter_id, kind, ts, text) VALUES (?, ?, NULL, ?, 1, ?)",
-                [persona_id, id, kind, text],
-            )
-            .unwrap();
+        let transaction = database.unchecked_transaction().unwrap();
+        super::index_message(
+            &transaction,
+            persona_id,
+            None,
+            &serde_json::json!({
+                "id": id, "kind": kind, "text": text, "ts": 1
+            }),
+        )
+        .unwrap();
+        transaction.commit().unwrap();
     }
 
     pub fn chapter(database: &Connection, persona_id: &str, id: &str, title: &str, note: &str) {
@@ -939,6 +990,70 @@ mod tests {
     }
 
     #[test]
+    fn identities_are_unique_per_teammate_and_share_the_fts_rowid() {
+        let (_root, _log, mut indexer) = indexer("identity-rowid");
+        let event = message_event("same-id", 1, "user", "harbour");
+        for persona in ["ada", "bob", "ada"] {
+            indexer.index_event(persona, &event).unwrap();
+        }
+        assert_eq!(rows_of(&indexer.database,
+            "SELECT i.persona_id, i.event_id FROM message_ids i JOIN messages m ON m.rowid = i.id
+             WHERE i.persona_id = m.persona_id AND i.event_id = m.event_id ORDER BY i.persona_id"),
+            [vec![text("ada"), text("same-id")], vec![text("bob"), text("same-id")]]);
+        let plan: String = indexer.database.query_row(
+            "EXPLAIN QUERY PLAN SELECT id FROM message_ids WHERE persona_id = ? AND event_id = ?",
+            ["ada", "same-id"], |row| row.get(3)).unwrap();
+        assert!(
+            plan.contains("SEARCH") && plan.contains("COVERING INDEX"),
+            "{plan}"
+        );
+    }
+
+    #[test]
+    fn a_failed_fts_write_does_not_claim_the_message_identity() {
+        let (_root, _log, mut indexer) = indexer("identity-rollback");
+        indexer.database.execute("DROP TABLE messages", []).unwrap();
+        let event = message_event("m1", 1, "user", "harbour");
+        assert!(indexer.index_event("ada", &event).is_err());
+        assert!(rows_of(&indexer.database, "SELECT id FROM message_ids").is_empty());
+        indexer.database.execute(SCHEMA[1], []).unwrap();
+        indexer.index_event("ada", &event).unwrap();
+        assert_eq!(messages(&indexer.database).len(), 1);
+    }
+
+    #[test]
+    fn an_old_index_is_rebuilt_even_when_its_stamp_matches_the_tape() {
+        let root = tempfile::tempdir().unwrap();
+        let log = Log::open(root.path());
+        let event = message_event("m1", 1, "user", "harbour");
+        tape(&log, "ada", std::slice::from_ref(&event));
+        let database = Connection::open(index_path(root.path())).unwrap();
+        for statement in &SCHEMA[1..] {
+            database.execute(statement, []).unwrap();
+        }
+        database
+            .execute(
+                "INSERT INTO messages (persona_id, event_id, kind, ts, text)
+            VALUES ('ada', 'ghost', 'user', 1, 'obsolete')",
+                [],
+            )
+            .unwrap();
+        stamp(&database, root.path(), "ada").unwrap();
+        drop(database);
+
+        let mut indexer = Indexer::open(&log).unwrap();
+        assert_eq!(messages(&indexer.database)[0][1], text("m1"));
+        assert_eq!(messages(&indexer.database).len(), 1);
+        indexer.index_event("ada", &event).unwrap();
+        assert_eq!(messages(&indexer.database).len(), 1);
+        drop(indexer);
+        let indexer = Indexer::open(&log).unwrap();
+        assert_eq!(messages(&indexer.database).len(), 1);
+        assert_eq!(ids(&search(root.path(), "ada", "harbour", None)), ["m1"]);
+        assert!(hits(&search(root.path(), "ada", "obsolete", None)).is_empty());
+    }
+
+    #[test]
     fn closing_a_chapter_updates_its_row_rather_than_adding_a_second_one() {
         let (_root, log, mut indexer) = indexer("write-chapter");
         let events = [
@@ -1075,7 +1190,7 @@ mod tests {
     /// build has to answer them the same way, so the quirk is pinned rather
     /// than fixed.
     #[test]
-    fn an_index_this_writes_is_the_one_the_main_writes() {
+    fn the_identity_index_preserves_the_previous_message_and_chapter_semantics() {
         let (_root, log, mut indexer) = indexer("pin");
         let events = [
             chapter_event("c1", 100, false),
@@ -1105,6 +1220,7 @@ mod tests {
                 ["table", "chapters_fts_idx"],
                 ["index", "chapters_persona"],
                 ["table", "index_state"],
+                ["table", "message_ids"],
                 ["table", "messages"],
                 ["table", "messages_config"],
                 ["table", "messages_content"],
@@ -1113,6 +1229,7 @@ mod tests {
                 ["table", "messages_idx"],
                 ["index", "sqlite_autoindex_chapters_1"],
                 ["index", "sqlite_autoindex_index_state_1"],
+                ["index", "sqlite_autoindex_message_ids_1"],
             ]
             .map(|row| row.map(text).to_vec())
         );

@@ -1085,20 +1085,57 @@
 	 * so it never sits on the words it answers. */
 	/* Hangs off the bubble's own top-right corner, so a short line's Reply
 	 * sits by the line and not at the far side of the column. */
-	.reply-affordance {
+	/* A bubble's actions — react, reply, copy — beside it on its open side,
+	 * level with its top, shown to a hovering pointer or a focused bubble.
+	 * The desktop's long press. Not selectable, so a drag across the bubble
+	 * copies words and never glyphs. */
+	.bubble-actions {
 		position: absolute;
-		right: 0;
-		top: -18px;
+		/* Centred on a line or two; on a long reply it stays by the top,
+		 * where reading starts, rather than drifting down as the text grows. */
+		top: min(calc(50% - 14px), 12px);
+		left: calc(100% + 4px);
 		z-index: 1;
+		display: inline-flex;
+		gap: 1px;
+		padding: 2px;
+		border-radius: var(--radius-chip);
+		background: var(--pop);
+		box-shadow: var(--top-light), var(--shadow-float);
+		white-space: nowrap;
+		user-select: none;
 		opacity: 0;
 		pointer-events: none;
-		box-shadow: var(--top-light), var(--shadow-float);
 		transition: opacity var(--dur-press) var(--ease-out);
 	}
-	.said-group:hover .reply-affordance,
-	.said-group:focus-within .reply-affordance {
+	.said-me .bubble-actions {
+		left: auto;
+		right: calc(100% + 4px);
+	}
+	.said-group:hover .bubble-actions,
+	.said-group:focus-within .bubble-actions {
 		opacity: 1;
 		pointer-events: auto;
+	}
+	.bubble-action {
+		display: inline-flex;
+		width: 24px;
+		height: 24px;
+		align-items: center;
+		justify-content: center;
+		border-radius: calc(var(--radius-chip) - 2px);
+		color: var(--ink-2);
+	}
+	.bubble-action:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.bubble-action:active {
+		background: var(--fill-active);
+	}
+	.bubble-emoji {
+		font-size: 15px;
+		line-height: 1;
 	}
 
 	/* The machinery between messages, folded to one quiet caption: a count

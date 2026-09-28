@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { setNativeTheme } from "./native";
 
 /**
  * Which palette the window draws in: the system's, or one the person picked
@@ -33,9 +34,15 @@ function apply() {
 	document.documentElement.dataset.theme = light ? "light" : "dark";
 }
 
+/** The window's own chrome follows the choice too, or the system's on System. */
+function pinChrome() {
+	void setNativeTheme(current === "system" ? null : current);
+}
+
 /** Draws the stored choice. Called once, before the first render, so the window never flashes the other palette. */
 export function startTheme() {
 	apply();
+	pinChrome();
 	SYSTEM_LIGHT.addEventListener("change", () => {
 		if (current === "system") apply();
 	});
@@ -53,6 +60,7 @@ export function setTheme(theme: Theme) {
 	if (theme === "system") localStorage.removeItem(KEY);
 	else localStorage.setItem(KEY, theme);
 	apply();
+	pinChrome();
 	for (const listener of listeners) listener();
 }
 

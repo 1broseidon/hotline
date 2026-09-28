@@ -6,6 +6,7 @@
  * there.
  */
 
+import { setTheme as setAppTheme } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
@@ -130,6 +131,19 @@ export async function setBadge(count: number): Promise<void> {
 		await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
 	} catch {
 		// A browser tab has no dock.
+	}
+}
+
+/**
+ * The theme the shell draws the windows' own chrome in (the title bar, the
+ * frame, native menus), so it matches the palette picked in Settings. Null
+ * hands it back to the system.
+ */
+export async function setNativeTheme(theme: "light" | "dark" | null): Promise<void> {
+	try {
+		await setAppTheme(theme);
+	} catch {
+		// A browser tab has no chrome of its own.
 	}
 }
 

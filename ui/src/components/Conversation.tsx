@@ -17,7 +17,7 @@ import { Search } from "./Search";
 import { Starters } from "./Starters";
 import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
-import { Transcript, turnCauseLine, type ReplyTarget } from "./Transcript";
+import { Transcript, turnCauseLine, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -191,7 +191,29 @@ export function Conversation({
 
 	const running = session.state === "ready" || session.state === "thinking" || session.state === "starting";
 	const screen = useComputerViewer(personaId, persona.computer?.enabled ?? false);
-	const openScreen = screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen);
+	const openScreen = useMemo(
+		() => (screen === undefined ? undefined : () => void openComputer(personaId, persona.name, screen)),
+		[screen, personaId, persona.name],
+	);
+	// Stable across renders, so the transcript's rows can skip a render while a reply streams.
+	const retryMessage = useCallback(
+		(message: Extract<TranscriptEvent, { kind: "user" }>) => {
+			setRefill({ text: message.text, attachments: message.attachments ?? [], nonce: Date.now() });
+			const original = events.find((event) => event.id === message.replyTo);
+			setReplying(message.replyTo ? { eventId: message.replyTo, text: original && "text" in original ? original.text : "Earlier message" } : null);
+		},
+		[events],
+	);
+	const openThreadOf = useCallback(
+		(event: ThreadRef) =>
+			onOpenThread({
+				key: event.threadKey,
+				withName: event.withName,
+				...(event.handoff !== undefined ? { handoff: event.handoff } : {}),
+			}),
+		[onOpenThread],
+	);
+	const openSubagentOf = useCallback((event: SubagentEvent) => onOpenSubagent({ runId: event.runId, title: event.title }), [onOpenSubagent]);
 	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
@@ -334,20 +356,10 @@ export function Conversation({
 					live={session.state === "thinking"}
 					focus={focus}
 					onReply={setReplying}
-					{...(!draftHasContent ? { onRetryMessage: (message: Extract<TranscriptEvent, { kind: "user" }>) => {
-						setRefill({ text: message.text, attachments: message.attachments ?? [], nonce: Date.now() });
-						const original = events.find((event) => event.id === message.replyTo);
-						setReplying(message.replyTo ? { eventId: message.replyTo, text: original && "text" in original ? original.text : "Earlier message" } : null);
-					} } : {})}
+					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
-					onOpenThread={(event) =>
-						onOpenThread({
-							key: event.threadKey,
-							withName: event.withName,
-							...(event.handoff !== undefined ? { handoff: event.handoff } : {}),
-						})
-					}
-					onOpenSubagent={(event) => onOpenSubagent({ runId: event.runId, title: event.title })}
+					onOpenThread={openThreadOf}
+					onOpenSubagent={openSubagentOf}
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 				/>

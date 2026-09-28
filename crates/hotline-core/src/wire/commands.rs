@@ -93,6 +93,12 @@ pub(crate) async fn run(
             let patch = mobile_persona_patch(name, goal)?;
             apply_persona_update(log, room, &id, &patch).await
         }
+        Command::MobilePersonaAccess {
+            id,
+            reach,
+            mode_id,
+            background_work,
+        } => mobile_persona_access(log, room, &id, reach, mode_id, background_work).await,
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => apply_persona_update(log, room, &id, &patch).await,
         Command::PersonaDelete { id } => {
@@ -269,8 +275,7 @@ pub(crate) async fn run(
         Command::SessionSetMode {
             persona_id,
             mode_id,
-        } => room
-            .set_mode(&persona_id, &mode_id)
+        } => set_mode(log, room, &persona_id, &mode_id)
             .await
             .map(|info| json!(info)),
         Command::SessionSetConfig {
@@ -646,6 +651,78 @@ fn mobile_persona_patch(name: Option<String>, goal: Option<String>) -> Result<Va
         return Err("Nothing to change: name a new name or goal.".to_string());
     }
     Ok(Value::Object(patch))
+}
+
+/// `mobile.persona_access`: the owner phone's access controls. Reach is
+/// Hotline Agent's and a mode a harness's, so each is refused for the other
+/// kind of teammate rather than stored where nothing reads it.
+async fn mobile_persona_access(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    id: &str,
+    reach: Option<Reach>,
+    mode_id: Option<String>,
+    background_work: Option<bool>,
+) -> Result<Value, String> {
+    let persona = living(log, id)?;
+    let hotline = persona.backend_id == HOTLINE_BACKEND_ID;
+    if reach.is_none() && mode_id.is_none() && background_work.is_none() {
+        return Err("Nothing to change: name a reach, a mode or background work.".to_string());
+    }
+    if reach.is_some() && !hotline {
+        return Err(
+            "Only a Hotline Agent teammate has a reach; a harness's access is its mode."
+                .to_string(),
+        );
+    }
+    if mode_id.is_some() && hotline {
+        return Err("A Hotline Agent teammate has no mode; its access is its reach.".to_string());
+    }
+    let mut patch = Map::new();
+    if let Some(reach) = reach {
+        patch.insert("reach".into(), json!(reach));
+    }
+    if let Some(background_work) = background_work {
+        patch.insert("backgroundWork".into(), json!(background_work));
+    }
+    if !patch.is_empty() {
+        apply_persona_update(log, room, id, &Value::Object(patch)).await?;
+    }
+    if let Some(mode_id) = mode_id {
+        set_mode(log, room, id, &mode_id).await?;
+    }
+    living(log, id).map(|persona| json!(persona))
+}
+
+/// Switches a harness teammate's mode and keeps it, so the teammate comes
+/// back in it after a restart. A resting teammate advertises no modes, so its
+/// choice is kept unchecked and offered to the harness at its next start,
+/// which refuses one it does not have.
+async fn set_mode(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona_id: &str,
+    mode_id: &str,
+) -> Result<SessionInfo, String> {
+    living(log, persona_id)?;
+    if mode_id.trim().is_empty() {
+        return Err("A mode needs an id.".to_string());
+    }
+    let offered = room.info(persona_id);
+    let info = if offered.modes.is_empty() {
+        offered
+    } else {
+        if !offered.modes.iter().any(|mode| mode.id == mode_id) {
+            return Err(format!("{mode_id} is not a mode this teammate offers."));
+        }
+        room.set_mode(persona_id, mode_id).await?
+    };
+    let gate = room.policy_update_lock();
+    let _held = gate.lock().await;
+    if living(log, persona_id)?.mode_id.as_deref() != Some(mode_id) {
+        update_persona(log, room, persona_id, &json!({ "modeId": mode_id }))?;
+    }
+    Ok(info)
 }
 
 /// `persona.update` and `mobile.persona_update` both land here, under the

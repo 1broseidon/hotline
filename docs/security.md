@@ -618,6 +618,40 @@ made it so.
   interface; no unsupported terminal parser or alternate token path is used.
 
 
+## The owner phone changes a teammate's access (BRO-140, part)
+
+- **Default and old records:** nothing new is stored. `mobile.persona_access`
+  writes the same `reach`, `backgroundWork` and `modeId` fields the desk
+  writes, through the same persona record. `session.set_mode` now also keeps
+  the chosen `modeId`, so a harness teammate comes back in it after a restart
+  instead of on the harness default.
+- **Grant source:** `Seat::permits` (`wire/mod.rs`) lets `Seat::Owner`, and
+  not `Seat::Phone`, send `Command::MobilePersonaAccess` (`Seat::owner_only`).
+  The command has fields for a reach, a mode and background work and nowhere
+  to carry a path, a server, a skill or a computer; `persona.update` and
+  `session.set_mode` stay desk-seat only for both phone roles. The owner's
+  hello adds `personaAccess`; a companion's does not.
+- **Enforcement:** `wire/commands.rs` `mobile_persona_access` refuses a reach
+  for a harness teammate and a mode for a Hotline Agent teammate, and an
+  empty change. Reach and background work go through `apply_persona_update`
+  under the policy gate, so a live session is invalidated and reattached and
+  its tool handles are revoked exactly as from the desk. A mode is checked
+  against the modes a running teammate advertises and switched live; a
+  resting teammate's choice is kept and offered to the harness at its next
+  start, which refuses one it does not have.
+- **Tests:** `wire/tests.rs` `only_the_owner_phone_changes_a_teammates_access`
+  proves the owner/companion split, that neither phone seat gains
+  `persona.update` or `session.set_mode`, and the hello difference;
+  `mobile_persona_access_sets_reach_mode_and_background_work` proves the
+  writes and every refusal. `remote/tests.rs`
+  `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away`
+  proves an owner grant's hello over a real phone socket.
+- **Residual risk:** an owner phone can now give a Hotline Agent teammate the
+  whole machine, or put a harness in its most permissive mode (for example
+  Claude's `bypassPermissions`), from anywhere the phone reaches the desk.
+  That is the owner's call by design; the phone explains each choice before
+  it is made, and a companion phone cannot make it.
+
 ## Sealed served connections and explicit pairing (BRO-114)
 
 - **Default and grant source:** desktop Remote remains opt-in with existing

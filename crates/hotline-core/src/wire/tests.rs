@@ -8,7 +8,7 @@
 use super::*;
 use crate::contract::{
     ChapterClose, ConfigChoice, Credential, CredentialKind, LoginPrompt, LoginStatus, Persona,
-    PersonaDraft, SessionCapabilities, SessionState,
+    PersonaDraft, Reach, SessionCapabilities, SessionState,
 };
 use crate::driver::Driver;
 use crate::mcp::server::TeammateTools;
@@ -1561,6 +1561,108 @@ fn the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one() {
         id: "ada".to_string(),
         patch: json!({ "name": "Ada Lovelace" }),
     }));
+}
+
+/// A teammate's standing access is the owner phone's to change and never a
+/// companion's, and only through the narrow command.
+#[test]
+fn only_the_owner_phone_changes_a_teammates_access() {
+    let access = Command::MobilePersonaAccess {
+        id: "ada".to_string(),
+        reach: Some(Reach::Machine),
+        mode_id: None,
+        background_work: Some(true),
+    };
+    assert!(Seat::Owner.permits(&access));
+    assert!(!Seat::Phone.permits(&access));
+    for seat in [Seat::Owner, Seat::Phone] {
+        assert!(!seat.permits(&Command::PersonaUpdate {
+            id: "ada".to_string(),
+            patch: json!({ "reach": "machine" }),
+        }));
+        assert!(!seat.permits(&Command::SessionSetMode {
+            persona_id: "ada".to_string(),
+            mode_id: "bypassPermissions".to_string(),
+        }));
+    }
+    assert!(Seat::Owner.capabilities().contains(&"personaAccess"));
+    assert!(!Seat::Phone.capabilities().contains(&"personaAccess"));
+}
+
+/// Reach and background work are written for a Hotline Agent teammate, and
+/// a mode is refused for one; a harness teammate keeps a mode for its next
+/// start, and is refused a reach. Nothing to change is refused too.
+#[tokio::test]
+async fn mobile_persona_access_sets_reach_mode_and_background_work() {
+    let (_root, log, port) = door("mobile-access");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ask(
+        &mut socket,
+        json!({
+            "id": 2,
+            "cmd": "mobile.persona_access",
+            "params": { "id": ada, "reach": "machine", "backgroundWork": true },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 2).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["reach"], "machine");
+    assert_eq!(answer["result"]["backgroundWork"], true);
+
+    ask(
+        &mut socket,
+        json!({
+            "id": 3,
+            "cmd": "persona.create",
+            "params": { "draft": { "name": "Bea", "backendId": "claude-acp" } },
+        }),
+    )
+    .await;
+    let bea = answered(&mut socket, 3).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ask(
+        &mut socket,
+        json!({
+            "id": 4,
+            "cmd": "mobile.persona_access",
+            "params": { "id": bea, "modeId": "plan", "backgroundWork": true },
+        }),
+    )
+    .await;
+    let answer = answered(&mut socket, 4).await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["result"]["modeId"], "plan");
+    assert_eq!(answer["result"]["backgroundWork"], true);
+
+    for (n, params, needle) in [
+        (5, json!({ "id": ada, "modeId": "plan" }), "no mode"),
+        (6, json!({ "id": bea, "reach": "machine" }), "has a reach"),
+        (7, json!({ "id": ada }), "Nothing to change"),
+        (8, json!({ "id": bea, "modeId": " " }), "needs an id"),
+    ] {
+        ask(
+            &mut socket,
+            json!({ "id": n, "cmd": "mobile.persona_access", "params": params }),
+        )
+        .await;
+        let refused = answered(&mut socket, n).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(
+            refused["error"].as_str().unwrap().contains(needle),
+            "{refused}"
+        );
+    }
+    let kept = room::roster(&log);
+    let ada = kept.iter().find(|persona| persona.name == "Ada").unwrap();
+    assert_eq!(ada.reach, Some(Reach::Machine));
+    assert!(ada.mode_id.is_none());
 }
 
 /// The phone's edit writes a name and a goal and nothing else, whatever

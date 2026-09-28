@@ -1,5 +1,5 @@
 import { ErrorCard } from "./ErrorCard";
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type RefObject } from "react";
 import type {
 	Attachment,
 	DeliveryCause,
@@ -17,7 +17,8 @@ import { chordKeys } from "../chords";
 import { REST, step, type Bubble, type Cadence } from "../cadence";
 import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
-import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, ReplyIcon, WarningIcon } from "../icons";
+import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, WarningIcon } from "../icons";
+import { popupMessageMenu, writeClipboard } from "../native";
 import type { Streaming } from "../tape";
 import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "../activity";
 import { Glyph, LANDED_MS } from "../ui/Glyph";
@@ -35,6 +36,8 @@ const PIN_SLACK = 80;
 
 /** A message being answered: the id the wire stamps, the line the chip shows. */
 export type ReplyTarget = { eventId: string; text: string };
+/** A line to react to: its id, and all of what it said, for the quote the reaction carries. */
+export type ReactTarget = { eventId: string; text: string };
 
 /** Whose chair we are in, for a peer thread: this teammate is `mine`. */
 export type Speakers = { me: string; them: string; mine: "user" | "agent" };
@@ -76,6 +79,7 @@ export function Transcript({
 	focus,
 	speakers,
 	onReply,
+	onReact,
 	onRetryMessage,
 	onOpenThread,
 	onOpenSubagent,
@@ -94,6 +98,8 @@ export function Transcript({
 	/** A peer thread names both sides; the tape with the person does not. */
 	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
+	/** An emoji on a teammate's line, sent the way the phone sends one. */
+	onReact?(target: ReactTarget, emoji: string): void;
 	onRetryMessage?(message: Extract<TranscriptEvent, { kind: "user" }>): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
@@ -139,6 +145,7 @@ export function Transcript({
 		return lines;
 	}, [events]);
 	const answered = useMemo(() => superseded(events), [events]);
+	const reacted = useMemo(() => foldReactions(events), [events]);
 	const written = useMemo(() => toBlocks(events), [events]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
 
@@ -205,6 +212,7 @@ export function Transcript({
 				block.kind === "event" &&
 				(hidden.has(block.event.id) ||
 					answered.has(block.event.id) ||
+					reacted.lines.has(block.event.id) ||
 					(block.event.kind === "delivery" && block.event.cause.kind === "answer"))
 			),
 	);
@@ -265,7 +273,9 @@ export function Transcript({
 									bottom={run.bottom}
 									speakers={speakers}
 									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retryForNotice(events, block.event.id, onRetryMessage) } : {})}
+									reactions={reacted.on.get(block.event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
+									{...(onReact !== undefined ? { onReact } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenSubagent !== undefined ? { onOpenSubagent } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
@@ -572,7 +582,9 @@ const Row = memo(function Row({
 	top,
 	bottom,
 	speakers,
+	reactions,
 	onReply,
+	onReact,
 	onRetry,
 	onOpenThread,
 	onOpenSubagent,
@@ -588,14 +600,19 @@ const Row = memo(function Row({
 	top: boolean;
 	bottom: boolean;
 	speakers: Speakers | undefined;
+	/** Emoji the phone or this window sent as lines of their own, folded onto this one. */
+	reactions: string[] | undefined;
 	onRetry?: (() => void) | undefined;
 	onReply?(target: ReplyTarget): void;
+	onReact?(target: ReactTarget, emoji: string): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;
 }) {
 	const run: Run = { top, bottom };
+	const own = event.kind === "user" || event.kind === "agent" ? event.reactions : undefined;
+	const worn = reactions === undefined ? own : [...(own ?? []), ...reactions];
 	switch (event.kind) {
 		case "user":
 			return event.scheduled !== undefined ? (
@@ -603,7 +620,7 @@ const Row = memo(function Row({
 			) : speakers !== undefined ? (
 				<NamedSay name={speakers.mine === "user" ? speakers.me : speakers.them} mine={speakers.mine === "user"} text={event.text} />
 			) : (
-				<UserBubble event={event} quote={quote} run={run} onJump={onJump} />
+				<UserBubble event={event} quote={quote} run={run} reactions={worn} onJump={onJump} {...(onReply !== undefined ? { onReply } : {})} />
 			);
 
 		case "agent":
@@ -614,7 +631,14 @@ const Row = memo(function Row({
 					text={event.text}
 				/>
 			) : (
-				<AgentSay personaId={personaId} event={event} run={run} {...(onReply !== undefined ? { onReply } : {})} />
+				<AgentSay
+					personaId={personaId}
+					event={event}
+					run={run}
+					reactions={worn}
+					{...(onReply !== undefined ? { onReply } : {})}
+					{...(onReact !== undefined ? { onReact } : {})}
+				/>
 			);
 
 		/* Where the turn stopped. Drawn only when the stop was not the agent's
@@ -949,19 +973,29 @@ function AgentSay({
 	personaId,
 	event,
 	run,
+	reactions,
 	onReply,
+	onReact,
 }: {
 	personaId: string;
 	event: Extract<TranscriptEvent, { kind: "agent" }>;
 	run: Run;
+	reactions: string[] | undefined;
 	onReply?(target: ReplyTarget): void;
+	onReact?(target: ReactTarget, emoji: string): void;
 }) {
 	const reply = () => onReply?.({ eventId: event.id, text: lineOf(event) });
+	const actions: BubbleActionsProps = {
+		copy: () => void writeClipboard(event.text.trim() !== "" ? event.text : lineOf(event)),
+		...(onReply !== undefined ? { reply } : {}),
+		...(onReact !== undefined ? { react: (emoji: string) => onReact({ eventId: event.id, text: event.text || lineOf(event) }, emoji) } : {}),
+	};
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			<div
 				className={`speech said-them ${runClass(run)}`}
 				tabIndex={onReply === undefined ? undefined : 0}
+				onContextMenu={(click) => bubbleMenu(click, actions)}
 				onKeyDown={(key) => {
 					if (onReply === undefined) return;
 					if (key.repeat) return;
@@ -975,19 +1009,8 @@ function AgentSay({
 				{event.attachments?.map((file) => (
 					<SentFile key={file.path} personaId={personaId} eventId={event.id} file={file} />
 				))}
-				<Reactions emoji={event.reactions} />
-				{onReply !== undefined && (
-					<button
-						type="button"
-						className="reply-affordance control btn btn-sm gap-1"
-						tabIndex={-1}
-						title={`Reply (${chordKeys("reply")})`}
-						onClick={reply}
-					>
-						<ReplyIcon />
-						Reply
-					</button>
-				)}
+				<Reactions emoji={reactions} />
+				<BubbleActions {...actions} />
 			</div>
 		</div>
 	);
@@ -1024,18 +1047,28 @@ function UserBubble({
 	event,
 	quote,
 	run,
+	reactions,
 	onJump,
+	onReply,
 }: {
 	event: Extract<TranscriptEvent, { kind: "user" }>;
 	quote: string | undefined;
 	run: Run;
+	reactions: string[] | undefined;
 	onJump(eventId: string): void;
+	onReply?(target: ReplyTarget): void;
 }) {
 	const answered = event.replyTo;
 	const text = quote !== undefined ? unquoted(event.text) : event.text;
+	// A line still on its way has no id the desk knows, so it cannot be answered yet.
+	const sent = !event.id.startsWith("saying:");
+	const actions: BubbleActionsProps = {
+		copy: () => void writeClipboard(text),
+		...(onReply !== undefined && sent ? { reply: () => onReply({ eventId: event.id, text: lineOf({ text }) }) } : {}),
+	};
 	return (
-		<div className={`flex justify-end ${run.top ? "mt-1" : "mt-3"}`}>
-			<div className={`speech said-me ${runClass(run)}`}>
+		<div className={`said-group flex justify-end ${run.top ? "mt-1" : "mt-3"}`}>
+			<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
 				{quote !== undefined && answered !== undefined && (
 					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
 						{quote}
@@ -1052,7 +1085,8 @@ function UserBubble({
 					</ul>
 				)}
 				{event.receipt !== undefined && <Ticks read={event.receipt === "read"} />}
-				<Reactions emoji={event.reactions} />
+				<Reactions emoji={reactions} />
+				<BubbleActions {...actions} />
 			</div>
 		</div>
 	);
@@ -1069,6 +1103,133 @@ function Ticks({ read }: { read: boolean }) {
 			{read && <CheckIcon />}
 		</span>
 	);
+}
+
+/** The six the phone's long-press offers, in its order, so both ends react alike. */
+export const REACTIONS = ["👍", "❤️", "😂", "🔥", "👀", "🙏"] as const;
+
+type BubbleActionsProps = { copy(): void; reply?(): void; react?(emoji: string): void };
+
+/**
+ * What a bubble offers a pointer: react, reply, copy. It sits beside the
+ * bubble on its open side and shows on hover or focus, the desktop's long
+ * press. The face swaps the row for the six emoji until the pointer leaves.
+ */
+function BubbleActions({ copy, reply, react }: BubbleActionsProps) {
+	const [picking, setPicking] = useState(false);
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const done = setTimeout(() => setCopied(false), 1200);
+		return () => clearTimeout(done);
+	}, [copied]);
+	return (
+		<span className="bubble-actions" role="toolbar" aria-label="Message actions" onMouseLeave={() => setPicking(false)}>
+			{picking && react !== undefined ? (
+				REACTIONS.map((emoji) => (
+					<button
+						key={emoji}
+						type="button"
+						className="bubble-action bubble-emoji"
+						tabIndex={-1}
+						aria-label={`React ${emoji}`}
+						onClick={() => {
+							setPicking(false);
+							react(emoji);
+						}}
+					>
+						{emoji}
+					</button>
+				))
+			) : (
+				<>
+					{react !== undefined && (
+						<button type="button" className="bubble-action" tabIndex={-1} title="React" aria-label="React" onClick={() => setPicking(true)}>
+							<SmileIcon />
+						</button>
+					)}
+					{reply !== undefined && (
+						<button type="button" className="bubble-action" tabIndex={-1} title={`Reply (${chordKeys("reply")})`} aria-label="Reply" onClick={reply}>
+							<ReplyIcon />
+						</button>
+					)}
+					<button
+						type="button"
+						className="bubble-action"
+						tabIndex={-1}
+						title={copied ? "Copied" : "Copy"}
+						aria-label={copied ? "Copied" : "Copy"}
+						onClick={() => {
+							copy();
+							setCopied(true);
+						}}
+					>
+						{copied ? <CheckIcon /> : <CopyIcon />}
+					</button>
+				</>
+			)}
+		</span>
+	);
+}
+
+/**
+ * A right-click on a bubble opens its menu, unless words in it are selected:
+ * then it is the platform's own menu, so a few words can still be copied.
+ */
+function bubbleMenu(click: MouseEvent<HTMLElement>, actions: BubbleActionsProps) {
+	const selection = window.getSelection();
+	if (selection !== null && !selection.isCollapsed && click.currentTarget.contains(selection.anchorNode)) return;
+	click.preventDefault();
+	void popupMessageMenu({
+		reactions: REACTIONS,
+		onCopy: actions.copy,
+		...(actions.reply !== undefined ? { onReply: actions.reply } : {}),
+		...(actions.react !== undefined ? { onReact: actions.react } : {}),
+	});
+}
+
+/** One line quoted the way the phone quotes it: whitespace folded, 140 characters. */
+export function reactionQuote(text: string): string {
+	return `> ${text
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean)
+		.join(" ")
+		.slice(0, 140)}`;
+}
+
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200d|\ufe0f)+$/u;
+
+/**
+ * Reactions sent as lines of their own — a quoted line and nothing but an
+ * emoji, the phone's shape and this window's — folded onto the line they
+ * answer, found by its id or else by the quote. The same rule as the phone's
+ * `conversationItems`, so both ends draw one tape alike.
+ */
+export function foldReactions(events: TranscriptEvent[]): { lines: Set<string>; on: Map<string, string[]> } {
+	const lines = new Set<string>();
+	const on = new Map<string, string[]>();
+	events.forEach((event, index) => {
+		if (event.kind !== "user" || (event.attachments?.length ?? 0) > 0) return;
+		const match = /^(> [^\n]*)\n+([^\n]+)$/.exec(event.text.trim());
+		if (!match || !EMOJI_ONLY.test(match[2]!.trim())) return;
+		let target = event.replyTo;
+		if (target === undefined) {
+			for (let i = index - 1; i >= 0; i--) {
+				const candidate = events[i]!;
+				if (candidate.kind !== "user" && candidate.kind !== "agent") continue;
+				const said = candidate.kind === "agent" ? candidate.text || candidate.attachments?.[0]?.name || "" : candidate.text;
+				if (reactionQuote(said) === match[1]) {
+					target = candidate.id;
+					break;
+				}
+			}
+		}
+		if (target === undefined) return;
+		lines.add(event.id);
+		on.set(target, [...(on.get(target) ?? []), match[2]!.trim()]);
+	});
+	return { lines, on };
 }
 
 /** What the other side said with an emoji, tucked under the bubble's corner. */

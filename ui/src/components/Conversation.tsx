@@ -17,7 +17,7 @@ import { Search } from "./Search";
 import { Starters } from "./Starters";
 import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
-import { Transcript, turnCauseLine, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
+import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -151,6 +151,22 @@ export function Conversation({
 			},
 		];
 	}, [events, saying]);
+	/* A reaction is a line of its own, the shape the phone sends: the quoted
+	 * line and the emoji, answering it. The teammate reads it as a reply; both
+	 * windows fold it onto the bubble. */
+	const react = useCallback(
+		(target: ReactTarget, emoji: string) => {
+			const started = isDown(session.state)
+				? wire.command("session.start", { personaId }).then(() => setRefused(null))
+				: Promise.resolve();
+			void started
+				.then(() =>
+					wire.command("session.prompt", { personaId, text: `${reactionQuote(target.text)}\n\n${emoji}`, replyTo: target.eventId }),
+				)
+				.catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
+		},
+		[personaId, session.state],
+	);
 	const stop = useCallback(() => void wire.command("session.stop", { personaId }), [personaId]);
 	const cancel = useCallback(() => void wire.command("session.cancel", { personaId }), [personaId]);
 	/* Success is the tape: the marker is superseded in place and the title
@@ -356,6 +372,7 @@ export function Conversation({
 					live={session.state === "thinking"}
 					focus={focus}
 					onReply={setReplying}
+					onReact={react}
 					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={openThreadOf}

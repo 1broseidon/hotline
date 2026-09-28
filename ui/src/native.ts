@@ -250,6 +250,41 @@ export async function popupTeammateMenu(actions: {
 	}
 }
 
+/**
+ * A bubble's own menu, for a right-click with nothing selected: what the
+ * hover bar offers, as the platform's menu. React is a submenu of the same
+ * six the phone's long-press offers.
+ */
+export async function popupMessageMenu(actions: {
+	reactions: readonly string[];
+	onReact?(emoji: string): void;
+	onReply?(): void;
+	onCopy(): void;
+}): Promise<void> {
+	try {
+		const { onReact, onReply } = actions;
+		const menu = await Menu.new({
+			items: [
+				...(onReply !== undefined ? [{ id: "reply", text: "Reply", action: onReply }] : []),
+				{ id: "copy", text: "Copy", action: actions.onCopy },
+				...(onReact !== undefined
+					? [
+							{ item: "Separator" as const },
+							{
+								id: "react",
+								text: "React",
+								items: actions.reactions.map((emoji) => ({ id: `react:${emoji}`, text: emoji, action: () => onReact(emoji) })),
+							},
+						]
+					: []),
+			],
+		});
+		await menu.popup();
+	} catch {
+		// A browser tab has the page menu.
+	}
+}
+
 export type UpdateStatus = {
 	current: string;
 	available: { version: string; notes: string } | null;

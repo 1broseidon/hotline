@@ -200,6 +200,23 @@ export const ReplyIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+export const CopyIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<rect x="5.25" y="5.25" width="7.5" height="7.5" rx="1.5" />
+		<path d="M10.75 3.25H4.75a1.5 1.5 0 0 0-1.5 1.5v6" />
+	</svg>
+);
+
+/* A face, for the reaction picker: a mark that stands for the emoji, not one of them. */
+export const SmileIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<circle cx="8" cy="8" r="5.25" />
+		<path d="M5.9 9.4a2.6 2.6 0 0 0 4.2 0" />
+		<circle cx="6.25" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+		<circle cx="9.75" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+	</svg>
+);
+
 export const WarningIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<path d="M8 2.75l5.5 9.5h-11z" />

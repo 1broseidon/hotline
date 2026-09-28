@@ -1636,6 +1636,11 @@ mod sealed_network {
             buffer[..size].to_vec(),
         ))
     }
+    async fn rejected(h: &Harness, private: &[u8; 32], public: &[u8; 32]) {
+        let (mut socket, _, answer) = exchange(h, "/v2", private, public, &[]).await.unwrap();
+        assert_eq!(answer, sealed::DEVICE_REJECTED);
+        closed(&mut socket).await;
+    }
     async fn claim(h: &Harness, pairing: &SealedPairing, private: &[u8; 32]) -> Option<Value> {
         let (public, secret) = invitation(pairing);
         let payload = json!({"secret":secret, "name":"Sealed test phone"}).to_string();
@@ -1680,8 +1685,15 @@ mod sealed_network {
         let (first, _) = sealed::keypair().unwrap();
         let (second, _) = sealed::keypair().unwrap();
         let (_, public) = h.remote.noise_keys().unwrap();
-        // An empty grant set is not an owner invitation; unknown keys hear nothing.
-        assert!(exchange(&h, "/v2", &first, &public, &[]).await.is_none());
+        // Knowing the desk key earns only an authenticated refusal, not a grant.
+        rejected(&h, &first, &public).await;
+        assert!(h.remote.devices().is_empty());
+        let (_, wrong_desk) = sealed::keypair().unwrap();
+        assert!(
+            exchange(&h, "/v2", &first, &wrong_desk, &[])
+                .await
+                .is_none()
+        );
         for role in [DeviceRole::Owner, DeviceRole::Companion] {
             let pairing = h.remote.pairing_v2(role).unwrap();
             assert!(h.remote.pairing_result(&pairing.id).unwrap().is_none());
@@ -1736,7 +1748,7 @@ mod sealed_network {
             }
             h.remote.revoke(&device.id).unwrap();
             closed(&mut socket).await;
-            assert!(exchange(&h, "/v2", private, &public, &[]).await.is_none());
+            rejected(&h, private, &public).await;
         }
         h.remote.configure(false, network::ALL).await.unwrap();
     }
@@ -1805,7 +1817,7 @@ mod sealed_network {
                     }
                 }).await.expect("revocation must release command, socket, subscriptions and connection permits without waiting for the computer");
                 if !disable {
-                    assert!(exchange(&h, "/v2", &private, &public, &[]).await.is_none());
+                    rejected(&h, &private, &public).await;
                     h.remote.configure(false, network::ALL).await.unwrap();
                 }
             }
@@ -2050,11 +2062,13 @@ mod sealed_network {
         let binding = br#"{"purpose":"computer","personaId":"ada"}"#;
         // Unknown keys cannot discover a running viewer or see its first frame,
         // even with a valid target binding.
-        assert!(
+        let (mut refused, _, answer) =
             exchange(&h, "/v2/computer/ada/ws", &private, &public, binding)
                 .await
-                .is_none()
-        );
+                .unwrap();
+        assert_eq!(answer, sealed::DEVICE_REJECTED);
+        closed(&mut refused).await;
+        assert!(asked.lock().unwrap().is_none());
         claim(&h, &pairing, &private).await.unwrap();
         let (mut socket, mut state, _) =
             exchange(&h, "/v2/computer/ada/ws", &private, &public, binding)
@@ -2639,5 +2653,157 @@ async fn bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_th
             .unwrap(),
         Some(Ok(Message::Text(_) | Message::Binary(_)))
     ));
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Revocation test")
+        .await
+        .unwrap();
+    let mut session = client.connect(&desk);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.state.wait_for(|s| *s == client::State::Open),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut bridge = bridge::Bridge::with_client(&desk, client.clone())
+        .await
+        .unwrap();
+    let (local, _) = tokio_tungstenite::connect_async(format!(
+        "{}/ws?token={}",
+        bridge.origin.replace("http:", "ws:"),
+        bridge.token
+    ))
+    .await
+    .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        bridge.state.wait_for(|s| *s == client::State::Open),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    h.remote.revoke(&h.remote.devices()[0].id).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.state.wait_for(|s| *s == client::State::Revoked),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        bridge.state.wait_for(|s| *s == client::State::Revoked),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    drop(local);
+    drop(bridge);
+    // Revocation is terminal; a new client session also recognizes an offline revoke.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while session.state.changed().await.is_ok() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(*session.state.borrow(), client::State::Revoked);
+    let mut fresh = client.connect(&desk);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        fresh.state.wait_for(|s| *s == client::State::Revoked),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    drop(fresh);
+    drop(session);
+
+    // Pair() saved a device identity for this pin before the handshake failed.
+    // Thus connect() actually attempts Noise, rather than failing for a missing key.
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let mut wrong = invitation.payload.clone();
+    wrong.desk_key =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed::keypair().unwrap().1);
+    assert!(client.pair(&wrong, "Wrong pin").await.is_err());
+    let mut wrong_desk = desk.clone();
+    wrong_desk.desk_key = wrong.desk_key;
+    let mut session = client.connect(&wrong_desk);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.state.wait_for(|s| *s == client::State::Unreachable),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(600),
+            session.state.wait_for(|s| *s == client::State::Revoked)
+        )
+        .await
+        .is_err()
+    );
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Network failure test")
+        .await
+        .unwrap();
+    let identity: Identity =
+        serde_json::from_slice(&h.remote.identity.read().unwrap().unwrap()).unwrap();
+    for forge_rejection in [false, true] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut target = desk.clone();
+        target.url = format!("https://{}", listener.local_addr().unwrap());
+        let tls = server::tls(&identity).unwrap();
+        let fake = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let stream = tls.accept(stream).await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            assert!(matches!(socket.next().await, Some(Ok(Message::Binary(_)))));
+            if forge_rejection {
+                socket
+                    .send(Message::Binary(sealed::DEVICE_REJECTED.to_vec().into()))
+                    .await
+                    .unwrap();
+            }
+            let _ = socket.close(None).await;
+        });
+        let mut session = client.connect(&target);
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            session.state.wait_for(|s| *s == client::State::Unreachable),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), fake)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(600),
+                session.state.wait_for(|s| *s == client::State::Revoked)
+            )
+            .await
+            .is_err()
+        );
+        drop(session);
+    }
     h.remote.configure(false, network::ALL).await.unwrap();
 }

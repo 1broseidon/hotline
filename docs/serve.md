@@ -178,6 +178,9 @@ The bridge exposes a watch receiver in `state`. Its wire connection reconnects
 with backoff from 250 ms to 30 seconds and resubscribes for fresh snapshots.
 An interrupted command returns an uncertain-outcome error and is never replayed.
 The shell should use the state to disable actions while the desk is unreachable.
+A rejection authenticated by the pinned desk changes state to `revoked` and ends
+reconnect attempts; pair again to restore access. A network failure alone never
+sets `revoked`.
 
 Owner file commands use absolute **server** paths:
 

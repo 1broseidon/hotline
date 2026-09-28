@@ -756,15 +756,19 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   explicit two-minute pairing window is open. No served PAKE route exists.
 - Each handshake message is one binary WebSocket message. Message 1 is the
   initiator's `(e, es, s, ss)`; message 2 the responder's `(e, ee, se)`.
-  Room session payloads are empty. Viewer payloads bind the target as
+  Successful room session payloads are empty. Viewer payloads bind the target as
   described below. For pairing, message 1 carries UTF-8 JSON
   `{"secret":"<b64url>","name":"<device name>"}` and message 2 carries
   `{"role":"owner"|"companion","deskName":"…","deskId":"…"}`. The desk closes after
   message 2. Grant creation and single-use secret consumption are atomic;
   scanning one QR with two devices yields only one grant.
-- No wire hello or banner precedes authentication. An unknown session
-  device key closes silently. Connection limits apply per IP, together
-  with a global half-open handshake cap, handshake deadline and byte cap.
+- No wire hello or banner precedes authentication. After successfully reading
+  Noise message 1 and validating the room/viewer binding, an unknown or revoked
+  session key receives message 2 with `{"error":"device_not_authorized"}` and
+  the socket closes. The client may report revoked only after verifying that
+  message under the pinned desk identity. Invalid first messages close silently.
+  Connection limits apply per IP, together with a global half-open handshake
+  cap, handshake deadline and byte cap.
 - Each transport message is one binary WebSocket message, at most 65535
   bytes including the Noise authentication tag. Plaintext is `[flag u8]
   [chunk]`; flag 0 continues the current frame and flag 1 ends it. Chunks
@@ -795,8 +799,9 @@ Noise message 1 carries UTF-8 JSON
 `{"purpose":"computer","personaId":"<id>"}`; the desk requires an exact match
 with the HTTP target before opening the upstream viewer. Missing, extra or
 mismatched fields are refused. A TLS proxy cannot redirect authenticated
-controls to a different computer by changing the path. Message 2 is empty;
-there is no viewer hello. Transport plaintexts are JSON envelopes:
+controls to a different computer by changing the path. A successful message 2
+is empty; rejected device keys receive the authenticated refusal above.
+There is no viewer hello. Transport plaintexts are JSON envelopes:
 `{"type":"text","data":"…"}` or
 `{"type":"binary","data":"<standard padded base64>"}`. Inputs accept text
 only. The desk resolves the upstream from its own running computer status;

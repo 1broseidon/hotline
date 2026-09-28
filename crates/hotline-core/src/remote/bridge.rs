@@ -156,6 +156,9 @@ async fn serve(
             }
         }
     }
+    // The incoming queue and state watch can close together on revocation.
+    // Publish the terminal state even if select! observed the queue first.
+    state.send_replace(*remote.state.borrow());
 }
 
 async fn viewer(

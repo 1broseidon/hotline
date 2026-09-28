@@ -119,7 +119,7 @@ impl Client {
         &self,
         desk: &PairedDesk,
         persona: Option<&str>,
-    ) -> Result<Connection, String> {
+    ) -> Result<Connection, OpenError> {
         let key = decode_key(&desk.desk_key)?;
         let bytes = self
             .store
@@ -144,10 +144,39 @@ impl Client {
             None => ("v2".into(), String::new()),
         };
         let (channel, response) = handshake(&desk.url, &path, &identity, &payload).await?;
+        // handshake() returns this payload only after Noise verifies the
+        // pinned responder. Network/TLS/unauthenticated failures cannot revoke.
+        if response == sealed::DEVICE_REJECTED {
+            return Err(OpenError::Revoked);
+        }
         if !response.is_empty() {
             return Err("The desk refused this session.".into());
         }
         Ok(channel)
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum OpenError {
+    Unreachable(String),
+    Revoked,
+}
+impl From<String> for OpenError {
+    fn from(message: String) -> Self {
+        Self::Unreachable(message)
+    }
+}
+impl From<&str> for OpenError {
+    fn from(message: &str) -> Self {
+        Self::Unreachable(message.into())
+    }
+}
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unreachable(message) => f.write_str(message),
+            Self::Revoked => f.write_str("This device is no longer authorized. Pair it again."),
+        }
     }
 }
 
@@ -353,7 +382,14 @@ impl Client {
         let mut delay = Duration::from_millis(250);
         loop {
             state.send_replace(State::Connecting);
-            if let Ok(mut socket) = self.open(&desk, None).await {
+            let opened = match self.open(&desk, None).await {
+                Err(OpenError::Revoked) => {
+                    state.send_replace(State::Revoked);
+                    return;
+                }
+                other => other,
+            };
+            if let Ok(mut socket) = opened {
                 let hello = tokio::time::timeout(Duration::from_secs(5), socket.next()).await;
                 if let Ok(Some(Ok(Message::Text(text)))) = hello
                     && serde_json::from_str::<Value>(&text)

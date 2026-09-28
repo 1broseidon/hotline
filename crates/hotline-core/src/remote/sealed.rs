@@ -6,6 +6,9 @@
 
 use snow::{Builder, HandshakeState, TransportState};
 
+// Only an authenticated Noise message 2 may carry this session rejection.
+pub(super) const DEVICE_REJECTED: &[u8] = br#"{"error":"device_not_authorized"}"#;
+
 const PATTERN: &str = "Noise_IK_25519_ChaChaPoly_SHA256";
 const PROLOGUE: &[u8] = b"hotline/2";
 const MAX_CIPHERTEXT: usize = 65_535;

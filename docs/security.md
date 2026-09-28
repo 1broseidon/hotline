@@ -759,6 +759,31 @@ made it so.
   secrets until consumed or expired. Physical laptop/phone and proxy QA are
   separate from these disposable network harnesses.
 
+### Authenticated device rejection
+
+- **Default and grant source:** this grants no access. Unknown and revoked keys
+  receive the same refusal only after a valid Noise IK message 1 proves knowledge
+  of this desk's public key and possession of the device key. Invalid handshakes,
+  mismatched viewer bindings and failed pairing claims still close silently.
+- **Enforcement:** the refusal is the encrypted message 2 payload
+  `{"error":"device_not_authorized"}`. The client classifies it as `Revoked`
+  only after Noise verifies it against the pinned desk identity, then stops
+  reconnecting until the caller pairs again. TLS failures, timeout, reset,
+  unauthenticated closure and unsealed error bytes remain `Unreachable`.
+  Live revocation still closes the old session immediately; its reconnect learns
+  the authenticated refusal. This also covers a device revoked while offline.
+- **Reasoning and residual risk:** the only disclosure is “this desk exists and
+  rejects your key,” to a party that already holds the desk's public key. A
+  scanner without that key receives nothing new. No grant, role or room content
+  is disclosed; unknown and previously revoked keys are indistinguishable.
+  Someone on the network path can still cause unreachability, but cannot forge
+  revocation without the desk's private key. Existing handshake limits apply.
+- **Tests:** `explicit_pairing_is_atomic_and_only_owners_have_desk_authority`
+  verifies encrypted unknown/revoked refusals and silence for a wrong desk key.
+  `rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection`
+  covers live/offline revocation and a wrong pin; `rust_client_does_not_trust_a_close_or_an_unsealed_rejection`
+  covers unauthenticated closure and a forged refusal over TLS/WebSocket.
+
 ### Loopback bridge, server files and laptop cookies
 
 - **Default and grant source:** no new teammate capability. The loopback bridge

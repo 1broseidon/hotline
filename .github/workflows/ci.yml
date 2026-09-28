@@ -78,3 +78,25 @@ jobs:
       - name: Verify native desktop credential storage
         if: runner.os == 'Windows'
         run: cargo test --workspace native_store_roundtrip --locked -- --ignored
+
+  # macOS-only code (the keychain, notifications, the Finder PATH test) is
+  # compiled nowhere else before a tag: the release is the first to build it,
+  # and a slip there costs a whole release run (0.28.0 did). Clippy over every
+  # target catches it in minutes. The tests themselves run in the release.
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-macos
+          cache-on-failure: true
+
+      - name: Compile the macOS code and its tests
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings

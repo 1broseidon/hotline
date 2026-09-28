@@ -8,6 +8,39 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-09-27
+
+### Added
+
+- `curl -fsSL https://hotline.dev/install | sh` installs the desktop app, and
+  `-s -- --server` installs the headless desk under systemd. Windows uses
+  `irm https://hotline.dev/install.ps1 | iex`. Every download is checked
+  against the release's checksums. Run again, the script says what is
+  installed and what is available, and asks before updating.
+- `sudo hotline update` updates a server installed by the script: it checks
+  the release, verifies the download, swaps the binary, restarts the service
+  and puts the old binary back if the new one doesn't come up. The room and
+  its pairings are untouched. `--check` only reports. A server on 0.26.0
+  gets this release by running the install script again.
+- The owner's phone changes a teammate's access from its card: full access
+  for a Hotline Agent teammate, the mode a harness runs in (asking first
+  before a mode that stops asking), and whether it may keep its own
+  background work. A mode chosen anywhere is now kept across restarts.
+- A teammate's computer has a CPU limit as well as memory, set on sliders in
+  half steps on the desktop and on the owner's phone. The sliders stop at
+  what the machine has, read from Docker or Podman, else the machine itself.
+  Apple container gets whole CPUs. The phone can also switch a teammate's
+  computer on and off.
+
+### Fixed
+
+- What a harness teammate says after its turn has ended, such as the result
+  of work it sent to a subagent or its own background task, reaches the chat
+  and the phone when it arrives, not only after your next message.
+- On Windows, a terminal window no longer opens every few seconds while the
+  teammate pane checks on computers, and a clean install launches instead of
+  asking for VCRUNTIME140_1.dll.
+
 ## [0.26.0] - 2026-09-26
 
 ### Added

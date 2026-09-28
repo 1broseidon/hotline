@@ -72,3 +72,9 @@ jobs:
           cargo test --workspace --locked
           bun run --cwd ui typecheck
           python3 -m unittest discover -s scripts -p 'test_updater_manifest.py' || python -m unittest discover -s scripts -p 'test_updater_manifest.py'
+
+      # The release no longer runs the tests, so the round trip through
+      # Windows' Credential Manager, which needs a real Windows session, runs here.
+      - name: Verify native desktop credential storage
+        if: runner.os == 'Windows'
+        run: cargo test --workspace native_store_roundtrip --locked -- --ignored

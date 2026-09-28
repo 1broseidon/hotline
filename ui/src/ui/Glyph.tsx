@@ -253,6 +253,9 @@ const mix = (a: [number, number][], b: [number, number][], m: number): [number, 
 
 type Line = { points: [number, number][]; width: number };
 
+/** The mark moves at 20 frames a second: smooth enough for a blink, a fraction of the cost of every frame. */
+const FRAME_MS = 50;
+
 export function Glyph({ phase }: { phase: ActivityPhase }) {
 	const root = useRef<SVGSVGElement>(null);
 	// Read inside the loop rather than closed over, so a phase change takes
@@ -278,7 +281,7 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 
 	useEffect(() => {
 		if (REDUCED_MOTION) return;
-		let frame = 0;
+		let timer = 0;
 		let last = performance.now();
 		let blinkAt = -1;
 		// The first blink is the waking one: just as the mark clears the composer.
@@ -291,10 +294,9 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 		let spoken = 0;
 
 		const draw = (now: number) => {
-			frame = requestAnimationFrame(draw);
 			const node = root.current;
 			if (!node) return;
-			const dt = Math.min(0.05, (now - last) / 1000);
+			const dt = Math.min(0.1, (now - last) / 1000);
 			last = now;
 			const phase = live.current;
 			if (since.current < 0) {
@@ -356,8 +358,16 @@ export function Glyph({ phase }: { phase: ActivityPhase }) {
 			paint(node, pose, held, line);
 		};
 
-		frame = requestAnimationFrame(draw);
-		return () => cancelAnimationFrame(frame);
+		/* A timer at FRAME_MS, not requestAnimationFrame: asking for every
+		 * frame makes the webview composite every frame, which on a machine
+		 * drawing without a GPU (a VM, a remote desktop, much of Linux) costs
+		 * whole cores for a 30-pixel mark. A hidden window draws nothing. */
+		const tick = () => {
+			timer = window.setTimeout(tick, FRAME_MS);
+			if (!document.hidden) draw(performance.now());
+		};
+		tick();
+		return () => clearTimeout(timer);
 	}, []);
 
 	return (

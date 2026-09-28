@@ -93,7 +93,12 @@ pub(super) async fn view(
                         return;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    let rows = snapshot(&log, &handle, &spoke, &mut watched);
+                    if !send(&sender, json!({ "sub": id, "snapshot": rows })) {
+                        return;
+                    }
+                }
                 Err(broadcast::error::RecvError::Closed) => infos = None,
             },
         }

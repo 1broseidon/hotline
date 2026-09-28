@@ -18,10 +18,10 @@ import type {
 } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, FolderIcon, InfoIcon, PlusIcon, RevealIcon, WarningIcon } from "../icons";
-import { useMcpServers, type McpServer } from "../mcp";
+import type { McpServer } from "../mcp";
 import { COMPUTER_STATUS_EVERY_MS } from "../computer";
 import { confirmRemove, pickDirectory, revealPath } from "../native";
-import { firstLine } from "../room";
+import { firstLine, useRoomSettings } from "../room";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -71,7 +71,7 @@ export function Teammate({
 	onDeleted(): void;
 	onOpenThread(thread: OpenThread): void;
 }) {
-	const servers = useMcpServers();
+	const servers = useRoomSettings().mcpServers;
 	const [name, setName] = useState(persona.name);
 	const [goal, setGoal] = useState(persona.goal);
 	const [pathShown, setPathShown] = useState(false);

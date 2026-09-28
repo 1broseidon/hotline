@@ -856,9 +856,12 @@
 	}
 
 	/* A working teammate's mark: it breathes. Nothing else in the window
-	 * moves on its own. */
+	 * moves on its own. It breathes in steps, twelve a cycle: a smooth
+	 * opacity animation repaints every frame, which on a machine drawing
+	 * without a GPU (a VM, a remote desktop, much of Linux) cost about five
+	 * cores for a few dots, all turn long. */
 	.beat {
-		animation: beat var(--dur-breath) var(--ease-out) infinite;
+		animation: beat var(--dur-breath) steps(6, jump-none) infinite;
 	}
 	@keyframes beat {
 		0%,

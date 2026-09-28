@@ -1225,6 +1225,48 @@ async fn the_rosters_latest_is_the_last_message_ts_and_a_tool_does_not_move_it()
     assert_eq!(second["event"]["latest"], 9);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn the_roster_recovers_a_session_update_lost_to_lag() {
+    let quiet = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("roster-session-lag", quiet.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    let ada_id = ada["id"].as_str().unwrap();
+    let bob_id = bob["id"].as_str().unwrap();
+    quiet.set_info(thinking(ada_id));
+
+    ask(&mut socket, json!({ "id": 3, "sub": { "view": "roster" } })).await;
+    let initial = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    let ada_row = initial["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["persona"]["id"] == ada_id)
+        .unwrap();
+    assert_eq!(ada_row["session"]["state"], "thinking");
+
+    // No await on this single-threaded runtime: Ada's final update falls out
+    // of the 16-slot channel before the roster can receive it. Only Bob's
+    // updates remain, so replaying those cannot repair Ada's stale state.
+    quiet.set_info(idle(ada_id));
+    for _ in 0..32 {
+        quiet.set_info(thinking(bob_id));
+    }
+
+    let recovered = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert_eq!(recovered["sub"], 3);
+    let rows = recovered["snapshot"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    for (persona_id, state) in [(ada_id, "idle"), (bob_id, "thinking")] {
+        let row = rows
+            .iter()
+            .find(|row| row["persona"]["id"] == persona_id)
+            .unwrap();
+        assert_eq!(row["session"]["state"], state);
+    }
+}
+
 #[tokio::test]
 async fn a_tool_in_progress_is_the_rosters_activity_while_the_session_is_thinking() {
     let quiet = Arc::new(Quiet::new());

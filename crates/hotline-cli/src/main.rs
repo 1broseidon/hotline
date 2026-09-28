@@ -7,6 +7,8 @@
 //! none of them opens the room itself, so none of them contends for its lock.
 //! See `docs/serve.md`.
 
+mod update;
+
 #[cfg(unix)]
 mod door;
 #[cfg(unix)]
@@ -23,6 +25,8 @@ const USAGE: &str = "\
 usage:
   hotline serve --store file|native --listen <IP:port> --public-url <https://host:port>
       [--tls self | --tls-cert <PEM> --tls-key <PEM>] [--data <dir>]
+  hotline --version
+  hotline update [--check] [--version X.Y.Z]
   hotline status [--data <dir>]
   hotline pair [--companion] [--data <dir>]
   hotline devices [--data <dir>]
@@ -37,6 +41,14 @@ so a secret in them does not reach shell history or the process list.";
 /// its files owner-only. On Windows, the Hotline app is the desk.
 #[cfg(not(unix))]
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--version"] {
+        println!("hotline {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
+    if args.first().is_some_and(|arg| arg == "update") {
+        return update::run(&args[1..]);
+    }
     eprintln!(
         "hotline: the headless desk runs on Linux and macOS; on Windows, use the Hotline app."
     );
@@ -46,6 +58,14 @@ fn main() -> ExitCode {
 #[cfg(unix)]
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--version"] {
+        println!("hotline {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
+    // Update has no room/data option and must never open the operator's room.
+    if args.first().is_some_and(|arg| arg == "update") {
+        return update::run(&args[1..]);
+    }
     let data = match take_value(&mut args, "--data") {
         Ok(data) => data.map(PathBuf::from),
         Err(error) => return usage(&error),

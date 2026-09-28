@@ -18,9 +18,60 @@ release's checksums, installs `hotline` to `/usr/local/bin`, creates the
 `--listen` and `--public-url`. Once the desk is up it shows a pairing QR, so
 keep your phone handy.
 
-Run it again to upgrade. The unit and the room stay as they are and the new
-binary restarts. Pass `--listen` and `--public-url` again to change them; if
-the desk won't start with the new values, the previous unit goes back.
+The installer detects an existing install and reports its version and the
+available version. It asks before updating when a terminal is attached;
+`--yes` skips that question, as does running without a terminal. An install
+already at the requested version is left alone unless you pass `--force`.
+Pass `--listen` and `--public-url` again to change them (add `--force` when
+keeping the same version); if the desk won't start with the new values,
+the previous unit goes back.
+
+## Update a server
+
+For a server installed at `/usr/local/bin/hotline` with the `hotline` systemd
+unit:
+
+```sh
+hotline update --check              # report the installed and available versions
+sudo /usr/local/bin/hotline update  # install the latest server release
+```
+
+To choose a particular release, including an intentional downgrade:
+
+```sh
+sudo /usr/local/bin/hotline update --version X.Y.Z
+```
+
+The updater downloads the server archive for your architecture, verifies its
+SHA-256 checksum, and replaces only the binary with an atomic rename. The
+room, pairings and systemd unit stay untouched. If the unit is running, it
+restarts and the updater checks that the desk comes back; a failed start
+restores the previous binary and tries to restart it. A stopped unit stays
+stopped. Without root, the command prints the exact `sudo` command to run;
+`--check` never needs root and never changes the install.
+
+Rollback restores the executable, not room-data changes a newer release may
+have made. Keep an encrypted backup of the room, taken with the service stopped,
+before upgrading or downgrading. If recovery also fails, the updater preserves
+the old binary and prints its backup path; inspect `journalctl -u hotline`
+before recovering manually.
+
+This command is only for the Linux server binary. Desktop installs use the
+app's updater or their package manager; `hotline update` does not overwrite
+`.deb`, `.rpm`, AppImage, macOS app or Windows setup installations.
+
+Older releases, including 0.26.0, do not have `hotline update`. For that first
+upgrade, rerun the installer once:
+
+```sh
+curl -fsSL https://hotline.dev/install | sh -s -- --server
+```
+
+It keeps the existing room, pairings and unit. Use `hotline update` after that.
+An older binary without `--version` may be reported as `unknown` when its
+running desk's version is not readable; the installer still offers the upgrade.
+
+## Manual install
 
 The rest of this page is the same install done by hand.
 

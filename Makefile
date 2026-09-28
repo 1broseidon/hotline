@@ -6,6 +6,7 @@ dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
 check: ui-check
 	python3 -m unittest discover -s scripts -p 'test_*.py'
+	python3 -m unittest discover -s site/tests -p 'test_*.py'
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace

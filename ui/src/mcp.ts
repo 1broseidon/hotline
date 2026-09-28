@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { wire } from "./wire";
 
 /**
  * MCP servers as the settings pane writes them.
@@ -39,33 +37,6 @@ export type McpHttpServer = {
 
 export type McpServer = McpStdioServer | McpHttpServer;
 
-/** One line of the room stream. Settings are `kind: "setting"`. */
-type RoomItem = {
-	kind?: string;
-	id?: string;
-	value?: unknown;
-	deleted?: boolean;
-};
-
-/**
- * The app's MCP servers, folded from the room. A reconnect replaces the
- * snapshot rather than merging, the same as every other room reader.
- */
-export function useMcpServers(): McpServer[] {
-	const [servers, setServers] = useState<McpServer[]>([]);
-
-	useEffect(() => {
-		return wire.subscribe<RoomItem>("room", {
-			snapshot: (items) => setServers(mcpServersFrom(settingValue(items, "mcpServers"))),
-			event: (item) => {
-				if (item.kind !== "setting" || item.id !== "mcpServers") return;
-				setServers(item.deleted ? [] : mcpServersFrom(item.value));
-			},
-		});
-	}, []);
-
-	return servers;
-}
 
 /**
  * The command line, or the URL — whichever the list and the grant show.
@@ -94,12 +65,6 @@ export function mcpServersFrom(value: unknown): McpServer[] {
 	return servers;
 }
 
-function settingValue(items: RoomItem[], key: string): unknown {
-	for (const item of items) {
-		if (item.kind === "setting" && item.id === key && !item.deleted) return item.value;
-	}
-	return undefined;
-}
 
 function readServer(value: unknown): McpServer | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;

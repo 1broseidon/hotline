@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { ScheduledJob } from "./generated/contract";
 import { mcpServersFrom, type McpServer } from "./mcp";
 import { wire } from "./wire";
@@ -37,10 +37,77 @@ type RoomItem = {
 };
 
 /**
- * Subscribe to the room and fold its setting events over the defaults. A
- * reconnect delivers a fresh snapshot, so the map is replaced rather than
- * merged.
+ * One subscription to the room for the whole window, shared by every hook
+ * below. Each hook used to subscribe on its own, so the window held four to
+ * seven copies of the same stream, each downloading and folding the room's
+ * snapshot, and opening Settings subscribed again. Now the first reader
+ * opens it and the last one closes it; a reconnect's fresh snapshot replaces
+ * the fold rather than merging into it.
  */
+type RoomState = {
+	settings: Map<string, RoomItem>;
+	jobs: ScheduledJob[];
+	/** Goes up whenever the room's model choices may have changed. */
+	modelsRevision: number;
+};
+
+const room = (() => {
+	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0 };
+	const listeners = new Set<() => void>();
+	let readers = 0;
+	let unsub: (() => void) | null = null;
+
+	const set = (next: Partial<RoomState>) => {
+		state = { ...state, ...next };
+		for (const listener of listeners) listener();
+	};
+
+	const open = () =>
+		wire.subscribe<RoomItem>("room", {
+			snapshot: (items) => set({ settings: takeKind(items, "setting"), jobs: takeJobs(items) }),
+			event: (item) => {
+				const next: Partial<RoomState> = {};
+				if (item.kind === "setting" && typeof item.id === "string") {
+					const settings = new Map(state.settings);
+					settings.set(item.id, item);
+					next.settings = settings;
+				}
+				if (item.kind === "schedule" && typeof item.id === "string") {
+					const id = item.id;
+					const without = state.jobs.filter((job) => job.id !== id);
+					const job = item.deleted ? null : jobFromEvent(item);
+					next.jobs = job ? sortJobs([...without, job]) : without;
+				}
+				if (changesModels(item)) next.modelsRevision = state.modelsRevision + 1;
+				if (Object.keys(next).length > 0) set(next);
+			},
+		});
+
+	return {
+		subscribe(listener: () => void) {
+			listeners.add(listener);
+			if (readers++ === 0) unsub = open();
+			return () => {
+				listeners.delete(listener);
+				if (--readers === 0) {
+					unsub?.();
+					unsub = null;
+				}
+			};
+		},
+		snapshot: () => state,
+	};
+})();
+
+function useRoom<T>(pick: (state: RoomState) => T): T {
+	return useSyncExternalStore(room.subscribe, () => pick(room.snapshot()));
+}
+
+const pickSettings = (state: RoomState) => state.settings;
+const pickJobs = (state: RoomState) => state.jobs;
+const pickModelsRevision = (state: RoomState) => state.modelsRevision;
+
+/** The room's settings over their defaults. */
 export function useRoomSettings(): {
 	chapterIdleHours: number;
 	defaultBackendId: string;
@@ -52,34 +119,16 @@ export function useRoomSettings(): {
 	computerImage: string | null;
 	skillsHome: string | null;
 } {
-	const [events, setEvents] = useState<Map<string, RoomItem>>(new Map());
-
-	useEffect(() => {
-		return wire.subscribe<RoomItem>("room", {
-			snapshot: (items) => setEvents(takeKind(items, "setting")),
-			event: (item) => {
-				if (item.kind !== "setting" || typeof item.id !== "string") return;
-				const id = item.id;
-				setEvents((known) => {
-					const next = new Map(known);
-					next.set(id, item);
-					return next;
-				});
-			},
-		});
-	}, []);
-
-	const enabledModels = useMemo(
-		() => enabledModelsSetting(events.get("enabledModels")),
-		[events],
-	);
+	const events = useRoom(pickSettings);
+	const enabledModels = useMemo(() => enabledModelsSetting(events.get("enabledModels")), [events]);
+	const mcpServers = useMemo(() => listSetting(events.get("mcpServers")), [events]);
 
 	return {
 		chapterIdleHours: numberSetting(events.get("chapterIdleHours"), DEFAULT_IDLE_HOURS),
 		defaultBackendId: stringSetting(events.get("defaultBackendId"), "hotline"),
 		defaultModelId: optionalStringSetting(events.get("defaultModelId")),
 		lastModelId: optionalStringSetting(events.get("lastModelId")),
-		mcpServers: listSetting(events.get("mcpServers")),
+		mcpServers,
 		enabledModels,
 		computerRuntime: optionalStringSetting(events.get("computerRuntime")),
 		computerImage: optionalStringSetting(events.get("computerImage")),
@@ -94,18 +143,7 @@ export function useRoomSettings(): {
  * on it is fetched again, so no picker waits for a restart.
  */
 export function useModelsRevision(): number {
-	const [revision, setRevision] = useState(0);
-
-	useEffect(() => {
-		return wire.subscribe<RoomItem>("room", {
-			snapshot: () => {},
-			event: (item) => {
-				if (changesModels(item)) setRevision((known) => known + 1);
-			},
-		});
-	}, []);
-
-	return revision;
+	return useRoom(pickModelsRevision);
 }
 
 function changesModels(item: RoomItem): boolean {
@@ -122,25 +160,7 @@ function changesModels(item: RoomItem): boolean {
  * picture.
  */
 export function useRoomJobs(): ScheduledJob[] {
-	const [jobs, setJobs] = useState<ScheduledJob[]>([]);
-
-	useEffect(() => {
-		return wire.subscribe<RoomItem>("room", {
-			snapshot: (items) => setJobs(takeJobs(items)),
-			event: (item) => {
-				if (item.kind !== "schedule" || typeof item.id !== "string") return;
-				const id = item.id;
-				setJobs((known) => {
-					const without = known.filter((job) => job.id !== id);
-					if (item.deleted) return without;
-					const job = jobFromEvent(item);
-					return job ? sortJobs([...without, job]) : without;
-				});
-			},
-		});
-	}, []);
-
-	return jobs;
+	return useRoom(pickJobs);
 }
 
 /** How far away a fire is, in the smallest unit that still reads. */

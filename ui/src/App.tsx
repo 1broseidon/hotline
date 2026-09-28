@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
@@ -7,9 +7,9 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Titlebar } from "./ui/Titlebar";
 import { WindowEdges } from "./ui/WindowEdges";
-import { Settings, SettingsRail, type SettingsSection } from "./components/Settings";
-import { Shortcuts } from "./components/Shortcuts";
+import type { SettingsSection } from "./components/Settings";
 import { Teammate } from "./components/Teammate";
+import { Shortcuts } from "./components/Shortcuts";
 import { Subagent, type OpenSubagent } from "./components/Subagent";
 import { Work, type OpenWork } from "./components/Work";
 import { Thread, type OpenThread } from "./components/Thread";
@@ -21,6 +21,12 @@ import { noticeRoster, setWindowTitle } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
+
+/* Settings is opened now and then, not at launch: it loads on first open,
+ * which keeps its nine sections out of the startup bundle. */
+const Settings = lazy(() => import("./components/Settings").then((module) => ({ default: module.Settings })));
+const SettingsRail = lazy(() => import("./components/Settings").then((module) => ({ default: module.SettingsRail })));
+
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
@@ -365,7 +371,9 @@ export function App() {
 			{platform() === "linux" && <WindowEdges />}
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{!railSize.open ? null : pane === "settings" ? (
-				<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />
+				<Suspense fallback={null}>
+					<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />
+				</Suspense>
 			) : (
 			<Rail
 				entries={roster}
@@ -392,7 +400,9 @@ export function App() {
 
 			<main className="@container flex min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
-					<Settings section={settingsSection} />
+					<Suspense fallback={null}>
+						<Settings section={settingsSection} />
+					</Suspense>
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (

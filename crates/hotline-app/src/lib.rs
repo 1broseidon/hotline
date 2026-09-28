@@ -241,12 +241,11 @@ fn window_state_flags() -> StateFlags {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(unix)]
-    shell_path::restore();
-
     // One desk per room, settled before the room opens: a second launch
     // shows the running window and leaves (see `instance`). Every build
     // takes the lock; `make dev` runs on its own data directory instead.
+    // It comes first so that second launch leaves at once, without waiting
+    // on the login shell below.
     let root = data_root();
     let instance = match instance::claim(&root) {
         Ok(instance::Claim::Held(instance)) => instance,
@@ -258,6 +257,10 @@ pub fn run() {
             std::process::exit(1);
         }
     };
+    // Still before any thread starts (claiming starts none), which
+    // `set_var` requires.
+    #[cfg(unix)]
+    shell_path::restore();
     // The keychain is this app's store, and a room made by `hotline serve
     // --store file` is refused rather than opened on an empty keychain.
     if let Err(error) =

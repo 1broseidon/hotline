@@ -26,6 +26,7 @@ describe("Computer limits", () => {
 		expect(memoryLabel(4608)).toBe("4.5 GB");
 		expect(memoryLabel(512)).toBe("512 MB");
 		expect(cpuLabel(0.5)).toBe("0.5 CPU");
+		expect(cpuLabel(null)).toBe("No CPU limit");
 		expect(cpuLabel(2)).toBe("2 CPUs");
 		expect(cpuLabel(null, docker)).toBe("All 7 CPUs");
 		expect(cpuLabel(1.5, { ...docker, runtime: "container" })).toBe("2 CPUs");

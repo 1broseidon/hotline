@@ -59,7 +59,7 @@ function cpuCount(cpus: number): string {
 
 /** No cap is every CPU the desk has; Apple's runtime gives whole CPUs, so a half there reads as the whole it becomes. */
 export function cpuLabel(cpus: number | null | undefined, capacity?: Capacity | null): string {
-	if (cpus == null) return capacity ? `All ${cpuCount(capacity.cpus)}` : "No limit";
+	if (cpus == null) return capacity ? `All ${cpuCount(capacity.cpus)}` : "No CPU limit";
 	return cpuCount(capacity?.runtime === "container" ? Math.max(1, Math.ceil(cpus)) : cpus);
 }
 

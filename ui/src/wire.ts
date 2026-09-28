@@ -134,6 +134,7 @@ type Results = {
 	"mobile.push_register": null;
 	"mobile.persona_create": Persona;
 	"mobile.persona_update": Persona;
+	"mobile.persona_access": Persona;
 	"session.cancel": null;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;

@@ -38,9 +38,12 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
             suffix: macos_aarch64
-          - runner: macos-15-intel
+          # Intel Macs are built on Apple silicon: GitHub's Intel runner is its
+          # slowest, and Rust cross-compiles to x86_64 natively.
+          - runner: macos-15
             target: x86_64-apple-darwin
             suffix: macos_x86_64
+            cross: true
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             suffix: linux_x86_64
@@ -96,10 +99,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # A cache saved while building a tag is scoped to that tag, so no later
+      # release could restore it: only a manual run on main saves one.
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The window's toolkit and the tray's library, found through pkg-config
       # before the deb is written (docs/development.md).
@@ -115,18 +120,18 @@ jobs:
         working-directory: ui
         run: bun install --frozen-lockfile
 
-      - name: Check the core and window on this operating system
+      # Linux and Windows ran these on the pull request (ci.yml), Windows'
+      # Credential Manager round trip included. macOS has no pull request
+      # check, so the Apple silicon build runs them once for both Macs,
+      # rather than every build compiling everything twice.
+      - name: Check the core and window on macOS
+        if: runner.os == 'macOS' && !matrix.cross
         shell: bash
         run: |
-          cargo fmt --all --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked
-          bun run --cwd ui typecheck
+          cargo test --workspace native_store_roundtrip --locked -- --ignored
           python -m unittest discover -s scripts -p 'test_updater_manifest.py'
-
-      - name: Verify native desktop credential storage
-        if: runner.os != 'Linux'
-        run: cargo test --workspace native_store_roundtrip --locked -- --ignored
 
       # Tauri reads its signing and notarization from the environment, and
       # treats a variable that is set as one that is meant: an empty value
@@ -226,15 +231,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: server-${{ matrix.suffix }}
-          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # libdbus only because the core links the keyring crate; `--store
       # file` never talks to it.
       - name: Install the build's libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential libssl-dev libdbus-1-dev pkg-config
-      - name: Test the server edition
-        run: cargo test -p hotline-cli --locked
       - name: Build and pack
         env:
           SUFFIX: ${{ matrix.suffix }}

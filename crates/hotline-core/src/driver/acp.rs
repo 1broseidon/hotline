@@ -79,6 +79,11 @@ use tokio_util::sync::CancellationToken;
 /// outran its reader would either grow without bound or lose text.
 const UPDATE_DEPTH: usize = 256;
 
+/// How long work the agent took up by itself may go without a word before
+/// the room stops showing it as working. Claude ends each such cycle with a
+/// usage report; this is for a harness that never says it is done.
+const UNPROMPTED_QUIET: Duration = Duration::from_secs(300);
+
 /// How long a permission card may wait for a person before the agent is told
 /// nobody answered. A live request cannot wait on an absent human forever;
 /// the agent gets its turn back and the card says it expired.
@@ -429,6 +434,11 @@ struct Live {
     info_changes: Mutex<Option<watch::Sender<DriverInfo>>>,
     /// Where the running turn's updates go. `None` between turns.
     updates: Mutex<Option<mpsc::Sender<Update>>>,
+    /// Where the session takes work the agent starts by itself between
+    /// turns, once it has asked to (see [`Driver::subscribe_unprompted`]).
+    unprompted: Mutex<Option<mpsc::UnboundedSender<mpsc::Receiver<Update>>>>,
+    /// Set while `updates` belongs to such work rather than to a prompt.
+    unprompted_open: Mutex<Option<Unprompted>>,
     /// The message being streamed, buffered so the tape gets whole messages.
     open: Mutex<Option<OpenMessage>>,
     /// The last state written for each tool call. An update carries only what
@@ -458,6 +468,13 @@ struct Live {
     unconsumed: Mutex<Vec<Line>>,
     history: Mutex<Vec<String>>,
     stderr: Mutex<VecDeque<String>>,
+}
+
+/// Work the agent took up without being prompted: which one, and when it
+/// last said anything.
+struct Unprompted {
+    generation: u64,
+    last: std::time::Instant,
 }
 
 /// What the agent said about the conversation it opened.
@@ -494,6 +511,64 @@ struct ToolLine {
 }
 
 impl Live {
+    fn subscribe_unprompted(&self) -> mpsc::UnboundedReceiver<mpsc::Receiver<Update>> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *lock(&self.unprompted) = Some(sender);
+        receiver
+    }
+
+    /// Gives what the agent says between turns somewhere to go: a new
+    /// activity handed to the session, or the one already open. `None`
+    /// unless this opened one, when the generation is its to watch.
+    fn open_unprompted(&self) -> Option<u64> {
+        let mut updates = lock(&self.updates);
+        let mut open = lock(&self.unprompted_open);
+        if let Some(open) = open.as_mut() {
+            open.last = std::time::Instant::now();
+            return None;
+        }
+        if updates.is_some() {
+            return None;
+        }
+        let subscriber = lock(&self.unprompted).clone()?;
+        let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        if subscriber.send(receiver).is_err() {
+            return None;
+        }
+        static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
+        *updates = Some(sender);
+        *open = Some(Unprompted {
+            generation,
+            last: std::time::Instant::now(),
+        });
+        Some(generation)
+    }
+
+    /// Ends the unprompted activity, if one is open: what it was saying is
+    /// closed into it, and it ends the way a turn does.
+    async fn end_unprompted(&self) {
+        if lock(&self.unprompted_open).is_none() {
+            return;
+        }
+        self.flush().await;
+        let sender = {
+            let mut updates = lock(&self.updates);
+            if lock(&self.unprompted_open).take().is_none() {
+                return;
+            }
+            updates.take()
+        };
+        if let Some(sender) = sender {
+            let _ = sender
+                .send(Update::Turn {
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .await;
+        }
+    }
+
     fn subscribe_info(&self) -> watch::Receiver<DriverInfo> {
         let mut changes = lock(&self.info_changes);
         changes
@@ -1111,7 +1186,16 @@ impl Driver for ChildAgent {
         blocks.extend(operator_blocks(&text, &attachments));
         lock(&self.live.history).push(operator_fact(&text, &attachments));
 
-        *lock(&self.live.updates) = Some(sender.clone());
+        // Work the agent took up by itself ends where the operator speaks,
+        // so the two never share a stream.
+        loop {
+            self.live.end_unprompted().await;
+            let mut updates = lock(&self.live.updates);
+            if updates.is_none() {
+                *updates = Some(sender.clone());
+                break;
+            }
+        }
         let live = self.live.clone();
         let capability = self.capability.clone();
         tokio::spawn(async move {
@@ -1169,7 +1253,8 @@ impl Driver for ChildAgent {
             live.settle_permissions();
             live.flush().await;
             // Anything the agent sends after answering belongs to no turn of
-            // Hotline's. A line still on its way in is either taken into
+            // Hotline's; it is work the agent took up by itself (see
+            // `between_turns`). A line still on its way in is either taken into
             // this turn or handed back before the turn is written as over,
             // which is when the session looks for it.
             *lock(&live.updates) = None;
@@ -1240,6 +1325,21 @@ impl Driver for ChildAgent {
             lane.stop();
         }
         self.live.settle_permissions();
+        // Work the agent took up by itself has no prompt to answer the
+        // cancel, so it is ended here, and what it was saying goes with it.
+        let unprompted = {
+            let mut updates = lock(&self.live.updates);
+            lock(&self.live.unprompted_open)
+                .take()
+                .and_then(|_| updates.take())
+        };
+        if let Some(sender) = unprompted {
+            lock(&self.live.open).take();
+            let _ = sender.try_send(Update::Turn {
+                stop_reason: "aborted".into(),
+                usage: None,
+            });
+        }
         let Some(connection) = lock(&self.live.connection).clone() else {
             return;
         };
@@ -1325,6 +1425,10 @@ impl Driver for ChildAgent {
 
     fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
         Some(self.live.subscribe_info())
+    }
+
+    fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
+        Some(self.live.subscribe_unprompted())
     }
 }
 
@@ -1821,7 +1925,7 @@ async fn connect(
                         // Harness login is not a conversation, including unsolicited
                         // session/update notifications emitted by authenticate.
                         if !lock(&live.auth).as_ref().is_some_and(|a| a.running()) {
-                            translate(&live, notification.update).await;
+                            between_turns(&live, notification.update).await;
                         }
                         Ok(())
                     }
@@ -1869,6 +1973,58 @@ async fn connect(
     started
         .await
         .map_err(|_| "The agent's connection ended before it opened.".to_string())
+}
+
+/// One `session/update`, including those the agent sends with no prompt out.
+///
+/// An agent may answer its own background work after its turn is over: a
+/// subagent reporting back, a command it left running finishing. What it says
+/// then opens an activity the session runs as it runs a turn, so the reply
+/// reaches the chat, and the phone, when it is said rather than on the next
+/// message. Claude closes each such cycle with a usage report that carries
+/// the cycle's cost.
+async fn between_turns(live: &Arc<Live>, update: SessionUpdate) {
+    if live.replaying.load(Ordering::SeqCst) {
+        return;
+    }
+    let says = matches!(
+        update,
+        SessionUpdate::AgentMessageChunk(_)
+            | SessionUpdate::AgentThoughtChunk(_)
+            | SessionUpdate::ToolCall(_)
+            | SessionUpdate::ToolCallUpdate(_)
+            | SessionUpdate::Plan(_)
+    );
+    // Claude reports usage after every model call, but only the report that
+    // closes a cycle carries its cost.
+    let ends = matches!(&update, SessionUpdate::UsageUpdate(usage) if usage.cost.is_some());
+    if says && let Some(generation) = live.open_unprompted() {
+        watch_unprompted(Arc::downgrade(live), generation);
+    }
+    translate(live, update).await;
+    if ends {
+        live.end_unprompted().await;
+    }
+}
+
+/// Ends an unprompted activity the agent has gone quiet in.
+fn watch_unprompted(live: std::sync::Weak<Live>, generation: u64) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(UNPROMPTED_QUIET / 10).await;
+            let Some(live) = live.upgrade() else { return };
+            let quiet = match lock(&live.unprompted_open).as_ref() {
+                Some(open) if open.generation == generation => {
+                    open.last.elapsed() >= UNPROMPTED_QUIET
+                }
+                _ => return,
+            };
+            if quiet {
+                live.end_unprompted().await;
+                return;
+            }
+        }
+    });
 }
 
 /// One `session/update`, as the room's vocabulary sees it.
@@ -2439,7 +2595,7 @@ async fn fail(sender: &mpsc::Sender<Update>, text: String) {
 /// the line belongs to the next one. The steering extension asks an idle
 /// agent to refuse (`promptRequired`) rather than start a turn nobody is
 /// listening to; one that starts it anyway (`startedNewTurn`) has that turn
-/// cancelled, because Hotline drops what a turn it did not open says.
+/// cancelled, because the line is said again as a prompt of its own.
 async fn steer_lane(
     live: Arc<Live>,
     connection: ConnectionTo<Agent>,
@@ -4402,5 +4558,191 @@ mod tests {
         // `next` gives each update five seconds, well short of STEER_REPLY.
         assert_eq!(turn_end(&mut updates).await, "cancelled");
         assert!(driver.take_unconsumed().is_empty());
+    }
+
+    /// An agent that answers its first prompt at once and then, with no
+    /// prompt out, reports on work it left running — ending that report with
+    /// a usage update when `reports` says so, as Claude does. Later prompts
+    /// are answered plainly.
+    fn autonomous_agent(reports: bool) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let prompts = Arc::new(AtomicUsize::new(0));
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("autonomous")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(InitializeResponse::new(request.protocol_version))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_request: NewSessionRequest,
+                           responder: Responder<NewSessionResponse>,
+                           _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("background")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let first = prompts.fetch_add(1, Ordering::SeqCst) == 0;
+                        async move {
+                            let session = request.session_id.clone();
+                            cx.send_notification(SessionNotification::new(
+                                session.clone(),
+                                SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                    ContentBlock::Text(TextContent::new(if first {
+                                        "started the build"
+                                    } else {
+                                        "hello again"
+                                    })),
+                                )),
+                            ))?;
+                            responder.respond(PromptResponse::new(StopReason::EndTurn))?;
+                            if first {
+                                let later = cx.clone();
+                                cx.spawn(async move {
+                                    tokio::time::sleep(Duration::from_millis(100)).await;
+                                    let say = |update| {
+                                        later.send_notification(SessionNotification::new(
+                                            session.clone(),
+                                            update,
+                                        ))
+                                    };
+                                    say(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                        ContentBlock::Text(TextContent::new("the build")),
+                                    )))?;
+                                    // A mid-cycle reading, as after each model call:
+                                    // no cost, so the cycle goes on.
+                                    say(SessionUpdate::UsageUpdate(acp::UsageUpdate::new(
+                                        900, 200_000,
+                                    )))?;
+                                    say(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                        ContentBlock::Text(TextContent::new(" passed")),
+                                    )))?;
+                                    if reports {
+                                        say(SessionUpdate::UsageUpdate(
+                                            acp::UsageUpdate::new(1_000, 200_000)
+                                                .cost(acp::Cost::new(0.01, "USD")),
+                                        ))?;
+                                    }
+                                    Ok(())
+                                })?;
+                            }
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the autonomous agent ended: {error}");
+            }
+        }
+    }
+
+    async fn autonomous_driver(
+        name: &str,
+        reports: bool,
+    ) -> (ChildAgent, mpsc::UnboundedReceiver<mpsc::Receiver<Update>>) {
+        let held = room(name);
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch(name),
+            "claude".to_string(),
+            "briefing".to_string(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(autonomous_agent(reports));
+        let activities = driver.subscribe_unprompted().unwrap();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+        let mut updates = driver
+            .prompt("run the build".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+        assert_eq!(turn_end(&mut updates).await, "end_turn");
+        (driver, activities)
+    }
+
+    async fn next_activity(
+        activities: &mut mpsc::UnboundedReceiver<mpsc::Receiver<Update>>,
+    ) -> mpsc::Receiver<Update> {
+        tokio::time::timeout(Duration::from_secs(5), activities.recv())
+            .await
+            .expect("no activity opened")
+            .expect("the driver stopped handing over activities")
+    }
+
+    /// What an agent says after its turn is over reaches the room as an
+    /// activity of its own, ended by the usage report that closes the cycle.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn what_the_agent_says_between_turns_is_its_own_activity() {
+        let (driver, mut activities) = autonomous_driver("between-turns", true).await;
+        let mut report = next_activity(&mut activities).await;
+        assert!(
+            matches!(next(&mut report).await, Update::Delta { text, .. } if text == "the build")
+        );
+        assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == " passed"));
+        assert!(
+            matches!(next(&mut report).await, Update::Message { text, kind, .. }
+                if text == "the build passed" && kind == MessageKind::Agent)
+        );
+        assert!(
+            matches!(next(&mut report).await, Update::Turn { stop_reason, .. } if stop_reason == "end_turn")
+        );
+        assert!(report.recv().await.is_none());
+        assert!(
+            lock(&driver.live.history)
+                .iter()
+                .any(|fact| fact.contains("the build passed"))
+        );
+
+        // The next prompt is a turn of its own again.
+        let mut updates = driver
+            .prompt("anything else?".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+        assert!(
+            matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "hello again")
+        );
+        assert_eq!(turn_end(&mut updates).await, "end_turn");
+    }
+
+    /// A harness that never closes its report is closed by the operator's
+    /// next message, before that message's turn begins; and Stop ends one.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prompt_or_a_stop_ends_work_the_agent_started_itself() {
+        let (driver, mut activities) = autonomous_driver("unclosed-report", false).await;
+        let mut report = next_activity(&mut activities).await;
+        assert!(
+            matches!(next(&mut report).await, Update::Delta { text, .. } if text == "the build")
+        );
+        assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == " passed"));
+        let mut updates = driver
+            .prompt("and now?".to_string(), Vec::new(), Reach::Workspace)
+            .await;
+        assert!(
+            matches!(next(&mut report).await, Update::Message { text, .. } if text == "the build passed")
+        );
+        assert!(
+            matches!(next(&mut report).await, Update::Turn { stop_reason, .. } if stop_reason == "end_turn")
+        );
+        assert!(report.recv().await.is_none());
+        assert!(
+            matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "hello again")
+        );
+        assert_eq!(turn_end(&mut updates).await, "end_turn");
+
+        let (driver, mut activities) = autonomous_driver("stopped-report", false).await;
+        let mut report = next_activity(&mut activities).await;
+        assert!(matches!(next(&mut report).await, Update::Delta { .. }));
+        driver.cancel();
+        assert!(
+            matches!(next(&mut report).await, Update::Turn { stop_reason, .. } if stop_reason == "aborted")
+        );
+        assert!(report.recv().await.is_none());
     }
 }

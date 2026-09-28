@@ -361,6 +361,15 @@ pub trait Driver: Send + Sync {
         None
     }
 
+    /// Work the agent takes up by itself between turns: a subagent reporting
+    /// back, or a command it left running finishing, that it answers without
+    /// being prompted. Each receiver is one such activity, run by the session
+    /// as it runs a turn. A driver whose agent only speaks when prompted
+    /// answers `None`.
+    fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
+        None
+    }
+
     /// Picker metadata worked out again now, for a driver whose choices come
     /// from the room rather than from the agent. Hotline Agent's models are
     /// the room's connections, so a key added or a list refreshed changes

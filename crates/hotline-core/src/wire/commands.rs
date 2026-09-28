@@ -317,8 +317,8 @@ pub(crate) async fn run(
             persona_id,
             query,
             limit,
-        } => Ok(search::search(log.root(), &persona_id, &query, limit)),
-        Command::SearchAll { query, limit } => Ok(search::search_all(log.root(), &query, limit)),
+        } => search::search(log.root(), &persona_id, &query, limit),
+        Command::SearchAll { query, limit } => search::search_all(log.root(), &query, limit),
         Command::FileRead {
             persona_id,
             event_id,

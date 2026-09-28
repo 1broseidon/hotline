@@ -1104,7 +1104,7 @@ mod tests {
             Some(&ProviderAuth::ApiKey("sk-or-import".to_string()))
         );
 
-        let hits = search::search(log.root(), "ada", "hello from ada", None);
+        let hits = search::search(log.root(), "ada", "hello from ada", None).unwrap();
         assert!(
             !hits["hits"].as_array().unwrap().is_empty(),
             "the imported tape should be searchable: {hits}"

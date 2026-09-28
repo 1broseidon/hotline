@@ -2859,14 +2859,14 @@ mod tests {
             "we fixed the harbour",
         );
 
-        let thread = search::search(&root, "ada", "harbour", None);
+        let thread = search::search(&root, "ada", "harbour", None).unwrap();
         let thread_hits = thread["hits"].as_array().unwrap();
         assert_eq!(thread_hits.len(), 1);
         for hit in thread_hits {
             assert_eq!(&round_trip::<ThreadSearchHit>(hit), hit);
         }
 
-        let everyone = search::search_all(&root, "harbour", None);
+        let everyone = search::search_all(&root, "harbour", None).unwrap();
         let global_hits = everyone["hits"].as_array().unwrap();
         assert_eq!(global_hits.len(), 3);
         for hit in global_hits {

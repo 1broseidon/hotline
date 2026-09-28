@@ -37,6 +37,7 @@ export function Search({
 	const [chapters, setChapters] = useState<ChapterSummary[] | null>(null);
 	const [hits, setHits] = useState<Hit[] | null>(null);
 	const [truncated, setTruncated] = useState(false);
+	const [searchError, setSearchError] = useState<string | null>(null);
 	/* -1 until an arrow key moves: a list that opens with a row lit is a list
 	 * that looks like it has already chosen for you. Enter takes the first. */
 	const [active, setActive] = useState(-1);
@@ -94,6 +95,7 @@ export function Search({
 
 	useEffect(() => {
 		setHits(null);
+		setSearchError(null);
 		setTruncated(false);
 		setActive(-1);
 		if (needle === "") return;
@@ -108,9 +110,9 @@ export function Search({
 					setHits(result.hits);
 					setTruncated(result.truncated);
 				},
-				() => {
+				(error: unknown) => {
 					if (cancelled) return;
-					setHits([]);
+					setSearchError(error instanceof Error ? error.message : "Search is unavailable right now. Please try again.");
 					setTruncated(false);
 				},
 			);
@@ -202,7 +204,8 @@ export function Search({
 						onPick={(eventId) => onPick(personaId, eventId)}
 					/>
 				)}
-				{searching && hits === null && <p className="px-3 py-2 text-sm text-ink-3">Searching…</p>}
+				{searching && searchError && <p role="alert" className="px-3 py-2 text-sm text-ink-3">{searchError}</p>}
+				{searching && !searchError && hits === null && <p className="px-3 py-2 text-sm text-ink-3">Searching…</p>}
 				{searching && hits !== null && hits.length === 0 && (
 					<p className="px-3 py-2 text-sm text-ink-3">Nothing matches that yet.</p>
 				)}

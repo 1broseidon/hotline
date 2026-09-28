@@ -112,10 +112,12 @@ pub fn tail(root: &Path, persona_id: &str) -> Vec<Value> {
 /// The last thing either side said in one teammate's tape, or nothing for a
 /// teammate that has never spoken.
 pub fn preview(root: &Path, persona_id: &str) -> Option<Value> {
-    tail(root, persona_id)
-        .iter()
-        .rev()
-        .find_map(message_preview)
+    preview_from_tail(&tail(root, persona_id))
+}
+
+/// Reuse a tail already read for the roster's activity and waiting state.
+pub(crate) fn preview_from_tail(tail: &[Value]) -> Option<Value> {
+    tail.iter().rev().find_map(message_preview)
 }
 
 #[cfg(test)]

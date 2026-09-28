@@ -20,7 +20,7 @@ use tokio::process::Command;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The CLIs Hotline knows how to drive. `command` is the binary name on PATH.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Runtime {
     Docker,
     Podman,
@@ -203,6 +203,17 @@ fn looks_stopped(said: &str) -> bool {
     ]
     .iter()
     .any(|sign| said.contains(sign))
+}
+
+/// The same bounded, hidden-window CLI runner used by runtime detection.
+pub(super) async fn capacity_info(runtime: Runtime, bins: &BinSearch) -> Option<String> {
+    let cmd = bins.resolve(runtime.command())?;
+    let args: &[&str] = match runtime {
+        Runtime::Docker => &["info", "--format", "{{json .}}"],
+        Runtime::Podman => &["info", "--format", "json"],
+        Runtime::AppleContainer => return None,
+    };
+    output(&cmd, args).await.ok()
 }
 
 async fn output(cmd: &std::path::Path, args: &[&str]) -> Result<String, Failure> {

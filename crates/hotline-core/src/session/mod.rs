@@ -3125,6 +3125,13 @@ impl Room {
         ledger::teammate_tools(persona_id)
     }
 
+    pub async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
+        let settings = room::settings(&self.log);
+        self.computers
+            .capacity(crate::computer::preferred_runtime(&settings))
+            .await
+    }
+
     pub async fn computer_runtimes(&self) -> Vec<RuntimeReport> {
         self.computers.runtimes().await
     }

@@ -766,6 +766,10 @@ impl RoomHandle for Desk {
         self.room.forget(persona_id);
     }
 
+    async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
+        self.room.computer_capacity().await
+    }
+
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
         self.room.computer_runtimes().await
     }

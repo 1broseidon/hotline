@@ -529,6 +529,7 @@ mod tests {
         let mut ada = persona("ada");
         ada.effort_id = Some("low".to_string());
         ada.computer = Some(PersonaComputer {
+            cpus: None,
             enabled: true,
             image: None,
             memory: None,

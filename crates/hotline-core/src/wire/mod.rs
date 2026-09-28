@@ -311,6 +311,15 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// side of is dropped, and nothing is kept for its id.
     fn forget(&self, persona_id: &str);
 
+    /// Test harnesses without a runtime return conservative, explicit defaults.
+    async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
+        crate::contract::ComputerCapacity {
+            runtime: None,
+            cpus: 4,
+            memory_bytes: 8 * 1024 * 1024 * 1024,
+            source: crate::contract::ComputerCapacitySource::Default,
+        }
+    }
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport>;
     fn computer_releases(&self) -> crate::contract::ComputerReleases;
     async fn computer_releases_check(&self) -> crate::contract::ComputerReleases;
@@ -546,6 +555,7 @@ impl Seat {
                     | Command::SessionSetConfig { .. }
                     | Command::ModelsList { .. }
                     | Command::ModelsEfforts { .. }
+                    | Command::ComputerCapacity { .. }
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
                     | Command::FileRead { .. }
@@ -557,19 +567,22 @@ impl Seat {
     }
 
     /// What the owner phone may do that a companion may not: a teammate's
-    /// standing access — its reach or its harness mode, and its background
-    /// work — through one narrow command, never the whole `persona.update`
-    /// patch, which could name a path, a server or a computer.
+    /// standing access and computer resources through narrow commands, never
+    /// the whole `persona.update` patch, which could name paths or servers.
     fn owner_only(command: &Command) -> bool {
-        matches!(command, Command::MobilePersonaAccess { .. })
+        matches!(
+            command,
+            Command::MobilePersonaAccess { .. } | Command::MobilePersonaComputer { .. }
+        )
     }
 
     /// What this seat's hello says it can do: the phone's list, and
-    /// `personaAccess` for the owner alone.
+    /// `personaAccess` and `personaComputer` for the owner alone.
     fn capabilities(self) -> Vec<&'static str> {
         let mut capabilities = PHONE_CAPABILITIES.to_vec();
         if self == Seat::Owner {
             capabilities.push("personaAccess");
+            capabilities.push("personaComputer");
         }
         capabilities
     }
@@ -1207,6 +1220,9 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `persona.delete`, renaming, re-aiming and removing a teammate.
 /// `personaAccess`, sent to the owner phone only: `mobile.persona_access`,
 /// a teammate's reach or mode and its background work.
+/// `personaComputer`, also owner-only: `mobile.persona_computer`, enabling
+/// a computer and choosing resource limits. `computer.capacity` is read-only
+/// and available to every phone seat.
 pub(crate) const PHONE_CAPABILITIES: &[&str] =
     &["personaCreate", "personaEdit", "schedules", "threads"];
 

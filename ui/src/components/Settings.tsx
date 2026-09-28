@@ -10,6 +10,7 @@ import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
+import { setTheme, THEMES, useTheme, type Theme } from "../theme";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
@@ -145,6 +146,24 @@ export function Settings({ section, onBack }: { section: SettingsSection; onBack
 	);
 }
 
+function AppearanceSection() {
+	const theme = useTheme();
+	return (
+		<section>
+			<h3 className="group-title">Appearance</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<span className="group-row-text">
+						<span className="group-row-title">Theme</span>
+					</span>
+					<Picker value={theme} choices={THEMES} placeholder="System" label="Theme" onChange={(id) => setTheme(id as Theme)} />
+				</div>
+			</div>
+			<p className="group-hint">System follows your computer's light or dark setting.</p>
+		</section>
+	);
+}
+
 function GeneralSection({
 	idleHours,
 	defaultBackendId,
@@ -197,6 +216,7 @@ function GeneralSection({
 
 	return (
 		<>
+			<AppearanceSection />
 			<section>
 				<h3 className="group-title">Chapters</h3>
 				<div className="grouped">

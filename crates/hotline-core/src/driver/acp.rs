@@ -4738,7 +4738,12 @@ mod tests {
 
         let (driver, mut activities) = autonomous_driver("stopped-report", false).await;
         let mut report = next_activity(&mut activities).await;
-        assert!(matches!(next(&mut report).await, Update::Delta { .. }));
+        // Both pieces are in before the stop, so nothing the agent already
+        // said can land after it.
+        assert!(
+            matches!(next(&mut report).await, Update::Delta { text, .. } if text == "the build")
+        );
+        assert!(matches!(next(&mut report).await, Update::Delta { text, .. } if text == " passed"));
         driver.cancel();
         assert!(
             matches!(next(&mut report).await, Update::Turn { stop_reason, .. } if stop_reason == "aborted")

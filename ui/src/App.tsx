@@ -22,6 +22,7 @@ import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 import { activeDeskId, LOCAL_DESK, useActiveDesk } from "./desks";
+import { AddDesk } from "./components/AddDesk";
 
 /* Settings is opened now and then, not at launch: it loads on first open,
  * which keeps its nine sections out of the startup bundle. */
@@ -30,7 +31,7 @@ const SettingsRail = lazy(() => import("./components/Settings").then((module) =>
 
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
+type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
 type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent } | { kind: "work"; work: OpenWork };
@@ -415,7 +416,9 @@ export function App() {
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
-			<main className="@container flex min-w-0 flex-1 gap-2">
+			<main className="@container flex min-w-0 flex-1 flex-col gap-0">
+				<DeskBand onAddDesk={() => togglePane("add-desk")} />
+				<div className="flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
 						<Settings section={settingsSection} />
@@ -424,6 +427,8 @@ export function App() {
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (
 					<About onClose={closePane} />
+				) : pane === "add-desk" ? (
+					<AddDesk onClose={closePane} />
 				) : pane === "new-teammate" ? (
 					<NewTeammate models={models} onCreated={select} onClose={closePane} />
 				) : welcome ? (
@@ -508,6 +513,7 @@ export function App() {
 						</div>
 					</div>
 				)}
+				</div>
 			</main>
 			</div>
 		</div>
@@ -581,4 +587,33 @@ function saveSeen(seen: Record<string, number>): void {
 	} catch {
 		// Quota, private mode — the next load treats everything as unread.
 	}
+}
+
+/**
+ * A band over the active desk when it is a remote one that is not there:
+ * unreachable (the bridge keeps trying; what shows is what it last said),
+ * or no longer paired (the server revoked this computer). Nothing for a
+ * local desk or a remote one that is open.
+ */
+function DeskBand({ onAddDesk }: { onAddDesk(): void }) {
+	const desk = useActiveDesk();
+	if (desk === null || desk.kind !== "remote" || desk.state === undefined || desk.state === "open") return null;
+	const revoked = desk.state === "revoked";
+	return (
+		<p role="status" className="flex shrink-0 items-center gap-2 rounded-md bg-raised px-4 py-1.5 text-sm text-ink">
+			<span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${revoked ? "" : "beat"}`} style={{ background: "var(--warn)" }} />
+			<span className="min-w-0 flex-1">
+				{revoked
+					? `${desk.name} no longer recognises this computer. Pair it again to reach it.`
+					: desk.state === "connecting"
+						? `Connecting to ${desk.name}…`
+						: `Can't reach ${desk.name}. Hotline keeps trying; what you see is what it last said.`}
+			</span>
+			{revoked && (
+				<button type="button" className="control btn btn-sm" onClick={onAddDesk}>
+					Pair again
+				</button>
+			)}
+		</p>
+	);
 }

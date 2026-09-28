@@ -324,6 +324,9 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         notify::notify,
+        desks::desk_pair_link,
+        desks::desk_pair_ssh,
+        desks::desk_forget,
         files::open_sent_file,
         files::save_sent_file,
         updater::get_update_status,
@@ -333,6 +336,9 @@ pub fn run() {
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        desks::desk_pair_link,
+        desks::desk_pair_ssh,
+        desks::desk_forget,
         files::open_sent_file,
         files::save_sent_file,
         updater::get_update_status,

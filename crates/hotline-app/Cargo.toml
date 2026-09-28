@@ -27,7 +27,8 @@ semver = "1"
 tempfile = "3"
 tokio-util = "0.7"
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+base64 = "0.22"
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "time"] }
 rand = "0.9"
 hotline-core = { path = "../hotline-core" }
 

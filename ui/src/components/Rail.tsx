@@ -51,7 +51,7 @@ export function Rail({
 	onSettings(): void;
 	onEdit(personaId: string): void;
 	onDelete(personaId: string, name: string): void;
-	onHelp(id: "shortcuts" | "about" | "github"): void;
+	onHelp(id: "shortcuts" | "about" | "github" | "add-desk"): void;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
@@ -69,6 +69,7 @@ export function Rail({
 	/* The help a menu bar would carry. Here because on Linux and Windows
 	 * there is no menu bar, and a page nobody can reach is not a page. */
 	const help: MenuEntry[] = [
+		{ kind: "item", id: "add-desk", text: "Add a server…", onSelect: () => onHelp("add-desk") },
 		{ kind: "item", id: "shortcuts", text: "Keyboard shortcuts", onSelect: () => onHelp("shortcuts") },
 		{ kind: "item", id: "about", text: "About Hotline", onSelect: () => onHelp("about") },
 		{ kind: "item", id: "github", text: "Hotline on GitHub", onSelect: () => onHelp("github") },

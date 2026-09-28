@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Wire } from "./wire";
 
 /**
@@ -130,4 +131,10 @@ export function useDesks(): Desk[] {
 
 export function useActiveDesk(): Desk | null {
 	return useSyncExternalStore(subscribe, () => desks.find((desk) => desk.id === active) ?? null);
+}
+
+/* The shell sends the whole list again whenever a desk is paired or
+ * forgotten, or a bridge's state moves. Outside the shell there is no event. */
+if (typeof window !== "undefined" && window.__hotlineDesk !== undefined) {
+	void listen<Desk[]>("hotline://desks", (event) => replaceDesks(event.payload)).catch(() => {});
 }

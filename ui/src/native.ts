@@ -343,3 +343,23 @@ export async function saveSentFile(path: string): Promise<string | null> {
 	if (!isDesktop()) throw new Error("Open the desktop application to save this.");
 	return invoke<string | null>("save_sent_file", { path });
 }
+
+/**
+ * Pairs this window with a remote desk from the link `hotline pair --link`
+ * printed on the server, and answers the new desk's id. The shell claims
+ * the invitation, keeps the keys, starts the desk's bridge and sends the
+ * new desk list (see desks.ts).
+ */
+export async function pairDeskByLink(link: string): Promise<string> {
+	return invoke<string>("desk_pair_link", { link });
+}
+
+/** The same, reading the payload by running `hotline pair --json` on `target` with the person's own `ssh`. */
+export async function pairDeskOverSsh(target: string): Promise<string> {
+	return invoke<string>("desk_pair_ssh", { target });
+}
+
+/** Unpairs a remote desk from this window: it forgets the keys and the desk leaves the list. */
+export async function forgetDesk(deskId: string): Promise<void> {
+	await invoke("desk_forget", { deskId });
+}

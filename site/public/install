@@ -37,11 +37,18 @@ as_root() {
     if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
-as_hotline() {
+# The user the unit runs the desk as: hotline, unless a drop-in changed it
+# (User=agent, to reach a signed-in CLI), and then only that user can read the room.
+desk_user() {
+    user=$(systemctl show -p User --value hotline 2>/dev/null || true)
+    echo "${user:-hotline}"
+}
+
+as_desk() {
     if [ "$(id -u)" -eq 0 ]; then
-        runuser -u hotline -- env HOTLINE_DATA_DIR="$ROOM" "$@"
+        runuser -u "$(desk_user)" -- env HOTLINE_DATA_DIR="$ROOM" "$@"
     else
-        sudo -u hotline env HOTLINE_DATA_DIR="$ROOM" "$@"
+        sudo -u "$(desk_user)" env HOTLINE_DATA_DIR="$ROOM" "$@"
     fi
 }
 
@@ -291,7 +298,7 @@ server() {
     fi
 
     tries=0
-    until as_hotline /usr/local/bin/hotline status >/dev/null 2>&1; do
+    until as_desk /usr/local/bin/hotline status >/dev/null 2>&1; do
         tries=$((tries + 1))
         if [ "$tries" -ge 20 ] || ! as_root systemctl is-active --quiet hotline; then
             as_root journalctl -u hotline -n 20 --no-pager >&2 || true
@@ -306,7 +313,7 @@ server() {
         sleep 1
     done
     say ""
-    as_hotline /usr/local/bin/hotline status || true
+    as_desk /usr/local/bin/hotline status || true
     say ""
     say "Next time, update with: sudo hotline update (or sudo hotline update --check)"
     if [ -z "$fresh" ]; then
@@ -318,7 +325,7 @@ server() {
     say "through npx need Node on the unit's PATH: sudo systemctl edit hotline."
     say ""
     if has_tty; then
-        as_hotline /usr/local/bin/hotline pair </dev/tty ||
+        as_desk /usr/local/bin/hotline pair </dev/tty ||
             say "Pair later with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair"
     else
         say "Pair a phone with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair"

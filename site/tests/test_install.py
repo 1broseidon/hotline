@@ -243,7 +243,7 @@ as_root() {{
     if [ "$1" = install ]; then [ -f "$4" ] || exit 95; fi
     printf '%s\\n' "$*" >>"$LOG"
 }}
-as_hotline() {{ return 0; }}
+as_desk() {{ return 0; }}
 main --server --version 0.26.0 --yes
 '''
         out = self.run_shell(body)
@@ -255,6 +255,16 @@ main --server --version 0.26.0 --yes
         out = self.run_shell(body, success=False)
         self.assertIn("does not match its checksum", out)
         self.assertEqual(self.actions(), [])
+
+    def test_desk_commands_run_as_the_units_user(self):
+        self.stub("systemctl", '[ "$*" = "show -p User --value hotline" ] && echo agent')
+        self.stub("sudo", f'echo "sudo $*" >>{shlex.quote(str(self.log))}')
+        self.run_shell('as_desk hotline status')
+        self.assertEqual(self.actions(), [f"sudo -u agent env HOTLINE_DATA_DIR={self.room} hotline status"])
+        self.log.unlink()
+        self.stub("systemctl", "exit 1")
+        self.run_shell('as_desk hotline status')
+        self.assertEqual(self.actions(), [f"sudo -u hotline env HOTLINE_DATA_DIR={self.room} hotline status"])
 
     def test_pipe_to_sh_help(self):
         result = subprocess.run(["sh", "-s", "--", "--help"], input=INSTALL.read_text(),

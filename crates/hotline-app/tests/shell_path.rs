@@ -24,7 +24,7 @@ fn main() {
                 .unavailable
                 .is_some()
         );
-        shell_path::restore();
+        shell_path::restore(root);
         assert!(
             cached_backends(root)
                 .iter()

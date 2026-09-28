@@ -154,9 +154,10 @@ main --version 0.26.0 --force --yes
         self.run_shell('has_tty() { return 0; }; main --server --version 0.26.0 --force --yes')
         self.assertEqual(self.actions(), ["INSTALL"])
 
-    def test_fresh_install_prompts_when_interactive(self):
-        self.run_shell('has_tty() { return 0; }; main --version 0.26.0')
-        self.assertEqual(self.actions(), ["PROMPT"])
+    def test_fresh_interactive_install_proceeds_without_prompt(self):
+        out = self.run_shell('has_tty() { return 0; }; main --version 0.26.0')
+        self.assertIn("Hotline 0.26.0 is available.", out)
+        self.assertEqual(self.actions(), ["INSTALL"])
 
     def test_debian_metadata_normalizes_packaging_version(self):
         self.stub("dpkg-query", "echo 'install ok installed 1:0.26.0-1'")

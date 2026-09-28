@@ -94,4 +94,10 @@ try { Install-Hotline -Version 0.26.0 -Force -Yes } catch {
     $rejected = $_.Exception.Message -match 'does not match its checksum'
 }
 Assert ($rejected -and $script:installs -eq 4) 'Bad checksum must fail before executing setup'
+$script:badChecksum = $false
+$script:current = $null
+# Still interactive, with a declining answer: fresh installs must never ask.
+$downloadsBefore = $script:downloads
+Install-Hotline -Version 0.26.0
+Assert ($script:prompts -eq 3 -and $script:installs -eq 5 -and $script:downloads -eq ($downloadsBefore + 1)) 'Fresh interactive install must download and install without prompting'
 Write-Host 'PowerShell installer parsing, detection, confirmation, force, and checksum tests passed.'

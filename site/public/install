@@ -166,6 +166,7 @@ confirm_install() {
         fi
     else
         say "Hotline $version is available."
+        return 0
     fi
     if [ -z "$yes" ] && has_tty; then
         ask "Install Hotline $version? (y/N)" N

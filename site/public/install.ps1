@@ -74,7 +74,7 @@ function Install-Hotline {
     } else {
         Write-Host "Hotline $Version is available."
     }
-    if (-not $Yes -and (Test-HotlineTerminal)) {
+    if ($current -and -not $Yes -and (Test-HotlineTerminal)) {
         $answer = Read-Host "Install Hotline $Version? (y/N)"
         if ($answer -notmatch '^(y|yes)$') {
             Write-Host 'Not installed; nothing changed.'

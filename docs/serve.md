@@ -55,7 +55,7 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
-## Pair a phone
+## Pair a device
 
 As the service account, on the machine running the desk:
 
@@ -73,9 +73,19 @@ Treat the QR and terminal scrollback as sensitive until it expires. Cancel
 with Ctrl-C. A served desk does not offer the six-digit manual pairing
 route, and its v2 claim endpoint is absent when no pairing window is open.
 Removing every device does not open an owner bootstrap route: run `pair`
-again locally. Owner and companion currently have the same phone command
-allowlist; neither is the unrestricted local desk seat. Owner onboarding
-commands come separately.
+again explicitly. An owner has the same commands and subscriptions as the
+local desk, including providers, grants and server paths. A companion keeps
+the limited phone command set. Existing grants without a role remain owners.
+
+The default command prints a pasteable link beside the QR. `hotline pair --json`
+prints one JSON payload to stdout; `hotline pair --link` prints only the link.
+Both wait for a claim, cancellation or expiry, so an SSH caller must keep the
+process alive after reading the first line. Completion and errors use stderr.
+The link is `hotline://pair?p=<base64url(JSON)>`, without base64 padding. Its
+payload fields are `version` (2), `url` (HTTPS), `deskKey` (base64url X25519),
+`secret`, `role`, `expiresAt` (Unix milliseconds), and `name`. The existing
+phone QR query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same
+role, expiry and name. All forms name the same single-use invitation.
 
 ## Check on it
 

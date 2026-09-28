@@ -28,7 +28,7 @@ usage:
   hotline --version
   hotline update [--check] [--version X.Y.Z]
   hotline status [--data <dir>]
-  hotline pair [--companion] [--data <dir>]
+  hotline pair [--companion] [--json | --link] [--data <dir>]
   hotline devices [--data <dir>]
   hotline revoke <device-id> [--data <dir>]
   hotline wire <command> [--data <dir>] < params.json
@@ -94,8 +94,14 @@ fn main() -> ExitCode {
             }
             serve::run(root, &store, options)
         }
-        "pair" if args.is_empty() || args == ["--companion"] => {
-            remote::pair(&root, !args.is_empty())
+        "pair" => {
+            let companion = take_flag(&mut args, "--companion");
+            let json = take_flag(&mut args, "--json");
+            let link = take_flag(&mut args, "--link");
+            if !args.is_empty() || (json && link) {
+                return usage("pair takes --companion and either --json or --link");
+            }
+            remote::pair(&root, companion, json, link)
         }
         "devices" if args.is_empty() => remote::devices(&root),
         "revoke" if args.len() == 1 => remote::revoke(&root, &args[0]),
@@ -224,5 +230,14 @@ mod tests {
             flags.extend(extra);
             assert!(options(&flags).is_err());
         }
+    }
+}
+
+fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
+    if let Some(index) = args.iter().position(|arg| arg == flag) {
+        args.remove(index);
+        true
+    } else {
+        false
     }
 }

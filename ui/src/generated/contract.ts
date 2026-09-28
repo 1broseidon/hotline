@@ -454,6 +454,11 @@ export type OpenAiApi = "responses" | "chat_completions";
 export type PairingInvitation = { kind: string, version: number, desktopId: string, name: string, endpoint: string, certificateSha256: string, invitationId: string, secret: string, expiresAt: number, };
 
 /**
+ * The link and SSH formats carry the same short-lived capability as the QR.
+ */
+export type PairingPayload = { version: number, url: string, deskKey: string, secret: string, role: DeviceRole, expiresAt: number, name: string, };
+
+/**
  * What a site asked for when it called for a passkey under an arming: the
  * site, the origin the page is on, and the account the passkey would be
  * for, as the computer read them off the request. What the card shows.
@@ -911,7 +916,7 @@ export type ScheduledRun = { jobId: string, kind: ScheduleKind, name: string,
  */
 operatorCreated: boolean, quiet?: boolean, };
 
-export type SealedPairing = { id: string, url: string, qrSvg: string, expiresAt: number, };
+export type SealedPairing = { payload: PairingPayload, link: string, id: string, url: string, qrSvg: string, expiresAt: number, };
 
 /**
  * What the agent behind a session can be asked to do.

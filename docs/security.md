@@ -102,7 +102,7 @@ decision for George, not a bug fix.
 Some things the person does from the desk are one-shot transfers, not standing
 grants: attaching a file to a prompt, adding a mount, and importing a host
 browser's cookies into a teammate's computer. They use the person's own
-authority through the authenticated desk wire, are gated to the desk seat, and
+authority through the authenticated desk wire, are gated to owner or local desk authority, and
 add nothing to what the agent may reach on its own. They are not a call-time
 approval prompt, which the standing-consent rule forbids, because the person
 initiates them; there is no card the agent can raise.
@@ -110,7 +110,7 @@ initiates them; there is no card the agent can raise.
 Cookie import (`computer.browsers.list`, `computer.cookies.preview`,
 `computer.cookies.import`, `computer.cookies.list`, `computer.cookies.forget`)
 is the sharpest case, so it is spelled out. The agent has no tool that reads
-the host's browsers; the five commands are desk-seat only and the phone
+the host's browsers; these commands require owner or local desk authority, and the companion
 allowlist does not name them, so the model cannot pull cookies whatever it is
 told. The person chooses the browser, the profile,
 and the exact sites; a preview carries domains and counts, never a value. On
@@ -133,8 +133,8 @@ the agent's browser is signed in to is what the pane shows.
 
 The desk and paired phone may read user image attachments through `file.read`,
 by living teammate, message id and original attachment index. This adds no agent
-tool or grant and does not let a phone supply a source path. `session.prompt`
-remains desk-only; `mobile.prompt` still resolves only completed device-scoped
+tool or grant and does not itself accept a source path. `session.prompt`
+is available to owners and the local desk; `mobile.prompt` still resolves only completed device-scoped
 uploads. The shared session funnel captures recognized PNG/JPEG/GIF/WebP bytes
 at send time, without transcoding, into a per-message, per-index copy. Readback
 checks the user event and image kind and only opens that copy, with the same
@@ -166,7 +166,7 @@ record is for — kind, sites, username, whether there is a seed; site and
 user name for a passkey — so `secrets.list` answers that without opening
 the keychain. Nothing on the wire, in the room stream, or in a subscription
 ever carries a value, a password, a seed or a private key: the store is
-write-only from the window. All seven commands are desk-seat only.
+write-only from the window. All seven commands require owner or local desk authority.
 
 A teammate gets a secret only by the operator ticking its name on that
 teammate's computer, `computer.secrets`, a standing choice like a mount,
@@ -403,7 +403,7 @@ extend; when a change adds a boundary, it adds a row.
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`, `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
-| The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
+| The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`, `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
@@ -411,11 +411,11 @@ extend; when a change adds a boundary, it adds a row.
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the door refuses the unpaired, a path naming anything but a teammate, and a stopped computer; revoking the device drops the socket | `remote/tests.rs` `a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer`, `the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped`, `revoking_the_phone_drops_its_computer_socket`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
-| What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; the phone can neither list nor take back; expired cookies are left on the host | `session/tests.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
-| Stored secrets are the desk's alone: the phone can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
-| A phone reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room or run stream (a thread between two teammates is read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`, `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
-| A phone adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`, `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
-| A phone renames a teammate or changes its goal only through `mobile.persona_update`, never `persona.update`: the patch core builds holds `name` and `goal` and nothing else, whatever the phone's JSON names for reach, path, computer or background work; a blank name, an edit naming neither field and an unknown teammate are refused; the phone may `persona.delete` | `wire/tests.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`, `mobile_persona_update_changes_only_the_name_and_goal`; `remote/tests.rs` `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update` | — |
+| What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
+| Stored secrets are operator-only: a companion can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
+| A companion reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room or run stream (a thread between two teammates is read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`, `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
+| A companion adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`, `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
+| A companion renames a teammate or changes its goal only through `mobile.persona_update`, never `persona.update`: the patch core builds holds `name` and `goal` and nothing else, whatever the phone's JSON names for reach, path, computer or background work; a blank name, an edit naming neither field and an unknown teammate are refused; the phone may `persona.delete` | `wire/tests.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`, `mobile_persona_update_changes_only_the_name_and_goal`; `remote/tests.rs` `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update` | — |
 | A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent from a quiet scheduled run or past the caps, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests.rs` `sent_files::a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `sent_files::what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `sent_files::a_quiet_scheduled_run_sends_nothing_and_says_so`, `sent_files::a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
 | User image readback uses a send-time copy at the original attachment index; default zero, mixed attachments, chunk continuation, real MIME and no transcoding; source replacement/deletion cannot change it, missing/legacy copies never reopen paths; non-image, invalid index/offset, wrong teammate/message, planted file link and over-cap copy are refused; a paired phone can refetch its image but not a user text file | `tests/desk.rs` `user_images_read_back_by_original_index_without_reopening_the_source`; `sent.rs` `user_image_copies_keep_their_bytes_and_cannot_be_replaced`; `remote/tests.rs` `a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time` | Unix for planted link |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
@@ -542,8 +542,7 @@ made it so.
   only `id`, `name`, `description` and `unavailable`, and that `persona.create`
   still answers `forbidden` for that seat.
 - **Residual risk:** any paired phone can create a teammate today, the same
-  posture the rest of the phone seat already has — there is no owner-only
-  seat yet (BRO-116). A created teammate's workspace is a fresh empty
+  posture retained by the companion seat. A created teammate's workspace is a fresh empty
   directory the desk made, so this adds no reach beyond what an operator
   clicking "New teammate" already grants; it only lets the phone ask for it.
 
@@ -558,7 +557,7 @@ made it so.
   `mobile.persona_update` is confined by its shape: the command has fields
   for a name and a goal and nowhere to carry anything else, and
   `wire/commands.rs`'s `mobile_persona_patch` builds the patch from those two
-  alone. `persona.update` stays desk-seat only.
+  alone. `persona.update` is available to owners and the local desk, never companions.
 - **Enforcement:** the patch goes through the same `apply_persona_update`
   path as `persona.update`, under the policy gate; a changed goal restarts a
   live session exactly as it does from the desk. A blank name and an edit
@@ -569,17 +568,16 @@ made it so.
   the params carry them, and the refusals. `remote/tests.rs`
   `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update`
   proves the same over a real paired phone, including the delete.
-- **Residual risk:** any paired phone can now remove a teammate, with no
-  owner-only seat yet (BRO-116). Removal takes no reach and grants nothing,
+- **Residual risk:** any paired phone, including a companion, can remove a teammate. Removal takes no reach and grants nothing,
   and the tape is kept, but it is destructive; the phone asks the person to
   confirm first.
 
-### Harness sign-in is a private desktop operation (BRO-132)
+### Harness sign-in is a private operator operation (BRO-132)
 
 - **Default and grant source:** choosing an ACP harness already trusts that
   external program with its host permissions. Sign-in adds no agent tool or
-  standing grant. Only an authenticated desk seat may invoke `agent.auth.*`;
-  the phone allowlist and advertised phone capabilities remain unchanged.
+  standing grant. An authenticated owner or local desk seat may invoke
+  `agent.auth.*`; companions remain excluded.
   Poll, input, and cancel also require the exact desktop socket that started
   the attempt; knowing its id does not let another desktop read or drive it.
 - **Enforcement:** the driver resolves a method id against the current
@@ -605,7 +603,7 @@ made it so.
   `driver::auth::tests` exercises bounded output and real PTY success/failure
   and cleanup, including descendants that keep a slave open in another group.
   `wire::tests::auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner`
-  proves desk-only access, socket ownership, no tape writes, and disconnect.
+  proves companion refusal, socket ownership, no tape writes, and disconnect.
   UI tests cover failure-card parsing and explicit retry selection; browser
   fixtures additionally exercise terminal lifecycle and private input.
 - **Residual risk:** a trusted external harness can print sensitive material,
@@ -626,10 +624,10 @@ made it so.
   the chosen `modeId`, so a harness teammate comes back in it after a restart
   instead of on the harness default.
 - **Grant source:** `Seat::permits` (`wire/mod.rs`) lets `Seat::Owner`, and
-  not `Seat::Phone`, send `Command::MobilePersonaAccess` (`Seat::owner_only`).
+  not `Seat::Phone`, send `Command::MobilePersonaAccess` .
   The command has fields for a reach, a mode and background work and nowhere
   to carry a path, a server, a skill or a computer; `persona.update` and
-  `session.set_mode` stay desk-seat only for both phone roles. The owner's
+  `session.set_mode` are also available to owners; companions cannot call them. The owner's
   hello adds `personaAccess`; a companion's does not.
 - **Enforcement:** `wire/commands.rs` `mobile_persona_access` refuses a reach
   for a harness teammate and a mode for a Hotline Agent teammate, and an
@@ -640,12 +638,12 @@ made it so.
   resting teammate's choice is kept and offered to the harness at its next
   start, which refuses one it does not have.
 - **Tests:** `wire/tests.rs` `only_the_owner_phone_changes_a_teammates_access`
-  proves the owner/companion split, that neither phone seat gains
-  `persona.update` or `session.set_mode`, and the hello difference;
+  proves the owner/companion split, companion refusal of
+  `persona.update` and `session.set_mode`, and the hello difference;
   `mobile_persona_access_sets_reach_mode_and_background_work` proves the
   writes and every refusal. `remote/tests.rs`
   `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away`
-  proves an owner grant's hello over a real phone socket.
+  proves a companion grant's hello over a real phone socket.
 - **Residual risk:** an owner phone can now give a Hotline Agent teammate the
   whole machine, or put a harness in its most permissive mode (for example
   Claude's `bypassPermissions`), from anywhere the phone reaches the desk.
@@ -661,8 +659,9 @@ made it so.
   to a whole CPU, with a minimum of one.
 - **Grant source:** `mobile.persona_computer {id, enabled?, memory?, cpus?}`
   is owner-phone only, advertised by the owner's `personaComputer` hello
-  capability. A companion cannot send it. Neither phone gains general
-  `persona.update`, image, process-limit, mount or secret-grant controls.
+  capability. A companion cannot send it. Owners also have general
+  `persona.update`, including image, process-limit, mount and secret controls;
+  companions do not.
   Omitted fields stay unchanged; `cpus: null` clears the CPU cap. Enabling
   a teammate with no computer record creates one with the normal defaults.
 - **Enforcement:** CPU caps are positive half-CPU increments no larger than
@@ -692,10 +691,10 @@ made it so.
 - **Default and grant source:** desktop Remote remains opt-in with existing
   legacy grants retained. `serve` requires an explicit non-wildcard fixed
   listen address and public HTTPS URL; it starts that listener and never
-  widens or chooses an ephemeral fallback. A local desk-seat operator opens
+  widens or chooses an ephemeral fallback. An owner or local desk operator opens
   a two-minute single-use QR invitation. Empty grants never bootstrap an
-  owner. Old grants without roles become owner; owner and companion both
-  keep the existing phone allowlist until BRO-116.
+  owner. Old grants without roles become owner. Owners have the desk command
+  set; companions retain the limited phone allowlist.
 - **Enforcement:** `remote/v2.rs` persists a separate X25519 identity in the
   selected SecretStore and atomically consumes the invitation with grant
   creation. `remote/server.rs`, `sealed.rs` and `channel.rs` authenticate
@@ -703,7 +702,7 @@ made it so.
   silently. Viewer purpose and persona are authenticated handshake content,
   checked against the HTTP target, so a TLS proxy cannot redirect controls.
   Only the desk resolves computer addresses and presents viewer bearers.
-  `Seat::permits` refuses all remote administration to both phone roles.
+  `Seat::permits` refuses remote administration to companions.
 - **Lifetime:** explicit revoke or Remote disable invalidates active sockets,
   even while a remote command is waiting on a driver or computer. Pending
   remote calls are dropped and subscriptions/writers are cleaned up; this is
@@ -719,7 +718,7 @@ made it so.
   roles, certificate rotation, viewer binding and revocation. Other Remote
   tests cover supplied TLS, exact late binding, absent served legacy routes,
   handshake budgets and manual retry hardening. `wire::tests` checks owner
-  and companion refusals through the real handler; `hotline-cli/tests/pair.rs`
+  authority and companion refusals through the real handler; `hotline-cli/tests/pair.rs`
   proves SIGINT and SIGKILL close the claim route through the running CLI.
 - **Residual risk:** this is not traffic-analysis protection: a proxy sees
   paths, timing and sizes and can deny service. The limits (16 total, 4/IP)
@@ -730,3 +729,32 @@ made it so.
   sealed transport does not retroactively protect those legacy sessions.
   Physical iOS and real certificate/proxy deployment QA remain separate from
   Rust network harnesses and shared deterministic vectors.
+
+
+## Desktop clients and owner parity (BRO-145)
+
+- **Default and old records:** Remote remains opt-in. Explicit pairing creates
+  the requested owner or companion grant; missing roles still mean owner.
+  Owners, including existing phone owners, now have the local desk command
+  and subscription set. Companions retain their allowlist and transcript limits.
+- **Grant source:** a two-minute, single-use invitation from an operator. QR,
+  JSON and link carry the same invitation. The client saves a device key and
+  pinned desk key in SecretStore before consuming it; the registry contains
+  only desk ID, name, URL and public key.
+- **Enforcement:** `remote::client` requires HTTPS and completes Noise IK
+  against the saved pin before accepting application data. TLS certificates
+  can rotate: TLS signatures are verified, while Noise supplies desk identity.
+  `Seat::permits` and `permits_sub` admit owners and refuse companion admin
+  before dispatch. Revocation still cancels live remote calls and sockets.
+  Remote output remains bounded; owner frames may be up to 32 MiB.
+- **Tests:** `rust_client_pairs_pins_and_recovers_subscriptions_without_replaying_commands`
+  and `rust_client_companion_cannot_change_settings_or_subscribe_to_room`
+  exercise real TLS/Noise and the handler. The CLI pairing integration test
+  uses a disposable `hotline serve --store file` and verifies JSON, link,
+  successful claim, single use and process lifetime.
+- **Residual risk:** an owner can administer the service account's files,
+  credentials and grants, just like the local desk. Protect owner device keys
+  accordingly. Network failure cannot prove whether an interrupted mutation
+  completed; the client never automatically resends it. Pairing links are
+  secrets until consumed or expired. Physical laptop/phone and proxy QA are
+  separate from these disposable network harnesses.

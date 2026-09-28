@@ -2,6 +2,7 @@
 //! Its identity key uses the same OS credential store as provider credentials.
 mod attachments;
 mod channel;
+pub mod client;
 mod network;
 mod pake;
 mod sealed;
@@ -9,7 +10,7 @@ mod served;
 mod server;
 mod v2;
 pub use served::ServeOptions;
-pub use v2::SealedPairing;
+pub use v2::{PairingPayload, SealedPairing};
 
 use crate::contract::MobileAttachmentChunk;
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_write};
@@ -60,7 +61,7 @@ fn pairing_code() -> String {
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum DeviceRole {
-    /// Legacy phones retain their authority, never the unrestricted desk seat.
+    /// Missing roles retain owner authority, including the full desk command set.
     #[default]
     Owner,
     Companion,
@@ -405,7 +406,6 @@ impl Remote {
     pub fn addresses() -> Vec<String> {
         network::addresses()
     }
-    #[cfg(test)]
     pub(crate) fn status_desktop_id(&self) -> String {
         self.state.lock().unwrap().saved.desktop_id.clone()
     }

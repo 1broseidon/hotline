@@ -131,9 +131,9 @@ seat. Here the wire is one WebSocket carrying three things:
   has shown per teammate. A view is a snapshot followed by updates.
 
 A **seat** is what a socket may do: the desk seat (the window) may do
-everything; a phone seat may command its own device's things and subscribe
-to what it is shown; later seats (peer, client) are the same mechanism with
-smaller sets. There is no per-method routing table; a seat is a set.
+everything; a paired owner has the same command and subscription set. A
+companion keeps the limited phone seat. The stored grant determines authority,
+not whether the client is a phone or desktop. There is no per-method routing table; a seat is a set.
 
 Settings → Remote owns an opt-in TLS listener, separate from the desk's loopback
 door. Its default is all host IPs, with a live option to restrict it to one local
@@ -167,9 +167,10 @@ its legacy routes remain for existing phones.
 
 `hotline pair` opens a two-minute, atomic single-use QR invitation and keeps
 it open only while its local desk-seat connection lives. No empty grant list
-bootstraps an owner. Owner and companion are stored roles with the same limited
-phone allowlist until owner onboarding is implemented. Remote administration
-is desk-seat wire commands, shared by the window and CLI, not Tauri wrappers.
+bootstraps an owner. Owner grants carry full desk authority; companion grants
+retain the limited phone allowlist. `--json` and `--link` expose the same
+invitation for desktop clients. Remote administration uses owner and local
+desk wire commands, shared by the window and CLI, not Tauri wrappers.
 The served listener never mounts manual or legacy bearer routes.
 
 All sealed application frames, including computer traffic, travel inside

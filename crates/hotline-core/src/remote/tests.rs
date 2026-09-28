@@ -7,6 +7,7 @@ use crate::{
     desk::Desk,
     wire::Door,
 };
+use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -124,6 +125,20 @@ impl Harness {
     async fn pair(&self) -> Value {
         let invite = self.remote.pairing().unwrap().invitation;
         self.claim_invitation(invite).await
+    }
+    async fn pair_companion(&self) -> Value {
+        let grant = self.pair().await;
+        let mut state = self.remote.state.lock().unwrap();
+        state
+            .saved
+            .grants
+            .iter_mut()
+            .find(|g| g.device.id == grant["deviceId"])
+            .unwrap()
+            .device
+            .role = DeviceRole::Companion;
+        self.remote.save(&state.saved).unwrap();
+        grant
     }
     /// Scans the invitation already on screen rather than minting one.
     async fn pair_current(&self) -> Value {
@@ -296,7 +311,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     let looking: Value =
         serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert_eq!(looking["ok"], true, "{looking}");
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
     for frame in [
@@ -461,7 +476,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
 async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
     let h = Harness::new().await;
 
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
 
@@ -539,7 +554,7 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
 #[tokio::test]
 async fn a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update() {
     let h = Harness::new().await;
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
 
@@ -647,22 +662,15 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
         .unwrap()
         .to_string();
 
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let token = grant["token"].as_str().unwrap();
     let mut phone = h.socket(token).await.unwrap();
     // The hello is how a phone knows it may ask; a desk from before this
     // list names nothing, and the phone then shows no schedules section. A
-    // grant from before roles is the owner's, which also changes access.
+    // companion keeps the smaller command set.
     assert_eq!(
         read(&mut phone).await["capabilities"],
-        json!([
-            "personaCreate",
-            "personaEdit",
-            "schedules",
-            "threads",
-            "personaAccess",
-            "personaComputer"
-        ])
+        json!(["personaCreate", "personaEdit", "schedules", "threads"])
     );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
@@ -1666,7 +1674,7 @@ mod sealed_network {
     }
 
     #[tokio::test]
-    async fn explicit_pairing_is_atomic_and_both_roles_are_not_desk_seats() {
+    async fn explicit_pairing_is_atomic_and_only_owners_have_desk_authority() {
         let h = Harness::new().await;
         assert!(h.socket_at("/v2/pair", "").await.is_err());
         let (first, _) = sealed::keypair().unwrap();
@@ -1712,15 +1720,20 @@ mod sealed_network {
                 json!({"id":2,"cmd":"settings.update","params":{"patch":{}}}),
             )
             .await;
-            assert_eq!(
-                read_sealed(&mut socket, &mut state).await["code"],
-                "forbidden"
-            );
+            let reply = read_sealed(&mut socket, &mut state).await;
+            assert_eq!(reply["ok"], role == DeviceRole::Owner);
+            if role == DeviceRole::Companion {
+                assert_eq!(reply["code"], "forbidden");
+            }
             send_sealed(&mut socket, &mut state, json!({"id":3,"sub":"room"})).await;
-            assert_eq!(
-                read_sealed(&mut socket, &mut state).await["code"],
-                "forbidden"
-            );
+            let reply = read_sealed(&mut socket, &mut state).await;
+            assert_eq!(reply["ok"], role == DeviceRole::Owner);
+            if role == DeviceRole::Companion {
+                assert_eq!(reply["code"], "forbidden");
+            }
+            if role == DeviceRole::Owner {
+                assert!(read_sealed(&mut socket, &mut state).await["snapshot"].is_array());
+            }
             h.remote.revoke(&device.id).unwrap();
             closed(&mut socket).await;
             assert!(exchange(&h, "/v2", private, &public, &[]).await.is_none());
@@ -2282,4 +2295,167 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
     );
     assert!(remote.noise_identity.read().unwrap().is_some());
     remote.configure(false, &listen.to_string()).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_pairs_pins_and_recovers_subscriptions_without_replaying_commands() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let decoded = PairingPayload::from_link(&invitation.link).unwrap();
+    assert_eq!(decoded.secret, invitation.payload.secret);
+    assert_eq!(decoded.expires_at, invitation.expires_at);
+    assert_eq!(decoded.version, 2);
+    let desk = client.pair(&decoded, "Test laptop").await.unwrap();
+    assert_eq!(desk.desk_id, h.remote.status_desktop_id());
+    assert!(client.pair(&decoded, "Second claim").await.is_err());
+    let mut session = client.connect(&desk);
+    async fn receive(session: &mut client::Session) -> Value {
+        serde_json::from_str(
+            &tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap()
+    }
+    assert_eq!(receive(&mut session).await["type"], "hello");
+    assert_eq!(*session.state.borrow(), client::State::Open);
+    session
+        .outgoing
+        .send(json!({"id":1,"sub":"room"}).to_string())
+        .await
+        .unwrap();
+    assert_eq!(receive(&mut session).await["ok"], true);
+    assert!(receive(&mut session).await["snapshot"].is_array());
+    session.outgoing.send(json!({"id":2,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/client-test-skills"}}}).to_string()).await.unwrap();
+    loop {
+        let frame = receive(&mut session).await;
+        if frame["id"] == 2 {
+            assert_eq!(frame["ok"], true);
+            break;
+        }
+    }
+    h.remote.configure(false, network::ALL).await.unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        session
+            .state
+            .wait_for(|state| *state == client::State::Unreachable),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    h.remote.configure(true, network::ALL).await.unwrap();
+    loop {
+        if receive(&mut session).await["type"] == "hello" {
+            break;
+        }
+    }
+    assert_eq!(receive(&mut session).await["ok"], true);
+    let snapshot = receive(&mut session).await;
+    assert!(
+        snapshot["snapshot"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event.to_string().contains("/tmp/client-test-skills"))
+    );
+    session
+        .outgoing
+        .send(json!({"id":3,"cmd":"backends.list"}).to_string())
+        .await
+        .unwrap();
+    loop {
+        if receive(&mut session).await["id"] == 3 {
+            break;
+        }
+    }
+    assert_eq!(
+        h.desk
+            .log
+            .load(&crate::log::StreamId::Room)
+            .iter()
+            .filter(|event| event.to_string().contains("/tmp/client-test-skills"))
+            .count(),
+        1,
+        "the mutation was not replayed"
+    );
+    let mut tampered = desk.clone();
+    tampered.desk_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([9u8; 32]);
+    assert!(client.open(&tampered, None).await.is_err());
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_companion_cannot_change_settings_or_subscribe_to_room() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Companion laptop")
+        .await
+        .unwrap();
+    let mut socket = client.open(&desk, None).await.unwrap();
+    socket.next().await.unwrap().unwrap();
+    for request in [
+        json!({"id":1,"sub":"room"}),
+        json!({"id":2,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/no"}}}),
+    ] {
+        socket
+            .send(Message::text(request.to_string()))
+            .await
+            .unwrap();
+        let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+            panic!("expected reply");
+        };
+        let reply: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(reply["ok"], false);
+        assert_eq!(reply["code"], "forbidden");
+    }
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn pairing_failures_do_not_consume_the_invitation_or_replace_a_pin() {
+    struct Locked;
+    impl crate::credentials::SecretStore for Locked {
+        fn get(&self, _: &str) -> std::io::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        fn set(&self, _: &str, _: &[u8]) -> std::io::Result<()> {
+            Err(std::io::Error::other("test store locked"))
+        }
+        fn delete(&self, _: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let h = Harness::new().await;
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let mut invalid = invitation.payload.clone();
+    invalid.version = 99;
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    invalid = invitation.payload.clone();
+    invalid.expires_at = super::now() - 1;
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    invalid = invitation.payload.clone();
+    invalid.url = invalid.url.replace("https:", "http:");
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    invalid = invitation.payload.clone();
+    invalid.desk_key =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed::keypair().unwrap().1);
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    assert!(
+        client::Client::new(Arc::new(Locked))
+            .pair(&invitation.payload, "Laptop")
+            .await
+            .is_err()
+    );
+    assert!(h.remote.pairing_result(&invitation.id).unwrap().is_none());
+    let paired = client.pair(&invitation.payload, "Laptop").await.unwrap();
+    assert_eq!(paired.desk_key, invitation.payload.desk_key);
+    assert_eq!(h.remote.devices().len(), 1);
+    h.remote.configure(false, network::ALL).await.unwrap();
 }

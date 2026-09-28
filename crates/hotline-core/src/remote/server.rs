@@ -425,7 +425,7 @@ async fn sealed_door(
                 let role = remote.claim_v2(&public, &payload[..size]).ok()?;
                 (
                     None,
-                    serde_json::to_vec(&json!({"role": role, "deskName": desktop_name()})).ok()?,
+                    serde_json::to_vec(&json!({"role": role, "deskName": desktop_name(), "deskId": remote.status_desktop_id()})).ok()?,
                 )
             } else {
                 // A TLS proxy can rewrite the HTTP target, but not this

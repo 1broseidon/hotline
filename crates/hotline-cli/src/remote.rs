@@ -49,7 +49,7 @@ pub fn revoke(root: &Path, id: &str) -> ExitCode {
     }))
 }
 
-pub fn pair(root: &Path, companion: bool) -> ExitCode {
+pub fn pair(root: &Path, companion: bool, json: bool, link: bool) -> ExitCode {
     outcome(door::runtime().block_on(async {
         let desk = door::running(root)?;
         let url = format!("ws://127.0.0.1:{}/ws?token={}", desk.port, desk.token);
@@ -66,20 +66,28 @@ pub fn pair(root: &Path, companion: bool) -> ExitCode {
         let role = if companion { "companion" } else { "owner" };
         let invitation = ask(&mut socket, &mut serial, json!({"role":role})).await?;
         let id = field(&invitation, "id")?.to_owned();
-        let result = wait_for_phone(&mut socket, &mut serial, &invitation, &id, role).await;
+        if json {
+            println!(
+                "{}",
+                invitation
+                    .get("payload")
+                    .ok_or("The desk does not support JSON pairing; update it first.")?
+            );
+        } else if link {
+            println!("{}", field(&invitation, "link")?);
+        } else {
+            print_invitation(&invitation, role)?;
+        }
+        use std::io::Write;
+        std::io::stdout().flush().map_err(|e| e.to_string())?;
+        let result = wait_for_phone(&mut socket, &mut serial, &invitation, &id).await;
         let _ = ask(&mut socket, &mut serial, json!({"id":id,"cancel":true})).await;
         let _ = socket.close(None).await;
         result
     }))
 }
 
-async fn wait_for_phone(
-    socket: &mut Socket,
-    serial: &mut u64,
-    invitation: &Value,
-    id: &str,
-    role: &str,
-) -> Result<(), String> {
+fn print_invitation(invitation: &Value, role: &str) -> Result<(), String> {
     let url = field(invitation, "url")?;
     let code =
         qrcode::QrCode::new(url.as_bytes()).map_err(|_| "The pairing QR could not be drawn")?;
@@ -92,8 +100,16 @@ async fn wait_for_phone(
             .quiet_zone(true)
             .build()
     );
-    // The URI is deliberately not printed as text: terminal scrollback is
-    // still sensitive, but a casual copied command never carries its secret.
+    println!("{}", field(invitation, "link")?);
+    Ok(())
+}
+
+async fn wait_for_phone(
+    socket: &mut Socket,
+    serial: &mut u64,
+    _invitation: &Value,
+    id: &str,
+) -> Result<(), String> {
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|e| e.to_string())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
@@ -114,7 +130,7 @@ async fn wait_for_phone(
             result = ask(socket, serial, json!({"id":id})) => result?,
         };
         if !device.is_null() {
-            println!(
+            eprintln!(
                 "Paired {} as {}.",
                 field(&device, "name")?.escape_default(),
                 field(&device, "role")?

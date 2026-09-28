@@ -159,10 +159,10 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 
 `computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
 `computer.cookies.list` and `computer.cookies.forget` are the operator's cookie
-import and its record: reading a browser on the person's own machine, handing
+import and its record: reading a browser on the desk host, handing
 the chosen sites' cookies to a teammate's computer, and taking them back. They
-are desk-seat only — the phone allowlist does not name them and no agent tool
-reaches them, so the agent can never pull cookies itself. A preview carries
+require an owner or local desk seat — the companion allowlist does not name
+them and no agent tool reaches them, so the agent can never pull cookies itself. A preview carries
 domains and counts, and leaves expired cookies behind, since the browser would
 drop them on its next look; a value crosses only on import, host to desk to
 container, and never enters the tape, the model, or a log. `browsers.list` and
@@ -209,7 +209,7 @@ stored. The store is write-only from the window: `set` and `login.set`
 answer the record, `list` answers names, kinds and what each is for,
 `registration` answers the record once stored, and no command,
 subscription or room event ever carries a value or a private key. All but
-`answer` are desk seat only; `answer` is one answer to one request the
+`answer` require an owner or local desk seat; `answer` is one answer to one request the
 person armed for at the desk, so the phone may give it, as it may answer a
 permission card. Which teammate may use which secret is
 `persona.computer.secrets` through `persona.update`; a change to a stored
@@ -661,15 +661,16 @@ What a client can tell apart, and where each comes from:
 ## The seat
 
 A seat is what a socket may do: a set, not a routing table. The token that
-opened the socket is what seated it. The desk seat may run every command
-and subscribe to every target.
+opened the socket is what seated it. The local desk and paired owner seats
+may run every command and subscribe to every target. This includes existing
+phone owners; companion grants retain the smaller set below.
 
 ### The phone seat
 
-A paired phone's socket is the phone seat: a smaller fixed set of commands
+A paired companion's socket is the phone seat: a smaller fixed set of commands
 (`Seat::permits` in `crates/hotline-core/src/wire/mod.rs` lists them) and
-three kinds of subscription — a tape, the roster, and a teammate's
-schedules. It never opens the room stream, a thread or a run, and it can
+four kinds of subscription — a tape, a thread, the roster, and a teammate's
+schedules. It never opens the room stream or a run, and it can
 neither make, cancel nor quiet a job. It reads a file a teammate sent with
 `file.read`, because the file is part of the conversation it already
 reads. It may add a teammate through `mobile.persona_create`, a narrow
@@ -723,8 +724,8 @@ The window sends `desk.looking {looking: true}` while it has the focus,
 is showing and has been used lately, again every thirty seconds at most
 while that lasts, and `{looking: false}` on a blur or when it is hidden.
 The room holds one `true` for two minutes, so a window left focused on an
-empty desk lets the phone hear again. A desk seat command: a phone cannot
-send it. An open phone already has every tape live, and its own handler
+empty desk lets the phone hear again. An owner or local desk may send it;
+a companion cannot. An open phone already has every tape live, and its own handler
 hides the banner for the conversation on its screen.
 
 ## The token gate
@@ -758,7 +759,7 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   Room session payloads are empty. Viewer payloads bind the target as
   described below. For pairing, message 1 carries UTF-8 JSON
   `{"secret":"<b64url>","name":"<device name>"}` and message 2 carries
-  `{"role":"owner"|"companion","deskName":"…"}`. The desk closes after
+  `{"role":"owner"|"companion","deskName":"…","deskId":"…"}`. The desk closes after
   message 2. Grant creation and single-use secret consumption are atomic;
   scanning one QR with two devices yields only one grant.
 - No wire hello or banner precedes authentication. An unknown session
@@ -772,7 +773,10 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   are forbidden. The authenticated hello has `protocolVersion: 2`.
 - QR: `hotline://pair?v=2&k=<desk static public key>&u=<public URL>&s=<secret>`.
   `k` and `s` are 32-byte values encoded base64url without padding; `u` is
-  URL-encoded. No bearer token travels in v2 requests or transport.
+  URL-encoded. The QR also carries `r` (role), `e` (expiry in Unix milliseconds)
+  and `n` (desk name). Desktop links use `hotline://pair?p=<base64url JSON>`;
+  [serve.md](serve.md) defines the versioned JSON fields and CLI outputs.
+  No bearer token travels in v2 requests or transport.
 - The phone validates publicly trusted certificates normally and allows
   self-signed TLS for this pinned Noise desk identity. Identity trust is
   the Noise key, not the certificate. A wrong key fails even with a valid
@@ -781,7 +785,7 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
 - Grants record the device public key and explicit `owner` or `companion`
   role. Missing legacy roles migrate to owner; an empty grant set never
   bootstraps an owner. Companion retains the existing phone allowlist;
-  owner is not the unrestricted desk seat (BRO-116 adds its commands).
+  owner has the same command and subscription set as the local desk.
 - Fixed-key interoperability vectors are at
   `crates/hotline-core/tests/fixtures/noise_v2.json`: desk/device static keys,
   both ephemerals, and expected handshake and first transport bytes.
@@ -798,7 +802,7 @@ there is no viewer hello. Transport plaintexts are JSON envelopes:
 only. The desk resolves the upstream from its own running computer status;
 the viewer address and bearer never leave the desk.
 
-Remote controls are desk-seat wire commands, used by both the window and CLI:
+Remote controls require an owner or local desk seat, used by the window and CLI:
 
 | cmd | params | result |
 | --- | --- | --- |
@@ -814,7 +818,7 @@ Remote controls are desk-seat wire commands, used by both the window and CLI:
 The socket creating a sealed invitation owns its disconnect cleanup. A new
 invitation replaces the previous one; disconnecting an old socket cannot
 cancel the replacement. The CLI keeps its socket open until success,
-cancellation or expiry. Neither owner nor companion may invoke these controls.
+cancellation or expiry. An owner may invoke these controls; a companion may not.
 A served listener mounts only v2 routes. Desktop legacy routes remain for old
 pairings; manual retries recheck expiry and original confirmation.
 
@@ -822,6 +826,6 @@ Connection budgets are 16 total and 4 per source IP, including established
 room and viewer sockets, not only half-open handshakes. Upgrade and Noise
 share a five-second deadline; the first Noise message is limited to 4096
 bytes and WebSocket records to 65535. Reassembly is capped at 32 MiB; the
-remote wire additionally retains its existing 1 MiB output frame limit and
-64-frame outbox. These limits can deny service behind a shared NAT but never
+owner wire permits 32 MiB frames, while companions retain the 1 MiB output
+frame limit. Both use a bounded 64-frame outbox. These limits can deny service behind a shared NAT but never
 widen a seat or fall back to plaintext.

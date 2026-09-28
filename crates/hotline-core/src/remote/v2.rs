@@ -6,11 +6,54 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct SealedPairing {
+    pub payload: PairingPayload,
+    pub link: String,
     pub id: String,
     pub url: String,
     pub qr_svg: String,
     pub expires_at: i64,
 }
+/// The link and SSH formats carry the same short-lived capability as the QR.
+#[derive(Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct PairingPayload {
+    pub version: u8,
+    pub url: String,
+    pub desk_key: String,
+    pub secret: String,
+    pub role: DeviceRole,
+    pub expires_at: i64,
+    pub name: String,
+}
+impl PairingPayload {
+    pub fn link(&self) -> Result<String, String> {
+        Ok(format!(
+            "hotline://pair?p={}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).map_err(message)?)
+        ))
+    }
+
+    pub fn from_link(link: &str) -> Result<Self, String> {
+        let url = url::Url::parse(link).map_err(|_| "Invalid pairing link.")?;
+        if url.scheme() != "hotline" || url.host_str() != Some("pair") {
+            return Err("Invalid pairing link.".into());
+        }
+        let encoded = url
+            .query_pairs()
+            .find(|(key, _)| key == "p")
+            .ok_or("This pairing link has no payload.")?
+            .1;
+        if encoded.len() > 16384 {
+            return Err("Pairing link is too large.".into());
+        }
+        let bytes = URL_SAFE_NO_PAD
+            .decode(encoded.as_bytes())
+            .map_err(|_| "Invalid pairing payload.")?;
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid pairing payload.".into())
+    }
+}
+
 pub(super) struct Window {
     id: String,
     secret: String,
@@ -70,22 +113,43 @@ impl Remote {
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret).map_err(message)?;
         let secret = URL_SAFE_NO_PAD.encode(secret);
+        let payload = PairingPayload {
+            version: 2,
+            url: endpoint.clone(),
+            desk_key: URL_SAFE_NO_PAD.encode(public),
+            secret: secret.clone(),
+            role,
+            expires_at: now() + 120_000,
+            name: desktop_name(),
+        };
         let query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("v", "2")
             .append_pair("k", &URL_SAFE_NO_PAD.encode(public))
             .append_pair("u", endpoint)
             .append_pair("s", &secret)
+            .append_pair(
+                "r",
+                if role == DeviceRole::Owner {
+                    "owner"
+                } else {
+                    "companion"
+                },
+            )
+            .append_pair("e", &payload.expires_at.to_string())
+            .append_pair("n", &payload.name)
             .finish();
         let url = format!("hotline://pair?{query}");
         let code = qrcode::QrCode::new(url.as_bytes()).map_err(message)?;
         let pairing = SealedPairing {
+            link: payload.link()?,
+            expires_at: payload.expires_at,
+            payload,
             id: Uuid::new_v4().to_string(),
             url,
             qr_svg: code
                 .render::<qrcode::render::svg::Color>()
                 .min_dimensions(280, 280)
                 .build(),
-            expires_at: now() + 120_000,
         };
         s.sealed_pairing = Some(Window {
             id: pairing.id.clone(),

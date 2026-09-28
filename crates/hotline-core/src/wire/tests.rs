@@ -1808,7 +1808,8 @@ fn only_the_owner_phone_changes_a_teammates_access() {
     };
     assert!(Seat::Owner.permits(&access));
     assert!(!Seat::Phone.permits(&access));
-    for seat in [Seat::Owner, Seat::Phone] {
+    {
+        let seat = Seat::Phone;
         assert!(!seat.permits(&Command::PersonaUpdate {
             id: "ada".to_string(),
             patch: json!({ "reach": "machine" }),
@@ -3696,7 +3697,7 @@ async fn remote_control_answer(
 }
 
 #[tokio::test]
-async fn remote_controls_belong_only_to_the_desk_not_an_owner_or_companion() {
+async fn remote_controls_are_denied_to_companions() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -3707,7 +3708,8 @@ async fn remote_controls_belong_only_to_the_desk_not_an_owner_or_companion() {
             .unwrap();
     desk.set_remote(&remote);
 
-    for seat in [Seat::Owner, Seat::Phone] {
+    {
+        let seat = Seat::Phone;
         for (cmd, params) in [
             ("remote.status", json!({})),
             ("remote.configure", json!({"enabled":true,"host":"all"})),
@@ -4140,4 +4142,29 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
         );
     }
     assert!(quiet.reattached().is_empty());
+}
+
+#[tokio::test]
+async fn owner_commands_and_room_subscription_reach_the_real_handler() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    for seat in [Seat::Owner, Seat::Desk] {
+        let answer = remote_control_answer(seat, &room, &desk.log,
+            json!({"id":1,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/owner-skills"}}})).await;
+        assert_eq!(answer["ok"], true, "{answer}");
+        let answer =
+            remote_control_answer(seat, &room, &desk.log, json!({"id":2,"sub":"room"})).await;
+        assert_eq!(answer["ok"], true, "{answer}");
+    }
+    let answer = remote_control_answer(Seat::Phone, &room, &desk.log,
+        json!({"id":3,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/companion-skills"}}})).await;
+    assert_eq!(answer["code"], FORBIDDEN);
+    assert_eq!(
+        crate::room::settings(&desk.log)["skillsHome"],
+        "/tmp/owner-skills"
+    );
 }

@@ -25,6 +25,14 @@ pub(crate) fn responder(private: &[u8; 32]) -> Result<HandshakeState, String> {
         .map_err(|e| e.to_string())
 }
 
+pub(crate) fn initiator(private: &[u8; 32], desk: &[u8; 32]) -> Result<HandshakeState, String> {
+    builder()?
+        .local_private_key(private)
+        .and_then(|builder| builder.remote_public_key(desk))
+        .and_then(Builder::build_initiator)
+        .map_err(|e| e.to_string())
+}
+
 /// Returns (private, public), both raw X25519 keys, not encoded strings.
 pub(crate) fn keypair() -> Result<([u8; 32], [u8; 32]), String> {
     let pair = builder()?.generate_keypair().map_err(|e| e.to_string())?;

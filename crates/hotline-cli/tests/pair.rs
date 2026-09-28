@@ -145,4 +145,51 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
             .unwrap()
             .is_empty()
     );
+    for flag in ["--json", "--link"] {
+        let mut pair = OwnedChild(
+            command(root.path(), &["pair", flag])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let stdout = pair.0.stdout.take().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let line = std::io::BufReader::new(stdout)
+                .lines()
+                .next()
+                .unwrap()
+                .unwrap();
+            send.send(line).unwrap();
+        });
+        let line = receive.recv_timeout(Duration::from_secs(10)).unwrap();
+        let payload: hotline_core::remote::PairingPayload = if flag == "--json" {
+            serde_json::from_str(&line).unwrap()
+        } else {
+            hotline_core::remote::PairingPayload::from_link(&line).unwrap()
+        };
+        assert_eq!(payload.version, 2);
+        assert_eq!(payload.url, endpoint);
+        assert!(
+            pair.0.try_wait().unwrap().is_none(),
+            "invitation must remain alive after stdout flush"
+        );
+        let client_root = tempfile::tempdir().unwrap();
+        let client = hotline_core::remote::client::Client::new(std::sync::Arc::new(
+            hotline_core::credentials::FileStore::open(client_root.path()).unwrap(),
+        ));
+        let desk = runtime
+            .block_on(client.pair(&payload, "CLI test laptop"))
+            .unwrap();
+        assert_eq!(desk.url, endpoint);
+        eventually(|| pair.0.try_wait().unwrap().is_some());
+        assert!(pair.0.wait().unwrap().success());
+        assert!(
+            runtime
+                .block_on(client.pair(&payload, "Duplicate"))
+                .is_err()
+        );
+    }
 }

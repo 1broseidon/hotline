@@ -1268,6 +1268,28 @@ async fn the_roster_recovers_a_session_update_lost_to_lag() {
 }
 
 #[tokio::test]
+async fn search_failures_are_wire_errors_instead_of_empty_results() {
+    let (root, _log, port) = door("search-unavailable");
+    let mut socket = desk(port).await;
+    for (id, command) in [(1, "search.thread"), (2, "search.all")] {
+        ask(
+            &mut socket,
+            json!({"id": id, "cmd": command,
+            "params": {"personaId": "ada", "query": "harbour"}}),
+        )
+        .await;
+        let answer = heard_where(&mut socket, |frame| frame["id"] == id).await;
+        assert_eq!(answer["ok"], false);
+        assert_eq!(
+            answer["error"],
+            "Search is unavailable right now. Please try again."
+        );
+        assert!(answer.get("result").is_none());
+    }
+    assert!(!paths::index_path(&root).exists());
+}
+
+#[tokio::test]
 async fn a_tool_in_progress_is_the_rosters_activity_while_the_session_is_thinking() {
     let quiet = Arc::new(Quiet::new());
     let (_root, log, port) = door_with("roster-activity", quiet.clone());
@@ -1530,7 +1552,8 @@ async fn human_answer_is_a_command_the_wire_can_read() {
 /// command that is never answered at all — and it takes the socket with it.
 #[tokio::test]
 async fn a_command_naming_a_teammate_with_no_id_is_answered() {
-    let (_root, _log, port) = door("blank-id");
+    let (_root, log, port) = door("blank-id");
+    let _indexer = crate::store::search::Indexer::open(&log).unwrap();
     let mut socket = desk(port).await;
 
     for (id, cmd, params) in [

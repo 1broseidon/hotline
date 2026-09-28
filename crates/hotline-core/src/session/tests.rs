@@ -3086,7 +3086,7 @@ async fn what_is_appended_is_indexed() {
         .unwrap();
     settled(&room, "ada", 5).await;
 
-    let found = crate::store::search::search(room.log.root(), "ada", "here", None);
+    let found = crate::store::search::search(room.log.root(), "ada", "here", None).unwrap();
     assert_eq!(
         found["hits"][0]["excerpt"], "what is here?",
         "the user's line was never indexed: {found}"
@@ -4258,7 +4258,7 @@ async fn opening_the_room_expires_orphaned_cards_and_indexes_the_tape() {
         std::fs::read_to_string(crate::paths::transcript_segment_path(log.root(), "ada", 1))
             .unwrap();
     assert_eq!(lines.lines().count(), 2);
-    let found = crate::store::search::search(log.root(), "ada", "harbour", None);
+    let found = crate::store::search::search(log.root(), "ada", "harbour", None).unwrap();
     assert_eq!(found["hits"].as_array().unwrap().len(), 1);
 }
 
@@ -5500,7 +5500,8 @@ mod sent_files {
                 "[file: report.pdf]\n\nDone.\n[file: notes.txt]".to_string()
             )]
         );
-        let hits = crate::store::search::search(room.log.root(), "ada", "report.pdf", None);
+        let hits =
+            crate::store::search::search(room.log.root(), "ada", "report.pdf", None).unwrap();
         assert!(hits.to_string().contains("report.pdf"), "{hits}");
     }
 

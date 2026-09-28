@@ -14,9 +14,8 @@
 //! **Asking and answering open the file differently.** A question is asked over
 //! a read-only connection that creates nothing and migrates nothing — the query
 //! side runs in whichever process holds the window, and a reader that repaired
-//! what it read would be a second writer with no transaction. Every fault on
-//! that side answers no hits, because a missing or damaged index costs a search
-//! and never a record. The one connection that creates the file and its schema
+//! what it read would be a second writer with no transaction. Read failures
+//! are reported as search unavailable, distinct from a successful empty search. The one connection that creates the file and its schema
 //! is [`Indexer`], and there is one of those, in the process that owns the
 //! tapes.
 
@@ -43,19 +42,18 @@ enum Scope<'a> {
 /// typed, not on what the index holds.
 const MAX_QUERY: usize = 200;
 
-/// Opens the index read-only, or answers `None` when there is nothing to open.
+/// Opens the index read-only; a missing or damaged cache is a search failure.
 ///
 /// The busy timeout is for the main's own writes: the file is in WAL, so a
 /// reader is only ever blocked by a checkpoint, and waiting one out beats
 /// telling somebody their conversation contains nothing.
-fn open(root: &Path) -> Option<Connection> {
+fn open(root: &Path) -> rusqlite::Result<Connection> {
     let database = Connection::open_with_flags(
         index_path(root),
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
-    database.busy_timeout(Duration::from_secs(5)).ok()?;
-    Some(database)
+    )?;
+    database.busy_timeout(Duration::from_secs(5))?;
+    Ok(database)
 }
 
 /// The first 200 UTF-16 code units of the query.
@@ -164,14 +162,11 @@ fn rows(
     statement: &str,
     arguments: Vec<SqlValue>,
     hit: impl Fn(&Row) -> rusqlite::Result<Value>,
-) -> Vec<Value> {
-    let Ok(mut prepared) = database.prepare(statement) else {
-        return Vec::new();
-    };
-    let Ok(found) = prepared.query_map(rusqlite::params_from_iter(arguments), hit) else {
-        return Vec::new();
-    };
-    found.flatten().collect()
+) -> rusqlite::Result<Vec<Value>> {
+    let mut prepared = database.prepare(statement)?;
+    prepared
+        .query_map(rusqlite::params_from_iter(arguments), hit)?
+        .collect()
 }
 
 /// One MATCH expression, asked of both tables.
@@ -179,12 +174,17 @@ fn rows(
 /// Messages are fetched one past the limit so the caller can tell a full page
 /// from a page that happens to end there; chapters are not, because they are
 /// never the reason a result set is called truncated.
-fn attempt(database: &Connection, scope: &Scope, match_expression: &str, limit: i64) -> Found {
+fn attempt(
+    database: &Connection,
+    scope: &Scope,
+    match_expression: &str,
+    limit: i64,
+) -> rusqlite::Result<Found> {
     let (chapter_filter, message_filter) = match scope {
         Scope::Thread(_) => (" AND chapters_fts.persona_id = ?3", " AND persona_id = ?3"),
         Scope::Everyone => ("", ""),
     };
-    Found {
+    Ok(Found {
         chapters: rows(
             database,
             &format!(
@@ -196,7 +196,7 @@ fn attempt(database: &Connection, scope: &Scope, match_expression: &str, limit: 
             ),
             arguments(scope, match_expression, limit),
             |row| chapter_hit(row, scope),
-        ),
+        )?,
         messages: rows(
             database,
             &format!(
@@ -207,8 +207,8 @@ fn attempt(database: &Connection, scope: &Scope, match_expression: &str, limit: 
             ),
             arguments(scope, match_expression, limit.saturating_add(1)),
             |row| message_hit(row, scope),
-        ),
-    }
+        )?,
+    })
 }
 
 fn no_hits() -> Value {
@@ -220,17 +220,15 @@ fn no_hits() -> Value {
 /// The words are ANDed; if nothing matches and there was more than one, they
 /// are ORed, because the searcher was describing a memory rather than quoting
 /// it.
-fn run(root: &Path, scope: Scope, query: &str, limit: i64) -> Value {
+fn run(root: &Path, scope: Scope, query: &str, limit: i64) -> rusqlite::Result<Value> {
     let terms = terms_of(capped(query));
     if terms.is_empty() {
-        return no_hits();
+        return Ok(no_hits());
     }
-    let Some(database) = open(root) else {
-        return no_hits();
-    };
-    let mut found = attempt(&database, &scope, &terms.join(" "), limit);
+    let database = open(root)?;
+    let mut found = attempt(&database, &scope, &terms.join(" "), limit)?;
     if found.chapters.is_empty() && found.messages.is_empty() && terms.len() > 1 {
-        found = attempt(&database, &scope, &terms.join(" OR "), limit);
+        found = attempt(&database, &scope, &terms.join(" OR "), limit)?;
     }
     let truncated = i64::try_from(found.messages.len()).unwrap_or(i64::MAX) > limit;
     let mut hits = found.chapters;
@@ -240,19 +238,25 @@ fn run(root: &Path, scope: Scope, query: &str, limit: i64) -> Value {
             .into_iter()
             .take(usize::try_from(limit).unwrap_or(0)),
     );
-    json!({ "hits": hits, "truncated": truncated })
+    Ok(json!({ "hits": hits, "truncated": truncated }))
 }
 
 /// One teammate's conversation. The clamp is here rather than at the door
 /// because this is the only implementation, and a limit of zero or of a
 /// million is a caller's slip either way.
-pub fn search(root: &Path, persona_id: &str, query: &str, limit: Option<i64>) -> Value {
+pub fn search(
+    root: &Path,
+    persona_id: &str,
+    query: &str,
+    limit: Option<i64>,
+) -> Result<Value, String> {
     run(
         root,
         Scope::Thread(persona_id),
         query,
         limit.unwrap_or(20).clamp(1, 40),
     )
+    .map_err(unavailable)
 }
 
 /// The same search, across every teammate at once. One index already holds
@@ -263,13 +267,19 @@ pub fn search(root: &Path, persona_id: &str, query: &str, limit: Option<i64>) ->
 /// `LIMIT` as no limit at all, so a slip of the sign used to answer with every
 /// chapter in the room, no messages, and `truncated` saying the opposite of
 /// what happened.
-pub fn search_all(root: &Path, query: &str, limit: Option<i64>) -> Value {
+pub fn search_all(root: &Path, query: &str, limit: Option<i64>) -> Result<Value, String> {
     run(
         root,
         Scope::Everyone,
         query,
         limit.unwrap_or(30).clamp(1, 60),
     )
+    .map_err(unavailable)
+}
+
+fn unavailable(error: rusqlite::Error) -> String {
+    eprintln!("the search index could not be read: {error}");
+    "Search is unavailable right now. Please try again.".to_string()
 }
 
 /// The index's schema, and the only copy of it.
@@ -739,11 +749,14 @@ mod tests {
         message(&database, "ada", "m1", "user", "the harbour crane is stuck");
         message(&database, "ada", "m2", "agent", "the crane arrived");
 
-        assert_eq!(ids(&search(&root, "ada", "harbour crane", None)), ["m1"]);
+        assert_eq!(
+            ids(&search(&root, "ada", "harbour crane", None).unwrap()),
+            ["m1"]
+        );
 
         // "cran" reaches "crane" because every term is a prefix term.
         assert_eq!(
-            sorted_ids(&search(&root, "ada", "cran", None)),
+            sorted_ids(&search(&root, "ada", "cran", None).unwrap()),
             ["m1", "m2"]
         );
     }
@@ -753,9 +766,9 @@ mod tests {
         let (root, database) = index("or");
         message(&database, "ada", "m1", "user", "the harbour is quiet");
 
-        assert!(hits(&search(&root, "ada", "harbour zeppelin", None)).len() == 1);
+        assert!(hits(&search(&root, "ada", "harbour zeppelin", None).unwrap()).len() == 1);
         // One term that matches nothing has nothing to fall back to.
-        assert!(hits(&search(&root, "ada", "zeppelin", None)).is_empty());
+        assert!(hits(&search(&root, "ada", "zeppelin", None).unwrap()).is_empty());
     }
 
     #[test]
@@ -770,7 +783,7 @@ mod tests {
             "we fixed the harbour",
         );
 
-        let answer = search(&root, "ada", "harbour", None);
+        let answer = search(&root, "ada", "harbour", None).unwrap();
         assert_eq!(ids(&answer), ["c1", "m1"]);
         let chapter_hit = &hits(&answer)[0];
         assert_eq!(chapter_hit["kind"], "chapter");
@@ -786,7 +799,7 @@ mod tests {
         message(&database, "ada", "m1", "user", "the harbour");
         message(&database, "ada", "m2", "agent", "the harbour, again");
 
-        let answer = search(&root, "ada", "harbour", None);
+        let answer = search(&root, "ada", "harbour", None).unwrap();
         let sides: Vec<(&str, &str)> = hits(&answer)
             .iter()
             .map(|hit| {
@@ -819,11 +832,11 @@ mod tests {
             );
         }
 
-        let two = search(&root, "ada", "harbour", Some(2));
+        let two = search(&root, "ada", "harbour", Some(2)).unwrap();
         assert_eq!(hits(&two).len(), 2);
         assert_eq!(two["truncated"], true);
 
-        let all = search(&root, "ada", "harbour", Some(5));
+        let all = search(&root, "ada", "harbour", Some(5)).unwrap();
         assert_eq!(hits(&all).len(), 5);
         assert_eq!(all["truncated"], false);
     }
@@ -835,9 +848,9 @@ mod tests {
         message(&database, "bob", "m2", "user", "harbour");
         chapter(&database, "bob", "c1", "Harbour week", "the harbour again");
 
-        assert_eq!(ids(&search(&root, "ada", "harbour", None)), ["m1"]);
+        assert_eq!(ids(&search(&root, "ada", "harbour", None).unwrap()), ["m1"]);
 
-        let everyone = search_all(&root, "harbour", None);
+        let everyone = search_all(&root, "harbour", None).unwrap();
         assert_eq!(hits(&everyone)[0]["kind"], "chapter");
         let mut named: Vec<(&str, &str)> = hits(&everyone)
             .iter()
@@ -866,9 +879,9 @@ mod tests {
         // the AND and the OR fallback would answer both messages instead.
         let long = format!("{}zeppelin", "harbour ".repeat(25));
         assert_eq!(capped(&long).len(), MAX_QUERY);
-        assert_eq!(ids(&search(&root, "ada", &long, None)), ["m1"]);
+        assert_eq!(ids(&search(&root, "ada", &long, None).unwrap()), ["m1"]);
         assert_eq!(
-            sorted_ids(&search(&root, "ada", "harbour zeppelin", None)),
+            sorted_ids(&search(&root, "ada", "harbour zeppelin", None).unwrap()),
             ["m1", "m2"]
         );
 
@@ -878,21 +891,46 @@ mod tests {
     }
 
     #[test]
-    fn an_index_that_is_not_there_answers_no_hits() {
-        let missing = std::env::temp_dir().join(format!(
-            "hotline-core-search-missing-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&missing);
-        std::fs::create_dir_all(&missing).unwrap();
+    fn unavailable_search_is_distinct_from_a_successful_empty_search() {
+        let missing = tempfile::tempdir().unwrap();
+        let error = "Search is unavailable right now. Please try again.";
+        assert_eq!(
+            search(missing.path(), "ada", "harbour", None).unwrap_err(),
+            error
+        );
+        assert_eq!(
+            search_all(missing.path(), "harbour", None).unwrap_err(),
+            error
+        );
+        assert!(
+            !index_path(missing.path()).exists(),
+            "a reader must not create the index"
+        );
+        fs::write(index_path(missing.path()), "not a database\n").unwrap();
+        assert_eq!(
+            search(missing.path(), "ada", "harbour", None).unwrap_err(),
+            error
+        );
 
-        assert_eq!(search(&missing, "ada", "harbour", None), no_hits());
-        assert_eq!(search_all(&missing, "harbour", None), no_hits());
+        let (root, database) = index("read-failure");
+        assert_eq!(search(&root, "ada", "absent", None).unwrap(), no_hits());
+        message(&database, "ada", "m1", "user", "harbour");
+        // A failed chapter query must not become a partial message-only answer.
+        database.execute("DROP TABLE chapters_fts", []).unwrap();
+        assert_eq!(search_all(&root, "harbour", None).unwrap_err(), error);
+    }
 
-        // An index that is bytes rather than a database is the same answer:
-        // SQLite opens it lazily, so the fault lands on the first read.
-        std::fs::write(index_path(&missing), "not a database\n").unwrap();
-        assert_eq!(search(&missing, "ada", "harbour", None), no_hits());
+    #[test]
+    fn a_bad_search_row_is_an_error_instead_of_a_missing_hit() {
+        let (root, database) = index("bad-row");
+        database
+            .execute(
+                "INSERT INTO messages (persona_id, event_id, kind, ts, text)
+            VALUES ('ada', 'm1', 'user', 'not-a-timestamp', 'harbour')",
+                [],
+            )
+            .unwrap();
+        assert!(search(&root, "ada", "harbour", None).is_err());
     }
 
     // --- the writer --------------------------------------------------------
@@ -1049,8 +1087,11 @@ mod tests {
         drop(indexer);
         let indexer = Indexer::open(&log).unwrap();
         assert_eq!(messages(&indexer.database).len(), 1);
-        assert_eq!(ids(&search(root.path(), "ada", "harbour", None)), ["m1"]);
-        assert!(hits(&search(root.path(), "ada", "obsolete", None)).is_empty());
+        assert_eq!(
+            ids(&search(root.path(), "ada", "harbour", None).unwrap()),
+            ["m1"]
+        );
+        assert!(hits(&search(root.path(), "ada", "obsolete", None).unwrap()).is_empty());
     }
 
     #[test]
@@ -1336,7 +1377,7 @@ mod tests {
         }
 
         for slipped in [Some(-1), Some(0), Some(i64::MAX)] {
-            let answer = search_all(&root, "harbour", slipped);
+            let answer = search_all(&root, "harbour", slipped).unwrap();
             assert!(
                 hits(&answer).len() <= 120,
                 "a limit of {slipped:?} answered with {} hits",

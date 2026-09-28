@@ -260,7 +260,7 @@ pub fn run() {
     // Still before any thread starts (claiming starts none), which
     // `set_var` requires.
     #[cfg(unix)]
-    shell_path::restore();
+    shell_path::restore(&root);
     // The keychain is this app's store, and a room made by `hotline serve
     // --store file` is refused rather than opened on an empty keychain.
     if let Err(error) =

@@ -6,28 +6,87 @@
 //! Restore it before any runtime threads start so discovery and
 //! grandchildren (notably Docker's credential helpers and npx's Node
 //! interpreter) see the same directories a terminal would.
+//!
+//! Asking the login shell takes as long as its startup files do, often a
+//! second or two with a busy `.zshrc`, and nothing can be drawn until PATH
+//! is set. So the answer is kept in the room (`shell-path`): a launch uses
+//! the last one at once and asks the shell again behind the window. A
+//! different answer is kept for the next launch; this process's PATH cannot
+//! change once its threads are running. Only the very first launch waits.
 
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::ffi::OsStringExt;
-use std::path::PathBuf;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const MARKER: &[u8] = b"\0HOTLINE_PATH\0";
+/// The login shell's PATH as the last launch found it, in the room.
+const CACHE: &str = "shell-path";
+const SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn restore() {
+pub fn restore(root: &Path) {
     let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
-    let inherited = std::env::var_os("PATH").unwrap_or_default();
-    let recovered = match read_shell_path(&shell, Duration::from_secs(5)) {
-        Ok(path) => path,
+    let (recovered, known) = recovered_path(root, &shell, SHELL_TIMEOUT);
+    apply(&recovered);
+    if known {
+        // After `apply`: the process's PATH is settled before this thread,
+        // or any other, exists.
+        let root = root.to_path_buf();
+        std::thread::spawn(move || refresh(&root, &shell, &recovered));
+    }
+}
+
+/// The shell's PATH, and whether it came from the last launch rather than
+/// from the shell just now. The first launch asks and waits, and keeps the
+/// answer.
+fn recovered_path(root: &Path, shell: &OsStr, timeout: Duration) -> (OsString, bool) {
+    if let Ok(bytes) = fs::read(root.join(CACHE))
+        && !bytes.is_empty()
+    {
+        return (OsString::from_vec(bytes), true);
+    }
+    match read_shell_path(shell, timeout) {
+        Ok(path) => {
+            keep(root, &path);
+            (path, false)
+        }
         Err(error) => {
             eprintln!("[startup] could not read shell PATH: {error}");
-            OsString::new()
+            (OsString::new(), false)
         }
-    };
+    }
+}
+
+/// Asks the shell again, behind the window, and keeps a changed answer for
+/// the next launch.
+fn refresh(root: &Path, shell: &OsStr, used: &OsStr) {
+    match read_shell_path(shell, SHELL_TIMEOUT) {
+        Ok(fresh) if fresh != used => {
+            keep(root, &fresh);
+            eprintln!("[startup] the login shell's PATH changed; it applies from the next launch");
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("[startup] could not re-read shell PATH: {error}"),
+    }
+}
+
+fn keep(root: &Path, path: &OsStr) {
+    let staged = root.join(format!("{CACHE}.{}", std::process::id()));
+    let written =
+        fs::write(&staged, path.as_bytes()).and_then(|()| fs::rename(&staged, root.join(CACHE)));
+    if let Err(error) = written {
+        let _ = fs::remove_file(&staged);
+        eprintln!("[startup] could not keep the shell PATH: {error}");
+    }
+}
+
+fn apply(recovered: &OsStr) {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
     let mut directories: Vec<PathBuf> = Vec::new();
-    for path in [&recovered, &inherited] {
+    for path in [recovered, inherited.as_os_str()] {
         for directory in std::env::split_paths(path).filter(|p| !p.as_os_str().is_empty()) {
             if !directories.contains(&directory) {
                 directories.push(directory);
@@ -54,7 +113,8 @@ pub fn restore() {
         "/Applications/Docker.app/Contents/Resources/bin",
     ));
     if let Ok(path) = std::env::join_paths(directories) {
-        // SAFETY: run calls this before creating Tokio, Tauri, or core threads.
+        // SAFETY: restore calls this before creating Tokio, Tauri, core, or
+        // its own refresh thread.
         unsafe { std::env::set_var("PATH", path) };
     }
 }
@@ -152,6 +212,58 @@ mod tests {
             .unwrap();
         assert!(result.status.success());
         assert_eq!(result.stdout, b"credential-helper-found");
+    }
+
+    #[test]
+    fn a_launch_uses_the_last_answer_without_waiting_on_the_shell() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let shell = root.path().join("shell");
+        std::fs::write(
+            &shell,
+            "#!/bin/sh\nprintf '\\0HOTLINE_PATH\\0/from/the/shell\\0'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The first launch asks the shell, waits, and keeps the answer.
+        let mut attempts = 0;
+        let first = loop {
+            let (path, known) =
+                recovered_path(root.path(), shell.as_os_str(), Duration::from_secs(1));
+            if !path.is_empty() || attempts >= 50 {
+                break (path, known);
+            }
+            attempts += 1;
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(first, (OsString::from("/from/the/shell"), false));
+
+        // The next one takes it from the room: a shell that would hang is never waited on.
+        std::fs::write(&shell, "#!/bin/sh\nwhile :; do :; done\n").unwrap();
+        let started = Instant::now();
+        let second = recovered_path(root.path(), shell.as_os_str(), Duration::from_secs(5));
+        assert_eq!(second, (OsString::from("/from/the/shell"), true));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_changed_answer_is_kept_for_the_next_launch() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        keep(root.path(), OsStr::new("/old"));
+        let shell = root.path().join("shell");
+        std::fs::write(&shell, "#!/bin/sh\nprintf '\\0HOTLINE_PATH\\0/new\\0'\n").unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut attempts = 0;
+        while std::fs::read(root.path().join(CACHE)).unwrap() != b"/new" && attempts < 50 {
+            refresh(root.path(), shell.as_os_str(), OsStr::new("/old"));
+            attempts += 1;
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read(root.path().join(CACHE)).unwrap(), b"/new");
     }
 
     #[test]

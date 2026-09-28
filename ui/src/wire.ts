@@ -150,6 +150,17 @@ type Results = {
 	"search.all": GlobalSearchResult;
 	/** One part of a file a teammate sent, by its message. */
 	"file.read": FileChunk;
+	"files.browse": {
+		path: string;
+		parent: string | null;
+		entries: { name: string; path: string; directory: boolean; size: number }[];
+	};
+	"files.mkdir": { path: string };
+	"files.download": Omit<FileChunk, "next"> & { next: number | null };
+	"files.upload_start": { uploadId: string; offset: number };
+	"files.upload_chunk": { offset: number };
+	"files.upload_finish": { path: string; size: number };
+	"files.upload_cancel": null;
 	"chapter.list": ChapterSummary[];
 	"chapter.start_fresh": ChapterSummary;
 	"chapter.resume": ChapterSummary;
@@ -173,6 +184,7 @@ type Results = {
 	"computer.browsers.list": HostBrowser[];
 	"computer.cookies.preview": CookieSite[];
 	"computer.cookies.import": CookieSite[];
+	"computer.cookies.push": CookieSite[];
 	"computer.cookies.list": CookieImport[];
 	"computer.cookies.forget": CookieImport[];
 	/** Names, kinds and what each is for; never a value. */

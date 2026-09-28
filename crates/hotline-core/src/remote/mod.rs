@@ -1,6 +1,7 @@
 //! A paired phone enters the real wire through a separate, opt-in TLS listener.
 //! Its identity key uses the same OS credential store as provider credentials.
 mod attachments;
+pub mod bridge;
 mod channel;
 pub mod client;
 mod network;

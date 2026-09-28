@@ -415,6 +415,15 @@ impl RoomHandle for CoreHandle {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    async fn computer_cookies_push(
+        &self,
+        _persona_id: &str,
+        transfer: crate::contract::CookieTransfer,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        let cookies = crate::computer::cookies::validate_transfer(&transfer)?;
+        Ok(crate::computer::cookies::summarize(&cookies))
+    }
+
     async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
         crate::contract::ComputerCapacity {
             runtime: Some(crate::contract::ComputerRuntime::Podman),
@@ -2457,6 +2466,7 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
     let outbox = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3582,6 +3592,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     let outbox = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3674,6 +3685,7 @@ async fn remote_control_answer(
     let outbox = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -4167,4 +4179,30 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
         crate::room::settings(&desk.log)["skillsHome"],
         "/tmp/owner-skills"
     );
+}
+
+#[tokio::test]
+async fn cookie_push_is_operator_only_through_the_real_handler() {
+    let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let request = json!({"id":1,"cmd":"computer.cookies.push","params":{"personaId":"ada","transfer":{
+        "sourceId":"laptop", "browserId":"firefox", "profileId":"default", "domains":["example.com"],
+        "cookies":[{"domain":".example.com","name":"session","value":"private-cookie-value","path":"/"}]
+    }}});
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        let answer = remote_control_answer(seat, &quiet, &log, request.clone()).await;
+        assert_eq!(answer["ok"], seat != Seat::Phone, "{answer}");
+        if seat == Seat::Phone {
+            assert_eq!(answer["code"], FORBIDDEN);
+        }
+        assert!(!answer.to_string().contains("private-cookie-value"));
+    }
+    let mut invalid = request;
+    invalid["params"]["transfer"]["domains"] = json!(["other.com"]);
+    assert_eq!(
+        remote_control_answer(Seat::Owner, &quiet, &log, invalid).await["ok"],
+        false
+    );
+    assert!(log.load(&StreamId::Room).is_empty());
 }

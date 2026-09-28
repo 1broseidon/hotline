@@ -2039,6 +2039,20 @@ pub struct FileChunk {
     pub next: Option<i64>,
 }
 
+/// Selected laptop cookies, transported inside the sealed owner channel.
+/// `source_id` is a stable laptop ID, separating it from server browser imports.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieTransfer {
+    pub source_id: String,
+    pub browser_id: String,
+    pub profile_id: String,
+    pub domains: Vec<String>,
+    #[ts(type = "Array<Record<string, unknown>>")]
+    pub cookies: Vec<serde_json::Value>,
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -2090,6 +2104,25 @@ pub enum Command {
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },
+    /// Operator-only server paths for remote pickers and file transfer.
+    #[serde(rename = "files.browse")]
+    FilesBrowse { path: String },
+    #[serde(rename = "files.mkdir")]
+    FilesMkdir { path: String },
+    #[serde(rename = "files.download")]
+    FilesDownload { path: String, offset: u64 },
+    #[serde(rename = "files.upload_start")]
+    FilesUploadStart { path: String },
+    #[serde(rename = "files.upload_chunk")]
+    FilesUploadChunk {
+        upload_id: String,
+        offset: u64,
+        data: String,
+    },
+    #[serde(rename = "files.upload_finish")]
+    FilesUploadFinish { upload_id: String },
+    #[serde(rename = "files.upload_cancel")]
+    FilesUploadCancel { upload_id: String },
     /// A teammate file or a retained user image on that teammate's tape.
     /// `index` selects the original attachment position, defaulting to zero;
     /// teammate files accept only zero. The answer is a [`FileChunk`].
@@ -2507,6 +2540,12 @@ pub enum Command {
         browser_id: String,
         profile_id: String,
         domains: Vec<String>,
+    },
+    /// Selected laptop cookies, available to an owner or the local desk.
+    #[serde(rename = "computer.cookies.push")]
+    ComputerCookiesPush {
+        persona_id: String,
+        transfer: CookieTransfer,
     },
     /// What has been brought over to this teammate's computer, by browser
     /// and profile, with the sites: the record the pane lists. Owner or local desk only.

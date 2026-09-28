@@ -758,3 +758,30 @@ made it so.
   completed; the client never automatically resends it. Pairing links are
   secrets until consumed or expired. Physical laptop/phone and proxy QA are
   separate from these disposable network harnesses.
+
+### Loopback bridge, server files and laptop cookies
+
+- **Default and grant source:** no new teammate capability. The loopback bridge
+  has a fresh token and binds only `127.0.0.1`; its caller retains the paired
+  device's owner or companion role. File administration and cookie push require
+  owner or local desk authority through the same command gate.
+- **Enforcement:** the bridge authenticates each local upgrade and forwards over
+  Noise. Viewer handshakes bind the persona; bearer credentials stay server-side.
+  Each wire socket owns its upload handles. Chunks enforce offsets and size;
+  finish publishes without overwriting, and dropping the socket removes staged
+  files. Browse/download use server paths under the service account's authority.
+  Cookie push validates the selected domains and drops expired cookies before
+  starting a computer, bypasses server browser discovery, and records only source
+  metadata and site counts. These commands are not teammate tools.
+- **Tests:** `bridge_authenticates_locally_and_forwards_files_under_the_remote_seat`
+  proves local-token refusal, companion refusal, upload ownership, round-trip
+  bytes and disconnect cleanup. `bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_the_bearer`
+  proves viewer forwarding and revoke. `cookie_push_is_operator_only_through_the_real_handler`
+  proves the seat gate; `laptop_cookies_reach_the_computer_but_never_the_room_or_tape`
+  proves computer delivery and absence of cookie values from transcripts.
+- **Residual risk:** an owner can read the service account's files and fill its
+  disk; these are operator capabilities, not workspace-confined agent tools.
+  Local processes that steal the bridge token acquire that device's authority.
+  Revocation/disconnect is not rollback of files already published or cookies
+  already delivered. An abrupt server process crash may leave staged temporary
+  files for the operator to remove.

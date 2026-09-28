@@ -142,6 +142,7 @@ pub(crate) mod fake {
         /// Every forget the desk asked for: the saved login's name and the
         /// domains, in order.
         forgotten: Forgotten,
+        pub(crate) uploads: Arc<Mutex<Vec<Value>>>,
     }
 
     /// A PKCS#8 P-256 key, as the virtual authenticator answers one.
@@ -404,6 +405,21 @@ pub(crate) mod fake {
         )
     }
 
+    async fn upload_login(
+        axum::extract::State(taken): axum::extract::State<Taken>,
+        headers: axum::http::HeaderMap,
+        body: String,
+    ) -> axum::http::StatusCode {
+        if !bearer_present(&headers) {
+            return axum::http::StatusCode::UNAUTHORIZED;
+        }
+        let Ok(value) = serde_json::from_str(&body) else {
+            return axum::http::StatusCode::BAD_REQUEST;
+        };
+        taken.uploads.lock().unwrap().push(value);
+        axum::http::StatusCode::OK
+    }
+
     /// The one file the fake's home holds, at `/home/agent/report.txt`.
     pub(crate) const FILE_BODY: &[u8] = b"quarterly numbers\n";
 
@@ -596,6 +612,9 @@ pub(crate) mod fake {
                         ContentBlock::text("8x6 image; 1 px = 1 screen px"),
                     ]),
                 },
+                (Some(_), "login_load") => {
+                    CallToolResult::success(vec![ContentBlock::text("loaded")])
+                }
                 (Some(version), "guide") => {
                     let skill = skill_of(version);
                     let manifest = json!({
@@ -642,7 +661,9 @@ pub(crate) mod fake {
             app = app.route("/files/download", axum::routing::get(download));
         }
         if version.is_some() {
-            app = app.route("/secrets", axum::routing::put(take_secrets));
+            app = app
+                .route("/secrets", axum::routing::put(take_secrets))
+                .route("/files", axum::routing::post(upload_login));
         }
         if version.is_some_and(has_passkeys) {
             app = app.route(

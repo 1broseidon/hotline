@@ -3348,6 +3348,41 @@ impl Room {
         profile_id: &str,
         domains: &[String],
     ) -> Result<Vec<CookieSite>, String> {
+        let cookies = crate::computer::cookies::select(browser_id, profile_id, domains).await?;
+        self.deliver_cookies(persona_id, browser_id, profile_id, cookies, None)
+            .await
+    }
+
+    pub async fn computer_cookies_push(
+        &self,
+        persona_id: &str,
+        transfer: crate::contract::CookieTransfer,
+    ) -> Result<Vec<CookieSite>, String> {
+        let cookies = crate::computer::cookies::validate_transfer(&transfer)?;
+        // A collision-resistant source key avoids replacing server-local or
+        // another laptop's browser record when names happen to match.
+        use sha2::{Digest, Sha256};
+        let source = serde_json::to_vec(&(&transfer.source_id, &transfer.browser_id))
+            .map_err(|_| "Invalid cookie source.")?;
+        let browser = format!("laptop-{:x}", Sha256::digest(source));
+        self.deliver_cookies(
+            persona_id,
+            &browser,
+            &transfer.profile_id,
+            cookies,
+            Some(&format!("{} ({})", transfer.browser_id, transfer.source_id)),
+        )
+        .await
+    }
+
+    async fn deliver_cookies(
+        &self,
+        persona_id: &str,
+        browser_id: &str,
+        profile_id: &str,
+        cookies: Vec<Value>,
+        source_name: Option<&str>,
+    ) -> Result<Vec<CookieSite>, String> {
         let persona = room::roster(&self.log)
             .into_iter()
             .find(|persona| persona.id == persona_id)
@@ -3359,8 +3394,6 @@ impl Room {
         {
             return Err(format!("{} has no computer to import into.", persona.name));
         }
-        // Read only the ticked sites from the host browser.
-        let cookies = crate::computer::cookies::select(browser_id, profile_id, domains).await?;
         if cookies.is_empty() {
             return Err("None of the chosen sites had cookies to import.".to_string());
         }
@@ -3400,13 +3433,17 @@ impl Room {
         // when, and the sites. Names are looked up now, while the browser
         // is still installed to say them; the ids are what the record is
         // keyed by.
-        let browsers = self.computer_browsers().await;
+        let browsers = if source_name.is_none() {
+            self.computer_browsers().await
+        } else {
+            Vec::new()
+        };
         let browser = browsers.iter().find(|browser| browser.id == browser_id);
         let import = crate::contract::CookieImport {
             browser_id: browser_id.to_owned(),
             browser_name: browser
                 .map(|browser| browser.name.clone())
-                .unwrap_or_else(|| browser_id.to_owned()),
+                .unwrap_or_else(|| source_name.unwrap_or(browser_id).to_owned()),
             profile_id: profile_id.to_owned(),
             profile_name: browser
                 .and_then(|browser| {

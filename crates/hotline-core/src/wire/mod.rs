@@ -49,6 +49,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 
 mod commands;
+mod files;
 mod roster;
 mod schedules;
 
@@ -355,6 +356,13 @@ pub trait RoomHandle: Send + Sync + 'static {
         _domains: &[String],
     ) -> Result<Vec<crate::contract::CookieSite>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
+    }
+    async fn computer_cookies_push(
+        &self,
+        _persona_id: &str,
+        _transfer: crate::contract::CookieTransfer,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        Err("Cookie transfer is unavailable on this room.".into())
     }
     /// What has been brought over to a teammate's computer, by browser and
     /// profile, with the sites.
@@ -765,6 +773,7 @@ pub(super) struct Outbox {
     auth_attempts: Arc<std::sync::Mutex<HashMap<String, String>>>,
     /// Only this socket's latest invitation is cancelled on disconnect.
     pairing: Arc<std::sync::Mutex<Option<String>>>,
+    uploads: Arc<std::sync::Mutex<files::Uploads>>,
 }
 #[derive(Clone)]
 enum Outgoing {
@@ -891,6 +900,7 @@ where
     let sender = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender,
         cancel: cancel.clone(),
         max: match seat {
@@ -1006,6 +1016,15 @@ async fn answer(
                         }
                 );
                 let result = match (&command, phone) {
+                    (
+                        Command::FilesUploadStart { .. }
+                        | Command::FilesUploadChunk { .. }
+                        | Command::FilesUploadFinish { .. }
+                        | Command::FilesUploadCancel { .. },
+                        _,
+                    ) => {
+                        files::upload(command, sender.uploads.clone(), sender.cancel.clone()).await
+                    }
                     (
                         Command::RemotePairing {
                             id: None,

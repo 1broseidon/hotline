@@ -299,8 +299,12 @@ pub fn run() {
         "dataDir": root.display().to_string(),
         "computerImage": hotline_core::computer::default_image(),
     });
-    let desks = desks::listed(&format!("http://127.0.0.1:{port}"), &token);
-    let script = format!("window.__hotlineDesk = {injected};\nwindow.__hotlineDesks = {desks};");
+    // Paired desks' bridges are local listeners, so they are up before the
+    // window is and the first list it reads is already complete.
+    let desks = desks::Host::open(&root, format!("http://127.0.0.1:{port}"), token.clone());
+    tauri::async_runtime::block_on(desks.start_all());
+    let listed = desks.listed();
+    let script = format!("window.__hotlineDesk = {injected};\nwindow.__hotlineDesks = {listed};");
 
     let builder = tauri::Builder::default()
         .manage(desk)
@@ -347,7 +351,9 @@ pub fn run() {
         updater::cancel_update,
     ]);
     builder
+        .manage(desks.clone())
         .setup(move |app| {
+            desks.attach(app.handle().clone());
             #[cfg(target_os = "macos")]
             {
                 install_menu(app)?;

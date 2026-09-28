@@ -17,6 +17,7 @@
     "core:window:allow-is-fullscreen",
     "core:window:allow-set-badge-count",
     "core:window:allow-request-user-attention",
+    "core:app:allow-set-app-theme",
     "core:webview:allow-create-webview-window",
     "core:menu:allow-new",
     "core:menu:allow-popup",

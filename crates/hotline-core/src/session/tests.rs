@@ -52,6 +52,8 @@ pub(super) struct Scripted {
     room_models: Option<Arc<Mutex<Vec<ConfigChoice>>>>,
     /// What each turn was armed with to be heard, in the order they ran.
     escalations: Arc<Mutex<Vec<Armed>>>,
+    /// Work this agent starts by itself, for the room to take once.
+    unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
 }
 
 /// What one turn was handed to be heard through, if anything.
@@ -78,7 +80,16 @@ impl Scripted {
             info_changes: None,
             room_models: None,
             escalations: Arc::new(Mutex::new(Vec::new())),
+            unprompted: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// An agent that can start work by itself: each receiver sent is one such
+    /// activity, as the ACP driver hands over what a harness says between turns.
+    pub(super) fn with_unprompted(self) -> (Self, mpsc::UnboundedSender<mpsc::Receiver<Update>>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *lock(&self.unprompted) = Some(receiver);
+        (self, sender)
     }
 
     pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
@@ -195,6 +206,10 @@ impl Driver for Scripted {
         self.info_changes
             .as_ref()
             .map(|changes| changes.subscribe())
+    }
+
+    fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
+        lock(&self.unprompted).take()
     }
 
     /// A card is answerable exactly once, the way a live request is.
@@ -1626,6 +1641,131 @@ async fn a_turn_reaches_the_phone_once_with_its_report() {
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["body"], "Done, all green.");
     assert_eq!(sent[0]["data"]["personaId"], "ada");
+}
+
+/// What a teammate says about work it left running, once its turn is over,
+/// reaches the chat and the phone when it is said, and the teammate is shown
+/// working while it says it.
+#[tokio::test]
+async fn work_the_agent_started_itself_reaches_the_chat_and_the_phone() {
+    let (scripted, unprompted) = Scripted::new(spoken_turn()).with_unprompted();
+    let room = room("unprompted", Fake::new(scripted));
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0},
+                "tokenHash": "hash",
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    room.start("ada").await.unwrap();
+
+    let (sender, updates) = mpsc::channel(8);
+    unprompted.send(updates).unwrap();
+    sender
+        .send(Update::Message {
+            kind: MessageKind::Agent,
+            id: "m-bg".to_string(),
+            text: "The build passed.".to_string(),
+        })
+        .await
+        .unwrap();
+    let mut working = false;
+    for _ in 0..200 {
+        if room.info("ada").state == SessionState::Thinking {
+            working = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(working, "the teammate was never shown working");
+    sender
+        .send(Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        })
+        .await
+        .unwrap();
+    drop(sender);
+
+    let events = settled(&room, "ada", 1).await;
+    assert!(
+        events
+            .iter()
+            .any(|event| event["text"] == "The build passed."),
+        "{events:?}"
+    );
+    let mut sent = Vec::new();
+    for _ in 0..200 {
+        sent = lock(&room.push.sent).clone();
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["body"], "The build passed.");
+    for _ in 0..200 {
+        if room.info("ada").state == SessionState::Ready {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the teammate never went back to ready");
+}
+
+/// A message sent while the teammate answers its own work waits for that
+/// answer to end rather than being said over it.
+#[tokio::test]
+async fn a_message_waits_for_work_the_agent_started_itself() {
+    let (scripted, unprompted) = Scripted::new(spoken_turn()).with_unprompted();
+    let prompts = scripted.prompts.clone();
+    let room = room("unprompted-waits", Fake::new(scripted));
+    room.start("ada").await.unwrap();
+
+    let (sender, updates) = mpsc::channel(8);
+    unprompted.send(updates).unwrap();
+    sender
+        .send(Update::Message {
+            kind: MessageKind::Agent,
+            id: "m-bg".to_string(),
+            text: "Still checking the logs.".to_string(),
+        })
+        .await
+        .unwrap();
+    settled(&room, "ada", 1).await;
+    room.prompt("ada", "how is it going?", None, None)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        lock(&prompts).is_empty(),
+        "the message was said over the agent's own work"
+    );
+
+    sender
+        .send(Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        })
+        .await
+        .unwrap();
+    drop(sender);
+    for _ in 0..200 {
+        if !lock(&prompts).is_empty() {
+            assert_eq!(lock(&prompts).as_slice(), ["how is it going?"]);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the message never reached the agent");
 }
 
 /// A teammate on a computer, the way one is started in a test: a scripted

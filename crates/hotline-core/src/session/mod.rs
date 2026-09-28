@@ -82,7 +82,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
-use tokio::sync::{Mutex as TokioMutex, Notify, broadcast, oneshot, watch};
+use tokio::sync::{Mutex as TokioMutex, Notify, broadcast, mpsc, oneshot, watch};
 
 /// How much of a tool's output the transcript keeps. The model was given all
 /// of it; this is the size of the bubble.
@@ -431,6 +431,9 @@ struct Wired {
     /// The user event this line was written as, so the tape can be told when
     /// the agent has read it. A nudge is never written and has none.
     said: Option<String>,
+    /// Work the agent took up by itself between turns. Nothing is said to
+    /// the driver; the turn is these updates.
+    unprompted: Option<Unprompted>,
 }
 
 impl Wired {
@@ -441,9 +444,22 @@ impl Wired {
             scheduled: None,
             steer: false,
             said: None,
+            unprompted: None,
+        }
+    }
+
+    fn unprompted(updates: mpsc::Receiver<Update>) -> Self {
+        Self {
+            unprompted: Some(Unprompted(Arc::new(Mutex::new(Some(updates))))),
+            ..Self::words(String::new())
         }
     }
 }
+
+/// The updates of work the agent started itself, taken once by the turn that
+/// runs it. Shared only so the line it rides on stays cloneable.
+#[derive(Clone)]
+struct Unprompted(Arc<Mutex<Option<mpsc::Receiver<Update>>>>);
 
 /// The lines waiting for a teammate, and whether a driver is already taking
 /// them.
@@ -960,6 +976,7 @@ impl Room {
         // The receiver keeps that update until the guarded watcher is attached
         // after publication below.
         let info_updates = driver.subscribe_info();
+        let unprompted = driver.subscribe_unprompted();
         let reported = match driver.start(&persona).await {
             Ok(reported) => reported,
             Err(error) => {
@@ -1031,6 +1048,9 @@ impl Room {
         }
         if let Some(info_updates) = info_updates {
             self.watch_driver_info(&session, info_updates);
+        }
+        if let Some(unprompted) = unprompted {
+            self.watch_unprompted(&session, unprompted);
         }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
@@ -2223,6 +2243,7 @@ impl Room {
                     scheduled: None,
                     steer: true,
                     said: None,
+                    unprompted: None,
                 },
                 attachments,
             },
@@ -2519,6 +2540,55 @@ impl Room {
                 if room.apply_driver_info(&session, &reported).is_err() {
                     break;
                 }
+            }
+        });
+    }
+
+    /// Runs what the agent does by itself between turns as a turn of its own,
+    /// ahead of anything waiting, so its reply reaches the chat, and the
+    /// phone, when it is said rather than behind the next message.
+    fn watch_unprompted(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mut activities: mpsc::UnboundedReceiver<mpsc::Receiver<Update>>,
+    ) {
+        let room = Arc::downgrade(self);
+        let session = Arc::downgrade(session);
+        tokio::spawn(async move {
+            while let Some(updates) = activities.recv().await {
+                let Some(room) = room.upgrade() else {
+                    break;
+                };
+                let Some(session) = session.upgrade() else {
+                    break;
+                };
+                if !session.capability.is_current() || !room.current_session(&session) {
+                    break;
+                }
+                // A room preparing to restart takes no new work; the agent's
+                // words are then dropped, as they were before it could speak.
+                let Ok(working) = room.lease() else {
+                    continue;
+                };
+                let wire = Wired::unprompted(updates);
+                let claimed = {
+                    let mut turns = lock(&session.turns);
+                    if turns.running {
+                        turns.waiting.push_front(wire);
+                        None
+                    } else {
+                        turns.running = true;
+                        Some(wire)
+                    }
+                };
+                let Some(wire) = claimed else {
+                    continue;
+                };
+                let room = room.clone();
+                tokio::spawn(async move {
+                    let _working = working;
+                    room.run_turns(session, wire).await;
+                });
             }
         });
     }
@@ -3891,15 +3961,23 @@ impl Room {
             let escalation = quiet_run
                 .as_ref()
                 .map(|_| Arc::new(escalation::Escalation::new()));
-            session.driver.escalate_next(
-                escalation
-                    .clone()
-                    .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
-            );
-            let mut updates = session
-                .driver
-                .prompt(wired.text, wired.attachments, reach)
-                .await;
+            let mut updates = if let Some(unprompted) = &wired.unprompted {
+                let Some(updates) = lock(&unprompted.0).take() else {
+                    next = lock(&session.turns).next_line();
+                    continue;
+                };
+                updates
+            } else {
+                session.driver.escalate_next(
+                    escalation
+                        .clone()
+                        .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
+                );
+                session
+                    .driver
+                    .prompt(wired.text, wired.attachments, reach)
+                    .await
+            };
             let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
             // What the agent says between its tool calls is held here until
             // the next update says whether it was narration or the report.

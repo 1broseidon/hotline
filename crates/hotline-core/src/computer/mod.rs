@@ -7,10 +7,12 @@
 //! hibernate — and the grant a session is handed. The agent and the image
 //! are Hotline Computer, a repository of their own.
 
+mod capacity;
 pub mod runtime;
 
 use crate::contract::{
-    ComputerReleases, ComputerState, ComputerStatus, Persona, RuntimeReport, RuntimeState,
+    ComputerCapacity, ComputerReleases, ComputerState, ComputerStatus, Persona, RuntimeReport,
+    RuntimeState,
 };
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 use runtime::{BinSearch, Runtime};
@@ -176,6 +178,7 @@ pub fn preferred_image(settings: &serde_json::Map<String, Value>) -> Option<Stri
 pub struct Computer {
     inner: Arc<Mutex<Inner>>,
     bins: BinSearch,
+    capacity: Arc<capacity::Cache>,
     /// Where published releases are listed; a test points this at its own.
     releases_url: String,
 }
@@ -213,6 +216,7 @@ impl Computer {
                 known: releases::Known::default(),
                 picked: None,
             })),
+            capacity: Arc::new(capacity::Cache::default()),
             bins: BinSearch::from_env(),
             releases_url: releases::RELEASES_URL.to_string(),
         }
@@ -229,6 +233,7 @@ impl Computer {
                 known: releases::Known::default(),
                 picked: None,
             })),
+            capacity: Arc::new(capacity::Cache::default()),
             bins: BinSearch::only(path),
             releases_url: "http://127.0.0.1:1/releases".to_string(),
         }
@@ -286,6 +291,14 @@ impl Computer {
         if let Ok((_, cmd)) = pick_runtime(prefer, &self.bins).await {
             let _ = run(&cmd, &["image", "rm", image], COMMAND_TIMEOUT).await;
         }
+    }
+
+    /// Capacity is advisory for the next create, not a live container limit.
+    /// Cache each runtime preference for a minute and share in-flight probes.
+    pub async fn capacity(&self, prefer: Option<Runtime>) -> ComputerCapacity {
+        self.capacity
+            .get(prefer, &capacity::SystemProbe(&self.bins))
+            .await
     }
 
     pub async fn runtimes(&self) -> Vec<RuntimeReport> {
@@ -755,6 +768,9 @@ fn create_args(
         "--shm-size".into(),
         "1g".into(),
     ]);
+    if let Some(cpus) = cpus_of(persona, runtime)? {
+        args.extend(["--cpus".into(), cpus]);
+    }
     // Named volumes are Docker's and Podman's; Apple container gets the
     // bind mounts only, and its rw layer is what it has.
     if runtime != Runtime::AppleContainer {
@@ -809,7 +825,23 @@ fn scratch_volume(persona_id: &str) -> String {
     format!("hotline-src-{persona_id}")
 }
 
-/// The teammate's memory limit as the runtime spells it, else 2g. A size
+/// CPU limits, like memory, only apply when the container is next created.
+/// Apple assigns whole virtual CPUs; Docker/Podman accept fractional quotas.
+fn cpus_of(persona: &Persona, runtime: Runtime) -> Result<Option<String>, String> {
+    let Some(cpus) = persona.computer.as_ref().and_then(|computer| computer.cpus) else {
+        return Ok(None);
+    };
+    if !cpus.is_finite() || cpus <= 0.0 {
+        return Err("The computer's CPU limit must be a finite number greater than zero.".into());
+    }
+    Ok(Some(if runtime == Runtime::AppleContainer {
+        cpus.ceil().max(1.0).to_string()
+    } else {
+        cpus.to_string()
+    }))
+}
+
+/// The teammate's memory limit as the runtime spells it, else 4g. A size
 /// is digits and at most one unit letter; anything else is refused before
 /// the runtime can misread it.
 fn memory_of(persona: &Persona) -> Result<String, String> {
@@ -1492,6 +1524,7 @@ mod tests {
                 enabled: true,
                 image: Some("hotline-computer:test".into()),
                 memory: None,
+                cpus: None,
                 pids: None,
                 mounts: None,
                 secrets: None,
@@ -1617,6 +1650,51 @@ mod tests {
         for bad in ["8 gigs", "g", "2gb", "-1"] {
             ada.computer.as_mut().unwrap().memory = Some(bad.into());
             assert!(memory_of(&ada).is_err(), "{bad}");
+        }
+    }
+
+    // Apple accepts lower-case m as mebibytes, including 4608m (4.5 GiB).
+    // Source review, not a physical-Mac test: apple/container at
+    // 4a7d8615241b8ddecfd3bf225cd7c44f4b2ccf7c,
+    // Sources/ContainerPersistence/Measurement+Parse.swift (binaryUnits,
+    // parseUnit), and Tests/ContainerAPIClientTests/Measurement+ParseTests.swift.
+    #[test]
+    fn create_args_preserve_fractional_cpus_and_mebibyte_memory_for_each_runtime() {
+        for runtime in [Runtime::Docker, Runtime::Podman, Runtime::AppleContainer] {
+            let mut ada = persona("ada", "/tmp");
+            ada.computer.as_mut().unwrap().memory = Some("4608m".into());
+            for cpus in [None, Some(0.25), Some(2.5), Some(4.0)] {
+                ada.computer.as_mut().unwrap().cpus = cpus;
+                let args = create_args(runtime, "test", "image", "token", "/tmp", &ada).unwrap();
+                let flag = |name: &str| {
+                    args.windows(2)
+                        .find(|pair| pair[0] == name)
+                        .map(|pair| pair[1].as_str())
+                };
+                assert_eq!(flag("--memory"), Some("4608m"));
+                let expected = cpus.map(|cpus| {
+                    if runtime == Runtime::AppleContainer {
+                        cpus.ceil().max(1.0)
+                    } else {
+                        cpus
+                    }
+                    .to_string()
+                });
+                assert_eq!(flag("--cpus"), expected.as_deref());
+            }
+        }
+    }
+
+    #[test]
+    fn create_args_reject_nonfinite_and_nonpositive_cpu_limits() {
+        for runtime in [Runtime::Docker, Runtime::Podman, Runtime::AppleContainer] {
+            for cpus in [0.0, -0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let mut ada = persona("ada", "/tmp");
+                ada.computer.as_mut().unwrap().cpus = Some(cpus);
+                let error =
+                    create_args(runtime, "test", "image", "token", "/tmp", &ada).unwrap_err();
+                assert!(error.contains("CPU limit"), "{error}");
+            }
         }
     }
 
@@ -1869,6 +1947,7 @@ mod tests {
             enabled: true,
             image: None,
             memory: None,
+            cpus: None,
             pids: None,
             mounts: None,
             secrets: None,
@@ -1883,6 +1962,7 @@ mod tests {
             enabled: true,
             image: Some("  own/image:2  ".into()),
             memory: None,
+            cpus: None,
             pids: None,
             mounts: None,
             secrets: None,

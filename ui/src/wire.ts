@@ -3,6 +3,7 @@ import type {
 	CatalogModel,
 	ChapterSummary,
 	Command,
+	ComputerCapacity,
 	ComputerReleases,
 	ComputerStatus,
 	ConfigChoice,
@@ -135,6 +136,7 @@ type Results = {
 	"mobile.persona_create": Persona;
 	"mobile.persona_update": Persona;
 	"mobile.persona_access": Persona;
+	"mobile.persona_computer": Persona;
 	"session.cancel": null;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;
@@ -159,6 +161,7 @@ type Results = {
 	"peers.list": PeerThreadSummary[];
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
+	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;
 	"computer.releases.check": ComputerReleases;

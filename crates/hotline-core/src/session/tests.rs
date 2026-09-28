@@ -1194,6 +1194,7 @@ async fn a_computer_that_cannot_start_leaves_the_teammate_answering_without_one(
         .to_string_lossy()
         .into_owned();
     ada.computer = Some(PersonaComputer {
+        cpus: None,
         enabled: true,
         image: None,
         memory: None,
@@ -1289,6 +1290,7 @@ fn the_preamble_says_who_where_how_far_and_when() {
     // teammate learns it has one, and that the person can take it over.
     assert!(!child.contains("You have a computer"));
     ada.computer = Some(PersonaComputer {
+        cpus: None,
         enabled: true,
         image: None,
         memory: None,
@@ -1816,6 +1818,7 @@ async fn computer_room(
     let mut ada = persona("ada");
     ada.cwd = cwd.to_string_lossy().into_owned();
     ada.computer = Some(PersonaComputer {
+        cpus: None,
         enabled: true,
         image: pinned.then(|| "hotline-computer:test".to_string()),
         memory: None,

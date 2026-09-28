@@ -135,6 +135,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
+| `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only for every seat |
+| `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
 | `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
 | `computer.releases` | `{}` | `ComputerReleases`: `floor`, `repository`, `newest?`, `releases` (floor up, newest first), `checkedAt?`, `error?` |
 | `computer.releases.check` | `{}` | the same, after asking the releases endpoint now |
@@ -289,7 +291,7 @@ it on, and `allowedSenders` defaults to an empty list. The whole teammate is wri
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
 teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
-`computer`, `backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
+`backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
@@ -304,9 +306,22 @@ does not prevent the remaining teammates from applying the change.
 `"container"`; absent means the first available runtime. `computerImage`
 is the room's default image, under a teammate's own. Neither reattaches
 anything: both are read when a computer wakes, as are the teammate's own
-`persona.computer.memory`, `pids` and `mounts` through `persona.update`. A
-`computer` patch does reattach the teammate, and the reattach hands a running
-computer the secrets `persona.computer.secrets` names now.
+`persona.computer.memory`, `cpus`, `pids` and `mounts` through `persona.update`.
+Only changing whether a computer is enabled reattaches the teammate; limit,
+image and mount edits apply on the next container creation, not a restart of
+an existing container. Secret-grant edits are handed to a running computer.
+
+`computer.capacity` reports totals, not free resources, cached for about a
+minute per runtime preference. Docker/Podman totals take precedence, then
+host totals, then four CPUs and 8 GiB. A stopped installed runtime keeps its
+name; `runtime: null` means none installed. `source` identifies the fallback.
+`mobile.persona_computer` is advertised by the owner-only `personaComputer`
+hello capability. It preserves omitted fields and all image, process-limit,
+mount and secret choices; `cpus: null` removes the cap. CPU caps must be
+positive multiples of 0.5 no greater than capacity; memory must be whole
+MiB/GiB (`4608m` or `4g`), at least 512 MiB, in 512 MiB increments, within
+capacity. An empty change is refused. Apple rounds CPU caps upward to whole
+CPUs; Docker and Podman retain fractions.
 
 `computer.runtimes` is detection for the window: every CLI Hotline knows,
 whether it is on PATH, why not, and whether it is rootless. `computer.status`

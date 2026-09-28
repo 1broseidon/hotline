@@ -8,7 +8,8 @@
 
 use super::RoomHandle;
 use crate::contract::{
-    Command, McpPolicy, Persona, PersonaDraft, PolicyMode, Reach, SessionInfo, SessionState,
+    Command, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach, SessionInfo,
+    SessionState,
 };
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::{Log, StreamId};
@@ -99,6 +100,12 @@ pub(crate) async fn run(
             mode_id,
             background_work,
         } => mobile_persona_access(log, room, &id, reach, mode_id, background_work).await,
+        Command::MobilePersonaComputer {
+            id,
+            enabled,
+            memory,
+            cpus,
+        } => mobile_persona_computer(log, room, &id, enabled, memory, cpus).await,
         Command::PersonaCreate { draft } => create_persona(log, draft),
         Command::PersonaUpdate { id, patch } => apply_persona_update(log, room, &id, &patch).await,
         Command::PersonaDelete { id } => {
@@ -364,6 +371,7 @@ pub(crate) async fn run(
             Ok(json!(room.mark_peer_read(&key, &event_ids)))
         }
 
+        Command::ComputerCapacity {} => Ok(json!(room.computer_capacity().await)),
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),
         Command::ComputerReleases {} => {
             Ok(serde_json::to_value(room.computer_releases()).unwrap_or(Value::Null))
@@ -694,6 +702,95 @@ async fn mobile_persona_access(
     living(log, id).map(|persona| json!(persona))
 }
 
+/// Merge only the owner's resource controls while holding the same gate as
+/// desktop patches, so a concurrent image/mount/secret edit cannot be lost.
+async fn mobile_persona_computer(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    id: &str,
+    enabled: Option<bool>,
+    memory: Option<String>,
+    cpus: Option<Option<f64>>,
+) -> Result<Value, String> {
+    if enabled.is_none() && memory.is_none() && cpus.is_none() {
+        return Err("Nothing to change: name enabled, memory or CPUs.".into());
+    }
+    let gate = room.policy_update_lock();
+    let _held = gate.lock().await;
+    let persona = living(log, id)?;
+    // Enabling, disabling and clearing a CPU limit do not need a probe.
+    if memory.is_some() || cpus.flatten().is_some() {
+        let capacity = room.computer_capacity().await;
+        if let Some(Some(cpus)) = cpus {
+            validate_computer_cpus(cpus, capacity.cpus)?;
+        }
+        if let Some(memory) = &memory {
+            validate_computer_memory(memory, capacity.memory_bytes)?;
+        }
+    }
+    let mut computer = persona.computer.unwrap_or(PersonaComputer {
+        enabled: false,
+        image: None,
+        memory: None,
+        cpus: None,
+        pids: None,
+        mounts: None,
+        secrets: None,
+    });
+    if let Some(enabled) = enabled {
+        computer.enabled = enabled;
+    }
+    if let Some(memory) = memory {
+        computer.memory = Some(memory);
+    }
+    if let Some(cpus) = cpus {
+        computer.cpus = cpus;
+    }
+    apply_persona_update_locked(log, room, id, &json!({ "computer": computer })).await
+}
+
+fn validate_computer_cpus(cpus: f64, capacity: u32) -> Result<(), String> {
+    if !cpus.is_finite() || cpus <= 0.0 || cpus > f64::from(capacity) || (cpus * 2.0).fract() != 0.0
+    {
+        return Err(format!(
+            "CPUs must be positive half-core increments, at most {capacity}."
+        ));
+    }
+    Ok(())
+}
+
+/// Whole m/M (MiB) and g/G (GiB) runtime spellings only. In particular,
+/// decimal/fractional values are not rounded into an unintended grant.
+fn validate_computer_memory(memory: &str, capacity: u64) -> Result<(), String> {
+    const STEP: u64 = 512 * 1024 * 1024;
+    let invalid = || {
+        "Memory must be whole MiB or GiB (such as 4608m or 4g), at least 512 MiB and in 512 MiB increments.".to_string()
+    };
+    let (digits, scale) = match memory.as_bytes().last() {
+        Some(b'm' | b'M') => (&memory[..memory.len() - 1], 1024_u64 * 1024),
+        Some(b'g' | b'G') => (&memory[..memory.len() - 1], 1024_u64 * 1024 * 1024),
+        _ => return Err(invalid()),
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(invalid());
+    }
+    let bytes = digits
+        .parse::<u64>()
+        .ok()
+        .and_then(|n| n.checked_mul(scale))
+        .ok_or_else(invalid)?;
+    if bytes < STEP || !bytes.is_multiple_of(STEP) {
+        return Err(invalid());
+    }
+    if bytes > capacity {
+        return Err(format!(
+            "Memory exceeds this computer's capacity of {} MiB.",
+            capacity / (1024 * 1024)
+        ));
+    }
+    Ok(())
+}
+
 /// Switches a harness teammate's mode and keeps it, so the teammate comes
 /// back in it after a restart. A resting teammate advertises no modes, so its
 /// choice is kept unchecked and offered to the harness at its next start,
@@ -735,6 +832,16 @@ async fn apply_persona_update(
 ) -> Result<Value, String> {
     let gate = room.policy_update_lock();
     let _held = gate.lock().await;
+    apply_persona_update_locked(log, room, id, patch).await
+}
+
+/// The caller holds `policy_update_lock` for read/merge/write and effects.
+async fn apply_persona_update_locked(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    id: &str,
+    patch: &Value,
+) -> Result<Value, String> {
     let (updated, reattaches) = update_persona(log, room, id, patch)?;
     if reattaches {
         room.reattach(id).await?;

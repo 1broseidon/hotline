@@ -652,6 +652,41 @@ made it so.
   That is the owner's call by design; the phone explains each choice before
   it is made, and a companion phone cannot make it.
 
+
+## The owner phone changes a teammate's computer (BRO-140)
+
+- **Default and old records:** `computer.cpus` is optional. Absent means no
+  CPU cap, as before; the memory default remains `4g`. Docker and Podman
+  accept fractional CPU limits; Apple container rounds a requested cap up
+  to a whole CPU, with a minimum of one.
+- **Grant source:** `mobile.persona_computer {id, enabled?, memory?, cpus?}`
+  is owner-phone only, advertised by the owner's `personaComputer` hello
+  capability. A companion cannot send it. Neither phone gains general
+  `persona.update`, image, process-limit, mount or secret-grant controls.
+  Omitted fields stay unchanged; `cpus: null` clears the CPU cap. Enabling
+  a teammate with no computer record creates one with the normal defaults.
+- **Enforcement:** CPU caps are positive half-CPU increments no larger than
+  the reported capacity. Memory is at least 512 MiB, in 512 MiB increments,
+  no larger than the reported memory; the phone sends whole megabytes such
+  as `4608m`. An empty change is refused. Updates use the desk's existing
+  persona-update path and preserve image, process limit, mounts and secrets.
+  Enabling or disabling follows the same session reattachment rules as the
+  desk. Limit changes do not interrupt a turn: they apply when the container
+  is next created, not merely when an existing container is restarted.
+- **Read-only capacity:** `computer.capacity {}` is available to the desk
+  and both phone seats. It returns `runtime`, `cpus`, `memoryBytes` and
+  `source`, cached for about a minute. Docker and Podman report their own
+  capacity; Apple container or a failed runtime query falls back to host
+  capacity, then to four CPUs and 8 GiB if host capacity is unavailable.
+  `runtime: null` means no installed runtime was found. This reports totals,
+  not currently free resources or a reservation for the teammate.
+- **Residual risk:** an owner can enable a teammate's computer remotely and
+  remove its CPU cap. Limits are per computer, not a shared budget: several
+  teammates can collectively exhaust the runtime's capacity. Host/default
+  fallback is an estimate when the runtime cannot report its own limits.
+  These container controls impose no resource limit on host shell tools or
+  an external harness.
+
 ## Sealed served connections and explicit pairing (BRO-114)
 
 - **Default and grant source:** desktop Remote remains opt-in with existing

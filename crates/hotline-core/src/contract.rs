@@ -385,6 +385,9 @@ pub struct PersonaComputer {
     /// `"8g"`, `"512m"`. Absent is 4g. Larger builds can request more.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<String>,
+    /// CPU limit in cores. Absent leaves the runtime unlimited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<f64>,
     /// Process limit for the container; threads count. Absent is 1024, zero
     /// is unlimited. A parallel build needs more than the default allows.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -426,6 +429,28 @@ pub enum ComputerRuntime {
     Docker,
     Podman,
     Container,
+}
+
+/// The resources available to a teammate's computer. Runtime limits take
+/// precedence over host resources; the source makes fallback explicit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct ComputerCapacity {
+    pub runtime: Option<ComputerRuntime>,
+    pub cpus: u32,
+    #[ts(type = "number")]
+    pub memory_bytes: u64,
+    pub source: ComputerCapacitySource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ComputerCapacitySource {
+    Runtime,
+    Host,
+    Default,
 }
 
 /// What probing one runtime found, for the window's settings: a state the
@@ -2133,6 +2158,23 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         background_work: Option<bool>,
     },
+    /// The owner phone's narrow computer controls. Omitted fields are kept;
+    /// explicit null CPUs clear the limit. Limits apply on the next creation.
+    #[serde(rename = "mobile.persona_computer")]
+    MobilePersonaComputer {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memory: Option<String>,
+        #[serde(
+            default,
+            with = "present_option",
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[ts(as = "Option<f64>", optional = nullable)]
+        cpus: Option<Option<f64>>,
+    },
     #[serde(rename = "persona.create")]
     PersonaCreate { draft: PersonaDraft },
     /// The patch is folded over the teammate's record and the whole record is
@@ -2410,6 +2452,9 @@ pub enum Command {
     /// Every runtime this machine knows how to drive, rootless-available first.
     #[serde(rename = "computer.runtimes")]
     ComputerRuntimes {},
+    /// Read-only capacity for computer resource controls, available to every seat.
+    #[serde(rename = "computer.capacity")]
+    ComputerCapacity {},
     /// The release a new computer is created on, as the desk knows it now.
     #[serde(rename = "computer.releases")]
     ComputerReleases {},
@@ -2650,6 +2695,27 @@ pub struct RosterEntry {
     /// written, so a phone can tell `false` from a desk that predates it.
     pub waiting: bool,
     pub session: SessionInfo,
+}
+
+/// With `default`, absence is None; a present null is Some(None).
+mod present_option {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Some)
+    }
+
+    pub fn serialize<S, T>(value: &Option<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+    {
+        value.serialize(serializer)
+    }
 }
 
 #[cfg(test)]

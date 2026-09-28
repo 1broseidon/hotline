@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { type Capacity, CPU_STEP, MEMORY_STEP_MB, capacityNote, cpuCeiling, cpuLabel, memoryCeilingMb, memoryLabel, memoryMb, memorySpelling, snap } from "../computer-limits";
 import type {
 	ComputerMount,
 	ComputerStatus,
@@ -513,11 +514,10 @@ const STATE_WORDS: Record<ComputerStatus["state"], { value: string; action: stri
 const UPDATE_ABOUT =
 	"Updating recreates the computer on the newer release. The workspace, prepared environments, job history and browser profile live on volumes and come back with it; anything installed into the container itself outside them is gone, and running jobs stop.";
 
-const LIMITS_ABOUT =
-	"Blank is 4g of memory and 1024 processes; 0 processes is unlimited. Larger builds can request more memory or processes.";
+const LIMITS_ABOUT = "Blank is 1024 processes; 0 is unlimited. A parallel build needs more.";
 
 /** The settings without one of them, so blank means absent on the wire rather than an empty string. */
-function without(computer: PersonaComputer, key: "image" | "memory" | "pids" | "mounts" | "secrets"): PersonaComputer {
+function without(computer: PersonaComputer, key: "image" | "memory" | "cpus" | "pids" | "mounts" | "secrets"): PersonaComputer {
 	const next = { ...computer };
 	delete next[key];
 	return next;
@@ -557,7 +557,9 @@ function ComputerRows({
 	const mounts = current.mounts ?? [];
 	const granted = current.secrets ?? [];
 	const [image, setImage] = useState(current.image ?? "");
-	const [memory, setMemory] = useState(current.memory ?? "");
+	const [memory, setMemory] = useState(() => memoryMb(current.memory));
+	const [cpus, setCpus] = useState<number | null>(current.cpus ?? null);
+	const [capacity, setCapacity] = useState<Capacity | null>(null);
 	const [pids, setPids] = useState(current.pids === undefined ? "" : String(current.pids));
 	const [status, setStatus] = useState<ComputerStatus | null>(null);
 	const [openDesktop, setOpenDesktop] = useState(false);
@@ -576,8 +578,28 @@ function ComputerRows({
 		setImage(current.image ?? "");
 	}, [current.image]);
 	useEffect(() => {
-		setMemory(current.memory ?? "");
+		setMemory(memoryMb(current.memory));
 	}, [current.memory]);
+	useEffect(() => {
+		setCpus(current.cpus ?? null);
+	}, [current.cpus]);
+	// What the machine has to give, so the sliders stop there. Asked when the
+	// grant is on; the desk caches its answer, so asking again is cheap.
+	useEffect(() => {
+		if (!enabled) return;
+		let gone = false;
+		void wire
+			.command("computer.capacity", {})
+			.then((seen) => {
+				if (!gone) setCapacity(seen);
+			})
+			.catch(() => {
+				if (!gone) setCapacity(null);
+			});
+		return () => {
+			gone = true;
+		};
+	}, [enabled]);
 	useEffect(() => {
 		setPids(current.pids === undefined ? "" : String(current.pids));
 	}, [current.pids]);
@@ -613,6 +635,19 @@ function ComputerRows({
 			clearInterval(timer);
 		};
 	}, [personaId, enabled]);
+
+	// A slider saves where it is let go, and only when it moved.
+	const commitMemory = () => {
+		if (memory === memoryMb(current.memory)) return;
+		onChange({ ...current, memory: memorySpelling(memory) });
+	};
+	const commitCpus = () => {
+		if (cpus === (current.cpus ?? null)) return;
+		onChange(cpus === null ? without(current, "cpus") : { ...current, cpus });
+	};
+
+	// One step past the most CPUs the machine has is no cap at all.
+	const cpuTop = capacity ? cpuCeiling(capacity) : Math.max(cpus ?? 0, 1);
 
 	const commitText = (key: "image" | "memory", draft: string, setDraft: (value: string) => void) => {
 		const trimmed = draft.trim();
@@ -768,8 +803,43 @@ function ComputerRows({
 									onKeyDown={onEnter(() => commitText("image", image, setImage))}
 								/>
 							</div>
-							<LimitRow id="edit-computer-memory" title="Memory" about={LIMITS_ABOUT} placeholder="4g" disabled={disabled} value={memory} onChange={setMemory} onCommit={() => commitText("memory", memory, setMemory)} />
-							<LimitRow id="edit-computer-pids" title="Processes" placeholder="1024" numeric disabled={disabled} value={pids} onChange={setPids} onCommit={commitPids} />
+							<SliderRow
+								id="edit-computer-memory"
+								title="Memory"
+								label={memoryLabel(memory)}
+								min={MEMORY_STEP_MB}
+								max={capacity ? Math.max(memoryCeilingMb(capacity), memory) : Math.max(16 * 1024, memory)}
+								step={MEMORY_STEP_MB}
+								value={memory}
+								disabled={disabled}
+								onChange={(value) => setMemory(snap(value, MEMORY_STEP_MB, MEMORY_STEP_MB, capacity ? Math.max(memoryCeilingMb(capacity), memory) : Math.max(16 * 1024, memory)))}
+								onCommit={commitMemory}
+							/>
+							<SliderRow
+								id="edit-computer-cpus"
+								title="CPU"
+								label={cpuLabel(cpus, capacity)}
+								min={CPU_STEP}
+								max={cpuTop + CPU_STEP}
+								step={CPU_STEP}
+								value={cpus ?? cpuTop + CPU_STEP}
+								disabled={disabled || !capacity}
+								onChange={(value) => {
+									const at = snap(value, CPU_STEP, CPU_STEP, cpuTop + CPU_STEP);
+									setCpus(at > cpuTop ? null : at);
+								}}
+								onCommit={commitCpus}
+							/>
+							{capacity && capacityNote(capacity) && (
+								<div className={NESTED}>
+									<span className="group-row-text">
+										<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+											{capacityNote(capacity)}
+										</span>
+									</span>
+								</div>
+							)}
+							<LimitRow id="edit-computer-pids" title="Processes" about={LIMITS_ABOUT} placeholder="1024" numeric disabled={disabled} value={pids} onChange={setPids} onCommit={commitPids} />
 							{mounts.map((mount, index) => (
 								<div key={`${mount.host}:${mount.path}`} className={NESTED}>
 									<span className="group-row-text">
@@ -852,6 +922,61 @@ function ComputerRows({
 }
 
 /** A limit as one row: the title, and a short field at the right whose placeholder is the default. */
+/**
+ * A limit on a slider: its name, what it is set to, and the track. It saves
+ * where it is let go, by pointer or by keyboard, so a drag is one change.
+ */
+function SliderRow({
+	id,
+	title,
+	label,
+	min,
+	max,
+	step,
+	value,
+	disabled,
+	onChange,
+	onCommit,
+}: {
+	id: string;
+	title: string;
+	label: string;
+	min: number;
+	max: number;
+	step: number;
+	value: number;
+	disabled: boolean;
+	onChange(value: number): void;
+	onCommit(): void;
+}) {
+	return (
+		<div className={`${NESTED} flex-wrap gap-y-1`}>
+			<label className="group-row-text" htmlFor={id}>
+				<span className="group-row-title">{title}</span>
+			</label>
+			<span className="font-mono text-sm tabular-nums" aria-hidden>
+				{label}
+			</span>
+			<input
+				id={id}
+				type="range"
+				className="w-full"
+				style={{ accentColor: "var(--accent)" }}
+				min={min}
+				max={max}
+				step={step}
+				value={value}
+				aria-valuetext={label}
+				disabled={disabled}
+				onChange={(event) => onChange(Number(event.target.value))}
+				onPointerUp={onCommit}
+				onKeyUp={onCommit}
+				onBlur={onCommit}
+			/>
+		</div>
+	);
+}
+
 function LimitRow({
 	id,
 	title,

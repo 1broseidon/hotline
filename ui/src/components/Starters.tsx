@@ -1,4 +1,4 @@
-import type { Persona } from "../generated/contract";
+import type { Persona, TranscriptEvent } from "../generated/contract";
 import { dataDirectory } from "../native";
 
 /**
@@ -11,6 +11,16 @@ import { dataDirectory } from "../native";
  * The card reads the tape, not a flag: it is there while nothing has been
  * said, and gone for good once a user line is on the tape.
  */
+
+/**
+ * Whether nothing has been said yet. A handoff or a teammate's request is as
+ * much a first word as the person's own, and a tape opened on its last lines
+ * (`more`) has a history above them even when no user line is in view.
+ */
+export function untouched(events: TranscriptEvent[], more: boolean): boolean {
+	return !more && !events.some((event) => event.kind === "user" || event.kind === "delivery" || event.kind === "agent");
+}
+
 export function Starters({ persona, onPick }: { persona: Persona; onPick(text: string): void }) {
 	const own = isOwnFolder(persona.cwd);
 	const prompts = own

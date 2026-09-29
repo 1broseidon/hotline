@@ -825,7 +825,10 @@ made it so.
   and persona before opening the upstream connection. The desk intercepts only
   the six file operations, resolves the running computer's port and bearer, and
   uses authenticated HTTP with no redirects. The computer's file handlers enforce
-  home confinement. Responses omit upstream error bodies and credentials.
+  home confinement. Viewer List/Download paths go unchecked on the desk side to
+  the computer's `/files` and `/files/download` endpoints; the computer confines
+  them to home. Only uploads are checked desk-side by `destination()`.
+  Responses omit upstream error bodies and credentials.
   Revocation closes the viewer and aborts its file worker. Upload handles and
   spools belong to that connection; chunks enforce offsets and decoded size.
   Publishing requires the computer's advertised atomic create-only operation:
@@ -845,3 +848,32 @@ made it so.
   handles and chunk memory are bounded, total transferred bytes are not. Published
   files and already-dispatched HTTP requests are not rolled back by disconnect or
   revocation. Process crashes can leave desk-side temporary spools behind.
+
+### Single-use loopback viewer tokens (BRO-148)
+
+- **Default and grant source:** the trusted shell calls
+  `Bridge::viewer_token(persona_id)` to mint an in-memory viewer capability. It
+  expires 30 seconds after minting and grants one WebSocket upgrade for that
+  persona, under the bridge's existing paired-device authority.
+- **Enforcement:** only `/computer/<that persona>/ws` accepts it, carried as
+  `Sec-WebSocket-Protocol: hotline-viewer.<token>`. The bridge echoes the selected
+  protocol. The token is never accepted on `/ws`, another persona, another bridge,
+  or through the query string. Validation and consumption share one mutex, so
+  racing upgrades have one winner. Expired entries are pruned on mint/redemption;
+  dropping the bridge cancels sockets and discards its tokens. A reconnect needs
+  a fresh capability even if the remote computer was unavailable. Thirty seconds
+  limits redemption, not the lifetime of an already-open viewer; the existing
+  paired-device revocation still closes that viewer.
+- **Compatibility:** the owner bridge token still works as `?token=` on both
+  routes during rollout. Mixed owner-query/viewer-protocol credentials and
+  multiple viewer protocols are refused without falling back to owner authority.
+- **Tests:** `remote/tests/viewer_token_tests.rs` enters the real loopback upgrade
+  handler and proves route/persona/bridge isolation, single use, concurrent
+  redemption, protocol echo, a fresh reconnect and expiry after 30 seconds.
+  `bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_the_bearer`
+  retains coverage of the owner-token viewer route and remote revocation.
+- **Residual risk:** a stolen unspent token can win the upgrade race for its one
+  persona and access that computer's screen, controls and files. The header can
+  appear in handshake logs; the secret is narrower and short-lived, not invisible.
+  Shell/window code must stop passing the owner token to the viewer to obtain
+  this isolation; compatibility alone does not remove the old credential.

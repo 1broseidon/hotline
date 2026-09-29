@@ -173,7 +173,7 @@ async fn viewer(
     loop {
         tokio::select! {
             frame = local.next() => match frame {
-                Some(Ok(Message::Text(text))) if text.len() <= 65536 => {
+                Some(Ok(Message::Text(text))) if text.len() <= super::viewer_files::MAX_REQUEST => {
                     if remote.send(Message::text(json!({"type":"text","data":text.as_str()}).to_string())).await.is_err() { break; }
                 }
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {},

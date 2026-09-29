@@ -2911,3 +2911,5 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
     }
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+mod viewer_file_tests;

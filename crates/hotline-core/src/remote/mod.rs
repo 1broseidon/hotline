@@ -10,6 +10,7 @@ mod sealed;
 mod served;
 mod server;
 mod v2;
+mod viewer_files;
 pub use served::ServeOptions;
 pub use v2::{PairingPayload, SealedPairing};
 

@@ -384,7 +384,7 @@ async fn refresh_catalogue(root: &Path) {
 /// A name with a separator in it is a path already and is answered as itself
 /// when it exists. On Windows a bare name is tried with each `PATHEXT`
 /// suffix, which is where `npx` actually lives there.
-fn which(command: &str) -> Option<PathBuf> {
+pub(crate) fn which(command: &str) -> Option<PathBuf> {
     if command.contains(['/', '\\']) {
         let path = PathBuf::from(command);
         return path.is_file().then_some(path);

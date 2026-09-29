@@ -425,7 +425,7 @@ async fn sealed_door(
                 let role = remote.claim_v2(&public, &payload[..size]).ok()?;
                 (
                     None,
-                    serde_json::to_vec(&json!({"role": role, "deskName": desktop_name()})).ok()?,
+                    serde_json::to_vec(&json!({"role": role, "deskName": desktop_name(), "deskId": remote.status_desktop_id()})).ok()?,
                 )
             } else {
                 // A TLS proxy can rewrite the HTTP target, but not this
@@ -439,7 +439,20 @@ async fn sealed_door(
                 } else if size != 0 {
                     return None;
                 }
-                (Some(remote.authenticate_v2(&public)?), Vec::new())
+                let phone = remote.authenticate_v2(&public);
+                // Disabling Remote also refuses authentication, but does not
+                // revoke saved grants. Do not turn shutdown into a key refusal.
+                if phone.is_none() && cancel.is_cancelled() {
+                    return None;
+                }
+                let answer = if phone.is_some() {
+                    Vec::new()
+                } else {
+                    // Message 1 decrypted successfully: the initiator knows the
+                    // desk key. Seal the refusal under that same Noise identity.
+                    sealed::DEVICE_REJECTED.to_vec()
+                };
+                (phone, answer)
             };
             let mut response = [0u8; 4096];
             let size = noise.write_message(&answer, &mut response).ok()?;
@@ -447,7 +460,7 @@ async fn sealed_door(
                 .send(Message::Binary(response[..size].to_vec().into()))
                 .await
                 .ok()?;
-            if pairing {
+            if pairing || phone.is_none() {
                 return None;
             }
             let state = noise.into_transport_mode().ok()?;

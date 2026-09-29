@@ -55,7 +55,7 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
-## Pair a phone
+## Pair a device
 
 As the service account, on the machine running the desk:
 
@@ -73,9 +73,20 @@ Treat the QR and terminal scrollback as sensitive until it expires. Cancel
 with Ctrl-C. A served desk does not offer the six-digit manual pairing
 route, and its v2 claim endpoint is absent when no pairing window is open.
 Removing every device does not open an owner bootstrap route: run `pair`
-again locally. Owner and companion currently have the same phone command
-allowlist; neither is the unrestricted local desk seat. Owner onboarding
-commands come separately.
+again explicitly. An owner has the same commands and subscriptions as the
+local desk, including providers, grants and server paths. A companion keeps
+the limited phone command set. Existing grants without a role remain owners.
+
+The default command prints only the QR, never the link as text, so a casual
+copy of the terminal does not carry the secret. `hotline pair --json` prints
+one JSON payload to stdout; `hotline pair --link` prints only the link.
+Both wait for a claim, cancellation or expiry, so an SSH caller must keep the
+process alive after reading the first line. Completion and errors use stderr.
+The link is `hotline://pair?p=<base64url(JSON)>`, without base64 padding. Its
+payload fields are `version` (2), `url` (HTTPS), `deskKey` (base64url X25519),
+`secret`, `role`, `expiresAt` (Unix milliseconds), and `name`. The existing
+phone QR query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same
+role, expiry and name. All forms name the same single-use invitation.
 
 ## Check on it
 
@@ -149,3 +160,55 @@ is dropped. None of this is exactly-once. A desk killed outright
 | `store.json` | Which secret store the room uses. |
 | `secrets/` | The file store, 0700, one 0600 file per record. |
 | `pending.json` | Lines kept by the last stop for the next start; absent otherwise. |
+
+## Desktop client library
+
+`hotline_core::remote::client::pair(&payload, device_name)` uses the OS secret
+store and returns `PairedDesk { desk_id, name, url, desk_key }`. Tests and shells
+with an explicitly chosen store use `Client::new(store).pair(...)`. Keep the
+registry entry; it contains no private key or invitation secret.
+
+`remote::bridge::Bridge::start(&desk).await` returns a bridge whose public
+`origin` is `http://127.0.0.1:PORT` and whose `token` is independent of Remote.
+Keep the Bridge alive for the desk's lifetime; dropping it closes its sockets.
+The window connects to `/ws?token=TOKEN` and speaks the Door wire. Computer
+viewers use `/computer/PERSONA_ID/ws?token=TOKEN`, with ordinary text and binary
+viewer frames. Only the server holds the computer's bearer.
+
+The bridge exposes a watch receiver in `state`. Its wire connection reconnects
+with backoff from 250 ms to 30 seconds and resubscribes for fresh snapshots.
+An interrupted command returns an uncertain-outcome error and is never replayed.
+The shell should use the state to disable actions while the desk is unreachable.
+A rejection authenticated by the pinned desk changes state to `revoked` and ends
+reconnect attempts; pair again to restore access. A network failure alone never
+sets `revoked`.
+
+Owner file commands use absolute **server** paths:
+
+| Command | Params | Result |
+| --- | --- | --- |
+| `files.browse` | `path` | canonical `path`, `parent`, `entries` with name/path/directory/size |
+| `files.mkdir` | new directory `path` | created `path` |
+| `files.download` | `path`, `offset` | name/mimeType/size/offset/base64 `data`/nullable `next`; at most 512 KiB |
+| `files.upload_start` | new destination `path` | `uploadId`, `offset` |
+| `files.upload_chunk` | `uploadId`, `offset`, base64 `data` | next `offset`; at most 512 KiB |
+| `files.upload_finish` | `uploadId` | destination `path`, `size` |
+| `files.upload_cancel` | `uploadId` | no result |
+
+Upload calls must stay on the socket that started them. Up to eight uploads can
+be staged on it; cancellation or disconnect removes unfinished files. Finish
+publishes a complete file without replacing an existing destination. Browse
+refuses directories over 10,000 entries; select a more specific server path.
+A completed upload's path can be passed to attachments. For room import,
+create the destination tree with `files.mkdir`, upload its files, and pass the
+server directory to `room.import`.
+Existing `file.read` still reads sent files by message ID.
+
+`computer.cookies.push` takes `personaId` and `transfer` containing `sourceId`
+(a stable laptop ID), `browserId`, `profileId`, selected `domains` and `cookies`.
+The shell reads the laptop browser and submits only the selected cookies. The
+server checks the selection, drops expired cookies, and delivers them to the
+teammate's computer through the existing import path. Values do not enter room
+or tape records. Source identity keeps laptop imports separate from server-local
+browser imports; the reply contains domain counts only. Transfers are bounded
+to 8 MiB and 10,000 cookies. Companions cannot use these operator commands.

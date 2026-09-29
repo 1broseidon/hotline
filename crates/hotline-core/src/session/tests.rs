@@ -5755,3 +5755,40 @@ async fn a_restart_keeps_the_waiting_line_and_says_which_turn_it_cut_off() {
         .collect();
     assert_eq!(users, ["first", "second"]);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn laptop_cookies_reach_the_computer_but_never_the_room_or_tape() {
+    let ComputerRoom { room, taken, .. } =
+        computer_room("laptop-cookies", Some("0.10.2"), TWO_RELEASES, true).await;
+    let transfer = crate::contract::CookieTransfer {
+        source_id: "laptop".into(),
+        browser_id: "firefox".into(),
+        profile_id: "default".into(),
+        domains: vec!["example.com".into()],
+        cookies: vec![
+            json!({"domain":".example.com","name":"session","value":"laptop-secret-value","path":"/"}),
+        ],
+    };
+    let mut invalid = transfer.clone();
+    invalid.domains = vec!["unselected.com".into()];
+    assert!(room.computer_cookies_push("ada", invalid).await.is_err());
+    assert!(taken.uploads.lock().unwrap().is_empty());
+    let sites = room.computer_cookies_push("ada", transfer).await.unwrap();
+    assert_eq!(sites[0].domain, "example.com");
+    assert_eq!(
+        taken.uploads.lock().unwrap()[0]["cookies"][0]["value"],
+        "laptop-secret-value"
+    );
+    assert_eq!(
+        room.computer_cookies_list("ada")[0].browser_name,
+        "firefox (laptop)"
+    );
+    for stream in [StreamId::Room, StreamId::Tape("ada".into())] {
+        assert!(
+            !serde_json::to_string(&room.log.load(&stream))
+                .unwrap()
+                .contains("laptop-secret-value")
+        );
+    }
+}

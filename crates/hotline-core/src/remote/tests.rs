@@ -7,6 +7,7 @@ use crate::{
     desk::Desk,
     wire::Door,
 };
+use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -124,6 +125,20 @@ impl Harness {
     async fn pair(&self) -> Value {
         let invite = self.remote.pairing().unwrap().invitation;
         self.claim_invitation(invite).await
+    }
+    async fn pair_companion(&self) -> Value {
+        let grant = self.pair().await;
+        let mut state = self.remote.state.lock().unwrap();
+        state
+            .saved
+            .grants
+            .iter_mut()
+            .find(|g| g.device.id == grant["deviceId"])
+            .unwrap()
+            .device
+            .role = DeviceRole::Companion;
+        self.remote.save(&state.saved).unwrap();
+        grant
     }
     /// Scans the invitation already on screen rather than minting one.
     async fn pair_current(&self) -> Value {
@@ -296,7 +311,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
     let looking: Value =
         serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert_eq!(looking["ok"], true, "{looking}");
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
     for frame in [
@@ -461,7 +476,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
 async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
     let h = Harness::new().await;
 
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
 
@@ -539,7 +554,7 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
 #[tokio::test]
 async fn a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update() {
     let h = Harness::new().await;
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
     read(&mut phone).await;
 
@@ -647,22 +662,15 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
         .unwrap()
         .to_string();
 
-    let grant = h.pair().await;
+    let grant = h.pair_companion().await;
     let token = grant["token"].as_str().unwrap();
     let mut phone = h.socket(token).await.unwrap();
     // The hello is how a phone knows it may ask; a desk from before this
     // list names nothing, and the phone then shows no schedules section. A
-    // grant from before roles is the owner's, which also changes access.
+    // companion keeps the smaller command set.
     assert_eq!(
         read(&mut phone).await["capabilities"],
-        json!([
-            "personaCreate",
-            "personaEdit",
-            "schedules",
-            "threads",
-            "personaAccess",
-            "personaComputer"
-        ])
+        json!(["personaCreate", "personaEdit", "schedules", "threads"])
     );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
@@ -1628,6 +1636,11 @@ mod sealed_network {
             buffer[..size].to_vec(),
         ))
     }
+    async fn rejected(h: &Harness, private: &[u8; 32], public: &[u8; 32]) {
+        let (mut socket, _, answer) = exchange(h, "/v2", private, public, &[]).await.unwrap();
+        assert_eq!(answer, sealed::DEVICE_REJECTED);
+        closed(&mut socket).await;
+    }
     async fn claim(h: &Harness, pairing: &SealedPairing, private: &[u8; 32]) -> Option<Value> {
         let (public, secret) = invitation(pairing);
         let payload = json!({"secret":secret, "name":"Sealed test phone"}).to_string();
@@ -1666,14 +1679,21 @@ mod sealed_network {
     }
 
     #[tokio::test]
-    async fn explicit_pairing_is_atomic_and_both_roles_are_not_desk_seats() {
+    async fn explicit_pairing_is_atomic_and_only_owners_have_desk_authority() {
         let h = Harness::new().await;
         assert!(h.socket_at("/v2/pair", "").await.is_err());
         let (first, _) = sealed::keypair().unwrap();
         let (second, _) = sealed::keypair().unwrap();
         let (_, public) = h.remote.noise_keys().unwrap();
-        // An empty grant set is not an owner invitation; unknown keys hear nothing.
-        assert!(exchange(&h, "/v2", &first, &public, &[]).await.is_none());
+        // Knowing the desk key earns only an authenticated refusal, not a grant.
+        rejected(&h, &first, &public).await;
+        assert!(h.remote.devices().is_empty());
+        let (_, wrong_desk) = sealed::keypair().unwrap();
+        assert!(
+            exchange(&h, "/v2", &first, &wrong_desk, &[])
+                .await
+                .is_none()
+        );
         for role in [DeviceRole::Owner, DeviceRole::Companion] {
             let pairing = h.remote.pairing_v2(role).unwrap();
             assert!(h.remote.pairing_result(&pairing.id).unwrap().is_none());
@@ -1712,18 +1732,23 @@ mod sealed_network {
                 json!({"id":2,"cmd":"settings.update","params":{"patch":{}}}),
             )
             .await;
-            assert_eq!(
-                read_sealed(&mut socket, &mut state).await["code"],
-                "forbidden"
-            );
+            let reply = read_sealed(&mut socket, &mut state).await;
+            assert_eq!(reply["ok"], role == DeviceRole::Owner);
+            if role == DeviceRole::Companion {
+                assert_eq!(reply["code"], "forbidden");
+            }
             send_sealed(&mut socket, &mut state, json!({"id":3,"sub":"room"})).await;
-            assert_eq!(
-                read_sealed(&mut socket, &mut state).await["code"],
-                "forbidden"
-            );
+            let reply = read_sealed(&mut socket, &mut state).await;
+            assert_eq!(reply["ok"], role == DeviceRole::Owner);
+            if role == DeviceRole::Companion {
+                assert_eq!(reply["code"], "forbidden");
+            }
+            if role == DeviceRole::Owner {
+                assert!(read_sealed(&mut socket, &mut state).await["snapshot"].is_array());
+            }
             h.remote.revoke(&device.id).unwrap();
             closed(&mut socket).await;
-            assert!(exchange(&h, "/v2", private, &public, &[]).await.is_none());
+            rejected(&h, private, &public).await;
         }
         h.remote.configure(false, network::ALL).await.unwrap();
     }
@@ -1792,7 +1817,7 @@ mod sealed_network {
                     }
                 }).await.expect("revocation must release command, socket, subscriptions and connection permits without waiting for the computer");
                 if !disable {
-                    assert!(exchange(&h, "/v2", &private, &public, &[]).await.is_none());
+                    rejected(&h, &private, &public).await;
                     h.remote.configure(false, network::ALL).await.unwrap();
                 }
             }
@@ -2037,11 +2062,13 @@ mod sealed_network {
         let binding = br#"{"purpose":"computer","personaId":"ada"}"#;
         // Unknown keys cannot discover a running viewer or see its first frame,
         // even with a valid target binding.
-        assert!(
+        let (mut refused, _, answer) =
             exchange(&h, "/v2/computer/ada/ws", &private, &public, binding)
                 .await
-                .is_none()
-        );
+                .unwrap();
+        assert_eq!(answer, sealed::DEVICE_REJECTED);
+        closed(&mut refused).await;
+        assert!(asked.lock().unwrap().is_none());
         claim(&h, &pairing, &private).await.unwrap();
         let (mut socket, mut state, _) =
             exchange(&h, "/v2/computer/ada/ws", &private, &public, binding)
@@ -2282,4 +2309,501 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
     );
     assert!(remote.noise_identity.read().unwrap().is_some());
     remote.configure(false, &listen.to_string()).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_pairs_pins_and_recovers_subscriptions_without_replaying_commands() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let decoded = PairingPayload::from_link(&invitation.link).unwrap();
+    assert_eq!(decoded.secret, invitation.payload.secret);
+    assert_eq!(decoded.expires_at, invitation.expires_at);
+    assert_eq!(decoded.version, 2);
+    let desk = client.pair(&decoded, "Test laptop").await.unwrap();
+    assert_eq!(desk.desk_id, h.remote.status_desktop_id());
+    assert!(client.pair(&decoded, "Second claim").await.is_err());
+    let mut session = client.connect(&desk);
+    async fn receive(session: &mut client::Session) -> Value {
+        serde_json::from_str(
+            &tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap()
+    }
+    assert_eq!(receive(&mut session).await["type"], "hello");
+    assert_eq!(*session.state.borrow(), client::State::Open);
+    session
+        .outgoing
+        .send(json!({"id":1,"sub":"room"}).to_string())
+        .await
+        .unwrap();
+    assert_eq!(receive(&mut session).await["ok"], true);
+    assert!(receive(&mut session).await["snapshot"].is_array());
+    session.outgoing.send(json!({"id":2,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/client-test-skills"}}}).to_string()).await.unwrap();
+    loop {
+        let frame = receive(&mut session).await;
+        if frame["id"] == 2 {
+            assert_eq!(frame["ok"], true);
+            break;
+        }
+    }
+    h.remote.configure(false, network::ALL).await.unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        session
+            .state
+            .wait_for(|state| *state == client::State::Unreachable),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    h.remote.configure(true, network::ALL).await.unwrap();
+    loop {
+        if receive(&mut session).await["type"] == "hello" {
+            break;
+        }
+    }
+    assert_eq!(receive(&mut session).await["ok"], true);
+    let snapshot = receive(&mut session).await;
+    assert!(
+        snapshot["snapshot"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event.to_string().contains("/tmp/client-test-skills"))
+    );
+    session
+        .outgoing
+        .send(json!({"id":3,"cmd":"backends.list"}).to_string())
+        .await
+        .unwrap();
+    loop {
+        if receive(&mut session).await["id"] == 3 {
+            break;
+        }
+    }
+    assert_eq!(
+        h.desk
+            .log
+            .load(&crate::log::StreamId::Room)
+            .iter()
+            .filter(|event| event.to_string().contains("/tmp/client-test-skills"))
+            .count(),
+        1,
+        "the mutation was not replayed"
+    );
+    let mut tampered = desk.clone();
+    tampered.desk_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([9u8; 32]);
+    assert!(client.open(&tampered, None).await.is_err());
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_companion_cannot_change_settings_or_subscribe_to_room() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Companion laptop")
+        .await
+        .unwrap();
+    let mut socket = client.open(&desk, None).await.unwrap();
+    socket.next().await.unwrap().unwrap();
+    for request in [
+        json!({"id":1,"sub":"room"}),
+        json!({"id":2,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/no"}}}),
+    ] {
+        socket
+            .send(Message::text(request.to_string()))
+            .await
+            .unwrap();
+        let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+            panic!("expected reply");
+        };
+        let reply: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(reply["ok"], false);
+        assert_eq!(reply["code"], "forbidden");
+    }
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn pairing_failures_do_not_consume_the_invitation_or_replace_a_pin() {
+    struct Locked;
+    impl crate::credentials::SecretStore for Locked {
+        fn get(&self, _: &str) -> std::io::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        fn set(&self, _: &str, _: &[u8]) -> std::io::Result<()> {
+            Err(std::io::Error::other("test store locked"))
+        }
+        fn delete(&self, _: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let h = Harness::new().await;
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let mut invalid = invitation.payload.clone();
+    invalid.version = 99;
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    invalid = invitation.payload.clone();
+    invalid.expires_at = super::now() - 1;
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    invalid = invitation.payload.clone();
+    invalid.url = invalid.url.replace("https:", "http:");
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    invalid = invitation.payload.clone();
+    invalid.desk_key =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed::keypair().unwrap().1);
+    assert!(client.pair(&invalid, "Laptop").await.is_err());
+    assert!(
+        client::Client::new(Arc::new(Locked))
+            .pair(&invitation.payload, "Laptop")
+            .await
+            .is_err()
+    );
+    assert!(h.remote.pairing_result(&invitation.id).unwrap().is_none());
+    let paired = client.pair(&invitation.payload, "Laptop").await.unwrap();
+    assert_eq!(paired.desk_key, invitation.payload.desk_key);
+    assert_eq!(h.remote.devices().len(), 1);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat() {
+    use super::bridge::Bridge;
+    use base64::engine::general_purpose::STANDARD;
+    let h = Harness::new().await;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("uploaded.txt");
+    for role in [DeviceRole::Companion, DeviceRole::Owner] {
+        let client = client::Client::new(Arc::new(MemoryStore::default()));
+        let payload = h.remote.pairing_v2(role).unwrap().payload;
+        let desk = client.pair(&payload, "Bridge test").await.unwrap();
+        let bridge = Bridge::with_client(&desk, client).await.unwrap();
+        let origin = bridge.origin.replace("http:", "ws:");
+        assert!(
+            tokio_tungstenite::connect_async(format!("{origin}/ws?token=wrong"))
+                .await
+                .is_err()
+        );
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("{origin}/ws?token={}", bridge.token))
+                .await
+                .unwrap();
+        let hello = socket.next().await.unwrap().unwrap();
+        assert!(hello.to_text().unwrap().contains("hello"));
+        async fn ask(
+            socket: &mut WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+            cmd: &str,
+            params: Value,
+        ) -> Value {
+            socket
+                .send(Message::text(
+                    json!({"id":1,"cmd":cmd,"params":params}).to_string(),
+                ))
+                .await
+                .unwrap();
+            let frame = tokio::time::timeout(Duration::from_secs(10), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            serde_json::from_str(frame.to_text().unwrap()).unwrap()
+        }
+        let upload = ask(&mut socket, "files.upload_start", json!({"path":path})).await;
+        if role == DeviceRole::Companion {
+            assert_eq!(upload["code"], "forbidden");
+            assert!(!path.exists());
+            assert_eq!(
+                ask(&mut socket, "files.browse", json!({"path":root.path()})).await["code"],
+                "forbidden"
+            );
+            assert_eq!(
+                ask(
+                    &mut socket,
+                    "files.download",
+                    json!({"path":path,"offset":0})
+                )
+                .await["code"],
+                "forbidden"
+            );
+            continue;
+        }
+        assert_eq!(upload["ok"], true, "{upload}");
+        let id = &upload["result"]["uploadId"];
+        assert_eq!(
+            ask(
+                &mut socket,
+                "files.upload_chunk",
+                json!({"uploadId":id,"offset":0,"data":STANDARD.encode(b"hello laptop")})
+            )
+            .await["ok"],
+            true
+        );
+        assert!(!path.exists(), "destination stays absent until finish");
+        assert_eq!(
+            ask(
+                &mut socket,
+                "files.upload_chunk",
+                json!({"uploadId":id,"offset":0,"data":"YQ=="})
+            )
+            .await["ok"],
+            false
+        );
+        let (mut other, _) =
+            tokio_tungstenite::connect_async(format!("{origin}/ws?token={}", bridge.token))
+                .await
+                .unwrap();
+        other.next().await.unwrap().unwrap();
+        assert_eq!(
+            ask(&mut other, "files.upload_finish", json!({"uploadId":id})).await["ok"],
+            false
+        );
+        assert_eq!(
+            ask(&mut socket, "files.upload_finish", json!({"uploadId":id})).await["ok"],
+            true
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello laptop");
+        let downloaded = ask(
+            &mut socket,
+            "files.download",
+            json!({"path":path,"offset":0}),
+        )
+        .await;
+        assert_eq!(
+            STANDARD
+                .decode(downloaded["result"]["data"].as_str().unwrap())
+                .unwrap(),
+            b"hello laptop"
+        );
+        assert_eq!(
+            ask(&mut socket, "files.browse", json!({"path":root.path()})).await["result"]["entries"]
+                [0]["name"],
+            "uploaded.txt"
+        );
+        assert_eq!(
+            ask(&mut socket, "files.upload_start", json!({"path":path})).await["ok"],
+            false
+        );
+        let unfinished = root.path().join("unfinished");
+        assert_eq!(
+            ask(
+                &mut socket,
+                "files.upload_start",
+                json!({"path":unfinished})
+            )
+            .await["ok"],
+            true
+        );
+        drop(bridge);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while std::fs::read_dir(root.path()).unwrap().count() != 1 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!unfinished.exists());
+    }
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_the_bearer() {
+    let (port, asked) = fake_computer().await;
+    let (h, room) = Harness::with_computer().await;
+    *room.viewer.lock().unwrap() = Some(format!("http://127.0.0.1:{port}/#secret-bearer"));
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let payload = h.remote.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    let desk = client.pair(&payload, "Viewer laptop").await.unwrap();
+    let bridge = bridge::Bridge::with_client(&desk, client).await.unwrap();
+    let url = format!(
+        "{}/computer/ada/ws?token={}",
+        bridge.origin.replace("http:", "ws:"),
+        bridge.token
+    );
+    assert!(!url.contains("secret-bearer"));
+    let (mut socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    assert_eq!(
+        socket.next().await.unwrap().unwrap(),
+        Message::binary(b"\x89PNG frame".to_vec())
+    );
+    socket
+        .send(Message::text("{\"type\":\"takeover\"}"))
+        .await
+        .unwrap();
+    assert_eq!(
+        socket.next().await.unwrap().unwrap(),
+        Message::text("{\"type\":\"takeover\"}")
+    );
+    assert_eq!(
+        asked.lock().unwrap().as_deref(),
+        Some("token=secret-bearer")
+    );
+    h.remote.revoke(&h.remote.devices()[0].id).unwrap();
+    assert!(!matches!(
+        tokio::time::timeout(Duration::from_secs(5), socket.next())
+            .await
+            .unwrap(),
+        Some(Ok(Message::Text(_) | Message::Binary(_)))
+    ));
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Revocation test")
+        .await
+        .unwrap();
+    let mut session = client.connect(&desk);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.state.wait_for(|s| *s == client::State::Open),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut bridge = bridge::Bridge::with_client(&desk, client.clone())
+        .await
+        .unwrap();
+    let (local, _) = tokio_tungstenite::connect_async(format!(
+        "{}/ws?token={}",
+        bridge.origin.replace("http:", "ws:"),
+        bridge.token
+    ))
+    .await
+    .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        bridge.state.wait_for(|s| *s == client::State::Open),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    h.remote.revoke(&h.remote.devices()[0].id).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.state.wait_for(|s| *s == client::State::Revoked),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        bridge.state.wait_for(|s| *s == client::State::Revoked),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    drop(local);
+    drop(bridge);
+    // Revocation is terminal; a new client session also recognizes an offline revoke.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while session.state.changed().await.is_ok() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(*session.state.borrow(), client::State::Revoked);
+    let mut fresh = client.connect(&desk);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        fresh.state.wait_for(|s| *s == client::State::Revoked),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    drop(fresh);
+    drop(session);
+
+    // Pair() saved a device identity for this pin before the handshake failed.
+    // Thus connect() actually attempts Noise, rather than failing for a missing key.
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let mut wrong = invitation.payload.clone();
+    wrong.desk_key =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed::keypair().unwrap().1);
+    assert!(client.pair(&wrong, "Wrong pin").await.is_err());
+    let mut wrong_desk = desk.clone();
+    wrong_desk.desk_key = wrong.desk_key;
+    let mut session = client.connect(&wrong_desk);
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.state.wait_for(|s| *s == client::State::Unreachable),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(600),
+            session.state.wait_for(|s| *s == client::State::Revoked)
+        )
+        .await
+        .is_err()
+    );
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Network failure test")
+        .await
+        .unwrap();
+    let identity: Identity =
+        serde_json::from_slice(&h.remote.identity.read().unwrap().unwrap()).unwrap();
+    for forge_rejection in [false, true] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut target = desk.clone();
+        target.url = format!("https://{}", listener.local_addr().unwrap());
+        let tls = server::tls(&identity).unwrap();
+        let fake = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let stream = tls.accept(stream).await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            assert!(matches!(socket.next().await, Some(Ok(Message::Binary(_)))));
+            if forge_rejection {
+                socket
+                    .send(Message::Binary(sealed::DEVICE_REJECTED.to_vec().into()))
+                    .await
+                    .unwrap();
+            }
+            let _ = socket.close(None).await;
+        });
+        let mut session = client.connect(&target);
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            session.state.wait_for(|s| *s == client::State::Unreachable),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), fake)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(600),
+                session.state.wait_for(|s| *s == client::State::Revoked)
+            )
+            .await
+            .is_err()
+        );
+        drop(session);
+    }
+    h.remote.configure(false, network::ALL).await.unwrap();
 }

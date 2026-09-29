@@ -830,6 +830,14 @@ impl RoomHandle for Desk {
             .await
     }
 
+    async fn computer_cookies_push(
+        &self,
+        persona_id: &str,
+        transfer: crate::contract::CookieTransfer,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        self.room.computer_cookies_push(persona_id, transfer).await
+    }
+
     async fn computer_cookies_list(
         &self,
         persona_id: &str,

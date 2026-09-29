@@ -21,6 +21,8 @@ import { noticeRoster, setWindowTitle } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
+import { activeDeskId, LOCAL_DESK, useActiveDesk } from "./desks";
+import { AddDesk } from "./components/AddDesk";
 
 /* Settings is opened now and then, not at launch: it loads on first open,
  * which keeps its nine sections out of the startup bundle. */
@@ -29,17 +31,32 @@ const SettingsRail = lazy(() => import("./components/Settings").then((module) =>
 
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | null;
+type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
 type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent } | { kind: "work"; work: OpenWork };
 
+/**
+ * The window for the active desk. Switching desks remounts all of it, so the
+ * roster, the open teammate and every subscription start again on the other
+ * desk and nothing keeps talking to the one left behind (see desks.ts).
+ */
+export function DeskRoot() {
+	const desk = useActiveDesk();
+	return <App key={desk?.id ?? "none"} />;
+}
+
 export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
-	const [roster, setRoster] = useState<RosterEntry[]>([]);
+	/* The last roster this desk showed, so switching back to it draws at
+	 * once while the fresh snapshot is on its way. */
+	const [roster, setRoster] = useState<RosterEntry[]>(() => rosterCache.get(activeDeskId() ?? "") ?? []);
 	/* Whether the roster snapshot has landed. Before it, an empty roster is
 	 * not an empty room, and the welcome pane would flash on every open. */
-	const [rosterLoaded, setRosterLoaded] = useState(false);
+	const [rosterLoaded, setRosterLoaded] = useState(() => rosterCache.has(activeDeskId() ?? ""));
+	useEffect(() => {
+		if (rosterLoaded) rosterCache.set(activeDeskId() ?? "", roster);
+	}, [roster, rosterLoaded]);
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
@@ -377,6 +394,7 @@ export function App() {
 			) : (
 			<Rail
 				entries={roster}
+				loaded={rosterLoaded}
 				selectedId={selectedId}
 				seen={seen}
 				connection={connection}
@@ -398,7 +416,9 @@ export function App() {
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
-			<main className="@container flex min-w-0 flex-1 gap-2">
+			<main className="@container flex min-w-0 flex-1 flex-col gap-0">
+				<DeskBand onAddDesk={() => togglePane("add-desk")} />
+				<div className="flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
 						<Settings section={settingsSection} />
@@ -407,6 +427,8 @@ export function App() {
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (
 					<About onClose={closePane} />
+				) : pane === "add-desk" ? (
+					<AddDesk onClose={closePane} />
 				) : pane === "new-teammate" ? (
 					<NewTeammate models={models} onCreated={select} onClose={closePane} />
 				) : welcome ? (
@@ -491,6 +513,7 @@ export function App() {
 						</div>
 					</div>
 				)}
+				</div>
 			</main>
 			</div>
 		</div>
@@ -507,13 +530,22 @@ function takeChord(): boolean {
 	return true;
 }
 
+/** Each desk's last roster, for the moment after switching back to it. */
+const rosterCache = new Map<string, RosterEntry[]>();
+
 /** The open teammate survives a reload, which is what makes the tape
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
 const SELECTED_KEY = "hotline.rail.selected";
 
+/** A key of this window's, per desk. The local desk keeps the plain key it always had. */
+function perDesk(key: string): string {
+	const desk = activeDeskId();
+	return desk === null || desk === LOCAL_DESK ? key : `${key}:${desk}`;
+}
+
 function loadSelected(): string | null {
 	try {
-		const id = localStorage.getItem(SELECTED_KEY);
+		const id = localStorage.getItem(perDesk(SELECTED_KEY));
 		return id !== null && id !== "" ? id : null;
 	} catch {
 		return null;
@@ -522,8 +554,8 @@ function loadSelected(): string | null {
 
 function saveSelected(id: string | null): void {
 	try {
-		if (id === null) localStorage.removeItem(SELECTED_KEY);
-		else localStorage.setItem(SELECTED_KEY, id);
+		if (id === null) localStorage.removeItem(perDesk(SELECTED_KEY));
+		else localStorage.setItem(perDesk(SELECTED_KEY), id);
 	} catch {
 		// Quota, private mode.
 	}
@@ -535,7 +567,7 @@ const SEEN_KEY = "hotline.rail.seen";
 
 function loadSeen(): Record<string, number> {
 	try {
-		const raw = localStorage.getItem(SEEN_KEY);
+		const raw = localStorage.getItem(perDesk(SEEN_KEY));
 		if (!raw) return {};
 		const parsed: unknown = JSON.parse(raw);
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
@@ -551,8 +583,37 @@ function loadSeen(): Record<string, number> {
 
 function saveSeen(seen: Record<string, number>): void {
 	try {
-		localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+		localStorage.setItem(perDesk(SEEN_KEY), JSON.stringify(seen));
 	} catch {
 		// Quota, private mode — the next load treats everything as unread.
 	}
+}
+
+/**
+ * A band over the active desk when it is a remote one that is not there:
+ * unreachable (the bridge keeps trying; what shows is what it last said),
+ * or no longer paired (the server revoked this computer). Nothing for a
+ * local desk or a remote one that is open.
+ */
+function DeskBand({ onAddDesk }: { onAddDesk(): void }) {
+	const desk = useActiveDesk();
+	if (desk === null || desk.kind !== "remote" || desk.state === undefined || desk.state === "open") return null;
+	const revoked = desk.state === "revoked";
+	return (
+		<p role="status" className="flex shrink-0 items-center gap-2 rounded-md bg-raised px-4 py-1.5 text-sm text-ink">
+			<span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${revoked ? "" : "beat"}`} style={{ background: "var(--warn)" }} />
+			<span className="min-w-0 flex-1">
+				{revoked
+					? `${desk.name} no longer recognises this computer. Pair it again to reach it.`
+					: desk.state === "connecting"
+						? `Connecting to ${desk.name}…`
+						: `Can't reach ${desk.name}. Hotline keeps trying; what you see is what it last said.`}
+			</span>
+			{revoked && (
+				<button type="button" className="control btn btn-sm" onClick={onAddDesk}>
+					Pair again
+				</button>
+			)}
+		</p>
+	);
 }

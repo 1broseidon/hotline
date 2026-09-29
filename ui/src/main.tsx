@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { DeskRoot } from "./App";
 import { platform } from "./native";
 import { startTheme } from "./theme";
 import "./index.css";
@@ -24,6 +24,6 @@ if (!root) throw new Error("The window has no root to draw into.");
 
 createRoot(root).render(
 	<StrictMode>
-		<App />
+		<DeskRoot />
 	</StrictMode>,
 );

@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { ScheduledJob } from "./generated/contract";
 import { mcpServersFrom, type McpServer } from "./mcp";
-import { wire } from "./wire";
+import { activeDeskId, wireFor } from "./desks";
 
 /**
  * The room stream, as the window reads it.
@@ -51,7 +51,8 @@ type RoomState = {
 	modelsRevision: number;
 };
 
-const room = (() => {
+/** One desk's room, folded. Each desk in the window has its own. */
+function roomOf(deskId: string) {
 	let state: RoomState = { settings: new Map(), jobs: [], modelsRevision: 0 };
 	const listeners = new Set<() => void>();
 	let readers = 0;
@@ -63,7 +64,7 @@ const room = (() => {
 	};
 
 	const open = () =>
-		wire.subscribe<RoomItem>("room", {
+		wireFor(deskId).subscribe<RoomItem>("room", {
 			snapshot: (items) => set({ settings: takeKind(items, "setting"), jobs: takeJobs(items) }),
 			event: (item) => {
 				const next: Partial<RoomState> = {};
@@ -97,9 +98,22 @@ const room = (() => {
 		},
 		snapshot: () => state,
 	};
-})();
+}
 
+const rooms = new Map<string, ReturnType<typeof roomOf>>();
+
+function roomFor(deskId: string) {
+	let one = rooms.get(deskId);
+	if (one === undefined) {
+		one = roomOf(deskId);
+		rooms.set(deskId, one);
+	}
+	return one;
+}
+
+/** The active desk's room. Switching desks remounts what reads it. */
 function useRoom<T>(pick: (state: RoomState) => T): T {
+	const room = roomFor(activeDeskId() ?? "");
 	return useSyncExternalStore(room.subscribe, () => pick(room.snapshot()));
 }
 

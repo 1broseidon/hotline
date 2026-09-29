@@ -483,6 +483,56 @@ pub async fn select(
         .collect())
 }
 
+/// Validate the laptop's selected sites before starting a computer or writing
+/// any record. Values are forwarded only to that computer, never to the log.
+pub(crate) fn validate_transfer(
+    transfer: &crate::contract::CookieTransfer,
+) -> Result<Vec<Value>, String> {
+    if [
+        &transfer.source_id,
+        &transfer.browser_id,
+        &transfer.profile_id,
+    ]
+    .iter()
+    .any(|id| id.is_empty() || id.len() > 256)
+        || transfer.cookies.is_empty()
+        || transfer.cookies.len() > 10000
+        || transfer.domains.is_empty()
+        || transfer.domains.len() > 1000
+        || serde_json::to_vec(transfer).map_or(true, |bytes| bytes.len() > 8 * 1024 * 1024)
+    {
+        return Err("The cookie transfer is empty or too large.".into());
+    }
+    for cookie in &transfer.cookies {
+        let domain = cookie["domain"].as_str().ok_or("A cookie has no domain.")?;
+        if !transfer.domains.contains(&normalize_domain(domain)) {
+            return Err("A cookie is outside the sites selected for import.".into());
+        }
+        if ["name", "value", "path"]
+            .iter()
+            .any(|field| cookie[field].as_str().is_none())
+        {
+            return Err("A cookie is missing its name, value or path.".into());
+        }
+    }
+    let cookies = transfer
+        .cookies
+        .iter()
+        .map(|cookie| {
+            let mut kept = serde_json::Map::new();
+            for field in [
+                "domain", "name", "value", "path", "expires", "httpOnly", "secure", "sameSite",
+            ] {
+                if let Some(value) = cookie.get(field) {
+                    kept.insert(field.into(), value.clone());
+                }
+            }
+            Value::Object(kept)
+        })
+        .collect();
+    Ok(unexpired(cookies, unix_now()))
+}
+
 /// A cookie's `domain` reduced to the key the preview groups by: a leading
 /// dot is dropped, so `.example.com` and `example.com` are one site.
 fn normalize_domain(domain: &str) -> String {

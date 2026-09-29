@@ -2039,6 +2039,20 @@ pub struct FileChunk {
     pub next: Option<i64>,
 }
 
+/// Selected laptop cookies, transported inside the sealed owner channel.
+/// `source_id` is a stable laptop ID, separating it from server browser imports.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub struct CookieTransfer {
+    pub source_id: String,
+    pub browser_id: String,
+    pub profile_id: String,
+    pub domains: Vec<String>,
+    #[ts(type = "Array<Record<string, unknown>>")]
+    pub cookies: Vec<serde_json::Value>,
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -2090,6 +2104,25 @@ pub enum Command {
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },
+    /// Operator-only server paths for remote pickers and file transfer.
+    #[serde(rename = "files.browse")]
+    FilesBrowse { path: String },
+    #[serde(rename = "files.mkdir")]
+    FilesMkdir { path: String },
+    #[serde(rename = "files.download")]
+    FilesDownload { path: String, offset: u64 },
+    #[serde(rename = "files.upload_start")]
+    FilesUploadStart { path: String },
+    #[serde(rename = "files.upload_chunk")]
+    FilesUploadChunk {
+        upload_id: String,
+        offset: u64,
+        data: String,
+    },
+    #[serde(rename = "files.upload_finish")]
+    FilesUploadFinish { upload_id: String },
+    #[serde(rename = "files.upload_cancel")]
+    FilesUploadCancel { upload_id: String },
     /// A teammate file or a retained user image on that teammate's tape.
     /// `index` selects the original attachment position, defaulting to zero;
     /// teammate files accept only zero. The answer is a [`FileChunk`].
@@ -2316,7 +2349,7 @@ pub enum Command {
     /// when the id is unknown or the model has no `effort` option.
     #[serde(rename = "models.efforts")]
     ModelsEfforts { model_id: String },
-    /// Desktop-only harness sign-in. Executable configuration never crosses this wire.
+    /// Operator-only harness sign-in. Executable configuration never crosses this wire.
     #[serde(rename = "agent.auth.start")]
     AgentAuthStart {
         persona_id: String,
@@ -2494,14 +2527,14 @@ pub enum Command {
     #[serde(rename = "computer.update")]
     ComputerUpdate { persona_id: String },
     /// The browsers on the host the operator could bring cookies from, with
-    /// their profiles. Names only; no cookie store is opened. Desk seat only —
-    /// this reads the person's own machine, never the agent's, and no agent
+    /// their profiles. Names only; no cookie store is opened. Owner or local desk only —
+    /// this reads the desk host, never a teammate's computer, and no agent
     /// tool can reach it.
     #[serde(rename = "computer.browsers.list")]
     ComputerBrowsersList {},
     /// The sites in one host browser profile and how many cookies each has,
     /// for the operator's picker. Domains and counts only; a value is never
-    /// read out. Desk seat only.
+    /// read out. Owner or local desk only.
     #[serde(rename = "computer.cookies.preview")]
     ComputerCookiesPreview {
         browser_id: String,
@@ -2510,7 +2543,7 @@ pub enum Command {
     /// Copies the cookies for the ticked `domains` from a host browser into
     /// the teammate's computer, so its browser starts signed in to them. The
     /// operator chooses the sites; the values pass host → desk → container and
-    /// never touch the tape, the model, or a log. Desk seat only, and there is
+    /// never touch the tape, the model, or a log. Owner or local desk only, and there is
     /// no agent tool that does this — the agent can never pull cookies itself.
     #[serde(rename = "computer.cookies.import")]
     ComputerCookiesImport {
@@ -2519,16 +2552,21 @@ pub enum Command {
         profile_id: String,
         domains: Vec<String>,
     },
+    /// Selected laptop cookies, available to an owner or the local desk.
+    #[serde(rename = "computer.cookies.push")]
+    ComputerCookiesPush {
+        persona_id: String,
+        transfer: CookieTransfer,
+    },
     /// What has been brought over to this teammate's computer, by browser
-    /// and profile, with the sites: the record the pane lists. Desk seat
-    /// only.
+    /// and profile, with the sites: the record the pane lists. Owner or local desk only.
     #[serde(rename = "computer.cookies.list")]
     ComputerCookiesList { persona_id: String },
     /// Takes brought-over cookies back out of the teammate's computer: one
     /// site of an import when `domain` is given, the whole import when not.
     /// The computer's browser drops them at once, and the record answers as
     /// it stands afterwards. Starts the computer if it is stopped, the same
-    /// as the import did. Desk seat only.
+    /// as the import did. Owner or local desk only.
     #[serde(rename = "computer.cookies.forget")]
     ComputerCookiesForget {
         persona_id: String,
@@ -2538,17 +2576,17 @@ pub enum Command {
         domain: Option<String>,
     },
     /// The secrets the operator has stored for teammates: names and when
-    /// each changed, never a value. Desk seat only.
+    /// each changed, never a value. Owner or local desk only.
     #[serde(rename = "secrets.list")]
     SecretsList {},
     /// Stores a secret under `name`, or replaces the one there, and hands the
     /// new value to every running computer granted that name. The value goes
     /// to the OS credential store and is never answered back — not by this
-    /// command, not by a list, not by a subscription. Desk seat only.
+    /// command, not by a list, not by a subscription. Owner or local desk only.
     #[serde(rename = "secrets.set")]
     SecretsSet { name: String, value: String },
     /// Takes a stored secret away, and out of every running computer it was
-    /// granted to. Desk seat only.
+    /// granted to. Owner or local desk only.
     #[serde(rename = "secrets.delete")]
     SecretsDelete { name: String },
     /// Stores a login under `name`, or replaces the record there: the sites
@@ -2568,7 +2606,7 @@ pub enum Command {
     /// passkey for `rp_id` in the next ten minutes, to be stored under
     /// `name` and ticked for that teammate. The person then adds the passkey
     /// in the site's own settings through the computer's screen, or asks the
-    /// teammate to. Desk seat only.
+    /// teammate to. Owner or local desk only.
     #[serde(rename = "secrets.passkey.register")]
     SecretsPasskeyRegister {
         name: String,
@@ -2579,7 +2617,7 @@ pub enum Command {
     /// the site's request, which waits for the card on the teammate's tape
     /// to be answered; the look that finds the passkey made stores it,
     /// ticks it, hands the computer its set, ends the arming and answers
-    /// `stored`. Desk seat only.
+    /// `stored`. Owner or local desk only.
     #[serde(rename = "secrets.passkey.registration")]
     SecretsPasskeyRegistration { persona_id: String },
     /// Answers the passkey card on a teammate's tape. Approved, the browser
@@ -2592,7 +2630,7 @@ pub enum Command {
         ask_id: String,
         approved: bool,
     },
-    /// Ends an arming without a passkey. Desk seat only.
+    /// Ends an arming without a passkey. Owner or local desk only.
     #[serde(rename = "secrets.passkey.cancel")]
     SecretsPasskeyCancel { persona_id: String },
 }

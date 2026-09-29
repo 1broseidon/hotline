@@ -415,6 +415,15 @@ impl RoomHandle for CoreHandle {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    async fn computer_cookies_push(
+        &self,
+        _persona_id: &str,
+        transfer: crate::contract::CookieTransfer,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        let cookies = crate::computer::cookies::validate_transfer(&transfer)?;
+        Ok(crate::computer::cookies::summarize(&cookies))
+    }
+
     async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
         crate::contract::ComputerCapacity {
             runtime: Some(crate::contract::ComputerRuntime::Podman),
@@ -1808,7 +1817,8 @@ fn only_the_owner_phone_changes_a_teammates_access() {
     };
     assert!(Seat::Owner.permits(&access));
     assert!(!Seat::Phone.permits(&access));
-    for seat in [Seat::Owner, Seat::Phone] {
+    {
+        let seat = Seat::Phone;
         assert!(!seat.permits(&Command::PersonaUpdate {
             id: "ada".to_string(),
             patch: json!({ "reach": "machine" }),
@@ -2456,6 +2466,7 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
     let outbox = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3581,6 +3592,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     let outbox = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3673,6 +3685,7 @@ async fn remote_control_answer(
     let outbox = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -3696,7 +3709,7 @@ async fn remote_control_answer(
 }
 
 #[tokio::test]
-async fn remote_controls_belong_only_to_the_desk_not_an_owner_or_companion() {
+async fn remote_controls_are_denied_to_companions() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -3707,7 +3720,8 @@ async fn remote_controls_belong_only_to_the_desk_not_an_owner_or_companion() {
             .unwrap();
     desk.set_remote(&remote);
 
-    for seat in [Seat::Owner, Seat::Phone] {
+    {
+        let seat = Seat::Phone;
         for (cmd, params) in [
             ("remote.status", json!({})),
             ("remote.configure", json!({"enabled":true,"host":"all"})),
@@ -4143,6 +4157,57 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
 }
 
 #[tokio::test]
+async fn owner_commands_and_room_subscription_reach_the_real_handler() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    for seat in [Seat::Owner, Seat::Desk] {
+        let answer = remote_control_answer(seat, &room, &desk.log,
+            json!({"id":1,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/owner-skills"}}})).await;
+        assert_eq!(answer["ok"], true, "{answer}");
+        let answer =
+            remote_control_answer(seat, &room, &desk.log, json!({"id":2,"sub":"room"})).await;
+        assert_eq!(answer["ok"], true, "{answer}");
+    }
+    let answer = remote_control_answer(Seat::Phone, &room, &desk.log,
+        json!({"id":3,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/companion-skills"}}})).await;
+    assert_eq!(answer["code"], FORBIDDEN);
+    assert_eq!(
+        crate::room::settings(&desk.log)["skillsHome"],
+        "/tmp/owner-skills"
+    );
+}
+
+#[tokio::test]
+async fn cookie_push_is_operator_only_through_the_real_handler() {
+    let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let request = json!({"id":1,"cmd":"computer.cookies.push","params":{"personaId":"ada","transfer":{
+        "sourceId":"laptop", "browserId":"firefox", "profileId":"default", "domains":["example.com"],
+        "cookies":[{"domain":".example.com","name":"session","value":"private-cookie-value","path":"/"}]
+    }}});
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        let answer = remote_control_answer(seat, &quiet, &log, request.clone()).await;
+        assert_eq!(answer["ok"], seat != Seat::Phone, "{answer}");
+        if seat == Seat::Phone {
+            assert_eq!(answer["code"], FORBIDDEN);
+        }
+        assert!(!answer.to_string().contains("private-cookie-value"));
+    }
+    let mut invalid = request;
+    invalid["params"]["transfer"]["domains"] = json!(["other.com"]);
+    assert_eq!(
+        remote_control_answer(Seat::Owner, &quiet, &log, invalid).await["ok"],
+        false
+    );
+    assert!(log.load(&StreamId::Room).is_empty());
+}
+
+#[tokio::test]
 async fn the_window_opens_on_a_tapes_last_lines_and_pages_back_to_the_first() {
     let (_root, log, port) = door("tape-window");
     let mut socket = desk(port).await;
@@ -4215,4 +4280,23 @@ async fn the_window_opens_on_a_tapes_last_lines_and_pages_back_to_the_first() {
     .await;
     let gone = answered(&mut socket, 6).await;
     assert_eq!(gone["result"], json!({ "events": [], "more": false }));
+}
+
+#[test]
+fn an_owner_device_opens_a_tape_on_the_same_window_as_the_desk() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let tape = StreamId::Tape("ada".into());
+    for n in 0..1_000 {
+        log.append(
+            &tape,
+            &json!({ "kind": "user", "id": format!("m{n}"), "ts": n, "text": "line" }),
+        )
+        .unwrap();
+    }
+    for seat in [Seat::Desk, Seat::Owner] {
+        let lines = snapshot_for_seat(&log, &tape, seat);
+        assert_eq!((lines.len(), &lines[0]["id"]), (400, &json!("m600")));
+    }
+    assert_eq!(snapshot_for_seat(&log, &tape, Seat::Phone).len(), 200);
 }

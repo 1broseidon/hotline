@@ -25,6 +25,25 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::FilesBrowse { path } => {
+            tokio::task::spawn_blocking(move || super::files::browse(&path))
+                .await
+                .map_err(|_| "The file browser stopped.".to_string())?
+        }
+        Command::FilesMkdir { path } => {
+            tokio::task::spawn_blocking(move || super::files::mkdir(&path))
+                .await
+                .map_err(|_| "The file browser stopped.".to_string())?
+        }
+        Command::FilesDownload { path, offset } => {
+            tokio::task::spawn_blocking(move || super::files::download(&path, offset))
+                .await
+                .map_err(|_| "The download stopped.".to_string())?
+        }
+        Command::FilesUploadStart { .. }
+        | Command::FilesUploadChunk { .. }
+        | Command::FilesUploadFinish { .. }
+        | Command::FilesUploadCancel { .. } => Err("Uploads need a live desk connection.".into()),
         Command::RemoteStatus {} => Ok(json!(remote(room)?.status())),
         Command::RemoteConfigure { enabled, host } => {
             Ok(json!(remote(room)?.configure(enabled, &host).await?))
@@ -449,6 +468,13 @@ pub(crate) async fn run(
                 .await
                 .map(|sites| json!(sites))
         }
+        Command::ComputerCookiesPush {
+            persona_id,
+            transfer,
+        } => room
+            .computer_cookies_push(&persona_id, transfer)
+            .await
+            .map(|sites| json!(sites)),
         Command::ComputerCookiesList { persona_id } => room
             .computer_cookies_list(&persona_id)
             .await

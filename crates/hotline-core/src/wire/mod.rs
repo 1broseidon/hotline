@@ -49,6 +49,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 
 mod commands;
+mod files;
 mod roster;
 mod schedules;
 
@@ -356,6 +357,13 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<Vec<crate::contract::CookieSite>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
+    async fn computer_cookies_push(
+        &self,
+        _persona_id: &str,
+        _transfer: crate::contract::CookieTransfer,
+    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        Err("Cookie transfer is unavailable on this room.".into())
+    }
     /// What has been brought over to a teammate's computer, by browser and
     /// profile, with the sites.
     async fn computer_cookies_list(
@@ -474,13 +482,12 @@ pub trait RoomHandle: Send + Sync + 'static {
 
 /// What a socket may do, decided by the token it presented.
 ///
-/// A set, not a routing table: the desk seat is the window, and it may do
-/// everything the room can do. The phone seat arrives in Phase 3 as a second
-/// variant with two smaller answers, and no command has to know about it.
+/// Owners have the same authority as the local desk. Companion sockets keep
+/// the narrow phone command set; transport bounds and revocation are separate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Seat {
     Desk,
-    /// An authenticated owner is not the unrestricted local desk.
+    /// An authenticated owner has the local desk command set.
     Owner,
     /// A companion retains the existing phone permissions.
     Phone,
@@ -500,7 +507,7 @@ impl Seat {
 
     pub fn permits(&self, command: &Command) -> bool {
         match self {
-            Seat::Desk => true,
+            Seat::Desk | Seat::Owner => true,
             // A phone answers for the person: a permission card, a
             // `request_human` card and a passkey card are each a teammate
             // waiting on someone, and waiting until they are back at a desk
@@ -531,7 +538,7 @@ impl Seat {
             // already reads, so the phone reads the file too. `file.read`
             // names a message, never a path, and serves only what the desk
             // kept for that message.
-            Seat::Owner | Seat::Phone => {
+            Seat::Phone => {
                 matches!(
                     command,
                     Command::MobilePrompt { .. }
@@ -563,19 +570,9 @@ impl Seat {
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
-                ) || (*self == Seat::Owner && Self::owner_only(command))
+                )
             }
         }
-    }
-
-    /// What the owner phone may do that a companion may not: a teammate's
-    /// standing access and computer resources through narrow commands, never
-    /// the whole `persona.update` patch, which could name paths or servers.
-    fn owner_only(command: &Command) -> bool {
-        matches!(
-            command,
-            Command::MobilePersonaAccess { .. } | Command::MobilePersonaComputer { .. }
-        )
     }
 
     /// What this seat's hello says it can do: the phone's list, and
@@ -591,13 +588,13 @@ impl Seat {
 
     pub fn permits_sub(&self, target: &Target) -> bool {
         match self {
-            Seat::Desk => true,
+            Seat::Desk | Seat::Owner => true,
             // A teammate's schedules are a read of one list, not the room
             // stream they are kept on, which also carries every setting.
             // A thread between two teammates is read the way a tape is: the
             // phone already reads the marker for it on either tape, and the
             // thread holds what was said, never a setting.
-            Seat::Owner | Seat::Phone => matches!(
+            Seat::Phone => matches!(
                 target,
                 Target::Tape(_)
                     | Target::Thread(_)
@@ -778,6 +775,7 @@ pub(super) struct Outbox {
     auth_attempts: Arc<std::sync::Mutex<HashMap<String, String>>>,
     /// Only this socket's latest invitation is cancelled on disconnect.
     pairing: Arc<std::sync::Mutex<Option<String>>>,
+    uploads: Arc<std::sync::Mutex<files::Uploads>>,
 }
 #[derive(Clone)]
 enum Outgoing {
@@ -904,12 +902,13 @@ where
     let sender = Outbox {
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
+        uploads: Arc::default(),
         sender,
         cancel: cancel.clone(),
-        max: if seat.is_remote() {
-            1_048_576
-        } else {
-            usize::MAX
+        max: match seat {
+            Seat::Phone => 1_048_576,
+            Seat::Owner => 32 * 1024 * 1024,
+            Seat::Desk => usize::MAX,
         },
     };
     let writer_cancel = cancel.clone();
@@ -1019,6 +1018,15 @@ async fn answer(
                         }
                 );
                 let result = match (&command, phone) {
+                    (
+                        Command::FilesUploadStart { .. }
+                        | Command::FilesUploadChunk { .. }
+                        | Command::FilesUploadFinish { .. }
+                        | Command::FilesUploadCancel { .. },
+                        _,
+                    ) => {
+                        files::upload(command, sender.uploads.clone(), sender.cancel.clone()).await
+                    }
                     (
                         Command::RemotePairing {
                             id: None,
@@ -1135,12 +1143,12 @@ async fn answer(
                             ..
                         },
                         Some(_),
-                    ) if !effort_config(room, persona_id, config_id) => {
+                    ) if seat == Seat::Phone && !effort_config(room, persona_id, config_id) => {
                         Err("Change that on your desktop.".to_string())
                     }
                     // A page of older lines is cut for the phone the way its
                     // snapshot is: long text shortened, frames made phone-sized.
-                    (Command::TapePage { .. }, Some(_)) => {
+                    (Command::TapePage { .. }, Some(_)) if seat == Seat::Phone => {
                         commands::run(command, log, room).await.map(|mut page| {
                             if let Some(events) =
                                 page.get_mut("events").and_then(Value::as_array_mut)
@@ -1311,7 +1319,7 @@ fn subscribe(
     // would otherwise be "already open" for a subscription that will never
     // deliver.
     subscriptions.retain(|_, handle| !handle.is_finished());
-    if seat.is_remote() && subscriptions.len() >= 8 {
+    if seat == Seat::Phone && subscriptions.len() >= 8 {
         return Err(String::from("A phone can open at most eight subscriptions.").into());
     }
     if subscriptions.contains_key(&id) {
@@ -1485,7 +1493,9 @@ const THROUGH_CONTEXT: usize = 40;
 
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
     let events = public_snapshot(log, stream);
-    if seat == Seat::Desk {
+    if seat != Seat::Phone {
+        // The desk and its owner device open a tape on its last lines and
+        // page back with `tape.page`; a whole tape is too much to draw.
         if matches!(stream, StreamId::Tape(_)) && events.len() > DESK_TAPE_WINDOW {
             let skip = events.len() - DESK_TAPE_WINDOW;
             return events.into_iter().skip(skip).collect();
@@ -1572,7 +1582,7 @@ async fn stream_events(
             event = events.recv() => match event {
                 Ok(event) => {
                     let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { event };
-                    if !send(&sender, json!({ "sub": id, "event": if seat.is_remote() { phone_event(event) } else { event } })) {
+                    if !send(&sender, json!({ "sub": id, "event": if seat == Seat::Phone { phone_event(event) } else { event } })) {
                         return;
                     }
                 }
@@ -1588,7 +1598,7 @@ async fn stream_events(
             },
             delta = delta => match delta {
                 // The phone draws words; a download ring is the desk's.
-                Ok(StreamDelta::ComputerPull { .. }) if seat.is_remote() => {}
+                Ok(StreamDelta::ComputerPull { .. }) if seat == Seat::Phone => {}
                 Ok(delta) if delta_persona(&delta) == persona_id => {
                     if !send(&sender, json!({ "sub": id, "ephemeral": delta })) {
                         return;

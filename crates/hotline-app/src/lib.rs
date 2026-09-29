@@ -20,6 +20,7 @@
 #[cfg(target_os = "macos")]
 mod notify;
 
+mod desks;
 mod files;
 mod instance;
 #[cfg(target_os = "linux")]
@@ -298,7 +299,12 @@ pub fn run() {
         "dataDir": root.display().to_string(),
         "computerImage": hotline_core::computer::default_image(),
     });
-    let script = format!("window.__hotlineDesk = {injected};");
+    // Paired desks' bridges are local listeners, so they are up before the
+    // window is and the first list it reads is already complete.
+    let desks = desks::Host::open(&root, format!("http://127.0.0.1:{port}"), token.clone());
+    tauri::async_runtime::block_on(desks.start_all());
+    let listed = desks.listed();
+    let script = format!("window.__hotlineDesk = {injected};\nwindow.__hotlineDesks = {listed};");
 
     let builder = tauri::Builder::default()
         .manage(desk)
@@ -322,6 +328,9 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         notify::notify,
+        desks::desk_pair_link,
+        desks::desk_pair_ssh,
+        desks::desk_forget,
         files::open_sent_file,
         files::save_sent_file,
         updater::get_update_status,
@@ -331,6 +340,9 @@ pub fn run() {
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        desks::desk_pair_link,
+        desks::desk_pair_ssh,
+        desks::desk_forget,
         files::open_sent_file,
         files::save_sent_file,
         updater::get_update_status,
@@ -339,7 +351,9 @@ pub fn run() {
         updater::cancel_update,
     ]);
     builder
+        .manage(desks.clone())
         .setup(move |app| {
+            desks.attach(app.handle().clone());
             #[cfg(target_os = "macos")]
             {
                 install_menu(app)?;

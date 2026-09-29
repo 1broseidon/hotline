@@ -46,6 +46,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   short. The teammate now carries on inside the chapter it was in.
 - The starter suggestions no longer appear under a conversation that has a
   history, such as a teammate whose recent work all came through handoffs.
+- A desk that isn't on screen counts a new line from the teammate it last
+  had open as unread, in the desk switcher and the dock badge.
 
 ### Security
 

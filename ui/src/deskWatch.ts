@@ -16,7 +16,6 @@ import type { RosterEntry } from "./wire";
  */
 
 const SEEN_KEY = "hotline.rail.seen";
-const SELECTED_KEY = "hotline.rail.selected";
 
 type Watched = { stop(): void; roster: RosterEntry[] };
 
@@ -28,8 +27,9 @@ function recount() {
 	const next: Record<string, number> = {};
 	for (const [deskId, one] of watched) {
 		const seen = readSeen(deskId);
-		const selected = localStorage.getItem(deskKey(SELECTED_KEY, deskId));
-		next[deskId] = one.roster.filter((entry) => unreadOf(entry, selected, seen)).length;
+		// Nobody on a desk that is not on screen is being looked at, not even
+		// the teammate it had open: a new line from them is unread too.
+		next[deskId] = one.roster.filter((entry) => unreadOf(entry, null, seen)).length;
 	}
 	counts = next;
 	for (const listener of listeners) listener();

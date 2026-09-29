@@ -233,6 +233,7 @@ mod tests {
     }
 }
 
+#[cfg(unix)]
 fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
     if let Some(index) = args.iter().position(|arg| arg == flag) {
         args.remove(index);

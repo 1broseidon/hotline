@@ -55,6 +55,77 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
+## Public Cloudflare tunnels
+
+Enforce HTTPS at the Cloudflare edge. The desk only listens with TLS and
+native clients already require an HTTPS URL; an edge redirect also prevents
+plain HTTP requests from reaching the API. Noise continues to authenticate
+the desk and device independently of the proxy certificate.
+
+For `grizzly-tunnel.hotline.dev`, the reviewable rule is
+[`packaging/cloudflare/grizzly-https-redirect.json`](../packaging/cloudflare/grizzly-https-redirect.json).
+In Cloudflare's **Rules → Redirect Rules**, create a Single Redirect with:
+
+- Match: `(http.host eq "grizzly-tunnel.hotline.dev" and http.request.scheme eq "http")`.
+- Dynamic target: `concat("https://grizzly-tunnel.hotline.dev", http.request.uri.path)`.
+- Status: **301**; **Preserve query string** enabled.
+
+The JSON is one rule for the zone's `http_request_dynamic_redirect` ruleset.
+Using the [Cloudflare Rulesets API](https://developers.cloudflare.com/rules/url-forwarding/single-redirects/create-api/),
+append it to the existing ruleset (or update the existing rule with this `ref`);
+do not replace the zone's other rules. This repository does not deploy that
+ruleset automatically. The operator applies it during the tunnel rollout.
+Other public tunnel hosts should use the same rule with their own hostname.
+[Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
+is an alternative when every hostname in the zone should redirect.
+
+The match excludes HTTPS, so secure WebSocket upgrades are not redirected.
+Keep the tunnel's origin connection pointed at the desk's **HTTPS** listener.
+Do not add an origin redirect based on client-supplied forwarding headers.
+
+After deployment, check both the root and a path with a query:
+
+```sh
+curl --silent --show-error --max-time 10 --output /dev/null --dump-header - \
+  'http://grizzly-tunnel.hotline.dev/'
+curl --silent --show-error --max-time 10 --output /dev/null --dump-header - \
+  'http://grizzly-tunnel.hotline.dev/v2?redirect_probe=1'
+curl --silent --show-error --max-time 10 --output /dev/null --dump-header - \
+  'https://grizzly-tunnel.hotline.dev/'
+```
+
+The first two responses must be 301 with exactly the equivalent HTTPS
+`Location`, including `/v2?redirect_probe=1`. The HTTPS root may answer the
+API's 404, but must not redirect back to HTTP or loop. The query is only a
+redirect probe; authenticated native routes intentionally reject queries.
+Reconnect an already-paired native client over WSS, confirm a wire command
+and viewer connection, and record the deployed version and rule ID with the
+release. These are rollout checks, not claims that this rule is already live.
+
+### Validate admission before rollout
+
+Run `cargo test -p hotline-core remote::tests::admission_tests --locked` for
+isolated tests using fresh device keys, temporary state and a local
+TLS-terminating proxy. The tests exercise shared proxy-IP saturation,
+reconnects, existing sessions and HTTP keepalive expiry without touching a
+running desk. They do not model Cloudflare connection pooling.
+
+For controlled Cloudflare staging, use a separate hostname and disposable
+served desk with synthetic paired devices. Hold four idle HTTPS or stalled
+Noise connections, reconnect a paired device, and confirm the existing
+session still works. Repeat with HTTP keepalive requests beyond five seconds;
+anonymous origin connections must expire and reconnects must recover. Verify
+pairing and revocation as well, then tear down the staging desk. Record the
+proxy configuration and observed connection counts. Never run this saturation
+check against the production desk.
+
+For the 0.30 release, verify the packaged application and server use the fixed
+Rustls resolution with `cargo tree --locked --target all -i rustls` and run
+`cargo audit`. The lockfile pins Rustls 0.23.45, which fixes
+[RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html).
+Record the installed version after upgrading the remote desk; merging the
+lockfile change does not update an already-running binary.
+
 ## Pair a device
 
 As the service account, on the machine running the desk:

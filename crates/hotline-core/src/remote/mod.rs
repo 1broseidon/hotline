@@ -1,5 +1,6 @@
 //! A paired phone enters the real wire through a separate, opt-in TLS listener.
 //! Its identity key uses the same OS credential store as provider credentials.
+mod admission;
 mod attachments;
 pub mod bridge;
 mod channel;
@@ -29,7 +30,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -249,12 +250,11 @@ pub struct Remote {
     identity: CredentialFile,
     noise_identity: CredentialFile,
     served: Option<ServeOptions>,
-    connections: Mutex<HashMap<IpAddr, usize>>,
+    admission: Arc<admission::Admission>,
     state: Mutex<Live>,
     server: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     lifecycle: AsyncMutex<()>,
     prompts: AsyncMutex<()>,
-    slots: Arc<Semaphore>,
     log: Log,
     room: Arc<dyn RoomHandle>,
 }
@@ -376,7 +376,7 @@ impl Remote {
             identity,
             noise_identity,
             served,
-            connections: Mutex::new(HashMap::new()),
+            admission: Arc::new(admission::Admission::default()),
             state: Mutex::new(Live {
                 saved,
                 endpoints: Vec::new(),
@@ -393,7 +393,6 @@ impl Remote {
             server: AsyncMutex::new(None),
             lifecycle: AsyncMutex::new(()),
             prompts: AsyncMutex::new(()),
-            slots: Arc::new(Semaphore::new(16)),
             log,
             room,
         }))

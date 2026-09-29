@@ -366,7 +366,22 @@ function ask<T>(op: string, params: Record<string, unknown>): Promise<T> {
 			return;
 		}
 		const id = nextId++;
-		asked.set(id, { resolve: resolve as (result: unknown) => void, reject });
+		// A desk too old to relay files passes the request to the computer,
+		// which answers it with an error that names no id; give up rather
+		// than wait forever.
+		const late = setTimeout(() => {
+			if (asked.delete(id)) reject(new Error("The computer's files did not answer."));
+		}, 30_000);
+		asked.set(id, {
+			resolve: (result) => {
+				clearTimeout(late);
+				(resolve as (result: unknown) => void)(result);
+			},
+			reject: (error) => {
+				clearTimeout(late);
+				reject(error);
+			},
+		});
 		socket.send(JSON.stringify({ type: "files", id, op, ...params }));
 	});
 }

@@ -443,6 +443,13 @@ pub async fn desk_pair_ssh(
     claimed
 }
 
+/// The desks as they are now. The list the page was given at creation is
+/// stale after a reload once a desk was paired or forgotten since.
+#[tauri::command]
+pub fn desk_list(host: tauri::State<'_, Arc<Host>>) -> Value {
+    host.listed()
+}
+
 #[tauri::command]
 pub async fn desk_forget(host: tauri::State<'_, Arc<Host>>, desk_id: String) -> Result<(), String> {
     host.forget(&desk_id)

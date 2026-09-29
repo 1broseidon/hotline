@@ -159,13 +159,19 @@ async fn file_service(
 }
 type ViewerSocket = WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>;
 async fn viewer(bridge: &bridge::Bridge) -> ViewerSocket {
-    let (mut socket, _) = tokio_tungstenite::connect_async(format!(
-        "{}/computer/ada/ws?token={}",
-        bridge.origin.replace("http:", "ws:"),
-        bridge.token
-    ))
-    .await
-    .unwrap();
+    let mut request = format!("{}/computer/ada/ws", bridge.origin.replace("http:", "ws:"))
+        .into_client_request()
+        .unwrap();
+    let protocol = format!("hotline-viewer.{}", bridge.viewer_token("ada"));
+    request.headers_mut().insert(
+        http::header::SEC_WEBSOCKET_PROTOCOL,
+        protocol.parse().unwrap(),
+    );
+    let (mut socket, response) = tokio_tungstenite::connect_async(request).await.unwrap();
+    assert_eq!(
+        response.headers()[http::header::SEC_WEBSOCKET_PROTOCOL],
+        protocol
+    );
     assert_eq!(
         socket.next().await.unwrap().unwrap(),
         Message::binary(b"PNG".to_vec())

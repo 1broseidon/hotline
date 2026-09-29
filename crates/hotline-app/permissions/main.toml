@@ -1,0 +1,25 @@
+[[set]]
+identifier = "main-commands"
+description = "The trusted main window can administer desks and the desktop shell."
+permissions = [
+  "allow-notify",
+  "allow-desk-pair-link",
+  "allow-desk-pair-ssh",
+  "allow-desk-forget",
+  "allow-desk-list",
+  "allow-desk-viewer-token",
+  "allow-open-sent-file",
+  "allow-save-sent-file",
+  "allow-transfer-pick",
+  "allow-transfer-read",
+  "allow-transfer-begin",
+  "allow-transfer-write",
+  "allow-transfer-end",
+  "allow-laptop-browsers",
+  "allow-laptop-cookies-preview",
+  "allow-laptop-cookies-push",
+  "allow-get-update-status",
+  "allow-check-update",
+  "allow-install-update",
+  "allow-cancel-update",
+]

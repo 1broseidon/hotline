@@ -17,5 +17,29 @@ fn main() {
     } else {
         tauri_build::Attributes::new()
     };
+    // Without an app manifest Tauri allows every registered app command from
+    // every window, including the deliberately unprivileged computer viewer.
+    let attributes = attributes.app_manifest(tauri_build::AppManifest::new().commands(&[
+        "notify",
+        "desk_pair_link",
+        "desk_pair_ssh",
+        "desk_forget",
+        "desk_list",
+        "desk_viewer_token",
+        "open_sent_file",
+        "save_sent_file",
+        "transfer_pick",
+        "transfer_read",
+        "transfer_begin",
+        "transfer_write",
+        "transfer_end",
+        "laptop_browsers",
+        "laptop_cookies_preview",
+        "laptop_cookies_push",
+        "get_update_status",
+        "check_update",
+        "install_update",
+        "cancel_update",
+    ]));
     tauri_build::try_build(attributes).expect("failed to run tauri-build");
 }

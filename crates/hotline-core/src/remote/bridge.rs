@@ -185,7 +185,11 @@ fn authorize(
             protocol: Some(protocol),
         });
     }
-    if query_tokens.len() != 1 || !crate::wire::same_secret(&query_tokens[0].1, owner_token) {
+    // The owner credential opens only the wire, never a computer viewer.
+    if persona.is_some()
+        || query_tokens.len() != 1
+        || !crate::wire::same_secret(&query_tokens[0].1, owner_token)
+    {
         return Err(());
     }
     Ok(Authorization {

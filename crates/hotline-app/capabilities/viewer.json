@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "viewer",
+  "description": "The bundled computer viewer can request a single-use screen token and save downloads, never obtain owner desk credentials or administer the shell. Native title and close need no IPC permissions.",
+  "windows": [
+    "computer-*"
+  ],
+  "permissions": [
+    "allow-desk-viewer-token",
+    "allow-transfer-begin",
+    "allow-transfer-write",
+    "allow-transfer-end"
+  ]
+}

@@ -864,16 +864,37 @@ made it so.
   a fresh capability even if the remote computer was unavailable. Thirty seconds
   limits redemption, not the lifetime of an already-open viewer; the existing
   paired-device revocation still closes that viewer.
-- **Compatibility:** the owner bridge token still works as `?token=` on both
-  routes during rollout. Mixed owner-query/viewer-protocol credentials and
+- **Shell boundary:** `hotline-app/build.rs` declares every registered app
+  command in Tauri's `AppManifest`. Without it, app commands bypass Tauri's
+  capability checks even if core and plugin permissions are window-scoped.
+  Only the trusted `main` window receives the `main-commands` permission set.
+  The bundled `computer-*` viewer windows receive exactly `desk_viewer_token`,
+  `transfer_begin`, `transfer_write` and `transfer_end`: reconnect with a fresh
+  token and save downloaded bytes. They cannot call `desk_list` (which exposes
+  owner bridge tokens), pair or forget desks, read laptop files or cookies, or
+  administer updates. They receive no core or plugin permissions and no remote
+  origins are granted access. The main window supplies the native viewer title
+  at creation; native window-manager close needs no JavaScript IPC permission.
+- **Compatibility:** `/computer/<persona>/ws` refuses owner `?token=` credentials;
+  only `/ws` accepts the owner token. Shell and bridge ship together, so no
+  mixed-version fallback is needed. Mixed query/protocol credentials and
   multiple viewer protocols are refused without falling back to owner authority.
 - **Tests:** `remote/tests/viewer_token_tests.rs` enters the real loopback upgrade
   handler and proves route/persona/bridge isolation, single use, concurrent
-  redemption, protocol echo, a fresh reconnect and expiry after 30 seconds.
+  redemption, protocol echo, a fresh reconnect, owner-query refusal and expiry
+  after 30 seconds.
   `bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_the_bearer`
-  retains coverage of the owner-token viewer route and remote revocation.
+  covers viewer-token forwarding and remote revocation.
+  `hotline-app/tests/window_capabilities.rs` uses Tauri's real IPC dispatcher
+  with the shipping generated ACL to prove main-command access, the viewer's
+  four-command limit, denied plugin access, and refusal from unrelated windows
+  and remote origins. It also keeps both platform handler lists, the manifest
+  and the main permission set synchronized.
 - **Residual risk:** a stolen unspent token can win the upgrade race for its one
   persona and access that computer's screen, controls and files. The header can
   appear in handshake logs; the secret is narrower and short-lived, not invisible.
-  Shell/window code must stop passing the owner token to the viewer to obtain
-  this isolation; compatibility alone does not remove the old credential.
+  The viewer's allowed shell calls can request another token for a known desk
+  and persona and start downloads; this is a boundary against owner desk and
+  shell administration, not isolation between computer viewers. Download handles
+  are process-wide random ids, not window-bound. A compromised main window or
+  local process that steals its owner token still has owner authority.

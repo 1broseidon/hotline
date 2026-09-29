@@ -58,6 +58,29 @@ async fn viewer_tokens_are_persona_bound_single_use_and_never_owner_credentials(
         None,
     ))
     .await;
+    // The owner token still opens the wire, but cannot replace a viewer token.
+    refused(request(&bridge, "/computer/ada/ws", None)).await;
+    refused(request(
+        &bridge,
+        &format!("/computer/ada/ws?token={}", bridge.token),
+        None,
+    ))
+    .await;
+    let (mut wire, _) = tokio_tungstenite::connect_async(request(
+        &bridge,
+        &format!("/ws?token={}", bridge.token),
+        None,
+    ))
+    .await
+    .unwrap();
+    let hello = tokio::time::timeout(Duration::from_secs(5), wire.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let hello: Value = serde_json::from_str(hello.to_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+    drop(wire);
     refused(request(&other_bridge, "/computer/ada/ws", Some(&token))).await;
     refused(request(&bridge, "/computer/ada/ws", Some(&bridge.token))).await;
     refused(request(

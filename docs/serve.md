@@ -177,8 +177,9 @@ frames. Before each upgrade, the shell calls `bridge.viewer_token(persona_id)`
 and passes `hotline-viewer.<token>` as the WebSocket subprotocol. The bridge echoes
 it in the handshake. A token is single-use, expires after 30 seconds, and works
 only for that persona on that bridge; reconnects need a fresh one. The owner
-`?token=TOKEN` still works on the viewer route during rollout. Only the server
-holds the computer's bearer.
+`?token=TOKEN` is accepted only on `/ws`, never on a viewer route. Viewer upgrades
+require the single-use subprotocol token; query-string tokens and mixed owner/viewer
+credentials are refused. Only the server holds the computer's bearer.
 
 The bridge exposes a watch receiver in `state`. Its wire connection reconnects
 with backoff from 250 ms to 30 seconds and resubscribes for fresh snapshots.

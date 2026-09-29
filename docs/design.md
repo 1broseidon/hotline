@@ -266,9 +266,12 @@ signature/replay error instead enters the fresh boundary. This deliberately
 drops opaque state as a unit, with a notice; clearing a Responses reasoning ID
 alone would silently make Rig omit its encrypted content too.
 
-Known model context limits trigger chapter rotation at a conservative threshold
-before the next inference, including within a long tool turn. The session drains
-prior updates before closing the chapter and returning its wake note. Unknown
+Known model context limits trigger a fresh continuation at a conservative
+threshold before the next inference, including within a long tool turn. The
+driver rebuilds its history from the turn's committed facts under the same
+preamble and wake; the chapter stays open, with its collaboration authority, so
+a long handoff reads as one chapter. Chapters close only when idle, when the
+agent asks (`new_chapter`) or when the person starts fresh. Unknown
 limits remain unknown; a provider context-limit refusal can request the same
 boundary once. A continuation that still cannot fit fails explicitly. ACP owns
 its own internal request loop and context management; Hotline does not interrupt an

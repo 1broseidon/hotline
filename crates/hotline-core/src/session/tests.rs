@@ -4004,6 +4004,31 @@ async fn a_prompt_after_an_asked_close_starts_a_fresh_session_in_a_new_chapter()
     assert_eq!(seeds[1], Vec::<Said>::new());
 }
 
+/// A full context inside a turn is the driver's to carry on from: the
+/// chapter the person is in stays open, with no note written and no new
+/// marker, and the driver continues without a wake of its own (BRO-150).
+#[tokio::test]
+async fn a_full_context_mid_turn_keeps_the_chapter_open() {
+    let (boundary, handed) = crate::driver::ChapterBoundary::new();
+    let mut turn = vec![Update::Chapter { boundary }];
+    turn.extend(saying("one", "Still on it."));
+    let agents = Fake::answering(Scripted::turns(vec![turn]), note_json("Crane jam"));
+    let room = room("chapter-full-context", agents.clone());
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "keep going", None, None).await.unwrap();
+    settled(&room, "ada", 3).await;
+
+    assert_eq!(handed.await.unwrap(), None);
+    assert_eq!(
+        kinds(&tape(&room, "ada")),
+        ["chapter", "user", "agent", "turn"]
+    );
+    let markers = markers(&room, "ada");
+    assert_eq!(markers.len(), 1);
+    assert_eq!(markers[0].get("endedAt"), None);
+    assert_eq!(markers[0].get("closedBy"), None);
+}
+
 /// What the fresh context is told about the conversation it is joining.
 #[tokio::test]
 async fn the_wake_block_carries_the_previous_chapters_note() {

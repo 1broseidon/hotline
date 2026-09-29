@@ -601,16 +601,19 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert!(continuation.to_string().contains("a confirmed fact"));
         client
             .next_where(Duration::from_secs(15), |frame| {
-                frame["sub"] == tape
-                    && frame["event"]["kind"] == "chapter"
-                    && frame["event"].get("endedAt").is_some()
-            })
-            .await;
-        client
-            .next_where(Duration::from_secs(15), |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
+        // The fresh continuation carries on inside the chapter it was in
+        // (BRO-150): nothing on the way to the turn's end closed one.
+        assert!(
+            !client.inbox.iter().any(|frame| {
+                frame["sub"] == tape
+                    && frame["event"]["kind"] == "chapter"
+                    && frame["event"].get("endedAt").is_some()
+            }),
+            "a full context closed the chapter"
+        );
         client
             .call("session.stop", json!({"personaId":persona}))
             .await;

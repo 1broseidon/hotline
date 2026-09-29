@@ -4036,19 +4036,14 @@ impl Room {
                 };
                 let Some(update) = update else { break };
                 for update in voice.step(update) {
+                    // A full context mid-turn is the driver's to carry on from:
+                    // it has rebuilt its history from what this turn committed,
+                    // under the same preamble and wake. A chapter is the
+                    // person's unit of work, not the model's window, so it
+                    // stays open, and with it the collaboration it holds: a
+                    // handoff in flight keeps its authority (BRO-150).
                     if let Update::Chapter { boundary } = update {
-                        let gate = self.start_gate(&session.persona_id);
-                        let _held = gate.lock().await;
-                        if session.capability.is_current() && self.current_session(&session) {
-                            self.close_chapter(&session.persona_id, ChapterClose::Agent)
-                                .await;
-                            let note =
-                                chapters::wake_block(&self.tape(&session.persona_id), now_ms());
-                            self.begin_chapter(&session.persona_id, &session.backend_id);
-                            boundary.finish(note);
-                        } else {
-                            boundary.finish(None);
-                        }
+                        boundary.finish(None);
                         continue;
                     }
                     if let Update::Message {

@@ -14,7 +14,7 @@ import { wire, type RosterEntry } from "../wire";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
-import { Starters } from "./Starters";
+import { Starters, untouched } from "./Starters";
 import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
 import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
@@ -192,7 +192,7 @@ export function Conversation({
 	const resumeBlocked = resumeRefusal(events, persona.backendId);
 	/* The first conversation, before a word: what the starter card reads.
 	 * A line on its way (`saying`) already ends it. */
-	const untouched = loaded && saying === null && !events.some((event) => event.kind === "user");
+	const fresh = loaded && saying === null && untouched(events, olderOnDesk);
 
 	// Escape clears a quote that is up even when the field is not focused.
 	// Chips are put down first, on the window in capture, so this listener
@@ -384,7 +384,7 @@ export function Conversation({
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 				/>
-				{untouched && (
+				{fresh && (
 					<div className="relative shrink-0 px-6">
 						<Starters persona={persona} onPick={(text) => setRefill({ text, attachments: [], nonce: Date.now() })} />
 					</div>

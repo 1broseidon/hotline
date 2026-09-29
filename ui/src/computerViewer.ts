@@ -19,13 +19,16 @@ import { invoke } from "@tauri-apps/api/core";
  * by the desk with `{"type":"files", id, ok, result|error}`, in chunks of at
  * most 512 KiB, and never reach the container's screen socket.
  *
- * The window is opened at computer.html#origin=…&token=…&persona=…&name=…
+ * The window is opened at computer.html#desk=…&persona=…&name=…, never
+ * with the desk's owner token. Each connect asks the shell where the desk's
+ * bridge is now and for a token that opens this persona's socket once,
+ * within 30 s, and sends it as the `hotline-viewer.<token>` subprotocol,
+ * out of the URL (BRO-148).
  * (computer.ts).
  */
 
 const params = new URLSearchParams(location.hash.slice(1));
-const origin = params.get("origin") ?? "";
-const token = params.get("token") ?? "";
+const deskId = params.get("desk") ?? "";
 const persona = params.get("persona") ?? "";
 document.title = `${params.get("name") ?? "A teammate"}'s computer`;
 
@@ -135,8 +138,17 @@ addEventListener("resize", () => {
 });
 
 function connect() {
+	invoke<{ origin: string; token: string }>("desk_viewer_token", { deskId, personaId: persona }).then(dial, () => {
+		// The desk's bridge is not up yet; the shell retries it, and so do we.
+		connected = false;
+		render();
+		setTimeout(connect, 1000);
+	});
+}
+
+function dial({ origin, token }: { origin: string; token: string }) {
 	const base = origin.replace(/^http/, "ws");
-	socket = new WebSocket(`${base}/computer/${encodeURIComponent(persona)}/ws?token=${encodeURIComponent(token)}`);
+	socket = new WebSocket(`${base}/computer/${encodeURIComponent(persona)}/ws`, [`hotline-viewer.${token}`]);
 	socket.binaryType = "arraybuffer";
 	// A fresh socket is a machine that has not been told who is driving.
 	socket.onopen = () => {

@@ -89,6 +89,8 @@ function bridgedViewer(personaId: string): string | undefined {
 	const id = activeDeskId();
 	const desk = allDesks().find((one) => one.id === id);
 	if (desk?.kind !== "remote") return undefined;
-	const params = new URLSearchParams({ origin: desk.origin, token: desk.token, persona: personaId });
+	// Never the desk's owner token: the viewer asks the shell for one that
+	// opens this teammate's screen once (BRO-148).
+	const params = new URLSearchParams({ desk: desk.id, persona: personaId });
 	return `computer.html#${params.toString()}`;
 }

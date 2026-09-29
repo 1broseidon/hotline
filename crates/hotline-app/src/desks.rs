@@ -562,6 +562,26 @@ pub async fn desk_pair_ssh(
     claimed
 }
 
+/// Where a desk's bridge is now, and a token that opens one teammate's
+/// computer screen on it once, within 30 s (BRO-148). The viewer window asks
+/// for one on every connect and never holds the desk's owner token.
+#[tauri::command]
+pub fn desk_viewer_token(
+    host: tauri::State<'_, Arc<Host>>,
+    desk_id: String,
+    persona_id: String,
+) -> Result<Value, String> {
+    let bridges = host.lock_bridges();
+    let bridge = bridges
+        .get(&desk_id)
+        .and_then(|live| live.bridge.as_ref())
+        .ok_or("That desk can't be reached from this computer yet.")?;
+    Ok(json!({
+        "origin": bridge.origin,
+        "token": bridge.viewer_token(&persona_id),
+    }))
+}
+
 /// The desks as they are now. The list the page was given at creation is
 /// stale after a reload once a desk was paired or forgotten since.
 #[tauri::command]

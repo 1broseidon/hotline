@@ -171,11 +171,8 @@ type LocalChunk = { data: string; size: number; next: number | null };
 
 async function upload(attachment: Attachment, onProgress?: (sent: number, total: number) => void): Promise<string> {
 	const first = await invoke<LocalChunk>("transfer_read", { path: attachment.path, offset: 0 });
-	const started = await wire.command("files.upload_start", { name: attachment.name } as never) as unknown as {
-		uploadId: string;
-		offset: number;
-		path: string;
-	};
+	// A name, not a path: the desk stages it in a private folder of its own.
+	const started = await wire.command("files.upload_start", { name: attachment.name });
 	let finished = false;
 	try {
 		let chunk = first;

@@ -172,8 +172,14 @@ registry entry; it contains no private key or invitation secret.
 `origin` is `http://127.0.0.1:PORT` and whose `token` is independent of Remote.
 Keep the Bridge alive for the desk's lifetime; dropping it closes its sockets.
 The window connects to `/ws?token=TOKEN` and speaks the Door wire. Computer
-viewers use `/computer/PERSONA_ID/ws?token=TOKEN`, with ordinary text and binary
-viewer frames. Only the server holds the computer's bearer.
+viewers use `/computer/PERSONA_ID/ws`, with ordinary text and binary viewer
+frames. Before each upgrade, the shell calls `bridge.viewer_token(persona_id)`
+and passes `hotline-viewer.<token>` as the WebSocket subprotocol. The bridge echoes
+it in the handshake. A token is single-use, expires after 30 seconds, and works
+only for that persona on that bridge; reconnects need a fresh one. The owner
+`?token=TOKEN` is accepted only on `/ws`, never on a viewer route. Viewer upgrades
+require the single-use subprotocol token; query-string tokens and mixed owner/viewer
+credentials are refused. Only the server holds the computer's bearer.
 
 The bridge exposes a watch receiver in `state`. Its wire connection reconnects
 with backoff from 250 ms to 30 seconds and resubscribes for fresh snapshots.

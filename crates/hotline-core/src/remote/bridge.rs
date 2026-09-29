@@ -4,8 +4,9 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
@@ -18,11 +19,49 @@ use tokio_tungstenite::{
 };
 use tokio_util::sync::CancellationToken;
 
+const VIEWER_PROTOCOL: &str = "hotline-viewer.";
+const VIEWER_TOKEN_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Default)]
+struct ViewerTokens(HashMap<String, ViewerToken>);
+struct ViewerToken {
+    persona: String,
+    expires: Instant,
+}
+impl ViewerTokens {
+    fn mint(&mut self, persona: &str) -> String {
+        let now = Instant::now();
+        self.0.retain(|_, token| token.expires > now);
+        let token = super::secret();
+        self.0.insert(
+            token.clone(),
+            ViewerToken {
+                persona: persona.to_owned(),
+                expires: now + VIEWER_TOKEN_TTL,
+            },
+        );
+        token
+    }
+
+    fn redeem(&mut self, token: &str, persona: &str) -> Result<(), ()> {
+        let now = Instant::now();
+        self.0.retain(|_, token| token.expires > now);
+        if self.0.get(token).ok_or(())?.persona != persona {
+            return Err(());
+        }
+        // Validation and removal share the mutex, so simultaneous upgrades
+        // cannot both redeem the same capability.
+        self.0.remove(token);
+        Ok(())
+    }
+}
+
 pub struct Bridge {
     pub origin: String,
     pub token: String,
     pub state: tokio::sync::watch::Receiver<State>,
     cancel: CancellationToken,
+    viewer_tokens: Arc<Mutex<ViewerTokens>>,
 }
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -30,6 +69,13 @@ impl Drop for Bridge {
     }
 }
 impl Bridge {
+    /// Mint a single-use, 30-second capability for one persona's viewer upgrade.
+    /// Present it as the `hotline-viewer.<token>` WebSocket subprotocol. A
+    /// reconnect needs a fresh token, even if the remote computer was unavailable.
+    pub fn viewer_token(&self, persona_id: &str) -> String {
+        self.viewer_tokens.lock().unwrap().mint(persona_id)
+    }
+
     pub async fn start(desk: &PairedDesk) -> Result<Self, String> {
         Self::with_client(desk, Client::default()).await
     }
@@ -45,6 +91,8 @@ impl Bridge {
         let (state, receive) = tokio::sync::watch::channel(State::Connecting);
         let desk = desk.clone();
         let key = token.clone();
+        let viewer_tokens = Arc::new(Mutex::new(ViewerTokens::default()));
+        let viewers = viewer_tokens.clone();
         tokio::spawn(async move {
             let mut tasks = tokio::task::JoinSet::new();
             loop {
@@ -55,8 +103,8 @@ impl Bridge {
                     accepted = listener.accept() => {
                         let Ok((socket, peer)) = accepted else { break; };
                         if !peer.ip().is_loopback() || tasks.len() >= 32 { continue; }
-                        let client = client.clone(); let desk = desk.clone(); let key = key.clone(); let state = state.clone();
-                        tasks.spawn(async move { serve(socket, client, desk, key, state).await; });
+                        let client = client.clone(); let desk = desk.clone(); let key = key.clone(); let state = state.clone(); let viewers = viewers.clone();
+                        tasks.spawn(async move { serve(socket, client, desk, key, viewers, state).await; });
                     }
                 }
             }
@@ -68,35 +116,86 @@ impl Bridge {
             token,
             state: receive,
             cancel,
+            viewer_tokens,
         })
     }
 }
 
-fn authorize(request: &Request, token: &str) -> Result<Option<String>, ()> {
-    let url = url::Url::parse(&format!("http://127.0.0.1{}", request.uri())).map_err(|_| ())?;
-    let tokens: Vec<_> = url
-        .query_pairs()
-        .filter(|(key, _)| key == "token")
-        .collect();
-    if tokens.len() != 1 || !crate::wire::same_secret(&tokens[0].1, token) {
-        return Err(());
+struct Authorization {
+    persona: Option<String>,
+    protocol: Option<http::HeaderValue>,
+}
+
+fn authorize(
+    request: &Request,
+    owner_token: &str,
+    viewers: &Mutex<ViewerTokens>,
+) -> Result<Authorization, ()> {
+    // Use the literal path: URL normalization must not turn a different route
+    // (such as a dot-segment path) into the persona named by this capability.
+    let path = request.uri().path();
+    let persona = if path == "/ws" {
+        None
+    } else {
+        let id = path
+            .strip_prefix("/computer/")
+            .and_then(|path| path.strip_suffix("/ws"))
+            .ok_or(())?;
+        if id.is_empty()
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return Err(());
+        }
+        Some(id.to_owned())
+    };
+    let query_tokens: Vec<_> =
+        url::form_urlencoded::parse(request.uri().query().unwrap_or("").as_bytes())
+            .filter(|(key, _)| key == "token")
+            .collect();
+    let mut viewer_protocol = None;
+    for value in request
+        .headers()
+        .get_all(http::header::SEC_WEBSOCKET_PROTOCOL)
+    {
+        for protocol in value.to_str().map_err(|_| ())?.split(',').map(str::trim) {
+            if let Some(token) = protocol.strip_prefix(VIEWER_PROTOCOL) {
+                if viewer_protocol.is_some()
+                    || token.len() != 64
+                    || !token.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Err(());
+                }
+                viewer_protocol = Some((protocol, token));
+            }
+        }
     }
-    if url.path() == "/ws" {
-        return Ok(None);
+    if let Some((protocol, token)) = viewer_protocol {
+        let id = persona.as_deref().ok_or(())?;
+        // Never fall back to owner authority for a malformed or spent viewer
+        // credential, or accept a viewer capability from the query string.
+        if !query_tokens.is_empty() {
+            return Err(());
+        }
+        let protocol = protocol.parse().map_err(|_| ())?;
+        viewers.lock().unwrap().redeem(token, id)?;
+        return Ok(Authorization {
+            persona,
+            protocol: Some(protocol),
+        });
     }
-    let id = url
-        .path()
-        .strip_prefix("/computer/")
-        .and_then(|path| path.strip_suffix("/ws"))
-        .ok_or(())?;
-    if id.is_empty()
-        || !id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    // The owner credential opens only the wire, never a computer viewer.
+    if persona.is_some()
+        || query_tokens.len() != 1
+        || !crate::wire::same_secret(&query_tokens[0].1, owner_token)
     {
         return Err(());
     }
-    Ok(Some(id.into()))
+    Ok(Authorization {
+        persona,
+        protocol: None,
+    })
 }
 
 #[allow(clippy::result_large_err)] // tungstenite fixes the callback error type.
@@ -105,15 +204,21 @@ async fn serve(
     client: Client,
     desk: PairedDesk,
     token: String,
+    viewers: Arc<Mutex<ViewerTokens>>,
     state: tokio::sync::watch::Sender<State>,
 ) {
     let target = Arc::new(Mutex::new(None));
     let selected = target.clone();
     let callback =
-        move |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
-            match authorize(request, &token) {
-                Ok(persona) => {
-                    *selected.lock().unwrap() = persona;
+        move |request: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
+            match authorize(request, &token, &viewers) {
+                Ok(authorization) => {
+                    *selected.lock().unwrap() = authorization.persona;
+                    if let Some(protocol) = authorization.protocol {
+                        response
+                            .headers_mut()
+                            .insert(http::header::SEC_WEBSOCKET_PROTOCOL, protocol);
+                    }
                     Ok(response)
                 }
                 Err(()) => Err(http::Response::builder()

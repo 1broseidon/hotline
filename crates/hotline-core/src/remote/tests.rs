@@ -2727,13 +2727,20 @@ async fn bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_th
     let payload = h.remote.pairing_v2(DeviceRole::Owner).unwrap().payload;
     let desk = client.pair(&payload, "Viewer laptop").await.unwrap();
     let bridge = bridge::Bridge::with_client(&desk, client).await.unwrap();
-    let url = format!(
-        "{}/computer/ada/ws?token={}",
-        bridge.origin.replace("http:", "ws:"),
-        bridge.token
-    );
+    let url = format!("{}/computer/ada/ws", bridge.origin.replace("http:", "ws:"));
     assert!(!url.contains("secret-bearer"));
-    let (mut socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    assert!(!url.contains(&bridge.token));
+    let protocol = format!("hotline-viewer.{}", bridge.viewer_token("ada"));
+    let mut request = url.into_client_request().unwrap();
+    request.headers_mut().insert(
+        http::header::SEC_WEBSOCKET_PROTOCOL,
+        protocol.parse().unwrap(),
+    );
+    let (mut socket, response) = tokio_tungstenite::connect_async(request).await.unwrap();
+    assert_eq!(
+        response.headers()[http::header::SEC_WEBSOCKET_PROTOCOL],
+        protocol
+    );
     assert_eq!(
         socket.next().await.unwrap().unwrap(),
         Message::binary(b"\x89PNG frame".to_vec())
@@ -2913,3 +2920,5 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
 }
 
 mod viewer_file_tests;
+
+mod viewer_token_tests;

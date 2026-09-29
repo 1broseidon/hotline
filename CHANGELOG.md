@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-09-29
+
 ### Added
 
 - The desktop app can be the owner's window onto a desk on a server. Add a
@@ -23,7 +25,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   window's own viewer, with a Files panel for its home. Desks not on
   screen still toast and count unread.
 - Settings → Desks lists desks, their state, and forgets one. A desk that
-  no longer recognises this computer says so, with Pair again.
+  no longer recognises this computer says so, with Pair again. A desk this
+  computer can't reach yet stays listed with the reason and keeps retrying.
 
 ### Changed
 
@@ -31,6 +34,25 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   uploads never replace an existing file; files sent into a computer from
   a paired window need it. An existing computer keeps the release it runs
   until it is updated or removed.
+- `hotline pair` shows only the QR, so a casual copy of the terminal never
+  carries the pairing secret. `hotline pair --link` prints the link to paste
+  into a desktop.
+
+### Fixed
+
+- A long piece of work stays one chapter. When a teammate's model filled its
+  context mid-turn, the chapter closed and another opened, over and over
+  during a long handoff, and each close cut the handoff's collaboration
+  short. The teammate now carries on inside the chapter it was in.
+- The starter suggestions no longer appear under a conversation that has a
+  history, such as a teammate whose recent work all came through handoffs.
+
+### Security
+
+- A teammate's computer viewer on a server desk never holds the desk's owner
+  credentials: it opens with a single-use token for that one screen, and its
+  window can call only the four commands it needs.
+- The paired-desk list (`desks.json`) is readable by this user only.
 
 ## [0.28.1] - 2026-09-28
 

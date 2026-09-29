@@ -157,7 +157,7 @@ type Results = {
 	};
 	"files.mkdir": { path: string };
 	"files.download": Omit<FileChunk, "next"> & { next: number | null };
-	"files.upload_start": { uploadId: string; offset: number };
+	"files.upload_start": { uploadId: string; offset: number; path: string };
 	"files.upload_chunk": { offset: number };
 	"files.upload_finish": { path: string; size: number };
 	"files.upload_cancel": null;

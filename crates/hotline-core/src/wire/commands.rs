@@ -40,7 +40,7 @@ pub(crate) async fn run(
                 .await
                 .map_err(|_| "The download stopped.".to_string())?
         }
-        Command::FilesUploadStart { .. }
+        Command::FilesUploadStart(_)
         | Command::FilesUploadChunk { .. }
         | Command::FilesUploadFinish { .. }
         | Command::FilesUploadCancel { .. } => Err("Uploads need a live desk connection.".into()),

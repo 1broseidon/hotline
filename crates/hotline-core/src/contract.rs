@@ -2053,6 +2053,15 @@ pub struct CookieTransfer {
     pub cookies: Vec<serde_json::Value>,
 }
 
+/// Exactly one upload destination: a server path or a filename staged by the desk.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(untagged, deny_unknown_fields)]
+#[ts(export, export_to = "contract.ts")]
+pub enum UploadDestination {
+    Name { name: String },
+    Path { path: String },
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -2112,7 +2121,7 @@ pub enum Command {
     #[serde(rename = "files.download")]
     FilesDownload { path: String, offset: u64 },
     #[serde(rename = "files.upload_start")]
-    FilesUploadStart { path: String },
+    FilesUploadStart(UploadDestination),
     #[serde(rename = "files.upload_chunk")]
     FilesUploadChunk {
         upload_id: String,

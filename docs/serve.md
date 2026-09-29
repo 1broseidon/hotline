@@ -189,11 +189,14 @@ Owner file commands use absolute **server** paths:
 | `files.browse` | `path` | canonical `path`, `parent`, `entries` with name/path/directory/size |
 | `files.mkdir` | new directory `path` | created `path` |
 | `files.download` | `path`, `offset` | name/mimeType/size/offset/base64 `data`/nullable `next`; at most 512 KiB |
-| `files.upload_start` | new destination `path` | `uploadId`, `offset` |
+| `files.upload_start` | exactly one of new destination `path` or plain filename `name` | `uploadId`, `offset`, destination `path` |
 | `files.upload_chunk` | `uploadId`, `offset`, base64 `data` | next `offset`; at most 512 KiB |
 | `files.upload_finish` | `uploadId` | destination `path`, `size` |
 | `files.upload_cancel` | `uploadId` | no result |
 
+`name` stages below `<desk-data>/uploads/<random>/<name>`; separators, traversal
+and drive prefixes are refused. Finished staged files stay there for attachments.
+Cancel or disconnect removes an unfinished file and its private staging directory.
 Upload calls must stay on the socket that started them. Up to eight uploads can
 be staged on it; cancellation or disconnect removes unfinished files. Finish
 publishes a complete file without replacing an existing destination. Browse

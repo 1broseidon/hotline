@@ -2521,6 +2521,16 @@ async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat()
             assert_eq!(upload["code"], "forbidden");
             assert!(!path.exists());
             assert_eq!(
+                ask(
+                    &mut socket,
+                    "files.upload_start",
+                    json!({"name":"refused.txt"})
+                )
+                .await["code"],
+                "forbidden"
+            );
+            assert!(!h.root.path().join("uploads").exists());
+            assert_eq!(
                 ask(&mut socket, "files.browse", json!({"path":root.path()})).await["code"],
                 "forbidden"
             );
@@ -2536,6 +2546,98 @@ async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat()
             continue;
         }
         assert_eq!(upload["ok"], true, "{upload}");
+        assert_eq!(upload["result"]["path"], json!(path));
+        for params in [
+            json!({}),
+            json!({"name":"a","path":path}),
+            json!({"name":null}),
+        ] {
+            assert_eq!(
+                ask(&mut socket, "files.upload_start", params).await["ok"],
+                false
+            );
+        }
+        for name in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "/absolute",
+            "sub/file",
+            "sub\\file",
+            "C:drive",
+            "bad\0name",
+        ] {
+            assert_eq!(
+                ask(&mut socket, "files.upload_start", json!({"name":name})).await["ok"],
+                false,
+                "accepted {name:?}"
+            );
+        }
+        let named = ask(
+            &mut socket,
+            "files.upload_start",
+            json!({"name":"notes.txt"}),
+        )
+        .await;
+        assert_eq!(named["ok"], true, "{named}");
+        assert_eq!(named["result"]["offset"], 0);
+        let staged_path = std::path::PathBuf::from(named["result"]["path"].as_str().unwrap());
+        assert_eq!(staged_path.file_name().unwrap(), "notes.txt");
+        assert_eq!(
+            staged_path.parent().unwrap().parent().unwrap(),
+            h.root.path().join("uploads")
+        );
+        assert!(!staged_path.exists());
+        let named_id = &named["result"]["uploadId"];
+        assert_eq!(
+            ask(
+                &mut socket,
+                "files.upload_chunk",
+                json!({"uploadId":named_id,"offset":0,"data":STANDARD.encode(b"staged attachment")})
+            )
+            .await["ok"],
+            true
+        );
+        assert_eq!(
+            ask(
+                &mut socket,
+                "files.upload_finish",
+                json!({"uploadId":named_id})
+            )
+            .await["result"]["path"],
+            json!(staged_path)
+        );
+        assert_eq!(std::fs::read(&staged_path).unwrap(), b"staged attachment");
+        let cancelled = ask(
+            &mut socket,
+            "files.upload_start",
+            json!({"name":"notes.txt"}),
+        )
+        .await;
+        let cancelled_path =
+            std::path::PathBuf::from(cancelled["result"]["path"].as_str().unwrap());
+        assert_ne!(cancelled_path, staged_path);
+        assert!(cancelled_path.parent().unwrap().exists());
+        assert_eq!(
+            ask(
+                &mut socket,
+                "files.upload_cancel",
+                json!({"uploadId":cancelled["result"]["uploadId"]})
+            )
+            .await["ok"],
+            true
+        );
+        assert!(!cancelled_path.parent().unwrap().exists());
+        let unfinished_named = ask(
+            &mut socket,
+            "files.upload_start",
+            json!({"name":"unfinished.txt"}),
+        )
+        .await;
+        let unfinished_named_path =
+            std::path::PathBuf::from(unfinished_named["result"]["path"].as_str().unwrap());
+
         let id = &upload["result"]["uploadId"];
         assert_eq!(
             ask(
@@ -2603,7 +2705,9 @@ async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat()
         );
         drop(bridge);
         tokio::time::timeout(Duration::from_secs(10), async {
-            while std::fs::read_dir(root.path()).unwrap().count() != 1 {
+            while std::fs::read_dir(root.path()).unwrap().count() != 1
+                || unfinished_named_path.parent().unwrap().exists()
+            {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })

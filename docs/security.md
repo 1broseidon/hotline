@@ -794,7 +794,11 @@ made it so.
   Noise. Viewer handshakes bind the persona; bearer credentials stay server-side.
   Each wire socket owns its upload handles. Chunks enforce offsets and size;
   finish publishes without overwriting, and dropping the socket removes staged
-  files. Browse/download use server paths under the service account's authority.
+  files. A filename upload is confined to a fresh directory below the desk's
+  `uploads`; exactly one of filename or server path is accepted. Separators and
+  traversal are refused before creation. Cancel/disconnect removes the staging
+  directory; finish retains the complete file for attachments.
+  Browse/download use server paths under the service account's authority.
   Cookie push validates the selected domains and drops expired cookies before
   starting a computer, bypasses server browser discovery, and records only source
   metadata and site counts. These commands are not teammate tools.

@@ -20,6 +20,7 @@ import { SkillsSection } from "./Skills";
 
 import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
+import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
 
 const MIN_IDLE_HOURS = 1;
@@ -139,7 +140,7 @@ export function Settings({ section, onBack, onAddDesk }: { section: SettingsSect
 						/>
 					)}
 					{section === "updates" && <UpdatesSection />}
-					{section === "remote" && <RemoteSection />}
+					{section === "remote" && (onServer() ? <ServerRemoteNote /> : <RemoteSection />)}
 					{section === "desks" && <DesksSection onAddDesk={onAddDesk ?? (() => {})} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
 					{refusal !== null && <Refusal message={refusal} />}
@@ -1738,4 +1739,21 @@ function previousEditionDir(): string {
 	if (here === "macos") return "~/Library/Application Support/Toad";
 	if (here === "windows") return "~/AppData/Roaming/Toad";
 	return "~/.local/share/toad";
+}
+
+/**
+ * A desk on a server keeps its listener and its devices to itself: a remote
+ * owner cannot pair more devices or revoke them, so the section says where
+ * that is done instead.
+ */
+function ServerRemoteNote() {
+	return (
+		<section>
+			<h3 className="group-title">Phones and other computers</h3>
+			<p className="group-hint">
+				This desk runs on a server, and it pairs devices there. On the server, <code>hotline pair</code> shows a QR code for
+				the phone, <code>hotline devices</code> lists what is paired, and <code>hotline revoke</code> removes one.
+			</p>
+		</section>
+	);
 }

@@ -1,8 +1,9 @@
 import { FolderIcon } from "../icons";
-import { pickDirectory } from "../native";
+import { chooseFolder } from "../serverFiles";
 
 /**
- * A path you can type or pick. The picker is the system's folder chooser,
+ * A path you can type or pick. The picker is the system's folder chooser
+ * (or, on a desk on a server, the window's browser of the server's disk),
  * a key inside the field's end; the field stays so a path you already know
  * how to write is still just words.
  */
@@ -20,7 +21,7 @@ export function PathField({
 	onCommit?(value: string): void;
 }) {
 	const choose = async () => {
-		const dir = await pickDirectory();
+		const dir = await chooseFolder(value);
 		if (dir === null) return;
 		onChange(dir);
 		onCommit?.(dir);

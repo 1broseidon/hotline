@@ -30,6 +30,9 @@ serde_json.workspace = true
 base64 = "0.22"
 tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "time"] }
 rand = "0.9"
+# The shell's own word with a paired desk, over its loopback bridge (`desks`).
+tokio-tungstenite = "0.30"
+futures-util = "0.3.34"
 hotline-core = { path = "../hotline-core" }
 
 # Toasts. On Linux and Windows the plugin posts them. On macOS the modern

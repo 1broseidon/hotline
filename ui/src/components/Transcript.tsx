@@ -1006,8 +1006,8 @@ function AgentSay({
 				}}
 			>
 				{event.text.trim() !== "" && <Markdown text={event.text} />}
-				{event.attachments?.map((file) => (
-					<SentFile key={file.path} personaId={personaId} eventId={event.id} file={file} />
+				{event.attachments?.map((file, index) => (
+					<SentFile key={file.path} personaId={personaId} eventId={event.id} index={index} file={file} />
 				))}
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />

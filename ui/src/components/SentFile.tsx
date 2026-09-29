@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Attachment, FileChunk } from "../generated/contract";
 import { FileIcon, FolderIcon } from "../icons";
-import { openSentFile, revealPath, saveSentFile } from "../native";
+import { onServer, openSent, saveSent, showPath } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { wire } from "../wire";
 
@@ -13,9 +13,21 @@ import { wire } from "../wire";
  * arrives. Anything else is a card that names it. Nothing opens on its own:
  * a picture or a PDF opens in the system's viewer when pressed, and any
  * file can be saved where the person chooses or shown in its folder. Where
- * the file came from is on hover.
+ * the file came from is on hover. On a desk on a server the file is brought
+ * down to open or save it, and its folder is the server's (serverFiles.ts).
  */
-export function SentFile({ personaId, eventId, file }: { personaId: string; eventId: string; file: Attachment }) {
+export function SentFile({
+	personaId,
+	eventId,
+	index,
+	file,
+}: {
+	personaId: string;
+	eventId: string;
+	index: number;
+	file: Attachment;
+}) {
+	const sent = { personaId, eventId, index, file };
 	const [error, setError] = useState<string | null>(null);
 	const act = (work: () => Promise<unknown>) => {
 		setError(null);
@@ -25,19 +37,19 @@ export function SentFile({ personaId, eventId, file }: { personaId: string; even
 	const actions = (
 		<span className="sent-actions">
 			{pdf && (
-				<button type="button" className="control btn btn-sm" onClick={() => act(() => openSentFile(file.path))}>
+				<button type="button" className="control btn btn-sm" onClick={() => act(() => openSent(sent))}>
 					Open
 				</button>
 			)}
-			<button type="button" className="control btn btn-sm" onClick={() => act(() => saveSentFile(file.path))}>
+			<button type="button" className="control btn btn-sm" onClick={() => act(() => saveSent(sent))}>
 				Save…
 			</button>
 			<button
 				type="button"
 				className="control btn btn-sm"
-				title="Show in folder"
-				aria-label="Show in folder"
-				onClick={() => act(() => revealPath(file.path))}
+				title={onServer() ? "Show in its folder on the server" : "Show in folder"}
+				aria-label={onServer() ? "Show in its folder on the server" : "Show in folder"}
+				onClick={() => showPath(file.path)}
 			>
 				<FolderIcon />
 			</button>
@@ -48,7 +60,7 @@ export function SentFile({ personaId, eventId, file }: { personaId: string; even
 	if (file.kind === "image") {
 		return (
 			<figure className="sent-file" title={file.origin}>
-				<SentPicture personaId={personaId} eventId={eventId} file={file} onOpen={() => act(() => openSentFile(file.path))} />
+				<SentPicture personaId={personaId} eventId={eventId} index={index} file={file} onOpen={() => act(() => openSent(sent))} />
 				<figcaption className="sent-caption">
 					<span className="chip-name">{file.name}</span>
 					{actions}
@@ -79,15 +91,17 @@ export function SentFile({ personaId, eventId, file }: { personaId: string; even
 function SentPicture({
 	personaId,
 	eventId,
+	index,
 	file,
 	onOpen,
 }: {
 	personaId: string;
 	eventId: string;
+	index: number;
 	file: Attachment;
 	onOpen(): void;
 }) {
-	const url = useSentFile(personaId, eventId);
+	const url = useSentFile(personaId, eventId, index);
 	const shape = file.width !== undefined && file.height !== undefined ? `${file.width} / ${file.height}` : "4 / 3";
 	if (url === null) return <p className="sent-missing">{`${file.name} could not be read.`}</p>;
 	if (url === undefined) return <div className="sent-picture sent-placeholder" style={{ aspectRatio: shape }} />;
@@ -102,7 +116,7 @@ function SentPicture({
  * The file's bytes as a URL the page can draw, read a part at a time.
  * Undefined while it comes, null when it cannot be read.
  */
-function useSentFile(personaId: string, eventId: string): string | null | undefined {
+function useSentFile(personaId: string, eventId: string, index: number): string | null | undefined {
 	const [url, setUrl] = useState<string | null | undefined>(undefined);
 	useEffect(() => {
 		let gone = false;
@@ -112,7 +126,7 @@ function useSentFile(personaId: string, eventId: string): string | null | undefi
 			let type = "";
 			let offset: number | undefined = 0;
 			while (offset !== undefined) {
-				const chunk: FileChunk = await wire.command("file.read", { personaId, eventId, offset });
+				const chunk: FileChunk = await wire.command("file.read", { personaId, eventId, index, offset });
 				if (gone) return;
 				type = chunk.mimeType;
 				parts.push(bytesOf(chunk.data));
@@ -127,7 +141,7 @@ function useSentFile(personaId: string, eventId: string): string | null | undefi
 			gone = true;
 			if (made !== undefined) URL.revokeObjectURL(made);
 		};
-	}, [personaId, eventId]);
+	}, [personaId, eventId, index]);
 	return url;
 }
 

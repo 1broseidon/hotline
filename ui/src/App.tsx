@@ -17,12 +17,14 @@ import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
 import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
-import { noticeRoster, setWindowTitle } from "./notify";
+import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
-import { activeDeskId, LOCAL_DESK, useActiveDesk } from "./desks";
+import { activeDeskId, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDesks } from "./desks";
+import { syncWatches, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
+import { ServerFiles } from "./components/ServerFiles";
 
 /* Settings is opened now and then, not at launch: it loads on first open,
  * which keeps its nine sections out of the startup bundle. */
@@ -43,7 +45,12 @@ type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: O
  */
 export function DeskRoot() {
 	const desk = useActiveDesk();
-	return <App key={desk?.id ?? "none"} />;
+	const desks = useDesks();
+	// Every desk not on screen is watched for toasts and unread (deskWatch.ts).
+	useEffect(syncWatches, [desk?.id, desks]);
+	// Keyed by the endpoint too: a desk paired again has a new bridge, and its
+	// old connection (and everything subscribed on it) is gone.
+	return <App key={desk === null ? "none" : `${desk.id} ${desk.origin} ${desk.token}`} />;
 }
 
 export function App() {
@@ -147,13 +154,16 @@ export function App() {
 	}, [selectedId, selected?.latest]);
 
 	useEffect(() => {
-		noticeRoster(roster);
+		noticeRoster(roster, { id: activeDeskId() ?? "" });
 	}, [roster]);
 
-	// The dock's badge is the rail's unread count: the rows in bold, counted.
+	// The dock's badge is the rail's unread count: the rows in bold, counted,
+	// with those on the desks not on screen.
+	const elsewhere = useBackgroundUnread();
 	useEffect(() => {
-		void setBadge(roster.filter((entry) => unreadOf(entry, selectedId, seen)).length);
-	}, [roster, selectedId, seen]);
+		const others = Object.values(elsewhere).reduce((sum, count) => sum + count, 0);
+		void setBadge(roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + others);
+	}, [roster, selectedId, seen, elsewhere]);
 
 	// In native fullscreen the traffic lights leave with the menu bar, and
 	// the rail's gutter for them goes too (index.css).
@@ -190,7 +200,24 @@ export function App() {
 
 	// A clicked toast is a teammate asking to be looked at; the shell has
 	// already raised the window.
-	useEffect(() => listenToastClicks(select), [select]);
+	// One from a desk not on screen opens that desk on that teammate.
+	useEffect(
+		() =>
+			listenToastClicks((payload) => {
+				const { deskId, personaId } = toastTarget(payload);
+				if (deskId === null || deskId === activeDeskId()) {
+					select(personaId);
+					return;
+				}
+				try {
+					localStorage.setItem(deskKey(SELECTED_KEY, deskId), personaId);
+				} catch {
+					// Private mode: the desk opens where it was.
+				}
+				setActiveDesk(deskId);
+			}),
+		[select],
+	);
 
 	const closePane = useCallback(() => {
 		setPane(null);
@@ -386,6 +413,7 @@ export function App() {
 				rail={{ open: railSize.open, onToggle: toggleRail }}
 			/>
 			{platform() === "linux" && <WindowEdges />}
+			<ServerFiles />
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{!railSize.open ? null : pane === "settings" ? (
 				<Suspense fallback={null}>
@@ -566,10 +594,8 @@ function keepRoster(deskId: string, roster: RosterEntry[]) {
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
 const SELECTED_KEY = "hotline.rail.selected";
 
-/** A key of this window's, per desk. The local desk keeps the plain key it always had. */
 function perDesk(key: string): string {
-	const desk = activeDeskId();
-	return desk === null || desk === LOCAL_DESK ? key : `${key}:${desk}`;
+	return deskKey(key);
 }
 
 function loadSelected(): string | null {

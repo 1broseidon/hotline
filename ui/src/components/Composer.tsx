@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
-import { pickFiles } from "../native";
+import { pickAttachments } from "../serverFiles";
 import { sizeText } from "../sizes";
 
 /** The field stops growing here, and scrolls from then on. */
@@ -145,8 +145,8 @@ export function Composer({
 	}, [refill]);
 
 	const attach = async () => {
-		const paths = await pickFiles();
-		if (paths.length > 0) setAttachments((known) => mergeDropped(known, paths));
+		const picked = await pickAttachments();
+		if (picked.length > 0) setAttachments((known) => mergeDropped(known, picked.map((file) => file.path)));
 		area.current?.focus();
 	};
 

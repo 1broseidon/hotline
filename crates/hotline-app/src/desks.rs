@@ -56,6 +56,11 @@ impl Host {
         })
     }
 
+    /// The data directory the registry lives in.
+    pub(crate) fn root(&self) -> &Path {
+        self.registry.parent().unwrap_or(Path::new("."))
+    }
+
     /// Starts a bridge for every paired desk. A bridge is a local listener;
     /// it dials the server only once the window connects to it.
     pub(crate) async fn start_all(self: &Arc<Self>) {
@@ -174,6 +179,67 @@ impl Host {
         self.start(&desk).await?;
         self.emit();
         Ok(desk.desk_id)
+    }
+
+    /// Asks a desk on a server one thing, from the shell rather than the
+    /// page, over its bridge: for what the page should never hold, like the
+    /// cookie values `laptop` reads.
+    pub(crate) async fn command(
+        &self,
+        desk_id: &str,
+        cmd: &str,
+        params: Value,
+    ) -> Result<Value, String> {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+        let url = {
+            let bridges = self.bridges.lock().unwrap_or_else(PoisonError::into_inner);
+            let live = bridges
+                .get(desk_id)
+                .ok_or("That desk is not paired with this computer.")?;
+            format!(
+                "{}/ws?token={}",
+                live.bridge.origin.replacen("http", "ws", 1),
+                live.bridge.token
+            )
+        };
+        let unreachable =
+            |error: &dyn std::fmt::Display| format!("The desk could not be reached: {error}");
+        let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
+            .await
+            .map_err(|error| unreachable(&error))?;
+        let frame = json!({"id": 1, "cmd": cmd, "params": params});
+        socket
+            .send(Message::text(frame.to_string()))
+            .await
+            .map_err(|error| unreachable(&error))?;
+        let answer = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+            while let Some(message) = socket.next().await {
+                let Ok(Message::Text(text)) = message else {
+                    continue;
+                };
+                let Ok(reply) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                if reply["id"] == 1 {
+                    return Some(reply);
+                }
+            }
+            None
+        })
+        .await
+        .ok()
+        .flatten();
+        let _ = socket.close(None).await;
+        let reply = answer.ok_or("The desk did not answer.")?;
+        if reply["ok"] == true {
+            Ok(reply["result"].clone())
+        } else {
+            Err(reply["error"]
+                .as_str()
+                .unwrap_or("The desk refused that.")
+                .to_string())
+        }
     }
 
     /// Stops reaching a desk from this window and forgets it.

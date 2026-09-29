@@ -91,6 +91,11 @@ export function wireFor(deskId: string): Wire {
 	return one;
 }
 
+/** A key of this window's, per desk. The local desk keeps the plain key it always had. */
+export function deskKey(key: string, deskId: string | null = active): string {
+	return deskId === null || deskId === LOCAL_DESK ? key : `${key}:${deskId}`;
+}
+
 export function allDesks(): Desk[] {
 	return desks;
 }

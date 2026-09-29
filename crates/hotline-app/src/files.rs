@@ -35,7 +35,7 @@ fn kept_under(files: &Path, path: &str) -> Result<PathBuf, String> {
 
 /// Whether the system may be asked to open this: a PDF named `.pdf`, or a
 /// JPEG named `.jpg` or `.jpeg`, which is every picture the desk keeps.
-fn openable(path: &Path) -> bool {
+pub(crate) fn openable(path: &Path) -> bool {
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().to_ascii_lowercase())

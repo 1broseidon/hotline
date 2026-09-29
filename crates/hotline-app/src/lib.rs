@@ -8,7 +8,9 @@
 //! links, and write the clipboard; on Linux and Windows one posts toasts too,
 //! while on macOS the notification center does, through `notify`, because it
 //! is the one that hands a click back. Two commands open or save a file a
-//! teammate sent, and refuse any other path (`files`). The judgement for
+//! teammate sent, and refuse any other path (`files`); a few more carry
+//! files to and from a desk on a server, touching only what the person
+//! picked, dropped or chose to save (`transfer`). The judgement for
 //! all of it lives in the page, not here. The page draws the window's top strip on
 //! every platform. On macOS the menu bar is this process's, and its items
 //! emit an event the window handles. On Linux and Windows there is no menu
@@ -23,8 +25,10 @@ mod notify;
 mod desks;
 mod files;
 mod instance;
+mod laptop;
 #[cfg(target_os = "linux")]
 mod linux_package;
+mod transfer;
 mod updater;
 
 #[cfg(unix)]
@@ -333,6 +337,14 @@ pub fn run() {
         desks::desk_forget,
         files::open_sent_file,
         files::save_sent_file,
+        transfer::transfer_pick,
+        transfer::transfer_read,
+        transfer::transfer_begin,
+        transfer::transfer_write,
+        transfer::transfer_end,
+        laptop::laptop_browsers,
+        laptop::laptop_cookies_preview,
+        laptop::laptop_cookies_push,
         updater::get_update_status,
         updater::check_update,
         updater::install_update,
@@ -345,6 +357,14 @@ pub fn run() {
         desks::desk_forget,
         files::open_sent_file,
         files::save_sent_file,
+        transfer::transfer_pick,
+        transfer::transfer_read,
+        transfer::transfer_begin,
+        transfer::transfer_write,
+        transfer::transfer_end,
+        laptop::laptop_browsers,
+        laptop::laptop_cookies_preview,
+        laptop::laptop_cookies_push,
         updater::get_update_status,
         updater::check_update,
         updater::install_update,
@@ -352,6 +372,7 @@ pub fn run() {
     ]);
     builder
         .manage(desks.clone())
+        .manage(std::sync::Arc::new(transfer::Transfers::default()))
         .setup(move |app| {
             desks.attach(app.handle().clone());
             #[cfg(target_os = "macos")]
@@ -412,6 +433,15 @@ pub fn run() {
             window.on_window_event({
                 let window = window.clone();
                 move |event| {
+                    // A drop hands its files over for sending to a desk on a server.
+                    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop {
+                        paths, ..
+                    }) = event
+                    {
+                        window
+                            .state::<std::sync::Arc<transfer::Transfers>>()
+                            .hand(paths);
+                    }
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         let _ = window.app_handle().save_window_state(window_state_flags());
                         api.prevent_close();

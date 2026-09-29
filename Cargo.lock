@@ -3981,7 +3981,9 @@ dependencies = [
 name = "hotline-app"
 version = "0.28.0"
 dependencies = [
+ "base64 0.22.1",
  "block2",
+ "futures-util",
  "hotline-core",
  "objc2",
  "objc2-foundation",
@@ -4000,6 +4002,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.30.0",
  "tokio-util",
 ]
 

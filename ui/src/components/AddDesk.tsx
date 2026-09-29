@@ -28,7 +28,7 @@ export function AddDesk({ onClose }: { onClose(): void }) {
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 
-	const ready = way === "link" ? link.trim().startsWith("hotline://pair") : /^[^\s@]+@[^\s@]+$|^[^\s@]+$/.test(target.trim());
+	const ready = way === "link" ? link.trim().startsWith("hotline://pair") : sshTarget(target.trim());
 
 	const pair = async () => {
 		setBusy(true);
@@ -119,4 +119,13 @@ export function AddDesk({ onClose }: { onClose(): void }) {
 			</Scroll>
 		</div>
 	);
+}
+
+/**
+ * What the shell will run ssh against: user@host or a host from the SSH
+ * config, never empty, never with whitespace, and never starting with "-",
+ * which ssh would read as an option (the same rule as desks.rs).
+ */
+export function sshTarget(target: string): boolean {
+	return target !== "" && !target.startsWith("-") && !/\s/.test(target);
 }

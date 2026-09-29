@@ -17,7 +17,9 @@ use hotline_core::remote::client::{PairedDesk, State};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const REGISTRY: &str = "desks.json";
@@ -30,13 +32,25 @@ pub(crate) struct Host {
     local: (String, String),
     paired: Mutex<Vec<PairedDesk>>,
     bridges: Mutex<HashMap<String, Live>>,
+    /// Numbers each start of a desk's bridge, so a watcher or a retry left
+    /// over from an earlier one never touches the one that replaced it.
+    generations: AtomicU64,
     app: OnceLock<AppHandle>,
 }
 
-/// A running bridge and the last state it reported.
+/// A paired desk's bridge, or why it has none yet, and the last state it
+/// reported. A desk whose bridge would not start is still listed, as
+/// unreachable with the reason, and retried; it never quietly disappears.
 struct Live {
-    bridge: Bridge,
+    bridge: Option<Bridge>,
     state: State,
+    error: Option<String>,
+    generation: u64,
+}
+
+/// How long a bridge that would not start waits before the next try.
+fn retry_after(tries: u32) -> Duration {
+    Duration::from_millis((250u64 << tries.min(7)).min(30_000))
 }
 
 impl Host {
@@ -52,6 +66,7 @@ impl Host {
             local: (origin, token),
             paired: Mutex::new(paired),
             bridges: Mutex::new(HashMap::new()),
+            generations: AtomicU64::new(0),
             app: OnceLock::new(),
         })
     }
@@ -62,7 +77,8 @@ impl Host {
     }
 
     /// Starts a bridge for every paired desk. A bridge is a local listener;
-    /// it dials the server only once the window connects to it.
+    /// it dials the server only once the window connects to it. One that
+    /// will not start is listed as unreachable and keeps being retried.
     pub(crate) async fn start_all(self: &Arc<Self>) {
         let paired = self
             .paired
@@ -70,9 +86,7 @@ impl Host {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         for desk in paired {
-            if let Err(error) = self.start(&desk).await {
-                eprintln!("[desks] {}: {error}", desk.name);
-            }
+            self.start(&desk).await;
         }
     }
 
@@ -81,32 +95,109 @@ impl Host {
         let _ = self.app.set(app);
     }
 
-    async fn start(self: &Arc<Self>, desk: &PairedDesk) -> Result<(), String> {
-        let bridge = Bridge::start(desk).await?;
+    /// Starts a desk's bridge, replacing whatever reached it before. If it
+    /// will not start, the desk is listed unreachable with the reason, and
+    /// a retry keeps trying with backoff until it starts, or until the desk
+    /// is paired again or forgotten.
+    async fn start(self: &Arc<Self>, desk: &PairedDesk) {
+        let generation = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
+        match Bridge::start(desk).await {
+            Ok(bridge) => self.install(&desk.desk_id, generation, bridge),
+            Err(error) => {
+                eprintln!("[desks] {}: {error}", desk.name);
+                self.lock_bridges().insert(
+                    desk.desk_id.clone(),
+                    Live {
+                        bridge: None,
+                        state: State::Unreachable,
+                        error: Some(error),
+                        generation,
+                    },
+                );
+                self.retry(desk.clone(), generation);
+            }
+        }
+    }
+
+    fn lock_bridges(&self) -> std::sync::MutexGuard<'_, HashMap<String, Live>> {
+        self.bridges.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether `generation` is still the one reaching `desk_id`.
+    fn current(&self, desk_id: &str, generation: u64) -> bool {
+        self.lock_bridges()
+            .get(desk_id)
+            .is_some_and(|live| live.generation == generation)
+    }
+
+    fn install(self: &Arc<Self>, desk_id: &str, generation: u64, bridge: Bridge) {
         let mut watch = bridge.state.clone();
         let state = *watch.borrow();
-        self.bridges
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(desk.desk_id.clone(), Live { bridge, state });
+        self.lock_bridges().insert(
+            desk_id.to_string(),
+            Live {
+                bridge: Some(bridge),
+                state,
+                error: None,
+                generation,
+            },
+        );
         let host = Arc::downgrade(self);
-        let id = desk.desk_id.clone();
+        let id = desk_id.to_string();
         tauri::async_runtime::spawn(async move {
             while watch.changed().await.is_ok() {
                 let Some(host) = host.upgrade() else { return };
                 let now = *watch.borrow();
-                if let Some(live) = host
-                    .bridges
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .get_mut(&id)
                 {
-                    live.state = now;
+                    let mut bridges = host.lock_bridges();
+                    // A bridge replaced by pairing again keeps reporting
+                    // until its sender closes; only this generation's counts.
+                    match bridges.get_mut(&id) {
+                        Some(live) if live.generation == generation => live.state = now,
+                        _ => return,
+                    }
                 }
                 host.emit();
             }
         });
-        Ok(())
+    }
+
+    fn retry(self: &Arc<Self>, desk: PairedDesk, generation: u64) {
+        let host = Arc::downgrade(self);
+        tauri::async_runtime::spawn(async move {
+            for tries in 0u32.. {
+                tokio::time::sleep(retry_after(tries)).await;
+                let Some(host) = host.upgrade() else { return };
+                if !host.current(&desk.desk_id, generation) {
+                    return;
+                }
+                match Bridge::start(&desk).await {
+                    Ok(bridge) => {
+                        if host.current(&desk.desk_id, generation) {
+                            host.install(&desk.desk_id, generation, bridge);
+                            host.emit();
+                        }
+                        return;
+                    }
+                    Err(error) => {
+                        let changed = {
+                            let mut bridges = host.lock_bridges();
+                            match bridges.get_mut(&desk.desk_id) {
+                                Some(live) if live.generation == generation => {
+                                    let changed = live.error.as_deref() != Some(error.as_str());
+                                    live.error = Some(error);
+                                    changed
+                                }
+                                _ => return,
+                            }
+                        };
+                        if changed {
+                            host.emit();
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// The local desk, the paired ones, then any extra ones, as the window reads them.
@@ -118,24 +209,14 @@ impl Host {
             "origin": self.local.0,
             "token": self.local.1,
         })];
-        let bridges = self.bridges.lock().unwrap_or_else(PoisonError::into_inner);
+        let bridges = self.lock_bridges();
         for desk in self
             .paired
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
         {
-            let Some(live) = bridges.get(&desk.desk_id) else {
-                continue;
-            };
-            desks.push(json!({
-                "id": desk.desk_id,
-                "name": desk.name,
-                "kind": "remote",
-                "origin": live.bridge.origin,
-                "token": live.bridge.token,
-                "state": live.state,
-            }));
+            desks.push(remote_entry(desk, bridges.get(&desk.desk_id)));
         }
         desks.extend(extra(std::env::var("HOTLINE_EXTRA_DESKS").ok().as_deref()));
         Value::Array(desks)
@@ -153,7 +234,7 @@ impl Host {
         let staged = self
             .registry
             .with_extension(format!("json.{}", std::process::id()));
-        std::fs::write(&staged, bytes)
+        write_private(&staged, &bytes)
             .and_then(|()| std::fs::rename(&staged, &self.registry))
             .map_err(|error| format!("Couldn't save the paired desks: {error}"))
     }
@@ -166,17 +247,14 @@ impl Host {
                 .to_string()
         })?;
         let desk = hotline_core::remote::client::pair(&payload, &device_name()).await?;
-        self.bridges
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&desk.desk_id);
         {
             let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
             paired.retain(|known| known.desk_id != desk.desk_id);
             paired.push(desk.clone());
         }
         self.save()?;
-        self.start(&desk).await?;
+        // Replaces the old bridge, whose watcher then stands down.
+        self.start(&desk).await;
         self.emit();
         Ok(desk.desk_id)
     }
@@ -197,10 +275,18 @@ impl Host {
             let live = bridges
                 .get(desk_id)
                 .ok_or("That desk is not paired with this computer.")?;
+            let bridge = live.bridge.as_ref().ok_or_else(|| {
+                format!(
+                    "That desk can't be reached from this computer yet: {}",
+                    live.error
+                        .as_deref()
+                        .unwrap_or("its connection has not started")
+                )
+            })?;
             format!(
                 "{}/ws?token={}",
-                live.bridge.origin.replacen("http", "ws", 1),
-                live.bridge.token
+                bridge.origin.replacen("http", "ws", 1),
+                bridge.token
             )
         };
         let unreachable =
@@ -256,6 +342,39 @@ impl Host {
         self.emit();
         Ok(())
     }
+}
+
+/// A paired desk as the window reads it. Without a bridge it has no
+/// endpoint yet: the window shows it unreachable, with the reason, and
+/// dials nothing until the list names one.
+fn remote_entry(desk: &PairedDesk, live: Option<&Live>) -> Value {
+    let bridge = live.and_then(|live| live.bridge.as_ref());
+    let mut entry = json!({
+        "id": desk.desk_id,
+        "name": desk.name,
+        "kind": "remote",
+        "origin": bridge.map(|bridge| bridge.origin.as_str()).unwrap_or(""),
+        "token": bridge.map(|bridge| bridge.token.as_str()).unwrap_or(""),
+        "state": live.map_or(State::Connecting, |live| live.state),
+    });
+    if let Some(error) = live.and_then(|live| live.error.as_deref()) {
+        entry["error"] = json!(error);
+    }
+    entry
+}
+
+/// Writes a file only this user can read. The registry holds no secret,
+/// but it does say which private servers this person reaches.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
 }
 
 /// What the server lists this computer as among its devices.
@@ -458,6 +577,56 @@ pub async fn desk_forget(host: tauri::State<'_, Arc<Host>>, desk_id: String) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn desk() -> PairedDesk {
+        PairedDesk {
+            desk_id: "d1".into(),
+            name: "Studio".into(),
+            url: "https://studio.example:9443".into(),
+            desk_key: "k".into(),
+        }
+    }
+
+    #[test]
+    fn a_desk_whose_bridge_would_not_start_is_listed_unreachable_with_why() {
+        let failed = Live {
+            bridge: None,
+            state: State::Unreachable,
+            error: Some("The keychain is locked.".into()),
+            generation: 3,
+        };
+        let entry = remote_entry(&desk(), Some(&failed));
+        assert_eq!(entry["id"], "d1");
+        assert_eq!(entry["state"], "unreachable");
+        assert_eq!(entry["error"], "The keychain is locked.");
+        // No endpoint, so the window dials nothing until the retry lands.
+        assert_eq!(entry["origin"], "");
+        assert_eq!(entry["token"], "");
+    }
+
+    #[test]
+    fn retries_back_off_to_thirty_seconds() {
+        assert_eq!(retry_after(0), Duration::from_millis(250));
+        assert_eq!(retry_after(1), Duration::from_millis(500));
+        assert_eq!(retry_after(6), Duration::from_millis(16_000));
+        assert_eq!(retry_after(7), Duration::from_secs(30));
+        assert_eq!(retry_after(40), Duration::from_secs(30));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_registry_is_readable_by_this_user_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("desks.json");
+        std::fs::write(&path, b"[]").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let staged = dir.path().join("desks.json.1");
+        write_private(&staged, b"[]").unwrap();
+        std::fs::rename(&staged, &path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 
     #[test]
     fn a_link_unwraps_to_its_payload_and_anything_else_says_what_to_do() {

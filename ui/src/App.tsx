@@ -662,7 +662,7 @@ function DeskBand({ onAddDesk }: { onAddDesk(): void }) {
 					? `${desk.name} no longer recognises this computer. Pair it again to reach it.`
 					: desk.state === "connecting"
 						? `Connecting to ${desk.name}…`
-						: `Can't reach ${desk.name}. Hotline keeps trying; what you see is what it last said.`}
+						: `Can't reach ${desk.name}${desk.error ? ` (${desk.error})` : ""}. Hotline keeps trying; what you see is what it last said.`}
 			</span>
 			{revoked && (
 				<button type="button" className="control btn btn-sm" onClick={onAddDesk}>

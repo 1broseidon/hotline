@@ -75,7 +75,7 @@ function detail(desk: Desk): string {
 		case "connecting":
 			return "Connecting…";
 		case "unreachable":
-			return "Can't reach it right now";
+			return desk.error ? `Can't reach it: ${desk.error}` : "Can't reach it right now";
 		case "revoked":
 			return "No longer recognises this computer";
 		default:

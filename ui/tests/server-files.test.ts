@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { nameOf, parentOf } = await import("../src/serverFiles");
+const { childOf, nameOf, parentOf } = await import("../src/serverFiles");
 const { toastTarget } = await import("../src/notify");
 const { deskKey } = await import("../src/desks");
 
@@ -10,6 +10,20 @@ describe("server paths", () => {
 		expect(parentOf("/srv/work/")).toBe("/srv");
 		expect(parentOf("/srv")).toBe("/");
 		expect(parentOf("/")).toBe("/");
+	});
+
+	test("a Windows server's paths climb to their drive and stop there", () => {
+		expect(parentOf("C:\\Users\\Agent\\Project")).toBe("C:\\Users\\Agent");
+		expect(parentOf("C:\\Users\\Agent\\")).toBe("C:\\Users");
+		expect(parentOf("C:\\Users")).toBe("C:\\");
+		expect(parentOf("C:\\")).toBe("C:\\");
+	});
+
+	test("a new folder is joined with its parent's slash", () => {
+		expect(childOf("/srv/work/", "new")).toBe("/srv/work/new");
+		expect(childOf("/", "new")).toBe("/new");
+		expect(childOf("C:\\Users\\Agent", "new")).toBe("C:\\Users\\Agent\\new");
+		expect(childOf("C:\\", "new")).toBe("C:\\new");
 	});
 
 	test("a name is the last part, on either kind of slash", () => {

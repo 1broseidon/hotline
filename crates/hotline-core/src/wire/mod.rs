@@ -566,6 +566,8 @@ impl Seat {
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
                     | Command::FileRead { .. }
+                    // Older lines of a tape the phone already reads.
+                    | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
                 )
@@ -1150,6 +1152,20 @@ async fn answer(
                     ) if seat == Seat::Phone && !effort_config(room, persona_id, config_id) => {
                         Err("Change that on your desktop.".to_string())
                     }
+                    // A page of older lines is cut for the phone the way its
+                    // snapshot is: long text shortened, frames made phone-sized.
+                    (Command::TapePage { .. }, Some(_)) if seat == Seat::Phone => {
+                        commands::run(command, log, room).await.map(|mut page| {
+                            if let Some(events) =
+                                page.get_mut("events").and_then(Value::as_array_mut)
+                            {
+                                for event in events.iter_mut() {
+                                    *event = phone_event(std::mem::take(event));
+                                }
+                            }
+                            page
+                        })
+                    }
                     // The viewer is a loopback URL with the computer's bearer
                     // in its fragment; it never leaves this machine.
                     (Command::ComputerStatus { .. }, Some(_)) => {
@@ -1471,9 +1487,25 @@ fn phone_event(mut event: Value) -> Value {
     }
     event
 }
+/// How many of a tape's lines the window's subscription opens with. A busy
+/// teammate's tape runs to thousands of lines and megabytes; the window draws
+/// the last of them and asks for older ones with `tape.page` as you scroll.
+const DESK_TAPE_WINDOW: usize = 400;
+/// A page of older lines, and the most one may ask for.
+const TAPE_PAGE: usize = 400;
+const TAPE_PAGE_MAX: usize = 2_000;
+/// Context kept above a line a page was asked to reach.
+const THROUGH_CONTEXT: usize = 40;
+
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
     let events = public_snapshot(log, stream);
     if seat != Seat::Phone {
+        // The desk and its owner device open a tape on its last lines and
+        // page back with `tape.page`; a whole tape is too much to draw.
+        if matches!(stream, StreamId::Tape(_)) && events.len() > DESK_TAPE_WINDOW {
+            let skip = events.len() - DESK_TAPE_WINDOW;
+            return events.into_iter().skip(skip).collect();
+        }
         return events;
     }
     let mut used = 0;
@@ -1488,6 +1520,41 @@ fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
     }
     recent.reverse();
     recent
+}
+
+/// The lines of a teammate's tape before `before`, oldest first: a page of
+/// `limit`, or back to a little above `through` when that line is further up.
+/// A `before` the tape does not hold answers an empty page, not an error: the
+/// line may have been rewritten out, and the window then simply stops.
+pub(super) fn tape_page(
+    log: &Log,
+    persona_id: &str,
+    before: &str,
+    limit: Option<i64>,
+    through: Option<&str>,
+) -> Value {
+    let events = log.load(&StreamId::Tape(persona_id.to_string()));
+    let id_of = |event: &Value| event.get("id").and_then(Value::as_str).map(str::to_string);
+    let Some(end) = events
+        .iter()
+        .position(|event| id_of(event).as_deref() == Some(before))
+    else {
+        return json!({ "events": [], "more": false });
+    };
+    let limit = limit
+        .and_then(|limit| usize::try_from(limit).ok())
+        .unwrap_or(TAPE_PAGE)
+        .clamp(1, TAPE_PAGE_MAX);
+    let reach = through
+        .and_then(|through| {
+            events[..end]
+                .iter()
+                .position(|event| id_of(event).as_deref() == Some(through))
+        })
+        .map(|at| at.saturating_sub(THROUGH_CONTEXT));
+    let start = reach.unwrap_or_else(|| end.saturating_sub(limit));
+    let page: Vec<Value> = events[start..end].to_vec();
+    json!({ "events": page, "more": start > 0 })
 }
 
 async fn stream_events(

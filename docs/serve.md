@@ -77,8 +77,9 @@ again explicitly. An owner has the same commands and subscriptions as the
 local desk, including providers, grants and server paths. A companion keeps
 the limited phone command set. Existing grants without a role remain owners.
 
-The default command prints a pasteable link beside the QR. `hotline pair --json`
-prints one JSON payload to stdout; `hotline pair --link` prints only the link.
+The default command prints only the QR, never the link as text, so a casual
+copy of the terminal does not carry the secret. `hotline pair --json` prints
+one JSON payload to stdout; `hotline pair --link` prints only the link.
 Both wait for a claim, cancellation or expiry, so an SSH caller must keep the
 process alive after reading the first line. Completion and errors use stderr.
 The link is `hotline://pair?p=<base64url(JSON)>`, without base64 padding. Its

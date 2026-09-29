@@ -18,8 +18,9 @@ const lastState = new Map<string, SessionState>();
 
 /**
  * A roster fold just arrived. Notify only on thinking → ready or thinking →
- * error, and only when this window is not focused. A snapshot, a teammate
- * that was never thinking, and a window you are looking at are all silent.
+ * error, and only when you are not looking at it: the window is unfocused,
+ * or the desk is not the one on screen. A snapshot, a teammate that was never
+ * thinking, and a desk you are looking at are all silent.
  * A teammate that blocked also bounces the dock once: a finished turn can
  * wait for the toast to be read, a stuck one is asking for a hand.
  *
@@ -37,7 +38,9 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 		lastState.set(key, entry.session.state);
 		if (previous !== "thinking") continue;
 		if (entry.session.state !== "ready" && entry.session.state !== "error") continue;
-		if (document.hasFocus()) continue;
+		// Focus means the desk on screen is being looked at; a desk off screen
+		// is not, however focused the window is.
+		if (desk.name === undefined && document.hasFocus()) continue;
 		// A turn that ended on the person's own line said nothing to them:
 		// a quiet schedule that found nothing stays quiet here too.
 		if (entry.session.state === "ready" && entry.preview?.from === "me") continue;

@@ -32,6 +32,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   a paired window need it. An existing computer keeps the release it runs
   until it is updated or removed.
 
+## [0.28.1] - 2026-09-28
+
+### Fixed
+
+- Switching to a teammate with a long history is immediate, and typing no
+  longer lags while teammates work. The desktop now opens a conversation on
+  its most recent messages, as the phone already did, and loads older ones as
+  you scroll up. A search result or quoted reply further back loads back to
+  it.
+
 ## [0.28.0] - 2026-09-28
 
 ### Added

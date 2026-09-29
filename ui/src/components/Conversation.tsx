@@ -84,7 +84,7 @@ export function Conversation({
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
-	const { events, streaming, loaded, pulling } = useTape(personaId);
+	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 	/* What was said, from the moment it was said. The core writes the line
 	 * only once a session is up, and starting one is a second or two in which
@@ -375,6 +375,8 @@ export function Conversation({
 					focus={focus}
 					onReply={setReplying}
 					onReact={react}
+					more={olderOnDesk}
+					onEarlier={earlier}
 					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={openThreadOf}

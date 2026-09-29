@@ -83,10 +83,24 @@ export function showPath(path: string): void {
 	set({ mode: "show", start: path, title: "On the server", highlight: path, resolve: () => {} });
 }
 
+/** A Windows server's drive root, `C:\`, when the path starts on one. */
+function driveOf(path: string): string | undefined {
+	return /^[A-Za-z]:[\\/]/.exec(path)?.[0];
+}
+
+/** One folder up, on either kind of slash; a root is its own parent. */
 export function parentOf(path: string): string {
-	const trimmed = path.replace(/\/+$/, "");
-	const slash = trimmed.lastIndexOf("/");
+	const drive = driveOf(path);
+	const trimmed = path.replace(/[/\\]+$/, "");
+	const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+	if (drive !== undefined) return slash < drive.length ? drive : trimmed.slice(0, slash);
 	return slash <= 0 ? ROOT : trimmed.slice(0, slash);
+}
+
+/** A name inside a folder, joined with the slash that folder is written in. */
+export function childOf(folder: string, name: string): string {
+	const slash = driveOf(folder) !== undefined || folder.startsWith("\\\\") ? "\\" : "/";
+	return `${folder.replace(/[/\\]+$/, "")}${slash}${name}`;
 }
 
 export function nameOf(path: string): string {

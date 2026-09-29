@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PlusIcon } from "../icons";
-import { type Browsing, downloadServerFile, endBrowsing, parentOf, useBrowsing } from "../serverFiles";
+import { type Browsing, childOf, downloadServerFile, endBrowsing, parentOf, useBrowsing } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { Refusal } from "../ui/Refusal";
 import { wire } from "../wire";
@@ -85,7 +85,7 @@ function Browser({ browsing }: { browsing: Browsing }) {
 
 	const makeFolder = async () => {
 		if (listing === null || naming === null || naming.trim() === "") return;
-		const path = `${listing.path.replace(/\/+$/, "")}/${naming.trim()}`;
+		const path = childOf(listing.path, naming.trim());
 		try {
 			await wire.command("files.mkdir", { path });
 			setNaming(null);

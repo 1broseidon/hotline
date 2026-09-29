@@ -2443,6 +2443,17 @@ pub enum Command {
     },
     #[serde(rename = "search.all")]
     SearchAll { query: String, limit: Option<i64> },
+    /// Older lines of a teammate's tape than the window its subscription
+    /// opened with: the `limit` lines before `before`, or, with `through`,
+    /// every line from a little before `through` up to `before`, so a search
+    /// hit or a quoted reply can be scrolled to. Answers `{ events, more }`.
+    #[serde(rename = "tape.page")]
+    TapePage {
+        persona_id: String,
+        before: String,
+        limit: Option<i64>,
+        through: Option<String>,
+    },
     #[serde(rename = "chapter.list")]
     ChapterList { persona_id: String },
     /// Copies an existing Hotline data directory into this room. The source is

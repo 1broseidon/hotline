@@ -100,7 +100,9 @@ fn print_invitation(invitation: &Value, role: &str) -> Result<(), String> {
             .quiet_zone(true)
             .build()
     );
-    println!("{}", field(invitation, "link")?);
+    // The link is not printed beside it: scrollback is still sensitive, but
+    // a casual copy never carries the secret. `--link` asks for it by name.
+    println!("Pairing a desktop instead? Run `hotline pair --link` and paste the link.");
     Ok(())
 }
 

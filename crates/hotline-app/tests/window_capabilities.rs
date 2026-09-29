@@ -48,7 +48,9 @@ fn handler_commands(macos: bool) -> BTreeSet<String> {
     } else {
         "#[cfg(not(target_os = \"macos\"))]\n    let builder = builder.invoke_handler("
     };
-    let (_, branch) = LIB_SOURCE.split_once(cfg).expect("platform invoke handler");
+    // Git's Windows checkout can use CRLF; the command inventory is the same.
+    let source = LIB_SOURCE.replace("\r\n", "\n");
+    let (_, branch) = source.split_once(cfg).expect("platform invoke handler");
     command_set(
         list_after(branch, "tauri::generate_handler![")
             .split(',')

@@ -42,8 +42,8 @@ impl Uploads {
                 }
                 let uploads = root.join("uploads");
                 std::fs::create_dir_all(&uploads).map_err(error)?;
-                let staging =
-                    tempfile::tempdir_in(uploads.canonicalize().map_err(error)?).map_err(error)?;
+                let staging = tempfile::tempdir_in(dunce::canonicalize(&uploads).map_err(error)?)
+                    .map_err(error)?;
                 (staging.path().join(name), Some(staging))
             }
         };
@@ -155,7 +155,8 @@ fn error(error: impl std::fmt::Display) -> String {
 }
 
 pub(super) fn browse(path: &str) -> Result<Value, String> {
-    let path = absolute(path)?.canonicalize().map_err(error)?;
+    // dunce: a Windows path as people write it, not the \\?\ form, when that is safe.
+    let path = dunce::canonicalize(absolute(path)?).map_err(error)?;
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(&path).map_err(error)?.take(10001) {
         if entries.len() == 10000 {

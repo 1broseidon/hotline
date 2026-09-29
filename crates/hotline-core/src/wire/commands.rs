@@ -319,6 +319,21 @@ pub(crate) async fn run(
             limit,
         } => search::search(log.root(), &persona_id, &query, limit),
         Command::SearchAll { query, limit } => search::search_all(log.root(), &query, limit),
+        Command::TapePage {
+            persona_id,
+            before,
+            limit,
+            through,
+        } => {
+            living(log, &persona_id)?;
+            Ok(super::tape_page(
+                log,
+                &persona_id,
+                &before,
+                limit,
+                through.as_deref(),
+            ))
+        }
         Command::FileRead {
             persona_id,
             event_id,

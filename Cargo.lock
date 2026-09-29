@@ -3981,6 +3981,7 @@ dependencies = [
 name = "hotline-app"
 version = "0.28.0"
 dependencies = [
+ "base64 0.22.1",
  "block2",
  "hotline-core",
  "objc2",

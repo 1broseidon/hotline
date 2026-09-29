@@ -1,5 +1,5 @@
 import { ErrorCard } from "./ErrorCard";
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type RefObject } from "react";
 import type {
 	Attachment,
 	DeliveryCause,
@@ -31,6 +31,8 @@ import { SentFile } from "./SentFile";
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
+/** How near the top a scroll asks for the page above. */
+const EARLIER_SLACK = 600;
 /** Slack under the latest line that still counts as following the conversation. */
 const PIN_SLACK = 80;
 
@@ -86,6 +88,8 @@ export function Transcript({
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
+	more = false,
+	onEarlier,
 }: {
 	personaId: string;
 	name: string;
@@ -113,6 +117,10 @@ export function Transcript({
 	onOpenWork?(blockId: string | null): void;
 	/** What the work pane is showing, so its caption reads as open. */
 	workOpen?: string | null | undefined;
+	/** Older lines are on the desk, above what is loaded. */
+	more?: boolean;
+	/** Loads them: a page, or back as far as one line. */
+	onEarlier?(through?: string): Promise<void>;
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	/* Following the conversation is the default and stays true until you
@@ -151,6 +159,38 @@ export function Transcript({
 
 	useScrollToEvent(scroller, pinned, landing, events);
 
+	/* The window opens on the tape's last lines. Nearing the top loads the
+	 * page above, and the rows you were reading stay where they were: the
+	 * column grows upward by exactly what arrived. */
+	const earlierRef = useRef<{ more: boolean; load?: ((through?: string) => Promise<void>) | undefined }>({ more });
+	earlierRef.current = { more, load: onEarlier };
+	const anchor = useRef<{ height: number; top: number; first: string | undefined } | null>(null);
+	const loadEarlier = useCallback((through?: string) => {
+		const { more, load } = earlierRef.current;
+		const el = scroller.current;
+		if (!more || load === undefined || !el || anchor.current !== null) return;
+		anchor.current = { height: el.scrollHeight, top: el.scrollTop, first: events[0]?.id };
+		void load(through).finally(() => {
+			// Nothing arrived: let the next scroll ask again.
+			if (anchor.current !== null && anchor.current.first === events[0]?.id) anchor.current = null;
+		});
+	}, [events]);
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		const was = anchor.current;
+		if (!el || was === null || events[0]?.id === was.first) return;
+		anchor.current = null;
+		if (!pinned.current) el.scrollTop = was.top + (el.scrollHeight - was.height);
+	}, [events]);
+	// A search hit or a quoted reply above the window: load back to it, and
+	// the jump lands once it is there.
+	useEffect(() => {
+		if (landing === null || !more || events.some((one) => one.id === landing.eventId)) return;
+		loadEarlier(landing.eventId);
+	}, [landing, more, events, loadEarlier]);
+	const loadEarlierRef = useRef(loadEarlier);
+	loadEarlierRef.current = loadEarlier;
+
 	useEffect(() => {
 		const el = scroller.current;
 		if (!el) return;
@@ -170,6 +210,7 @@ export function Transcript({
 			seen = { height: el.scrollHeight, view: el.clientHeight };
 			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_SLACK;
 			setFollowing(pinned.current);
+			if (el.scrollTop < EARLIER_SLACK) loadEarlierRef.current();
 		};
 		const pin = () => {
 			seen = { height: el.scrollHeight, view: el.clientHeight };
@@ -241,6 +282,13 @@ export function Transcript({
 			<div
 				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 transition-[padding] duration-200 ${activity !== null ? "pb-14" : "pb-6"}`}
 			>
+				{/* Scrolling up loads these on its own; the key is for a window
+				    whose loaded lines are too short to scroll. */}
+				{more && onEarlier !== undefined && (
+					<button type="button" className="control btn btn-sm mb-3 self-center" onClick={() => loadEarlier()}>
+						Earlier messages
+					</button>
+				)}
 				{blocks.map((block, index) => {
 					const previous = blocks[index - 1];
 					const stamp =

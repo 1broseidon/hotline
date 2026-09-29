@@ -146,6 +146,8 @@ type Results = {
 	"teammates.exchange_stop": null;
 	"human.answer": null;
 	"search.thread": ThreadSearchResult;
+	/** Older lines of a tape than its window, oldest first. */
+	"tape.page": { events: TranscriptEvent[]; more: boolean };
 	"search.all": GlobalSearchResult;
 	/** One part of a file a teammate sent, by its message. */
 	"file.read": FileChunk;

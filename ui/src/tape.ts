@@ -32,7 +32,21 @@ export type Streaming = {
 /** A computer download under way: layers landed of layers counted, 0 of 0 until the runtime says. */
 export type Pulling = { done: number; total: number };
 
-type TapeState = { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean; pulling: Pulling | null };
+type TapeState = {
+	events: TranscriptEvent[];
+	streaming: Streaming[];
+	loaded: boolean;
+	pulling: Pulling | null;
+	/** Older lines are on the desk that this window has not loaded yet. */
+	more: boolean;
+};
+
+/**
+ * The desk opens a tape on its last lines (400 for the window, 200 for a
+ * phone seat), not the whole of it: a busy teammate's tape runs to megabytes.
+ * A snapshot this long may have more above it; a shorter one is the whole tape.
+ */
+const WINDOWED = 200;
 
 /** How long a tape nobody is showing stays subscribed, so coming back to it draws at once. */
 const LINGER_MS = 60_000;
@@ -54,7 +68,11 @@ const KEEP = 8;
  * reply costs one render per frame, not one per token.
  */
 class TapeStore {
-	state: TapeState = { events: [], streaming: [], loaded: false, pulling: null };
+	state: TapeState = { events: [], streaming: [], loaded: false, pulling: null, more: false };
+	/** Lines loaded above the window by `earlier`, oldest first, kept across a reconnect's snapshot. */
+	private older: TranscriptEvent[] = [];
+	private olderMore = false;
+	private paging: Promise<void> | null = null;
 	private readonly listeners = new Set<() => void>();
 	private readers = 0;
 	private unsub: (() => void) | null = null;
@@ -111,7 +129,11 @@ class TapeStore {
 				// socket was down said so on a frame nobody heard. Still going,
 				// its next report draws the ring again. What was streaming is
 				// either in the snapshot now or will stream again.
-				this.set({ events: fold(items), streaming: [], pulling: null, loaded: true });
+				const window = fold(items);
+				const inWindow = new Set(window.map((one) => one.id));
+				const older = this.older.filter((one) => !inWindow.has(one.id));
+				const more = older.length > 0 ? this.olderMore : window.length >= WINDOWED;
+				this.set({ events: [...older, ...window], streaming: [], pulling: null, loaded: true, more });
 			},
 			event: (item) => {
 				// Deltas queued before this line belong before it.
@@ -119,7 +141,7 @@ class TapeStore {
 				// The durable line has landed, so the bubble Hotline was drawing
 				// for it is no longer the best thing it has; what it was
 				// drawing after that bubble stays until its own line lands.
-				this.set({ events: merge(this.state.events, item), streaming: settle(this.state.streaming, item) });
+				this.set({ events: mergeInWindow(this.state.events, item, this.state.more), streaming: settle(this.state.streaming, item) });
 			},
 			ephemeral: (delta) => {
 				// A download is drawn on the computer's button, not in the talk.
@@ -132,6 +154,32 @@ class TapeStore {
 			},
 		});
 	}
+
+	/**
+	 * Loads the lines above the window: one page, or, with `through`, back as
+	 * far as that line (a search hit, a quoted reply). One request at a time.
+	 */
+	earlier = (through?: string): Promise<void> => {
+		if (this.paging !== null) return this.paging;
+		const first = this.state.events[0];
+		if (!this.state.more || first === undefined) return Promise.resolve();
+		this.paging = this.wire
+			.command("tape.page", { personaId: this.personaId, before: first.id, ...(through !== undefined ? { through } : {}) })
+			.then(({ events, more }) => {
+				const known = new Set(this.state.events.map((one) => one.id));
+				const page = fold(events).filter((one) => !known.has(one.id));
+				this.older = [...page, ...this.older];
+				this.olderMore = more;
+				this.set({ events: [...page, ...this.state.events], more });
+			})
+			.catch(() => {
+				// Nothing is lost: the window keeps what it has and can ask again.
+			})
+			.finally(() => {
+				this.paging = null;
+			});
+		return this.paging;
+	};
 
 	private close() {
 		this.unsub?.();
@@ -182,7 +230,7 @@ function forget() {
 	}
 }
 
-export function useTape(personaId: string): TapeState {
+export function useTape(personaId: string): TapeState & { earlier(through?: string): Promise<void> } {
 	// The active desk's: switching desks remounts the conversation, and the
 	// store it comes back to is the other desk's.
 	const deskId = activeDeskId() ?? "";
@@ -191,7 +239,8 @@ export function useTape(personaId: string): TapeState {
 		store.acquire();
 		return () => store.release();
 	}, [store]);
-	return useSyncExternalStore(store.subscribe, store.snapshot);
+	const state = useSyncExternalStore(store.subscribe, store.snapshot);
+	return useMemo(() => ({ ...state, earlier: store.earlier }), [state, store]);
 }
 
 /**
@@ -266,6 +315,17 @@ function fold(items: TranscriptEvent[]): TranscriptEvent[] {
 	const byId = new Map<string, TranscriptEvent>();
 	for (const item of items) byId.set(item.id, item);
 	return [...byId.values()];
+}
+
+/**
+ * `merge`, for a window that may not hold the whole tape: a rewrite of a line
+ * above the window (a chapter closing, an old card answered) is not new, and
+ * does not belong at the bottom. It is left for when that line is loaded.
+ */
+function mergeInWindow(known: TranscriptEvent[], item: TranscriptEvent, more: boolean): TranscriptEvent[] {
+	const first = known[0];
+	if (more && first !== undefined && item.ts < first.ts && !known.some((one) => one.id === item.id)) return known;
+	return merge(known, item);
 }
 
 function merge(known: TranscriptEvent[], item: TranscriptEvent): TranscriptEvent[] {

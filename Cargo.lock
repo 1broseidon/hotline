@@ -3979,7 +3979,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-app"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -4006,7 +4006,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-cli"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4027,7 +4027,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-core"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "agent-client-protocol",
  "async-trait",

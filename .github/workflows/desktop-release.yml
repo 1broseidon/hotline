@@ -121,9 +121,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       # Linux and Windows ran these on the pull request (ci.yml), Windows'
-      # Credential Manager round trip included. macOS has no pull request
-      # check, so the Apple silicon build runs them once for both Macs,
-      # rather than every build compiling everything twice.
+      # Credential Manager round trip included. The pull request runs the
+      # macOS tests too; the Apple silicon build runs them once more for both
+      # Macs, with the keychain round trip, rather than every build compiling
+      # everything twice.
       - name: Check the core and window on macOS
         if: runner.os == 'macOS' && !matrix.cross
         shell: bash

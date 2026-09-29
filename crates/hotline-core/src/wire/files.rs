@@ -272,7 +272,9 @@ mod tests {
         assert!(mkdir(child.to_str().unwrap()).is_err());
     }
 
-    #[cfg(unix)]
+    // APFS refuses to create a name that is not UTF-8 at all, so on macOS
+    // there is no such file to list.
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn a_non_utf8_filename_is_an_error_instead_of_a_wire_panic() {
         use std::os::unix::ffi::OsStringExt;

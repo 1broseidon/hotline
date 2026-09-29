@@ -38,6 +38,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   carries the pairing secret. `hotline pair --link` prints the link to paste
   into a desktop.
 
+### Fixed
+
+- A long piece of work stays one chapter. When a teammate's model filled its
+  context mid-turn, the chapter closed and another opened, over and over
+  during a long handoff, and each close cut the handoff's collaboration
+  short. The teammate now carries on inside the chapter it was in.
+- The starter suggestions no longer appear under a conversation that has a
+  history, such as a teammate whose recent work all came through handoffs.
+
 ### Security
 
 - A teammate's computer viewer on a server desk never holds the desk's owner

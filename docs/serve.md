@@ -190,11 +190,14 @@ Owner file commands use absolute **server** paths:
 | `files.browse` | `path` | canonical `path`, `parent`, `entries` with name/path/directory/size |
 | `files.mkdir` | new directory `path` | created `path` |
 | `files.download` | `path`, `offset` | name/mimeType/size/offset/base64 `data`/nullable `next`; at most 512 KiB |
-| `files.upload_start` | new destination `path` | `uploadId`, `offset` |
+| `files.upload_start` | exactly one of new destination `path` or plain filename `name` | `uploadId`, `offset`, destination `path` |
 | `files.upload_chunk` | `uploadId`, `offset`, base64 `data` | next `offset`; at most 512 KiB |
 | `files.upload_finish` | `uploadId` | destination `path`, `size` |
 | `files.upload_cancel` | `uploadId` | no result |
 
+`name` stages below `<desk-data>/uploads/<random>/<name>`; separators, traversal
+and drive prefixes are refused. Finished staged files stay there for attachments.
+Cancel or disconnect removes an unfinished file and its private staging directory.
 Upload calls must stay on the socket that started them. Up to eight uploads can
 be staged on it; cancellation or disconnect removes unfinished files. Finish
 publishes a complete file without replacing an existing destination. Browse
@@ -212,3 +215,35 @@ teammate's computer through the existing import path. Values do not enter room
 or tape records. Source identity keeps laptop imports separate from server-local
 browser imports; the reply contains domain counts only. Transfers are bounded
 to 8 MiB and 10,000 cookies. Companions cannot use these operator commands.
+
+### Files in a remote computer viewer
+
+The sealed viewer socket accepts text frames `{type:"files", id, op, ...}`.
+Replies echo `id` with `{type:"files", id, ok:true, result}` or
+`{type:"files", id, ok:false, error}`. Paths belong to the teammate's computer,
+not the desk host. Both paired roles can use the viewer's computer files.
+
+| `op` | Fields | `result` |
+| --- | --- | --- |
+| `list` | `path` (empty means `/home/agent`) | `path`, `home`, `entries:[{name,is_dir,size}]` |
+| `download` | `path`, `offset` | `name`, `size`, `offset`, base64 `data`, nullable `next` |
+| `upload_start` | new destination `path` | `uploadId`, `offset:0` |
+| `upload_chunk` | `uploadId`, `offset`, base64 `data` | next `offset` |
+| `upload_finish` | `uploadId` | `path`, `size` |
+| `upload_cancel` | `uploadId` | `null` |
+
+Chunks hold at most 512 KiB decoded. Handles belong to one viewer connection;
+up to eight uploads and four unfinished downloads are retained. Cancel or
+connection closure removes unfinished desk-side upload spools. Downloads retain
+the upstream response between sequential chunks, since older computers have no
+byte-offset endpoint. File requests use a bounded queue separate from screen
+and control forwarding. A timeout invalidates unfinished transfers; restart them.
+
+The desk calls the computer's `/files` and `/files/download` with its bearer in
+an Authorization header. It never sends that bearer to the viewer. Uploads
+require `/files` to advertise `x-hotline-upload-create-only: 1`; finish sends
+`POST /files?path=...&create_only=true`. The computer must publish atomically
+without replacing any existing destination, answering 409 on collision. Older
+computers without this capability can list and download; uploads ask for an
+update instead of risking another file. A failed finish may have reached the
+computer, so check the destination before retrying.

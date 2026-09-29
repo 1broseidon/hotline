@@ -1,5 +1,6 @@
 //! Operator file access uses server paths. Companions never enter this module.
 //! Upload handles belong to one socket; dropping it removes unfinished files.
+use crate::contract::UploadDestination;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::{
@@ -16,13 +17,36 @@ struct Upload {
     file: tempfile::NamedTempFile,
     path: PathBuf,
     offset: u64,
+    staging: Option<tempfile::TempDir>,
 }
 impl Uploads {
-    pub(super) fn start(&mut self, path: &str) -> Result<Value, String> {
+    pub(super) fn start(
+        &mut self,
+        root: &Path,
+        destination: UploadDestination,
+    ) -> Result<Value, String> {
         if self.0.len() >= 8 {
             return Err("Finish or cancel an upload before starting another.".into());
         }
-        let path = absolute(path)?;
+        let (path, staging) = match destination {
+            UploadDestination::Path { path } => (absolute(&path)?, None),
+            UploadDestination::Name { name } => {
+                if name.is_empty()
+                    || name == "."
+                    || name == ".."
+                    || name
+                        .chars()
+                        .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+                {
+                    return Err("Choose a plain filename without separators or traversal.".into());
+                }
+                let uploads = root.join("uploads");
+                std::fs::create_dir_all(&uploads).map_err(error)?;
+                let staging = tempfile::tempdir_in(dunce::canonicalize(&uploads).map_err(error)?)
+                    .map_err(error)?;
+                (staging.path().join(name), Some(staging))
+            }
+        };
         if path.file_name().is_none() || path.try_exists().map_err(error)? {
             return Err(
                 "Choose a new destination file; uploads never replace existing files.".into(),
@@ -37,11 +61,12 @@ impl Uploads {
             id.clone(),
             Upload {
                 file,
-                path,
+                path: path.clone(),
                 offset: 0,
+                staging,
             },
         );
-        Ok(json!({"uploadId":id,"offset":0}))
+        Ok(json!({"uploadId":id,"offset":0,"path":path}))
     }
     pub(super) fn write(&mut self, id: &str, offset: u64, data: &str) -> Result<Value, String> {
         let upload = self
@@ -75,6 +100,9 @@ impl Uploads {
             .file
             .persist_noclobber(&upload.path)
             .map_err(|e| error(e.error))?;
+        if let Some(staging) = upload.staging {
+            let _ = staging.keep();
+        }
         Ok(json!({"path":upload.path,"size":upload.offset}))
     }
     pub(super) fn cancel(&mut self, id: &str) -> Result<Value, String> {
@@ -86,6 +114,7 @@ impl Uploads {
 }
 pub(super) async fn upload(
     command: crate::contract::Command,
+    root: PathBuf,
     uploads: std::sync::Arc<std::sync::Mutex<Uploads>>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> Result<Value, String> {
@@ -99,7 +128,7 @@ pub(super) async fn upload(
         }
         use crate::contract::Command;
         match command {
-            Command::FilesUploadStart { path } => uploads.start(&path),
+            Command::FilesUploadStart(destination) => uploads.start(&root, destination),
             Command::FilesUploadChunk {
                 upload_id,
                 offset,
@@ -126,7 +155,8 @@ fn error(error: impl std::fmt::Display) -> String {
 }
 
 pub(super) fn browse(path: &str) -> Result<Value, String> {
-    let path = absolute(path)?.canonicalize().map_err(error)?;
+    // dunce: a Windows path as people write it, not the \\?\ form, when that is safe.
+    let path = dunce::canonicalize(absolute(path)?).map_err(error)?;
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(&path).map_err(error)?.take(10001) {
         if entries.len() == 10000 {
@@ -218,7 +248,14 @@ mod tests {
         assert!(download(source.to_str().unwrap(), (bytes.len() + 1) as u64).is_err());
         let destination = root.path().join("destination");
         let mut uploads = Uploads::default();
-        let started = uploads.start(destination.to_str().unwrap()).unwrap();
+        let started = uploads
+            .start(
+                root.path(),
+                UploadDestination::Path {
+                    path: destination.to_str().unwrap().into(),
+                },
+            )
+            .unwrap();
         let id = started["uploadId"].as_str().unwrap();
         assert!(uploads.write(id, 0, &STANDARD.encode(&bytes)).is_err());
         uploads

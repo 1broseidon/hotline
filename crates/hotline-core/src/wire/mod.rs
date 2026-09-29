@@ -1019,13 +1019,19 @@ async fn answer(
                 );
                 let result = match (&command, phone) {
                     (
-                        Command::FilesUploadStart { .. }
+                        Command::FilesUploadStart(_)
                         | Command::FilesUploadChunk { .. }
                         | Command::FilesUploadFinish { .. }
                         | Command::FilesUploadCancel { .. },
                         _,
                     ) => {
-                        files::upload(command, sender.uploads.clone(), sender.cancel.clone()).await
+                        files::upload(
+                            command,
+                            log.root().to_path_buf(),
+                            sender.uploads.clone(),
+                            sender.cancel.clone(),
+                        )
+                        .await
                     }
                     (
                         Command::RemotePairing {

@@ -8,6 +8,30 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app can be the owner's window onto a desk on a server. Add a
+  server from the rail's menu or Settings → Desks by pasting the link
+  `hotline pair --link` prints there, or by pairing over SSH, which runs
+  `hotline pair --json` through your own `ssh`. The window holds this
+  computer's desk and any paired ones side by side, with a switcher in the
+  rail; each keeps its own teammates, read marks and conversations.
+- On a desk on a server, what you do on this computer's desk works the
+  same: folder pickers and "reveal" browse the server's disk, sent files
+  open and save from it, attachments are carried up to it, cookies come
+  from this computer's browsers, and a teammate's computer opens in the
+  window's own viewer, with a Files panel for its home. Desks not on
+  screen still toast and count unread.
+- Settings → Desks lists desks, their state, and forgets one. A desk that
+  no longer recognises this computer says so, with Pair again.
+
+### Changed
+
+- New computers are created on Hotline Computer 0.10.3 or newer, whose
+  uploads never replace an existing file; files sent into a computer from
+  a paired window need it. An existing computer keeps the release it runs
+  until it is updated or removed.
+
 ## [0.28.1] - 2026-09-28
 
 ### Fixed

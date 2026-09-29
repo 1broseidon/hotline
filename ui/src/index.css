@@ -1916,6 +1916,55 @@
 		}
 	}
 
+	/* ------------------------------------------------------- server files
+	 * The window's own view of a server's disk (ServerFiles.tsx): a card over
+	 * a dimmed window, since what it answers is what the window waits on. */
+	.server-files-scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		display: grid;
+		place-items: center;
+		background: color-mix(in oklab, black 35%, transparent);
+	}
+	.server-files {
+		display: flex;
+		width: min(560px, calc(100% - 32px));
+		height: min(520px, calc(100% - 64px));
+		flex-direction: column;
+		border-radius: var(--radius-card);
+		background: var(--pop);
+		outline: none;
+		box-shadow:
+			var(--top-light),
+			var(--shadow-float);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.server-files-list {
+		min-height: 0;
+		flex: 1;
+		overflow-y: auto;
+		margin: 0 12px;
+		border-radius: var(--radius-control);
+		background: var(--well);
+	}
+	.server-files-row {
+		display: flex;
+		width: 100%;
+		min-height: 32px;
+		align-items: center;
+		gap: 8px;
+		/* Clear of the overlay scrollbar, which takes clicks at the edge on Linux. */
+		padding: 2px 18px 2px 10px;
+		text-align: left;
+	}
+	button.server-files-row:hover {
+		background: var(--pressed);
+	}
+	.server-files-row[aria-disabled="true"] {
+		color: var(--ink-3);
+	}
+
 	/* ------------------------------------------------------------- search
 	 * A panel under the band, at the right, over the conversation: what you
 	 * are looking for is already on screen behind it. Click-away and Escape

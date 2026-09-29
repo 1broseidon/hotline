@@ -533,16 +533,32 @@ async fn sealed_computer<S>(
     else {
         return;
     };
+    let Ok(mut files) =
+        super::viewer_files::Relay::start(port, token, remote.log.root().join("viewer-uploads"))
+    else {
+        return;
+    };
     loop {
         tokio::select! {
             input = phone.next() => match input {
                 Some(Ok(Message::Text(text))) => {
                     let Ok(input) = serde_json::from_str::<Input>(&text) else { break; };
-                    if input.r#type != "text" || input.data.len() > 65536 { break; }
+                    if input.r#type != "text" || input.data.len() > super::viewer_files::MAX_REQUEST { break; }
+                    if let Ok(request) = serde_json::from_str::<Value>(&input.data)
+                        && request["type"] == "files" {
+                        if let Some(reply) = files.enqueue(request)
+                            && phone.send(Message::text(json!({"type":"text","data":reply.to_string()}).to_string())).await.is_err() { break; }
+                        continue;
+                    }
+                    if input.data.len() > 65536 { break; }
                     if computer.send(Message::Text(input.data.into())).await.is_err() { break; }
                 }
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {},
                 _ => break,
+            },
+            reply = files.replies.recv() => {
+                let Some(reply) = reply else { break; };
+                if phone.send(Message::text(json!({"type":"text","data":reply.to_string()}).to_string())).await.is_err() { break; }
             },
             output = computer.next() => {
                 let value = match output {

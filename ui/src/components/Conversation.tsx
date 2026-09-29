@@ -3,7 +3,7 @@ import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "..
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
-import { revealPath } from "../native";
+import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { useTape } from "../tape";
 import { Avatar } from "../ui/Avatar";
@@ -109,13 +109,15 @@ export function Conversation({
 			const started = isDown(session.state)
 				? wire.command("session.start", { personaId }).then(() => setRefused(null))
 				: Promise.resolve();
+			// On a desk on a server, what is attached goes up first.
 			void started
-				.then(() =>
+				.then(() => carry(attachments))
+				.then((carried) =>
 					wire.command("session.prompt", {
 						personaId,
 						text,
 						...(answered ? { replyTo: answered.eventId } : {}),
-						...(attachments.length > 0 ? { attachments } : {}),
+						...(carried.length > 0 ? { attachments: carried } : {}),
 					}),
 				)
 				.then(
@@ -261,7 +263,7 @@ export function Conversation({
 			disabled: chapterBusy || resumeBlocked !== null,
 			onSelect: resumeChapter,
 		},
-		{ kind: "item", id: "reveal", text: "Reveal working directory", onSelect: () => void revealPath(persona.cwd) },
+		{ kind: "item", id: "reveal", text: onServer() ? "Show working directory on the server" : "Reveal working directory", onSelect: () => showPath(persona.cwd) },
 		{ kind: "rule" },
 		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
 		...(running ? [{ kind: "item", id: "stop", text: "Stop the session", onSelect: stop } as MenuEntry] : []),

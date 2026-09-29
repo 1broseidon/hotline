@@ -20,7 +20,8 @@ import { chordKeys } from "../chords";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, FolderIcon, InfoIcon, PlusIcon, RevealIcon, WarningIcon } from "../icons";
 import type { McpServer } from "../mcp";
 import { COMPUTER_STATUS_EVERY_MS } from "../computer";
-import { confirmRemove, pickDirectory, revealPath } from "../native";
+import { confirmRemove } from "../native";
+import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { firstLine, useRoomSettings } from "../room";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
@@ -145,7 +146,7 @@ export function Teammate({
 	};
 
 	const chooseCwd = async () => {
-		const dir = await pickDirectory();
+		const dir = await chooseFolder(persona.cwd);
 		if (dir !== null && dir !== persona.cwd) save({ cwd: dir });
 	};
 
@@ -225,9 +226,9 @@ export function Teammate({
 									<button
 										type="button"
 										className="control btn-icon btn-quiet h-6 w-6 text-ink-3"
-										title="Reveal in the file manager"
-										aria-label="Reveal in the file manager"
-										onClick={() => void revealPath(persona.cwd)}
+										title={revealLabel()}
+										aria-label={revealLabel()}
+										onClick={() => showPath(persona.cwd)}
 									>
 										<RevealIcon />
 									</button>

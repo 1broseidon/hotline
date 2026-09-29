@@ -794,7 +794,11 @@ made it so.
   Noise. Viewer handshakes bind the persona; bearer credentials stay server-side.
   Each wire socket owns its upload handles. Chunks enforce offsets and size;
   finish publishes without overwriting, and dropping the socket removes staged
-  files. Browse/download use server paths under the service account's authority.
+  files. A filename upload is confined to a fresh directory below the desk's
+  `uploads`; exactly one of filename or server path is accepted. Separators and
+  traversal are refused before creation. Cancel/disconnect removes the staging
+  directory; finish retains the complete file for attachments.
+  Browse/download use server paths under the service account's authority.
   Cookie push validates the selected domains and drops expired cookies before
   starting a computer, bypasses server browser discovery, and records only source
   metadata and site counts. These commands are not teammate tools.
@@ -810,3 +814,34 @@ made it so.
   Revocation/disconnect is not rollback of files already published or cookies
   already delivered. An abrupt server process crash may leave staged temporary
   files for the operator to remove.
+
+### Files over the sealed computer viewer
+
+- **Default and grant source:** paired owners and companions that can open a
+  teammate's viewer can operate on that computer's home, just as they can through
+  its desktop. These are viewer requests, not teammate tools or owner-only
+  desk-host `files.*` commands. No viewer-supplied host, port or bearer is used.
+- **Enforcement:** the existing sealed handshake binds the device, viewer purpose
+  and persona before opening the upstream connection. The desk intercepts only
+  the six file operations, resolves the running computer's port and bearer, and
+  uses authenticated HTTP with no redirects. The computer's file handlers enforce
+  home confinement. Responses omit upstream error bodies and credentials.
+  Revocation closes the viewer and aborts its file worker. Upload handles and
+  spools belong to that connection; chunks enforce offsets and decoded size.
+  Publishing requires the computer's advertised atomic create-only operation:
+  a listing preflight alone cannot prevent a competing writer from losing data.
+  Computers without that capability refuse uploads rather than overwrite.
+- **Tests:** `remote/tests/viewer_file_tests.rs`
+  `sealed_viewer_files_are_chunked_private_and_connection_scoped` enters the real
+  bridge and sealed handler against a disposable HTTP computer. It proves file
+  round trips, a single streamed download, bearer confinement, denied paths,
+  foreign handles, conflicting uploads and cleanup on cancel, close and revoke.
+  `sealed_viewer_files_reject_legacy_overwrite_and_keep_controls_responsive`
+  proves companion computer access, safe refusal of legacy uploads and responsive
+  viewer controls. Existing sealed viewer tests cover unpaired devices and
+  mismatched purpose/persona bindings.
+- **Residual risk:** the computer remains responsible for its filesystem boundary
+  and atomic publication. A paired viewer can fill available disk space; queues,
+  handles and chunk memory are bounded, total transferred bytes are not. Published
+  files and already-dispatched HTTP requests are not rolled back by disconnect or
+  revocation. Process crashes can leave desk-side temporary spools behind.

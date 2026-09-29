@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Wire } from "./wire";
@@ -91,6 +92,11 @@ export function wireFor(deskId: string): Wire {
 	return one;
 }
 
+/** A key of this window's, per desk. The local desk keeps the plain key it always had. */
+export function deskKey(key: string, deskId: string | null = active): string {
+	return deskId === null || deskId === LOCAL_DESK ? key : `${key}:${deskId}`;
+}
+
 export function allDesks(): Desk[] {
 	return desks;
 }
@@ -121,7 +127,9 @@ export function replaceDesks(next: Desk[]) {
 		}
 	}
 	desks = next;
-	active = pick(active);
+	// The person's choice, once it is back in the list (a reload that began
+	// with a stale one fell back to another desk meanwhile).
+	active = pick(saved.get() ?? active);
 	changed();
 }
 
@@ -137,4 +145,6 @@ export function useActiveDesk(): Desk | null {
  * forgotten, or a bridge's state moves. Outside the shell there is no event. */
 if (typeof window !== "undefined" && window.__hotlineDesk !== undefined) {
 	void listen<Desk[]>("hotline://desks", (event) => replaceDesks(event.payload)).catch(() => {});
+	// The list injected when the window was made is stale after a reload.
+	void invoke<Desk[]>("desk_list").then(replaceDesks, () => {});
 }

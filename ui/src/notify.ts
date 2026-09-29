@@ -13,34 +13,51 @@ import type { SessionState } from "./generated/contract";
 import { postToast, requestAttention } from "./native";
 import type { RosterEntry } from "./wire";
 
-/** Last state seen per teammate, so a transition can be recognised as one. */
+/** Last state seen per desk and teammate, so a transition can be recognised as one. */
 const lastState = new Map<string, SessionState>();
 
 /**
  * A roster fold just arrived. Notify only on thinking → ready or thinking →
- * error, and only when this window is not focused. A snapshot, a teammate
- * that was never thinking, and a window you are looking at are all silent.
+ * error, and only when you are not looking at it: the window is unfocused,
+ * or the desk is not the one on screen. A snapshot, a teammate that was never
+ * thinking, and a desk you are looking at are all silent.
  * A teammate that blocked also bounces the dock once: a finished turn can
  * wait for the toast to be read, a stuck one is asking for a hand.
+ *
+ * `desk` scopes it to one desk's roster. A desk that is not the one on
+ * screen (deskWatch.ts) names itself in the toast, and its click says
+ * which desk to open (`toastTarget`).
  */
-export function noticeRoster(entries: RosterEntry[]): void {
+export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: string } = { id: "" }): void {
 	const live = new Set<string>();
+	const scope = `${desk.id}\u0000`;
 	for (const entry of entries) {
-		live.add(entry.persona.id);
-		const previous = lastState.get(entry.persona.id);
-		lastState.set(entry.persona.id, entry.session.state);
+		const key = scope + entry.persona.id;
+		live.add(key);
+		const previous = lastState.get(key);
+		lastState.set(key, entry.session.state);
 		if (previous !== "thinking") continue;
 		if (entry.session.state !== "ready" && entry.session.state !== "error") continue;
-		if (document.hasFocus()) continue;
+		// Focus means the desk on screen is being looked at; a desk off screen
+		// is not, however focused the window is.
+		if (desk.name === undefined && document.hasFocus()) continue;
 		// A turn that ended on the person's own line said nothing to them:
 		// a quiet schedule that found nothing stays quiet here too.
 		if (entry.session.state === "ready" && entry.preview?.from === "me") continue;
-		void postToast(entry.persona.id, entry.persona.name, lastLine(entry));
+		const title = desk.name === undefined ? entry.persona.name : `${entry.persona.name} · ${desk.name}`;
+		const target = desk.name === undefined ? entry.persona.id : `${desk.id}/${entry.persona.id}`;
+		void postToast(target, title, lastLine(entry));
 		if (entry.session.state === "error") void requestAttention();
 	}
-	for (const id of lastState.keys()) {
-		if (!live.has(id)) lastState.delete(id);
+	for (const key of lastState.keys()) {
+		if (key.startsWith(scope) && !live.has(key)) lastState.delete(key);
 	}
+}
+
+/** Which desk and teammate a clicked toast is about; no desk means the one on screen. */
+export function toastTarget(payload: string): { deskId: string | null; personaId: string } {
+	const slash = payload.lastIndexOf("/");
+	return slash === -1 ? { deskId: null, personaId: payload } : { deskId: payload.slice(0, slash), personaId: payload.slice(slash + 1) };
 }
 
 /** The chrome names who is open, so the task bar is the rail's selected row. */

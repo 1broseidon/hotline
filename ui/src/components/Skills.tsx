@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SkillEntry } from "../generated/contract";
 import { ChevronRightIcon, PlusIcon } from "../icons";
-import { pickDirectory, revealPath } from "../native";
+import { chooseFolder, showPath } from "../serverFiles";
 import { useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Refusal } from "../ui/Refusal";
@@ -71,7 +71,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 	};
 
 	const add = async () => {
-		const path = await pickDirectory();
+		const path = await chooseFolder(undefined, "Choose a skill folder on the server");
 		if (path === null) return;
 		await run(async () => {
 			await wire.command("skills.add", { path });
@@ -87,7 +87,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 			await wire.command("skills.offer", { name, offered });
 		});
 	const changeFolder = async () => {
-		const path = await pickDirectory();
+		const path = await chooseFolder(undefined, "Choose the skills folder on the server");
 		if (path === null) return;
 		await run(async () => {
 			await wire.command("settings.update", { patch: { skillsHome: path } });
@@ -296,7 +296,7 @@ function SkillPage({
 									</span>
 								</span>
 								{onDisk && (
-									<button type="button" className="control btn-quiet" onClick={() => void revealPath(entry.path)}>
+									<button type="button" className="control btn-quiet" onClick={() => showPath(entry.path)}>
 										Reveal
 									</button>
 								)}

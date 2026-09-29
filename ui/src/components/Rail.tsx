@@ -6,6 +6,7 @@ import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar } from "../ui/Avatar";
 import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
+import { useBackgroundUnread } from "../deskWatch";
 import { setActiveDesk, useActiveDesk, useDesks, type Desk } from "../desks";
 
 /**
@@ -427,6 +428,7 @@ export function RailEdge({ size, onSize }: { size: RailSize; onSize(next: RailSi
 function DeskSwitcher() {
 	const desks = useDesks();
 	const active = useActiveDesk();
+	const unread = useBackgroundUnread();
 	if (desks.length < 2 || active === null) return null;
 	return (
 		<div className="shrink-0 px-2.5 pt-2">
@@ -438,7 +440,7 @@ function DeskSwitcher() {
 				choices={desks.map((desk) => ({
 					id: desk.id,
 					name: desk.name,
-					detail: deskDetail(desk),
+					detail: [unread[desk.id] ? `${unread[desk.id]} unread` : undefined, deskDetail(desk)].filter(Boolean).join(" · "),
 					group: desk.kind === "local" ? "On this computer" : "Remote",
 				}))}
 				onChange={setActiveDesk}

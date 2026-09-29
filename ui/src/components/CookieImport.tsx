@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CookieImport as CookieImportRecord, CookieSite, HostBrowser } from "../generated/contract";
+import { invoke } from "@tauri-apps/api/core";
+import { activeDeskId } from "../desks";
 import { CloseIcon } from "../icons";
+import { onServer } from "../serverFiles";
 import { wire } from "../wire";
 
 const NESTED = "group-row pl-7";
@@ -19,6 +22,10 @@ function reason(error: unknown): string {
  * names and counts — a cookie value never leaves the desk for the window, and
  * the agent has no way to start any of this. The three commands are desk-seat
  * only.
+ *
+ * For a teammate on a server the browsers are still this computer's: the
+ * shell reads them, and sends the ticked sites' cookies to the desk itself
+ * (crates/hotline-app/src/laptop.rs), so the window's view is the same.
  */
 export function CookieImport({
 	personaId,
@@ -42,8 +49,7 @@ export function CookieImport({
 	// The browsers on the host, asked for once when the picker opens.
 	useEffect(() => {
 		let gone = false;
-		wire
-			.command("computer.browsers.list", {})
+		(onServer() ? invoke<HostBrowser[]>("laptop_browsers") : wire.command("computer.browsers.list", {}))
 			.then((list) => {
 				if (gone) return;
 				setBrowsers(list);
@@ -73,8 +79,10 @@ export function CookieImport({
 		setChosen(new Set());
 		setDone(null);
 		setNote(null);
-		wire
-			.command("computer.cookies.preview", { browserId, profileId })
+		(onServer()
+			? invoke<CookieSite[]>("laptop_cookies_preview", { browserId, profileId })
+			: wire.command("computer.cookies.preview", { browserId, profileId })
+		)
 			.then((found) => !gone && setSites(found))
 			.catch((error) => !gone && setNote(reason(error)));
 		return () => {
@@ -114,12 +122,10 @@ export function CookieImport({
 		setBusy(true);
 		setNote(null);
 		try {
-			const imported = await wire.command("computer.cookies.import", {
-				personaId,
-				browserId,
-				profileId,
-				domains: [...chosen],
-			});
+			const domains = [...chosen];
+			const imported = onServer()
+				? await invoke<CookieSite[]>("laptop_cookies_push", { deskId: activeDeskId(), personaId, browserId, profileId, domains })
+				: await wire.command("computer.cookies.import", { personaId, browserId, profileId, domains });
 			setDone(imported);
 		} catch (error) {
 			setNote(reason(error));

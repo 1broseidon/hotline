@@ -248,12 +248,12 @@ async fn raw_tcp_and_stalled_noise_are_evicted_without_leaking_upgrade_permits()
         upgraded.push(h.socket_at("/v2", "").await.unwrap());
     }
     for socket in &mut held {
-        assert!(matches!(
+        assert!(
             tokio::time::timeout(Duration::from_secs(1), socket.read_u8())
                 .await
-                .unwrap(),
-            Err(_)
-        ));
+                .unwrap()
+                .is_err()
+        );
     }
     counts(&h, (4, 0)).await;
     let extra = h.socket_at("/v2", "").await.unwrap();

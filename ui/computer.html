@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Computer</title>
+		<link rel="stylesheet" href="/src/computerViewer.css" />
+	</head>
+	<body>
+		<canvas id="screen" tabindex="0" width="1" height="1"></canvas>
+		<svg id="pointer" viewBox="0 0 22 30" aria-hidden="true">
+			<path d="M2.5 1.5 L2.5 23 L8.6 17.6 L19 15.4 Z" fill="#f4f4f6" stroke="#141416" stroke-width="1.6" stroke-linejoin="round" />
+		</svg>
+		<div id="toast" class="quiet"></div>
+		<div id="files" hidden>
+			<header>
+				<span class="path" id="files-path"></span>
+				<button id="files-add" type="button" title="Add a file from this computer" aria-label="Add a file from this computer">+</button>
+				<button id="files-up" type="button" title="Up a folder" aria-label="Up a folder">↑</button>
+				<button id="files-close" type="button" title="Close" aria-label="Close">×</button>
+			</header>
+			<input id="files-pick" type="file" multiple hidden />
+			<ul id="files-list"></ul>
+		</div>
+		<div id="bar" class="lost">
+			<span class="status"><span class="dot"></span><span id="status">Connecting…</span><span class="sub" id="sub"></span></span>
+			<button id="control" type="button" class="primary" hidden>Take control</button>
+			<button id="paste" type="button" class="quiet" hidden>Paste</button>
+			<button id="browse" type="button" class="quiet" hidden>Files</button>
+			<button id="back" type="button" class="quiet" hidden>Give it back</button>
+			<span class="hint" id="hint" hidden></span>
+		</div>
+		<script type="module" src="/src/computerViewer.ts"></script>
+	</body>
+</html>

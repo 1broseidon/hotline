@@ -8,5 +8,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
 	plugins: [react(), tailwind()],
 	server: { port: 5174, strictPort: true },
-	build: { target: "es2022" },
+	build: {
+		target: "es2022",
+		// The window, and the viewer it opens for a computer on a desk on a server.
+		rollupOptions: { input: { main: "index.html", computer: "computer.html" } },
+	},
 });

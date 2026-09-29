@@ -1,0 +1,279 @@
+/* The viewer for a teammate's computer on a desk on a server
+ * (computerViewer.ts). Drawn as the computer's own viewer draws itself, so
+ * the screen looks the same whichever desk it comes from. */
+:root {
+	--fill: rgba(28, 28, 31, 0.92);
+	--raised: #343439;
+	--rule: #38383d;
+	--ink: #e8e8ea;
+	--ink-2: #aaaaae;
+	--muted: #7d7d82;
+	--you: #7fc4f0;
+	--warn: #f0c27a;
+	--shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+	background: #000;
+	overflow: hidden;
+}
+body {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font: 13px system-ui, -apple-system, "Segoe UI", sans-serif;
+	color: var(--ink-2);
+}
+canvas {
+	display: block;
+	outline: none;
+	cursor: default;
+}
+/* One bar says whose screen this is and offers only what that allows. */
+#bar {
+	position: fixed;
+	left: 50%;
+	bottom: 18px;
+	transform: translateX(-50%);
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 40px;
+	padding: 4px 6px 4px 12px;
+	border-radius: 999px;
+	background: var(--fill);
+	border: 1px solid var(--rule);
+	box-shadow: var(--shadow);
+	white-space: nowrap;
+	transition: opacity 0.3s;
+}
+#bar .status {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding-right: 10px;
+	margin-right: 4px;
+	border-right: 1px solid var(--rule);
+}
+#bar .status .dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--muted);
+}
+#bar .sub {
+	color: var(--muted);
+}
+#bar.driving .status {
+	color: var(--you);
+}
+#bar.driving .status .dot {
+	background: var(--you);
+	box-shadow: 0 0 0 3px rgba(127, 196, 240, 0.2);
+}
+#bar.held .status .dot {
+	background: var(--warn);
+}
+#bar.lost .status .dot {
+	background: transparent;
+	border: 1.5px solid var(--muted);
+}
+#bar button {
+	border: 0;
+	font: inherit;
+	height: 30px;
+	padding: 0 12px;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--ink);
+	cursor: pointer;
+}
+#bar button.primary {
+	background: var(--ink);
+	color: #0d0d0f;
+	font-weight: 600;
+}
+#bar button.quiet {
+	color: var(--ink-2);
+}
+#bar button.quiet:hover,
+#bar button.quiet:focus-visible {
+	background: var(--raised);
+	color: var(--ink);
+}
+#bar button[disabled] {
+	opacity: 0.4;
+	cursor: default;
+}
+#bar .hint {
+	font: 11px ui-monospace, Menlo, monospace;
+	color: var(--muted);
+	padding: 0 8px 0 4px;
+}
+#bar.driving.idle {
+	opacity: 0.4;
+}
+#bar.driving.idle:hover {
+	opacity: 1;
+}
+/* The hands, where the machine says they are: the stream carries no cursor. */
+#pointer {
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 22px;
+	height: 30px;
+	pointer-events: none;
+	opacity: 0;
+	transition:
+		transform 0.14s cubic-bezier(0.2, 0.7, 0.2, 1),
+		opacity 0.4s;
+	filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+	z-index: 5;
+}
+#pointer.shown {
+	opacity: 1;
+}
+.ring {
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 28px;
+	height: 28px;
+	margin: -14px 0 0 -14px;
+	border-radius: 50%;
+	border: 2px solid var(--you);
+	pointer-events: none;
+	z-index: 4;
+	animation: ring 0.45s ease-out forwards;
+}
+.ring.right {
+	border-color: var(--warn);
+}
+@keyframes ring {
+	from {
+		transform: scale(0.3);
+		opacity: 0.9;
+	}
+	to {
+		transform: scale(1.4);
+		opacity: 0;
+	}
+}
+#toast {
+	position: fixed;
+	left: 50%;
+	bottom: 70px;
+	transform: translateX(-50%);
+	padding: 5px 12px;
+	border-radius: 999px;
+	background: var(--fill);
+	border: 1px solid var(--rule);
+	color: var(--ink-2);
+	font-size: 12px;
+	pointer-events: none;
+	transition: opacity 0.3s;
+}
+#toast.quiet {
+	opacity: 0;
+}
+/* The Files panel: the computer's home and what is under it. A folder
+ * opens; a file is saved on this computer; a file from here is sent in. */
+#files {
+	position: fixed;
+	right: 18px;
+	bottom: 70px;
+	width: min(420px, calc(100vw - 36px));
+	max-height: min(60vh, 520px);
+	display: flex;
+	flex-direction: column;
+	border-radius: 14px;
+	background: var(--fill);
+	border: 1px solid var(--rule);
+	box-shadow: var(--shadow);
+	overflow: hidden;
+	z-index: 6;
+}
+#files[hidden] {
+	display: none;
+}
+#files header {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 8px 8px 8px 14px;
+	border-bottom: 1px solid var(--rule);
+}
+#files header .path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font: 12px ui-monospace, Menlo, monospace;
+	color: var(--ink);
+}
+#files header button {
+	border: 0;
+	font: inherit;
+	width: 28px;
+	height: 28px;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+#files header button:hover:not([disabled]) {
+	background: var(--raised);
+	color: var(--ink);
+}
+#files header button[disabled] {
+	opacity: 0.3;
+	cursor: default;
+}
+#files.arriving {
+	outline: 2px dashed var(--you);
+	outline-offset: -2px;
+}
+#files ul {
+	list-style: none;
+	margin: 0;
+	padding: 6px 0;
+	overflow-y: auto;
+}
+#files li {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	/* Clear of the overlay scrollbar, which takes clicks at the edge on Linux. */
+	padding: 6px 22px 6px 14px;
+	cursor: pointer;
+	color: var(--ink);
+}
+#files li:hover {
+	background: var(--raised);
+}
+#files li .name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+#files li.dir .name::after {
+	content: "/";
+	color: var(--muted);
+}
+#files li .size {
+	font: 11px ui-monospace, Menlo, monospace;
+	color: var(--muted);
+}
+#files li.empty {
+	color: var(--muted);
+	cursor: default;
+}
+#files li.empty:hover {
+	background: transparent;
+}

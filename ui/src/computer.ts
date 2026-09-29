@@ -1,5 +1,6 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useState } from "react";
+import { activeDeskId, allDesks } from "./desks";
 import { isDesktop, openLink } from "./native";
 import { wire } from "./wire";
 
@@ -10,6 +11,11 @@ import { wire } from "./wire";
  * and a second press finds the window already open instead of opening
  * another. Asking after the desktop never wakes it — a pane that peeks
  * is not a pane that starts containers.
+ *
+ * On a desk on a server the container is not reachable from here, and the
+ * desk keeps its viewer address to itself. The window opens its own viewer
+ * page instead (computerViewer.ts), which reaches the screen through the
+ * desk's bridge.
  */
 
 /** How often a pane that shows the desktop asks whether it is still there. */
@@ -28,7 +34,12 @@ export async function openComputer(personaId: string, name: string, viewer: stri
 			await shown.setFocus();
 			return;
 		}
-		new WebviewWindow(label, { url: viewer, title: `${name}'s computer`, width: 1280, height: 800 });
+		// The window's own viewer page learns the name from its address too.
+		// It takes dropped files in its own Files panel, so the page, not the
+		// shell, is who hears a drop.
+		const bundled = viewer.startsWith("computer.html#");
+		const url = bundled ? `${viewer}&${new URLSearchParams({ name })}` : viewer;
+		new WebviewWindow(label, { url, title: `${name}'s computer`, width: 1280, height: 800, dragDropEnabled: !bundled });
 	} catch {
 		await openLink(viewer);
 	}
@@ -52,7 +63,7 @@ export function useComputerViewer(personaId: string, wanted: boolean): string | 
 			void wire
 				.command("computer.status", { personaId })
 				.then((status) => {
-					if (!gone) setViewer(status.state === "running" ? status.viewer : undefined);
+					if (!gone) setViewer(status.state === "running" ? (status.viewer ?? bridgedViewer(personaId)) : undefined);
 				})
 				.catch(() => {
 					if (!gone) setViewer(undefined);
@@ -67,4 +78,17 @@ export function useComputerViewer(personaId: string, wanted: boolean): string | 
 	}, [personaId, wanted]);
 
 	return viewer;
+}
+
+/**
+ * The window's own viewer for a running computer on a desk on a server,
+ * through its bridge; undefined on this computer's desk, whose status
+ * names the container's viewer.
+ */
+function bridgedViewer(personaId: string): string | undefined {
+	const id = activeDeskId();
+	const desk = allDesks().find((one) => one.id === id);
+	if (desk?.kind !== "remote") return undefined;
+	const params = new URLSearchParams({ origin: desk.origin, token: desk.token, persona: personaId });
+	return `computer.html#${params.toString()}`;
 }

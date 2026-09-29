@@ -2584,9 +2584,11 @@ async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat()
         assert_eq!(named["result"]["offset"], 0);
         let staged_path = std::path::PathBuf::from(named["result"]["path"].as_str().unwrap());
         assert_eq!(staged_path.file_name().unwrap(), "notes.txt");
+        // The desk names paths resolved, and macOS's temporary folder is
+        // behind a symlink (/var is /private/var).
         assert_eq!(
             staged_path.parent().unwrap().parent().unwrap(),
-            h.root.path().join("uploads")
+            dunce::canonicalize(h.root.path()).unwrap().join("uploads")
         );
         assert!(!staged_path.exists());
         let named_id = &named["result"]["uploadId"];

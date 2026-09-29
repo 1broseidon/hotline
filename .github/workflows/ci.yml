@@ -100,3 +100,8 @@ jobs:
 
       - name: Compile the macOS code and its tests
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # The release runs these on Apple silicon; running them here too means a
+      # macOS-only test failure stops the pull request, not the release.
+      - name: Test on macOS
+        run: cargo test --workspace --locked

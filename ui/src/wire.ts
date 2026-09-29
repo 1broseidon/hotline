@@ -274,7 +274,9 @@ export class Wire {
 
 	/** Opens the socket, and keeps it open until `close`: for as long as the window lives, or the desk stays in it. */
 	connect(): void {
-		if (this.closed || this.socket) return;
+		// A paired desk whose bridge has not started has no endpoint yet; the
+		// shell's next list names one, and a fresh connection dials it.
+		if (this.closed || this.socket || this.endpoint.origin === "") return;
 		this.setState("connecting");
 		const socket = new WebSocket(`${this.endpoint.origin}/ws?token=${encodeURIComponent(this.endpoint.token)}`);
 		this.socket = socket;

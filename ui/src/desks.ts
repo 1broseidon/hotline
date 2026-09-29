@@ -32,6 +32,8 @@ export type Desk = {
 	origin: string;
 	token: string;
 	state?: DeskState;
+	/** Why a remote desk can't be reached from here, when the shell knows: its bridge would not start. */
+	error?: string;
 };
 
 declare global {

@@ -50,12 +50,12 @@ export function App() {
 	const [connection, setConnection] = useState<Connection>("connecting");
 	/* The last roster this desk showed, so switching back to it draws at
 	 * once while the fresh snapshot is on its way. */
-	const [roster, setRoster] = useState<RosterEntry[]>(() => rosterCache.get(activeDeskId() ?? "") ?? []);
+	const [roster, setRoster] = useState<RosterEntry[]>(() => cachedRoster(activeDeskId() ?? "") ?? []);
 	/* Whether the roster snapshot has landed. Before it, an empty roster is
 	 * not an empty room, and the welcome pane would flash on every open. */
-	const [rosterLoaded, setRosterLoaded] = useState(() => rosterCache.has(activeDeskId() ?? ""));
+	const [rosterLoaded, setRosterLoaded] = useState(() => cachedRoster(activeDeskId() ?? "") !== undefined);
 	useEffect(() => {
-		if (rosterLoaded) rosterCache.set(activeDeskId() ?? "", roster);
+		if (rosterLoaded) keepRoster(activeDeskId() ?? "", roster);
 	}, [roster, rosterLoaded]);
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
@@ -421,7 +421,7 @@ export function App() {
 				<div className="flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} />
+						<Settings section={settingsSection} onAddDesk={() => togglePane("add-desk")} />
 					</Suspense>
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
@@ -532,6 +532,35 @@ function takeChord(): boolean {
 
 /** Each desk's last roster, for the moment after switching back to it. */
 const rosterCache = new Map<string, RosterEntry[]>();
+const ROSTER_KEY = "hotline.desk.roster";
+
+/**
+ * A remote desk's roster is also kept across restarts: a desk that can't be
+ * reached at launch still shows its teammates as they last were, which is
+ * what the "Can't reach" band promises. The local desk is always there.
+ */
+function cachedRoster(deskId: string): RosterEntry[] | undefined {
+	const held = rosterCache.get(deskId);
+	if (held !== undefined || deskId === LOCAL_DESK) return held;
+	try {
+		const raw = localStorage.getItem(`${ROSTER_KEY}:${deskId}`);
+		const kept = raw === null ? undefined : (JSON.parse(raw) as RosterEntry[]);
+		if (Array.isArray(kept)) rosterCache.set(deskId, kept);
+		return Array.isArray(kept) ? kept : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function keepRoster(deskId: string, roster: RosterEntry[]) {
+	rosterCache.set(deskId, roster);
+	if (deskId === LOCAL_DESK) return;
+	try {
+		localStorage.setItem(`${ROSTER_KEY}:${deskId}`, JSON.stringify(roster));
+	} catch {
+		// Quota, private mode: the in-memory copy still serves this session.
+	}
+}
 
 /** The open teammate survives a reload, which is what makes the tape
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */

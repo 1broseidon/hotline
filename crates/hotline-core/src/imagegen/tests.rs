@@ -74,6 +74,159 @@ fn reference() -> Reference {
     }
 }
 
+fn chatgpt_login(dir: &std::path::Path, token: &str) {
+    std::fs::write(
+        dir.join("auth.json"),
+        json!({
+            "access_token": token, "account_id": "test-account",
+            "expires_at": chrono::Utc::now().timestamp() + 3600
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn chatgpt_sends_codex_json_with_current_login_and_account_for_generation_and_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    chatgpt_login(dir.path(), SECRET);
+    let (url, seen, _server) = answering(
+        StatusCode::OK,
+        json!({
+            "data": [{"b64_json": STANDARD.encode(PNG)}], "background": "transparent"
+        })
+        .to_string()
+        .into_bytes(),
+    )
+    .await;
+    let adapter = chatgpt::ChatGpt::at(dir.path().into(), url);
+    let request = ImageRequest {
+        transparent: true,
+        aspect: Aspect::Wide,
+        ..ask("a toad")
+    };
+    let image = adapter.generate(&request).await.unwrap();
+    assert_eq!(image.cost_usd, None);
+    assert!(image.transparent);
+    assert_eq!(image.bytes, PNG);
+    chatgpt_login(dir.path(), "replacement-token");
+    let edit = ImageRequest {
+        references: vec![reference()],
+        ..request
+    };
+    assert_eq!(adapter.estimate_usd(&edit), 0.0);
+    adapter.generate(&edit).await.unwrap();
+    let requests = seen.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].path, "/images/generations");
+    assert_eq!(requests[1].path, "/images/edits");
+    assert_eq!(
+        requests[0].headers["authorization"],
+        format!("Bearer {SECRET}")
+    );
+    assert_eq!(
+        requests[1].headers["authorization"],
+        "Bearer replacement-token"
+    );
+    for request in requests.iter() {
+        assert_eq!(request.headers["chatgpt-account-id"], "test-account");
+        assert_eq!(request.headers["originator"], "codex_cli_rs");
+        let body = request.json();
+        assert_eq!(body["model"], "gpt-image-2");
+        assert_eq!(body["size"], "auto");
+        assert_eq!(body["quality"], "auto");
+        assert_eq!(body["background"], "transparent");
+        assert!(body["prompt"].as_str().unwrap().contains("16:9"));
+    }
+    assert!(requests[0].json().get("images").is_none());
+    assert_eq!(
+        requests[1].json()["images"][0],
+        json!({"image_url": http::data_url(&reference())})
+    );
+}
+
+#[tokio::test]
+async fn chatgpt_missing_login_and_invalid_inputs_never_start_login_or_send_images() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
+    let (url, seen, _server) = answering(StatusCode::OK, Vec::new()).await;
+    let adapter = chatgpt::ChatGpt::at(dir.path().into(), url);
+    assert_eq!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            adapter.generate(&ask("draw"))
+        )
+        .await
+        .unwrap(),
+        Err(ImageError::SignInRequired)
+    );
+    assert_eq!(
+        adapter.generate(&ask(" ")).await,
+        Err(ImageError::EmptyPrompt)
+    );
+    assert_eq!(
+        adapter
+            .generate(&ImageRequest {
+                references: vec![reference(); 6],
+                ..ask("edit")
+            })
+            .await,
+        Err(ImageError::TooManyReferences { max: 5 })
+    );
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_expired_login_without_refresh_refuses_locally() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("auth.json"),
+        json!({
+            "access_token": SECRET, "expires_at": 1
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let (url, seen, _server) = answering(StatusCode::OK, Vec::new()).await;
+    let adapter = chatgpt::ChatGpt::at(dir.path().into(), url);
+    assert_eq!(
+        adapter.generate(&ask("draw")).await,
+        Err(ImageError::SignInRequired)
+    );
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_refusals_and_malformed_answers_never_echo_secrets_or_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    chatgpt_login(dir.path(), SECRET);
+    for status in [
+        StatusCode::UNAUTHORIZED,
+        StatusCode::FORBIDDEN,
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::OK,
+    ] {
+        let (url, seen, _server) = answering(status, SECRET.as_bytes().to_vec()).await;
+        let adapter = chatgpt::ChatGpt::at(dir.path().into(), url);
+        let error = adapter.generate(&ask("draw")).await.unwrap_err();
+        assert_eq!(
+            error,
+            if status.is_success() {
+                ImageError::Malformed {
+                    provider_id: "openai-codex".into(),
+                }
+            } else {
+                ImageError::Refused {
+                    provider_id: "openai-codex".into(),
+                    status: status.as_u16(),
+                }
+            }
+        );
+        assert!(!error.to_string().contains(SECRET));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+}
+
 #[tokio::test]
 async fn openrouter_sends_one_request_shape_and_reads_the_cost() {
     let answer = json!({"data": [{"b64_json": STANDARD.encode(PNG), "media_type": "image/png"}], "usage": {"cost": 0.0064}});

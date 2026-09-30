@@ -1550,6 +1550,12 @@ async fn cancelling_openrouter_login_closes_callback_and_discards_pending_creden
         .unwrap()
         .1
         .into_owned();
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .pool_max_idle_per_host(0)
+        .build()
+        .unwrap();
+    assert_eq!(http.get(&callback).send().await.unwrap().status(), 400);
     let cancel = client
         .call("credential.login_cancel", json!({"loginId":id}))
         .await;
@@ -1566,7 +1572,15 @@ async fn cancelling_openrouter_login_closes_callback_and_discards_pending_creden
     })
     .await
     .unwrap();
-    assert!(reqwest::get(callback).await.is_err());
+    // Login cleanup aborts the callback task; removing the token directory
+    // does not wait for that task to drop its listener.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while http.get(&callback).send().await.is_ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the cancelled OpenRouter callback listener did not close");
     assert_eq!(
         client.call("credential.list", json!({})).await["result"],
         json!([])

@@ -18,9 +18,9 @@ const CLIENT_VERSION_FLOOR: &str = "0.159.0";
 const VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[derive(Deserialize)]
-struct AuthRecord {
-    access_token: Option<String>,
-    account_id: Option<String>,
+pub(crate) struct AuthRecord {
+    pub(crate) access_token: Option<String>,
+    pub(crate) account_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +88,23 @@ async fn list_models_at(
     url: &str,
     version: &str,
 ) -> Result<Vec<ListedModel>, String> {
+    let record = refreshed_auth(token_dir).await?;
+    let token = record.access_token.ok_or("ChatGPT sign-in required.")?;
+
+    let mut request = http::Request::get(format!("{url}?client_version={version}"))
+        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
+        .header("originator", "codex_cli_rs");
+    if let Some(account_id) = record.account_id.filter(|id| !id.is_empty()) {
+        request = request.header("ChatGPT-Account-Id", account_id);
+    }
+    let request = request
+        .body(Bytes::new())
+        .map_err(|_| discovery::failed())?;
+    let body = discovery::fetch(DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request)).await?;
+    listing(&body)
+}
+
+pub(crate) async fn refreshed_auth(token_dir: &Path) -> Result<AuthRecord, String> {
     let auth_file = token_dir.join("auth.json");
     rig::providers::chatgpt::Client::builder()
         .oauth()
@@ -102,22 +119,14 @@ async fn list_models_at(
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .ok_or("The ChatGPT sign-in could not be read. Sign in again.")?;
-    let token = record
+    if record
         .access_token
-        .filter(|token| !token.trim().is_empty())
-        .ok_or("ChatGPT sign-in required. Sign in again under Settings → Providers.")?;
-
-    let mut request = http::Request::get(format!("{url}?client_version={version}"))
-        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-        .header("originator", "codex_cli_rs");
-    if let Some(account_id) = record.account_id.filter(|id| !id.is_empty()) {
-        request = request.header("ChatGPT-Account-Id", account_id);
+        .as_ref()
+        .is_none_or(|token| token.trim().is_empty())
+    {
+        return Err("ChatGPT sign-in required. Sign in again under Settings → Providers.".into());
     }
-    let request = request
-        .body(Bytes::new())
-        .map_err(|_| discovery::failed())?;
-    let body = discovery::fetch(DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request)).await?;
-    listing(&body)
+    Ok(record)
 }
 
 /// The models a ChatGPT sign-in offers: listed ones only, since the backend

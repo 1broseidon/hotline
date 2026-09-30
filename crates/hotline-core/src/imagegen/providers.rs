@@ -2,6 +2,7 @@
 //! default. There is never a new key: a provider counts only if the owner
 //! has already connected it.
 
+use super::chatgpt::{self, ChatGpt};
 use super::{
     Google, ImageGen, ImageSet, ImageSettings, Model, OpenAi, OpenRouter, google, openai,
     openrouter,
@@ -10,6 +11,7 @@ use crate::contract::{CapabilityModel, CapabilityProvider};
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Price for a model the desk doesn't know: high, because the ledger is a
@@ -122,11 +124,17 @@ fn row(provider_id: &str) -> Option<&'static Row> {
 
 /// A provider the owner has connected, with what it takes to call it.
 #[derive(Clone)]
+enum ConnectionAuth {
+    Key(Option<String>),
+    ChatGpt(PathBuf),
+}
+
+#[derive(Clone)]
 struct Connection {
     provider_id: String,
     name: String,
     base_url: String,
-    key: Option<String>,
+    auth: ConnectionAuth,
     /// A custom connection's model ids, which are all we know of what it serves.
     models: Vec<String>,
 }
@@ -135,6 +143,15 @@ impl Connection {
     /// What this connection draws with: the named model, else its default.
     /// A custom connection draws only if it lists or is given an image model.
     fn draws(&self, named: Option<&str>) -> Option<Model> {
+        if matches!(self.auth, ConnectionAuth::ChatGpt(_)) {
+            return named.is_none_or(|id| id == chatgpt::MODEL).then(|| Model {
+                id: chatgpt::MODEL.into(),
+                transparent: true,
+                max_references: 5,
+                quality: Some("auto"),
+                price_usd: 0.0,
+            });
+        }
         if let Some(named) = named {
             return Some(model(named));
         }
@@ -157,7 +174,12 @@ impl Connection {
     }
 
     fn adapter(&self, model: Model) -> Result<Arc<dyn ImageGen>, String> {
-        let key = self.key.as_deref();
+        let key = match &self.auth {
+            ConnectionAuth::ChatGpt(token_dir) => {
+                return Ok(Arc::new(ChatGpt::new(token_dir.clone())?));
+            }
+            ConnectionAuth::Key(key) => key.as_deref(),
+        };
         Ok(match self.provider_id.as_str() {
             openrouter::PROVIDER_ID => Arc::new(OpenRouter::new(
                 &self.base_url,
@@ -191,6 +213,18 @@ fn connections(vault: &Vault) -> Vec<Connection> {
 }
 
 fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
+    if provider_id == chatgpt::PROVIDER_ID {
+        let ProviderAuth::Login { token_dir } = auth else {
+            return None;
+        };
+        return Some(Connection {
+            provider_id: provider_id.into(),
+            name: "Codex (ChatGPT subscription)".into(),
+            base_url: String::new(),
+            auth: ConnectionAuth::ChatGpt(token_dir.clone()),
+            models: Vec::new(),
+        });
+    }
     if let Some(row) = row(provider_id) {
         let key = match auth {
             ProviderAuth::ApiKey(key) => key.clone(),
@@ -204,7 +238,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
             provider_id: provider_id.to_string(),
             name: row.name.to_string(),
             base_url: row.base_url.to_string(),
-            key: Some(key),
+            auth: ConnectionAuth::Key(Some(key)),
             models: Vec::new(),
         });
     }
@@ -218,7 +252,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
             provider_id: provider_id.to_string(),
             name: name.clone(),
             base_url: base_url.clone(),
-            key: api_key.clone(),
+            auth: ConnectionAuth::Key(api_key.clone()),
             models: config.models.clone(),
         }),
         _ => None,
@@ -236,14 +270,18 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
     connections
         .iter()
         .filter_map(|connection| {
-            let ids: Vec<String> = match row(&connection.provider_id) {
-                Some(row) => row.models.iter().map(|id| id.to_string()).collect(),
-                None => connection
-                    .models
-                    .iter()
-                    .filter(|id| id.to_ascii_lowercase().contains("image"))
-                    .cloned()
-                    .collect(),
+            let ids: Vec<String> = if matches!(connection.auth, ConnectionAuth::ChatGpt(_)) {
+                vec![chatgpt::MODEL.into()]
+            } else {
+                match row(&connection.provider_id) {
+                    Some(row) => row.models.iter().map(|id| id.to_string()).collect(),
+                    None => connection
+                        .models
+                        .iter()
+                        .filter(|id| id.to_ascii_lowercase().contains("image"))
+                        .cloned()
+                        .collect(),
+                }
             };
             (!ids.is_empty()).then(|| CapabilityProvider {
                 provider_id: connection.provider_id.clone(),
@@ -299,11 +337,14 @@ fn resolve_from(connections: &[Connection], settings: &ImageSettings) -> Result<
         // means nothing yet: the first provider draws with its default.
         None => connections
             .iter()
+            .filter(|connection| !matches!(connection.auth, ConnectionAuth::ChatGpt(_)))
             .find_map(|connection| Some((connection, connection.draws(None)?)))
             .ok_or_else(|| "Connect OpenRouter, OpenAI or Google to make images.".to_string())?,
     };
     let fallback = connections
         .iter()
+        .filter(|connection| !matches!(connection.auth, ConnectionAuth::ChatGpt(_)))
+        .filter(|_| !matches!(from.auth, ConnectionAuth::ChatGpt(_)))
         .filter(|connection| connection.provider_id != from.provider_id)
         .find_map(|connection| Some((connection, connection.draws(None)?)))
         .or_else(|| Some((from, from.also(&model)?)));
@@ -325,7 +366,7 @@ mod tests {
             provider_id: provider_id.into(),
             name: row.name.into(),
             base_url: row.base_url.into(),
-            key: Some("k".into()),
+            auth: ConnectionAuth::Key(Some("k".into())),
             models: Vec::new(),
         }
     }
@@ -335,7 +376,7 @@ mod tests {
             provider_id: "custom-abc".into(),
             name: "My gateway".into(),
             base_url: "http://127.0.0.1:1/v1".into(),
-            key: None,
+            auth: ConnectionAuth::Key(None),
             models: models.iter().map(|m| m.to_string()).collect(),
         }
     }
@@ -345,6 +386,53 @@ mod tests {
             set.primary.id().to_string(),
             set.fallback.as_ref().map(|f| f.id().to_string()),
         )
+    }
+
+    #[test]
+    fn chatgpt_requires_explicit_selection_and_never_crosses_a_billing_boundary() {
+        let login = connection(
+            chatgpt::PROVIDER_ID,
+            &ProviderAuth::Login {
+                token_dir: PathBuf::from("unused-test-login"),
+            },
+        )
+        .unwrap();
+        assert!(resolve_from(std::slice::from_ref(&login), &ImageSettings::default()).is_err());
+        let connected = [login, keyed("openai")];
+        let automatic = resolve_from(&connected, &ImageSettings::default()).unwrap();
+        assert_eq!(automatic.primary.id().provider_id, "openai");
+        assert_eq!(automatic.fallback.unwrap().id().provider_id, "openai");
+        let settings = ImageSettings {
+            provider: Some(chatgpt::PROVIDER_ID.into()),
+            model: None,
+        };
+        let selected = resolve_from(&connected, &settings).unwrap();
+        assert_eq!(selected.primary.id().model_id, chatgpt::MODEL);
+        assert!(selected.primary.subscription());
+        assert!(selected.fallback.is_none());
+        assert_eq!(
+            selected
+                .primary
+                .estimate_usd(&super::super::ImageRequest::default()),
+            0.0
+        );
+        assert!(
+            resolve_from(
+                &connected,
+                &ImageSettings {
+                    model: Some("unsupported-image".into()),
+                    ..settings
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            connection(
+                chatgpt::PROVIDER_ID,
+                &ProviderAuth::ApiKey("not-a-login".into())
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -437,6 +525,24 @@ mod tests {
         assert_eq!(offered[1].models.len(), 1);
         assert_eq!(offered[1].models[0].id, "my-image-1");
         assert!(options_from(&[custom(&["llama-3"])]).is_empty());
+    }
+
+    #[test]
+    fn chatgpt_is_offered_for_explicit_selection_without_becoming_automatic() {
+        let login = connection(
+            chatgpt::PROVIDER_ID,
+            &ProviderAuth::Login {
+                token_dir: PathBuf::from("unused-test-login"),
+            },
+        )
+        .unwrap();
+        let offered = options_from(std::slice::from_ref(&login));
+        assert_eq!(offered.len(), 1);
+        assert_eq!(offered[0].provider_id, chatgpt::PROVIDER_ID);
+        assert_eq!(offered[0].provider_name, "Codex (ChatGPT subscription)");
+        assert_eq!(offered[0].models.len(), 1);
+        assert_eq!(offered[0].models[0].id, chatgpt::MODEL);
+        assert!(resolve_from(&[login], &ImageSettings::default()).is_err());
     }
 
     #[test]

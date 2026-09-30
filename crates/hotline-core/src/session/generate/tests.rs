@@ -21,6 +21,7 @@ impl ProviderKeys for NoKeys {
 }
 
 struct Fake {
+    subscription: bool,
     model: &'static str,
     estimate: f64,
     cost: Option<f64>,
@@ -30,11 +31,14 @@ struct Fake {
     requests: Mutex<Vec<ImageRequest>>,
     entered: Option<Arc<Notify>>,
     release: Option<Arc<Notify>>,
+    preparing: Option<Arc<Notify>>,
+    prepared: Option<Arc<Notify>>,
 }
 
 impl Fake {
     fn new(model: &'static str) -> Arc<Self> {
         Arc::new(Self {
+            subscription: false,
             model,
             estimate: 0.01,
             cost: Some(0.006),
@@ -44,12 +48,17 @@ impl Fake {
             requests: Mutex::new(Vec::new()),
             entered: None,
             release: None,
+            preparing: None,
+            prepared: None,
         })
     }
 }
 
 #[async_trait]
 impl ImageGen for Fake {
+    fn subscription(&self) -> bool {
+        self.subscription
+    }
     fn id(&self) -> ImageId {
         ImageId {
             provider_id: "fake".into(),
@@ -65,6 +74,21 @@ impl ImageGen for Fake {
     }
     fn estimate_usd(&self, _: &ImageRequest) -> f64 {
         self.estimate
+    }
+
+    async fn generate_checked(
+        &self,
+        request: &ImageRequest,
+        before_send: &(dyn Fn() -> Result<(), ImageError> + Send + Sync),
+    ) -> Result<Image, ImageError> {
+        if let Some(preparing) = &self.preparing {
+            preparing.notify_one();
+        }
+        if let Some(prepared) = &self.prepared {
+            prepared.notified().await;
+        }
+        before_send()?;
+        self.generate(request).await
     }
 
     async fn generate(&self, request: &ImageRequest) -> Result<Image, ImageError> {
@@ -171,6 +195,120 @@ fn attachments(room: &Room) -> Vec<Value> {
         .filter_map(|event| event.get("attachments").cloned())
         .flat_map(|value| value.as_array().unwrap().clone())
         .collect()
+}
+
+#[tokio::test]
+async fn subscription_images_report_unknown_cost_without_touching_dollar_spending() {
+    let (dir, room, tools) = room();
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.estimate = 0.0;
+    provider.cost = None;
+    install(&room, fake, None);
+    room.spending
+        .reserve(&SpendingSettings::default(), 1.0)
+        .unwrap()
+        .charge(1.0)
+        .unwrap();
+    let ledger_path = room.log().root().join("spending.json");
+    let before = std::fs::read(&ledger_path).unwrap();
+    for cap in [0.0, 0.5] {
+        settings(&room, cap);
+        let result: Value = serde_json::from_str(
+            &tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(result["costUsd"].is_null());
+        assert_eq!(result["billing"], "subscription");
+        assert!(
+            Path::new(result["path"].as_str().unwrap()).starts_with(real(&dir).join("workspace"))
+        );
+        assert_eq!(
+            std::fs::read(result["path"].as_str().unwrap()).unwrap(),
+            png()
+        );
+        assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+    }
+    assert_eq!(attachments(&room).len(), 2);
+}
+
+#[tokio::test]
+async fn a_subscription_refusal_never_tries_a_paid_fallback() {
+    let (_dir, room, tools) = room();
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.error = Some(ImageError::Refused {
+        provider_id: "openai-codex".into(),
+        status: 403,
+    });
+    let paid = Fake::new("paid");
+    install(&room, fake, Some(paid.clone()));
+    let error = tools
+        .call("generate_image", &json!({"prompt":"draw"}))
+        .await
+        .unwrap_err();
+    assert!(error.contains("403"));
+    assert!(paid.requests.lock().unwrap().is_empty());
+    assert!(!room.log().root().join("spending.json").exists());
+}
+
+#[tokio::test]
+async fn subscription_images_cannot_read_references_outside_the_workspace() {
+    let (dir, room, tools) = room();
+    std::fs::write(dir.path().join("outside.png"), png()).unwrap();
+    let mut fake = Fake::new("subscription-image");
+    Arc::get_mut(&mut fake).unwrap().subscription = true;
+    install(&room, fake.clone(), None);
+    let error = tools
+        .call(
+            "generate_image",
+            &json!({
+                "prompt":"edit", "references":["../outside.png"]
+            }),
+        )
+        .await;
+    assert!(error.is_err());
+    assert!(fake.requests.lock().unwrap().is_empty());
+    assert!(attachments(&room).is_empty());
+}
+
+#[tokio::test]
+async fn revocation_during_subscription_refresh_prevents_dispatch_and_publication() {
+    let (dir, room, tools) = room();
+    let epoch = CapabilityEpoch::default();
+    let tools = tools.with_capability(epoch.lease());
+    let preparing = Arc::new(Notify::new());
+    let prepared = Arc::new(Notify::new());
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.preparing = Some(preparing.clone());
+    provider.prepared = Some(prepared.clone());
+    let fallback = Fake::new("paid");
+    install(&room, fake.clone(), Some(fallback.clone()));
+    let call = tokio::spawn(async move {
+        tools
+            .call(
+                "generate_image",
+                &json!({"prompt":"draw", "name":"revoked"}),
+            )
+            .await
+    });
+    preparing.notified().await;
+    epoch.invalidate();
+    prepared.notify_one();
+    let error = call.await.unwrap().unwrap_err();
+    assert!(error.contains("revoked"), "{error}");
+    assert!(fake.requests.lock().unwrap().is_empty());
+    assert!(fallback.requests.lock().unwrap().is_empty());
+    assert!(attachments(&room).is_empty());
+    assert!(!dir.path().join("workspace/revoked.png").exists());
+    assert!(!room.log().root().join("spending.json").exists());
 }
 
 #[tokio::test]

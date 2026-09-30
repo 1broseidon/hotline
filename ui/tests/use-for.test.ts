@@ -25,6 +25,18 @@ describe("a Use for picker", () => {
 		expect(choicesFor({ options: [] })).toEqual([{ id: AUTOMATIC, name: "Automatic" }]);
 	});
 
+	test("offers ChatGPT subscription images without selecting them automatically", () => {
+		const subscription = { providerId: "openai-codex", providerName: "Codex (ChatGPT subscription)", models: [{ id: "gpt-image-2" }] };
+		const job: CapabilityJob = { options: [subscription] };
+		expect(choicesFor(job)).toEqual([
+			{ id: AUTOMATIC, name: "Automatic" },
+			{ id: "openai-codex|gpt-image-2", name: "gpt-image-2", group: "Codex (ChatGPT subscription)" },
+		]);
+		expect(currentId(job)).toBe(AUTOMATIC);
+		expect(currentId({ ...job, selected: { providerId: subscription.providerId, providerName: subscription.providerName } })).toBe("openai-codex|gpt-image-2");
+		expect(splitPickId("openai-codex|gpt-image-2")).toEqual({ providerId: "openai-codex", modelId: "gpt-image-2" });
+	});
+
 	test("keeps a choice whose provider was disconnected, under its own heading", () => {
 		const job = { ...images, selected: { providerId: "google", providerName: "google", modelId: "gemini-3-pro-image" } };
 		const gone = choicesFor(job).at(-1);

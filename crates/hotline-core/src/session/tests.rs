@@ -360,7 +360,7 @@ pub(super) fn persona(id: &str) -> Persona {
         id: id.to_string(),
         name: "Ada".to_string(),
         goal: "Keep the harbour running.".to_string(),
-        face: None,
+        avatar: None,
         team: None,
         backend_id: "hotline".to_string(),
         cwd: std::env::temp_dir().to_string_lossy().to_string(),

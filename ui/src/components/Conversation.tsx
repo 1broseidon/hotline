@@ -299,7 +299,7 @@ export function Conversation({
 					aria-expanded={inspectorOpen}
 					onClick={onToggleInspector}
 				>
-					<Avatar id={persona.id} name={persona.name} size={20} />
+					<Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />
 					<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
 					{session.state === "thinking" && (
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
@@ -369,6 +369,7 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
+					avatarHash={persona.avatar?.hash}
 					events={shown}
 					streaming={streaming}
 					live={session.state === "thinking"}

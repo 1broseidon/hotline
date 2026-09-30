@@ -382,7 +382,7 @@ pub(crate) fn read(
     read_path(&path, offset, false)
 }
 
-fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
+pub(crate) fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
     let missing = || {
         if image_only {
             "That image has no retained copy. Send it again to make it available.".to_string()

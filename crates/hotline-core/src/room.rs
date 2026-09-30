@@ -549,7 +549,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             goal: "Keep the harbour running.".to_string(),
-            face: None,
+            avatar: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: "/tmp/harbour".to_string(),

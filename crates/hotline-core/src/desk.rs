@@ -1186,7 +1186,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             goal: "Keep the revocation test deterministic.".to_string(),
-            face: None,
+            avatar: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: root.join(id).to_string_lossy().into_owned(),

@@ -369,6 +369,15 @@ pub(crate) async fn run(
             crate::sent::read_message(log, &persona_id, &event_id, index.unwrap_or(0), offset)
                 .map(|chunk| json!(chunk))
         }
+        Command::AvatarRead {
+            persona_id,
+            hash,
+            offset,
+        } => {
+            living(log, &persona_id)?;
+            crate::session::avatar::read(log.root(), &persona_id, &hash, offset)
+                .map(|chunk| json!(chunk))
+        }
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room
             .import(&home_expanded(&from))
@@ -590,7 +599,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         id: id.clone(),
         name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
         goal: given(draft.goal).unwrap_or_default(),
-        face: None,
+        avatar: None,
         team: given(draft.team),
         backend_id,
         cwd: given(draft.cwd).unwrap_or_else(|| {
@@ -908,6 +917,9 @@ fn update_persona(
     patch: &Value,
 ) -> Result<(Value, bool), String> {
     let previous = living(log, id)?;
+    if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
+        return Err("A picture can only be cleared here, with `avatar: null`.".into());
+    }
     let mut record = json!(previous);
     let fields = record
         .as_object_mut()
@@ -928,6 +940,9 @@ fn update_persona(
         room.invalidate(id)?;
     }
     room::append_persona(log, &updated)?;
+    if updated.avatar.is_none() {
+        crate::session::avatar::remove_except(log.root(), id, None);
+    }
     Ok((json!(updated), reattaches))
 }
 
@@ -950,7 +965,7 @@ fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Person
 }
 
 /// A patch of these fields rebuilds the driver, so a live session has to
-/// restart for the new tools to take effect. `name`, `team`, `face`,
+/// restart for the new tools to take effect. `name`, `team`, `avatar`,
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
 /// switch live.
 fn persona_patch_reattaches(patch: &Value) -> bool {

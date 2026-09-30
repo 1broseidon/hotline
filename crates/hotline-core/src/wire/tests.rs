@@ -2090,6 +2090,104 @@ async fn a_sent_file_is_read_by_its_message_a_part_at_a_time() {
     }
 }
 
+/// A picture is no more private than the name beside it, so every seat reads
+/// one, and only by the hash the roster names.
+#[tokio::test]
+async fn a_teammates_picture_is_read_by_its_hash_and_by_every_seat() {
+    let command = Command::AvatarRead {
+        persona_id: "ada".to_string(),
+        hash: "0".repeat(64),
+        offset: 0,
+    };
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        assert!(seat.permits(&command));
+    }
+
+    let (root, _log, port) = door("avatar-read");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+    let hash = "ab".repeat(32);
+    let path = paths::avatar_path(&root, id, &hash).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend_from_slice(b"pixels");
+    std::fs::write(&path, &png).unwrap();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "avatar.read", "params": { "personaId": id, "hash": hash } }),
+    )
+    .await;
+    let read = answered(&mut socket, 2).await;
+    assert_eq!(read["ok"], true, "{read}");
+    assert_eq!(read["result"]["mimeType"], "image/png");
+    assert_eq!(read["result"]["size"], png.len());
+    assert_eq!(read["result"].get("next"), None);
+
+    for (n, params, error) in [
+        (
+            3,
+            json!({ "personaId": id, "hash": "../../room.jsonl" }),
+            "A picture is named by 64 lowercase hex digits.",
+        ),
+        (
+            4,
+            json!({ "personaId": id, "hash": "AB".repeat(32) }),
+            "A picture is named by 64 lowercase hex digits.",
+        ),
+        (
+            5,
+            json!({ "personaId": id, "hash": "cd".repeat(32) }),
+            "That teammate has no such picture.",
+        ),
+        (
+            6,
+            json!({ "personaId": "nobody", "hash": hash }),
+            "There is no teammate nobody.",
+        ),
+    ] {
+        ask(
+            &mut socket,
+            json!({ "id": n, "cmd": "avatar.read", "params": params }),
+        )
+        .await;
+        let refused = answered(&mut socket, n).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert_eq!(refused["error"], error);
+    }
+}
+
+/// The owner's "Use initial" clears a picture, and can set nothing else there.
+#[tokio::test]
+async fn a_patch_can_clear_a_picture_but_not_invent_one() {
+    let (root, _log, port) = door("avatar-clear");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let id = ada["id"].as_str().unwrap();
+    let kept = paths::avatar_path(&root, id, &"ab".repeat(32)).unwrap();
+    std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    std::fs::write(&kept, b"png").unwrap();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "cmd": "persona.update", "params": { "id": id, "patch": {
+            "avatar": { "hash": "ab".repeat(32), "by": "person", "updatedAt": "now" } } } }),
+    )
+    .await;
+    let refused = answered(&mut socket, 2).await;
+    assert_eq!(refused["ok"], false, "{refused}");
+
+    ask(
+        &mut socket,
+        json!({ "id": 3, "cmd": "persona.update", "params": { "id": id, "patch": { "avatar": null } } }),
+    )
+    .await;
+    let cleared = answered(&mut socket, 3).await;
+    assert_eq!(cleared["ok"], true, "{cleared}");
+    assert!(!kept.exists());
+}
+
 /// Cookie import reads the person's own machine, so it is the desk's alone:
 /// the phone cannot list host browsers, preview, or import, and there is no
 /// agent tool for any of it. This is the enforcement point behind the promise

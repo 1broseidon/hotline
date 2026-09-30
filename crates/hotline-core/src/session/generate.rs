@@ -239,28 +239,7 @@ fn image_name(name: Option<&str>, prompt: &str) -> Result<String, String> {
 fn read_references(workspace: &Workspace, paths: &[String]) -> Result<Vec<Reference>, String> {
     let mut references = Vec::with_capacity(paths.len());
     for requested in paths {
-        let path = Path::new(requested);
-        let requested = if workspace.reach() == Reach::Workspace && path.is_absolute() {
-            path.strip_prefix(workspace.display_root())
-                .map_err(|_| "A reference image must be inside your workspace.".to_string())?
-                .to_string_lossy()
-                .into_owned()
-        } else {
-            requested.clone()
-        };
-        let (file, size, _) = workspace
-            .open_to_send(&requested)
-            .map_err(|error| error.to_string())?;
-        if size > REFERENCE_BYTES {
-            return Err("A reference image can be at most 20 MB.".into());
-        }
-        let mut bytes = Vec::with_capacity(size as usize);
-        file.take(REFERENCE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "A reference image could not be read.".to_string())?;
-        if bytes.len() as u64 > REFERENCE_BYTES {
-            return Err("A reference image can be at most 20 MB.".into());
-        }
+        let bytes = read_workspace_image(workspace, requested, "A reference image")?;
         let format = image::guess_format(&bytes)
             .map_err(|_| "Reference images must be PNG, JPEG or WebP.".to_string())?;
         if !matches!(
@@ -275,6 +254,38 @@ fn read_references(workspace: &Workspace, paths: &[String]) -> Result<Vec<Refere
         });
     }
     Ok(references)
+}
+
+/// The bytes of a file the teammate's workspace tools may read, at most 20 MB.
+/// `noun` opens the sentences that refuse it, like "A reference image".
+pub(super) fn read_workspace_image(
+    workspace: &Workspace,
+    requested: &str,
+    noun: &str,
+) -> Result<Vec<u8>, String> {
+    let path = Path::new(requested);
+    let requested = if workspace.reach() == Reach::Workspace && path.is_absolute() {
+        path.strip_prefix(workspace.display_root())
+            .map_err(|_| format!("{noun} must be inside your workspace."))?
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        requested.to_string()
+    };
+    let (file, size, _) = workspace
+        .open_to_send(&requested)
+        .map_err(|error| error.to_string())?;
+    if size > REFERENCE_BYTES {
+        return Err(format!("{noun} can be at most 20 MB."));
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(REFERENCE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| format!("{noun} could not be read."))?;
+    if bytes.len() as u64 > REFERENCE_BYTES {
+        return Err(format!("{noun} can be at most 20 MB."));
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]

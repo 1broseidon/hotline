@@ -123,6 +123,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, offset}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64; `next` is where the next part starts, absent at the end |
+| `avatar.read` | `{personaId, hash, offset?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. Every seat may read one |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -506,6 +507,13 @@ no file."`; an offset past the end is refused in a sentence. A phone needs
 no capability to ask: only a desk that serves `file.read` sends a
 teammate's file.
 
+A teammate's `avatar` is `{hash, by: "self"|"person", updatedAt}`, and is
+absent when the teammate shows its initial. The picture is kept under
+`avatars/<teammate>/<hash>.png` and never rewritten, so a client may cache it
+by hash for good. A teammate sets its own with the `set_avatar` tool;
+`persona.update` accepts `avatar: null` to clear it and nothing else for that
+field. Neither restarts the session.
+
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code
 units. Hits are chapters first, then messages; a thread hit has no
@@ -706,7 +714,7 @@ A paired companion's socket is the phone seat: a smaller fixed set of commands
 four kinds of subscription — a tape, a thread, the roster, and a teammate's
 schedules. It never opens the room stream or a run, and it can
 neither make, cancel nor quiet a job. It reads a file a teammate sent with
-`file.read`, because the file is part of the conversation it already
+`file.read` and a teammate's picture with `avatar.read`, because the file is part of the conversation it already
 reads. It may add a teammate through `mobile.persona_create`, a narrow
 create confined in core rather than by what the phone's form leaves out,
 and read `backends.list` to know which harness to offer; the full

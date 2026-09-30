@@ -34,6 +34,7 @@
 //! tools, the workspace, or the harness invalidate old handles and queued
 //! work before a live session is rebuilt.
 
+pub(crate) mod avatar;
 mod chapters;
 mod escalation;
 pub(crate) mod exchanges;

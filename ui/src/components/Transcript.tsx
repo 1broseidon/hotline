@@ -65,6 +65,7 @@ export type Speakers = { me: string; them: string; mine: "user" | "agent" };
 export function Transcript({
 	personaId,
 	name,
+	avatarHash,
 	events,
 	streaming,
 	live,
@@ -83,6 +84,8 @@ export function Transcript({
 }: {
 	personaId: string;
 	name: string;
+	/** The teammate's picture, when it has one. */
+	avatarHash?: string | undefined;
 	events: TranscriptEvent[];
 	streaming: Streaming[];
 	/** A turn is running: the mark is up, above the composer. */
@@ -228,7 +231,7 @@ export function Transcript({
 	if (empty) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
-				<Avatar id={personaId} name={name} size={48} />
+				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
 				<p className="text-lg font-semibold">{name}</p>
 				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
 			</div>

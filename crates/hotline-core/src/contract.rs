@@ -24,106 +24,31 @@ pub use crate::imagegen::ImageSettings;
 pub use crate::spending::{SpendingSettings, SpendingSummary};
 
 // ---------------------------------------------------------------------------
-// Faces
+// Avatars
 // ---------------------------------------------------------------------------
 
-/// A teammate's face: the activity mark, wearing something it chose.
-///
-/// The parts are closed vocabularies rather than free drawing, so that every
-/// pick renders clean; the geometry and the veto list over the combinations
-/// the eye rejects live in `src/shared/face.ts`, which owns the rendering and
-/// the judgement and takes the vocabulary from here.
+/// A teammate's picture: a square PNG the desk keeps under
+/// `avatars/<teammate>/<hash>.png`, named by the SHA-256 of its bytes, so a
+/// picture is never rewritten and a window can cache it by hash for good.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
-pub struct Face {
-    /// The vocabulary's version, and so far its only one.
-    #[ts(type = "1")]
-    pub v: u8,
-    /// OKLCH hue of the disc; lightness and chroma are fixed app-wide.
-    ///
-    /// Kept as the number it was written as rather than as a float, because
-    /// re-spelling a stored `70` as `70.0` would be a teammate whose record
-    /// changed on the way through a process that only meant to read it.
-    #[ts(type = "number")]
-    pub hue: serde_json::Number,
-    pub body: FaceBody,
-    pub eyes: FaceEyes,
-    pub mouth: FaceMouth,
-    pub hat: FaceHat,
-    pub marks: FaceMarks,
-    pub pattern: FacePattern,
+pub struct Avatar {
+    /// Lowercase hex SHA-256 of the kept PNG.
+    pub hash: String,
+    pub by: AvatarBy,
+    /// When the picture was set, as an ISO timestamp.
+    pub updated_at: String,
 }
 
+/// Who chose the picture. A teammate does not replace one the person chose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
-pub enum FaceBody {
-    Round,
-    Wide,
-    Tall,
-    Squat,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceEyes {
-    Round,
-    Half,
-    Wide,
-    Narrow,
-    Asym,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceMouth {
-    None,
-    Flat,
-    Smile,
-    Smirk,
-    Open,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceHat {
-    None,
-    Crown,
-    Beanie,
-    Beret,
-    Halo,
-    Antenna,
-    Sprout,
-}
-
-/// `Spots` and `Stripe` are retired from what an agent may choose and stay in
-/// the vocabulary anyway: a stored face may still wear them, and curation
-/// reads them as their nearest living kin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceMarks {
-    None,
-    Spots,
-    Stripe,
-    Freckles,
-    Monocle,
-}
-
-/// `Spotted` is retired the same way — a stored spotted disc reads as a
-/// lilypad now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FacePattern {
-    Solid,
-    Spotted,
-    Waterline,
-    Ripples,
-    Lilypad,
+pub enum AvatarBy {
+    #[serde(rename = "self")]
+    Own,
+    Person,
 }
 
 // ---------------------------------------------------------------------------
@@ -147,10 +72,11 @@ pub struct Persona {
     pub id: String,
     pub name: String,
     pub goal: String,
-    /// The icon the agent chose for itself at creation. Absent on teammates
-    /// made before faces existed, who keep the hashed-colour initial.
+    /// The teammate's picture. Absent means the initial on its hashed colour.
+    /// A record written before pictures existed may still carry a `face`,
+    /// which is read past and dropped the next time the record is written.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub face: Option<Face>,
+    pub avatar: Option<Avatar>,
     /// The team this teammate sits on — a label, not an entity. Teams are not
     /// agents and never speak: addressing one round-robins to the next
     /// available member, who routes it onward. Distinct labels ARE the teams;
@@ -2161,6 +2087,16 @@ pub enum Command {
         event_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<u32>,
+        #[serde(default)]
+        offset: i64,
+    },
+    /// A teammate's kept picture, named by the hash on its record. Any seat
+    /// may read one. The answer is a [`FileChunk`], a part at a time from
+    /// `offset`.
+    #[serde(rename = "avatar.read")]
+    AvatarRead {
+        persona_id: String,
+        hash: String,
         #[serde(default)]
         offset: i64,
     },

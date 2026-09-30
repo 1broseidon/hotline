@@ -154,6 +154,8 @@ type Results = {
 	"search.all": GlobalSearchResult;
 	/** One part of a file a teammate sent, by its message. */
 	"file.read": FileChunk;
+	/** One part of a teammate's picture, by the hash on its record. */
+	"avatar.read": FileChunk;
 	"files.browse": {
 		path: string;
 		parent: string | null;

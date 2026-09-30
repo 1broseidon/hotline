@@ -577,6 +577,8 @@ impl Seat {
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
                     | Command::FileRead { .. }
+                    // A picture is no more private than the name beside it.
+                    | Command::AvatarRead { .. }
                     // Older lines of a tape the phone already reads.
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }

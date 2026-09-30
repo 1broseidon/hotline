@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// The options for every job, with the choice made and what automatic would
 /// pick now. `images_spent` is the image tally and `voice_spent` voice's own;
 /// the two are kept apart on disk, so the spending shown is their sum.
-pub fn options(
+pub async fn options(
     vault: &Arc<Vault>,
     log: &Log,
     images_spent: Result<SpendingSummary, String>,
@@ -31,7 +31,7 @@ pub fn options(
     let images: ImageSettings =
         serde_json::from_value(settings["images"].clone()).unwrap_or_default();
     let image_options = imagegen::options(vault);
-    let speech = speech::options(vault);
+    let speech = speech::options(vault).await;
 
     CapabilityOptions {
         images: CapabilityJob {

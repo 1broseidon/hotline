@@ -318,7 +318,11 @@ an existing container. Secret-grant edits are handed to a running computer.
 connections `images.status` and `voice.status` resolve from. Its spending
 figures are the caps in `settings.spending`, which govern images and voice
 alike, and the sum of the image tally and voice's own tally, which are still two
-separate files. Voice reads `settings.spending` when the owner has set it and
+separate files. The `stt` and `tts` options are every speech model each
+connected provider offers, as the provider lists them (cached for a day; the
+provider's default when it cannot be asked), with voices on each speaking
+model and the default model first; see `docs/voice.md`. The command may wait on
+those lists for up to five seconds; starting a call does not. Voice reads `settings.spending` when the owner has set it and
 falls back to `settings.voice.dayUsd` and `monthUsd` otherwise.
 
 `images` is an `ImageSettings` object `{provider?: string, model?: string}`,

@@ -26,6 +26,9 @@ body, because a provider's error text can echo what was said.
 
 ## Providers
 
+These are the defaults, what a provider uses when the owner picks nothing and
+what the picker shows when a provider cannot be asked what else it offers.
+
 | Connected as | Listens with | Speaks with |
 | -- | -- | -- |
 | `openai` | `gpt-4o-mini-transcribe` | `gpt-4o-mini-tts`, voice `marin`, WAV |
@@ -47,6 +50,30 @@ inline (`audio/mp4` goes as `audio/m4a`), and speaks with `generateContent` on
 the TTS model, sending the words and nothing else: Gemini TTS reads any style
 instruction aloud. It returns raw PCM at the rate its mime type names, which is
 wrapped as a WAV. The key travels in `x-goog-api-key`, never the URL.
+
+### What the picker offers
+
+Settings › Providers › Use for lists every speech model the owner's connected
+providers offer, not just the defaults. `capabilities.options` asks each
+built-in provider for its model list and sorts it into hearing and speaking
+models: OpenAI (`transcribe` and `whisper` ids, and `tts` ids, without dated
+snapshots or the diarizing model), Google (Gemini flash text models for
+hearing, `-tts` models for speaking), Groq (`whisper*`, `orpheus*`), Mistral
+(Voxtral for hearing only, leaving out its realtime models) and OpenRouter
+(its speech and transcription catalogues, with each model's own
+`supported_voices`; a model that lists no voices is left out, because we
+cannot ask it for one). OpenAI, Google and Groq do not list voices, so the
+documented sets are used, the default first. All OpenRouter models are asked
+for MP3; OpenAI and Google for WAV; Groq's Orpheus for WAV, 200 characters a
+request.
+
+Each provider's list is cached for a day in `cache/speech-models-{provider}.json`
+under the room, holding model names and voices and never a key. Fetches time out
+after five seconds and run together; one that fails falls back to the cached copy,
+even a stale one, and then to the provider's default, so the picker is never
+empty for want of a network. Starting a call never asks: it resolves from
+settings, the defaults and the cache. A model picked without a voice speaks in
+its own first voice.
 
 Not covered: xAI, whose speech is `/v1/tts` and `/v1/stt` and not the OpenAI
 shape (its voice is reachable through OpenRouter), and Mistral's voice, which

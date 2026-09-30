@@ -2,13 +2,15 @@
 //! by default. There is never a new key: a provider counts only if the owner
 //! has already connected it.
 
+use super::catalog::{self, Found};
 use super::google::{self, Google};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechSet, TurnClock};
 use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use crate::voice::settings::{Choice, VoiceSettings};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// A voice and the model that speaks it.
@@ -101,6 +103,8 @@ struct Connection {
     key: Option<String>,
     /// A custom connection's model ids, which are all we know of what it serves.
     models: Vec<String>,
+    /// The room's data root, where what the provider offers is cached.
+    root: Option<PathBuf>,
 }
 
 impl Connection {
@@ -171,9 +175,17 @@ fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> 
         }
         None => None,
     }?;
+    // A model the owner picked that is not the default may not know the
+    // default's voice, so it speaks in its own first voice unless told.
+    let voice = named_voice.or_else(|| {
+        let model = named_model
+            .as_deref()
+            .filter(|model| *model != default.model)?;
+        catalog::default_voice(connection.root.as_deref(), &connection.provider_id, model)
+    });
     Some(Speaking {
         model: named_model.unwrap_or(default.model),
-        voice: named_voice.unwrap_or(default.voice),
+        voice: voice.unwrap_or(default.voice),
         ..default
     })
 }
@@ -188,13 +200,34 @@ pub struct Options {
 }
 
 /// Every connected provider's models for each speech job, from the same
-/// connections `resolve` reads. Only a custom connection offers more than
-/// its provider's default model, because its model ids are all we know.
-pub fn options(vault: &Vault) -> Options {
-    options_from(&connections(vault))
+/// connections `resolve` reads. A built-in provider is asked what it offers
+/// (or answers from a day-old copy); if it cannot be asked and nothing is
+/// cached, it offers its default. A custom connection offers the models its
+/// own ids say do the job, because those ids are all we know.
+pub async fn options(vault: &Vault) -> Options {
+    let connections = connections(vault);
+    let endpoints: Vec<_> = connections
+        .iter()
+        .filter(|connection| row(&connection.provider_id).is_some())
+        .map(Connection::endpoint)
+        .collect();
+    let found: HashMap<String, Found> = catalog::discover_all(Some(vault.root()), &endpoints)
+        .await
+        .into_iter()
+        .collect();
+    options_from(&connections, &found)
 }
 
-fn options_from(connections: &[Connection]) -> Options {
+/// The default first, so the picker leads with what automatic would use.
+fn default_first<T>(mut models: Vec<T>, default: &str, id: impl Fn(&T) -> &str) -> Vec<T> {
+    if let Some(at) = models.iter().position(|model| id(model) == default) {
+        let model = models.remove(at);
+        models.insert(0, model);
+    }
+    models
+}
+
+fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> Options {
     let provider = |connection: &Connection, models: Vec<CapabilityModel>| CapabilityProvider {
         provider_id: connection.provider_id.clone(),
         provider_name: connection.name.clone(),
@@ -208,8 +241,23 @@ fn options_from(connections: &[Connection]) -> Options {
     let mut stt = Vec::new();
     let mut tts = Vec::new();
     for connection in connections {
-        let hears: Vec<String> = match row(&connection.provider_id) {
-            Some(row) => vec![row.listen.to_string()],
+        let offered = found.get(&connection.provider_id);
+        let hears: Vec<CapabilityModel> = match row(&connection.provider_id) {
+            Some(row) => {
+                let models: Vec<CapabilityModel> = match offered {
+                    Some(found) if !found.listen.is_empty() => found
+                        .listen
+                        .iter()
+                        .map(|model| CapabilityModel {
+                            id: model.id.clone(),
+                            label: model.label.clone(),
+                            voices: None,
+                        })
+                        .collect(),
+                    _ => vec![plain(row.listen.to_string())],
+                };
+                default_first(models, row.listen, |model| &model.id)
+            }
             None => connection
                 .models
                 .iter()
@@ -220,21 +268,36 @@ fn options_from(connections: &[Connection]) -> Options {
                         .any(|word| id.contains(word))
                 })
                 .cloned()
+                .map(plain)
                 .collect(),
         };
         if !hears.is_empty() {
-            stt.push(provider(connection, hears.into_iter().map(plain).collect()));
+            stt.push(provider(connection, hears));
         }
         let speaks: Vec<CapabilityModel> = match row(&connection.provider_id) {
             Some(Row {
-                speak: Some((model, ..)),
+                speak: Some((default, _, _, _)),
                 voices,
                 ..
-            }) => vec![CapabilityModel {
-                id: model.to_string(),
-                label: None,
-                voices: Some(voices.iter().map(|voice| voice.to_string()).collect()),
-            }],
+            }) => {
+                let models: Vec<CapabilityModel> = match offered {
+                    Some(found) if !found.speak.is_empty() => found
+                        .speak
+                        .iter()
+                        .map(|model| CapabilityModel {
+                            id: model.id.clone(),
+                            label: model.label.clone(),
+                            voices: Some(model.voices.clone()),
+                        })
+                        .collect(),
+                    _ => vec![CapabilityModel {
+                        id: default.to_string(),
+                        label: None,
+                        voices: Some(voices.iter().map(|voice| voice.to_string()).collect()),
+                    }],
+                };
+                default_first(models, default, |model| &model.id)
+            }
             Some(_) => Vec::new(),
             None => connection
                 .models
@@ -278,6 +341,7 @@ fn options_from(connections: &[Connection]) -> Options {
 /// The connected providers in the order the owner connected them, one each.
 fn connections(vault: &Vault) -> Vec<Connection> {
     let auth = vault.provider_auth();
+    let root = vault.root();
     let mut seen = HashSet::new();
     vault
         .list()
@@ -286,13 +350,13 @@ fn connections(vault: &Vault) -> Vec<Connection> {
         .filter_map(|credential| {
             let auth = auth.get(&credential.provider_id)?;
             seen.insert(credential.provider_id.clone())
-                .then(|| connection(&credential.provider_id, auth))
+                .then(|| connection(&credential.provider_id, auth, root))
                 .flatten()
         })
         .collect()
 }
 
-fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
+fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Connection> {
     if let Some(row) = row(provider_id) {
         let key = match auth {
             ProviderAuth::ApiKey(key) => key.clone(),
@@ -308,6 +372,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
             base_url: row.base_url.to_string(),
             key: Some(key),
             models: Vec::new(),
+            root: Some(root.to_path_buf()),
         });
     }
     match auth {
@@ -322,6 +387,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
             base_url: base_url.clone(),
             key: api_key.clone(),
             models: config.models.clone(),
+            root: None,
         }),
         _ => None,
     }
@@ -472,6 +538,7 @@ mod tests {
                 .to_string(),
             key: Some("test-key".to_string()),
             models: Vec::new(),
+            root: None,
         }
     }
 
@@ -482,6 +549,7 @@ mod tests {
             base_url: "https://gateway.example/v1/openai".to_string(),
             key: None,
             models: models.iter().map(|model| model.to_string()).collect(),
+            root: None,
         }
     }
 
@@ -708,11 +776,14 @@ mod tests {
 
     #[test]
     fn the_options_are_what_the_connected_providers_can_do() {
-        let options = options_from(&[
-            connected("mistral"),
-            connected("openai"),
-            custom(&["llama-3", "whisper-1", "my-tts"]),
-        ]);
+        let options = options_from(
+            &[
+                connected("mistral"),
+                connected("openai"),
+                custom(&["llama-3", "whisper-1", "my-tts"]),
+            ],
+            &HashMap::new(),
+        );
         let names = |providers: &[CapabilityProvider]| {
             providers
                 .iter()
@@ -739,7 +810,7 @@ mod tests {
             ),
             ("openai", Some("gpt-4o-mini-tts"), Some("marin"))
         );
-        let none = options_from(&[]);
+        let none = options_from(&[], &HashMap::new());
         assert!(none.stt.is_empty() && none.tts.is_empty());
         assert!(none.automatic_stt.is_none() && none.automatic_tts.is_none());
     }
@@ -751,5 +822,123 @@ mod tests {
         vault.create("anthropic", "Claude", "sk-ant").unwrap();
         vault.create("xai", "Grok", "xai-key").unwrap();
         assert!(resolve(&vault, &VoiceSettings::default()).is_err());
+    }
+
+    fn found(listen: &[&str], speak: &[(&str, &[&str])]) -> Found {
+        Found {
+            fetched_at: 0,
+            listen: listen
+                .iter()
+                .map(|id| catalog::Heard {
+                    id: id.to_string(),
+                    label: None,
+                })
+                .collect(),
+            speak: speak
+                .iter()
+                .map(|(id, voices)| catalog::Spoken {
+                    id: id.to_string(),
+                    label: Some(format!("Label of {id}")),
+                    voices: voices.iter().map(|voice| voice.to_string()).collect(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn discovered_models_fill_the_options_with_the_default_first() {
+        let discovered = HashMap::from([(
+            "openrouter".to_string(),
+            found(
+                &["deepgram/nova-3", "openai/whisper-large-v3-turbo"],
+                &[
+                    ("hexgrad/kokoro-82m", &["af_heart", "af_bella"]),
+                    ("x-ai/grok-voice-tts-1.0", &["eve", "ara"]),
+                ],
+            ),
+        )]);
+        // Groq is connected too but nothing was discovered for it.
+        let options = options_from(&[connected("openrouter"), connected("groq")], &discovered);
+        let stt: Vec<_> = options.stt[0]
+            .models
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect();
+        assert_eq!(stt, ["openai/whisper-large-v3-turbo", "deepgram/nova-3"]);
+        let tts = &options.tts[0].models;
+        assert_eq!(tts[0].id, "x-ai/grok-voice-tts-1.0");
+        assert_eq!(
+            tts[0].label.as_deref(),
+            Some("Label of x-ai/grok-voice-tts-1.0")
+        );
+        assert_eq!(tts[1].voices.as_ref().unwrap(), &["af_heart", "af_bella"]);
+        assert_eq!(options.stt[1].models[0].id, "whisper-large-v3-turbo");
+        assert_eq!(options.tts[1].models[0].id, "canopylabs/orpheus-v1-english");
+    }
+
+    #[test]
+    fn only_connected_providers_are_offered_even_if_more_were_discovered() {
+        let discovered = HashMap::from([
+            (
+                "openai".to_string(),
+                found(&["whisper-1"], &[("tts-1", &["alloy"])]),
+            ),
+            ("groq".to_string(), found(&["whisper-large-v3"], &[])),
+        ]);
+        let options = options_from(&[connected("groq")], &discovered);
+        assert_eq!(options.stt.len(), 1);
+        assert_eq!(options.stt[0].provider_id, "groq");
+        assert!(options.tts[0].provider_id == "groq");
+    }
+
+    #[test]
+    fn a_picked_openrouter_model_and_voice_is_what_speaks() {
+        let settings = VoiceSettings {
+            stt: Some(pick("openrouter", Some("deepgram/nova-3"), None)),
+            tts: Some(pick(
+                "openrouter",
+                Some("hexgrad/kokoro-82m"),
+                Some("af_bella"),
+            )),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&[connected("openrouter")], &settings).unwrap();
+        assert_eq!(
+            ids(&set),
+            (
+                id("openrouter", "deepgram/nova-3", None),
+                id("openrouter", "hexgrad/kokoro-82m", Some("af_bella")),
+                None,
+            )
+        );
+        assert_eq!(set.tts.output_mime(), "audio/mpeg");
+    }
+
+    #[test]
+    fn a_picked_model_without_a_voice_speaks_in_its_own_first_voice() {
+        let root = tempfile::tempdir().unwrap();
+        catalog::write(
+            root.path(),
+            "openrouter",
+            &found(&[], &[("hexgrad/kokoro-82m", &["af_heart"])]),
+        );
+        let mut openrouter = connected("openrouter");
+        openrouter.root = Some(root.path().to_path_buf());
+        let settings = VoiceSettings {
+            tts: Some(pick("openrouter", Some("hexgrad/kokoro-82m"), None)),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&[openrouter], &settings).unwrap();
+        assert_eq!(
+            set.tts.id(),
+            id("openrouter", "hexgrad/kokoro-82m", Some("af_heart"))
+        );
+        // Groq's Arabic model cannot speak the English default voice.
+        let settings = VoiceSettings {
+            tts: Some(pick("groq", Some("canopylabs/orpheus-arabic-saudi"), None)),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&[connected("groq")], &settings).unwrap();
+        assert_eq!(set.tts.id().voice.as_deref(), Some("abdullah"));
     }
 }

@@ -130,6 +130,14 @@ pub fn acp_registry_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-registry.json")
 }
 
+/// The speech models a provider offered when last asked, for the "Use for"
+/// pickers. A cache and nothing more: it holds model names and voices, never
+/// a key, and deleting it costs one fetch.
+pub fn speech_models_path(root: &Path, provider_id: &str) -> PathBuf {
+    root.join("cache")
+        .join(format!("speech-models-{provider_id}.json"))
+}
+
 /// The skills gateway: the operator's folder of skills, one directory each,
 /// granted per teammate. Made on first use; empty until a skill is added.
 pub fn skills_path(root: &Path) -> PathBuf {

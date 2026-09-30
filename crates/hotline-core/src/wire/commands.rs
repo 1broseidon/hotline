@@ -33,7 +33,10 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
-        Command::CapabilitiesOptions {} => room.capability_options().map(|options| json!(options)),
+        Command::CapabilitiesOptions {} => room
+            .capability_options()
+            .await
+            .map(|options| json!(options)),
         Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
         Command::VoiceCallStart { call_id } => {
             Ok(json!(voice(room)?.start(&call_id, room.clone())?))

@@ -177,13 +177,17 @@ function splitVoiceId(id: string): { providerId: string; modelId: string; voiceI
 	return { providerId, modelId, voiceId };
 }
 
-/** Every voice of every connected speaking model, under its provider. */
+/**
+ * Every voice of every connected speaking model, under its provider, and
+ * under the model too where a provider has several: "OpenRouter · Grok Voice TTS 1.0".
+ */
 function allVoices(job: CapabilityJob): PickerChoice[] {
 	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: "Automatic" }];
 	for (const provider of job.options) {
 		for (const model of provider.models) {
+			const group = provider.models.length > 1 ? `${provider.providerName} · ${model.label ?? shortModel(model.id)}` : provider.providerName;
 			for (const voice of model.voices ?? []) {
-				choices.push({ id: voiceId(provider.providerId, model.id, voice), name: voiceName(voice) ?? voice, group: provider.providerName });
+				choices.push({ id: voiceId(provider.providerId, model.id, voice), name: voiceName(voice) ?? voice, group });
 			}
 		}
 	}

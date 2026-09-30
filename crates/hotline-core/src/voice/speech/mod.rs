@@ -12,6 +12,7 @@
 //! runs from transcription to the first synthesized clip on a shared adapter
 //! set ([`TurnClock`]); the desk separately times its first published clip.
 
+mod catalog;
 mod clip;
 mod google;
 mod openai_shape;

@@ -365,8 +365,10 @@ export class Call {
 					this.set({ phase: "hearing" });
 					break;
 				case "drop":
+					// Silence, or a steady noise taken for speech until the floor caught up: nothing to send.
 					this.frames = [];
 					this.heard = false;
+					if (this.snapshot.phase === "hearing") this.set({ phase: "listening" });
 					break;
 				case "end":
 					this.send();

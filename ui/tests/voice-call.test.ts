@@ -93,6 +93,14 @@ describe("a call with the desk", () => {
 		expect(r.call.current.phase).toBe("thinking");
 	});
 
+	test("a steady noise is dropped, not sent, and the call listens again", async () => {
+		const r = rig();
+		await r.call.start();
+		r.speak(0.05, 1_000, 6_000);
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(0);
+		expect(r.call.current.phase).toBe("listening");
+	});
+
 	test("the desk thinking while a clip plays does not leave the mic shut", async () => {
 		const r = rig();
 		await r.call.start();

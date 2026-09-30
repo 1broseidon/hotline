@@ -13,6 +13,32 @@ import {
 const SPEECH = 0.1;
 const QUIET = 0.004;
 
+/**
+ * A person talking from `from` to `to`: loud and softer by turns, the way
+ * syllables are, and never still. A constant level for seconds is a room, not
+ * a voice, and is tested as one below.
+ */
+function talk(detector: TurnDetector, from: number, to: number, every = 16): TurnEvent[] {
+	const events: TurnEvent[] = [];
+	for (let now = from; now < to; now += every) {
+		const syllable = Math.floor(now / 120) % 2 === 0;
+		events.push(...detector.push(syllable ? 0.12 : 0.05, now));
+	}
+	return events;
+}
+
+/** A fan at `level` from `from` to `to`: steady, give or take a few percent. */
+function fan(detector: TurnDetector, level: number, from: number, to: number, every = 16): TurnEvent[] {
+	const events: TurnEvent[] = [];
+	for (let now = from; now < to; now += every) {
+		events.push(...detector.push(level * (1 + 0.1 * Math.sin(now / 90)), now));
+	}
+	return events;
+}
+
+/** What happened to a turn, without the clips of silence dropped every 8 seconds on the way. */
+const turns = (events: TurnEvent[]) => events.filter((event) => !(event.kind === "drop" && event.reason === "idle"));
+
 /** A meter reporting `level` from `from` to `to`, every `every` ms. */
 function run(detector: TurnDetector, level: number, from: number, to: number, every = 16): TurnEvent[] {
 	const events: TurnEvent[] = [];
@@ -68,7 +94,7 @@ describe("a turn", () => {
 
 	test("is cut at 20 seconds however long the person keeps talking", () => {
 		const detector = new TurnDetector(0);
-		const events = run(detector, SPEECH, 0, MAX_TURN_MS + 1000);
+		const events = talk(detector, 0, MAX_TURN_MS + 1000);
 		expect(events.map((event) => event.kind)).toEqual(["start", "end"]);
 		const end = events[1]!;
 		expect(end.kind === "end" && end.reason).toBe("max");
@@ -80,7 +106,7 @@ describe("a turn", () => {
 		const detector = new TurnDetector(0);
 		const events = [
 			...run(detector, QUIET, 0, 7000),
-			...run(detector, SPEECH, 7000, MAX_TURN_MS + 1000),
+			...talk(detector, 7000, MAX_TURN_MS + 1000),
 		];
 		expect(events.map((event) => event.kind)).toEqual(["start", "end"]);
 		expect(events[1]!.at).toBeLessThanOrEqual(MAX_TURN_MS + 16);
@@ -154,8 +180,16 @@ describe("the noise floor", () => {
 
 	test("does not learn speech as the room", () => {
 		const detector = new TurnDetector(0);
-		run(detector, SPEECH, 0, 5000);
+		talk(detector, 0, 15_000);
 		expect(detector.noiseFloor).toBeCloseTo(0.008, 5);
+	});
+
+	test("does not let a long turn of speech become its own noise", () => {
+		const detector = new TurnDetector(0);
+		const events = [...talk(detector, 0, 15_000), ...run(detector, QUIET, 15_000, 16_500)];
+		expect(events.map((event) => event.kind)).toEqual(["start", "end"]);
+		const end = events[1]!;
+		expect(end.kind === "end" && end.reason).toBe("silence");
 	});
 
 	test("survives a meter that reports nonsense", () => {
@@ -164,6 +198,73 @@ describe("the noise floor", () => {
 		expect(detector.push(-1, 16)).toEqual([]);
 		expect(detector.push(Number.POSITIVE_INFINITY, 32)).toEqual([]);
 		expect(Number.isFinite(detector.noiseFloor)).toBe(true);
+	});
+});
+
+describe("a room that gets louder", () => {
+	test("a fan that comes on is taken for a person at first, then learned as the room and dropped", () => {
+		const detector = new TurnDetector(0);
+		expect(run(detector, QUIET, 0, 1000)).toEqual([]);
+		const events = fan(detector, 0.03, 1000, 12_000);
+		// Loud enough to be voice, so a turn starts; but it never ends as one.
+		expect(events.map((event) => event.kind)).toEqual(["start", "drop"]);
+		const drop = events[1]!;
+		expect(drop.kind === "drop" && drop.reason).toBe("noise");
+		expect(drop.at - 1000).toBeLessThan(6000);
+		expect(detector.noiseFloor).toBeGreaterThan(0.009);
+	});
+
+	test("and does not start again while the fan runs", () => {
+		const detector = new TurnDetector(0);
+		fan(detector, 0.03, 0, 12_000);
+		expect(turns(fan(detector, 0.03, 12_000, 60_000))).toEqual([]);
+		// The floor keeps closing on the fan's own level, and stays under it.
+		expect(detector.noiseFloor).toBeGreaterThan(0.02);
+		expect(detector.noiseFloor).toBeLessThan(0.03);
+	});
+
+	test("a person talking over a fan that has been learned is still heard", () => {
+		const detector = new TurnDetector(0);
+		fan(detector, 0.03, 0, 20_000);
+		const events: TurnEvent[] = [];
+		for (let now = 20_000; now < 22_000; now += 16) {
+			const syllable = Math.floor(now / 120) % 2 === 0;
+			events.push(...detector.push((syllable ? 0.3 : 0.15) + 0.03, now));
+		}
+		events.push(...fan(detector, 0.03, 22_000, 24_000));
+		expect(events.map((event) => event.kind)).toEqual(["start", "end"]);
+		const end = events[1]!;
+		expect(end.kind === "end" && end.reason).toBe("silence");
+	});
+
+	test("a level held at speech volume is a room too, and is never sent as a 20 second clip", () => {
+		const detector = new TurnDetector(0);
+		const events = turns(run(detector, SPEECH, 0, MAX_TURN_MS + 5000));
+		expect(events.map((event) => event.kind)).toEqual(["start", "drop"]);
+		expect(events.some((event) => event.kind === "end")).toBe(false);
+	});
+
+	test("a level that is only a little above the floor, never loud enough to start a turn, still raises it", () => {
+		const detector = new TurnDetector(0);
+		// 0.02 is over twice the floor (0.008) and under what starts a turn (0.0256).
+		expect(turns(run(detector, 0.02, 0, 20_000))).toEqual([]);
+		expect(detector.noiseFloor).toBeGreaterThan(0.017);
+	});
+
+	test("the floor rises at the same pace however often the meter reports", () => {
+		const fast = new TurnDetector(0);
+		const slow = new TurnDetector(0);
+		run(fast, 0.03, 0, 10_000, 16);
+		run(slow, 0.03, 0, 10_000, 100);
+		expect(Math.abs(fast.noiseFloor - slow.noiseFloor)).toBeLessThan(0.002);
+	});
+
+	test("silence after a noisy room lets the floor fall again", () => {
+		const detector = new TurnDetector(0);
+		fan(detector, 0.03, 0, 15_000);
+		const loud = detector.noiseFloor;
+		run(detector, QUIET, 15_000, 25_000);
+		expect(detector.noiseFloor).toBeLessThan(loud / 2);
 	});
 });
 

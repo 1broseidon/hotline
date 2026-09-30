@@ -101,6 +101,22 @@ with no utterance behind it (a delivery):
 [voice] utterance to first clip openai/gpt-4o-mini-tts: 1412ms
 ```
 
+## Clip checks
+
+`voice/speech/clip.rs` has two checks that need only a clip's size and length.
+Neither is called by the speech layer; the desk asks them beside its own.
+
+- `billable_ms(mime, bytes, claimed_ms) -> u32` is what a speech-to-text
+  reservation should use for a clip's length. An MP4 carries its length in a
+  header the client wrote, so an MP4 is never billed for less than could fit in
+  its bytes at 32 kbit/s (at most 20 s); a WAV is billed as claimed, since its
+  length is its size.
+- `plausible_goodbye(duration_ms, bytes) -> bool` is a necessary condition for
+  hanging up on a farewell: a clip of at least 400 ms (`MIN_GOODBYE_MS`) with at
+  least a byte for each millisecond. Whisper-style engines answer noise with
+  "Bye." or "Thank you.", so the desk asks `goodbye(text) &&
+  plausible_goodbye(duration_ms, bytes)`.
+
 ## The ledger
 
 `voice/ledger.rs` keeps today's and this month's spend in

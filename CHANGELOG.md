@@ -15,10 +15,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the window asks for the address of the page you land on and finishes the
   sign-in with it. Only that sign-in's own callback is accepted, and a wrong
   address leaves it waiting (BRO-154).
+- On a served box, `hotline pair`, `devices`, `revoke`, `status` and `wire` find
+  the service's room without `HOTLINE_DATA_DIR`: with no `--data`, no
+  `HOTLINE_DATA_DIR` and no desk in your own data folder, they use the room the
+  hotline service names, then `/var/lib/hotline/room`. When your account cannot
+  read that room, the error names it and the `sudo -u` command to run as the
+  service's user, and "no door.json" points at the service's room (BRO-152).
 - Anonymous connections behind a tunnel can no longer hold a fixed set of
   slots and block paired devices from reconnecting. Pending sockets rotate
   under pressure and expire five seconds after acceptance; authenticated room
   and viewer sockets use separate device-based limits (BRO-163).
+- A blank desktop's setup screen offers Connect to a server beside creating a
+  first teammate, so a computer that only reaches a server never has to make a
+  local teammate to get past it. Pairing switches the window to the new desk
+  even when the shell announces the desk list after answering the pairing
+  (BRO-151).
 
 ### Security
 

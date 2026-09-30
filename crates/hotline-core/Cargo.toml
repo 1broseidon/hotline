@@ -32,8 +32,9 @@ agent-client-protocol = { version = "=2.0.0", features = ["unstable_end_turn_tok
 # `compat` bridges ACP futures-io; `io` streams staged computer uploads.
 tokio-util = { version = "0.7", features = ["compat", "io"] }
 # Keep TLS explicit rather than inheriting it from Rig. Computer file uploads
-# stream their staged bodies instead of buffering whole files in memory.
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "stream"] }
+# stream their staged bodies instead of buffering whole files in memory, and a
+# spoken clip goes to a speech-to-text provider as a multipart form.
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
 url = "2.5.8"
 # Canonical paths without Windows' \\?\ prefix, for paths a person or a message will show.
 dunce = "1.0.5"

@@ -89,6 +89,7 @@ impl Room {
         let mut spent_usd = 0.0;
         let mut failure = None;
         for generator in std::iter::once(generators.primary).chain(generators.fallback) {
+            let subscription = generator.subscription();
             if let Some(capability) = &capability {
                 capability.check()?;
             }
@@ -99,6 +100,9 @@ impl Room {
                     }
                     .to_string(),
                 );
+                if subscription {
+                    break;
+                }
                 continue;
             }
             let settings = crate::room::try_settings(self.log())?;
@@ -109,12 +113,18 @@ impl Room {
                     .unwrap_or_else(|| json!({})),
             )
             .map_err(|_| "The room's spending settings could not be read.".to_string())?;
+            current.validate()?;
             let estimate = generator.estimate_usd(&request);
             let ledger = self.spending.clone();
-            let reservation =
-                tokio::task::spawn_blocking(move || ledger.reserve(&current, estimate))
-                    .await
-                    .map_err(|_| "The image's spending could not be reserved.".to_string())??;
+            let reservation = if subscription {
+                None
+            } else {
+                Some(
+                    tokio::task::spawn_blocking(move || ledger.reserve(&current, estimate))
+                        .await
+                        .map_err(|_| "The image's spending could not be reserved.".to_string())??,
+                )
+            };
             if let Some(capability) = &capability {
                 capability.check()?;
             }
@@ -126,7 +136,7 @@ impl Room {
                 }) => Some(0.0),
                 Err(_) => None,
             };
-            if let Some(cost) = charge {
+            if let (Some(cost), Some(reservation)) = (charge, reservation) {
                 tokio::task::spawn_blocking(move || reservation.charge(cost))
                     .await
                     .map_err(|_| "The image's cost could not be recorded.".to_string())??;
@@ -136,6 +146,9 @@ impl Room {
                 Ok(image) => image,
                 Err(error) => {
                     failure = Some(error.to_string());
+                    if subscription {
+                        break;
+                    }
                     continue;
                 }
             };
@@ -175,14 +188,18 @@ impl Room {
                 capability,
             )
             .await?;
-            return Ok(json!({
+            let mut result = json!({
                 "path": path,
                 "model": model,
                 "costUsd": spent_usd,
                 "seconds": started.elapsed().as_secs_f64(),
                 "transparent": transparent,
-            })
-            .to_string());
+            });
+            if subscription {
+                result["costUsd"] = Value::Null;
+                result["billing"] = json!("subscription");
+            }
+            return Ok(result.to_string());
         }
         Err(failure.unwrap_or_else(|| "No connected provider could make this image.".into()))
     }

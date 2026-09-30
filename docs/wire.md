@@ -358,6 +358,26 @@ provider, model and usage summary; no raw room content is included.
 Credentials and keys are never returned. Owners and the local desk may ask;
 companions receive `forbidden`. Test room handles default to unavailable.
 
+Experimental Codex subscription images require an existing Hotline ChatGPT
+sign-in and explicit `settings.images.provider: "openai-codex"`. The only
+supported model is `gpt-image-2` (also the default). This connection is never
+auto-selected or used as a fallback, and never falls back to a paid provider.
+`available` means configured and selected, not verified image entitlement:
+status neither refreshes the login nor calls the provider. Clear the provider
+selection to return to automatic API-provider selection.
+
+The existing `generate_image` tool uses the Codex backend's internal image
+endpoints, with automatic size and quality; aspect is a prompt instruction,
+not a guaranteed pixel ratio. It supports up to five PNG, JPEG or WebP
+references. It refreshes only Hotline's saved login, never starts a login or
+reads Codex CLI credentials. Subscription results return `costUsd: null` and
+`billing: "subscription"`; paid-provider results retain their existing numeric
+cost. Subscription calls do not reserve or charge the dollar ledger, including
+when dollar spending is disabled or exhausted. Malformed settings still refuse.
+Upstream subscription limits still apply, and refusals are not retried through
+another provider. This internal endpoint may change; live compatibility and
+account entitlement must be verified separately before relying on it.
+
 `computer.capacity` reports totals, not free resources, cached for about a
 minute per runtime preference. Docker/Podman totals take precedence, then
 host totals, then four CPUs and 8 GiB. A stopped installed runtime keeps its

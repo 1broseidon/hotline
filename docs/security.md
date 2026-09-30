@@ -115,7 +115,7 @@ PNG, JPEG, WebP and SVG bypass photo-to-JPEG normalization, preserve alpha
 and are limited to 2048 pixels on their longer edge. Decoding and reference
 reads have byte and allocation ceilings.
 
-Each provider attempt reserves its estimate durably before the request,
+Each dollar-billed provider attempt reserves its estimate durably before the request,
 including the single fallback. A successful result settles its reported
 cost, or the estimate if absent. Provider 400–499 refusals settle at zero;
 timeouts, server failures, malformed responses and cancelled requests retain
@@ -140,6 +140,26 @@ references, fallback reservation, disabled spending, excluded subagents and
 revocation. `sent::generated::tests` proves format/alpha retention and size
 limits; `spending::tests` proves durable, concurrent, fail-closed accounting.
 The wire tests prove owner/desk status and companion refusals.
+
+Codex subscription images are experimental and opt-in through the owner's
+explicit `settings.images.provider: "openai-codex"` selection. The resolver
+excludes this connection from automatic selection and fallback in either
+direction. It reuses Hotline's saved login and noninteractive Rig refresh,
+never Codex CLI's credential directory; the image destination is fixed to
+the ChatGPT Codex backend and HTTP redirects are disabled. Subscription
+requests bypass dollar reservations without modifying the ledger and report
+unknown monetary cost (`costUsd: null`, `billing: "subscription"`). Dollar
+caps do not constrain subscription quota. The tool still validates settings,
+checks reach and capability leases, and posts through the same file path.
+`imagegen::tests` proves the JSON request and account headers against localhost,
+login rereads and safe refusals; resolver tests prove explicit selection and
+no paid fallback. `session::generate::tests` proves subscription output and
+unchanged dollar accounting even with disabled or exhausted budgets.
+`wire::tests::chatgpt_images_status_requires_owner_selection_without_checking_entitlement`
+proves selected status and companion denial through the real handler. Status
+is configuration, not an entitlement check. Live compatibility is unverified;
+the internal upstream endpoint can change or reject an account independently
+of a successful sign-in. No automatic retry or paid fallback masks that failure.
 
 Residual risk: dispatched provider work can finish and cost money after
 revocation; it cannot be recalled. A reported price above its estimate is

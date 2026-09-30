@@ -21,6 +21,7 @@ impl ProviderKeys for NoKeys {
 }
 
 struct Fake {
+    subscription: bool,
     model: &'static str,
     estimate: f64,
     cost: Option<f64>,
@@ -35,6 +36,7 @@ struct Fake {
 impl Fake {
     fn new(model: &'static str) -> Arc<Self> {
         Arc::new(Self {
+            subscription: false,
             model,
             estimate: 0.01,
             cost: Some(0.006),
@@ -50,6 +52,9 @@ impl Fake {
 
 #[async_trait]
 impl ImageGen for Fake {
+    fn subscription(&self) -> bool {
+        self.subscription
+    }
     fn id(&self) -> ImageId {
         ImageId {
             provider_id: "fake".into(),
@@ -171,6 +176,86 @@ fn attachments(room: &Room) -> Vec<Value> {
         .filter_map(|event| event.get("attachments").cloned())
         .flat_map(|value| value.as_array().unwrap().clone())
         .collect()
+}
+
+#[tokio::test]
+async fn subscription_images_report_unknown_cost_without_touching_dollar_spending() {
+    let (dir, room, tools) = room();
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.estimate = 0.0;
+    provider.cost = None;
+    install(&room, fake, None);
+    room.spending
+        .reserve(&SpendingSettings::default(), 1.0)
+        .unwrap()
+        .charge(1.0)
+        .unwrap();
+    let ledger_path = room.log().root().join("spending.json");
+    let before = std::fs::read(&ledger_path).unwrap();
+    for cap in [0.0, 0.5] {
+        settings(&room, cap);
+        let result: Value = serde_json::from_str(
+            &tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(result["costUsd"].is_null());
+        assert_eq!(result["billing"], "subscription");
+        assert!(
+            Path::new(result["path"].as_str().unwrap()).starts_with(dir.path().join("workspace"))
+        );
+        assert_eq!(
+            std::fs::read(result["path"].as_str().unwrap()).unwrap(),
+            png()
+        );
+        assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+    }
+    assert_eq!(attachments(&room).len(), 2);
+}
+
+#[tokio::test]
+async fn a_subscription_refusal_never_tries_a_paid_fallback() {
+    let (_dir, room, tools) = room();
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.error = Some(ImageError::Refused {
+        provider_id: "openai-codex".into(),
+        status: 403,
+    });
+    let paid = Fake::new("paid");
+    install(&room, fake, Some(paid.clone()));
+    let error = tools
+        .call("generate_image", &json!({"prompt":"draw"}))
+        .await
+        .unwrap_err();
+    assert!(error.contains("403"));
+    assert!(paid.requests.lock().unwrap().is_empty());
+    assert!(!room.log().root().join("spending.json").exists());
+}
+
+#[tokio::test]
+async fn subscription_images_cannot_read_references_outside_the_workspace() {
+    let (dir, room, tools) = room();
+    std::fs::write(dir.path().join("outside.png"), png()).unwrap();
+    let mut fake = Fake::new("subscription-image");
+    Arc::get_mut(&mut fake).unwrap().subscription = true;
+    install(&room, fake.clone(), None);
+    let error = tools
+        .call(
+            "generate_image",
+            &json!({
+                "prompt":"edit", "references":["../outside.png"]
+            }),
+        )
+        .await;
+    assert!(error.is_err());
+    assert!(fake.requests.lock().unwrap().is_empty());
+    assert!(attachments(&room).is_empty());
 }
 
 #[tokio::test]

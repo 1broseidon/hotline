@@ -10,6 +10,7 @@
 //! workspace, the conversation), what they may cost (the spend ledger) and
 //! who may ask (the `generate_image` tool) live with their callers.
 
+mod chatgpt;
 mod google;
 mod http;
 mod openai;
@@ -111,6 +112,7 @@ pub struct Image {
 /// provider's error text can echo the prompt or a reference image.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImageError {
+    SignInRequired,
     /// Nothing was asked for.
     EmptyPrompt,
     /// A reference in a format the adapter cannot send.
@@ -134,6 +136,10 @@ pub enum ImageError {
 impl fmt::Display for ImageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ImageError::SignInRequired => write!(
+                f,
+                "The ChatGPT sign-in could not be refreshed. Sign in again under Settings → Providers."
+            ),
             ImageError::EmptyPrompt => write!(f, "There was nothing to draw."),
             ImageError::UnsupportedReference(mime) => {
                 write!(f, "An image of type {mime} can't be used as a reference.")
@@ -146,6 +152,33 @@ impl fmt::Display for ImageError {
             }
             ImageError::Unreachable { provider_id } => {
                 write!(f, "{provider_id} could not be reached.")
+            }
+            ImageError::Refused {
+                provider_id,
+                status,
+            } if provider_id == chatgpt::PROVIDER_ID && *status == 401 => {
+                write!(
+                    f,
+                    "ChatGPT refused the sign-in (HTTP 401). Reconnect it under Settings → Providers."
+                )
+            }
+            ImageError::Refused {
+                provider_id,
+                status,
+            } if provider_id == chatgpt::PROVIDER_ID && *status == 403 => {
+                write!(
+                    f,
+                    "ChatGPT refused image access (HTTP 403). This account may not have access to Codex images."
+                )
+            }
+            ImageError::Refused {
+                provider_id,
+                status,
+            } if provider_id == chatgpt::PROVIDER_ID && *status == 429 => {
+                write!(
+                    f,
+                    "ChatGPT's image usage or rate limit was reached (HTTP 429). Try again later."
+                )
             }
             ImageError::Refused {
                 provider_id,
@@ -166,6 +199,9 @@ impl std::error::Error for ImageError {}
 #[async_trait]
 pub trait ImageGen: Send + Sync {
     fn id(&self) -> ImageId;
+    fn subscription(&self) -> bool {
+        false
+    }
     /// Whether this model can leave the background transparent.
     fn transparent(&self) -> bool;
     /// How many reference images it takes; zero for none.

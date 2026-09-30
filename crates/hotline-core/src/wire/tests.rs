@@ -4676,6 +4676,52 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
 }
 
 #[tokio::test]
+async fn chatgpt_images_status_requires_owner_selection_without_checking_entitlement() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let log = crate::log::Log::open(root.path());
+    let vault = crate::vault::Vault::open_with_store(root.path(), log, store.clone()).unwrap();
+    let (id, token_dir) = vault.begin_login("openai-codex").unwrap();
+    vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+    drop(vault);
+    let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store).unwrap());
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let request = json!({"id": 1, "cmd": "images.status", "params": {}});
+    let automatic = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
+    assert_eq!(automatic["result"]["available"], false);
+    let selected = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({
+            "id": 2, "cmd": "settings.update", "params": {"patch": {
+                "images": {"provider": "openai-codex"}
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(selected["ok"], true);
+    let denied = remote_control_answer(Seat::Phone, &handle, &desk.log, request.clone()).await;
+    assert_eq!(denied["code"], FORBIDDEN);
+    for seat in [Seat::Owner, Seat::Desk] {
+        let status = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        assert_eq!(status["result"]["available"], true);
+        assert_eq!(status["result"]["provider"], "openai-codex");
+        assert_eq!(status["result"]["model"], "gpt-image-2");
+        assert!(
+            !status
+                .to_string()
+                .contains(&token_dir.to_string_lossy().to_string())
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(token_dir.join("auth.json")).unwrap(),
+        "{}"
+    );
+}
+
+#[tokio::test]
 async fn image_and_spending_settings_are_typed_validated_and_resettable() {
     let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
     let root = tempfile::tempdir().unwrap();

@@ -507,7 +507,7 @@ fn executable(path: &Path) -> bool {
 /// the text of a passwd file. A person's account is one a login can use: a uid
 /// in the range a Linux distribution gives people, a shell that is not
 /// `nologin` or `false`, and a home that is a path.
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 fn read_accounts(passwd: &str, uid: u32) -> (Option<String>, Vec<Account>) {
     let mut own = None;
     let mut others = Vec::new();
@@ -732,6 +732,7 @@ mod tests {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    #[cfg(unix)]
     fn somebody(name: &str, home: &Path) -> Account {
         Account {
             name: name.to_string(),
@@ -748,6 +749,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     const PASSWD: &str = "\
 root:x:0:0:root:/root:/bin/bash
 daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
@@ -762,7 +764,9 @@ broken:x:not-a-number:1:::/bin/sh
 ";
 
     /// A person's account is one a login can use; the desk's own is whatever
-    /// account has its uid.
+    /// account has its uid. Unix only, like the lookup: `/home/agent` is not
+    /// an absolute path on Windows.
+    #[cfg(unix)]
     #[test]
     fn people_are_the_accounts_a_login_could_use() {
         let (own, others) = read_accounts(PASSWD, 998);

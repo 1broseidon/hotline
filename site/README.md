@@ -26,7 +26,11 @@ curl -fsSL https://hotline.dev/install | sh -s -- --server --yes \
 ```
 
 `--yes` only skips installation confirmation: a fresh server still needs its
-listen address and public URL when no terminal is attached. Changing settings
+listen address and public URL when no terminal is attached. `--user NAME` runs
+a first-install desk as that user, with their home and PATH, so it sees their
+`claude` and `codex`; run under `sudo` it defaults to the person who ran sudo,
+and `--user hotline` keeps the separate service account. An upgrade never
+changes the user, and `--user` on an installed desk is refused. Changing settings
 at the same version needs `--force`. A subsequent server update should use
 `hotline update --check` or `sudo hotline update`, not bootstrap the service again.
 The server release asset is a `.tar.gz` containing the binary and unit, not a

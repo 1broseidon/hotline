@@ -10,6 +10,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A harness the desk cannot start now says why when the CLI is installed for
+  someone else on the machine ("claude is installed for agent, but the desk
+  runs as hotline …") or is in the desk's own home or a system folder but off
+  its PATH, instead of only "Not installed". The desk checks that an
+  executable exists and opens nobody's files. The server installer takes
+  `--user NAME` on a first install, running the desk as that user with their
+  home and PATH (default: whoever ran `sudo`; `--user hotline` keeps the
+  service account), so a served desk sees the `claude` and `codex` installed
+  for its user (BRO-139).
 - Anonymous connections behind a tunnel can no longer hold a fixed set of
   slots and block paired devices from reconnecting. Pending sockets rotate
   under pressure and expire five seconds after acceptance; authenticated room

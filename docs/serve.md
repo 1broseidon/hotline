@@ -23,11 +23,78 @@ sudo systemctl enable --now hotline
 ```
 
 The unit runs `hotline serve --store file` with explicit network flags as
-`hotline`, with the room at
+`hotline` (or the user the installer was told to use, below), with the room at
 `/var/lib/hotline/room`. It sets `HOME`, `PATH` and `HOTLINE_DATA_DIR`
 itself instead of reading a login shell, so add to its `PATH` whatever
 your teammates' tools need (Node for `npx`, a harness's install directory).
 Docker or Podman is needed only for teammates with a computer.
+
+## Harnesses, and the account the desk runs as
+
+The desk finds a harness's CLI (`claude`, `codex`, `gemini` and the rest) on
+its own `PATH`, as its own user, and a harness signs in with files in that
+user's home (`~/.claude.json`, `~/.codex/auth.json`). The unit runs the desk
+as `hotline`, with `HOME=/var/lib/hotline`, so a CLI you installed and signed
+in to as yourself is invisible to it: the teammate list shows the row as not
+available.
+
+The row says why. When the CLI is installed for another user on this machine:
+
+> claude is installed for agent, but the desk runs as hotline. Run the desk as
+> agent (see docs/serve.md), or install claude for hotline.
+
+When it is in the desk's own home or a system folder but not on its `PATH`:
+
+> claude is at /var/lib/hotline/.local/bin/claude, which is not on the desk's
+> PATH. Add /var/lib/hotline/.local/bin to PATH in the service unit (see
+> docs/serve.md).
+
+Anything else stays "Not installed". The desk only checks that an executable
+exists, in `~/.local/bin`, `~/.npm-global/bin` and `~/.claude/local` of each
+login account, and never opens anyone's files; a home it may not enter, which
+Ubuntu makes the default, says nothing.
+
+Two ways to fix it:
+
+- **Run the desk as the user who has the CLIs.** On a first install, the
+  installer does this for whoever ran it with `sudo`, and `--user NAME` names
+  someone else (`--user hotline` keeps the separate service account):
+
+  ```sh
+  curl -fsSL https://hotline.dev/install | sh -s -- --server --user "$USER"
+  ```
+
+  It sets `User=`, `Group=`, `HOME` and a `PATH` that starts with
+  `~/.local/bin` and `~/.npm-global/bin`, creates `/var/lib/hotline` open to
+  enter, and makes the room, `/var/lib/hotline/room`, that user's alone. It
+  does not create the `hotline` account. The installer only chooses at the
+  first install: `--user` on an installed desk is refused, and an upgrade
+  never changes the user.
+- **Keep the service account and install the CLI for it,** signing in as that
+  account.
+
+To move an installed desk to a user, stop it, hand over the room and drop the
+account in with an override:
+
+```sh
+sudo systemctl stop hotline
+sudo chown -R agent:agent /var/lib/hotline/room
+sudo chmod o+x /var/lib/hotline
+sudo systemctl edit hotline    # then paste the four lines below
+sudo systemctl start hotline
+```
+
+```ini
+[Service]
+User=agent
+Group=agent
+Environment=HOME=/home/agent
+Environment=PATH=/home/agent/.local/bin:/home/agent/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+```
+
+A desk that runs as you runs its teammates' tools as you, with your home in
+reach of whatever a teammate is allowed to touch. Use the service account on a
+server that is shared or holds anything you would not hand an agent.
 
 ## Listen and TLS
 

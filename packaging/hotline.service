@@ -3,7 +3,9 @@
 # Install: copy the `hotline` binary to /usr/local/bin, create the account
 # (`useradd --system --create-home --home-dir /var/lib/hotline hotline`),
 # copy this file to /etc/systemd/system/, set --listen and --public-url below
-# for this host, then `systemctl enable --now hotline`.
+# for this host, then `systemctl enable --now hotline`. To run the desk as a
+# login user (so it sees the claude and codex installed for them) instead, the
+# installer's --user does it; docs/serve.md has the same by hand.
 #
 # The environment is spelled out rather than borrowed from a login shell:
 # HOME and PATH are where the teammates' tools (git, node, npx, docker) are

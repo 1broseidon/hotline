@@ -18,6 +18,23 @@ release's checksums, installs `hotline` to `/usr/local/bin`, creates the
 `--listen` and `--public-url`. Once the desk is up it shows a pairing QR, so
 keep your phone handy.
 
+By default the desk runs as its own `hotline` account, which can't see the
+`claude` or `codex` you installed and signed in to as yourself. To run it as
+you instead, pass `--user`, or run the installer with `sudo`, which uses your
+name:
+
+```sh
+curl -fsSL https://hotline.dev/install | sh -s -- --server --user "$USER"
+```
+
+The unit then runs as you, with your home, and puts `~/.local/bin` and
+`~/.npm-global/bin` first on its `PATH`. `--user hotline` keeps the separate
+account. It only applies to a first install; an upgrade never changes who the
+desk runs as. A desk that runs as you runs its teammates' tools as you, so use
+the service account on a server that is shared or holds anything you wouldn't
+hand an agent. [Harnesses and the account the desk runs as](https://github.com/1broseidon/hotline/blob/main/docs/serve.md)
+covers moving a desk that is already installed.
+
 The installer detects an existing install and reports its version and the
 available version. It asks before updating when a terminal is attached;
 `--yes` skips that question, as does running without a terminal. An install

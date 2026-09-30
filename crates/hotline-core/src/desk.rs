@@ -72,6 +72,7 @@ enum LoginOutcome {
 
 /// Everything that runs behind one data directory.
 pub struct Desk {
+    voice: Arc<crate::voice::Calls>,
     remote: Mutex<Weak<crate::remote::Remote>>,
     pub log: Log,
     room: Arc<Room>,
@@ -119,6 +120,7 @@ impl Desk {
             });
         }));
         Ok(Desk {
+            voice: crate::voice::Calls::new(log.clone()),
             log,
             room,
             vault,
@@ -171,6 +173,9 @@ impl Drop for Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
+        Some(self.voice.clone())
+    }
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         self.remote
             .lock()
@@ -1228,6 +1233,7 @@ mod tests {
         let room = Room::with_agents(log.clone(), Arc::new(TestKeys), agents.clone());
         let vault = Arc::new(Vault::open(&root, log.clone()).unwrap());
         let desk = Desk {
+            voice: crate::voice::Calls::new(log.clone()),
             remote: Mutex::default(),
             log: log.clone(),
             room,

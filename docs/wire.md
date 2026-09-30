@@ -855,3 +855,45 @@ Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection
 floods or a proxy that refuses traffic. Public deployments still need edge
 traffic controls.
+
+## Voice calls (integration branch)
+
+Voice commands and `{"call":"<callId>"}` subscriptions are available to the
+local desk and paired owners. Companions receive `code: "forbidden"`.
+An owner hello advertises `voice` when `voice.status` reports availability.
+This first integration milestone uses a canned transcript, a canned reply and
+a short WAV tone. The provider-backed pipeline replaces those fixtures before
+release. Enable it only on a scratch desk with
+`settings.update {patch:{voice:{stub:true}}}`; it is disabled by default.
+
+| Command | Params | Result |
+| --- | --- | --- |
+| `voice.status` | `{}` | `VoiceStatus`: availability, provider/model selections and budget |
+| `voice.call_start` | `{callId}` | `{callId,input:["audio/wav","audio/mp4"],output:"audio/wav"}` |
+| `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
+| `voice.interrupt` | `{callId}` | void |
+| `voice.hold` | `{callId,hold}` | void |
+| `voice.call_end` | `{callId}` | void |
+
+`callId` is a client-generated UUID. Repeating a retained id returns the same
+call descriptor. A different id ends the previous call with `replaced`.
+Utterances carry standard base64, at most 2 MiB decoded audio and 20 seconds;
+`seq` increases per call. Calls end after ten minutes without activity.
+
+The call subscription starts with a one-element `snapshot` containing its
+`state` event. Updates use the normal `event` envelope:
+
+| Event | Fields |
+| --- | --- |
+| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason` |
+| `heard` | `seq`, `text` |
+| `said` | `id`, `text` |
+| `clip` | matching `id`, `index`, `final`, `mimeType`, base64 `data` |
+| `delivery` | `personaId`, `eventId`, narrated `text` |
+| `card` | `personaId`, `requestId`, `kind` |
+
+An end reason is `client`, `goodbye`, `budget`, `replaced`, `error` or `idle`.
+Each clip is a complete playable sentence. A subscriber that misses events
+must reconnect; the desk closes that socket rather than silently dropping audio.
+Provider selections in `VoiceStatus` are optional when unavailable; `unavailable`
+is a sentence explaining what the owner needs to change.

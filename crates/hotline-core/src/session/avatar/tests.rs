@@ -202,21 +202,41 @@ async fn only_an_image_inside_the_workspace_can_be_a_picture() {
 }
 
 #[tokio::test]
-async fn set_avatar_takes_a_path_or_clear_and_nothing_else() {
+async fn set_avatar_needs_a_path_or_clear_and_says_what_it_got() {
     let (_dir, _room, tools) = room();
-    for arguments in [
-        json!({}),
-        json!({ "path": "a.png", "clear": true }),
-        json!({ "clear": false }),
-        json!({ "path": " " }),
-        json!({ "path": "a.png", "by": "person" }),
+    for (arguments, sent) in [
+        (json!({}), "nothing"),
+        (json!({ "clear": false }), "`clear`"),
+        (json!({ "path": " " }), "`path`"),
+        (json!({ "path": 7, "clear": null }), "`path`, `clear`"),
     ] {
         let error = tools.call("set_avatar", &arguments).await.unwrap_err();
+        assert!(error.contains("either a `path`"), "{error}");
         assert!(
-            error.contains("either a `path` or `clear: true`"),
+            error.ends_with(&format!("this call sent {sent}.")),
             "{error}"
         );
     }
+}
+
+#[test]
+fn a_path_wins_over_whatever_else_the_model_filled_in() {
+    for arguments in [
+        json!({ "path": " a.png ", "clear": true }),
+        json!({ "path": "a.png", "clear": false }),
+        json!({ "path": "a.png", "clear": null, "by": "person" }),
+    ] {
+        assert_eq!(
+            requested_path(&arguments).unwrap(),
+            Some("a.png".into()),
+            "{arguments}"
+        );
+    }
+    assert_eq!(requested_path(&json!({ "clear": true })).unwrap(), None);
+    assert_eq!(
+        requested_path(&json!({ "path": "", "clear": true })).unwrap(),
+        None
+    );
 }
 
 #[test]

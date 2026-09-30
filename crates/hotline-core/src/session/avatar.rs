@@ -15,7 +15,6 @@ use crate::paths;
 use crate::sent;
 use crate::tools::Workspace;
 use image::{DynamicImage, ImageFormat, RgbaImage};
-use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::io::{Cursor, Write};
@@ -29,11 +28,35 @@ const MAX_SOURCE_EDGE: u32 = 16_000;
 /// Pixels fainter than this count as empty when looking for the subject.
 const SUBJECT_ALPHA: u8 = 8;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Arguments {
-    path: Option<String>,
-    clear: Option<bool>,
+/// What `set_avatar` was asked to do: a path wins over anything else sent
+/// with it, because models fill in properties they were told to leave out
+/// (a strict route makes them fill every one), and a picture it named is
+/// plainly what it meant. Only a call with no usable path and no
+/// `clear: true` is refused, and the refusal names what arrived so the
+/// next try can differ.
+fn requested_path(arguments: &Value) -> Result<Option<String>, String> {
+    if let Some(path) = arguments
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        return Ok(Some(path.to_string()));
+    }
+    if arguments.get("clear").and_then(Value::as_bool) == Some(true) {
+        return Ok(None);
+    }
+    let sent = match arguments.as_object() {
+        Some(object) if !object.is_empty() => object
+            .keys()
+            .map(|key| format!("`{key}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => "nothing".to_string(),
+    };
+    Err(format!(
+        "set_avatar needs either a `path` (a string naming an image in your workspace) or `clear: true`; this call sent {sent}."
+    ))
 }
 
 impl Room {
@@ -45,13 +68,7 @@ impl Room {
         arguments: &Value,
         capability: Option<CapabilityLease>,
     ) -> Result<String, String> {
-        let args: Arguments = serde_json::from_value(arguments.clone())
-            .map_err(|_| "set_avatar needs either a `path` or `clear: true`.".to_string())?;
-        let path = match (args.path, args.clear) {
-            (Some(path), None | Some(false)) if !path.trim().is_empty() => Some(path),
-            (None, Some(true)) => None,
-            _ => return Err("set_avatar needs either a `path` or `clear: true`.".into()),
-        };
+        let path = requested_path(arguments)?;
         self.refuse_over_the_persons_choice(persona_id)?;
         let prepared = match path {
             Some(path) => {

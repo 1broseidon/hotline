@@ -269,7 +269,7 @@ fn descriptors() -> Vec<Tool> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1, "description": "The image file in your workspace." },
-                    "clear": { "type": "boolean", "enum": [true], "description": "Go back to your initial instead of a picture. Give this or a path, not both." },
+                    "clear": { "type": "boolean", "description": "Only to go back to your initial; leave it out when you give a path." },
                 },
                 "additionalProperties": false,
             })),

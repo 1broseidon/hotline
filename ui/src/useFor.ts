@@ -146,7 +146,7 @@ export function usd(amount: number): string {
 }
 
 export function spentText(spending: CapabilityOptions["spending"]): string {
-	const text = `${usd(spending.spentDayUsd)} of ${usd(spending.dayUsd)} today · ${usd(spending.spentMonthUsd)} of ${usd(spending.monthUsd)} this month`;
+	const text = `${usd(spending.spentDayUsd)} spent today · ${usd(spending.spentMonthUsd)} this month`;
 	return spending.unavailable === undefined ? text : `${text} (some spending could not be read)`;
 }
 

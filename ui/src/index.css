@@ -505,7 +505,14 @@
 	/* Use for: a job's model and its voice share a row, and a resolved
 	 * Automatic reads "Automatic · Provider · model", which needs the room. */
 	.use-for .picker {
-		max-width: 260px;
+		max-width: 200px;
+	}
+	/* Voice's own parts, opened under it: indented so they read as its. */
+	.use-for-nested {
+		padding-left: 28px;
+	}
+	.use-for-nested .group-row-title {
+		color: var(--ink-2);
 	}
 	/* The same pull-down inside a form: framed like a key. */
 	.picker-field {

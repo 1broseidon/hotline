@@ -79,8 +79,8 @@ describe("a write to settings.voice", () => {
 describe("the spending line", () => {
 	const spending = { dayUsd: 2, monthUsd: 20, spentDayUsd: 0.14, spentMonthUsd: 1.02 };
 
-	test("says what is spent against each cap", () => {
-		expect(spentText(spending)).toBe("$0.14 of $2.00 today · $1.02 of $20.00 this month");
+	test("says what is spent today and this month; the caps are beside it", () => {
+		expect(spentText(spending)).toBe("$0.14 spent today · $1.02 this month");
 	});
 
 	test("never shows a real spend as nothing, and owns up to an unread tally", () => {

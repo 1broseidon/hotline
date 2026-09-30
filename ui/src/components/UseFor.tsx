@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
-import type { CapabilityJob, CapabilityOptions } from "../generated/contract";
+import type { CapabilityJob, CapabilityOptions, CapabilityPick } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
+import { ChevronDownIcon } from "../icons";
 import {
 	AUTOMATIC,
 	choicesFor,
 	currentId,
 	parseCap,
+	type PickerChoice,
+	shortModel,
 	spentText,
 	splitPickId,
 	stored,
-	voiceChoices,
-	voiceOf,
 	voicePatch,
 	type Stored,
 } from "../useFor";
@@ -59,17 +60,29 @@ export function UseFor({
 		return stored(providerId, modelId);
 	};
 
+	const [more, setMore] = useState(false);
 	const speaking = options.tts;
-	const voices = voiceChoices(speaking);
+	const speakingNow = speaking.selected ?? speaking.automatic;
+	const hearingNow = options.stt.selected ?? options.stt.automatic;
+
+	// One voice pick sets who speaks and, when that provider can also hear,
+	// who listens: a call is one provider unless the owner splits it below.
+	const pickVoice = (id: string) => {
+		if (id === AUTOMATIC) return write({ voice: voicePatch(voicePatch(voice, "tts", null), "stt", null) });
+		const { providerId, modelId, voiceId } = splitVoiceId(id);
+		let next = voicePatch(voice, "tts", stored(providerId, modelId, voiceId));
+		if (options.stt.options.some((one) => one.providerId === providerId)) next = voicePatch(next, "stt", stored(providerId, undefined));
+		write({ voice: next });
+	};
 
 	return (
 		<section>
 			<h3 className="group-title">Use for</h3>
 			<div className="grouped use-for">
-				<JobRow title="Images" detail="Pictures teammates draw" job={options.images}>
+				<JobRow title="Images" detail={inUse(options.images.selected ?? options.images.automatic)} job={options.images}>
 					<Picker
 						value={currentId(options.images)}
-						choices={choicesFor(options.images)}
+						choices={shortChoices(options.images)}
 						placeholder="Automatic"
 						label="Model for images"
 						onChange={(id) => {
@@ -78,61 +91,131 @@ export function UseFor({
 						}}
 					/>
 				</JobRow>
-				<JobRow title="Voice · hearing" detail="Turns what you say into text" job={options.stt}>
+				<JobRow
+					title="Voice"
+					detail={
+						speakingNow === undefined
+							? "Talk to the desk"
+							: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}${
+									hearingNow !== undefined && hearingNow.providerId !== speakingNow.providerId ? `, hearing through ${hearingNow.providerName}` : ""
+								}`
+					}
+					job={speaking}
+				>
 					<Picker
-						value={currentId(options.stt)}
-						choices={choicesFor(options.stt)}
+						value={currentVoiceId(speaking)}
+						choices={allVoices(speaking)}
 						placeholder="Automatic"
-						label="Model for hearing you"
-						onChange={(id) => setVoice("stt", pickModel(id))}
+						label="Voice"
+						onChange={pickVoice}
 					/>
+					<button
+						type="button"
+						className="control btn-icon"
+						aria-expanded={more}
+						aria-label="More voice settings"
+						title="Hearing and call assistant"
+						onClick={() => setMore((was) => !was)}
+					>
+						<ChevronDownIcon className={more ? "rotate-180" : ""} />
+					</button>
 				</JobRow>
-				<JobRow title="Voice · speaking" detail="Speaks the answer in a call" job={speaking}>
-					<Picker
-						value={currentId(speaking)}
-						choices={choicesFor(speaking)}
-						placeholder="Automatic"
-						label="Model for speaking"
-						onChange={(id) => setVoice("tts", pickModel(id))}
-					/>
-					{voices.length > 1 && (
-						<Picker
-							value={speaking.selected?.voice ?? AUTOMATIC}
-							choices={voices}
-							placeholder={voiceOf(speaking) ?? "Voice"}
-							label="Voice"
-							onChange={(voiceId) => {
-								// A voice belongs to a provider, so naming one while the
-								// provider is Automatic pins the one Automatic chose.
-								const pick = speaking.selected ?? speaking.automatic;
-								if (pick === undefined) return;
-								setVoice("tts", stored(pick.providerId, pick.modelId, voiceId === AUTOMATIC ? undefined : voiceId));
-							}}
-						/>
-					)}
-				</JobRow>
-				<JobRow title="Voice · call assistant" detail="Answers while you talk, and hands work to teammates" job={options.dispatcher}>
-					<Picker
-						value={currentId(options.dispatcher)}
-						choices={choicesFor(options.dispatcher)}
-						placeholder="Automatic"
-						label="Model for the call assistant"
-						onChange={(id) => setVoice("dispatcher", pickModel(id))}
-					/>
-				</JobRow>
+				{more && (
+					<>
+						<JobRow title="Hearing" detail="Turns what you say into text" job={options.stt} nested>
+							<Picker
+								value={currentId(options.stt)}
+								choices={shortChoices(options.stt)}
+								placeholder="Automatic"
+								label="Model for hearing you"
+								onChange={(id) => setVoice("stt", pickModel(id))}
+							/>
+						</JobRow>
+						<JobRow title="Call assistant" detail="Answers while you talk and hands work to teammates" job={options.dispatcher} nested>
+							<Picker
+								value={currentId(options.dispatcher)}
+								choices={shortChoices(options.dispatcher)}
+								placeholder="Automatic"
+								label="Model for the call assistant"
+								onChange={(id) => setVoice("dispatcher", pickModel(id))}
+							/>
+						</JobRow>
+					</>
+				)}
 				<SpendingRow spending={options.spending} onWrite={write} />
 			</div>
-			<p className="group-hint">Automatic uses the first connected provider that can do the job. One cap covers images and voice; zero turns them off.</p>
+			<p className="group-hint">Automatic picks the first connected provider that can do the job. The limit covers images and voice together; zero turns them off.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
 }
 
+/** What a job runs on now, as its row's second line. */
+function inUse(pick: CapabilityPick | undefined): string {
+	if (pick === undefined) return "Nothing connected can do this";
+	return [pick.providerName, pick.modelId === undefined ? undefined : shortModel(pick.modelId)].filter(Boolean).join(" · ");
+}
+
+/** The picker's own words stay short: the row's second line says what Automatic comes to. */
+function shortChoices(job: CapabilityJob): PickerChoice[] {
+	return choicesFor(job).map((choice) => (choice.id === AUTOMATIC ? { ...choice, name: "Automatic" } : choice));
+}
+
+/** Voices read as names: "eve" is Eve. */
+function voiceName(voice: string | undefined): string | undefined {
+	return voice === undefined ? undefined : voice.charAt(0).toUpperCase() + voice.slice(1);
+}
+
+const VOICE_SEPARATOR = "\u001f";
+
+function voiceId(providerId: string, modelId: string, voiceId: string): string {
+	return [providerId, modelId, voiceId].join(VOICE_SEPARATOR);
+}
+
+function splitVoiceId(id: string): { providerId: string; modelId: string; voiceId: string } {
+	const [providerId = "", modelId = "", voiceId = ""] = id.split(VOICE_SEPARATOR);
+	return { providerId, modelId, voiceId };
+}
+
+/** Every voice of every connected speaking model, under its provider. */
+function allVoices(job: CapabilityJob): PickerChoice[] {
+	const choices: PickerChoice[] = [{ id: AUTOMATIC, name: "Automatic" }];
+	for (const provider of job.options) {
+		for (const model of provider.models) {
+			for (const voice of model.voices ?? []) {
+				choices.push({ id: voiceId(provider.providerId, model.id, voice), name: voiceName(voice) ?? voice, group: provider.providerName });
+			}
+		}
+	}
+	return choices;
+}
+
+function currentVoiceId(job: CapabilityJob): string {
+	const selected = job.selected;
+	if (selected === undefined) return AUTOMATIC;
+	const provider = job.options.find((one) => one.providerId === selected.providerId);
+	const model = provider?.models.find((one) => one.id === selected.modelId) ?? provider?.models[0];
+	const voice = selected.voice ?? model?.voices?.[0];
+	return model === undefined || voice === undefined ? AUTOMATIC : voiceId(selected.providerId, model.id, voice);
+}
+
 /** A job's row: its name and what it is for, then its pickers, or the sentence that says what to connect. */
-function JobRow({ title, detail, job, children }: { title: string; detail: string; job: CapabilityJob; children: React.ReactNode }) {
+function JobRow({
+	title,
+	detail,
+	job,
+	nested = false,
+	children,
+}: {
+	title: string;
+	detail: string;
+	job: CapabilityJob;
+	nested?: boolean;
+	children: React.ReactNode;
+}) {
 	const nothing = job.options.length === 0;
 	return (
-		<div className="group-row">
+		<div className={nested ? "group-row use-for-nested" : "group-row"}>
 			<span className="group-row-text">
 				<span className="group-row-title">{title}</span>
 				<span className="group-row-detail" style={nothing ? { whiteSpace: "normal" } : undefined}>
@@ -146,16 +229,14 @@ function JobRow({ title, detail, job, children }: { title: string; detail: strin
 
 function SpendingRow({ spending, onWrite }: { spending: CapabilityOptions["spending"]; onWrite(patch: Record<string, unknown>): void }) {
 	return (
-		<div className="group-row flex-wrap">
-			<span className="group-row-text" style={{ minWidth: "14rem" }}>
-				<span className="group-row-title">Spending</span>
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					{spentText(spending)}
-				</span>
+		<div className="group-row">
+			<span className="group-row-text">
+				<span className="group-row-title">Spending limit</span>
+				<span className="group-row-detail">{spentText(spending)}</span>
 			</span>
-			<span className="flex shrink-0 items-center gap-2 text-sm text-ink-2">
-				<Cap label="Daily cap" value={spending.dayUsd} unit="a day" onCommit={(dayUsd) => onWrite({ spending: { dayUsd, monthUsd: spending.monthUsd } })} />
-				<Cap label="Monthly cap" value={spending.monthUsd} unit="a month" onCommit={(monthUsd) => onWrite({ spending: { dayUsd: spending.dayUsd, monthUsd } })} />
+			<span className="flex shrink-0 items-center gap-3 text-sm text-ink-3">
+				<Cap label="Daily limit" value={spending.dayUsd} unit="/ day" onCommit={(dayUsd) => onWrite({ spending: { dayUsd, monthUsd: spending.monthUsd } })} />
+				<Cap label="Monthly limit" value={spending.monthUsd} unit="/ month" onCommit={(monthUsd) => onWrite({ spending: { dayUsd: spending.dayUsd, monthUsd } })} />
 			</span>
 		</div>
 	);

@@ -435,8 +435,13 @@ returned through the wire; acquired keys remain in the private vault.
 protected-resource and authorization-server metadata, register a native
 client only when the advertised DCR endpoint exists, and return an
 authorization URL. The browser returns to the native loopback listener;
-`mcp.auth_callback` is available for an embedding that delivers that URL
-itself. `mcp.auth_status` reports `signed_out`, `pending`, `signed_in` or
+`mcp.auth_callback` is for a browser that is not on the desk's machine. The
+window on a laptop uses it for a desk on a server: the redirect lands on the
+laptop's own `127.0.0.1` and fails to load, so the person pastes the address
+of the page it ends on. Only that login's own callback finishes it: the
+redirect's scheme, host, port and path, no userinfo or fragment, and the
+login's `state`. A wrong address leaves the sign-in waiting for the right one,
+and no answer repeats the address, which carries the code. `mcp.auth_status` reports `signed_out`, `pending`, `signed_in` or
 `failed`; its result never includes an access token, refresh token or client
 secret. `mcp.auth_sign_out` revokes the live gateway capability before it
 deletes the registration and tokens from the protected vault. Signing in

@@ -76,6 +76,9 @@ mod tests;
 /// run to completion.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
+    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
+        None
+    }
     /// Remote owns a room handle, so implementations retain only a weak reference.
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         None
@@ -586,6 +589,14 @@ impl Seat {
         capabilities
     }
 
+    fn capabilities_for(self, room: &dyn RoomHandle) -> Vec<&'static str> {
+        let mut capabilities = self.capabilities();
+        if self == Seat::Owner && room.voice().is_some_and(|voice| voice.status().available) {
+            capabilities.push("voice");
+        }
+        capabilities
+    }
+
     pub fn permits_sub(&self, target: &Target) -> bool {
         match self {
             Seat::Desk | Seat::Owner => true,
@@ -827,7 +838,7 @@ where
                 "protocolVersion": 1,
                 "desktopId": desktop_id,
                 "mode": "team",
-                "capabilities": Seat::for_phone(&phone).capabilities(),
+                "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
             })
             .to_string(),
         ))
@@ -858,7 +869,7 @@ where
             "protocolVersion": 2,
             "desktopId": desktop_id,
             "mode": "team",
-            "capabilities": Seat::for_phone(&phone).capabilities(),
+            "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
         }).to_string())) => result?,
     }
     seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
@@ -1333,6 +1344,45 @@ fn subscribe(
     }
 
     let stream = match target {
+        Target::Call(call_id) => {
+            let voice = room
+                .voice()
+                .ok_or_else(|| "Voice is not available on this desk.".to_string())?;
+            let (snapshot, mut events) = voice.subscribe(&call_id)?;
+            reply(sender, id, Ok(Value::Null));
+            if !send(sender, json!({"sub": id, "snapshot": [snapshot]})) {
+                return Ok(());
+            }
+            let sender = sender.clone();
+            subscriptions.insert(
+                id,
+                tokio::spawn(async move {
+                    loop {
+                        match events.recv().await {
+                            Ok(event) => {
+                                let ended = matches!(
+                                    event,
+                                    crate::contract::VoiceEvent::State {
+                                        state: crate::contract::VoiceState::Ended,
+                                        ..
+                                    }
+                                );
+                                if !send(&sender, json!({"sub": id, "event": event})) || ended {
+                                    break;
+                                }
+                            }
+                            Err(broadcast::error::RecvError::Lagged(_)) => {
+                                // Missing a clip changes what was said. Reconnect for a fresh state.
+                                sender.cancel.cancel();
+                                break;
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                }),
+            );
+            return Ok(());
+        }
         // The list is read before the subscription is acknowledged, because a
         // teammate the room does not hold, or a room that cannot be read, is
         // a refusal — never `ok` followed by an empty list. The room stream

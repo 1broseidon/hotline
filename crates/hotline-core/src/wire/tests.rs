@@ -4182,6 +4182,71 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
 }
 
 #[tokio::test]
+async fn voice_is_owner_only_through_the_real_handler() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    Log::open(root.path())
+        .append(
+            &StreamId::Room,
+            &json!({"kind":"setting","id":"voice","value":{"stub":true}}),
+        )
+        .unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let call = uuid::Uuid::new_v4().to_string();
+    for (command, params) in [
+        ("voice.status", json!({})),
+        ("voice.call_start", json!({"callId":call})),
+        (
+            "voice.utterance",
+            json!({"callId":call,"seq":1,"mimeType":"audio/wav","data":"","durationMs":100}),
+        ),
+        ("voice.interrupt", json!({"callId":call})),
+        ("voice.hold", json!({"callId":call,"hold":true})),
+        ("voice.call_end", json!({"callId":call})),
+    ] {
+        let denied = remote_control_answer(
+            Seat::Phone,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":command,"params":params}),
+        )
+        .await;
+        assert_eq!(denied["code"], FORBIDDEN, "{denied}");
+    }
+    let denied = remote_control_answer(
+        Seat::Phone,
+        &room,
+        &desk.log,
+        json!({"id":2,"sub":{"call":call}}),
+    )
+    .await;
+    assert_eq!(denied["code"], FORBIDDEN);
+    for seat in [Seat::Desk, Seat::Owner] {
+        let allowed = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":3,"cmd":"voice.call_start","params":{"callId":call}}),
+        )
+        .await;
+        assert_eq!(allowed["ok"], true, "{allowed}");
+    }
+    assert!(
+        Seat::Owner
+            .capabilities_for(room.as_ref())
+            .contains(&"voice")
+    );
+    assert!(
+        !Seat::Phone
+            .capabilities_for(room.as_ref())
+            .contains(&"voice")
+    );
+}
+
+#[tokio::test]
 async fn cookie_push_is_operator_only_through_the_real_handler() {
     let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
     let root = tempfile::tempdir().unwrap();

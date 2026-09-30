@@ -25,6 +25,30 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
+        Command::VoiceCallStart { call_id } => Ok(json!(voice(room)?.start(&call_id)?)),
+        Command::VoiceUtterance {
+            call_id,
+            seq,
+            mime_type,
+            data,
+            duration_ms,
+        } => {
+            voice(room)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceInterrupt { call_id } => {
+            voice(room)?.interrupt(&call_id)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceHold { call_id, hold } => {
+            voice(room)?.hold(&call_id, hold)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceCallEnd { call_id } => {
+            voice(room)?.end(&call_id)?;
+            Ok(Value::Null)
+        }
         Command::FilesBrowse { path } => {
             tokio::task::spawn_blocking(move || super::files::browse(&path))
                 .await
@@ -533,6 +557,11 @@ pub(crate) async fn run(
             .await
             .map(|()| Value::Null),
     }
+}
+
+fn voice(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::voice::Calls>, String> {
+    room.voice()
+        .ok_or_else(|| "Voice is not available on this desk.".into())
 }
 
 fn now() -> i64 {

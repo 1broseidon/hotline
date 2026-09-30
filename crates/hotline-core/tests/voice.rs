@@ -33,6 +33,24 @@ async fn until(socket: &mut Socket, matches: impl Fn(&Value) -> bool) -> Value {
 
 #[tokio::test]
 async fn a_voice_call_carries_heard_said_and_a_playable_clip() {
+    voice_reply_is_delivered("The failing PR needs a test fix.", 1).await;
+}
+
+#[tokio::test]
+async fn a_reply_with_trailing_whitespace_is_delivered_in_the_call() {
+    voice_reply_is_delivered("The failing PR needs a test fix. \n\t", 1).await;
+}
+
+#[tokio::test]
+async fn a_reply_paced_into_several_bubbles_is_delivered_whole_in_the_call() {
+    voice_reply_is_delivered(
+        "The failing PR needs a regression test for the reconnect path before it can merge.\n\nThe existing checks pass locally, but I still need to verify the result behind the tunnel.",
+        2,
+    )
+    .await;
+}
+
+async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) {
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         hotline_core::desk::Desk::open_with_voice_services(
@@ -50,7 +68,7 @@ async fn a_voice_call_carries_heard_said_and_a_playable_clip() {
         .unwrap();
     // A real desk command creates the teammate; the dispatcher routes through
     // the same session.start/session.prompt commands the window uses.
-    let provider = provider().await;
+    let provider = provider(reply).await;
     send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Voice fixture","baseUrl":provider,"api":"chat_completions","models":["test"]}}})).await;
     assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
     send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
@@ -89,8 +107,40 @@ async fn a_voice_call_carries_heard_said_and_a_playable_clip() {
         started.elapsed()
     );
     assert_eq!(clip["event"]["id"], said["event"]["id"]);
+    let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
+    let narrated = until(&mut socket, |f| f["event"]["type"] == "said").await;
+    assert_eq!(delivery["event"]["personaId"], mack);
+    assert_eq!(
+        delivery["event"]["text"],
+        format!(
+            "Mack says: {}",
+            reply.split_whitespace().collect::<Vec<_>>().join(" ")
+        )
+    );
+    assert_eq!(narrated["event"]["text"], delivery["event"]["text"]);
+    loop {
+        let frame = until(&mut socket, |f| f["event"].is_object()).await;
+        assert_ne!(frame["event"]["type"], "delivery", "one delivery per reply");
+        if frame["event"]["type"] == "clip" {
+            assert_eq!(frame["event"]["id"], narrated["event"]["id"]);
+            if frame["event"]["final"] == true {
+                break;
+            }
+        }
+    }
     let tape =
         hotline_core::log::Log::open(root.path()).load(&hotline_core::log::StreamId::Tape(mack));
+    let bubbles: Vec<_> = tape.iter().filter(|e| e["kind"] == "agent").collect();
+    assert_eq!(bubbles.len(), expected_bubbles, "{bubbles:?}");
+    assert_eq!(delivery["event"]["eventId"], bubbles[0]["id"]);
+    assert_eq!(
+        bubbles
+            .iter()
+            .map(|e| e["text"].as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+        reply.trim(),
+    );
     assert!(
         tape.iter()
             .any(|e| e["kind"] == "user" && e["text"] == "Check the failing PR."),
@@ -201,10 +251,10 @@ fn services() -> Services {
 fn wav() -> Vec<u8> {
     include_bytes!("fixtures/voice/ask-mack.wav").to_vec()
 }
-async fn provider() -> String {
+async fn provider(reply: &'static str) -> String {
     use axum::{Router, body::Bytes, routing::post};
-    let app = Router::new().route("/v1/chat/completions", post(|_: Bytes| async {
-        let delta = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":"The failing PR needs a test fix."},"finish_reason":null}]});
+    let app = Router::new().route("/v1/chat/completions", post(move |_: Bytes| async move {
+        let delta = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":reply},"finish_reason":null}]});
         let done = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}});
         ([("Content-Type", "text/event-stream")], format!("data: {delta}\n\ndata: {done}\n\ndata: [DONE]\n\n"))
     }));

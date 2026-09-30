@@ -10,9 +10,18 @@
 //! workspace, the conversation), what they may cost (the spend ledger) and
 //! who may ask (the `generate_image` tool) live with their callers.
 
+mod google;
+mod http;
+mod openai;
+mod openrouter;
 mod providers;
+#[cfg(test)]
+mod tests;
 
-pub use providers::resolve;
+pub use google::Google;
+pub use openai::OpenAi;
+pub use openrouter::OpenRouter;
+pub use providers::{describe, model, resolve};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -168,6 +177,43 @@ pub trait ImageGen: Send + Sync {
     async fn generate(&self, request: &ImageRequest) -> Result<Image, ImageError>;
 }
 
+/// What the desk knows of one image model: whether it can leave the
+/// background transparent, how many reference images it takes, the quality
+/// to ask for, and what one picture costs at most. A model it doesn't know
+/// gets the careful answer to each.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Model {
+    pub id: String,
+    pub transparent: bool,
+    pub max_references: usize,
+    pub quality: Option<&'static str>,
+    pub price_usd: f64,
+}
+
+/// What a reference image adds to a picture's price, at most.
+const REFERENCE_USD: f64 = 0.01;
+
+impl Model {
+    /// Rounded up: this is reserved before the request, so it's a guard,
+    /// not an invoice.
+    pub fn estimate_usd(&self, request: &ImageRequest) -> f64 {
+        self.price_usd + REFERENCE_USD * request.references.len() as f64
+    }
+
+    /// Whether a request is one this model can be sent at all.
+    pub fn admit(&self, request: &ImageRequest) -> Result<(), ImageError> {
+        if request.prompt.trim().is_empty() {
+            return Err(ImageError::EmptyPrompt);
+        }
+        if request.references.len() > self.max_references {
+            return Err(ImageError::TooManyReferences {
+                max: self.max_references,
+            });
+        }
+        Ok(())
+    }
+}
+
 /// The owner's choice, from `settings.images`. Both keys are optional: none
 /// means the first connected provider that can draw, on its default model.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,7 +261,7 @@ pub fn styled(
 }
 
 #[cfg(test)]
-mod tests {
+mod style_tests {
     use super::*;
 
     #[test]

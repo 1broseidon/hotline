@@ -113,6 +113,8 @@ pub struct Image {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImageError {
     SignInRequired,
+    RefreshTimedOut,
+    Revoked,
     /// Nothing was asked for.
     EmptyPrompt,
     /// A reference in a format the adapter cannot send.
@@ -140,6 +142,10 @@ impl fmt::Display for ImageError {
                 f,
                 "The ChatGPT sign-in could not be refreshed. Sign in again under Settings → Providers."
             ),
+            ImageError::RefreshTimedOut => {
+                write!(f, "The ChatGPT sign-in refresh timed out. Try again.")
+            }
+            ImageError::Revoked => write!(f, "This teammate's capabilities have been revoked."),
             ImageError::EmptyPrompt => write!(f, "There was nothing to draw."),
             ImageError::UnsupportedReference(mime) => {
                 write!(f, "An image of type {mime} can't be used as a reference.")
@@ -211,6 +217,17 @@ pub trait ImageGen: Send + Sync {
     /// not report a cost.
     fn estimate_usd(&self, request: &ImageRequest) -> f64;
     async fn generate(&self, request: &ImageRequest) -> Result<Image, ImageError>;
+
+    /// Recheck the caller's authority immediately before dispatch. Adapters
+    /// that await authentication override this and check after that wait.
+    async fn generate_checked(
+        &self,
+        request: &ImageRequest,
+        before_send: &(dyn Fn() -> Result<(), ImageError> + Send + Sync),
+    ) -> Result<Image, ImageError> {
+        before_send()?;
+        self.generate(request).await
+    }
 }
 
 /// What the desk knows of one image model: whether it can leave the

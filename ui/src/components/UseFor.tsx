@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CapabilityJob, CapabilityOptions, CapabilityPick } from "../generated/contract";
+import type { CapabilityJob, CapabilityOptions } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
@@ -79,7 +79,7 @@ export function UseFor({
 		<section>
 			<h3 className="group-title">Use for</h3>
 			<div className="grouped use-for">
-				<JobRow title="Images" detail={inUse(options.images.selected ?? options.images.automatic)} job={options.images}>
+				<JobRow title="Images" detail={inUse(options.images)} job={options.images}>
 					<Picker
 						value={currentId(options.images)}
 						choices={shortChoices(options.images)}
@@ -144,15 +144,16 @@ export function UseFor({
 				)}
 				<SpendingRow spending={options.spending} onWrite={write} />
 			</div>
-			<p className="group-hint">Automatic picks the first connected provider that can do the job. The limit covers images and voice together; zero turns them off.</p>
+			<p className="group-hint">Automatic picks the first eligible connected provider; ChatGPT subscription images require your selection. Dollar limits cover paid images and voice; zero disables paid usage. Subscription limits apply separately.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
 }
 
 /** What a job runs on now, as its row's second line. */
-function inUse(pick: CapabilityPick | undefined): string {
-	if (pick === undefined) return "Nothing connected can do this";
+function inUse(job: CapabilityJob): string {
+	const pick = job.selected ?? job.automatic;
+	if (pick === undefined) return job.options.length > 0 ? "Choose a provider for images" : "Nothing connected can do this";
 	return [pick.providerName, pick.modelId === undefined ? undefined : shortModel(pick.modelId)].filter(Boolean).join(" · ");
 }
 

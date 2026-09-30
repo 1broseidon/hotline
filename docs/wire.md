@@ -362,6 +362,9 @@ Experimental Codex subscription images require an existing Hotline ChatGPT
 sign-in and explicit `settings.images.provider: "openai-codex"`. The only
 supported model is `gpt-image-2` (also the default). This connection is never
 auto-selected or used as a fallback, and never falls back to a paid provider.
+`capabilities.options` offers it as `Codex (ChatGPT subscription)` in the
+image picker when the owner has connected that login. Choosing Automatic
+clears the explicit selection; it does not select the subscription connection.
 `available` means configured and selected, not verified image entitlement:
 status neither refreshes the login nor calls the provider. Clear the provider
 selection to return to automatic API-provider selection.
@@ -377,6 +380,9 @@ when dollar spending is disabled or exhausted. Malformed settings still refuse.
 Upstream subscription limits still apply, and refusals are not retried through
 another provider. This internal endpoint may change; live compatibility and
 account entitlement must be verified separately before relying on it.
+The capability lease is checked after login refresh and immediately before
+dispatch. A refresh that exceeds 30 seconds asks the caller to try again;
+it does not claim the login is invalid or send an image request.
 
 `computer.capacity` reports totals, not free resources, cached for about a
 minute per runtime preference. Docker/Podman totals take precedence, then

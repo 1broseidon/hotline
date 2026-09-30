@@ -128,12 +128,21 @@ impl Room {
             if let Some(capability) = &capability {
                 capability.check()?;
             }
-            let result = generator.generate(&request).await;
+            let before_send = || {
+                if let Some(capability) = &capability {
+                    capability.check().map_err(|_| ImageError::Revoked)?;
+                }
+                Ok(())
+            };
+            let result = generator.generate_checked(&request, &before_send).await;
             let charge = match &result {
                 Ok(image) => Some(image.cost_usd.unwrap_or(estimate)),
-                Err(ImageError::Refused {
-                    status: 400..=499, ..
-                }) => Some(0.0),
+                Err(
+                    ImageError::Refused {
+                        status: 400..=499, ..
+                    }
+                    | ImageError::Revoked,
+                ) => Some(0.0),
                 Err(_) => None,
             };
             if let (Some(cost), Some(reservation)) = (charge, reservation) {

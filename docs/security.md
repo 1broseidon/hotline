@@ -151,10 +151,16 @@ requests bypass dollar reservations without modifying the ledger and report
 unknown monetary cost (`costUsd: null`, `billing: "subscription"`). Dollar
 caps do not constrain subscription quota. The tool still validates settings,
 checks reach and capability leases, and posts through the same file path.
+The adapter rechecks the caller's lease after authentication refresh and
+immediately before dispatch, so stopping the teammate during refresh sends
+neither prompt nor references. Refresh timeouts report a retryable delay,
+not an invalid login.
 `imagegen::tests` proves the JSON request and account headers against localhost,
 login rereads and safe refusals; resolver tests prove explicit selection and
 no paid fallback. `session::generate::tests` proves subscription output and
 unchanged dollar accounting even with disabled or exhausted budgets.
+`imagegen::chatgpt::tests` covers revocation during refresh with a local HTTP
+server, and the tool-handler tests prove that it leaves no file or chat post.
 `wire::tests::chatgpt_images_status_requires_owner_selection_without_checking_entitlement`
 proves selected status and companion denial through the real handler. Status
 is configuration, not an entitlement check. Live compatibility is unverified;

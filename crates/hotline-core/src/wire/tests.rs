@@ -5184,3 +5184,68 @@ fn a_long_turn_of_steps_still_opens_a_tape_on_the_last_message() {
         assert_eq!(lines.last().unwrap()["id"], "t500", "{seat:?}");
     }
 }
+
+#[tokio::test]
+async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscription_pick() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::default());
+    let log = crate::log::Log::open(root.path());
+    let vault = crate::vault::Vault::open_with_store(root.path(), log, store.clone()).unwrap();
+    let (id, token_dir) = vault.begin_login("openai-codex").unwrap();
+    vault.finish_login(&id, "openai-codex", "ChatGPT").unwrap();
+    drop(vault);
+    let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store).unwrap());
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let request = json!({"id": 1, "cmd": "capabilities.options", "params": {}});
+    for seat in [Seat::Desk, Seat::Owner] {
+        let offered = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        assert_eq!(offered["ok"], true, "{offered}");
+        assert_eq!(
+            offered["result"]["images"]["options"],
+            json!([{
+                "providerId": "openai-codex",
+                "providerName": "Codex (ChatGPT subscription)",
+                "models": [{"id": "gpt-image-2"}]
+            }])
+        );
+        assert!(offered["result"]["images"].get("automatic").is_none());
+        assert!(offered["result"]["images"].get("selected").is_none());
+        assert!(
+            !offered
+                .to_string()
+                .contains(&token_dir.to_string_lossy().to_string())
+        );
+    }
+    desk.credential_create("openai", "API", "options-test-key")
+        .unwrap();
+    let selected = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({"id": 2, "cmd": "settings.update", "params": {"patch": {
+            "images": {"provider": "openai-codex", "model": "gpt-image-2"}
+        }}}),
+    )
+    .await;
+    assert_eq!(selected["ok"], true, "{selected}");
+    let offered = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
+    assert_eq!(
+        offered["result"]["images"]["selected"],
+        json!({
+            "providerId": "openai-codex",
+            "providerName": "Codex (ChatGPT subscription)",
+            "modelId": "gpt-image-2"
+        })
+    );
+    assert_eq!(
+        offered["result"]["images"]["automatic"]["providerId"],
+        "openai"
+    );
+    let denied = remote_control_answer(Seat::Phone, &handle, &desk.log, request).await;
+    assert_eq!(denied["code"], FORBIDDEN);
+    assert_eq!(
+        std::fs::read_to_string(token_dir.join("auth.json")).unwrap(),
+        "{}"
+    );
+}

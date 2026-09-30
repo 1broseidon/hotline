@@ -219,7 +219,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
         };
         return Some(Connection {
             provider_id: provider_id.into(),
-            name: "Codex (ChatGPT sign-in)".into(),
+            name: "Codex (ChatGPT subscription)".into(),
             base_url: String::new(),
             auth: ConnectionAuth::ChatGpt(token_dir.clone()),
             models: Vec::new(),
@@ -270,14 +270,18 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
     connections
         .iter()
         .filter_map(|connection| {
-            let ids: Vec<String> = match row(&connection.provider_id) {
-                Some(row) => row.models.iter().map(|id| id.to_string()).collect(),
-                None => connection
-                    .models
-                    .iter()
-                    .filter(|id| id.to_ascii_lowercase().contains("image"))
-                    .cloned()
-                    .collect(),
+            let ids: Vec<String> = if matches!(connection.auth, ConnectionAuth::ChatGpt(_)) {
+                vec![chatgpt::MODEL.into()]
+            } else {
+                match row(&connection.provider_id) {
+                    Some(row) => row.models.iter().map(|id| id.to_string()).collect(),
+                    None => connection
+                        .models
+                        .iter()
+                        .filter(|id| id.to_ascii_lowercase().contains("image"))
+                        .cloned()
+                        .collect(),
+                }
             };
             (!ids.is_empty()).then(|| CapabilityProvider {
                 provider_id: connection.provider_id.clone(),
@@ -521,6 +525,24 @@ mod tests {
         assert_eq!(offered[1].models.len(), 1);
         assert_eq!(offered[1].models[0].id, "my-image-1");
         assert!(options_from(&[custom(&["llama-3"])]).is_empty());
+    }
+
+    #[test]
+    fn chatgpt_is_offered_for_explicit_selection_without_becoming_automatic() {
+        let login = connection(
+            chatgpt::PROVIDER_ID,
+            &ProviderAuth::Login {
+                token_dir: PathBuf::from("unused-test-login"),
+            },
+        )
+        .unwrap();
+        let offered = options_from(std::slice::from_ref(&login));
+        assert_eq!(offered.len(), 1);
+        assert_eq!(offered[0].provider_id, chatgpt::PROVIDER_ID);
+        assert_eq!(offered[0].provider_name, "Codex (ChatGPT subscription)");
+        assert_eq!(offered[0].models.len(), 1);
+        assert_eq!(offered[0].models[0].id, chatgpt::MODEL);
+        assert!(resolve_from(&[login], &ImageSettings::default()).is_err());
     }
 
     #[test]

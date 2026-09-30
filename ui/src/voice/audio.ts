@@ -108,10 +108,11 @@ export function webAudio(events: { onIdle(): void; onLost(): void }): CallAudio 
 		chime(kind) {
 			const context = ctx;
 			if (!context || context.state !== "running") return 0;
-			const notes = { connect: [587.33, 880], think: [1174.66], end: [880, 587.33] }[kind];
+			// "think" is a blip-blip: the desk heard you and is working on it.
+			const notes = { connect: [587.33, 880], think: [1174.66, 1174.66], end: [880, 587.33] }[kind];
 			const peak = kind === "think" ? 0.035 : 0.06;
-			const length = kind === "think" ? 0.07 : 0.11;
-			const step = 0.09;
+			const length = kind === "think" ? 0.05 : 0.11;
+			const step = kind === "think" ? 0.1 : 0.09;
 			const t0 = context.currentTime + 0.02;
 			notes.forEach((frequency, i) => {
 				const at = t0 + i * step;

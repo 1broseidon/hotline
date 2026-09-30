@@ -2149,39 +2149,50 @@
 
 @layer components {
 	/* ---------------------------------------------------------- the call
-	 * A call with the desk stands beside the conversation at the
-	 * inspector's width. The mark is the call: it swells with whoever is
-	 * talking (--level, 0..1, set from the audio, not from React), in ink
-	 * while you speak and in the accent while the desk does, because the
-	 * accent is an agent at work. */
-	.call-pane {
-		width: 320px;
-		flex-shrink: 0;
-	}
-	/* In a narrow window the call takes the conversation's place, as the
-	 * inspector does (above). */
-	@container (max-width: 716px) {
-		.call-pane {
-			width: auto;
-			flex: 1;
-		}
-		.conversation:has(~ .call-pane) {
-			display: none;
-		}
-	}
-	.call-stage {
+	 * A call with the desk floats in the window's bottom-right corner, over
+	 * whatever is open, so the conversation and its composer stay usable.
+	 * Voice only: the mark, the state and the controls. The mark is the
+	 * call: it swells with whoever is talking (--level, 0..1, set from the
+	 * audio, not from React), in ink while you speak and in the accent
+	 * while the desk does, because the accent is an agent at work. */
+	.call-float {
+		position: fixed;
+		right: 16px;
+		bottom: 16px;
+		z-index: 40;
 		display: flex;
+		width: 208px;
 		flex-direction: column;
 		align-items: center;
-		gap: 8px;
-		padding: 20px 0 12px;
+		gap: 12px;
+		padding: 10px 12px 14px;
+		border-radius: var(--radius-pane);
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-float);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	/* In a narrow window the composer runs the full width; sit above it. */
+	@container (max-width: 716px) {
+		.call-float {
+			bottom: 84px;
+		}
+	}
+	.call-top {
+		display: flex;
+		width: 100%;
+		align-items: center;
+		gap: 6px;
+		padding-left: 4px;
 	}
 	.call-mark {
 		--level: 0;
 		display: grid;
 		place-items: center;
-		width: 104px;
-		height: 104px;
+		width: 88px;
+		height: 88px;
 		border-radius: 50%;
 		color: var(--ink-3);
 		background: var(--raised);
@@ -2213,47 +2224,68 @@
 			opacity: 0.6;
 		}
 	}
-	.call-hint {
-		min-height: 14px;
-	}
-	.call-lines {
-		display: flex;
-		min-height: 0;
-		flex: 1;
-		flex-direction: column;
-		gap: 6px;
-		overflow-y: auto;
-		padding: 4px 12px 12px;
-	}
-	.call-cards {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		padding: 0 12px 8px;
-	}
 	.call-card {
 		display: flex;
+		width: 100%;
 		align-items: center;
-		gap: 8px;
-		padding: 8px 10px;
-		border-radius: var(--radius-card);
+		padding: 6px 10px;
+		border-radius: var(--radius-control);
 		background: var(--raised);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--accent);
 		font-size: var(--text-md);
-	}
-	.call-foot {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 12px 14px;
+		text-align: left;
 	}
 	.call-trouble {
 		font-size: var(--text-md);
 		color: var(--ink-2);
 		text-align: center;
+	}
+	.call-controls {
+		display: flex;
+		gap: 16px;
+	}
+	/* The call's own controls are round and wordless, like a phone's:
+	 * hold and resume in the quiet fill, hanging up in red, calling again
+	 * in the accent. */
+	.call-button {
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		color: var(--ink-2);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.call-button:hover:not(:disabled) {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.call-button:disabled {
+		opacity: 0.5;
+	}
+	.call-button-end,
+	.call-button-end:hover:not(:disabled) {
+		color: white;
+		background: var(--danger);
+	}
+	.call-button-end:hover:not(:disabled) {
+		filter: brightness(1.1);
+	}
+	.call-button-start,
+	.call-button-start:hover:not(:disabled) {
+		color: var(--on-accent);
+		background: var(--accent);
+	}
+	.call-button-start:hover:not(:disabled) {
+		filter: brightness(1.1);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.call-mark {

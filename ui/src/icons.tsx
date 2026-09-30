@@ -231,3 +231,25 @@ export const PhoneIcon = ({ className }: IconProps) => (
 		<path d="M5.2 2.75l1.6 2.9-1.25 1.2a7.6 7.6 0 0 0 3.6 3.6l1.2-1.25 2.9 1.6-.6 2.05a1.5 1.5 0 0 1-1.6 1.05A10.3 10.3 0 0 1 2.1 4.95 1.5 1.5 0 0 1 3.15 3.35z" />
 	</svg>
 );
+
+export const PauseIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M5.75 4v8M10.25 4v8" />
+	</svg>
+);
+
+export const PlayIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M5.5 3.9v8.2a.6.6 0 0 0 .9.5l6.4-4.1a.6.6 0 0 0 0-1L6.4 3.4a.6.6 0 0 0-.9.5z" fill="currentColor" stroke="none" />
+	</svg>
+);
+
+/** The phone put down: the call glyph turned on its back. */
+export const HangUpIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path
+			transform="rotate(135 8 8)"
+			d="M5.2 2.75l1.6 2.9-1.25 1.2a7.6 7.6 0 0 0 3.6 3.6l1.2-1.25 2.9 1.6-.6 2.05a1.5 1.5 0 0 1-1.6 1.05A10.3 10.3 0 0 1 2.1 4.95 1.5 1.5 0 0 1 3.15 3.35z"
+		/>
+	</svg>
+);

@@ -26,7 +26,6 @@ use uuid::Uuid;
 /// This tape is indexed, but has no persona and never enters the roster.
 pub const TAPE_ID: &str = "voice-dispatcher";
 const IDLE: Duration = Duration::from_secs(600);
-const ACK_LINE: &str = "One moment.";
 const RETRY_LINE: &str = "Sorry, say that again.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
@@ -601,12 +600,6 @@ impl Calls {
             return Ok(());
         }
         self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
-        self.system_line(
-            id,
-            ACK_LINE,
-            include_bytes!("assets/ack.wav"),
-            Some(speech_cancel),
-        );
         let (output, mut answers) = mpsc::channel(8);
         let produce = async {
             tokio::time::timeout(

@@ -253,7 +253,7 @@ async fn clips_are_sent_in_sentence_order_and_sequences_cannot_replay() {
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     utterance(&calls, &id, 1).unwrap();
     assert!(utterance(&calls, &id, 1).is_err());
-    for text in [ACK_LINE, "The first sentence.", "The second sentence."] {
+    for text in ["The first sentence.", "The second sentence."] {
         let said = event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
         let VoiceEvent::Said {
             id: line,
@@ -650,7 +650,7 @@ async fn errors_are_spoken_and_only_three_consecutive_failures_end_the_call() {
 }
 
 #[tokio::test]
-async fn acknowledgement_precedes_a_blocked_dispatcher_and_interrupt_preserves_its_text() {
+async fn a_blocked_dispatcher_says_nothing_and_interrupt_preserves_its_text() {
     for held in [false, true] {
         let fake = Arc::new(Fake::default());
         let gate = Arc::new(tokio::sync::Semaphore::new(0));
@@ -660,21 +660,19 @@ async fn acknowledgement_precedes_a_blocked_dispatcher_and_interrupt_preserves_i
         calls.start(&id, desk.clone()).unwrap();
         let (_, mut rx) = calls.subscribe(&id).unwrap();
         utterance(&calls, &id, 1).unwrap();
+        // The model cannot finish until this test releases it. No wall-clock SLA in CI.
+        // While it works the desk says nothing: the window's blip-blip covers the wait.
+        event(&mut rx, |e| matches!(e, VoiceEvent::Heard { .. })).await;
+        tokio::task::yield_now().await;
+        while let Ok(e) = rx.try_recv() {
+            assert!(
+                !matches!(e, VoiceEvent::Said { .. } | VoiceEvent::Clip { .. }),
+                "{e:?}"
+            );
+        }
         assert!(
             calls
                 .change(&id, |c| Ok(c.first_clip_started.is_some()))
-                .unwrap()
-        );
-        // The model cannot finish until this test releases it. No wall-clock SLA in CI.
-        event(
-            &mut rx,
-            |e| matches!(e, VoiceEvent::Said { text, .. } if text == ACK_LINE),
-        )
-        .await;
-        event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
-        assert!(
-            calls
-                .change(&id, |c| Ok(c.first_clip_started.is_none()))
                 .unwrap()
         );
         assert!(lock(&fake.spoken).is_empty());

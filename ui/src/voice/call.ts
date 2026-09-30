@@ -113,6 +113,9 @@ const LOST = "Lost the connection to the desk.";
 /** How much audio before the detector is sure it heard speech is kept, so a word's first sound is not clipped. */
 const PREROLL_MS = 400;
 
+/** How often the blip-blip repeats while the desk works and says nothing. */
+const WORKING_EVERY_MS = 1800;
+
 type Names = (personaId: string) => string | undefined;
 
 export class Call {
@@ -145,6 +148,8 @@ export class Call {
 	private level = 0;
 	private shown = 0;
 	private raf = 0;
+	/** While the desk works, a blip-blip every so often says it still is. */
+	private working: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
 		private readonly transport: CallTransport = wireTransport,
@@ -465,6 +470,13 @@ export class Call {
 
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
+		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy.
+		if (this.snapshot.phase === "thinking" && this.working === null) {
+			this.working = setInterval(() => this.audio.chime("think"), WORKING_EVERY_MS);
+		} else if (this.snapshot.phase !== "thinking" && this.working !== null) {
+			clearInterval(this.working);
+			this.working = null;
+		}
 		for (const listener of this.listeners) listener();
 	}
 }

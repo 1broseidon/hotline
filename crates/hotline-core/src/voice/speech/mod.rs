@@ -165,7 +165,7 @@ impl Timing {
 }
 
 /// The stopwatch from transcription to the first synthesized clip on one
-/// adapter set. Bundled desk acknowledgements are timed by the call. The ears start it
+/// adapter set. The ears start it
 /// when they begin to hear an utterance and its voices stop it, so the time
 /// between (the dispatcher, a teammate's handoff) is inside it without either
 /// side knowing the other. An utterance with nothing in it, or one that fails,

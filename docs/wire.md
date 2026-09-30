@@ -961,11 +961,12 @@ Provider selections in `VoiceStatus` are optional when unavailable; `unavailable
 is a sentence explaining what the owner needs to change.
 
 
-After a nonempty, non-goodbye `heard`, a bundled “One moment.” arrives as `said`
-and a complete WAV `clip`, before dispatcher or teammate startup work. Dispatcher
-text streams at sentence boundaries; each sentence has its own `said.id` and
-complete clip (`index: 0`, `final: true`). This removes model startup from the
-acknowledgement path; transcription and transport latency still apply. Clients
+After a nonempty, non-goodbye `heard`, the desk says nothing until the
+dispatcher answers: the call is `thinking`, and a client covers the wait with
+its own sound (the desktop plays a short blip-blip, repeated while it lasts)
+rather than speech. Dispatcher text streams at sentence boundaries; each
+sentence has its own `said.id` and complete clip (`index: 0`, `final: true`).
+Clients
 must queue clips across successive `said` IDs instead of replacing playback.
 
 A completed teammate reply during an active, unheld call is narrated and sent as

@@ -92,7 +92,7 @@ late, and one that does not lands all three together.
 ```
 
 The desk times each accepted utterance to its first published clip, including
-the bundled acknowledgement and the durable STT reservation. The line includes
+the durable STT reservation. The line includes
 the call and sequence, not the words or audio; it measures desk publication,
 not transport or client playback latency:
 

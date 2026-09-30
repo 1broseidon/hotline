@@ -6,7 +6,7 @@ import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Titlebar } from "./ui/Titlebar";
-import { CallPane } from "./components/Call";
+import { CallFloat } from "./components/Call";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceAvailable } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import type { SettingsSection } from "./components/Settings";
@@ -553,7 +553,7 @@ export function App() {
 						</div>
 					</div>
 				)}
-				{call !== null && <CallPane call={call} names={nameOf} onOpenTeammate={select} />}
+				{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={select} />}
 				</div>
 			</main>
 			</div>

@@ -17,6 +17,7 @@ import { chordKeys } from "../chords";
 import { REST, step, type Bubble, type Cadence } from "../cadence";
 import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
+import { type Block, type ScheduledEvent, type Step, groupScheduled } from "../scheduledRuns";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, WarningIcon } from "../icons";
 import { popupMessageMenu, writeClipboard } from "../native";
 import type { Streaming } from "../tape";
@@ -43,17 +44,6 @@ export type ReactTarget = { eventId: string; text: string };
 
 /** Whose chair we are in, for a peer thread: this teammate is `mine`. */
 export type Speakers = { me: string; them: string; mine: "user" | "agent" };
-
-type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" }>;
-
-/**
- * Either one event, or a run of the machinery between two messages —
- * thoughts and tool calls — folded into one block so a transcript of forty
- * tool calls still reads as a conversation.
- */
-type Block =
-	| { kind: "event"; event: Exclude<TranscriptEvent, Step> }
-	| { kind: "steps"; id: string; ts: number; items: Step[] };
 
 /**
  * The conversation, and only the conversation.
@@ -247,15 +237,19 @@ export function Transcript({
 
 	// A thread is said once: as its answer when one came back, else as its
 	// marker. Your own answer to a card is on the card, so it draws no row.
-	const blocks = arrived.filter(
-		(block) =>
-			!(
-				block.kind === "event" &&
-				(hidden.has(block.event.id) ||
-					answered.has(block.event.id) ||
-					reacted.lines.has(block.event.id) ||
-					(block.event.kind === "delivery" && block.event.cause.kind === "answer"))
-			),
+	// A job that fired again and again with nothing drawn between is one row,
+	// so this is decided on what is left to draw.
+	const blocks = groupScheduled(
+		arrived.filter(
+			(block) =>
+				!(
+					block.kind === "event" &&
+					(hidden.has(block.event.id) ||
+						answered.has(block.event.id) ||
+						reacted.lines.has(block.event.id) ||
+						(block.event.kind === "delivery" && block.event.cause.kind === "answer"))
+				),
+		),
 	);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
@@ -303,7 +297,9 @@ export function Transcript({
 					return (
 						<div key={id} data-event-id={id} className="tape-row">
 							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
-							{block.kind === "steps" ? (
+							{block.kind === "scheduled" ? (
+								<ScheduledGroup name={block.name} runs={block.runs} />
+							) : block.kind === "steps" ? (
 								<Steps
 									id={block.id}
 									items={block.items}
@@ -504,6 +500,7 @@ type Side = "me" | "them" | "other" | null;
 type Run = { top: boolean; bottom: boolean };
 
 function sideOf(block: Block): Side {
+	if (block.kind === "scheduled") return "other";
 	if (block.kind !== "event") return null;
 	const event = block.event;
 	if (event.kind === "user") return event.scheduled === undefined ? "me" : "other";
@@ -1314,6 +1311,45 @@ function ScheduledLine({ name, prompt }: { name: string; prompt: string }) {
 	);
 }
 
+/**
+ * A job that fired again and again with nothing said between: one row that
+ * counts the runs. Pressed, it lists when each ran, oldest first, and shows
+ * the latest prompt, which is the one that is still in force.
+ */
+function ScheduledGroup({ name, runs }: { name: string; runs: ScheduledEvent[] }) {
+	const [open, setOpen] = useState(false);
+	const latest = runs[runs.length - 1]!;
+	return (
+		<div className="mt-3 flex flex-col items-end">
+			<button
+				type="button"
+				className="step w-auto max-w-[78%]"
+				aria-label={`Scheduled, ${name}, ran ${runs.length} times`}
+				aria-expanded={open}
+				onClick={() => setOpen((was) => !was)}
+			>
+				<ClockIcon className="shrink-0 text-ink-3" />
+				<span className="flex min-w-0">
+					<span className="shrink-0 text-ink-3">Scheduled · </span>
+					<span className="truncate">{name}</span>
+					<span className="shrink-0 text-ink-3"> · ran {runs.length} times</span>
+				</span>
+				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+			</button>
+			{open && (
+				<>
+					<ul className="instrument mt-1 flex flex-col items-end">
+						{runs.map((run) => (
+							<li key={run.id}>{runTime(run.ts)}</li>
+						))}
+					</ul>
+					<div className="speech said-me mt-1">{latest.text}</div>
+				</>
+			)}
+		</div>
+	);
+}
+
 /** First line of a say, or nothing — a missing or empty original is not a quote. */
 function quotedLine(event: TranscriptEvent): string | undefined {
 	if (event.kind !== "user" && event.kind !== "agent") return undefined;
@@ -1757,6 +1793,7 @@ function firstLine(text: string): string {
 }
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
 
 function stampText(at: number): string {
@@ -1765,6 +1802,12 @@ function stampText(at: number): string {
 	if (days === 0) return `Today ${clock.format(when)}`;
 	if (days === 1) return `Yesterday ${clock.format(when)}`;
 	return `${weekday.format(when)} ${clock.format(when)}`;
+}
+
+/** When a run fired: the time, with the date before it when it was not today. */
+export function runTime(at: number): string {
+	const when = new Date(at);
+	return daysBetween(when, new Date()) === 0 ? clock.format(when) : `${shortDate.format(when)}, ${clock.format(when)}`;
 }
 
 /** Calendar days apart, not elapsed hours: 11pm and 1am are a day apart. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ConfigChoice, Provider, Welcome as WelcomeState } from "../generated/contract";
-import { CheckIcon } from "../icons";
+import { CheckIcon, ChevronRightIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
 import { Refusal } from "../ui/Refusal";
@@ -28,8 +28,26 @@ const FIRST_GOAL =
  * same forms as Settings › Providers, so nothing is learned twice; step two
  * is the same form as the plus. Step three lives on the first conversation's
  * composer and is only named here.
+ *
+ * On this computer's own desk the steps wait behind one choice, of two
+ * equals: teammates here, or teammates on a server the person runs
+ * (BRO-151). A computer that only ever reaches a server should not have to
+ * create a teammate to get past this screen, and nothing else on it pointed
+ * at Add a server. `onConnectServer` opens that pane; it is null on a
+ * server's own desk, which has nothing to choose between. The choice is not
+ * stored: this screen leaves when the roster fills, and a server's teammates
+ * fill it.
  */
-export function Welcome({ models, onCreated }: { models: ConfigChoice[]; onCreated(personaId: string): void }) {
+export function Welcome({
+	models,
+	onCreated,
+	onConnectServer,
+}: {
+	models: ConfigChoice[];
+	onCreated(personaId: string): void;
+	onConnectServer: (() => void) | null;
+}) {
+	const [here, setHere] = useState(onConnectServer === null);
 	const [state, setState] = useState<WelcomeState | null>(null);
 	const [providers, setProviders] = useState<Provider[]>([]);
 	const [connecting, setConnecting] = useState<Provider | null>(null);
@@ -88,10 +106,32 @@ export function Welcome({ models, onCreated }: { models: ConfigChoice[]; onCreat
 					? `Teammates run on ${harness.name}.`
 					: "";
 
+	if (!here && onConnectServer !== null) {
+		return (
+			<div className="pane">
+				<Band>
+					<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Welcome</h2>
+				</Band>
+				<Scroll>
+					<div className="pane-column flex flex-col gap-6">
+						<p className="text-ink-2">A teammate is an agent with a name, a goal and a folder of its own.</p>
+						<Choice onHere={() => setHere(true)} onServer={onConnectServer} />
+						{refusal !== null && <Refusal message={refusal} />}
+					</div>
+				</Scroll>
+			</div>
+		);
+	}
+
 	return (
 		<div className="pane">
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Welcome</h2>
+				{here && onConnectServer !== null && (
+					<button type="button" className="control btn-quiet" onClick={onConnectServer}>
+						Connect to a server
+					</button>
+				)}
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
@@ -178,6 +218,35 @@ export function Welcome({ models, onCreated }: { models: ConfigChoice[]; onCreat
 				</div>
 			</Scroll>
 		</div>
+	);
+}
+
+/**
+ * Where the first teammates run, as two rows of one list: neither is the
+ * primary, because neither is the right answer for everyone. Each says in one
+ * line what it means.
+ */
+function Choice({ onHere, onServer }: { onHere(): void; onServer(): void }) {
+	return (
+		<section>
+			<h3 className="group-title">Where your teammates run</h3>
+			<div className="grouped">
+				<button type="button" className="group-row group-row-choice w-full text-left" onClick={onHere}>
+					<span className="group-row-text">
+						<span className="group-row-title">Create a first teammate</span>
+						<span className="group-row-detail">Teammates on this computer.</span>
+					</span>
+					<ChevronRightIcon className="shrink-0 text-ink-3" />
+				</button>
+				<button type="button" className="group-row group-row-choice w-full text-left" onClick={onServer}>
+					<span className="group-row-text">
+						<span className="group-row-title">Connect to a server</span>
+						<span className="group-row-detail">Teammates on a server you run.</span>
+					</span>
+					<ChevronRightIcon className="shrink-0 text-ink-3" />
+				</button>
+			</div>
+		</section>
 	);
 }
 

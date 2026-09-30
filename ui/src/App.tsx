@@ -54,6 +54,7 @@ export function DeskRoot() {
 }
 
 export function App() {
+	const desk = useActiveDesk();
 	const [connection, setConnection] = useState<Connection>("connecting");
 	/* The last roster this desk showed, so switching back to it draws at
 	 * once while the fresh snapshot is on its way. */
@@ -460,7 +461,7 @@ export function App() {
 				) : pane === "new-teammate" ? (
 					<NewTeammate models={models} onCreated={select} onClose={closePane} />
 				) : welcome ? (
-					<Welcome models={models} onCreated={select} />
+					<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
 				) : selected ? (
 					<>
 						<Conversation

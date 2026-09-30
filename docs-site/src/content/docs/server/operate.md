@@ -6,7 +6,7 @@ description: Status, logs, restarts, updates, and what lives where.
 ## Check on it
 
 ```sh
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline status
+hotline status
 systemctl status hotline
 journalctl -u hotline
 ```

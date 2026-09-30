@@ -8,6 +8,7 @@
 //! running". The token is the desk seat's, so the file is exactly as secret
 //! as the account that owns the data directory; it never leaves loopback.
 
+use crate::room::Room;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -69,8 +70,34 @@ fn alive(pid: u32) -> bool {
     answer == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// What a data folder holds for a client that wants to knock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Presence {
+    /// A `door.json` naming a process that is running.
+    Live,
+    /// A `door.json` with no desk behind it, or one that cannot be understood.
+    Stale,
+    /// A folder or file this account may not enter.
+    Unreadable,
+    /// No `door.json`.
+    Missing,
+}
+
+pub(crate) fn presence(root: &Path) -> Presence {
+    match read(root) {
+        Ok(door) if alive(door.pid) => Presence::Live,
+        Ok(_) => Presence::Stale,
+        Err(error) => match error.kind() {
+            io::ErrorKind::PermissionDenied => Presence::Unreadable,
+            io::ErrorKind::NotFound | io::ErrorKind::NotADirectory => Presence::Missing,
+            _ => Presence::Stale,
+        },
+    }
+}
+
 /// The running desk's Door, or why there is none.
-pub(crate) fn running(root: &Path) -> Result<DoorFile, String> {
+pub(crate) fn running(room: &Room) -> Result<DoorFile, String> {
+    let root = &room.root;
     match read(root) {
         Ok(door) if alive(door.pid) => Ok(door),
         Ok(door) => Err(format!(
@@ -79,9 +106,11 @@ pub(crate) fn running(root: &Path) -> Result<DoorFile, String> {
             door.pid
         )),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Err(format!(
-            "Hotline is not running on {} (no door.json). Is the service started? Try `systemctl status hotline`.",
-            root.display()
+            "Hotline is not running on {} (no door.json). Is the service started? Try `systemctl status hotline`.{}",
+            root.display(),
+            room.served_hint()
         )),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Err(room.refused(&error)),
         Err(error) => Err(format!(
             "{} could not be read: {error}",
             path(root).display()
@@ -140,8 +169,8 @@ pub(crate) fn runtime() -> tokio::runtime::Runtime {
         .expect("a runtime starts")
 }
 
-pub fn status(root: &Path) -> ExitCode {
-    let door = match running(root) {
+pub fn status(room: &Room) -> ExitCode {
+    let door = match running(room) {
         Ok(door) => door,
         Err(problem) => {
             println!("{problem}");
@@ -202,8 +231,8 @@ fn describe(elapsed: chrono::TimeDelta) -> String {
     }
 }
 
-pub fn wire(root: &Path, cmd: &str) -> ExitCode {
-    let door = match running(root) {
+pub fn wire(room: &Room, cmd: &str) -> ExitCode {
+    let door = match running(room) {
         Ok(door) => door,
         Err(problem) => {
             eprintln!("{problem}");

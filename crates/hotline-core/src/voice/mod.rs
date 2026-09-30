@@ -770,10 +770,23 @@ impl Calls {
 }
 
 fn goodbye(text: &str) -> bool {
-    static GOODBYE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?i)^\s*(?:goodbye|good bye|bye(?: bye)?|hang up|end (?:the )?call|that's all|that is all)[.!?]*\s*$").expect("fixed goodbye regex")
+    static PUNCTUATION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"[\p{P}&&[^,-]]").expect("fixed punctuation regex")
     });
-    GOODBYE.is_match(text)
+    static GOODBYE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?x)^
+            (?:(?:ok(?:ay)?|alright|all\ right|thanks|thank\ you)[\ ,]+)*
+            (?:goodbye|good\ bye|bye(?:[\ -]bye)?|see\ (?:you|ya)\ later
+               |hang\ up|end\ (?:the\ )?call|thats\ all|that\ is\ all)
+            (?:[\ ,]+(?:hotline|desk))?$",
+        )
+        .expect("fixed goodbye regex")
+    });
+    let lower = text.to_lowercase();
+    let spoken = PUNCTUATION.replace_all(&lower, "");
+    let spoken = spoken.split_whitespace().collect::<Vec<_>>().join(" ");
+    GOODBYE.is_match(&spoken)
 }
 
 fn sentences(text: &str) -> Vec<String> {

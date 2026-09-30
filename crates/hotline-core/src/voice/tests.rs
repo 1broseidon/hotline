@@ -134,6 +134,20 @@ fn goodbye_matches_the_whole_utterance() {
         "hang up",
         "end the call",
         "That's all.",
+        "Okay, bye.",
+        "Thanks, bye",
+        "Alright, bye bye",
+        "Bye, Hotline",
+        "ok bye-bye",
+        "Thank you, goodbye desk!",
+        "All right, okay, thanks, see you later, Hotline.",
+        "See ya later",
+        "Good bye",
+        "Okay, hang up, desk.",
+        "Thanks, end call",
+        "Thank you, that is all, Hotline!",
+        "Okay, that’s all.",
+        "  OKAY\t\nbye   desk!  ",
     ] {
         assert!(goodbye(text), "{text}");
     }
@@ -143,6 +157,16 @@ fn goodbye_matches_the_whole_utterance() {
         "bye, ask Mack first",
         "that's all for the PR",
         "goodbye\nask Mack",
+        "say bye to Mack",
+        "tell Ada goodbye",
+        "Okay, bye, then check the PR",
+        "thanks for saying goodbye",
+        "bye Hotline please run the tests",
+        "okay",
+        "thank you",
+        "bye 123",
+        "bye 再检查",
+        "",
     ] {
         assert!(!goodbye(text), "{text}");
     }
@@ -151,7 +175,7 @@ fn goodbye_matches_the_whole_utterance() {
 #[tokio::test]
 async fn goodbye_is_spoken_without_a_model_and_hidden_tape_is_searchable() {
     let fake = Arc::new(Fake::default());
-    *lock(&fake.transcript) = "goodbye".into();
+    *lock(&fake.transcript) = "Okay, bye.".into();
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk.clone()).unwrap();

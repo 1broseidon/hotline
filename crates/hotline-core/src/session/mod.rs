@@ -536,6 +536,7 @@ pub struct Room {
     voice: Mutex<std::sync::Weak<crate::voice::Calls>>,
     log: Log,
     spending: crate::spending::SpendLedger,
+    subscription_images: generate::quota::SubscriptionQuota,
     #[cfg(test)]
     image_generators: Mutex<Option<crate::imagegen::ImageSet>>,
     /// A computer being set up behind a session that started without it,
@@ -678,6 +679,7 @@ impl Room {
         };
         let room = Arc::new(Self {
             spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
+            subscription_images: generate::quota::SubscriptionQuota::new(log.root().to_path_buf()),
             #[cfg(test)]
             image_generators: Mutex::new(None),
             voice: Mutex::new(std::sync::Weak::new()),

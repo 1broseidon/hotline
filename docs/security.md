@@ -149,7 +149,18 @@ never Codex CLI's credential directory; the image destination is fixed to
 the ChatGPT Codex backend and HTTP redirects are disabled. Subscription
 requests bypass dollar reservations without modifying the ledger and report
 unknown monetary cost (`costUsd: null`, `billing: "subscription"`). Dollar
-caps do not constrain subscription quota. The tool still validates settings,
+caps do not constrain subscription quota. A separate room-wide counter in
+`<data>/chatgpt-images.json` gives `openai-codex` 20 image slots per UTC day.
+Every attempt reserves a durable slot before authentication or image dispatch.
+Provider 400–499 refusals (including 429) and revocation before dispatch return
+the slot; timeouts, server errors, unreachable providers and malformed replies
+retain it. The count survives restart, rolls forward at UTC midnight, and keeps
+the later day's count if the clock goes backward. A late refund cannot lower
+the next day's count. Corrupt, missing-after-use, unreadable or unwritable
+storage refuses the request without fallback; transient IO and pending refunds
+retry on the next call. Paid providers never access this counter. Reserve and
+refund IO run on blocking workers, with no lock held across generation.
+The tool still validates settings,
 checks reach and capability leases, and posts through the same file path.
 The adapter rechecks the caller's lease after authentication refresh and
 immediately before dispatch, so stopping the teammate during refresh sends
@@ -158,7 +169,10 @@ not an invalid login.
 `imagegen::tests` proves the JSON request and account headers against localhost,
 login rereads and safe refusals; resolver tests prove explicit selection and
 no paid fallback. `session::generate::tests` proves subscription output and
-unchanged dollar accounting even with disabled or exhausted budgets.
+unchanged dollar accounting even with disabled or exhausted budgets, the
+room-wide 20-image cap, restart persistence, 4xx refunds and paid-provider
+exclusion. `session::generate::quota::tests` proves concurrent admission,
+day rollover, clock rollback, corruption refusal and storage recovery.
 `imagegen::chatgpt::tests` covers revocation during refresh with a local HTTP
 server, and the tool-handler tests prove that it leaves no file or chat post.
 `wire::tests::chatgpt_images_status_requires_owner_selection_without_checking_entitlement`
@@ -172,7 +186,7 @@ revocation; it cannot be recalled. A reported price above its estimate is
 recorded and blocks later work if over the cap, not retroactively prevented.
 Unknown failed-request costs are estimates, not invoices. Failed settlements
 stay in memory until storage recovers; restarting first retains only the
-durably reserved estimate. Generated files
+durably reserved estimate or subscription image slot. Generated files
 and chat copies share the existing retention policy; no automatic cleanup
 is added. Voice will use the same spending interface when its branch is
 integrated; it is not charged by this image-only branch yet.

@@ -19,6 +19,13 @@ use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
+// Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
+tokio::task_local! { pub(crate) static VOICE_COMMAND: (); }
+
+pub(crate) fn from_voice() -> bool {
+    VOICE_COMMAND.try_with(|()| ()).is_ok()
+}
+
 pub(crate) async fn run(
     command: Command,
     log: &Log,

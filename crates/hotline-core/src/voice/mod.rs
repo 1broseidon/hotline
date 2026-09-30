@@ -19,13 +19,17 @@ use speech::{Clip, SpeechId, SpeechSet};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
-use tokio::sync::{Notify, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 /// This tape is indexed, but has no persona and never enters the roster.
 pub const TAPE_ID: &str = "voice-dispatcher";
 const IDLE: Duration = Duration::from_secs(600);
+const ACK_LINE: &str = "One moment.";
+const RETRY_LINE: &str = "Sorry, say that again.";
+const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
+const MAX_FAILURES: u8 = 3;
 const MAX_AUDIO: usize = 2 * 1024 * 1024;
 const BUDGET_LINE: &str = "The voice budget is unavailable or spent. Chat carries on by text.";
 
@@ -49,7 +53,8 @@ struct Call {
     work: mpsc::Sender<Work>,
     cancel: CancellationToken,
     speech: CancellationToken,
-    wake: Arc<Notify>,
+    deliveries: CancellationToken,
+    utterance_pending: bool,
 }
 
 impl Call {
@@ -63,10 +68,10 @@ impl Call {
         self.state = state;
         self.reason = reason;
         let _ = self.events.send(self.snapshot());
-        self.wake.notify_one();
         if state == VoiceState::Ended {
             self.cancel.cancel();
             self.speech.cancel();
+            self.deliveries.cancel();
         }
     }
 }
@@ -86,7 +91,8 @@ enum Work {
         duration: u32,
         speech: CancellationToken,
     },
-    Delivery(Delivery),
+    Delivery(Delivery, CancellationToken),
+    Notice(Delivery, CancellationToken),
 }
 
 pub struct Calls {
@@ -220,15 +226,12 @@ impl Calls {
                 work: tx,
                 cancel: cancel.clone(),
                 speech: CancellationToken::new(),
-                wake: Arc::new(Notify::new()),
+                deliveries: CancellationToken::new(),
+                utterance_pending: false,
             });
             let this = self.clone();
             let id = id.to_string();
-            let context = Context {
-                log: self.log.clone(),
-                room,
-                cancel: cancel.clone(),
-            };
+            let context = Context::new(self.log.clone(), room, cancel.clone());
             tokio::spawn(async move {
                 this.run(id, context, rx).await;
             });
@@ -315,9 +318,18 @@ impl Calls {
             call.activity = Instant::now();
             if hold {
                 call.speech.cancel();
+                call.deliveries.cancel();
+                call.deliveries = CancellationToken::new();
                 call.state(VoiceState::Held, None);
             } else if call.state == VoiceState::Held {
-                call.state(VoiceState::Listening, None);
+                call.state(
+                    if call.utterance_pending {
+                        VoiceState::Thinking
+                    } else {
+                        VoiceState::Listening
+                    },
+                    None,
+                );
             }
             Ok(())
         })
@@ -327,8 +339,17 @@ impl Calls {
         self.change(id, |call| {
             call.activity = Instant::now();
             call.speech.cancel();
+            call.deliveries.cancel();
+            call.deliveries = CancellationToken::new();
             if call.state != VoiceState::Held {
-                call.state(VoiceState::Listening, None);
+                call.state(
+                    if call.utterance_pending {
+                        VoiceState::Thinking
+                    } else {
+                        VoiceState::Listening
+                    },
+                    None,
+                );
             }
             Ok(())
         })
@@ -362,7 +383,7 @@ impl Calls {
             if call.seq.is_some_and(|previous| seq <= previous) {
                 return Err("Utterance sequence numbers must rise.".into());
             }
-            if call.state == VoiceState::Thinking {
+            if call.utterance_pending {
                 return Err("The previous utterance is still being handled.".into());
             }
             let speech = CancellationToken::new();
@@ -379,6 +400,9 @@ impl Calls {
                 .map_err(|_| "The voice call is busy. Try again shortly.".to_string())?;
             call.speech.cancel();
             call.speech = speech;
+            call.deliveries.cancel();
+            call.deliveries = CancellationToken::new();
+            call.utterance_pending = true;
             call.seq = Some(seq);
             call.activity = Instant::now();
             call.state(VoiceState::Thinking, None);
@@ -393,36 +417,43 @@ impl Calls {
         });
     }
 
-    async fn ready(&self, id: &str, cancel: &CancellationToken) -> Result<(), String> {
-        loop {
-            let wake = self.change(id, |call| {
-                Ok((call.state == VoiceState::Held).then(|| call.wake.clone()))
-            })?;
-            let Some(wake) = wake else {
-                return Ok(());
-            };
-            tokio::select! { _ = cancel.cancelled() => return Err("The call ended.".into()), _ = wake.notified() => {} }
-        }
+    fn system_line(
+        &self,
+        id: &str,
+        text: &str,
+        audio: &[u8],
+        interrupted: Option<&CancellationToken>,
+    ) {
+        let line = self
+            .record("agent", text)
+            .unwrap_or_else(|_| Uuid::new_v4().to_string());
+        self.emit(
+            id,
+            VoiceEvent::Said {
+                id: line.clone(),
+                text: text.into(),
+            },
+        );
+        self.clip(
+            id,
+            &line,
+            0,
+            true,
+            &Clip {
+                mime: "audio/wav".into(),
+                bytes: audio.to_vec(),
+            },
+            interrupted,
+        );
     }
 
     async fn run(self: Arc<Self>, id: String, context: Context, mut work: mpsc::Receiver<Work>) {
-        // A bundled spoken system line remains playable when neither a ledger
-        // nor a provider can authorize another paid request.
-        let closing = Clip {
-            mime: "audio/wav".into(),
-            bytes: include_bytes!("assets/budget.wav").to_vec(),
-        };
+        let mut failures = 0u8;
         loop {
             let next = tokio::select! { biased; _ = context.cancel.cancelled() => None, work = work.recv() => work };
             let Some(next) = next else {
                 break;
             };
-            if self.ready(&id, &context.cancel).await.is_err() {
-                if let Work::Delivery(d) = next {
-                    self.push(&d, &d.text);
-                }
-                break;
-            }
             let result = match &next {
                 Work::Utterance {
                     seq,
@@ -430,54 +461,82 @@ impl Calls {
                     duration,
                     speech,
                 } => {
-                    self.hear(&id, &context, *seq, clip.clone(), *duration, speech)
-                        .await
+                    self.hear(
+                        &id,
+                        &context.for_utterance(),
+                        *seq,
+                        clip.clone(),
+                        *duration,
+                        speech,
+                    )
+                    .await
                 }
-                Work::Delivery(delivery) => self.narrate(&id, &context, delivery).await,
+                Work::Delivery(delivery, speech) | Work::Notice(delivery, speech) => {
+                    let held = self
+                        .change(&id, |c| Ok(c.state == VoiceState::Held))
+                        .unwrap_or(true);
+                    if held || speech.is_cancelled() {
+                        self.push(delivery, &delivery.text);
+                        Ok(())
+                    } else if matches!(next, Work::Notice(..)) {
+                        self.say(&id, &delivery.text, speech, &context.cancel).await
+                    } else {
+                        self.narrate(&id, &context, delivery, speech).await
+                    }
+                }
             };
             let budget_failed = self.ledger.check().is_err()
-                || result
-                    .as_ref()
-                    .err()
-                    .is_some_and(|error| error == BUDGET_ERROR);
-            if (result.is_err() || budget_failed) && !context.cancel.is_cancelled() {
+                || result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
+            if !context.cancel.is_cancelled() {
                 if budget_failed {
-                    let line = Uuid::new_v4().to_string();
-                    self.emit(
-                        &id,
-                        VoiceEvent::Said {
-                            id: line.clone(),
-                            text: BUDGET_LINE.into(),
-                        },
-                    );
-                    self.clip(&id, &line, 0, true, &closing, None);
+                    self.system_line(&id, BUDGET_LINE, include_bytes!("assets/budget.wav"), None);
                     let _ = self.finish(&id, VoiceEndReason::Budget);
+                } else if result.is_err() {
+                    failures += 1;
+                    if failures >= MAX_FAILURES {
+                        self.system_line(&id, ERROR_LINE, include_bytes!("assets/error.wav"), None);
+                        let _ = self.finish(&id, VoiceEndReason::Error);
+                    } else {
+                        let speech = match &next {
+                            Work::Utterance { speech, .. }
+                            | Work::Delivery(_, speech)
+                            | Work::Notice(_, speech) => Some(speech),
+                        };
+                        self.system_line(
+                            &id,
+                            RETRY_LINE,
+                            include_bytes!("assets/retry.wav"),
+                            speech,
+                        );
+                    }
                 } else {
-                    self.emit(
-                        &id,
-                        VoiceEvent::Said {
-                            id: Uuid::new_v4().to_string(),
-                            text: "Voice couldn't finish that request. Please continue in text."
-                                .into(),
-                        },
-                    );
-                    let _ = self.finish(&id, VoiceEndReason::Error);
+                    failures = 0;
                 }
             }
-            if let Work::Delivery(delivery) = next
+            if let Work::Delivery(delivery, _) | Work::Notice(delivery, _) = &next
                 && (result.is_err() || context.cancel.is_cancelled())
             {
-                self.push(&delivery, &delivery.text);
+                self.push(delivery, &delivery.text);
             }
             let _ = self.change(&id, |call| {
-                if call.state != VoiceState::Held && call.work.capacity() == 16 {
-                    call.state(VoiceState::Listening, None);
+                if matches!(next, Work::Utterance { .. }) {
+                    call.utterance_pending = false;
+                }
+                if call.state != VoiceState::Held {
+                    call.state(
+                        if call.utterance_pending {
+                            VoiceState::Thinking
+                        } else {
+                            VoiceState::Listening
+                        },
+                        None,
+                    );
                 }
                 Ok(())
             });
         }
         while let Ok(work) = work.try_recv() {
-            if let Work::Delivery(d) = work {
+            if let Work::Delivery(d, _) | Work::Notice(d, _) = work {
                 self.push(&d, &d.text);
             }
         }
@@ -520,22 +579,97 @@ impl Calls {
         }
         self.record("user", &text)?;
         if goodbye(&text) {
-            self.say(id, "Goodbye.", speech_cancel, &context.cancel)
-                .await?;
-            self.finish(id, VoiceEndReason::Goodbye)?;
+            if self
+                .say(id, "Goodbye.", speech_cancel, &context.cancel)
+                .await
+                .is_err()
+            {
+                self.system_line(
+                    id,
+                    "Goodbye.",
+                    include_bytes!("assets/goodbye.wav"),
+                    Some(speech_cancel),
+                );
+            }
+            let _ = self.finish(id, VoiceEndReason::Goodbye);
             return Ok(());
         }
-        self.ledger.check().map_err(|e| e.to_string())?;
-        let answer = tokio::select! {
-            _ = context.cancel.cancelled() => return Ok(()),
-            answer = tokio::time::timeout(Duration::from_secs(60), services.dispatcher.answer(context.clone(), &text, self.ledger.clone())) => answer.map_err(|_| "The voice dispatcher timed out.".to_string())??,
+        self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
+        self.system_line(
+            id,
+            ACK_LINE,
+            include_bytes!("assets/ack.wav"),
+            Some(speech_cancel),
+        );
+        let (output, mut answers) = mpsc::channel(8);
+        let produce = async {
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                services.dispatcher.answer_stream(
+                    context.clone(),
+                    &text,
+                    self.ledger.clone(),
+                    output,
+                ),
+            )
+            .await
+            .map_err(|_| "The voice dispatcher timed out.".to_string())?
         };
-        self.ready(id, &context.cancel).await?;
-        if !speech_cancel.is_cancelled() {
-            self.say(id, &answer, speech_cancel, &context.cancel)
-                .await?;
+        let consume = async {
+            let mut failure = None;
+            while let Some(sentence) = answers.recv().await {
+                if failure.is_some() {
+                    // Speech may fail; keep recording the rest of the answer as text.
+                    let silent = CancellationToken::new();
+                    silent.cancel();
+                    let _ = self.say(id, &sentence, &silent, &context.cancel).await;
+                } else if let Err(error) = self
+                    .say(id, &sentence, speech_cancel, &context.cancel)
+                    .await
+                {
+                    failure = Some(error);
+                }
+            }
+            failure.map_or(Ok(()), Err)
+        };
+        tokio::select! {
+            _ = context.cancel.cancelled() => Ok(()),
+            result = async {
+                let (produced, spoken) = tokio::join!(produce, consume);
+                if [&produced, &spoken].iter().any(|result| result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR)) {
+                    Err(BUDGET_ERROR.to_string())
+                } else {
+                    produced.and(spoken)
+                }
+            } => result,
         }
-        Ok(())
+    }
+
+    async fn summary(&self, delivery: &Delivery) -> Result<String, String> {
+        let fallback = || {
+            sentences(&delivery.text)
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        };
+        if delivery.text.len() > 32_000 {
+            return Ok(fallback());
+        }
+        let Ok(services) = self.services() else {
+            return Ok(fallback());
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(30),
+            services
+                .dispatcher
+                .narrate(&delivery.name, &delivery.text, self.ledger.clone()),
+        )
+        .await;
+        match result {
+            Ok(Err(error)) if error == BUDGET_ERROR => Err(error),
+            Ok(Ok(text)) if !text.trim().is_empty() => Ok(sentences(&text).join(" ")),
+            _ => Ok(fallback()),
+        }
     }
 
     async fn narrate(
@@ -543,28 +677,35 @@ impl Calls {
         id: &str,
         context: &Context,
         delivery: &Delivery,
+        speech: &CancellationToken,
     ) -> Result<(), String> {
-        let services = self.services()?;
-        self.ledger.check().map_err(|e| e.to_string())?;
+        self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
         let text = tokio::select! {
-            _ = context.cancel.cancelled() => return Err("The call ended.".into()),
-            text = tokio::time::timeout(Duration::from_secs(30), services.dispatcher.narrate(&delivery.name, &delivery.text, self.ledger.clone())) => text.map_err(|_| "Voice narration timed out.".to_string())??,
+            _ = context.cancel.cancelled() => return Ok(()),
+            _ = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
+            text = self.summary(delivery) => text?,
         };
-        let text = sentences(&text).join(" ");
-        self.ready(id, &context.cancel).await?;
-        self.emit(
-            id,
-            VoiceEvent::Delivery {
+        if text.is_empty() {
+            return Ok(());
+        }
+        // Hold/interrupt may win while the narrator is completing. Decide publication
+        // under the same lock as those commands, just as for audio clips.
+        let published = self.change(id, |call| {
+            if call.state == VoiceState::Held || speech.is_cancelled() {
+                return Ok(false);
+            }
+            let _ = call.events.send(VoiceEvent::Delivery {
                 persona_id: delivery.persona.clone(),
                 event_id: delivery.event.clone(),
                 text: text.clone(),
-            },
-        );
-        let speech = self.change(id, |call| {
-            call.speech = CancellationToken::new();
-            Ok(call.speech.clone())
+            });
+            Ok(true)
         })?;
-        self.say(id, &text, &speech, &context.cancel).await
+        if !published {
+            self.push(delivery, &delivery.text);
+            return Ok(());
+        }
+        self.say(id, &text, speech, &context.cancel).await
     }
 
     fn record(&self, kind: &str, text: &str) -> Result<String, String> {
@@ -618,10 +759,6 @@ impl Calls {
         if sentences.is_empty() {
             return Err("The dispatcher returned no words.".into());
         }
-        self.ready(id, ended).await?;
-        if interrupted.is_cancelled() {
-            return Ok(());
-        }
         let text = sentences.join(" ");
         let line = self.record("agent", &text)?;
         self.emit(
@@ -632,14 +769,13 @@ impl Calls {
             },
         );
         let _ = self.change(id, |call| {
-            if call.state != VoiceState::Held {
+            if call.state != VoiceState::Held && !interrupted.is_cancelled() {
                 call.state(VoiceState::Speaking, None);
             }
             Ok(())
         });
         for (index, sentence) in sentences.iter().enumerate() {
-            self.ready(id, ended).await?;
-            if interrupted.is_cancelled() {
+            if interrupted.is_cancelled() || ended.is_cancelled() {
                 return Ok(());
             }
             let speech = self.services()?.speech;
@@ -695,12 +831,16 @@ impl Calls {
         event: &str,
         name: &str,
         text: &str,
+        from_voice: bool,
     ) -> bool {
+        if text.trim().is_empty() {
+            return false;
+        }
         let delivery = Delivery {
             persona: persona.into(),
             event: event.into(),
             name: name.into(),
-            text: text.chars().take(12_000).collect(),
+            text: text.to_string(),
         };
         let calls = lock(&self.calls);
         if let Some(call) = calls
@@ -708,11 +848,17 @@ impl Calls {
             .rev()
             .find(|call| call.state != VoiceState::Ended)
         {
-            return call.work.try_send(Work::Delivery(delivery)).is_ok();
+            if call.state == VoiceState::Held {
+                return false;
+            }
+            return call
+                .work
+                .try_send(Work::Delivery(delivery, call.deliveries.child_token()))
+                .is_ok();
         }
         drop(calls);
         // Text-only desks retain their ordinary push and incur no voice cost.
-        if self.services().is_err() || self.ledger.check().is_err() {
+        if !from_voice || self.services().is_err() || self.ledger.check().is_err() {
             return false;
         }
         let Ok(permit) = self.narration.clone().try_acquire_owned() else {
@@ -721,23 +867,41 @@ impl Calls {
         let this = self.clone();
         tokio::spawn(async move {
             let _permit = permit;
-            let summary = match this.services() {
-                Ok(services) => tokio::time::timeout(
-                    Duration::from_secs(30),
-                    services.dispatcher.narrate(
-                        &delivery.name,
-                        &delivery.text,
-                        this.ledger.clone(),
-                    ),
-                )
+            let summary = this
+                .summary(&delivery)
                 .await
                 .ok()
-                .and_then(Result::ok),
-                Err(_) => None,
-            };
+                .filter(|text| !text.is_empty());
             this.push(&delivery, summary.as_deref().unwrap_or(&delivery.text));
         });
         true
+    }
+
+    pub(crate) fn handoff_failed(&self, persona: &str, name: &str) {
+        let text = format!(
+            "The task for {name} could not be delivered. Please check their conversation before retrying."
+        );
+        let notice = Delivery {
+            persona: persona.into(),
+            name: name.into(),
+            text,
+            // System notices never emit a teammate delivery event.
+            event: String::new(),
+        };
+        let calls = lock(&self.calls);
+        if let Some(call) = calls
+            .iter()
+            .rev()
+            .find(|c| c.state != VoiceState::Ended && c.state != VoiceState::Held)
+            && call
+                .work
+                .try_send(Work::Notice(notice.clone(), call.deliveries.child_token()))
+                .is_ok()
+        {
+            return;
+        }
+        drop(calls);
+        self.push(&notice, &notice.text);
     }
 
     fn push(&self, delivery: &Delivery, text: &str) {
@@ -790,15 +954,34 @@ fn goodbye(text: &str) -> bool {
 }
 
 fn sentences(text: &str) -> Vec<String> {
-    // Bound spoken output even if a provider ignores its output limit.
-    let bounded: String = text.chars().take(400).collect();
-    bounded
-        .split_inclusive(['.', '!', '?'])
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .take(2)
-        .map(str::to_string)
-        .collect()
+    take_sentences(&mut text.to_string(), true)
+}
+
+/// A boundary needs following whitespace, so file names and versions stay intact.
+fn take_sentences(pending: &mut String, finished: bool) -> Vec<String> {
+    let mut ends = Vec::new();
+    let mut chars = pending.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?')
+            && chars.peek().is_some_and(|(_, next)| next.is_whitespace())
+        {
+            ends.push(at + c.len_utf8());
+        }
+    }
+    if finished {
+        ends.push(pending.len());
+    }
+    let mut start = 0;
+    let mut out = Vec::new();
+    for end in ends {
+        let sentence = pending[start..end].trim();
+        if !sentence.is_empty() {
+            out.push(sentence.to_string());
+        }
+        start = end;
+    }
+    pending.drain(..start);
+    out
 }
 
 fn validate_audio(mime: &str, bytes: &[u8], duration: u32) -> Result<u32, String> {

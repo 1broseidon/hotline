@@ -270,24 +270,20 @@ export class Call {
 			const keep = Math.ceil((PREROLL_MS / 1000) * (this.ctx?.sampleRate ?? 48_000) / BLOCK);
 			while (this.frames.length > keep) this.frames.shift();
 		}
-		const turn = this.detector.push(level, performance.now());
-		if (!turn) return;
-		switch (turn.kind) {
-			case "hearing":
-				this.heard = true;
-				this.set({ phase: "hearing" });
-				return;
-			case "listening":
-				this.heard = false;
-				this.set({ phase: "listening" });
-				return;
-			case "reset":
-				this.frames = [];
-				this.heard = false;
-				return;
-			case "end":
-				this.send();
-				return;
+		for (const turn of this.detector.push(level, performance.now())) {
+			switch (turn.kind) {
+				case "start":
+					this.heard = true;
+					this.set({ phase: "hearing" });
+					break;
+				case "drop":
+					this.frames = [];
+					this.heard = false;
+					break;
+				case "end":
+					this.send();
+					return;
+			}
 		}
 	}
 

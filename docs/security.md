@@ -721,14 +721,46 @@ made it so.
   authority and companion refusals through the real handler; `hotline-cli/tests/pair.rs`
   proves SIGINT and SIGKILL close the claim route through the running CLI.
 - **Residual risk:** this is not traffic-analysis protection: a proxy sees
-  paths, timing and sizes and can deny service. The limits (16 total, 4/IP)
-  include established connections and can constrain phones behind one NAT.
+  paths, timing and sizes and can deny service. Pending sockets rotate within
+  a 16-total, 4-per-TCP-IP budget, with one second before eviction and five
+  seconds from accept through authentication. Authenticated sockets use a
+  separate 16-total, 4-per-device
+  budget. HTTP keepalive cannot renew anonymous capacity; forwarding headers
+  have no effect. Saturation evicts only pending sockets and waits for their
+  final owner to release them before replacement. Sustained connection floods
+  can still disrupt handshakes and require edge traffic controls.
   The local desk seat, service account, secret store and QR display are
   trusted. QR scrollback remains sensitive until consumption or expiry.
   Desktop legacy TLS/bearer/manual routes remain intentionally available;
   sealed transport does not retroactively protect those legacy sessions.
   Physical iOS and real certificate/proxy deployment QA remain separate from
   Rust network harnesses and shared deterministic vectors.
+
+
+## Remote admission behind a tunnel (BRO-163)
+
+- **Default and grant source:** the same admission rules cover desktop and
+  served listeners. Device identity comes only from a valid saved bearer grant
+  or a completed Noise handshake against a paired public key. Pairing attempts
+  remain in the pending pool and keep their existing invitation/attempt limits.
+- **Enforcement:** `remote/admission.rs` owns pending rotation, atomic promotion,
+  device budgets and final-owner cleanup. `remote/server.rs` keeps the same
+  permit across TLS, HTTP and spawned WebSocket tasks. Revocation retains the
+  wire's cleanup path for subscriptions and pending commands. No forwarding
+  header can manufacture a separate budget or device identity.
+- **Tests:** `remote::admission::tests` covers global and per-device bounds,
+  IPv4-mapped peers, eviction/promotion races, final-owner release and expired
+  admission. `remote::tests::admission_tests` drives disposable TLS listeners
+  through a local TLS-terminating proxy, exercising repeated anonymous pool
+  saturation, paired reconnects, surviving sessions, HTTP keepalive, stalled
+  Noise, raw TCP and multiple devices sharing one proxy IP. The existing remote
+  suite covers pairing, roles, viewer sockets and revocation.
+- **Testing limits:** the proxy harness uses one upstream TLS connection per
+  client. It does not reproduce Cloudflare's upstream connection pooling,
+  production latency or flood defenses. Controlled Cloudflare staging and
+  physical-device validation remain deployment checks; do not saturate the
+  production desk. This is bounded admission, not protection against an
+  unbounded connection flood.
 
 
 ## Desktop clients and owner parity (BRO-145)

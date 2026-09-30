@@ -1584,7 +1584,7 @@ mod sealed_network {
     use super::*;
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
-    fn initiator(private: &[u8; 32], public: &[u8; 32]) -> snow::HandshakeState {
+    pub(super) fn initiator(private: &[u8; 32], public: &[u8; 32]) -> snow::HandshakeState {
         snow::Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
             .prologue(b"hotline/2")
             .unwrap()
@@ -1595,7 +1595,7 @@ mod sealed_network {
             .build_initiator()
             .unwrap()
     }
-    fn invitation(pairing: &SealedPairing) -> ([u8; 32], String) {
+    pub(super) fn invitation(pairing: &SealedPairing) -> ([u8; 32], String) {
         let url = url::Url::parse(&pairing.url).unwrap();
         let params: HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert_eq!(params["v"], "2");
@@ -1641,13 +1641,20 @@ mod sealed_network {
         assert_eq!(answer, sealed::DEVICE_REJECTED);
         closed(&mut socket).await;
     }
-    async fn claim(h: &Harness, pairing: &SealedPairing, private: &[u8; 32]) -> Option<Value> {
+    pub(super) async fn claim(
+        h: &Harness,
+        pairing: &SealedPairing,
+        private: &[u8; 32],
+    ) -> Option<Value> {
         let (public, secret) = invitation(pairing);
         let payload = json!({"secret":secret, "name":"Sealed test phone"}).to_string();
         let (_, _, answer) = exchange(h, "/v2/pair", private, &public, payload.as_bytes()).await?;
         Some(serde_json::from_slice(&answer).unwrap())
     }
-    async fn read_sealed(socket: &mut Socket, state: &mut snow::TransportState) -> Value {
+    pub(super) async fn read_sealed(
+        socket: &mut Socket,
+        state: &mut snow::TransportState,
+    ) -> Value {
         let mut decoder = sealed::Decoder::new(channel::FRAME_MAX);
         loop {
             let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
@@ -1663,12 +1670,16 @@ mod sealed_network {
             }
         }
     }
-    async fn send_sealed(socket: &mut Socket, state: &mut snow::TransportState, value: Value) {
+    pub(super) async fn send_sealed(
+        socket: &mut Socket,
+        state: &mut snow::TransportState,
+        value: Value,
+    ) {
         for bytes in sealed::encode(state, &value.to_string()).unwrap() {
             socket.send(Message::Binary(bytes.into())).await.unwrap();
         }
     }
-    async fn closed(socket: &mut Socket) {
+    pub(super) async fn closed(socket: &mut Socket) {
         let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
             .await
             .unwrap();
@@ -1808,8 +1819,7 @@ mod sealed_network {
                     loop {
                         if room.infos.receiver_count() == 0
                             && room.deltas.receiver_count() == 0
-                            && h.remote.connections.lock().unwrap().is_empty()
-                            && h.remote.slots.available_permits() == 16
+                            && h.remote.admission.counts() == (0, 0)
                         {
                             break;
                         }
@@ -2215,49 +2225,7 @@ fn served_listen_validation_never_permits_wildcard_or_implicit_tls() {
     assert!(options.validate().is_err());
 }
 
-#[tokio::test]
-async fn half_open_connections_have_per_ip_and_global_budgets_and_a_deadline() {
-    use tokio::io::AsyncReadExt;
-    let h = Harness::new().await;
-    let address = h.endpoint().trim_start_matches("https://").to_owned();
-    let mut held = Vec::new();
-    for _ in 0..4 {
-        held.push(TcpStream::connect(&address).await.unwrap());
-    }
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while h.remote.connections.lock().unwrap().values().sum::<usize>() != 4 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
-    let mut extra = TcpStream::connect(&address).await.unwrap();
-    let mut byte = [0];
-    let refused = tokio::time::timeout(Duration::from_secs(1), extra.read(&mut byte))
-        .await
-        .unwrap();
-    assert!(matches!(refused, Ok(0) | Err(_)));
-    // TLS never started, so the absolute five-second deadline releases all slots.
-    tokio::time::timeout(Duration::from_secs(7), async {
-        while !h.remote.connections.lock().unwrap().is_empty() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert_eq!(h.remote.slots.available_permits(), 16);
-    // Exhaust the common semaphore independently of source IP: the accept gate
-    // must refuse before allocating TLS or HTTP state.
-    let budget = h.remote.slots.clone().acquire_many_owned(16).await.unwrap();
-    let mut extra = TcpStream::connect(&address).await.unwrap();
-    let refused = tokio::time::timeout(Duration::from_secs(1), extra.read(&mut byte))
-        .await
-        .unwrap();
-    assert!(matches!(refused, Ok(0) | Err(_)));
-    drop(budget);
-    drop(held);
-    h.remote.configure(false, network::ALL).await.unwrap();
-}
+mod admission_tests;
 
 #[tokio::test]
 async fn served_listener_uses_supplied_pem_certificate_and_key() {

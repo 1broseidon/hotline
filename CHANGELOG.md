@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- Anonymous connections behind a tunnel can no longer hold a fixed set of
+  slots and block paired devices from reconnecting. Pending sockets rotate
+  under pressure and expire five seconds after acceptance; authenticated room
+  and viewer sockets use separate device-based limits (BRO-163).
+
+### Security
+
+- Update Rustls to 0.23.45 for RUSTSEC-2026-0285, which fixes TLS 1.3 handshake
+  messages accepted across encryption-level boundaries (BRO-164).
+- Document the Cloudflare rule and rollout checks for redirecting the public
+  tunnel hostname from HTTP to HTTPS (BRO-165). The edge change is deployed
+  separately from the application.
+
 ## [0.29.0] - 2026-09-29
 
 ### Added

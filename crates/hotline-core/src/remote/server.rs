@@ -83,29 +83,12 @@ pub(super) fn run(
                     continue;
                 }
             };
-            let Ok(slot) = remote.slots.clone().try_acquire_owned() else {
-                continue;
+            let accepted = tokio::time::Instant::now();
+            let slot = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => break,
+                slot = remote.admission.accept(peer.ip(), accepted) => slot,
             };
-            let ip = match peer.ip() {
-                IpAddr::V6(ip) => ip
-                    .to_ipv4_mapped()
-                    .map(IpAddr::V4)
-                    .unwrap_or(IpAddr::V6(ip)),
-                ip => ip,
-            };
-            {
-                let mut connections = remote.connections.lock().unwrap();
-                let count = connections.entry(ip).or_default();
-                if *count >= 4 {
-                    continue;
-                }
-                *count += 1;
-            }
-            let slot = Arc::new(ConnectionPermit {
-                remote: remote.clone(),
-                ip,
-                _global: slot,
-            });
             let remote = remote.clone();
             let tls = tls.clone();
             let cancel = cancel.clone();
@@ -113,11 +96,13 @@ pub(super) fn run(
                 let accepted = tokio::select! {
                     biased;
                     _ = cancel.cancelled() => return,
-                    accepted = tokio::time::timeout(Duration::from_secs(5), tls.accept(socket)) => accepted,
+                    _ = slot.expired() => return,
+                    accepted = tls.accept(socket) => accepted,
                 };
-                let Ok(Ok(socket)) = accepted else {
+                let Ok(socket) = accepted else {
                     return;
                 };
+                let pending = slot.clone();
                 let service =
                     service_fn(move |request| handle(remote.clone(), request, slot.clone()));
                 let mut builder = http1::Builder::new();
@@ -127,7 +112,7 @@ pub(super) fn run(
                 let connection = builder
                     .serve_connection(TokioIo::new(socket), service)
                     .with_upgrades();
-                tokio::select! { _ = cancel.cancelled() => {}, _ = connection => {} }
+                tokio::select! { biased; _ = cancel.cancelled() => {}, _ = pending.expired() => {}, _ = connection => {} }
             });
         }
     })
@@ -135,7 +120,7 @@ pub(super) fn run(
 async fn handle(
     remote: Arc<Remote>,
     mut request: Request<Incoming>,
-    slot: Arc<ConnectionPermit>,
+    slot: Arc<admission::Permit>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     // Pairing and wire credentials belong to native clients. Browser origins
     // cannot spend them, and no CORS or query-token route is offered here.
@@ -197,13 +182,19 @@ async fn handle(
         return Ok(error(StatusCode::BAD_REQUEST, "invalid_upgrade"));
     };
     tokio::spawn(async move {
-        let _slot = slot;
-        let Ok(Ok(upgraded)) = tokio::time::timeout(Duration::from_secs(5), upgraded).await else {
+        let upgraded = tokio::select! {
+            biased;
+            _ = phone.cancel.cancelled() => return,
+            _ = slot.expired() => return,
+            upgraded = upgraded => upgraded,
+        };
+        let Ok(upgraded) = upgraded else {
             return;
         };
-        if phone.cancel.is_cancelled() {
+        if phone.cancel.is_cancelled() || !slot.authenticate(&phone.id) {
             return;
         }
+        let _slot = slot;
         let config = WebSocketConfig::default()
             .max_message_size(Some(65_536))
             .max_frame_size(Some(65_536));
@@ -269,7 +260,7 @@ pub(crate) fn computer_target(status: &crate::contract::ComputerStatus) -> Optio
 async fn computer_door(
     remote: Arc<Remote>,
     mut request: Request<Incoming>,
-    slot: Arc<ConnectionPermit>,
+    slot: Arc<admission::Permit>,
     persona_id: &str,
 ) -> Response<Full<Bytes>> {
     let Some(phone) = remote.authenticate(bearer(&request)) else {
@@ -286,13 +277,19 @@ async fn computer_door(
         return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
     };
     tokio::spawn(async move {
-        let _slot = slot;
-        let Ok(Ok(upgraded)) = tokio::time::timeout(Duration::from_secs(5), upgraded).await else {
+        let upgraded = tokio::select! {
+            biased;
+            _ = phone.cancel.cancelled() => return,
+            _ = slot.expired() => return,
+            upgraded = upgraded => upgraded,
+        };
+        let Ok(upgraded) = upgraded else {
             return;
         };
-        if phone.cancel.is_cancelled() {
+        if phone.cancel.is_cancelled() || !slot.authenticate(&phone.id) {
             return;
         }
+        let _slot = slot;
         let config = WebSocketConfig::default()
             .max_message_size(Some(COMPUTER_MESSAGE_MAX))
             .max_frame_size(Some(COMPUTER_MESSAGE_MAX));
@@ -349,30 +346,10 @@ async fn pipe<P, C>(
     let _ = computer.close(None).await;
 }
 
-/// The connection budget covers TLS, HTTP, Noise and the upgraded lifetime.
-/// Keeping the permit in the upgrade task prevents reconnect floods from
-/// evading the per-IP limit after their HTTP connection has returned.
-struct ConnectionPermit {
-    remote: Arc<Remote>,
-    ip: IpAddr,
-    _global: tokio::sync::OwnedSemaphorePermit,
-}
-impl Drop for ConnectionPermit {
-    fn drop(&mut self) {
-        let mut connections = self.remote.connections.lock().unwrap();
-        if let Some(count) = connections.get_mut(&self.ip) {
-            *count -= 1;
-            if *count == 0 {
-                connections.remove(&self.ip);
-            }
-        }
-    }
-}
-
 async fn sealed_door(
     remote: Arc<Remote>,
     mut request: Request<Incoming>,
-    slot: Arc<ConnectionPermit>,
+    slot: Arc<admission::Permit>,
     path: &str,
 ) -> Response<Full<Bytes>> {
     #[derive(Deserialize)]
@@ -396,8 +373,7 @@ async fn sealed_door(
         return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
     };
     tokio::spawn(async move {
-        let _slot = slot;
-        // The same deadline covers upgrade plus both Noise messages. The
+        // The same deadline covers TCP acceptance through both Noise messages. The
         // initial WebSocket cap prevents allocation of an unbounded handshake.
         let handshake = async {
             let upgraded = upgraded.await.ok()?;
@@ -464,16 +440,22 @@ async fn sealed_door(
                 return None;
             }
             let state = noise.into_transport_mode().ok()?;
-            Some((super::channel::Channel::new(socket, state), phone?))
+            let phone = phone?;
+            if phone.cancel.is_cancelled() || !slot.authenticate(&phone.id) {
+                return None;
+            }
+            Some((super::channel::Channel::new(socket, state), phone))
         };
         let established = tokio::select! {
             biased;
             _ = cancel.cancelled() => return,
-            result = tokio::time::timeout(Duration::from_secs(5), handshake) => result,
+            _ = slot.expired() => return,
+            result = handshake => result,
         };
-        let Ok(Some((socket, phone))) = established else {
+        let Some((socket, phone)) = established else {
             return;
         };
+        let _slot = slot;
         if let Some(persona) = persona {
             let revoked = phone.cancel.clone();
             tokio::select! {

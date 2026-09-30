@@ -767,8 +767,9 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   session key receives message 2 with `{"error":"device_not_authorized"}` and
   the socket closes. The client may report revoked only after verifying that
   message under the pinned desk identity. Invalid first messages close silently.
-  Connection limits apply per IP, together with a global half-open handshake
-  cap, handshake deadline and byte cap.
+  Pending connection limits apply per TCP peer IP, with a separate global
+  pending cap, absolute authentication deadline and byte cap. Authenticated
+  sessions have independent limits keyed by the proven device identity.
 - Each transport message is one binary WebSocket message, at most 65535
   bytes including the Noise authentication tag. Plaintext is `[flag u8]
   [chunk]`; flag 0 continues the current frame and flag 1 ends it. Chunks
@@ -827,10 +828,30 @@ cancellation or expiry. An owner may invoke these controls; a companion may not.
 A served listener mounts only v2 routes. Desktop legacy routes remain for old
 pairings; manual retries recheck expiry and original confirmation.
 
-Connection budgets are 16 total and 4 per source IP, including established
-room and viewer sockets, not only half-open handshakes. Upgrade and Noise
-share a five-second deadline; the first Noise message is limited to 4096
-bytes and WebSocket records to 65535. Reassembly is capped at 32 MiB; the
-owner wire permits 32 MiB frames, while companions retain the 1 MiB output
-frame limit. Both use a bounded 64-frame outbox. These limits can deny service behind a shared NAT but never
-widen a seat or fall back to plaintext.
+Pending connections have their own budget: 16 total and 4 per TCP peer IP.
+When that budget fills, the oldest pending connection in the exhausted budget
+is cancelled and fully released before its replacement starts TLS. Each new
+pending connection gets a one-second grace period before it can be evicted,
+so incoming bursts cannot immediately cancel every handshake. A single
+five-second deadline runs from TCP acceptance through TLS, HTTP, the WebSocket
+upgrade and Noise authentication; HTTP keepalive requests cannot reset it.
+IPv4-mapped IPv6 addresses share the IPv4 budget. Forwarding headers do not
+change admission: the listener does not trust `X-Forwarded-For` or
+`CF-Connecting-IP`.
+
+After authentication, room and viewer connections share a separate budget of
+16 total and 4 per device, independent of its IP address. An authenticated
+connection is never evicted to admit anonymous traffic. The listener allocates
+at most 32 connection states plus one accepted socket waiting for an evicted
+connection to finish; the OS listen backlog is separate. A device at its limit,
+or a full authenticated budget, closes a new upgrade without an application
+hello. Clients use their normal reconnect backoff.
+
+The first Noise message is limited to 4096 bytes and WebSocket records to
+65535. Reassembly is capped at 32 MiB; the owner wire permits 32 MiB frames,
+while companions retain the 1 MiB output frame limit. Both use a bounded
+64-frame outbox. These limits never widen a seat or fall back to plaintext.
+Rotation prevents a fixed set of anonymous connections from holding all
+reconnect slots, but cannot guarantee availability under sustained connection
+floods or a proxy that refuses traffic. Public deployments still need edge
+traffic controls.

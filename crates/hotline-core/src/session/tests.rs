@@ -887,6 +887,16 @@ async fn every_line_the_room_hands_the_driver_is_a_line_the_driver_heard() {
     room.start("ada").await.unwrap();
     room.prompt("ada", "first", None, None).await.unwrap();
 
+    // The first prompt must not satisfy the first nudge's counter change.
+    // Otherwise the hunt can finish one tick ahead of the driver it is measuring.
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while lock(&prompts).is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the initial prompt should reach the driver before the hunt");
+
     let hunting = {
         let room = room.clone();
         let prompts = prompts.clone();

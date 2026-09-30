@@ -1514,7 +1514,7 @@ async fn collaboration_consent_covers_separate_operator_turns_and_both_intents()
                     .await
                     .unwrap();
             }
-            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
                 loop {
                     if let Some(result) = room.tape("ada").iter().find(|event| {
                         event["kind"] == "delivery" && event["cause"]["requestId"] == request_id

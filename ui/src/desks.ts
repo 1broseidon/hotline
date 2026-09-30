@@ -107,8 +107,22 @@ export function activeDeskId(): string | null {
 	return active;
 }
 
+/**
+ * A desk asked for before the shell's list has it. Pairing answers with the
+ * new desk's id on one channel and announces the list on another, and nothing
+ * orders them: a window that switched only if the list came first would stay
+ * on the empty local desk it was paired from (BRO-151). The next list settles
+ * it either way.
+ */
+let awaited: string | null = null;
+
 export function setActiveDesk(deskId: string) {
-	if (deskId === active || !desks.some((desk) => desk.id === deskId)) return;
+	if (deskId === active) return;
+	if (!desks.some((desk) => desk.id === deskId)) {
+		awaited = deskId;
+		return;
+	}
+	awaited = null;
 	active = deskId;
 	saved.set(deskId);
 	changed();
@@ -129,9 +143,18 @@ export function replaceDesks(next: Desk[]) {
 		}
 	}
 	desks = next;
-	// The person's choice, once it is back in the list (a reload that began
-	// with a stale one fell back to another desk meanwhile).
-	active = pick(saved.get() ?? active);
+	// The first list after the request is the one that answers it; one that
+	// still lacks the desk means it is not coming, and the ask lapses.
+	const wanted = awaited;
+	awaited = null;
+	if (wanted !== null && next.some((desk) => desk.id === wanted)) {
+		active = wanted;
+		saved.set(wanted);
+	} else {
+		// The person's choice, once it is back in the list (a reload that began
+		// with a stale one fell back to another desk meanwhile).
+		active = pick(saved.get() ?? active);
+	}
 	changed();
 }
 

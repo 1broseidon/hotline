@@ -16,6 +16,7 @@ import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { ConnectProvider, ProviderRow } from "./ConnectProvider";
 import { SecretsSection } from "./Secrets";
+import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
 
 import { UpdatesSection } from "./UpdatesSection";
@@ -1234,7 +1235,7 @@ function ServerPage({
 	);
 }
 
-function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http" }> }) {
+export function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http" }> }) {
 	const [status, setStatus] = useState<McpOAuthStatus | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -1311,6 +1312,10 @@ function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http
 					</div>
 				</div>
 			</div>
+			{/* On a server's desk the provider's redirect lands on the wrong computer's loopback (BRO-154). */}
+			{onServer() && state === "pending" && status?.loginId !== undefined && (
+				<McpPasteBack loginId={status.loginId} onStatus={setStatus} />
+			)}
 			{state === "failed" && status?.error !== undefined && <Refusal message="Sign-in failed." detail={status.error} />}
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>

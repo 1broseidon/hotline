@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- Signing in to an OAuth MCP server on a desk on a server now completes from the
+  desktop: the browser's redirect cannot reach the server, so after approving,
+  the window asks for the address of the page you land on and finishes the
+  sign-in with it. Only that sign-in's own callback is accepted, and a wrong
+  address leaves it waiting (BRO-154).
 - Anonymous connections behind a tunnel can no longer hold a fixed set of
   slots and block paired devices from reconnecting. Pending sockets rotate
   under pressure and expire five seconds after acceptance; authenticated room

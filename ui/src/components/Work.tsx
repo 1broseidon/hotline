@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { ArrowDownIcon, CloseIcon } from "../icons";
 import { useTape } from "../tape";
@@ -42,10 +42,12 @@ export function Work({
 	const frame = useRef<HTMLDivElement>(null);
 	const [following, setFollowing] = useState(true);
 	const count = run?.items.length ?? 0;
-	useEffect(() => {
+	// Every tape change re-renders this, a thought growing word by word
+	// included, so following is kept after each one, not only per new step.
+	useLayoutEffect(() => {
 		const el = frame.current;
 		if (el && following) el.scrollTop = el.scrollHeight;
-	}, [count, following, run?.id]);
+	});
 	useEffect(() => setFollowing(true), [run?.id]);
 
 	return (

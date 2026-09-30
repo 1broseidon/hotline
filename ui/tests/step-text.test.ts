@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { outputText, plainText, stepTitle } from "../src/stepText";
+import { joinThoughts, outputText, plainText, stepTitle } from "../src/stepText";
 
 describe("Step titles", () => {
 	test("a raw tool id reads as words", () => {
@@ -16,6 +16,11 @@ describe("Step titles", () => {
 		expect(stepTitle("Read /home/george/notes.md")).toBe("Read ~/notes.md");
 		expect(stepTitle("Read File")).toBe("Read File");
 		expect(stepTitle("Run cd somewhere")).toBe("Run cd somewhere");
+	});
+
+	test("markdown backticks a harness wraps a title in come off", () => {
+		expect(stepTitle("`ls -la`")).toBe("ls -la");
+		expect(stepTitle("Find `*`")).toBe("Find *");
 	});
 });
 
@@ -43,5 +48,15 @@ describe("Step output", () => {
 
 	test("a new file is all additions", () => {
 		expect(outputText({ type: "diff", path: "/tmp/n.md", oldText: null, newText: "one\ntwo" })).toBe("/tmp/n.md\n+ one\n+ two");
+	});
+});
+
+describe("Thinking", () => {
+	test("pieces broken mid-sentence run together; finished sentences start a paragraph", () => {
+		expect(joinThoughts(["The search only turned", " up a few files", ". I'll list the directory."])).toBe(
+			"The search only turned up a few files. I'll list the directory.",
+		);
+		expect(joinThoughts(["Checking the workspace.", "The images were posted."])).toBe("Checking the workspace.\n\nThe images were posted.");
+		expect(joinThoughts(["Let me look at", "the three"])).toBe("Let me look at the three");
 	});
 });

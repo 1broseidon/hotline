@@ -1899,10 +1899,10 @@
 		position: relative;
 		display: flex;
 		width: min(400px, calc(100vw - 32px));
-		/* Never down over the composer, whose top is 68px above the column's foot. */
-		max-height: min(540px, calc(100% - 68px));
-		min-height: 0;
-		flex: 0 1 auto;
+		/* One height whatever the run holds, never down over the composer,
+		 * whose top is 68px above the column's foot. */
+		height: min(360px, calc(100% - 68px));
+		flex-shrink: 0;
 		flex-direction: column;
 		border-radius: var(--radius-pane);
 		overflow: clip;

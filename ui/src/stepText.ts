@@ -20,7 +20,8 @@ export function tidyPath(path: string): string {
 
 /** "computer__browser " → "computer · browser"; "zsh -lc 'cd x && make'" → "Run make". */
 export function stepTitle(raw: string): string {
-	let title = raw.trim();
+	// Some harnesses fence the command or pattern in markdown backticks.
+	let title = raw.trim().replace(/`([^`]*)`/g, "$1");
 	const tool = /^([a-z0-9-]+)__([a-z0-9_]+)$/i.exec(title);
 	if (tool) return `${tool[1]} · ${tool[2]!.replace(/_/g, " ")}`;
 	const shell = /^(?:\S*\/)?(?:ba|z)?sh\s+-l?c\s+(["'])([\s\S]*)$/.exec(title);
@@ -92,4 +93,20 @@ function editLines(oldText: string | null, newText: string): string[] {
 	for (const line of kept) lines.push(`  ${line}`);
 	if (tail > kept.length) lines.push("  …");
 	return lines;
+}
+
+/**
+ * A run of thought pieces as one thought. Harnesses send thinking in pieces
+ * that can break mid-sentence; a piece that ends one runs straight into the
+ * next, and one that finishes a sentence starts a new paragraph.
+ */
+export function joinThoughts(pieces: string[]): string {
+	let text = "";
+	for (const piece of pieces) {
+		if (text === "") text = piece;
+		else if (/[.!?:)\]`"'…]\s*$|\n\s*$/.test(text)) text = `${text.trimEnd()}\n\n${piece.trimStart()}`;
+		else if (/^[\s.,;:!?)\]…]/.test(piece) || /\s$/.test(text)) text += piece;
+		else text += ` ${piece}`;
+	}
+	return text.trim();
 }

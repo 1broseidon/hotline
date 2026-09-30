@@ -29,7 +29,7 @@ import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { askedFor } from "./PasskeyArm";
 import { SentFile } from "./SentFile";
-import { outputText, stepTitle } from "../stepText";
+import { joinThoughts, outputText, stepTitle } from "../stepText";
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -978,19 +978,31 @@ export function stepsSummary(items: Step[]): string {
 	return `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
 }
 
-/** Each step as a row: a thought in italics, a tool with its output behind a press. */
+/**
+ * Each step as a row, its detail behind a press: a run of thoughts as one
+ * "Thinking" row, since harnesses send thinking in pieces that break
+ * mid-sentence, and a tool with its output.
+ */
 export function StepRows({ items, settled = false }: { items: Step[]; /** The turn is over: nothing in it is still running. */ settled?: boolean }) {
-	return items.map((item) =>
-		item.kind === "thought" ? (
-			<Thought key={item.id} id={item.id} text={item.text} />
+	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | Extract<Step, { kind: "tool" }>)[] = [];
+	for (const item of items) {
+		const last = rows[rows.length - 1];
+		if (item.kind === "thought") {
+			if (last?.kind === "thinking") last.pieces.push(item.text);
+			else rows.push({ kind: "thinking", id: item.id, pieces: [item.text] });
+		} else rows.push(item);
+	}
+	return rows.map((row, at) =>
+		row.kind === "thinking" ? (
+			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} />
 		) : (
 			<Tool
-				key={item.id}
-				id={item.id}
-				title={item.title}
+				key={row.id}
+				id={row.id}
+				title={row.title}
 				// A harness that never closed a call leaves it running on the tape after the turn ended.
-				status={settled && (item.status === "in_progress" || item.status === "pending") ? "completed" : item.status}
-				output={item.output}
+				status={settled && (row.status === "in_progress" || row.status === "pending") ? "completed" : row.status}
+				output={row.output}
 			/>
 		),
 	);
@@ -1384,14 +1396,15 @@ function unquoted(text: string): string {
 	return lines.slice(end).join("\n").replace(/^\n+/, "");
 }
 
-/** What the agent was thinking, one line until pressed. */
-function Thought({ id, text }: { id: string; text: string }) {
+/** What the agent was thinking: "Thinking" until pressed, the whole thought after. */
+function Thought({ id, text, live }: { id: string; text: string; /** Still arriving. */ live: boolean }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div data-step-id={id}>
 			<button type="button" className="step" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-				<span aria-hidden="true" className="step-mark" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
-				<span className="step-title font-sans italic text-ink-3">{firstLine(text)}</span>
+				<span aria-hidden="true" className={`step-mark ${live ? "beat" : ""}`} style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
+				<span className="step-title font-sans italic text-ink-3">Thinking</span>
+				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
 			</button>
 			{open && <div className="step-out font-sans not-italic">{text}</div>}
 		</div>
@@ -1418,7 +1431,8 @@ function Tool({
 	output: ToolOutput[] | undefined;
 }) {
 	const [open, setOpen] = useState(false);
-	const hasOutput = output !== undefined && output.length > 0;
+	// Some harnesses record an empty text output; that is nothing to open.
+	const hasOutput = output !== undefined && output.some((one) => one.type === "diff" || one.text.trim() !== "");
 	return (
 		<div data-step-id={id}>
 			<button
@@ -1448,7 +1462,10 @@ function Tool({
 
 /** A tool's output, cleaned once per output rather than on every streamed word. */
 const StepOutput = memo(function StepOutput({ output }: { output: ToolOutput[] }) {
-	const parts = useMemo(() => output.map((one) => ({ edit: one.type === "diff", text: outputText(one) })), [output]);
+	const parts = useMemo(
+		() => output.map((one) => ({ edit: one.type === "diff", text: outputText(one) })).filter((part) => part.text !== ""),
+		[output],
+	);
 	return (
 		<div className="step-out">
 			{parts.map((part, at) => (

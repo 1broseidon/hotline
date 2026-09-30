@@ -3,7 +3,8 @@
 //! `hotline serve` is the same desk the app opens — the room, its scheduler,
 //! Remote for phones, and the loopback Door — started by systemd on a server
 //! with no display and no session bus. Every other subcommand is a client of
-//! that running desk's Door, found through `door.json` in the data directory:
+//! that running desk's Door, found through `door.json` in the data directory
+//! (or, on a served box with none of your own, the hotline service's room):
 //! none of them opens the room itself, so none of them contends for its lock.
 //! See `docs/serve.md`.
 
@@ -13,6 +14,8 @@ mod update;
 mod door;
 #[cfg(unix)]
 mod remote;
+#[cfg(unix)]
+mod room;
 #[cfg(unix)]
 mod serve;
 
@@ -33,7 +36,9 @@ usage:
   hotline revoke <device-id> [--data <dir>]
   hotline wire <command> [--data <dir>] < params.json
 
-`--data` defaults to HOTLINE_DATA_DIR, then the platform's data directory.
+`--data` defaults to HOTLINE_DATA_DIR, then the platform's data directory. With
+neither, and no desk running in that directory, status, pair, devices, revoke
+and wire use the room of the hotline service on this machine.
 `wire` reads the command's params as JSON on stdin, never from arguments,
 so a secret in them does not reach shell history or the process list.";
 
@@ -70,7 +75,17 @@ fn main() -> ExitCode {
         Ok(data) => data.map(PathBuf::from),
         Err(error) => return usage(&error),
     };
-    let root = data.unwrap_or_else(hotline_core::paths::data_root);
+    // What the operator typed, for an error to say again as another account.
+    let line = room::command_line(&args);
+    // A room the operator named is taken as given; only an unnamed one is looked for.
+    let named = data.clone().or_else(named_by_environment);
+    let room = || {
+        room::locate(
+            named.clone(),
+            line.clone(),
+            room::Host::real(hotline_core::paths::data_root()),
+        )
+    };
     let Some(command) = (!args.is_empty()).then(|| args.remove(0)) else {
         return usage("");
     };
@@ -92,7 +107,11 @@ fn main() -> ExitCode {
             if !args.is_empty() {
                 return usage(&format!("serve does not take {}", args.join(" ")));
             }
-            serve::run(root, &store, options)
+            serve::run(
+                data.unwrap_or_else(hotline_core::paths::data_root),
+                &store,
+                options,
+            )
         }
         "pair" => {
             let companion = take_flag(&mut args, "--companion");
@@ -101,12 +120,12 @@ fn main() -> ExitCode {
             if !args.is_empty() || (json && link) {
                 return usage("pair takes --companion and either --json or --link");
             }
-            remote::pair(&root, companion, json, link)
+            remote::pair(&room(), companion, json, link)
         }
-        "devices" if args.is_empty() => remote::devices(&root),
-        "revoke" if args.len() == 1 => remote::revoke(&root, &args[0]),
-        "status" if args.is_empty() => door::status(&root),
-        "wire" if args.len() == 1 => door::wire(&root, &args[0]),
+        "devices" if args.is_empty() => remote::devices(&room()),
+        "revoke" if args.len() == 1 => remote::revoke(&room(), &args[0]),
+        "status" if args.is_empty() => door::status(&room()),
+        "wire" if args.len() == 1 => door::wire(&room(), &args[0]),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             ExitCode::SUCCESS
@@ -119,6 +138,15 @@ fn main() -> ExitCode {
                 .join(" ")
         )),
     }
+}
+
+/// `HOTLINE_DATA_DIR`, when it names a room, as `paths::data_root` reads it.
+#[cfg(unix)]
+fn named_by_environment() -> Option<PathBuf> {
+    std::env::var("HOTLINE_DATA_DIR")
+        .ok()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(PathBuf::from)
 }
 
 /// Removes `--flag value` or `--flag=value` from `args`.

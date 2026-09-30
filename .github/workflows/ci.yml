@@ -30,8 +30,10 @@ jobs:
             hosted: ubuntu-24.04
           - os: windows
             hosted: windows-2025
-    # Ours (a branch here, or a manual run) goes to grizzly; a fork's goes to GitHub.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON(format('["self-hosted","grizzly-{0}"]', matrix.os)) || matrix.hosted }}
+    # Ours (a branch here, or a manual run) goes to grizzly; a fork's goes to
+    # GitHub. The repo variable CI_RUNNERS=hosted sends everything to GitHub,
+    # for when grizzly is busy or down.
+    runs-on: ${{ vars.CI_RUNNERS != 'hosted' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON(format('["self-hosted","grizzly-{0}"]', matrix.os)) || matrix.hosted }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7

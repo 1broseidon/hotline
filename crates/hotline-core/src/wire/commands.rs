@@ -19,6 +19,13 @@ use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
+// Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
+tokio::task_local! { pub(crate) static VOICE_COMMAND: (); }
+
+pub(crate) fn from_voice() -> bool {
+    VOICE_COMMAND.try_with(|()| ()).is_ok()
+}
+
 pub(crate) async fn run(
     command: Command,
     log: &Log,
@@ -26,6 +33,32 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
+        Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
+        Command::VoiceCallStart { call_id } => {
+            Ok(json!(voice(room)?.start(&call_id, room.clone())?))
+        }
+        Command::VoiceUtterance {
+            call_id,
+            seq,
+            mime_type,
+            data,
+            duration_ms,
+        } => {
+            voice(room)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceInterrupt { call_id } => {
+            voice(room)?.interrupt(&call_id)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceHold { call_id, hold } => {
+            voice(room)?.hold(&call_id, hold)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceCallEnd { call_id } => {
+            voice(room)?.end(&call_id)?;
+            Ok(Value::Null)
+        }
         Command::FilesBrowse { path } => {
             tokio::task::spawn_blocking(move || super::files::browse(&path))
                 .await
@@ -548,6 +581,11 @@ pub(crate) async fn run(
             .await
             .map(|()| Value::Null),
     }
+}
+
+fn voice(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::voice::Calls>, String> {
+    room.voice()
+        .ok_or_else(|| "Voice is not available on this desk.".into())
 }
 
 fn now() -> i64 {

@@ -224,3 +224,10 @@ export const WarningIcon = ({ className }: IconProps) => (
 		<circle cx="8" cy="11" r="0.6" fill="currentColor" stroke="none" />
 	</svg>
 );
+
+/* A handset, for a call with the desk. */
+export const PhoneIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M5.2 2.75l1.6 2.9-1.25 1.2a7.6 7.6 0 0 0 3.6 3.6l1.2-1.25 2.9 1.6-.6 2.05a1.5 1.5 0 0 1-1.6 1.05A10.3 10.3 0 0 1 2.1 4.95 1.5 1.5 0 0 1 3.15 3.35z" />
+	</svg>
+);

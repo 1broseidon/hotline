@@ -135,6 +135,11 @@ export function replaceDesks(next: Desk[]) {
 	changed();
 }
 
+/** Hears every change to the list: a desk paired, removed, or its bridge's state moved. */
+export function watchDesks(listener: () => void): () => void {
+	return subscribe(listener);
+}
+
 export function useDesks(): Desk[] {
 	return useSyncExternalStore(subscribe, () => desks);
 }

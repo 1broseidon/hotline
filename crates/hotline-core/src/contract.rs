@@ -2008,6 +2008,116 @@ pub struct ImagesStatus {
     pub spending_unavailable: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct VoiceModel {
+    pub provider_id: String,
+    pub model_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceBudget {
+    pub day_usd: f64,
+    pub month_usd: f64,
+    pub spent_day_usd: f64,
+    pub spent_month_usd: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct VoiceStatus {
+    pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stt: Option<VoiceModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tts: Option<VoiceModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_tts: Option<VoiceModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatcher: Option<VoiceModel>,
+    pub budget: VoiceBudget,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceCall {
+    pub call_id: String,
+    pub input: Vec<String>,
+    pub output: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum VoiceState {
+    Listening,
+    Thinking,
+    Speaking,
+    Held,
+    Ended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum VoiceEndReason {
+    Client,
+    Goodbye,
+    Budget,
+    Replaced,
+    Error,
+    Idle,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub enum VoiceEvent {
+    State {
+        state: VoiceState,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<VoiceEndReason>,
+    },
+    Heard {
+        seq: u32,
+        text: String,
+    },
+    Said {
+        id: String,
+        text: String,
+    },
+    Clip {
+        id: String,
+        index: u32,
+        r#final: bool,
+        mime_type: String,
+        data: String,
+    },
+    Delivery {
+        persona_id: String,
+        event_id: String,
+        text: String,
+    },
+    Card {
+        persona_id: String,
+        request_id: String,
+        kind: String,
+    },
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -2023,6 +2133,24 @@ pub struct ImagesStatus {
 )]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
+    #[serde(rename = "voice.status")]
+    VoiceStatus {},
+    #[serde(rename = "voice.call_start")]
+    VoiceCallStart { call_id: String },
+    #[serde(rename = "voice.utterance")]
+    VoiceUtterance {
+        call_id: String,
+        seq: u32,
+        mime_type: String,
+        data: String,
+        duration_ms: u32,
+    },
+    #[serde(rename = "voice.interrupt")]
+    VoiceInterrupt { call_id: String },
+    #[serde(rename = "voice.hold")]
+    VoiceHold { call_id: String, hold: bool },
+    #[serde(rename = "voice.call_end")]
+    VoiceCallEnd { call_id: String },
     /// Listener and pairing controls belong to the local desk, never a remote owner.
     #[serde(rename = "remote.status")]
     RemoteStatus {},
@@ -2613,6 +2741,7 @@ pub enum Command {
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum Target {
+    Call(String),
     Room,
     Tape(String),
     Thread(String),

@@ -984,3 +984,43 @@ made it so.
   shell administration, not isolation between computer viewers. Download handles
   are process-wide random ids, not window-bound. A compromised main window or
   local process that steals its owner token still has owner authority.
+
+
+### Voice calls
+
+`voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
+desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
+`voice-dispatcher` tape is also refused as a companion subscription. No microphone
+audio is written to the tape: only transcriptions and spoken text are indexed.
+
+The dispatcher executes a fixed command allowlist in `voice::dispatcher::Context`.
+It cannot answer permission/human/passkey cards, edit policies, read arbitrary
+files, or change credentials. Text handoffs use the ordinary session commands;
+those commands retain the teammate's existing permissions and approval gates.
+Disconnect/revocation cancels the call's authority to dispatch further actions,
+while already accepted teammate work continues. Clip queues are bounded; an
+out-of-date subscriber is disconnected instead of losing audio silently.
+
+Only a context created for a new heard utterance can invoke action commands.
+Narration has no tools. Conversation tails, history, and narrated replies are
+escaped untrusted blocks; this is a prompt boundary, not a guarantee against
+model misinterpretation. The core caps handoffs at three per utterance and
+rejects attachments and reply targets. Startup is asynchronous, with a bounded
+wait, and a queued acknowledgement never establishes successful delivery.
+
+Voice-created schedules are agent-origin jobs (`operatorCreated: false`), require
+the live background-work grant under the ordinary schedule mutation lock, and
+are checked again before firing. The dispatcher refuses loops, intervals, quiet
+jobs, and cancellation of jobs created outside this call. The trusted voice
+origin is an internal task scope; wire parameters cannot set it. Reply provenance
+is retained in the opaque user event ID so only voice handoffs can rewrite an
+out-of-call push. A held call sends normal pushes.
+
+Proofs: `voice::tests::voice_schedules_require_a_grant_and_cannot_escape_the_call_scope`,
+`a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup`,
+`session::tests::only_the_reply_to_a_voice_handoff_gets_a_summarised_push`,
+`wire::tests::voice_is_owner_only_through_the_real_handler`, the voice
+state-machine tests, `voice::dispatcher::tests`, and the WebSocket scripted client
+in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
+errors, fallback and persistent budget failures. Live provider latency is a
+separate measurement; fake-provider test timings are not a production guarantee.

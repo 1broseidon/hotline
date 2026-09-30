@@ -897,3 +897,122 @@ Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection
 floods or a proxy that refuses traffic. Public deployments still need edge
 traffic controls.
+
+## Voice calls
+
+Voice commands and `{"call":"<callId>"}` subscriptions are available to the
+local desk and paired owners. Companions receive `code: "forbidden"`.
+An owner hello advertises `voice` when `voice.status` reports availability.
+Speech comes from connected providers. By default the dispatcher uses the room's
+default provider and prefers its lightweight chat models, excluding speech,
+embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
+provider and model explicitly; catalogues supply no measured latency ranking.
+`settings.voice` also selects speech models, voices and spending caps; see
+[Voice providers and settings](voice.md).
+No extra speech credential is created.
+
+| Command | Params | Result |
+| --- | --- | --- |
+| `voice.status` | `{}` | `VoiceStatus`: availability, provider/model selections and budget |
+| `voice.call_start` | `{callId}` | `{callId,input:["audio/wav","audio/mp4"],output:"audio/wav"\|"audio/mpeg"}` |
+| `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
+| `voice.interrupt` | `{callId}` | void |
+| `voice.hold` | `{callId,hold}` | void |
+| `voice.call_end` | `{callId}` | void |
+
+`callId` is a client-generated UUID. Repeating a retained id returns the same
+call descriptor, including an ended call; the desk retains the latest 32 call
+ids for the life of this process. A different id ends the previous call with
+`replaced`. A disconnected or revoked opening connection ends its call. An
+ended call needs a new UUID to start again.
+
+Utterances carry standard base64, at most 2 MiB decoded audio and 20 seconds.
+WAV must be 16 kHz mono PCM16. MP4 must carry a duration in its media header.
+The server checks the WAV sample duration or MP4 header against `durationMs`
+(250 ms tolerance). An MP4 STT reservation also uses its byte count at 32 kbit/s,
+capped at 20 seconds, when that exceeds the header duration. This is a
+conservative estimate, not verification of the encoded audio's duration.
+`seq` increases per call. A held call refuses microphone audio. A call still
+processing its previous utterance refuses another until it can accept work;
+the caller may retry a refused sequence. Calls end after ten minutes without
+operator activity. An interrupt discards speech without cancelling a teammate's
+turn or the dispatcher's pending text answer. A hold also suppresses clips;
+teammate replies received while held use their ordinary push. Resuming or
+interrupting an unfinished utterance leaves the state `thinking` and refuses
+new utterances until that work finishes. The answer is still recorded and sent
+as `said`, even when its speech was interrupted.
+
+The call subscription starts with a one-element `snapshot` containing its
+`state` event. Updates use the normal `event` envelope:
+
+| Event | Fields |
+| --- | --- |
+| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason` |
+| `heard` | `seq`, `text` |
+| `said` | `id`, `text` |
+| `clip` | matching `id`, `index`, `final`, `mimeType`, base64 `data` |
+| `delivery` | `personaId`, `eventId`, narrated `text` |
+| `card` | `personaId`, `requestId`, `kind` |
+
+An end reason is `client`, `goodbye`, `budget`, `replaced`, `error` or `idle`.
+Each clip is a complete playable sentence, limited to 2 MiB decoded audio. A subscriber that misses events
+must reconnect; the desk closes that socket rather than silently dropping audio.
+Provider selections in `VoiceStatus` are optional when unavailable; `unavailable`
+is a sentence explaining what the owner needs to change.
+
+
+After a nonempty, non-goodbye `heard`, a bundled “One moment.” arrives as `said`
+and a complete WAV `clip`, before dispatcher or teammate startup work. Dispatcher
+text streams at sentence boundaries; each sentence has its own `said.id` and
+complete clip (`index: 0`, `final: true`). This removes model startup from the
+acknowledgement path; transcription and transport latency still apply. Clients
+must queue clips across successive `said` IDs instead of replacing playback.
+
+A completed teammate reply during an active, unheld call is narrated and sent as
+`delivery`, then `said`, then sentence `clip` events. Failed or empty narration
+falls back to the reply's first sentence, except a budget refusal, which ends
+the call without another paid request. Outside a call, only a reply to a
+handoff made by the voice dispatcher may have a summarized push. Every other
+push retains the teammate's own text without a narration request. If voice is
+unavailable or narration is busy, the original reply remains the push body.
+Each `clip.mimeType` describes that clip, including bundled and fallback clips;
+`call_start.output` describes only the primary speech adapter.
+
+One failed utterance speaks a bundled “Sorry, say that again.” and returns to
+`listening` (or stays held). Three consecutive failed work items end with a
+bundled explanation and reason `error`; success resets that count. Budget
+failure ends immediately with its bundled line. Failed goodbye synthesis uses
+a bundled “Goodbye.” and still ends with reason `goodbye`. The whole-utterance
+farewell bypass requires at least 400 ms of audio and one byte per millisecond;
+shorter or sparser clips follow the dispatcher path. This size/duration check
+does not classify noise in a sufficiently long clip. Clients must drain
+final queued audio for `goodbye`, `budget`, and `error`; `ended` means the desk
+will produce no further clips.
+
+The dispatcher can read roster/state and a conversation tail, send text through
+`session.start`/`session.prompt`, and list/create/cancel schedules. A separate
+command allowlist refuses approval, credential, file and administration commands.
+Action tools are offered only on turns driven by a new utterance, never on
+narration. Conversation tails and narrated text are bounded, escaped untrusted
+blocks. Each utterance can queue at most three text handoffs. A queued result
+means startup is pending, not that the task has landed; startup failures produce
+a spoken notice or normal push. Handoffs queue behind ongoing teammate work.
+Their user event IDs carry the opaque `voice:` prefix for reply provenance.
+
+Voice schedules require the target teammate's live background-work grant,
+including at firing time. They must be one-shot `schedule` jobs, with no `every`
+or `quiet` field, and are recorded with `operatorCreated: false`. A call retains at most 32 created job IDs and can cancel only jobs it created.
+Ordinary operator-created schedules retain their existing behavior.
+Approval requests arrive as `card` and must be answered in the existing UI.
+The dispatcher has no persona: its `voice-dispatcher` tape is hidden from the
+roster and rail, but indexed by `search.all` and `search.thread`.
+
+Speech attempts and conservative dispatcher estimates are reserved before a
+request so cancellation or a lost response cannot erase their cost. Reservations
+serialize across calls and push narration, and cannot exceed the remaining cap.
+Dispatcher estimates count input bytes plus a fixed prompt/tool allowance and the
+output limit; reported usage above the reservation is additionally charged.
+These are spending guards, not provider invoices. Each fallback attempt is charged separately.
+An unavailable or exhausted ledger stops work; a bundled spoken system
+line can be played without a further paid request. A whole-utterance
+farewell such as “goodbye” bypasses the dispatcher model.

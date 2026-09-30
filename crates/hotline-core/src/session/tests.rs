@@ -887,6 +887,16 @@ async fn every_line_the_room_hands_the_driver_is_a_line_the_driver_heard() {
     room.start("ada").await.unwrap();
     room.prompt("ada", "first", None, None).await.unwrap();
 
+    // The first prompt must not satisfy the first nudge's counter change.
+    // Otherwise the hunt can finish one tick ahead of the driver it is measuring.
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while lock(&prompts).is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the initial prompt should reach the driver before the hunt");
+
     let hunting = {
         let room = room.clone();
         let prompts = prompts.clone();
@@ -5816,4 +5826,72 @@ async fn laptop_cookies_reach_the_computer_but_never_the_room_or_tape() {
                 .contains("laptop-secret-value")
         );
     }
+}
+
+#[tokio::test]
+async fn only_the_reply_to_a_voice_handoff_gets_a_summarised_push() {
+    let turn = vec![
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "reply".into(),
+            text: "The checks passed.".into(),
+        },
+        Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        },
+    ];
+    let room = room("voice-push-provenance", Fake::new(Scripted::new(turn)));
+    std::fs::write(room.log.root().join("remote.json"), json!({"desktopId":"desk", "host":"desk.local", "enabled":true, "grants":[{"device":{"id":"phone","name":"Phone","pairedAt":0},"tokenHash":"hash","push":{"token":"ExponentPushToken[phone]","platform":"ios"}}]}).to_string()).unwrap();
+    let fake = Arc::new(crate::voice::tests::Fake::default());
+    let vault = Arc::new(
+        crate::vault::Vault::open_with_store(
+            room.log.root(),
+            room.log.clone(),
+            Arc::new(crate::credentials::tests::MemoryStore::default()),
+        )
+        .unwrap(),
+    );
+    let calls = crate::voice::Calls::new(
+        room.log.clone(),
+        vault,
+        Arc::downgrade(&room),
+        Some(crate::voice::tests::with_fake(fake.clone())),
+    );
+    room.set_voice(&calls);
+    room.start("ada").await.unwrap();
+    for (index, from_voice) in [false, true, false].into_iter().enumerate() {
+        if from_voice {
+            crate::wire::commands::VOICE_COMMAND
+                .scope((), room.prompt("ada", "Check the PR.", None, None))
+                .await
+                .unwrap();
+        } else {
+            room.prompt("ada", "Check the PR.", None, None)
+                .await
+                .unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                if lock(&room.push.sent).len() > index {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    let sent = lock(&room.push.sent).clone();
+    assert_eq!(sent[0]["body"], "The checks passed.");
+    assert_eq!(sent[1]["body"], "Ada says: The checks passed.");
+    assert_eq!(sent[2]["body"], "The checks passed.");
+    assert_eq!(fake.narrations.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        tape(&room, "ada")
+            .iter()
+            .filter(|e| e["kind"] == "user" && e["id"].as_str().unwrap().starts_with("voice:"))
+            .count(),
+        1
+    );
 }

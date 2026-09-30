@@ -374,7 +374,7 @@ impl Room {
                 prompt,
                 quiet,
             },
-            true,
+            !crate::wire::commands::from_voice(),
         )
     }
 

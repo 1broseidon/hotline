@@ -2140,3 +2140,107 @@
 	content-visibility: auto;
 	contain-intrinsic-block-size: auto 96px;
 }
+
+@layer components {
+	/* ---------------------------------------------------------- the call
+	 * A call with the desk stands beside the conversation at the
+	 * inspector's width. The mark is the call: it swells with whoever is
+	 * talking (--level, 0..1, set from the audio, not from React), in ink
+	 * while you speak and in the accent while the desk does, because the
+	 * accent is an agent at work. */
+	.call-pane {
+		width: 320px;
+		flex-shrink: 0;
+	}
+	.call-stage {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 20px 0 12px;
+	}
+	.call-mark {
+		--level: 0;
+		display: grid;
+		place-items: center;
+		width: 104px;
+		height: 104px;
+		border-radius: 50%;
+		color: var(--ink-3);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			0 0 0 calc(var(--level) * 14px) var(--fill-hover);
+	}
+	.call-mark[data-phase="hearing"] {
+		color: var(--ink);
+	}
+	.call-mark[data-phase="speaking"],
+	.call-mark[data-phase="thinking"] {
+		color: var(--accent);
+		cursor: pointer;
+	}
+	.call-mark[data-phase="thinking"] {
+		animation: call-breathe 1800ms var(--ease-out) infinite;
+	}
+	.call-mark[data-phase="held"],
+	.call-mark[data-phase="ended"] {
+		color: var(--ink-4);
+	}
+	.call-mark:disabled {
+		opacity: 1;
+	}
+	@keyframes call-breathe {
+		50% {
+			opacity: 0.6;
+		}
+	}
+	.call-hint {
+		min-height: 14px;
+	}
+	.call-lines {
+		display: flex;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+		gap: 6px;
+		overflow-y: auto;
+		padding: 4px 12px 12px;
+	}
+	.call-cards {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 0 12px 8px;
+	}
+	.call-card {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 10px;
+		border-radius: var(--radius-card);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--accent);
+		font-size: var(--text-md);
+	}
+	.call-foot {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 12px 14px;
+	}
+	.call-trouble {
+		font-size: var(--text-md);
+		color: var(--ink-2);
+		text-align: center;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.call-mark {
+			animation: none;
+		}
+	}
+}

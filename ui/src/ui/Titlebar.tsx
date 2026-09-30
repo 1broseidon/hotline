@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon, SearchIcon, SidebarIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, PhoneIcon, RestoreIcon, SearchIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
@@ -23,6 +23,7 @@ export function Titlebar({
 	searchOpen,
 	onToggleSearch,
 	rail,
+	call,
 }: {
 	/** A conversation is showing: the search has something to search. */
 	searchable: boolean;
@@ -30,6 +31,8 @@ export function Titlebar({
 	onToggleSearch(): void;
 	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
 	rail?: { open: boolean; onToggle(): void } | undefined;
+	/** A call with the desk: present only when the desk can speak. */
+	call?: { open: boolean; onToggle(): void } | undefined;
 }) {
 	const frame = drawsFrame();
 	const [maximized, setMaximized] = useState(false);
@@ -63,6 +66,18 @@ export function Titlebar({
 				<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
 			</p>
 			<div className="titlebar-tools">
+				{call !== undefined && (
+					<button
+						type="button"
+						className="control btn-icon"
+						title={call.open ? "Hang up" : "Talk to the desk"}
+						aria-label={call.open ? "Hang up" : "Talk to the desk"}
+						aria-pressed={call.open}
+						onClick={call.onToggle}
+					>
+						<PhoneIcon />
+					</button>
+				)}
 				<button
 					type="button"
 					className="control btn-icon"

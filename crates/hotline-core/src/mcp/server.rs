@@ -247,7 +247,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             GENERATE_IMAGE,
-            "Make one image through the room's connected image provider, save it in your workspace and post it in your conversation. Use it when the person asks or an image is clearly part of their task; say what you are going for. The room's spending caps apply to each attempt, including a single fallback. PNG, JPEG, WebP and SVG keep their format and transparency, at most 2048 px on the long edge. References are files your workspace tools may read (PNG, JPEG or WebP, at most 20 MB each). Returns path, model, costUsd, seconds and whether the requested transparency was supported. One image per ask unless they want options.",
+            "Make one image through the room's connected image provider, save it in your workspace and post it in your conversation. Use it when the person asks or an image is clearly part of their task; say what you are going for. The room's dollar spending caps apply to paid API attempts, including a single fallback. Explicitly selected Codex subscription images use subscription limits instead and never fall back to a paid API. PNG, JPEG, WebP and SVG keep their format and transparency, at most 2048 px on the long edge. References are files your workspace tools may read (PNG, JPEG or WebP, at most 20 MB each). Returns path, model, costUsd, seconds and whether the requested transparency was supported; subscription results have costUsd null and billing subscription, not a known zero-dollar cost. One image per ask unless they want options.",
             schema(json!({
                 "type": "object",
                 "properties": {

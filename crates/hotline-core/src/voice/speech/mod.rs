@@ -6,8 +6,11 @@
 //! built for one job, listening or speaking, because the wire reports the
 //! model behind each: the other job answers [`SpeechError::WrongJob`].
 //!
-//! Every call is timed, and the time to first byte is logged with the
-//! provider and model: whole-clip timings picked the wrong engine in Spark.
+//! Every call is timed and logged with the provider and model, as when the
+//! response headers arrived, when its first byte of body did, and when it was
+//! whole: whole-clip timings picked the wrong engine in Spark. One more line
+//! runs from the desk starting to hear an utterance to the first clip that
+//! answers it ([`TurnClock`]).
 
 mod google;
 mod openai_shape;
@@ -20,12 +23,8 @@ pub use providers::resolve;
 
 use async_trait::async_trait;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
-
-/// The input types every adapter takes: the phone records AAC in an MP4
-/// container, the window records 16 kHz mono PCM16 WAV.
-const INPUT_TYPES: &[&str] = &["audio/wav", "audio/mp4"];
 
 /// One playable piece of audio and what it is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,13 +94,11 @@ impl std::error::Error for SpeechError {}
 pub trait Speech: Send + Sync {
     /// Provider, model and voice.
     fn id(&self) -> SpeechId;
-    /// Input mime types `transcribe` takes.
-    fn accepts(&self) -> &[&str];
     /// Primary output advertised at call start; every clip still names its type.
     fn output_mime(&self) -> &str {
         "audio/wav"
     }
-    /// The words in one clip; empty when nobody spoke.
+    /// The words in one clip (`audio/wav` or `audio/mp4`); empty when nobody spoke.
     async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError>;
     /// One sentence to one playable clip.
     async fn speak(&self, text: &str) -> Result<Clip, SpeechError>;
@@ -116,37 +113,19 @@ pub struct SpeechSet {
     pub fallback_tts: Option<Arc<dyn Speech>>,
 }
 
-impl SpeechSet {
-    /// Speaks a sentence, and if the voice fails tries once on the fallback,
-    /// so a provider failing never means silence.
-    pub async fn speak(&self, text: &str) -> Result<Clip, SpeechError> {
-        let error = match self.tts.speak(text).await {
-            Ok(clip) => return Ok(clip),
-            Err(error) => error,
-        };
-        let Some(fallback) = &self.fallback_tts else {
-            return Err(error);
-        };
-        eprintln!(
-            "[voice] {} could not speak ({error}); trying {}",
-            self.tts.id(),
-            fallback.id()
-        );
-        fallback.speak(text).await
-    }
-}
-
 /// A finished provider call: the body, and what the provider called it.
 pub(crate) struct Reply {
     pub bytes: Vec<u8>,
     pub content_type: Option<String>,
 }
 
-/// How long a call has taken, and how long its first byte took. Time to
-/// first sound is the number that matters for a voice, not the time to a
-/// finished clip.
+/// How long a call has taken: until its response headers came, until the
+/// first byte of its body did, and until it was whole. For a provider that
+/// streams, the headers can be early and the sound late, and for one that does
+/// not, all three land together; the difference is the point of logging them.
 struct Timing {
     started: Instant,
+    headers: Option<Duration>,
     first_byte: Option<Duration>,
 }
 
@@ -154,8 +133,13 @@ impl Timing {
     fn start() -> Timing {
         Timing {
             started: Instant::now(),
+            headers: None,
             first_byte: None,
         }
+    }
+
+    fn headers_arrived(&mut self) {
+        self.headers.get_or_insert_with(|| self.started.elapsed());
     }
 
     /// Only the first call counts.
@@ -167,12 +151,64 @@ impl Timing {
     fn line(&self, job: &str, id: &SpeechId) -> String {
         let done = self.started.elapsed();
         // An empty body has no first byte; the answer itself was the first.
+        let headers = self.headers.unwrap_or(done);
         let first_byte = self.first_byte.unwrap_or(done);
         format!(
-            "[voice] {job} {id}: first byte {}ms, done {}ms",
+            "[voice] {job} {id}: headers {}ms, first byte {}ms, done {}ms",
+            headers.as_millis(),
             first_byte.as_millis(),
             done.as_millis()
         )
+    }
+}
+
+/// The stopwatch from a person finishing a sentence to the desk's first clip
+/// answering it, which is the number they wait through. A set's ears start it
+/// when they begin to hear an utterance and its voices stop it, so the time
+/// between (the dispatcher, a teammate's handoff) is inside it without either
+/// side knowing the other. An utterance with nothing in it, or one that fails,
+/// answers nothing and stops it; one that is never answered lapses.
+#[derive(Clone, Default)]
+pub struct TurnClock(Arc<Mutex<Option<Instant>>>);
+
+/// No answer to an utterance takes longer than the dispatcher's own timeout.
+const TURN_LAPSES_AFTER: Duration = Duration::from_secs(90);
+
+impl TurnClock {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Instant>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// An utterance has arrived.
+    pub(crate) fn heard(&self) {
+        *self.lock() = Some(Instant::now());
+    }
+
+    /// The utterance was not one to answer: it was empty, or it failed.
+    pub(crate) fn unanswered(&self, words: &Result<String, SpeechError>) {
+        if words.as_ref().map_or(true, |words| words.trim().is_empty()) {
+            *self.lock() = None;
+        }
+    }
+
+    /// A clip is ready. If it answers an utterance, logs how long that took
+    /// and returns it; a clip with no utterance behind it (a delivery) logs
+    /// nothing.
+    pub(crate) fn first_clip(&self, voice: &SpeechId) -> Option<Duration> {
+        let waited = self.lock().take()?.elapsed();
+        if waited > TURN_LAPSES_AFTER {
+            return None;
+        }
+        eprintln!(
+            "[voice] utterance to first clip {voice}: {}ms",
+            waited.as_millis()
+        );
+        Some(waited)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn waiting(&self) -> bool {
+        self.lock().is_some()
     }
 }
 
@@ -188,7 +224,7 @@ pub(crate) fn http_client() -> Result<reqwest::Client, String> {
 }
 
 /// Sends a request, reads the body up to `limit` bytes, and logs how long the
-/// first byte and the whole answer took.
+/// headers, the first byte and the whole answer took.
 pub(crate) async fn call(
     request: reqwest::RequestBuilder,
     id: &SpeechId,
@@ -200,6 +236,7 @@ pub(crate) async fn call(
     };
     let mut timing = Timing::start();
     let mut response = request.send().await.map_err(|_| unreachable())?;
+    timing.headers_arrived();
     let status = response.status();
     if !status.is_success() {
         eprintln!(
@@ -258,39 +295,102 @@ mod timing_tests {
         }
     }
 
-    /// The two numbers in a timing line.
-    fn milliseconds(line: &str) -> (u128, u128) {
-        let numbers: Vec<u128> = line
-            .split(|c: char| !c.is_ascii_digit())
+    /// The numbers in a timing line, in the order it prints them.
+    fn milliseconds(line: &str) -> Vec<u128> {
+        line.split(|c: char| !c.is_ascii_digit())
             .filter_map(|word| word.parse().ok())
-            .collect();
-        (numbers[numbers.len() - 2], numbers[numbers.len() - 1])
+            .collect()
     }
 
     #[test]
-    fn the_first_byte_is_timed_from_the_request_and_only_the_first_counts() {
+    fn the_headers_the_first_byte_and_the_whole_are_three_moments() {
         let mut timing = Timing::start();
+        std::thread::sleep(Duration::from_millis(30));
+        timing.headers_arrived();
         std::thread::sleep(Duration::from_millis(40));
         timing.first_byte_arrived();
         std::thread::sleep(Duration::from_millis(40));
         timing.first_byte_arrived();
+        timing.headers_arrived();
 
         let line = timing.line("speak", &id());
 
         assert!(
-            line.starts_with("[voice] speak openai/tts-1: first byte "),
+            line.starts_with("[voice] speak openai/tts-1: headers "),
             "{line}"
         );
-        let (first_byte, done) = milliseconds(&line);
-        assert!((40..80).contains(&first_byte), "{line}");
-        assert!(done >= 80, "{line}");
+        let numbers = milliseconds(&line);
+        let (headers, first_byte, done) = (
+            numbers[numbers.len() - 3],
+            numbers[numbers.len() - 2],
+            numbers[numbers.len() - 1],
+        );
+        assert!((30..70).contains(&headers), "{line}");
+        assert!((70..110).contains(&first_byte), "{line}");
+        assert!(done >= 110, "{line}");
+        assert!(headers < first_byte && first_byte < done, "{line}");
     }
 
     #[test]
-    fn an_empty_answer_is_its_own_first_byte() {
+    fn an_empty_answer_has_no_moments_before_its_end() {
         let timing = Timing::start();
         std::thread::sleep(Duration::from_millis(20));
-        let (first_byte, done) = milliseconds(&timing.line("transcribe", &id()));
-        assert_eq!(first_byte, done);
+        let numbers = milliseconds(&timing.line("transcribe", &id()));
+        let (headers, first_byte, done) = (
+            numbers[numbers.len() - 3],
+            numbers[numbers.len() - 2],
+            numbers[numbers.len() - 1],
+        );
+        assert_eq!((headers, first_byte), (done, done));
+    }
+
+    #[test]
+    fn an_utterance_is_timed_to_the_first_clip_that_answers_it() {
+        let clock = TurnClock::default();
+        assert!(!clock.waiting());
+        assert_eq!(
+            clock.first_clip(&id()),
+            None,
+            "a delivery has no utterance behind it"
+        );
+
+        clock.heard();
+        assert!(clock.waiting());
+        std::thread::sleep(Duration::from_millis(25));
+        let waited = clock.first_clip(&id()).expect("the utterance's answer");
+        assert!(waited >= Duration::from_millis(25) && waited < Duration::from_secs(5));
+        // Only the first clip counts; a second sentence of the same answer does not.
+        assert!(!clock.waiting());
+        assert_eq!(clock.first_clip(&id()), None);
+    }
+
+    #[test]
+    fn an_utterance_with_nothing_to_answer_stops_the_clock() {
+        let clock = TurnClock::default();
+        for nothing in [
+            Ok(String::new()),
+            Ok("  \n".to_string()),
+            Err(SpeechError::Unreachable {
+                provider_id: "openai".into(),
+            }),
+        ] {
+            clock.heard();
+            clock.unanswered(&nothing);
+            assert!(!clock.waiting(), "{nothing:?}");
+        }
+        clock.heard();
+        clock.unanswered(&Ok("ask Mack".to_string()));
+        assert!(clock.waiting());
+    }
+
+    #[test]
+    fn a_new_utterance_restarts_the_clock_and_a_stale_one_is_not_reported() {
+        let clock = TurnClock::default();
+        *clock.lock() = Some(Instant::now() - TURN_LAPSES_AFTER - Duration::from_secs(1));
+        assert_eq!(clock.first_clip(&id()), None);
+
+        *clock.lock() = Some(Instant::now() - Duration::from_secs(30));
+        clock.heard();
+        assert!(clock.first_clip(&id()).unwrap() < Duration::from_secs(5));
     }
 }

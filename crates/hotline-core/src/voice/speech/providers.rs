@@ -3,7 +3,7 @@
 //! has already connected it.
 
 use super::google::{self, Google};
-use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechSet};
+use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechSet, TurnClock};
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use crate::voice::settings::{Choice, VoiceSettings};
@@ -272,47 +272,55 @@ fn resolve_from(connections: &[Connection], settings: &VoiceSettings) -> Result<
             .find_map(|connection| Some((connection, speaking(connection, None)?))),
     };
 
+    // One stopwatch for the set: the ears start it and the voices stop it.
+    let clock = TurnClock::default();
     Ok(SpeechSet {
-        stt: listener(hear_from, model)?,
-        tts: speaker(speak_from, voice)?,
+        stt: listener(hear_from, model, &clock)?,
+        tts: speaker(speak_from, voice, &clock)?,
         fallback_tts: fallback
-            .map(|(connection, voice)| speaker(connection, &voice))
+            .map(|(connection, voice)| speaker(connection, &voice, &clock))
             .transpose()?,
     })
 }
 
-fn listener(connection: &Connection, model: &str) -> Result<Arc<dyn Speech>, String> {
+fn listener(
+    connection: &Connection,
+    model: &str,
+    clock: &TurnClock,
+) -> Result<Arc<dyn Speech>, String> {
     if connection.provider_id == google::PROVIDER_ID {
         let key = connection.key.as_deref().unwrap_or_default();
-        return Ok(Arc::new(Google::listener(
-            &connection.base_url,
-            key,
-            model,
-        )?));
+        return Ok(Arc::new(
+            Google::listener(&connection.base_url, key, model)?.with_clock(clock),
+        ));
     }
-    Ok(Arc::new(OpenAiShape::listener(
-        connection.endpoint(),
-        model,
-    )?))
+    Ok(Arc::new(
+        OpenAiShape::listener(connection.endpoint(), model)?.with_clock(clock),
+    ))
 }
 
-fn speaker(connection: &Connection, voice: &Speaking) -> Result<Arc<dyn Speech>, String> {
+fn speaker(
+    connection: &Connection,
+    voice: &Speaking,
+    clock: &TurnClock,
+) -> Result<Arc<dyn Speech>, String> {
     if connection.provider_id == google::PROVIDER_ID {
         let key = connection.key.as_deref().unwrap_or_default();
-        return Ok(Arc::new(Google::speaker(
-            &connection.base_url,
-            key,
+        return Ok(Arc::new(
+            Google::speaker(&connection.base_url, key, &voice.model, &voice.voice)?
+                .with_clock(clock),
+        ));
+    }
+    Ok(Arc::new(
+        OpenAiShape::speaker(
+            connection.endpoint(),
             &voice.model,
             &voice.voice,
-        )?));
-    }
-    Ok(Arc::new(OpenAiShape::speaker(
-        connection.endpoint(),
-        &voice.model,
-        &voice.voice,
-        voice.format,
-        voice.max_chars,
-    )?))
+            voice.format,
+            voice.max_chars,
+        )?
+        .with_clock(clock),
+    ))
 }
 
 fn named<'a>(connections: &'a [Connection], pick: &Choice) -> Result<&'a Connection, String> {

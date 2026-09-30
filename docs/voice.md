@@ -12,12 +12,14 @@ beside them (`crates/hotline-core/src/voice/`).
 `resolve(vault, settings)` returns a `SpeechSet` of three: `stt`, `tts` and an
 optional `fallback_tts`. An adapter is built for one job, so `id()` names the
 model behind that job, and the other job answers `WrongJob`. `output_mime()`
-reports the primary TTS format for the call descriptor (default `audio/wav`). Every adapter
-accepts `audio/wav` (16 kHz mono PCM16) and `audio/mp4` (AAC).
+reports the primary TTS format for the call descriptor (default `audio/wav`).
+`transcribe` takes `audio/wav` (16 kHz mono PCM16) and `audio/mp4` (AAC); any
+other type is refused before a request.
 
-`SpeechSet::speak` tries the voice and, if it fails, tries once on the
-fallback. Each clip carries its own type: `audio/wav` where the provider can
-make one, `audio/mpeg` where it cannot.
+The fallback is the desk's to use: when the voice fails it asks `fallback_tts`,
+once (`Calls::synthesize`), and reserves the second call's cost like the first.
+Each clip carries its own type: `audio/wav` where the provider can make one,
+`audio/mpeg` where it cannot.
 
 A speech error carries the provider and an HTTP status and never a response
 body, because a provider's error text can echo what was said.
@@ -80,11 +82,23 @@ not connected is an error, like the speech choices above.
 
 ## Timing
 
-Every call logs its time to first byte and its total, tagged with the provider
-and model, to stderr:
+Every provider call logs three moments, tagged with the provider and model, to
+stderr: when the response headers arrived, when the first byte of the body did,
+and when it was whole. A provider that streams can send headers early and sound
+late, and one that does not lands all three together.
 
 ```
-[voice] speak openai/gpt-4o-mini-tts: first byte 412ms, done 655ms
+[voice] speak openai/gpt-4o-mini-tts: headers 180ms, first byte 412ms, done 655ms
+```
+
+One more line runs from the desk starting to hear an utterance to the first clip
+that answers it, which is what a person waits through. The set's ears start a
+`TurnClock` and its voices stop it, so the dispatcher's time is inside it. An
+utterance that says nothing or fails stops it without a line, and so does a clip
+with no utterance behind it (a delivery):
+
+```
+[voice] utterance to first clip openai/gpt-4o-mini-tts: 1412ms
 ```
 
 ## The ledger

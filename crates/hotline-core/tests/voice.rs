@@ -193,9 +193,6 @@ impl Speech for FakeSpeech {
             voice: None,
         }
     }
-    fn accepts(&self) -> &[&str] {
-        &["audio/wav", "audio/mp4"]
-    }
     async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
         assert_eq!(clip.bytes, wav());
         Ok("ask Mack to check the failing PR".into())

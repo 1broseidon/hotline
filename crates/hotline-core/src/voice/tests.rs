@@ -30,9 +30,6 @@ impl speech::Speech for Fake {
             voice: None,
         }
     }
-    fn accepts(&self) -> &[&str] {
-        &["audio/wav", "audio/mp4"]
-    }
     async fn transcribe(&self, _: Clip) -> Result<String, speech::SpeechError> {
         Ok(lock(&self.transcript).clone())
     }

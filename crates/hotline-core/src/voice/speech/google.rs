@@ -2,7 +2,7 @@
 //! plain request to transcribe it; speaking is `generateContent` on a Gemini
 //! TTS model, which returns raw PCM that is wrapped as a WAV to play.
 
-use super::{Clip, INPUT_TYPES, Speech, SpeechError, SpeechId, base_mime, call, http_client, wav};
+use super::{Clip, Speech, SpeechError, SpeechId, TurnClock, base_mime, call, http_client, wav};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -32,6 +32,7 @@ pub struct Google {
     key: String,
     job: Job,
     http: reqwest::Client,
+    clock: TurnClock,
 }
 
 impl Google {
@@ -43,6 +44,7 @@ impl Google {
                 model: model.to_string(),
             },
             http: http_client()?,
+            clock: TurnClock::default(),
         })
     }
 
@@ -55,7 +57,14 @@ impl Google {
                 voice: voice.to_string(),
             },
             http: http_client()?,
+            clock: TurnClock::default(),
         })
+    }
+
+    /// Times an utterance to its first clip with the adapters that share this clock.
+    pub fn with_clock(mut self, clock: &TurnClock) -> Google {
+        self.clock = clock.clone();
+        self
     }
 
     /// The key travels in a header, never in the URL, so it cannot end up in
@@ -108,11 +117,24 @@ impl Speech for Google {
         }
     }
 
-    fn accepts(&self) -> &[&str] {
-        INPUT_TYPES
+    async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
+        self.clock.heard();
+        let words = self.hear(clip).await;
+        self.clock.unanswered(&words);
+        words
     }
 
-    async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
+    async fn speak(&self, text: &str) -> Result<Clip, SpeechError> {
+        let clip = self.say(text).await;
+        if clip.is_ok() {
+            self.clock.first_clip(&self.id());
+        }
+        clip
+    }
+}
+
+impl Google {
+    async fn hear(&self, clip: Clip) -> Result<String, SpeechError> {
         let Job::Listen { model } = &self.job else {
             return Err(SpeechError::WrongJob);
         };
@@ -153,7 +175,7 @@ impl Speech for Google {
         Ok(text.trim().to_string())
     }
 
-    async fn speak(&self, text: &str) -> Result<Clip, SpeechError> {
+    async fn say(&self, text: &str) -> Result<Clip, SpeechError> {
         let Job::Speak { model, voice } = &self.job else {
             return Err(SpeechError::WrongJob);
         };

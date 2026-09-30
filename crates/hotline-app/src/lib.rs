@@ -179,6 +179,38 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// WebKitGTK refuses `getUserMedia` unless the application both turns
+/// media streams on and answers the permission request itself; wry does
+/// neither. A call with the desk needs the microphone, so the window gets
+/// audio capture and nothing else: a camera or screen request is still
+/// refused. The page is only ever our own UI. macOS (WKWebView) and Windows
+/// (WebView2) go through wry's own handling and the system's prompt.
+#[cfg(target_os = "linux")]
+fn allow_microphone(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|view| {
+        use webkit2gtk::{
+            PermissionRequestExt, SettingsExt, UserMediaPermissionRequest,
+            UserMediaPermissionRequestExt, WebViewExt,
+        };
+        use webkit2gtk::glib::object::Cast;
+        let view = view.inner();
+        if let Some(settings) = WebViewExt::settings(&view) {
+            settings.set_enable_media_stream(true);
+        }
+        view.connect_permission_request(|_, request| {
+            let Some(media) = request.downcast_ref::<UserMediaPermissionRequest>() else {
+                return false;
+            };
+            if media.is_for_audio_device() && !media.is_for_video_device() {
+                request.allow();
+            } else {
+                request.deny();
+            }
+            true
+        });
+    });
+}
+
 /// Show, unminimize and focus the main window. The tray's Open, a left click
 /// on Linux and Windows, and a macOS dock reopen of a hidden app all mean
 /// the same thing: the room is still here, bring the window back.
@@ -431,6 +463,8 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             let window = window.transparent(true);
             let window = window.build()?;
+            #[cfg(target_os = "linux")]
+            allow_microphone(&window);
             // The plugin writes size and place to disk on exit, and only
             // updates its cache on close, so a hide that is not an exit
             // would lose the last place unless we save now.

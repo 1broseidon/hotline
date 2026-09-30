@@ -24,7 +24,7 @@ struct Fake {
     model: &'static str,
     estimate: f64,
     cost: Option<f64>,
-    fail: bool,
+    error: Option<ImageError>,
     max_references: usize,
     bytes: Option<Vec<u8>>,
     requests: Mutex<Vec<ImageRequest>>,
@@ -38,7 +38,7 @@ impl Fake {
             model,
             estimate: 0.01,
             cost: Some(0.006),
-            fail: false,
+            error: None,
             max_references: 16,
             bytes: None,
             requests: Mutex::new(Vec::new()),
@@ -75,11 +75,8 @@ impl ImageGen for Fake {
         if let Some(release) = &self.release {
             release.notified().await;
         }
-        if self.fail {
-            return Err(ImageError::Refused {
-                provider_id: "fake".into(),
-                status: 503,
-            });
+        if let Some(error) = &self.error {
+            return Err(error.clone());
         }
         Ok(Image {
             mime: "image/png".into(),
@@ -216,7 +213,10 @@ async fn generation_through_rig_keeps_the_image_in_the_workspace_and_chat_and_ch
 async fn fallback_reserves_again_and_counts_the_failed_attempt_conservatively() {
     let (_dir, room, tools) = room();
     let mut primary = Fake::new("first");
-    Arc::get_mut(&mut primary).unwrap().fail = true;
+    Arc::get_mut(&mut primary).unwrap().error = Some(ImageError::Refused {
+        provider_id: "fake".into(),
+        status: 503,
+    });
     let fallback = Fake::new("second");
     install(&room, primary.clone(), Some(fallback.clone()));
     settings(&room, 0.015);
@@ -240,6 +240,81 @@ async fn fallback_reserves_again_and_counts_the_failed_attempt_conservatively() 
     assert_eq!(result["costUsd"], 0.016);
     assert_eq!(fallback.requests.lock().unwrap().len(), 1);
     assert_eq!(attachments(&room).len(), 1);
+}
+
+#[tokio::test]
+async fn client_refusals_release_the_reservation_before_a_paid_fallback() {
+    let (_dir, room, tools) = room();
+    let mut primary = Fake::new("refused");
+    Arc::get_mut(&mut primary).unwrap().error = Some(ImageError::Refused {
+        provider_id: "fake".into(),
+        status: 400,
+    });
+    let fallback = Fake::new("second");
+    install(&room, primary.clone(), Some(fallback.clone()));
+    settings(&room, 0.01);
+    let result: Value = serde_json::from_str(
+        &tools
+            .call("generate_image", &json!({"prompt":"a lighthouse"}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["model"], "second");
+    assert_eq!(result["costUsd"], 0.006);
+    assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);
+    assert_eq!(primary.requests.lock().unwrap().len(), 1);
+    assert_eq!(fallback.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn only_client_refusals_release_reservations_and_uncertain_errors_keep_them() {
+    let mut errors: Vec<_> = [399, 400, 401, 403, 429, 499, 500, 503]
+        .into_iter()
+        .map(|status| {
+            (
+                ImageError::Refused {
+                    provider_id: "fake".into(),
+                    status,
+                },
+                if (400..=499).contains(&status) {
+                    0.0
+                } else {
+                    0.01
+                },
+            )
+        })
+        .collect();
+    errors.extend([
+        (
+            ImageError::Unreachable {
+                provider_id: "fake".into(),
+            },
+            0.01,
+        ),
+        (
+            ImageError::Malformed {
+                provider_id: "fake".into(),
+            },
+            0.01,
+        ),
+    ]);
+    for (error, expected) in errors {
+        let (_dir, room, tools) = room();
+        let mut primary = Fake::new("failed");
+        Arc::get_mut(&mut primary).unwrap().error = Some(error);
+        install(&room, primary, None);
+        assert!(
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .is_err()
+        );
+        let summary = room.spending_summary().unwrap();
+        assert_eq!(summary.day_usd, expected);
+        assert_eq!(summary.month_usd, expected);
+        assert!(attachments(&room).is_empty());
+    }
 }
 
 #[tokio::test]
@@ -398,7 +473,10 @@ async fn generation_holds_no_room_lock_and_revocation_stops_fallback_and_publica
     let primary_mut = Arc::get_mut(&mut primary).unwrap();
     primary_mut.entered = Some(entered.clone());
     primary_mut.release = Some(release.clone());
-    primary_mut.fail = true;
+    primary_mut.error = Some(ImageError::Refused {
+        provider_id: "fake".into(),
+        status: 503,
+    });
     let fallback = Fake::new("fallback");
     install(&room, primary, Some(fallback.clone()));
     let generation = tokio::spawn(async move {
@@ -485,6 +563,53 @@ async fn a_connected_custom_provider_generates_through_the_real_resolver_and_htt
     assert_eq!(sent["model"], "fake-image-model");
     assert!(sent.get("background").is_none());
     assert!(credential.provider_id.starts_with("custom-"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn http_400_refusals_leave_the_ledger_unchanged() {
+    use axum::{Router, http::StatusCode};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (_dir, old_room, _tools) = room();
+    let log = old_room.log().clone();
+    drop(old_room);
+    let requests = Arc::new(AtomicUsize::new(0));
+    let seen = requests.clone();
+    let app = Router::new().fallback(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+        async { (StatusCode::BAD_REQUEST, "provider-private-detail") }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let vault = Arc::new(crate::vault::Vault::open(log.root(), log.clone()).unwrap());
+    vault
+        .save_custom(
+            None,
+            crate::contract::CustomProviderDraft {
+                name: "Refusal harness".into(),
+                base_url: url,
+                api: crate::contract::OpenAiApi::ChatCompletions,
+                models: vec!["fake-image-model".into()],
+                secret: None,
+            },
+        )
+        .unwrap();
+    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault);
+    let tools = TeammateTools::new(&room, "ada");
+    let before = room.spending_summary().unwrap();
+    for _ in 0..3 {
+        let error = tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap_err();
+        assert!(!error.contains("provider-private-detail"));
+        assert_eq!(room.spending_summary().unwrap(), before);
+    }
+    assert_eq!(requests.load(Ordering::SeqCst), 3);
+    assert!(attachments(&room).is_empty());
     server.abort();
 }
 

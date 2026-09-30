@@ -59,7 +59,7 @@ struct Ledger {
 #[derive(Debug, Default)]
 struct LedgerState {
     initialized: bool,
-    failed: bool,
+    pending: Vec<Settlement>,
 }
 
 #[derive(Debug)]
@@ -67,6 +67,25 @@ pub struct Reservation {
     ledger: SpendLedger,
     period: Period,
     estimate_usd: f64,
+}
+
+#[derive(Debug)]
+struct Settlement {
+    period: Period,
+    estimate_usd: f64,
+    actual_usd: f64,
+}
+
+impl Settlement {
+    fn apply(&self, totals: &mut Totals) {
+        if totals.day == self.period.day {
+            totals.day_usd = (totals.day_usd - self.estimate_usd).max(0.0) + self.actual_usd;
+        }
+        if totals.month == self.period.month {
+            totals.month_usd = (totals.month_usd - self.estimate_usd).max(0.0) + self.actual_usd;
+            totals.month_usd = totals.month_usd.max(totals.day_usd);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,14 +125,13 @@ impl Totals {
         }
     }
 
-    fn validate(&self, now: Period) -> Result<(), String> {
+    fn validate(&self) -> Result<(), String> {
         let date = self
             .day
             .checked_mul(86_400)
             .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
             .ok_or(STORAGE_ERROR)?;
         if self.version != 1
-            || self.day > now.day
             || self.month != date.year() * 12 + date.month0() as i32
             || !valid_amount(self.day_usd)
             || !valid_amount(self.month_usd)
@@ -125,11 +143,11 @@ impl Totals {
     }
 
     fn advance(&mut self, period: Period) {
-        if self.day != period.day {
+        if self.day < period.day {
             self.day = period.day;
             self.day_usd = 0.0;
         }
-        if self.month != period.month {
+        if self.month < period.month {
             self.month = period.month;
             self.month_usd = 0.0;
         }
@@ -160,7 +178,7 @@ impl SpendLedger {
         }
         let mut state = self.inner.lock()?;
         let period = Period::now();
-        let mut totals = self.inner.load(&mut state, period)?;
+        let mut totals = self.inner.settle_pending(&mut state, period)?;
         totals.advance(period);
         let day_usd = totals.day_usd + estimate_usd;
         let month_usd = totals.month_usd + estimate_usd;
@@ -180,7 +198,10 @@ impl SpendLedger {
         self.inner.save(&mut state, &totals)?;
         Ok(Reservation {
             ledger: self.clone(),
-            period,
+            period: Period {
+                day: totals.day,
+                month: totals.month,
+            },
             estimate_usd,
         })
     }
@@ -203,94 +224,88 @@ impl Reservation {
             return Err("The actual cost must be a finite, nonnegative dollar amount.".into());
         }
         let mut state = self.ledger.inner.lock()?;
-        let mut totals = self.ledger.inner.load(&mut state, Period::now())?;
-        if totals.day == self.period.day {
-            totals.day_usd = totals.day_usd - self.estimate_usd + actual_usd;
-        }
-        if totals.month == self.period.month {
-            totals.month_usd = totals.month_usd - self.estimate_usd + actual_usd;
-            totals.month_usd = totals.month_usd.max(totals.day_usd);
-        }
-        self.ledger.inner.save(&mut state, &totals)
+        state.pending.push(Settlement {
+            period: self.period,
+            estimate_usd: self.estimate_usd,
+            actual_usd,
+        });
+        self.ledger
+            .inner
+            .settle_pending(&mut state, Period::now())
+            .map(|_| ())
     }
 }
 
 impl Ledger {
     fn lock(&self) -> Result<MutexGuard<'_, LedgerState>, String> {
-        let state = self.state.lock().map_err(|_| STORAGE_ERROR.to_string())?;
-        if state.failed {
-            return Err(STORAGE_ERROR.into());
-        }
-        Ok(state)
+        self.state.lock().map_err(|_| STORAGE_ERROR.to_string())
     }
 
     fn load(&self, state: &mut LedgerState, period: Period) -> Result<Totals, String> {
-        let result = (|| {
-            if !fs::metadata(&self.root)
-                .map_err(|_| STORAGE_ERROR)?
-                .is_dir()
-            {
-                return Err(STORAGE_ERROR.into());
-            }
-            let path = self.root.join("spending.json");
-            let metadata = match fs::symlink_metadata(&path) {
-                Ok(metadata) => metadata,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::NotFound && !state.initialized =>
-                {
-                    return Ok(Totals::new(period));
-                }
-                Err(_) => return Err(STORAGE_ERROR.into()),
-            };
-            if !metadata.is_file() || metadata.len() > MAX_LEDGER_BYTES {
-                return Err(STORAGE_ERROR.into());
-            }
-            let mut bytes = Vec::new();
-            File::open(path)
-                .map_err(|_| STORAGE_ERROR)?
-                .take(MAX_LEDGER_BYTES + 1)
-                .read_to_end(&mut bytes)
-                .map_err(|_| STORAGE_ERROR)?;
-            if bytes.len() as u64 > MAX_LEDGER_BYTES {
-                return Err(STORAGE_ERROR.into());
-            }
-            let totals: Totals = serde_json::from_slice(&bytes).map_err(|_| STORAGE_ERROR)?;
-            totals.validate(period)?;
-            state.initialized = true;
-            Ok(totals)
-        })();
-        if result.is_err() {
-            state.failed = true;
+        if !fs::metadata(&self.root)
+            .map_err(|_| STORAGE_ERROR)?
+            .is_dir()
+        {
+            return Err(STORAGE_ERROR.into());
         }
-        result
+        let path = self.root.join("spending.json");
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && !state.initialized => {
+                return Ok(Totals::new(period));
+            }
+            Err(_) => return Err(STORAGE_ERROR.into()),
+        };
+        state.initialized = true;
+        if !metadata.is_file() || metadata.len() > MAX_LEDGER_BYTES {
+            return Err(STORAGE_ERROR.into());
+        }
+        let mut bytes = Vec::new();
+        File::open(path)
+            .map_err(|_| STORAGE_ERROR)?
+            .take(MAX_LEDGER_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| STORAGE_ERROR)?;
+        if bytes.len() as u64 > MAX_LEDGER_BYTES {
+            return Err(STORAGE_ERROR.into());
+        }
+        let mut totals: Totals = serde_json::from_slice(&bytes).map_err(|_| STORAGE_ERROR)?;
+        totals.validate()?;
+        for settlement in &state.pending {
+            settlement.apply(&mut totals);
+        }
+        totals.validate()?;
+        Ok(totals)
+    }
+
+    fn settle_pending(&self, state: &mut LedgerState, period: Period) -> Result<Totals, String> {
+        let totals = self.load(state, period)?;
+        if !state.pending.is_empty() {
+            self.save(state, &totals)?;
+        }
+        Ok(totals)
     }
 
     fn save(&self, state: &mut LedgerState, totals: &Totals) -> Result<(), String> {
-        let result = (|| {
-            totals.validate(Period::now())?;
-            let bytes = serde_json::to_vec(totals).map_err(|_| STORAGE_ERROR)?;
-            if bytes.len() as u64 > MAX_LEDGER_BYTES {
-                return Err(STORAGE_ERROR.into());
-            }
-            let mut temporary =
-                tempfile::NamedTempFile::new_in(&self.root).map_err(|_| STORAGE_ERROR)?;
-            temporary.write_all(&bytes).map_err(|_| STORAGE_ERROR)?;
-            temporary.as_file().sync_all().map_err(|_| STORAGE_ERROR)?;
-            temporary
-                .persist(self.root.join("spending.json"))
-                .map_err(|_| STORAGE_ERROR)?;
-            #[cfg(unix)]
-            File::open(&self.root)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|_| STORAGE_ERROR)?;
-            Ok(())
-        })();
-        if result.is_err() {
-            state.failed = true;
-        } else {
-            state.initialized = true;
+        totals.validate()?;
+        let bytes = serde_json::to_vec(totals).map_err(|_| STORAGE_ERROR)?;
+        if bytes.len() as u64 > MAX_LEDGER_BYTES {
+            return Err(STORAGE_ERROR.into());
         }
-        result
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(&self.root).map_err(|_| STORAGE_ERROR)?;
+        temporary.write_all(&bytes).map_err(|_| STORAGE_ERROR)?;
+        temporary.as_file().sync_all().map_err(|_| STORAGE_ERROR)?;
+        temporary
+            .persist(self.root.join("spending.json"))
+            .map_err(|_| STORAGE_ERROR)?;
+        state.initialized = true;
+        state.pending.clear();
+        #[cfg(unix)]
+        File::open(&self.root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| STORAGE_ERROR)?;
+        Ok(())
     }
 }
 
@@ -499,6 +514,22 @@ mod tests {
     }
 
     #[test]
+    fn releasing_concurrent_reservations_cannot_make_roundoff_negative() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = SpendLedger::new(root.path().to_path_buf());
+        let settings = SpendingSettings::default();
+        let reservations: Vec<_> = (0..3)
+            .map(|_| ledger.reserve(&settings, 0.01).unwrap())
+            .collect();
+        for reservation in reservations {
+            reservation.charge(0.0).unwrap();
+        }
+        assert_eq!(read_totals(root.path()).day_usd, 0.0);
+        assert_eq!(read_totals(root.path()).month_usd, 0.0);
+        assert!(ledger.reserve(&settings, settings.day_usd).is_ok());
+    }
+
+    #[test]
     fn corruption_and_oversized_files_never_become_empty_ledgers() {
         for bytes in [
             b"not json with a private value".to_vec(),
@@ -515,6 +546,7 @@ mod tests {
                 STORAGE_ERROR
             );
             assert_eq!(fs::read(root.path().join("spending.json")).unwrap(), bytes);
+            assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
             fs::remove_file(root.path().join("spending.json")).unwrap();
             assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
         }
@@ -525,6 +557,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
         drop(ledger.reserve(&SpendingSettings::default(), 0.5).unwrap());
+        let saved = fs::read(root.path().join("spending.json")).unwrap();
         fs::remove_file(root.path().join("spending.json")).unwrap();
         assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
         fs::create_dir(root.path().join("spending.json")).unwrap();
@@ -534,10 +567,19 @@ mod tests {
                 .reserve(&SpendingSettings::default(), 0.5)
                 .is_err()
         );
+        assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+        fs::remove_dir(root.path().join("spending.json")).unwrap();
+        fs::write(root.path().join("spending.json"), saved).unwrap();
+        ledger
+            .reserve(&SpendingSettings::default(), 0.5)
+            .unwrap()
+            .charge(0.25)
+            .unwrap();
+        assert_eq!(read_totals(root.path()).day_usd, 0.75);
     }
 
     #[test]
-    fn write_failure_blocks_later_spending_even_if_storage_recovers() {
+    fn a_failed_save_can_retry_after_storage_recovers() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
         let reservation = ledger.reserve(&SpendingSettings::default(), 0.5).unwrap();
@@ -556,9 +598,47 @@ mod tests {
             serde_json::to_vec(&totals).unwrap(),
         )
         .unwrap();
-        assert!(reservation.charge(3.0).is_err());
-        assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+        ledger
+            .reserve(&SpendingSettings::default(), 0.5)
+            .unwrap()
+            .charge(0.5)
+            .unwrap();
+        reservation.charge(0.25).unwrap();
+        assert_eq!(read_totals(root.path()).day_usd, 0.75);
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn failed_settlements_are_recovered_before_more_spending_is_admitted() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = SpendLedger::new(root.path().to_path_buf());
+        let settings = SpendingSettings::default();
+        let reservation = ledger.reserve(&settings, 0.5).unwrap();
+        let saved = fs::read(root.path().join("spending.json")).unwrap();
+        fs::remove_file(root.path().join("spending.json")).unwrap();
+        assert_eq!(reservation.charge(3.0).unwrap_err(), STORAGE_ERROR);
+        assert!(ledger.reserve(&settings, 0.1).is_err());
+        fs::write(root.path().join("spending.json"), saved).unwrap();
+        assert_eq!(ledger.summary().unwrap().day_usd, 3.0);
+        assert_eq!(read_totals(root.path()).day_usd, 0.5);
+        assert_eq!(ledger.inner.lock().unwrap().pending.len(), 1);
+        assert!(ledger.reserve(&settings, 0.1).is_err());
+        assert_eq!(read_totals(root.path()).day_usd, 3.0);
+        assert_eq!(read_totals(root.path()).month_usd, 3.0);
+        assert_eq!(ledger.summary().unwrap().day_usd, 3.0);
+        assert!(ledger.inner.lock().unwrap().pending.is_empty());
+        assert!(ledger.reserve(&settings, 0.1).is_err());
+        assert_eq!(read_totals(root.path()).day_usd, 3.0);
+        let higher_limit = SpendingSettings {
+            day_usd: 4.0,
+            ..settings
+        };
+        ledger
+            .reserve(&higher_limit, 0.5)
+            .unwrap()
+            .charge(0.25)
+            .unwrap();
+        assert_eq!(read_totals(root.path()).day_usd, 3.25);
     }
 
     #[test]
@@ -598,14 +678,14 @@ mod tests {
     }
 
     #[test]
-    fn invalid_totals_and_a_clock_rollback_fail_closed() {
+    fn invalid_totals_fail_closed() {
         let period = Period::now();
         let mut totals = Totals::new(period);
         totals.day_usd = 0.5;
         totals.month_usd = 1.0;
         for (field, value) in [
             ("version", serde_json::json!(2)),
-            ("day", serde_json::json!(period.day + 1)),
+            ("day", serde_json::json!(i64::MAX)),
             ("month", serde_json::json!(period.month + 1)),
             ("dayUsd", serde_json::json!(-1.0)),
             ("monthUsd", serde_json::json!(0.0)),
@@ -622,14 +702,41 @@ mod tests {
             assert_eq!(ledger.summary().unwrap_err(), STORAGE_ERROR);
             assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
         }
-        assert!(
-            totals
-                .validate(Period {
-                    day: period.day - 1,
-                    month: period.month,
-                })
-                .is_err()
-        );
+    }
+
+    #[test]
+    fn clock_rollback_keeps_future_totals_and_settles_in_the_reserved_period() {
+        for days_ahead in [1, 40] {
+            let root = tempfile::tempdir().unwrap();
+            let ledger = SpendLedger::new(root.path().to_path_buf());
+            let future = Utc::now() + chrono::Duration::days(days_ahead);
+            let period = Period {
+                day: future.timestamp().div_euclid(86_400),
+                month: future.year() * 12 + future.month0() as i32,
+            };
+            let mut totals = Totals::new(period);
+            totals.day_usd = 0.75;
+            totals.month_usd = 1.5;
+            fs::write(
+                root.path().join("spending.json"),
+                serde_json::to_vec(&totals).unwrap(),
+            )
+            .unwrap();
+            let summary = ledger.summary().unwrap();
+            assert_eq!(summary.day_usd, 0.75);
+            assert_eq!(summary.month_usd, 1.5);
+            assert!(ledger.reserve(&SpendingSettings::default(), 1.5).is_err());
+            let reservation = ledger.reserve(&SpendingSettings::default(), 0.25).unwrap();
+            assert_eq!(reservation.period.day, period.day);
+            assert_eq!(reservation.period.month, period.month);
+            reservation.charge(0.125).unwrap();
+            let saved = read_totals(root.path());
+            assert_eq!(saved.day, period.day);
+            assert_eq!(saved.month, period.month);
+            assert_eq!(saved.day_usd, 0.875);
+            assert_eq!(saved.month_usd, 1.625);
+            assert_eq!(ledger.summary().unwrap().day_usd, 0.875);
+        }
     }
 
     #[test]

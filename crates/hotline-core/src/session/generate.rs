@@ -1,7 +1,7 @@
 use super::{Room, files::Source};
 use crate::contract::Reach;
 use crate::driver::CapabilityLease;
-use crate::imagegen::{self, Aspect, ImageRequest, ImageSet, ImageSettings, Reference};
+use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, ImageSettings, Reference};
 use crate::sent;
 use crate::spending::SpendingSettings;
 use crate::tools::Workspace;
@@ -110,21 +110,35 @@ impl Room {
             )
             .map_err(|_| "The room's spending settings could not be read.".to_string())?;
             let estimate = generator.estimate_usd(&request);
-            let reservation = self.spending.reserve(&current, estimate)?;
+            let ledger = self.spending.clone();
+            let reservation =
+                tokio::task::spawn_blocking(move || ledger.reserve(&current, estimate))
+                    .await
+                    .map_err(|_| "The image's spending could not be reserved.".to_string())??;
             if let Some(capability) = &capability {
                 capability.check()?;
             }
-            let image = match generator.generate(&request).await {
+            let result = generator.generate(&request).await;
+            let charge = match &result {
+                Ok(image) => Some(image.cost_usd.unwrap_or(estimate)),
+                Err(ImageError::Refused {
+                    status: 400..=499, ..
+                }) => Some(0.0),
+                Err(_) => None,
+            };
+            if let Some(cost) = charge {
+                tokio::task::spawn_blocking(move || reservation.charge(cost))
+                    .await
+                    .map_err(|_| "The image's cost could not be recorded.".to_string())??;
+            }
+            spent_usd += charge.unwrap_or(estimate);
+            let image = match result {
                 Ok(image) => image,
                 Err(error) => {
-                    spent_usd += estimate;
                     failure = Some(error.to_string());
                     continue;
                 }
             };
-            let cost = image.cost_usd.unwrap_or(estimate);
-            reservation.charge(cost)?;
-            spent_usd += cost;
             if let Some(capability) = &capability {
                 capability.check()?;
             }

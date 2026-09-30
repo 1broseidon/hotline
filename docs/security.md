@@ -117,12 +117,19 @@ reads have byte and allocation ceilings.
 
 Each provider attempt reserves its estimate durably before the request,
 including the single fallback. A successful result settles its reported
-cost, or the estimate if absent. Failed or cancelled requests retain their
-estimates, because failure cannot prove the provider did no paid work.
+cost, or the estimate if absent. Provider 400–499 refusals settle at zero;
+timeouts, server failures, malformed responses and cancelled requests retain
+their estimates, because they cannot prove the provider did no paid work.
 The minimal ledger lives at `<data>/spending.json`, under the room's one
 writer, with UTC day/month caps and atomic replacement. Corrupt saved caps
 or a corrupt, missing-after-use, unreadable or unwritable ledger block
-spending rather than restore an empty budget. Either zero cap disables it.
+spending rather than restore an empty budget. Reads and saves retry on the
+next call after storage recovers; a bad ledger keeps refusing until repaired.
+Failed settlements are retained and retried before admitting more spending;
+once replacement succeeds they are not applied twice if directory sync fails.
+A backward clock keeps the future ledger period and its higher totals instead
+of resetting usage. Either zero cap disables it. Reservation and settlement
+IO, including fsync, run on blocking workers, not async runtime threads.
 No room or ledger mutex stays held across generation. The capability lease
 is checked again before fallback, output writing and conversation posting.
 
@@ -137,7 +144,9 @@ The wire tests prove owner/desk status and companion refusals.
 Residual risk: dispatched provider work can finish and cost money after
 revocation; it cannot be recalled. A reported price above its estimate is
 recorded and blocks later work if over the cap, not retroactively prevented.
-Unknown failed-request costs are estimates, not invoices. Generated files
+Unknown failed-request costs are estimates, not invoices. Failed settlements
+stay in memory until storage recovers; restarting first retains only the
+durably reserved estimate. Generated files
 and chat copies share the existing retention policy; no automatic cleanup
 is added. Voice will use the same spending interface when its branch is
 integrated; it is not charged by this image-only branch yet.

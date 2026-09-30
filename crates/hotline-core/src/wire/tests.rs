@@ -4300,3 +4300,27 @@ fn an_owner_device_opens_a_tape_on_the_same_window_as_the_desk() {
     }
     assert_eq!(snapshot_for_seat(&log, &tape, Seat::Phone).len(), 200);
 }
+
+#[test]
+fn a_long_turn_of_steps_still_opens_a_tape_on_the_last_message() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let tape = StreamId::Tape("ada".into());
+    log.append(
+        &tape,
+        &json!({ "kind": "user", "id": "ask", "ts": 0, "text": "go" }),
+    )
+    .unwrap();
+    for n in 1..=500 {
+        log.append(
+            &tape,
+            &json!({ "kind": "thought", "id": format!("t{n}"), "ts": n, "text": "hm" }),
+        )
+        .unwrap();
+    }
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        let lines = snapshot_for_seat(&log, &tape, seat);
+        assert_eq!(lines[0]["id"], "ask", "{seat:?}");
+        assert_eq!(lines.last().unwrap()["id"], "t500", "{seat:?}");
+    }
+}

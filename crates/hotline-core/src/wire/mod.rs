@@ -1497,20 +1497,43 @@ const TAPE_PAGE_MAX: usize = 2_000;
 /// Context kept above a line a page was asked to reach.
 const THROUGH_CONTEXT: usize = 40;
 
+/// Where a tape's window starts: `len` lines from the end, or further back
+/// to the last thing said when those are all steps. A turn that has run for a
+/// long time is tool calls and thoughts alone, and a window with no message
+/// in it draws a blank chat until the turn ends.
+fn window_start(events: &[Value], len: usize) -> usize {
+    let start = events.len().saturating_sub(len);
+    let said = |event: &Value| {
+        matches!(
+            event.get("kind").and_then(Value::as_str),
+            Some("user" | "agent")
+        )
+    };
+    if events[start..].iter().any(said) {
+        return start;
+    }
+    events[..start].iter().rposition(said).unwrap_or(start)
+}
+
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
     let events = public_snapshot(log, stream);
     if seat != Seat::Phone {
         // The desk and its owner device open a tape on its last lines and
         // page back with `tape.page`; a whole tape is too much to draw.
         if matches!(stream, StreamId::Tape(_)) && events.len() > DESK_TAPE_WINDOW {
-            let skip = events.len() - DESK_TAPE_WINDOW;
+            let skip = window_start(&events, DESK_TAPE_WINDOW);
             return events.into_iter().skip(skip).collect();
         }
         return events;
     }
     let mut used = 0;
     let mut recent = Vec::new();
-    for event in events.into_iter().rev().take(200) {
+    let skip = if matches!(stream, StreamId::Tape(_)) {
+        window_start(&events, 200)
+    } else {
+        events.len().saturating_sub(200)
+    };
+    for event in events.into_iter().skip(skip).rev() {
         let event = phone_event(event);
         used += event.to_string().len();
         if used > 524_288 {
@@ -1636,8 +1659,8 @@ fn send(sender: &Outbox, frame: Value) -> bool {
 /// live session.
 fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract::Persona) -> Value {
     let tail = previews::tail(log.root(), &persona.id);
-    let preview: Option<Preview> =
-        previews::preview_from_tail(&tail).and_then(|preview| serde_json::from_value(preview).ok());
+    let preview: Option<Preview> = previews::preview_reaching(log.root(), &persona.id, &tail)
+        .and_then(|preview| serde_json::from_value(preview).ok());
     let latest = preview.as_ref().map(|preview| preview.at);
     let session = room.info(&persona.id);
     json!(RosterEntry {

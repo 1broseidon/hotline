@@ -216,8 +216,9 @@ impl Model {
 
 /// The owner's choice, from `settings.images`. Both keys are optional: none
 /// means the first connected provider that can draw, on its default model.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct ImageSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,

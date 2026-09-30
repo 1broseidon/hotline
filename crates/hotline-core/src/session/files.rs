@@ -29,6 +29,7 @@ const QUIET: &str = "This is a quiet scheduled run, and nothing from it reaches 
 pub(crate) enum Source {
     /// A path in the teammate's workspace, or anywhere under machine reach.
     Workspace(String),
+    GeneratedImage(String),
     /// A path on its computer.
     Computer(String),
     /// Its computer's screen now, or one window of it, or one region.
@@ -65,9 +66,13 @@ impl Room {
         if self.is_quiet(persona_id) {
             return Err(QUIET.to_string());
         }
+        let generated = matches!(&source, Source::GeneratedImage(_));
         let taken = match source {
+            Source::GeneratedImage(path) => {
+                from_workspace(&persona, self.log.root(), &path, capability.clone()).await?
+            }
             Source::Workspace(path) => {
-                from_workspace(&persona, self.log.root(), &path, capability).await?
+                from_workspace(&persona, self.log.root(), &path, capability.clone()).await?
             }
             Source::Computer(path) => {
                 let ready = self.computer_to_send_from(persona_id).await?;
@@ -93,7 +98,10 @@ impl Room {
                 }
             }
         };
-        let file = prepare(taken.name, taken.bytes).await?;
+        let file = prepare(taken.name, taken.bytes, generated).await?;
+        if let Some(capability) = &capability {
+            capability.check()?;
+        }
         let id = new_id();
         let root = self.log.root();
         let path = sent::store(root, persona_id, &id, &file)
@@ -116,6 +124,12 @@ impl Room {
             ring: None,
             receipt: None,
         };
+        if let Some(capability) = &capability
+            && let Err(refused) = capability.check()
+        {
+            sent::discard(root, persona_id, &id);
+            return Err(refused);
+        }
         if let Err(refused) = self.post_file(persona_id, event) {
             sent::discard(root, persona_id, &id);
             return Err(refused);
@@ -130,7 +144,7 @@ impl Room {
     }
 
     /// Whether a quiet scheduled run holds this teammate's voice right now.
-    fn is_quiet(&self, persona_id: &str) -> bool {
+    pub(super) fn is_quiet(&self, persona_id: &str) -> bool {
         let session = lock(&self.sessions).get(persona_id).cloned();
         session.is_some_and(|session| quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()))
     }
@@ -207,14 +221,18 @@ async fn from_workspace(
 
 /// Makes the file what it will be kept as, off the async workers: an image
 /// is decoded and encoded again.
-async fn prepare(name: String, bytes: Vec<u8>) -> Result<Prepared, String> {
+async fn prepare(name: String, bytes: Vec<u8>, generated: bool) -> Result<Prepared, String> {
     let permit = DECODERS
         .acquire()
         .await
         .map_err(|_| "The file could not be prepared.".to_string())?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        sent::prepare(&name, bytes)
+        if generated {
+            sent::generated::prepare(&name, bytes)
+        } else {
+            sent::prepare(&name, bytes)
+        }
     })
     .await
     .map_err(|_| "The file could not be prepared.".to_string())?

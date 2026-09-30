@@ -38,6 +38,7 @@ mod chapters;
 mod escalation;
 pub(crate) mod exchanges;
 pub(crate) mod files;
+pub(crate) mod generate;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod narration;
@@ -526,6 +527,9 @@ const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2
 
 pub struct Room {
     log: Log,
+    spending: crate::spending::SpendLedger,
+    #[cfg(test)]
+    image_generators: Mutex<Option<crate::imagegen::ImageSet>>,
     /// A computer being set up behind a session that started without it,
     /// per teammate: downloading, ready to join once the turn ends, or
     /// failed. Watched by `computer_status`, which can wait on it.
@@ -665,6 +669,9 @@ impl Room {
             }
         };
         let room = Arc::new(Self {
+            spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
+            #[cfg(test)]
+            image_generators: Mutex::new(None),
             log,
             keys,
             agents,

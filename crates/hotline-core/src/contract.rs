@@ -20,6 +20,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use ts_rs::TS;
 
+pub use crate::imagegen::ImageSettings;
+pub use crate::spending::{SpendingSettings, SpendingSummary};
+
 // ---------------------------------------------------------------------------
 // Faces
 // ---------------------------------------------------------------------------
@@ -2062,6 +2065,23 @@ pub enum UploadDestination {
     Path { path: String },
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ImagesStatus {
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spending: Option<SpendingSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spending_unavailable: Option<String>,
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -2236,6 +2256,8 @@ pub enum Command {
         #[ts(type = "Record<string, unknown>")]
         patch: Map<String, Value>,
     },
+    #[serde(rename = "images.status")]
+    ImagesStatus {},
     #[serde(rename = "credential.create")]
     CredentialCreate {
         provider_id: String,
@@ -2796,6 +2818,28 @@ mod tests {
     use crate::store::{chapters, previews, search};
     use serde_json::{Value, json};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn images_settings_and_status_have_additive_wire_shapes() {
+        let config = ts_rs::Config::default();
+        assert_eq!(
+            serde_json::to_value(ImageSettings::default()).unwrap(),
+            json!({})
+        );
+        assert!(ImageSettings::decl(&config).contains("provider?: string"));
+        assert!(ImageSettings::decl(&config).contains("model?: string"));
+        assert!(SpendingSettings::decl(&config).contains("dayUsd: number"));
+        assert!(SpendingSettings::decl(&config).contains("monthUsd: number"));
+        assert!(ImagesStatus::decl(&config).contains("unavailable?: string"));
+        assert!(ImagesStatus::decl(&config).contains("provider?: string"));
+        assert!(ImagesStatus::decl(&config).contains("model?: string"));
+        assert!(ImagesStatus::decl(&config).contains("spending?: SpendingSummary"));
+        assert!(ImagesStatus::decl(&config).contains("spendingUnavailable?: string"));
+        let command = Command::ImagesStatus {};
+        let value = json!({"cmd": "images.status", "params": {}});
+        assert_eq!(serde_json::to_value(&command).unwrap(), value);
+        assert_eq!(serde_json::from_value::<Command>(value).unwrap(), command);
+    }
 
     fn scratch(name: &str) -> (PathBuf, Log) {
         let dir = std::env::temp_dir().join(format!(

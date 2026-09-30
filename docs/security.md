@@ -97,6 +97,51 @@ decision for George, not a bug fix.
   for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.
 
+## Generated images (BRO-174)
+
+`generate_image` is available to teammate sessions on Hotline Agent and ACP,
+not to their subagent runs. It uses only providers already connected by the
+owner; no key or provider response body appears in the result or a failure.
+`settings.images`, `settings.spending` and `images.status` require the local
+desk or owner seat. Companion status requests are refused before dispatch.
+
+Reference files use the same cap-std workspace handle and current capability
+lease as the file tools. Workspace reach refuses traversal and escaping
+symlinks; machine reach can read elsewhere. Output always lands inside the
+teammate's workspace, even with machine reach, using create-only publication
+so an existing file or symlink is never overwritten. The kept conversation
+copy uses `send_file`'s posting, quiet-window and readback path; generated
+PNG, JPEG, WebP and SVG bypass photo-to-JPEG normalization, preserve alpha
+and are limited to 2048 pixels on their longer edge. Decoding and reference
+reads have byte and allocation ceilings.
+
+Each provider attempt reserves its estimate durably before the request,
+including the single fallback. A successful result settles its reported
+cost, or the estimate if absent. Failed or cancelled requests retain their
+estimates, because failure cannot prove the provider did no paid work.
+The minimal ledger lives at `<data>/spending.json`, under the room's one
+writer, with UTC day/month caps and atomic replacement. Corrupt saved caps
+or a corrupt, missing-after-use, unreadable or unwritable ledger block
+spending rather than restore an empty budget. Either zero cap disables it.
+No room or ledger mutex stays held across generation. The capability lease
+is checked again before fallback, output writing and conversation posting.
+
+`session::generate::tests` drives the real Rig and MCP entry points against
+a fake `ImageGen`, and the resolver/HTTP adapter against a connected mock
+provider. It proves workspace/chat copies, accounting, denied budgets and
+references, fallback reservation, disabled spending, excluded subagents and
+revocation. `sent::generated::tests` proves format/alpha retention and size
+limits; `spending::tests` proves durable, concurrent, fail-closed accounting.
+The wire tests prove owner/desk status and companion refusals.
+
+Residual risk: dispatched provider work can finish and cost money after
+revocation; it cannot be recalled. A reported price above its estimate is
+recorded and blocks later work if over the cap, not retroactively prevented.
+Unknown failed-request costs are estimates, not invoices. Generated files
+and chat copies share the existing retention policy; no automatic cleanup
+is added. Voice will use the same spending interface when its branch is
+integrated; it is not charged by this image-only branch yet.
+
 ## Operator actions are not agent capabilities
 
 Some things the person does from the desk are one-shot transfers, not standing

@@ -25,6 +25,7 @@ pub(crate) async fn run(
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::ImagesStatus {} => Ok(json!(room.images_status())),
         Command::FilesBrowse { path } => {
             tokio::task::spawn_blocking(move || super::files::browse(&path))
                 .await
@@ -133,6 +134,11 @@ pub(crate) async fn run(
             delete_persona(log, room, &id)
         }
         Command::SettingsUpdate { mut patch } => {
+            for (key, value) in &mut patch {
+                if !value.is_null() {
+                    *value = room::normalize_setting(key, value)?;
+                }
+            }
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
             if let Some(value) = patch.get_mut("mcpServers")

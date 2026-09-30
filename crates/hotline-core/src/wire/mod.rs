@@ -76,6 +76,17 @@ mod tests;
 /// run to completion.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
+    fn images_status(&self) -> crate::contract::ImagesStatus {
+        crate::contract::ImagesStatus {
+            available: false,
+            unavailable: Some("This room cannot make images.".into()),
+            provider: None,
+            model: None,
+            spending: None,
+            spending_unavailable: None,
+        }
+    }
+
     /// Remote owns a room handle, so implementations retain only a weak reference.
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         None

@@ -4208,6 +4208,493 @@ async fn cookie_push_is_operator_only_through_the_real_handler() {
 }
 
 #[tokio::test]
+async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
+    let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let request = json!({"id": 1, "cmd": "images.status", "params": {}});
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        let answer = remote_control_answer(seat, &handle, &log, request.clone()).await;
+        if seat == Seat::Phone {
+            assert_eq!(answer["ok"], false, "{answer}");
+            assert_eq!(answer["code"], FORBIDDEN);
+            assert!(answer.get("result").is_none());
+        } else {
+            assert_eq!(answer["ok"], true, "{answer}");
+            assert_eq!(
+                answer["result"],
+                json!({
+                    "available": false, "unavailable": "This room cannot make images."
+                })
+            );
+        }
+    }
+    assert!(log.load(&StreamId::Room).is_empty());
+}
+
+#[tokio::test]
+async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let request = json!({"id": 1, "cmd": "images.status", "params": {}});
+    let missing = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
+    assert_eq!(missing["ok"], true, "{missing}");
+    assert_eq!(missing["result"]["available"], false);
+    assert!(
+        missing["result"]["unavailable"]
+            .as_str()
+            .unwrap()
+            .contains("Connect")
+    );
+    assert!(missing["result"].get("provider").is_none());
+    assert!(missing["result"].get("model").is_none());
+
+    let secret = "image-status-private-credential";
+    desk.credential_create("anthropic", "No image provider", secret)
+        .unwrap();
+    let unsupported = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    assert_eq!(unsupported["result"]["available"], false, "{unsupported}");
+    let openai = desk
+        .credential_create("openai", "Image provider", secret)
+        .unwrap();
+    desk.credential_create("google", "Second image provider", secret)
+        .unwrap();
+    let before = desk.log.load(&StreamId::Room);
+    for seat in [Seat::Desk, Seat::Owner] {
+        let available = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        assert_eq!(
+            available["result"],
+            json!({
+                "available": true, "provider": "openai", "model": "gpt-image-2.5-flare",
+                "spending": {"dayUsd": 0.0, "monthUsd": 0.0}
+            })
+        );
+        assert!(!available.to_string().contains(secret));
+    }
+    assert_eq!(desk.log.load(&StreamId::Room), before);
+
+    let selected = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({
+            "id": 2, "cmd": "settings.update", "params": {"patch": {
+                "images": {"provider": "google", "model": "gemini-3.1-flash-lite-image"}
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(selected["ok"], true, "{selected}");
+    let available = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    assert_eq!(
+        available["result"],
+        json!({
+            "available": true, "provider": "google", "model": "gemini-3.1-flash-lite-image",
+            "spending": {"dayUsd": 0.0, "monthUsd": 0.0}
+        })
+    );
+
+    let selected = remote_control_answer(Seat::Desk, &handle, &desk.log, json!({
+        "id": 3, "cmd": "settings.update", "params": {"patch": {"images": {"provider": "openai"}}}
+    })).await;
+    assert_eq!(selected["ok"], true, "{selected}");
+    desk.credential_revoke(&openai.id).unwrap();
+    let before = desk.log.load(&StreamId::Room);
+    let revoked = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    assert_eq!(revoked["result"]["available"], false, "{revoked}");
+    assert!(
+        revoked["result"]["unavailable"]
+            .as_str()
+            .unwrap()
+            .contains("isn't connected")
+    );
+    assert!(revoked["result"].get("provider").is_none());
+    assert!(revoked["result"].get("model").is_none());
+    assert_eq!(desk.log.load(&StreamId::Room), before);
+
+    let reset = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        &desk.log,
+        json!({
+            "id": 4, "cmd": "settings.update", "params": {"patch": {"images": null}}
+        }),
+    )
+    .await;
+    assert_eq!(reset["ok"], true, "{reset}");
+    let available = remote_control_answer(Seat::Owner, &handle, &desk.log, request).await;
+    assert_eq!(available["result"]["available"], true, "{available}");
+    assert_eq!(available["result"]["provider"], "google");
+    let denied = remote_control_answer(
+        Seat::Phone,
+        &handle,
+        &desk.log,
+        json!({"id": 5, "cmd": "images.status", "params": {}}),
+    )
+    .await;
+    assert_eq!(denied["code"], FORBIDDEN);
+    assert!(denied.get("result").is_none());
+    for answer in [missing, unsupported, selected, available, revoked, reset] {
+        assert!(!answer.to_string().contains(secret), "{answer}");
+    }
+    assert!(
+        !serde_json::to_string(&desk.log.load(&StreamId::Room))
+            .unwrap()
+            .contains(secret)
+    );
+}
+
+#[tokio::test]
+async fn image_and_spending_settings_are_typed_validated_and_resettable() {
+    let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let defaults = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        &log,
+        json!({
+            "id": 1, "cmd": "settings.update", "params": {"patch": {}}
+        }),
+    )
+    .await;
+    assert_eq!(defaults["result"]["images"], json!({}));
+    assert_eq!(
+        defaults["result"]["spending"],
+        json!({"dayUsd": 2.0, "monthUsd": 20.0})
+    );
+
+    let updated = remote_control_answer(Seat::Owner, &handle, &log, json!({
+        "id": 2, "cmd": "settings.update", "params": {"patch": {
+            "images": {"provider": "openai", "model": "gpt-image-1-mini", "secret": "not-a-setting"},
+            "spending": {"dayUsd": 0, "monthUsd": 0},
+            "futureSetting": {"enabled": true}
+        }}
+    })).await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert_eq!(
+        updated["result"]["images"],
+        json!({"provider": "openai", "model": "gpt-image-1-mini"})
+    );
+    assert_eq!(
+        updated["result"]["spending"],
+        json!({"dayUsd": 0.0, "monthUsd": 0.0})
+    );
+    assert_eq!(updated["result"]["futureSetting"], json!({"enabled": true}));
+    assert!(
+        !serde_json::to_string(&log.load(&StreamId::Room))
+            .unwrap()
+            .contains("not-a-setting")
+    );
+
+    let partial = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        &log,
+        json!({
+            "id": 3, "cmd": "settings.update", "params": {"patch": {
+                "images": {"model": "gpt-image-1-mini"}, "spending": {"monthUsd": 7.5}
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(partial["ok"], true, "{partial}");
+    assert_eq!(
+        partial["result"]["images"],
+        json!({"model": "gpt-image-1-mini"})
+    );
+    assert_eq!(
+        partial["result"]["spending"],
+        json!({"dayUsd": 2.0, "monthUsd": 7.5})
+    );
+
+    let reset = remote_control_answer(Seat::Owner, &handle, &log, json!({
+        "id": 4, "cmd": "settings.update", "params": {"patch": {"images": null, "spending": null}}
+    })).await;
+    assert_eq!(reset["ok"], true, "{reset}");
+    assert_eq!(reset["result"]["images"], json!({}));
+    assert_eq!(
+        reset["result"]["spending"],
+        json!({"dayUsd": 2.0, "monthUsd": 20.0})
+    );
+    assert_eq!(reset["result"]["futureSetting"], json!({"enabled": true}));
+    let before = log.load(&StreamId::Room);
+    let denied = remote_control_answer(
+        Seat::Phone,
+        &handle,
+        &log,
+        json!({
+            "id": 5, "cmd": "settings.update", "params": {"patch": {"spending": {"dayUsd": 0}}}
+        }),
+    )
+    .await;
+    assert_eq!(denied["code"], FORBIDDEN);
+    assert_eq!(log.load(&StreamId::Room), before);
+}
+
+#[tokio::test]
+async fn images_status_reports_recorded_spending_without_creating_or_writing_a_ledger() {
+    use crate::credentials::tests::MemoryStore;
+    use crate::spending::{SpendLedger, SpendingSettings};
+    let root = tempfile::tempdir().unwrap();
+    {
+        let ledger = SpendLedger::new(root.path().to_path_buf());
+        ledger
+            .reserve(&SpendingSettings::default(), 0.25)
+            .unwrap()
+            .charge(0.125)
+            .unwrap();
+    }
+    let ledger_path = root.path().join("spending.json");
+    let before = std::fs::read(&ledger_path).unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let answer = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({"id": 1, "cmd": "images.status", "params": {}}),
+    )
+    .await;
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(
+        answer["result"]["spending"],
+        json!({"dayUsd": 0.125, "monthUsd": 0.125})
+    );
+    assert!(answer["result"].get("spendingUnavailable").is_none());
+    assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+
+    let fresh_root = tempfile::tempdir().unwrap();
+    let fresh_desk = Arc::new(
+        crate::desk::Desk::open_with_store(fresh_root.path(), Arc::new(MemoryStore::default()))
+            .unwrap(),
+    );
+    let fresh_handle: Arc<dyn RoomHandle> = fresh_desk.clone();
+    let answer = remote_control_answer(
+        Seat::Desk,
+        &fresh_handle,
+        &fresh_desk.log,
+        json!({"id": 2, "cmd": "images.status", "params": {}}),
+    )
+    .await;
+    assert_eq!(
+        answer["result"]["spending"],
+        json!({"dayUsd": 0.0, "monthUsd": 0.0})
+    );
+    assert!(!fresh_root.path().join("spending.json").exists());
+}
+
+#[tokio::test]
+async fn images_status_preserves_the_shared_ledgers_failure_state_without_leaking_contents() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let ledger_path = root.path().join("spending.json");
+    std::fs::write(&ledger_path, b"private-corrupt-ledger-content").unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    desk.credential_create("openai", "Image provider", "private-image-key")
+        .unwrap();
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    for seat in [Seat::Desk, Seat::Owner] {
+        let answer = remote_control_answer(
+            seat,
+            &handle,
+            &desk.log,
+            json!({"id": 1, "cmd": "images.status", "params": {}}),
+        )
+        .await;
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["result"]["available"], true);
+        assert!(answer["result"].get("spending").is_none());
+        assert!(
+            answer["result"]["spendingUnavailable"]
+                .as_str()
+                .unwrap()
+                .contains("Spending is blocked")
+        );
+        assert!(
+            !answer
+                .to_string()
+                .contains("private-corrupt-ledger-content")
+        );
+        assert!(!answer.to_string().contains("private-image-key"));
+        if ledger_path.exists() {
+            std::fs::remove_file(&ledger_path).unwrap();
+        }
+    }
+    assert!(!ledger_path.exists());
+}
+
+#[tokio::test]
+async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps_unavailable() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    desk.credential_create("openai", "Image provider", "private-image-key")
+        .unwrap();
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    for images in [json!({"provider": 17}), json!([]), json!({"model": " "})] {
+        desk.log
+            .append(
+                &StreamId::Room,
+                &json!({
+                    "kind": "setting", "id": "images", "value": images
+                }),
+            )
+            .unwrap();
+        let answer = remote_control_answer(
+            Seat::Desk,
+            &handle,
+            &desk.log,
+            json!({"id": 1, "cmd": "images.status", "params": {}}),
+        )
+        .await;
+        assert_eq!(answer["result"]["available"], false, "{answer}");
+        assert!(answer["result"]["unavailable"].is_string());
+        assert!(answer["result"].get("provider").is_none());
+        assert_eq!(crate::room::settings(&desk.log)["images"], images);
+    }
+    desk.log
+        .append(
+            &StreamId::Room,
+            &json!({
+                "kind": "setting", "id": "images", "deleted": true
+            }),
+        )
+        .unwrap();
+    let spending = json!({"dayUsd": "disabled", "monthUsd": 0});
+    desk.log
+        .append(
+            &StreamId::Room,
+            &json!({
+                "kind": "setting", "id": "spending", "value": spending
+            }),
+        )
+        .unwrap();
+    let answer = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({"id": 2, "cmd": "images.status", "params": {}}),
+    )
+    .await;
+    assert_eq!(answer["result"]["available"], true, "{answer}");
+    assert!(answer["result"].get("spending").is_none());
+    assert!(answer["result"]["spendingUnavailable"].is_string());
+    assert_eq!(crate::room::settings(&desk.log)["spending"], spending);
+    assert!(serde_json::from_value::<crate::spending::SpendingSettings>(spending).is_err());
+}
+
+#[tokio::test]
+async fn invalid_image_or_spending_settings_do_not_write_any_patch_key() {
+    let quiet = Arc::new(Quiet::new());
+    let handle: Arc<dyn RoomHandle> = quiet.clone();
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    for (key, value) in [
+        ("images", json!("not-an-object")),
+        ("images", json!([])),
+        ("images", json!({"provider": 17})),
+        ("images", json!({"model": false})),
+        ("images", json!({"provider": " "})),
+        ("images", json!({"model": ""})),
+        ("spending", json!([])),
+        ("spending", json!({"dayUsd": -1})),
+        ("spending", json!({"monthUsd": -1})),
+        ("spending", json!({"dayUsd": "2"})),
+        ("spending", json!({"monthUsd": null})),
+    ] {
+        let mut patch = serde_json::Map::new();
+        patch.insert("theme".into(), json!("dark"));
+        patch.insert("mcpServers".into(), json!([]));
+        patch.insert(key.into(), value);
+        let refused = remote_control_answer(
+            Seat::Owner,
+            &handle,
+            &log,
+            json!({
+                "id": 1, "cmd": "settings.update", "params": {"patch": patch}
+            }),
+        )
+        .await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(refused["error"].is_string());
+        assert!(log.load(&StreamId::Room).is_empty());
+        assert!(quiet.invalidations.lock().unwrap().is_empty());
+        assert!(quiet.reattached().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_contents() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    desk.credential_create("openai", "Image provider", "private-image-key")
+        .unwrap();
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let disabled = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({
+            "id": 1, "cmd": "settings.update", "params": {"patch": {
+                "spending": {"dayUsd": 0, "monthUsd": 0}
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(disabled["ok"], true, "{disabled}");
+    std::fs::write(
+        crate::paths::room_path(root.path()),
+        "{\"kind\":\"setting\",\"id\":\"spending\",\"value\":{\"dayUsd\":0,\"monthUsd\":0},\"private\":\"corrupt-room-canary\"\n",
+    ).unwrap();
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        let answer = remote_control_answer(
+            seat,
+            &handle,
+            &desk.log,
+            json!({"id": 2, "cmd": "images.status", "params": {}}),
+        )
+        .await;
+        if seat == Seat::Phone {
+            assert_eq!(answer["code"], FORBIDDEN);
+            assert!(answer.get("result").is_none());
+        } else {
+            assert_eq!(answer["ok"], true, "{answer}");
+            assert_eq!(answer["result"]["available"], false);
+            assert!(
+                answer["result"]["unavailable"]
+                    .as_str()
+                    .unwrap()
+                    .contains("could not be safely read")
+            );
+            assert_eq!(
+                answer["result"]["spendingUnavailable"],
+                answer["result"]["unavailable"]
+            );
+            for field in ["provider", "model", "spending"] {
+                assert!(answer["result"].get(field).is_none());
+            }
+        }
+        assert!(!answer.to_string().contains("corrupt-room-canary"));
+        assert!(!answer.to_string().contains("private-image-key"));
+    }
+    assert!(!root.path().join("spending.json").exists());
+}
+
+#[tokio::test]
 async fn the_window_opens_on_a_tapes_last_lines_and_pages_back_to_the_first() {
     let (_root, log, port) = door("tape-window");
     let mut socket = desk(port).await;

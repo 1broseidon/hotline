@@ -92,6 +92,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
+| `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
@@ -310,6 +311,39 @@ anything: both are read when a computer wakes, as are the teammate's own
 Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
+
+`images` is an `ImageSettings` object `{provider?: string, model?: string}`,
+defaulting to `{}`. An omitted provider selects the first connected provider
+that can make images, on its default model; a model is used only with an
+explicit provider. An unavailable explicit provider is reported rather than
+silently switched. `spending` is a `SpendingSettings` object
+`{dayUsd: number, monthUsd: number}`, defaulting to `$2` per UTC day and `$20`
+per UTC month. Omitted spending fields take their defaults; each limit must
+be finite and non-negative, and either zero limit disables spending. Each object replaces
+the whole setting rather than merging its fields. Top-level `null` restores
+the whole object's defaults. Image selections must be non-blank strings when
+present. Both objects are typed and validated before any key in an update is
+written; unknown settings keys retain their existing map semantics. Malformed
+stored image or spending overrides remain visible so consumers refuse them
+rather than automatically selecting a provider or restoring paid budgets.
+
+`images.status` describes the current selection using the desk's existing
+vault connections. It makes no image or provider request and changes no
+settings. `available: true` carries the resolved provider and model ids;
+`available: false` carries an `unavailable` reason and omits those ids.
+`spending`, when readable, is `SpendingSummary` `{dayUsd, monthUsd}`: recorded
+usage including reservations for the current UTC day and month, not the caps.
+It comes from the same room ledger image generation uses. Invalid saved
+spending settings or an unreadable ledger omit that summary and carry a
+`spendingUnavailable` reason; image-provider availability is independent of
+this spending readiness. A status read never creates a spending file.
+Status and image generation read settings strictly: a malformed room JSONL
+line or an `images`/`spending` event whose kind is not `setting` refuses the
+operation rather than restoring defaults. Status reports `available: false`
+with safe `unavailable` and `spendingUnavailable` reasons and omits the
+provider, model and usage summary; no raw room content is included.
+Credentials and keys are never returned. Owners and the local desk may ask;
+companions receive `forbidden`. Test room handles default to unavailable.
 
 `computer.capacity` reports totals, not free resources, cached for about a
 minute per runtime preference. Docker/Podman totals take precedence, then

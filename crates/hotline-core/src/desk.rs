@@ -8,8 +8,8 @@
 
 use crate::contract::{
     Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
-    Credential, CredentialKind, LoginPrompt, LoginState, LoginStatus, SessionInfo, SkillEntry,
-    SkillSource, StreamDelta,
+    Credential, CredentialKind, ImageSettings, ImagesStatus, LoginPrompt, LoginState, LoginStatus,
+    SessionInfo, SkillEntry, SkillSource, StreamDelta,
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
@@ -171,6 +171,52 @@ impl Drop for Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    fn images_status(&self) -> ImagesStatus {
+        let settings = match room::try_settings(&self.log) {
+            Ok(settings) => settings,
+            Err(error) => {
+                return ImagesStatus {
+                    available: false,
+                    unavailable: Some(error.clone()),
+                    provider: None,
+                    model: None,
+                    spending: None,
+                    spending_unavailable: Some(error),
+                };
+            }
+        };
+        let description = room::normalize_setting("images", &settings["images"])
+            .and_then(|value| {
+                serde_json::from_value::<ImageSettings>(value)
+                    .map_err(|_| "The room's image settings could not be read.".to_string())
+            })
+            .and_then(|settings| crate::imagegen::describe(&self.vault, &settings));
+        let summary = room::normalize_setting("spending", &settings["spending"])
+            .and_then(|_| self.room.spending_summary());
+        let (spending, spending_unavailable) = match summary {
+            Ok(summary) => (Some(summary), None),
+            Err(error) => (None, Some(error)),
+        };
+        match description {
+            Ok(image) => ImagesStatus {
+                available: true,
+                unavailable: None,
+                provider: Some(image.provider_id),
+                model: Some(image.model_id),
+                spending,
+                spending_unavailable,
+            },
+            Err(unavailable) => ImagesStatus {
+                available: false,
+                unavailable: Some(unavailable),
+                provider: None,
+                model: None,
+                spending,
+                spending_unavailable,
+            },
+        }
+    }
+
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         self.remote
             .lock()

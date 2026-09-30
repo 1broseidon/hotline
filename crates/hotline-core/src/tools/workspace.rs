@@ -490,6 +490,29 @@ impl Workspace {
         Ok((file.into_std(), metadata.len(), root.join(relative)))
     }
 
+    pub(crate) fn create_file_path(
+        &self,
+        requested: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, ToolError> {
+        self.check_capability()?;
+        if bytes.len() > MAX_WRITE_BYTES {
+            return Err(ToolError::new("The file is too large to write."));
+        }
+        let relative = self.writable_path(requested)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        let mut file = self.inner.dir.open_with(&relative, &options)?;
+        if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+            let _ = self.inner.dir.remove_file(&relative);
+            return Err(error.into());
+        }
+        Ok(self
+            .inner
+            .root
+            .join(relative.strip_prefix(".").unwrap_or(&relative)))
+    }
+
     fn list_directory(&self, args: ListDirectoryArgs) -> Result<String, ToolError> {
         self.check_capability()?;
         let requested = args.path.as_deref().unwrap_or(".");

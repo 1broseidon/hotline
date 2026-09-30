@@ -1,0 +1,267 @@
+use super::{Room, files::Source};
+use crate::contract::Reach;
+use crate::driver::CapabilityLease;
+use crate::imagegen::{self, Aspect, ImageRequest, ImageSet, ImageSettings, Reference};
+use crate::sent;
+use crate::spending::SpendingSettings;
+use crate::tools::Workspace;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+const REFERENCE_BYTES: u64 = 20 * 1024 * 1024;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Arguments {
+    prompt: String,
+    #[serde(default)]
+    aspect: Aspect,
+    #[serde(default)]
+    transparent: bool,
+    #[serde(default)]
+    references: Vec<String>,
+    style: Option<String>,
+    name: Option<String>,
+}
+
+impl Room {
+    pub(crate) fn spending_summary(&self) -> Result<crate::spending::SpendingSummary, String> {
+        self.spending.summary()
+    }
+
+    pub(crate) async fn generate_image(
+        &self,
+        persona_id: &str,
+        arguments: &Value,
+        capability: Option<CapabilityLease>,
+    ) -> Result<String, String> {
+        let started = Instant::now();
+        let args: Arguments = serde_json::from_value(arguments.clone()).map_err(|_| {
+            "generate_image needs a prompt, a supported aspect and optional image references, style and name.".to_string()
+        })?;
+        if args.prompt.trim().is_empty() || args.prompt.len() > 16_000 {
+            return Err("Give generate_image a prompt of 1 to 16000 bytes.".into());
+        }
+        if args.references.len() > 16 {
+            return Err("generate_image takes at most 16 reference images.".into());
+        }
+        let name = image_name(args.name.as_deref(), &args.prompt)?;
+        let (prompt, aspect) = imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect)?;
+        if self.is_quiet(persona_id) {
+            return Err("This is a quiet scheduled run; make the image when you are talking with the person.".into());
+        }
+        let persona = self.persona(persona_id)?;
+        let settings = crate::room::try_settings(self.log())?;
+        let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
+            "images",
+            settings.get("images").unwrap_or(&json!({})),
+        )?)
+        .map_err(|_| "The room's image settings could not be read.".to_string())?;
+        let spending: SpendingSettings = serde_json::from_value(
+            settings
+                .get("spending")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        )
+        .map_err(|_| "The room's spending settings could not be read.".to_string())?;
+        spending.validate()?;
+        let generators = self.resolve_images(&images)?;
+        let workspace = Workspace::open_with_capability(
+            PathBuf::from(&persona.cwd),
+            persona.reach.unwrap_or_default(),
+            self.log.root().join("tool-output").join(persona_id),
+            capability.clone(),
+        )
+        .map_err(|error| error.to_string())?;
+        let references =
+            tokio::task::spawn_blocking(move || read_references(&workspace, &args.references))
+                .await
+                .map_err(|_| "The reference images could not be read.".to_string())??;
+        let request = ImageRequest {
+            prompt,
+            aspect,
+            transparent: args.transparent,
+            references,
+        };
+        let mut spent_usd = 0.0;
+        let mut failure = None;
+        for generator in std::iter::once(generators.primary).chain(generators.fallback) {
+            if let Some(capability) = &capability {
+                capability.check()?;
+            }
+            if request.references.len() > generator.max_references() {
+                failure = Some(
+                    imagegen::ImageError::TooManyReferences {
+                        max: generator.max_references(),
+                    }
+                    .to_string(),
+                );
+                continue;
+            }
+            let settings = crate::room::try_settings(self.log())?;
+            let current: SpendingSettings = serde_json::from_value(
+                settings
+                    .get("spending")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )
+            .map_err(|_| "The room's spending settings could not be read.".to_string())?;
+            let estimate = generator.estimate_usd(&request);
+            let reservation = self.spending.reserve(&current, estimate)?;
+            if let Some(capability) = &capability {
+                capability.check()?;
+            }
+            let image = match generator.generate(&request).await {
+                Ok(image) => image,
+                Err(error) => {
+                    spent_usd += estimate;
+                    failure = Some(error.to_string());
+                    continue;
+                }
+            };
+            let cost = image.cost_usd.unwrap_or(estimate);
+            reservation.charge(cost)?;
+            spent_usd += cost;
+            if let Some(capability) = &capability {
+                capability.check()?;
+            }
+            let model = image.id.model_id;
+            let transparent = image.transparent;
+            let permit = crate::images::DECODERS
+                .acquire()
+                .await
+                .map_err(|_| "The generated image could not be prepared.".to_string())?;
+            let file = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                sent::generated::prepare(&name, image.bytes)
+            })
+            .await
+            .map_err(|_| "The generated image could not be prepared.".to_string())??;
+            let output = Workspace::open_with_capability(
+                PathBuf::from(&persona.cwd),
+                Reach::Workspace,
+                self.log.root().join("tool-output").join(persona_id),
+                capability.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+            let file_name = file.name.clone();
+            let path = tokio::task::spawn_blocking(move || {
+                output.create_file_path(&file.name, &file.bytes)
+            })
+            .await
+            .map_err(|_| "The generated image could not be written.".to_string())?
+            .map_err(|error| error.to_string())?;
+            self.send_file(
+                persona_id,
+                Source::GeneratedImage(file_name),
+                "",
+                capability,
+            )
+            .await?;
+            return Ok(json!({
+                "path": path,
+                "model": model,
+                "costUsd": spent_usd,
+                "seconds": started.elapsed().as_secs_f64(),
+                "transparent": transparent,
+            })
+            .to_string());
+        }
+        Err(failure.unwrap_or_else(|| "No connected provider could make this image.".into()))
+    }
+
+    fn resolve_images(&self, settings: &ImageSettings) -> Result<ImageSet, String> {
+        #[cfg(test)]
+        if let Some(generators) = super::lock(&self.image_generators).clone() {
+            return Ok(generators);
+        }
+        let vault = self.vault.as_ref().ok_or_else(|| {
+            "Connect OpenRouter, OpenAI or Google in Providers to make images.".to_string()
+        })?;
+        imagegen::resolve(vault, settings)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_image_generators(&self, generators: ImageSet) {
+        *super::lock(&self.image_generators) = Some(generators);
+    }
+}
+
+fn image_name(name: Option<&str>, prompt: &str) -> Result<String, String> {
+    if let Some(name) = name {
+        let name = name.trim();
+        if name.is_empty()
+            || name.len() > 100
+            || name == "."
+            || name == ".."
+            || name
+                .chars()
+                .any(|character| character.is_control() || "/\\<>:\"|?*".contains(character))
+        {
+            return Err("Name the image with a file name, not a path (at most 100 bytes).".into());
+        }
+        return Ok(name.to_string());
+    }
+    let words: Vec<&str> = prompt
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .take(6)
+        .collect();
+    let stem = words.join("-").to_ascii_lowercase();
+    let stem = if stem.is_empty() {
+        "image"
+    } else {
+        &stem[..stem.len().min(70)]
+    };
+    Ok(format!(
+        "{stem}-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    ))
+}
+
+fn read_references(workspace: &Workspace, paths: &[String]) -> Result<Vec<Reference>, String> {
+    let mut references = Vec::with_capacity(paths.len());
+    for requested in paths {
+        let path = Path::new(requested);
+        let requested = if workspace.reach() == Reach::Workspace && path.is_absolute() {
+            path.strip_prefix(workspace.display_root())
+                .map_err(|_| "A reference image must be inside your workspace.".to_string())?
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            requested.clone()
+        };
+        let (file, size, _) = workspace
+            .open_to_send(&requested)
+            .map_err(|error| error.to_string())?;
+        if size > REFERENCE_BYTES {
+            return Err("A reference image can be at most 20 MB.".into());
+        }
+        let mut bytes = Vec::with_capacity(size as usize);
+        file.take(REFERENCE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "A reference image could not be read.".to_string())?;
+        if bytes.len() as u64 > REFERENCE_BYTES {
+            return Err("A reference image can be at most 20 MB.".into());
+        }
+        let format = image::guess_format(&bytes)
+            .map_err(|_| "Reference images must be PNG, JPEG or WebP.".to_string())?;
+        if !matches!(
+            format,
+            image::ImageFormat::Png | image::ImageFormat::Jpeg | image::ImageFormat::WebP
+        ) {
+            return Err("Reference images must be PNG, JPEG or WebP.".into());
+        }
+        references.push(Reference {
+            mime: format.to_mime_type().into(),
+            bytes,
+        });
+    }
+    Ok(references)
+}
+
+#[cfg(test)]
+mod tests;

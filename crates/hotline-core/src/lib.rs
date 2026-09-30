@@ -32,6 +32,7 @@ pub mod room_lock;
 mod sent;
 pub mod session;
 pub mod skills;
+pub mod spending;
 pub mod store;
 pub mod tools;
 pub mod vault;

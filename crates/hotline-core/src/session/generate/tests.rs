@@ -1,0 +1,632 @@
+use super::*;
+use crate::contract::{McpPolicy, Persona, PolicyMode};
+use crate::driver::CapabilityEpoch;
+use crate::imagegen::{Image, ImageError, ImageGen, ImageId};
+use crate::log::{Log, StreamId};
+use crate::mcp::server::TeammateTools;
+use crate::session::ProviderKeys;
+use async_trait::async_trait;
+use rig::tool::{ToolContext, ToolSet};
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::sync::{Arc, Mutex};
+use tokio::sync::Notify;
+
+struct NoKeys;
+
+impl ProviderKeys for NoKeys {
+    fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
+        HashMap::new()
+    }
+}
+
+struct Fake {
+    model: &'static str,
+    estimate: f64,
+    cost: Option<f64>,
+    fail: bool,
+    max_references: usize,
+    bytes: Option<Vec<u8>>,
+    requests: Mutex<Vec<ImageRequest>>,
+    entered: Option<Arc<Notify>>,
+    release: Option<Arc<Notify>>,
+}
+
+impl Fake {
+    fn new(model: &'static str) -> Arc<Self> {
+        Arc::new(Self {
+            model,
+            estimate: 0.01,
+            cost: Some(0.006),
+            fail: false,
+            max_references: 16,
+            bytes: None,
+            requests: Mutex::new(Vec::new()),
+            entered: None,
+            release: None,
+        })
+    }
+}
+
+#[async_trait]
+impl ImageGen for Fake {
+    fn id(&self) -> ImageId {
+        ImageId {
+            provider_id: "fake".into(),
+            model_id: self.model.into(),
+        }
+    }
+
+    fn transparent(&self) -> bool {
+        true
+    }
+    fn max_references(&self) -> usize {
+        self.max_references
+    }
+    fn estimate_usd(&self, _: &ImageRequest) -> f64 {
+        self.estimate
+    }
+
+    async fn generate(&self, request: &ImageRequest) -> Result<Image, ImageError> {
+        self.requests.lock().unwrap().push(request.clone());
+        if let Some(entered) = &self.entered {
+            entered.notify_one();
+        }
+        if let Some(release) = &self.release {
+            release.notified().await;
+        }
+        if self.fail {
+            return Err(ImageError::Refused {
+                provider_id: "fake".into(),
+                status: 503,
+            });
+        }
+        Ok(Image {
+            mime: "image/png".into(),
+            bytes: self.bytes.clone().unwrap_or_else(png),
+            id: self.id(),
+            transparent: request.transparent,
+            cost_usd: self.cost,
+            millis: 10,
+        })
+    }
+}
+
+fn png() -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(64, 32, image::Rgba([30, 80, 120, 0]));
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    bytes.into_inner()
+}
+
+fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let log = Log::open(dir.path().join("data"));
+    let persona = Persona {
+        node: None,
+        id: "ada".into(),
+        name: "Ada".into(),
+        goal: "Keep the harbour running".into(),
+        face: None,
+        team: None,
+        backend_id: "hotline".into(),
+        cwd: workspace.to_string_lossy().into_owned(),
+        reach: None,
+        model_id: None,
+        mode_id: None,
+        effort_id: None,
+        harness_override: None,
+        hop_notice: None,
+        mcp_policy: McpPolicy {
+            mode: PolicyMode::None,
+            server_ids: Vec::new(),
+        },
+        skill_policy: Default::default(),
+        background_work: false,
+        allowed_senders: Vec::new(),
+        web_search_policy: None,
+        computer: None,
+        session_checkpoints: Vec::new(),
+        last_session_id: None,
+        created_at: 1,
+        updated_at: 1,
+    };
+    let mut record = serde_json::to_value(persona).unwrap();
+    record["kind"] = json!("persona");
+    log.append(&StreamId::Room, &record).unwrap();
+    let room = Room::new(log, Arc::new(NoKeys));
+    let tools = TeammateTools::new(&room, "ada");
+    (dir, room, tools)
+}
+
+fn settings(room: &Room, day: f64) {
+    room.log()
+        .append(
+            &StreamId::Room,
+            &json!({
+                "kind": "setting", "id": "spending", "value": { "dayUsd": day, "monthUsd": 20.0 }
+            }),
+        )
+        .unwrap();
+}
+
+fn install(room: &Room, primary: Arc<Fake>, fallback: Option<Arc<Fake>>) {
+    room.set_image_generators(ImageSet {
+        primary,
+        fallback: fallback.map(|adapter| adapter as Arc<dyn ImageGen>),
+    });
+}
+
+fn attachments(room: &Room) -> Vec<Value> {
+    room.log()
+        .load(&StreamId::Tape("ada".into()))
+        .into_iter()
+        .filter_map(|event| event.get("attachments").cloned())
+        .flat_map(|value| value.as_array().unwrap().clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn generation_through_rig_keeps_the_image_in_the_workspace_and_chat_and_charges_it() {
+    let (dir, room, tools) = room();
+    let fake = Fake::new("fake-image");
+    install(&room, fake.clone(), None);
+    settings(&room, 0.011);
+    let set = ToolSet::from_dynamic_tools(tools.as_dynamic());
+    let result = set.execute("generate_image", json!({
+        "prompt": "a lighthouse at dusk", "aspect": "16:9", "transparent": true, "name": "hero.jpg"
+    }).to_string(), &mut ToolContext::new()).await;
+    assert!(result.is_success(), "{result:?}");
+    let result: Value = serde_json::from_str(result.output().as_text().unwrap()).unwrap();
+    assert_eq!(result["path"], json!(dir.path().join("workspace/hero.png")));
+    assert_eq!(result["model"], "fake-image");
+    assert_eq!(result["costUsd"], 0.006);
+    assert_eq!(result["transparent"], true);
+    assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);
+    assert!(result["seconds"].as_f64().unwrap() >= 0.0);
+    assert_eq!(
+        std::fs::read(result["path"].as_str().unwrap()).unwrap(),
+        png()
+    );
+    let attachments = attachments(&room);
+    assert_eq!(attachments.len(), 1);
+    assert_eq!(attachments[0]["kind"], "image");
+    assert_eq!(attachments[0]["mimeType"], "image/png");
+    assert_eq!(
+        std::fs::read(attachments[0]["path"].as_str().unwrap()).unwrap(),
+        png()
+    );
+    let error = tools
+        .call("generate_image", &json!({ "prompt": "another lighthouse" }))
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_lowercase().contains("spend") || error.to_lowercase().contains("budget"),
+        "{error}"
+    );
+    assert_eq!(fake.requests.lock().unwrap().len(), 1);
+    assert_eq!(fake.requests.lock().unwrap()[0].aspect, Aspect::Wide);
+}
+
+#[tokio::test]
+async fn fallback_reserves_again_and_counts_the_failed_attempt_conservatively() {
+    let (_dir, room, tools) = room();
+    let mut primary = Fake::new("first");
+    Arc::get_mut(&mut primary).unwrap().fail = true;
+    let fallback = Fake::new("second");
+    install(&room, primary.clone(), Some(fallback.clone()));
+    settings(&room, 0.015);
+    assert!(
+        tools
+            .call("generate_image", &json!({ "prompt": "a lighthouse" }))
+            .await
+            .is_err()
+    );
+    assert_eq!(primary.requests.lock().unwrap().len(), 1);
+    assert!(fallback.requests.lock().unwrap().is_empty());
+    settings(&room, 0.04);
+    let result: Value = serde_json::from_str(
+        &tools
+            .call("generate_image", &json!({ "prompt": "a lighthouse" }))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["model"], "second");
+    assert_eq!(result["costUsd"], 0.016);
+    assert_eq!(fallback.requests.lock().unwrap().len(), 1);
+    assert_eq!(attachments(&room).len(), 1);
+}
+
+#[tokio::test]
+async fn missing_reported_cost_is_charged_at_the_reserved_estimate() {
+    let (_dir, room, tools) = room();
+    let mut fake = Fake::new("estimate");
+    Arc::get_mut(&mut fake).unwrap().cost = None;
+    install(&room, fake.clone(), None);
+    settings(&room, 0.019);
+    let result: Value = serde_json::from_str(
+        &tools
+            .call("generate_image", &json!({ "prompt": "a lighthouse" }))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["costUsd"], 0.01);
+    assert!(
+        tools
+            .call("generate_image", &json!({ "prompt": "another" }))
+            .await
+            .is_err()
+    );
+    assert_eq!(fake.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn generated_svg_keeps_the_same_bounded_vector_file_in_workspace_and_chat() {
+    let (dir, room, tools) = room();
+    let mut fake = Fake::new("svg");
+    Arc::get_mut(&mut fake).unwrap().bytes = Some(b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4096 2048'><circle cx='20' cy='20' r='10'/></svg>".to_vec());
+    install(&room, fake, None);
+    let result: Value = serde_json::from_str(
+        &tools
+            .call(
+                "generate_image",
+                &json!({"prompt":"a diagram", "name":"diagram.png"}),
+            )
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        result["path"],
+        json!(dir.path().join("workspace/diagram.svg"))
+    );
+    let attachment = &attachments(&room)[0];
+    assert_eq!(attachment["mimeType"], "image/svg+xml");
+    assert_eq!(attachment["width"], 2048);
+    assert_eq!(attachment["height"], 1024);
+    assert_eq!(
+        std::fs::read(result["path"].as_str().unwrap()).unwrap(),
+        std::fs::read(attachment["path"].as_str().unwrap()).unwrap()
+    );
+}
+
+#[tokio::test]
+async fn references_obey_reach_and_valid_references_reach_the_image_model() {
+    let (dir, room, tools) = room();
+    let fake = Fake::new("edit");
+    install(&room, fake.clone(), None);
+    std::fs::write(dir.path().join("outside.png"), png()).unwrap();
+    for path in [
+        "../outside.png".to_string(),
+        dir.path()
+            .join("outside.png")
+            .to_string_lossy()
+            .into_owned(),
+    ] {
+        assert!(
+            tools
+                .call(
+                    "generate_image",
+                    &json!({ "prompt": "make this blue", "references": [path] })
+                )
+                .await
+                .is_err()
+        );
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            dir.path().join("outside.png"),
+            dir.path().join("workspace/escape.png"),
+        )
+        .unwrap();
+        assert!(
+            tools
+                .call(
+                    "generate_image",
+                    &json!({ "prompt": "make this blue", "references": ["escape.png"] })
+                )
+                .await
+                .is_err()
+        );
+    }
+    assert!(fake.requests.lock().unwrap().is_empty());
+    let reference = dir.path().join("workspace/logo.png");
+    std::fs::write(&reference, png()).unwrap();
+    tools.call("generate_image", &json!({ "prompt": "make this blue", "references": [reference], "style": "avatar", "aspect": "16:9" })).await.unwrap();
+    let requests = fake.requests.lock().unwrap();
+    assert_eq!(
+        requests[0].references,
+        vec![Reference {
+            mime: "image/png".into(),
+            bytes: png()
+        }]
+    );
+    assert_eq!(requests[0].aspect, Aspect::Square);
+    assert!(requests[0].prompt.contains("make this blue"));
+}
+
+#[tokio::test]
+async fn disabled_spending_bad_arguments_and_subagents_never_call_a_provider() {
+    let (_dir, room, tools) = room();
+    let fake = Fake::new("fake");
+    install(&room, fake.clone(), None);
+    for args in [
+        json!({"prompt":""}),
+        json!({"prompt":"draw","aspect":"2:1"}),
+        json!({"prompt":"draw","style":"missing"}),
+        json!({"prompt":"draw","name":"../escape.png"}),
+    ] {
+        assert!(tools.call("generate_image", &args).await.is_err());
+    }
+    let run = tools.clone().for_run();
+    assert!(
+        run.call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap_err()
+            .contains("subagent")
+    );
+    assert!(
+        !run.as_dynamic()
+            .iter()
+            .any(|tool| tool.name() == "generate_image")
+    );
+    settings(&room, 0.0);
+    assert!(
+        tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .is_err()
+    );
+    assert!(fake.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn generation_holds_no_room_lock_and_revocation_stops_fallback_and_publication() {
+    let (_dir, room, tools) = room();
+    let epoch = CapabilityEpoch::default();
+    let tools = tools.with_capability(epoch.lease());
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let mut primary = Fake::new("slow");
+    let primary_mut = Arc::get_mut(&mut primary).unwrap();
+    primary_mut.entered = Some(entered.clone());
+    primary_mut.release = Some(release.clone());
+    primary_mut.fail = true;
+    let fallback = Fake::new("fallback");
+    install(&room, primary, Some(fallback.clone()));
+    let generation = tokio::spawn(async move {
+        tools
+            .call("generate_image", &json!({"prompt":"a lighthouse"}))
+            .await
+    });
+    entered.notified().await;
+    assert_eq!(room.log().load(&StreamId::Room)[0]["id"], "ada");
+    settings(&room, 0.0);
+    epoch.invalidate();
+    release.notify_one();
+    assert!(generation.await.unwrap().is_err());
+    assert!(fallback.requests.lock().unwrap().is_empty());
+    assert!(attachments(&room).is_empty());
+}
+
+#[tokio::test]
+async fn no_image_provider_is_refused_with_a_connection_sentence() {
+    let (_dir, _room, tools) = room();
+    let error = tools
+        .call("generate_image", &json!({"prompt":"a lighthouse"}))
+        .await
+        .unwrap_err();
+    assert!(error.contains("Connect"), "{error}");
+}
+
+#[tokio::test]
+async fn a_connected_custom_provider_generates_through_the_real_resolver_and_http_adapter() {
+    use axum::{Router, body::Bytes, http::Uri};
+    use base64::{Engine, prelude::BASE64_STANDARD};
+    let (dir, old_room, _tools) = room();
+    let log = old_room.log().clone();
+    drop(old_room);
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = requests.clone();
+    let answer =
+        json!({"data": [{"b64_json": BASE64_STANDARD.encode(png())}], "usage": {"cost": 0.006}})
+            .to_string();
+    let app = Router::new().fallback(move |uri: Uri, body: Bytes| {
+        seen.lock()
+            .unwrap()
+            .push((uri.path().to_string(), body.to_vec()));
+        let answer = answer.clone();
+        async move { answer }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let vault = Arc::new(crate::vault::Vault::open(log.root(), log.clone()).unwrap());
+    let credential = vault
+        .save_custom(
+            None,
+            crate::contract::CustomProviderDraft {
+                name: "Image harness".into(),
+                base_url: url,
+                api: crate::contract::OpenAiApi::ChatCompletions,
+                models: vec!["fake-image-model".into()],
+                secret: None,
+            },
+        )
+        .unwrap();
+    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault);
+    let tools = TeammateTools::new(&room, "ada");
+    let result: Value = serde_json::from_str(&tools.call("generate_image", &json!({
+        "prompt": "a lighthouse", "aspect": "16:9", "transparent": true, "name": "resolved"
+    })).await.unwrap()).unwrap();
+    assert_eq!(
+        result["path"],
+        json!(dir.path().join("workspace/resolved.png"))
+    );
+    assert_eq!(result["model"], "fake-image-model");
+    assert_eq!(result["transparent"], false);
+    assert_eq!(result["costUsd"], 0.10);
+    assert_eq!(room.spending_summary().unwrap().day_usd, 0.10);
+    assert_eq!(attachments(&room).len(), 1);
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "/images/generations");
+    let sent: Value = serde_json::from_slice(&requests[0].1).unwrap();
+    assert_eq!(sent["size"], "1536x1024");
+    assert_eq!(sent["model"], "fake-image-model");
+    assert!(sent.get("background").is_none());
+    assert!(credential.provider_id.starts_with("custom-"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn corrupt_saved_caps_block_spending_and_generated_files_never_overwrite() {
+    let (dir, room, tools) = room();
+    let fake = Fake::new("fake");
+    install(&room, fake.clone(), None);
+    room.log()
+        .append(
+            &StreamId::Room,
+            &json!({"kind":"setting", "id":"spending", "value":{"dayUsd":-1}}),
+        )
+        .unwrap();
+    assert!(
+        tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .is_err()
+    );
+    assert!(fake.requests.lock().unwrap().is_empty());
+    settings(&room, 2.0);
+    let path = dir.path().join("workspace/kept.png");
+    std::fs::write(&path, b"existing work").unwrap();
+    assert!(
+        tools
+            .call(
+                "generate_image",
+                &json!({"prompt":"draw", "name":"kept.png"})
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read(path).unwrap(), b"existing work");
+    assert!(attachments(&room).is_empty());
+}
+
+#[tokio::test]
+async fn invalid_saved_image_selections_refuse_before_calling_a_provider() {
+    let (_dir, room, tools) = room();
+    let fake = Fake::new("fake");
+    install(&room, fake.clone(), None);
+    for value in [json!({"model":" "}), json!({"provider":""}), json!(null)] {
+        room.log()
+            .append(
+                &StreamId::Room,
+                &json!({"kind":"setting", "id":"images", "value":value}),
+            )
+            .unwrap();
+        assert!(
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .is_err()
+        );
+    }
+    assert!(fake.requests.lock().unwrap().is_empty());
+    assert!(!room.log().root().join("spending.json").exists());
+}
+
+#[tokio::test]
+async fn model_reference_limits_are_checked_before_any_spending_reservation() {
+    let (dir, room, tools) = room();
+    let mut primary = Fake::new("no-references");
+    Arc::get_mut(&mut primary).unwrap().max_references = 0;
+    let fallback = Fake::new("edits");
+    install(&room, primary.clone(), Some(fallback.clone()));
+    std::fs::write(dir.path().join("workspace/logo.png"), png()).unwrap();
+    let result: Value = serde_json::from_str(
+        &tools
+            .call(
+                "generate_image",
+                &json!({
+                    "prompt":"make this blue", "references":["logo.png"]
+                }),
+            )
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["costUsd"], 0.006);
+    assert!(primary.requests.lock().unwrap().is_empty());
+    assert_eq!(fallback.requests.lock().unwrap().len(), 1);
+    assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);
+}
+
+#[tokio::test]
+async fn unreadable_json_cannot_turn_a_saved_zero_cap_back_into_paid_defaults() {
+    let (_dir, room, tools) = room();
+    let fake = Fake::new("fake");
+    install(&room, fake.clone(), None);
+    settings(&room, 0.0);
+    let path = crate::paths::room_path(room.log().root());
+    let original = std::fs::read_to_string(&path).unwrap();
+    assert!(original.contains("\"dayUsd\":0.0"));
+    let corrupt = original.replace("\"dayUsd\":0.0", "\"dayUsd\":broken");
+    std::fs::write(path, corrupt).unwrap();
+    let error = tools
+        .call("generate_image", &json!({"prompt":"draw"}))
+        .await
+        .unwrap_err();
+    assert!(
+        error.contains("settings") || error.contains("stream"),
+        "{error}"
+    );
+    assert!(fake.requests.lock().unwrap().is_empty());
+    assert!(!room.log().root().join("spending.json").exists());
+}
+
+#[tokio::test]
+async fn acp_mcp_transport_lists_and_executes_the_same_image_tool() {
+    use rmcp::ServiceExt;
+    use rmcp::model::{CallToolRequestParams, ClientInfo};
+    use rmcp::transport::streamable_http_client::{
+        StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+    };
+    let (_dir, room, tools) = room();
+    install(&room, Fake::new("mcp-image"), None);
+    let served = crate::mcp::server::serve(tools).await.unwrap();
+    let transport = StreamableHttpClientTransport::from_config(
+        StreamableHttpClientTransportConfig::with_uri(served.url()).auth_header(served.token()),
+    );
+    let client = ClientInfo::default().serve(transport).await.unwrap();
+    let listing = client.list_tools(None).await.unwrap();
+    assert!(
+        listing
+            .tools
+            .iter()
+            .any(|tool| tool.name == "generate_image")
+    );
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new("generate_image").with_arguments(
+                json!({"prompt":"a lighthouse"})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_ne!(result.is_error, Some(true));
+    assert_eq!(attachments(&room).len(), 1);
+    client.cancel().await.unwrap();
+}

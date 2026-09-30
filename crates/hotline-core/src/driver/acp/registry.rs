@@ -389,6 +389,7 @@ async fn refresh_catalogue(root: &Path) {
 const PER_USER_BINS: &[&str] = &[".local/bin", ".npm-global/bin", ".claude/local"];
 
 /// Where a system-wide install goes.
+#[cfg(unix)]
 const SYSTEM_BINS: &[&str] = &["/usr/local/bin", "/usr/bin"];
 
 /// A login account on this machine.
@@ -506,6 +507,7 @@ fn executable(path: &Path) -> bool {
 /// the text of a passwd file. A person's account is one a login can use: a uid
 /// in the range a Linux distribution gives people, a shell that is not
 /// `nologin` or `false`, and a home that is a path.
+#[cfg(any(unix, test))]
 fn read_accounts(passwd: &str, uid: u32) -> (Option<String>, Vec<Account>) {
     let mut own = None;
     let mut others = Vec::new();

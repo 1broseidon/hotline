@@ -3,7 +3,10 @@ title: Your first teammate
 description: Add a provider, name a teammate, give it a folder, say hello.
 ---
 
-Hotline opens on an empty room. Three steps put a teammate in it.
+Hotline opens on an empty room. If your teammates run on a server you run,
+choose **Connect to a server** on the first screen, then run
+`hotline pair --link` on the server and paste what it prints, or pair over SSH.
+Otherwise, three steps put a teammate in it.
 
 ## 1. Connect a provider
 

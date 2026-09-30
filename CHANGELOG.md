@@ -14,6 +14,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   slots and block paired devices from reconnecting. Pending sockets rotate
   under pressure and expire five seconds after acceptance; authenticated room
   and viewer sockets use separate device-based limits (BRO-163).
+- A blank desktop's setup screen offers Connect to a server beside creating a
+  first teammate, so a computer that only reaches a server never has to make a
+  local teammate to get past it. Pairing switches the window to the new desk
+  even when the shell announces the desk list after answering the pairing
+  (BRO-151).
 
 ### Security
 

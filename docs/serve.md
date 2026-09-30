@@ -128,15 +128,31 @@ lockfile change does not update an already-running binary.
 
 ## Pair a device
 
-As the service account, on the machine running the desk:
+On the machine running the desk, as the service account or root:
 
 ```sh
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair
+hotline pair
 # Or grant the existing limited phone seat explicitly:
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair --companion
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline devices
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline revoke DEVICE_ID
+hotline pair --companion
+hotline devices
+hotline revoke DEVICE_ID
 ```
+
+`pair`, `devices`, `revoke`, `status` and `wire` find the served room
+themselves. With no `--data`, no `HOTLINE_DATA_DIR`, and no desk running in
+your own data folder, they use the room of the `hotline` service: the
+`HOTLINE_DATA_DIR` in the unit's environment (`systemctl show hotline -p
+Environment`), then `/var/lib/hotline/room`. If your account cannot read that
+room's `door.json`, the command stops and prints the line to run as the
+service's user, which is the unit's `User=` (a drop-in may change it):
+
+```sh
+sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair --link
+```
+
+A room you name is always taken as given, so for a setup the lookup cannot
+see, such as a room somewhere else, use that form yourself: set
+`HOTLINE_DATA_DIR` or pass `--data`.
 
 Scan the terminal QR with Hotline on the phone. The two-minute invitation
 is single-use; the command waits and prints the device name and role.
@@ -162,7 +178,7 @@ role, expiry and name. All forms name the same single-use invitation.
 ## Check on it
 
 ```sh
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline status
+hotline status
 systemctl status hotline
 journalctl -u hotline
 ```
@@ -177,7 +193,7 @@ never from the command line, so a key in them stays out of shell history
 and the process list:
 
 ```sh
-echo '{}' | sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline wire providers.list
+echo '{}' | hotline wire providers.list
 ```
 
 It is an escape hatch for what the phone cannot do yet, not the way to run

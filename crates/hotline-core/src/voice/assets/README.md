@@ -1,10 +1,18 @@
-`budget.wav` is a fixed system sentence, used when paid speech is unavailable:
-“The voice budget is unavailable or spent. Chat carries on by text.”
+These fixed system sentences remain playable without a paid speech request:
 
-Generated locally with FFmpeg's Flite `slt` voice, then resampled to 16 kHz mono
-PCM16 WAV. There is no runtime Flite or FFmpeg dependency. Its text is
-`BUDGET_LINE` in the parent module; change the recording when changing that text.
+| File | Spoken text |
+| --- | --- |
+| `ack.wav` | One moment. |
+| `retry.wav` | Sorry, say that again. |
+| `error.wav` | Voice keeps failing. Please continue by text. |
+| `goodbye.wav` | Goodbye. |
+| `budget.wav` | The voice budget is unavailable or spent. Chat carries on by text. |
+
+Generated locally with FFmpeg's Flite `slt` voice, resampled to 16 kHz mono
+PCM16 WAV. There is no runtime Flite or FFmpeg dependency. The matching text
+lives in the parent module; update the recording when changing a sentence.
+Every bundled clip is explicitly tagged `audio/wav`, regardless of provider.
 
 ```sh
-ffmpeg -f lavfi -i "flite=text='The voice budget is unavailable or spent. Chat carries on by text.':voice=slt" -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 budget.wav
+ffmpeg -f lavfi -i "flite=text='One moment.':voice=slt" -ar 16000 -ac 1 -c:a pcm_s16le -map_metadata -1 ack.wav
 ```

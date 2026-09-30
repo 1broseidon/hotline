@@ -889,7 +889,11 @@ The server checks the actual duration against `durationMs` (250 ms tolerance).
 processing its previous utterance refuses another until it can accept work;
 the caller may retry a refused sequence. Calls end after ten minutes without
 operator activity. An interrupt discards speech without cancelling a teammate's
-turn. A hold queues deliveries and emits no clips until resumed.
+turn or the dispatcher's pending text answer. A hold also suppresses clips;
+teammate replies received while held use their ordinary push. Resuming or
+interrupting an unfinished utterance leaves the state `thinking` and refuses
+new utterances until that work finishes. The answer is still recorded and sent
+as `said`, even when its speech was interrupted.
 
 The call subscription starts with a one-element `snapshot` containing its
 `state` event. Updates use the normal `event` envelope:
@@ -910,16 +914,45 @@ Provider selections in `VoiceStatus` are optional when unavailable; `unavailable
 is a sentence explaining what the owner needs to change.
 
 
-A completed teammate reply is narrated and sent as `delivery`, then `said`, then
-sentence `clip` events. Outside a call, narration becomes the normal push body;
-if voice is unavailable or narration is already busy, the original reply remains
-the push body. Each `clip.mimeType` describes that clip, including a fallback
-voice. Clients must drain the final clip before closing playback for `goodbye`
-or `budget`; `ended` means the desk will produce no further clips.
+After a nonempty, non-goodbye `heard`, a bundled “One moment.” arrives as `said`
+and a complete WAV `clip`, before dispatcher or teammate startup work. Dispatcher
+text streams at sentence boundaries; each sentence has its own `said.id` and
+complete clip (`index: 0`, `final: true`). This removes model startup from the
+acknowledgement path; transcription and transport latency still apply. Clients
+must queue clips across successive `said` IDs instead of replacing playback.
+
+A completed teammate reply during an active, unheld call is narrated and sent as
+`delivery`, then `said`, then sentence `clip` events. Failed or empty narration
+falls back to the reply's first sentence, except a budget refusal, which ends
+the call without another paid request. Outside a call, only a reply to a
+handoff made by the voice dispatcher may have a summarized push. Every other
+push retains the teammate's own text without a narration request. If voice is
+unavailable or narration is busy, the original reply remains the push body.
+Each `clip.mimeType` describes that clip, including bundled and fallback clips;
+`call_start.output` describes only the primary speech adapter.
+
+One failed utterance speaks a bundled “Sorry, say that again.” and returns to
+`listening` (or stays held). Three consecutive failed work items end with a
+bundled explanation and reason `error`; success resets that count. Budget
+failure ends immediately with its bundled line. Failed goodbye synthesis uses
+a bundled “Goodbye.” and still ends with reason `goodbye`. Clients must drain
+final queued audio for `goodbye`, `budget`, and `error`; `ended` means the desk
+will produce no further clips.
 
 The dispatcher can read roster/state and a conversation tail, send text through
 `session.start`/`session.prompt`, and list/create/cancel schedules. A separate
 command allowlist refuses approval, credential, file and administration commands.
+Action tools are offered only on turns driven by a new utterance, never on
+narration. Conversation tails and narrated text are bounded, escaped untrusted
+blocks. Each utterance can queue at most three text handoffs. A queued result
+means startup is pending, not that the task has landed; startup failures produce
+a spoken notice or normal push. Handoffs queue behind ongoing teammate work.
+Their user event IDs carry the opaque `voice:` prefix for reply provenance.
+
+Voice schedules require the target teammate's live background-work grant,
+including at firing time. They must be one-shot `schedule` jobs, with no `every`
+or `quiet` field, and are recorded with `operatorCreated: false`. A call retains at most 32 created job IDs and can cancel only jobs it created.
+Ordinary operator-created schedules retain their existing behavior.
 Approval requests arrive as `card` and must be answered in the existing UI.
 The dispatcher has no persona: its `voice-dispatcher` tape is hidden from the
 roster and rail, but indexed by `search.all` and `search.thread`.

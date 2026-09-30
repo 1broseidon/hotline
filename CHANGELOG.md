@@ -10,6 +10,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- On a served box, `hotline pair`, `devices`, `revoke`, `status` and `wire` find
+  the service's room without `HOTLINE_DATA_DIR`: with no `--data`, no
+  `HOTLINE_DATA_DIR` and no desk in your own data folder, they use the room the
+  hotline service names, then `/var/lib/hotline/room`. When your account cannot
+  read that room, the error names it and the `sudo -u` command to run as the
+  service's user, and "no door.json" points at the service's room (BRO-152).
 - Anonymous connections behind a tunnel can no longer hold a fixed set of
   slots and block paired devices from reconnecting. Pending sockets rotate
   under pressure and expire five seconds after acceptance; authenticated room

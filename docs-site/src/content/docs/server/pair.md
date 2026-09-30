@@ -3,11 +3,15 @@ title: Pair your phone
 description: Scan the server's QR code with Hotline on your iPhone.
 ---
 
-On the server, as the service account:
+On the server:
 
 ```sh
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair
+hotline pair
 ```
+
+It finds the server's room by itself. If your account can't read that room,
+it stops and prints the exact command to run as the service's user, such as
+`sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair`.
 
 It prints a QR code and waits. In Hotline on your phone, open the desktop
 menu beside the Hotline name at the top of the team list, choose **Add a
@@ -36,8 +40,8 @@ Neither can change what a teammate may reach; that stays on the server.
 ## See and revoke phones
 
 ```sh
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline devices
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline revoke DEVICE_ID
+hotline devices
+hotline revoke DEVICE_ID
 ```
 
 Revoking closes that phone's connections at once. The phone then says it is

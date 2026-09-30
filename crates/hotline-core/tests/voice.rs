@@ -6,6 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
@@ -48,6 +49,192 @@ async fn a_reply_paced_into_several_bubbles_is_delivered_whole_in_the_call() {
         2,
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_goodbye_needs_enough_audio_before_the_call_can_end() {
+    for duration in [300u32, 400] {
+        let mut bytes = wav()[..36].to_vec();
+        bytes.extend(b"data");
+        bytes.extend(0u32.to_le_bytes());
+        let samples = duration * 32;
+        bytes[4..8].copy_from_slice(&(samples + 36).to_le_bytes());
+        bytes[40..44].copy_from_slice(&samples.to_le_bytes());
+        bytes.resize(44 + samples as usize, 0);
+        check_clip(
+            bytes,
+            "audio/wav",
+            duration,
+            duration >= 400,
+            duration,
+            false,
+        )
+        .await;
+    }
+    // A valid container with a plausible duration but too few bytes for a farewell.
+    check_clip(mp4(1000, 100), "audio/mp4", 1000, false, 1000, false).await;
+}
+
+#[tokio::test]
+async fn an_mp4_header_cannot_reduce_its_stt_reservation() {
+    // The mdhd and wire both claim one second; the byte bound reserves fifteen.
+    check_clip(mp4(1000, 60_000), "audio/mp4", 1000, true, 15_000, false).await;
+    // A two-second budget must refuse this before the STT provider sees the clip.
+    check_clip(mp4(1000, 60_000), "audio/mp4", 1000, true, 15_000, true).await;
+}
+
+fn mp4(duration: u32, size: usize) -> Vec<u8> {
+    fn atom(kind: &[u8; 4], body: Vec<u8>) -> Vec<u8> {
+        let mut bytes = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        bytes.extend(kind);
+        bytes.extend(body);
+        bytes
+    }
+    let mut mdhd = vec![0; 12];
+    mdhd.extend(1000u32.to_be_bytes());
+    mdhd.extend(duration.to_be_bytes());
+    let mut bytes = atom(b"ftyp", b"M4A ".to_vec());
+    bytes.extend(atom(
+        b"moov",
+        atom(b"trak", atom(b"mdia", atom(b"mdhd", mdhd))),
+    ));
+    bytes.extend(atom(b"mdat", vec![0; size - bytes.len() - 8]));
+    bytes
+}
+
+struct ClipCheck {
+    expected: Clip,
+    transcribed: AtomicUsize,
+    routed: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl Speech for ClipCheck {
+    fn id(&self) -> SpeechId {
+        FakeSpeech.id()
+    }
+    async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
+        assert_eq!(clip, self.expected);
+        self.transcribed.fetch_add(1, Ordering::SeqCst);
+        Ok("Bye.".into())
+    }
+    async fn speak(&self, text: &str) -> Result<Clip, SpeechError> {
+        FakeSpeech.speak(text).await
+    }
+}
+
+#[async_trait::async_trait]
+impl Dispatcher for ClipCheck {
+    fn id(&self) -> VoiceModel {
+        ScriptDispatcher.id()
+    }
+    async fn answer(&self, _: Context, text: &str, _: Arc<Budget>) -> Result<String, String> {
+        assert_eq!(text, "Bye.");
+        self.routed.fetch_add(1, Ordering::SeqCst);
+        Ok("Please continue.".into())
+    }
+    async fn narrate(&self, _: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
+        Ok(text.into())
+    }
+}
+
+async fn check_clip(
+    bytes: Vec<u8>,
+    mime: &str,
+    duration: u32,
+    goodbye: bool,
+    billed: u32,
+    denied: bool,
+) {
+    let root = tempfile::tempdir().unwrap();
+    let fake = Arc::new(ClipCheck {
+        expected: Clip {
+            mime: mime.into(),
+            bytes: bytes.clone(),
+        },
+        transcribed: AtomicUsize::new(0),
+        routed: AtomicUsize::new(0),
+    });
+    let desk = Arc::new(
+        hotline_core::desk::Desk::open_with_voice_services(
+            root.path(),
+            common::store(),
+            Some(Services {
+                speech: SpeechSet {
+                    stt: fake.clone(),
+                    tts: fake.clone(),
+                    fallback_tts: None,
+                },
+                dispatcher: fake.clone(),
+            }),
+        )
+        .unwrap(),
+    );
+    let door = Door::bind(desk.log.clone(), "voice-check".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=voice-check"))
+        .await
+        .unwrap();
+    if denied {
+        let cap = hotline_core::voice::ledger::stt_usd("test", 2.0);
+        send(
+            &mut socket,
+            json!({"id":10,"cmd":"settings.update","params":{"patch":{"voice":{"dayUsd":cap}}}}),
+        )
+        .await;
+        assert_eq!(until(&mut socket, |f| f["id"] == 10).await["ok"], true);
+    }
+    let call = Uuid::new_v4().to_string();
+    send(
+        &mut socket,
+        json!({"id":1,"cmd":"voice.call_start","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
+    until(&mut socket, |f| f["snapshot"].is_array()).await;
+    send(&mut socket, json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":0,"mimeType":mime,"data":STANDARD.encode(bytes),"durationMs":duration}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 3).await["ok"], true);
+    let state = until(&mut socket, |f| {
+        matches!(f["event"]["state"].as_str(), Some("listening" | "ended"))
+    })
+    .await;
+    assert_eq!(
+        state["event"]["state"],
+        if goodbye || denied {
+            "ended"
+        } else {
+            "listening"
+        }
+    );
+    assert_eq!(
+        state["event"]["reason"],
+        if denied {
+            json!("budget")
+        } else if goodbye {
+            json!("goodbye")
+        } else {
+            Value::Null
+        }
+    );
+    assert_eq!(
+        fake.transcribed.load(Ordering::SeqCst),
+        usize::from(!denied)
+    );
+    assert_eq!(
+        fake.routed.load(Ordering::SeqCst),
+        usize::from(!denied && !goodbye)
+    );
+    if !denied {
+        let ledger: Value =
+            serde_json::from_slice(&std::fs::read(root.path().join("voice-ledger.json")).unwrap())
+                .unwrap();
+        let expected = hotline_core::voice::ledger::stt_usd("test", billed as f64 / 1000.0);
+        assert!((ledger["daySpend"]["stt"].as_f64().unwrap() - expected).abs() < 1e-9);
+    }
+    socket.close(None).await.unwrap();
+    server.abort();
 }
 
 async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) {
@@ -183,9 +370,6 @@ impl Speech for FakeSpeech {
             model_id: "fake".into(),
             voice: None,
         }
-    }
-    fn accepts(&self) -> &[&str] {
-        &["audio/wav", "audio/mp4"]
     }
     async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
         assert_eq!(clip.bytes, wav());

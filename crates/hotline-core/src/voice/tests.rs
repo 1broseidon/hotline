@@ -9,6 +9,7 @@ pub(crate) struct Fake {
     pub spoken: Mutex<Vec<String>>,
     pub delay: Mutex<Duration>,
     pub fail: bool,
+    pub output_mime: &'static str,
     pub fail_transcription: AtomicBool,
     pub answer_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     pub narration: Mutex<Option<Result<String, String>>>,
@@ -22,6 +23,7 @@ impl Default for Fake {
             spoken: Mutex::new(Vec::new()),
             delay: Mutex::new(Duration::ZERO),
             fail: false,
+            output_mime: "audio/wav",
             fail_transcription: AtomicBool::new(false),
             answer_gate: Mutex::new(None),
             narration: Mutex::new(None),
@@ -31,15 +33,15 @@ impl Default for Fake {
 }
 #[async_trait]
 impl speech::Speech for Fake {
+    fn output_mime(&self) -> &str {
+        self.output_mime
+    }
     fn id(&self) -> SpeechId {
         SpeechId {
             provider_id: "fixture".into(),
             model_id: "fake".into(),
             voice: None,
         }
-    }
-    fn accepts(&self) -> &[&str] {
-        &["audio/wav", "audio/mp4"]
     }
     async fn transcribe(&self, _: Clip) -> Result<String, speech::SpeechError> {
         if self.fail_transcription.load(Ordering::SeqCst) {
@@ -359,18 +361,71 @@ async fn budget_failure_speaks_the_bundled_line_and_stops_without_a_model() {
 async fn a_failed_voice_uses_one_fallback_and_accounts_for_both_attempts() {
     let primary = Arc::new(Fake {
         fail: true,
+        output_mime: "audio/mpeg",
         ..Default::default()
     });
     let fallback = Arc::new(Fake::default());
     let mut services = with_fake(primary.clone());
     services.speech.fallback_tts = Some(fallback.clone());
-    let (_root, _desk, calls) = desk(services.clone());
-    calls.synthesize(&services.speech, "Test.").await.unwrap();
+    let (_root, desk, calls) = desk(services.clone());
+    let id = Uuid::new_v4().to_string();
+    assert_eq!(calls.start(&id, desk).unwrap().output, "audio/mpeg");
+    let (_, mut rx) = calls.subscribe(&id).unwrap();
+    calls
+        .say(
+            &id,
+            "Test.",
+            &CancellationToken::new(),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let clip = event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
+    assert!(matches!(clip, VoiceEvent::Clip { mime_type, data, .. }
+        if mime_type == "audio/wav" && STANDARD.decode(&data).unwrap() == wav()));
     assert_eq!(lock(&primary.spoken).len(), 1);
     assert_eq!(lock(&fallback.spoken).len(), 1);
     assert!(
         (calls.status().budget.spent_day_usd - 2.0 * ledger::tts_usd("fixture", 5)).abs() < 1e-9
     );
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn a_fallback_needs_its_own_reservation_and_is_attempted_only_once() {
+    for denied in [true, false] {
+        let primary = Arc::new(Fake {
+            fail: true,
+            ..Default::default()
+        });
+        let fallback = Arc::new(Fake {
+            fail: true,
+            ..Default::default()
+        });
+        let mut services = with_fake(primary.clone());
+        services.speech.fallback_tts = Some(fallback.clone());
+        let (_root, desk, calls) = desk(services.clone());
+        let cost = ledger::tts_usd("fixture", 5);
+        if denied {
+            desk.log
+                .append(
+                    &crate::log::StreamId::Room,
+                    &json!({"kind":"setting","id":"voice","value":{"dayUsd":cost * 1.5}}),
+                )
+                .unwrap();
+        }
+        let error = calls
+            .synthesize(&services.speech, "Test.")
+            .await
+            .unwrap_err();
+        assert_eq!(lock(&primary.spoken).len(), 1);
+        assert_eq!(lock(&fallback.spoken).len(), usize::from(!denied));
+        assert_eq!(error == BUDGET_ERROR, denied);
+        assert!(
+            (calls.status().budget.spent_day_usd - cost * if denied { 1.0 } else { 2.0 }).abs()
+                < 1e-9
+        );
+    }
 }
 
 #[tokio::test]
@@ -605,6 +660,11 @@ async fn acknowledgement_precedes_a_blocked_dispatcher_and_interrupt_preserves_i
         calls.start(&id, desk.clone()).unwrap();
         let (_, mut rx) = calls.subscribe(&id).unwrap();
         utterance(&calls, &id, 1).unwrap();
+        assert!(
+            calls
+                .change(&id, |c| Ok(c.first_clip_started.is_some()))
+                .unwrap()
+        );
         // The model cannot finish until this test releases it. No wall-clock SLA in CI.
         event(
             &mut rx,
@@ -612,6 +672,11 @@ async fn acknowledgement_precedes_a_blocked_dispatcher_and_interrupt_preserves_i
         )
         .await;
         event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
+        assert!(
+            calls
+                .change(&id, |c| Ok(c.first_clip_started.is_none()))
+                .unwrap()
+        );
         assert!(lock(&fake.spoken).is_empty());
         if held {
             calls.hold(&id, true).unwrap();

@@ -4,7 +4,8 @@
 //! { "dayUsd": 2, "monthUsd": 20,
 //!   "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
 //!   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "marin" },
-//!   "fallbackTts": { "provider": "google" } }
+//!   "fallbackTts": { "provider": "google" },
+//!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
 //! ```
 //!
 //! Every key is optional. A value that cannot be read costs its own
@@ -31,6 +32,10 @@ pub struct VoiceSettings {
     pub stt: Option<Choice>,
     pub tts: Option<Choice>,
     pub fallback_tts: Option<Choice>,
+    /// The chat model that routes what was said. `provider` alone lets the
+    /// desk pick that provider's quickest model; without this the desk uses
+    /// the room's default provider.
+    pub dispatcher: Option<Choice>,
 }
 
 impl Default for VoiceSettings {
@@ -41,6 +46,7 @@ impl Default for VoiceSettings {
             stt: None,
             tts: None,
             fallback_tts: None,
+            dispatcher: None,
         }
     }
 }
@@ -58,6 +64,7 @@ impl VoiceSettings {
             stt: choice(voice, "stt"),
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
+            dispatcher: choice(voice, "dispatcher"),
         }
     }
 }
@@ -139,6 +146,30 @@ mod tests {
             settings.fallback_tts.unwrap().voice,
             None,
             "an empty voice is not a voice"
+        );
+    }
+
+    #[test]
+    fn the_dispatcher_can_be_named_by_provider_and_model() {
+        let settings = VoiceSettings::from_room(&room(json!({
+            "dispatcher": {"provider": "openai", "model": " gpt-5-mini "},
+        })));
+        assert_eq!(
+            settings.dispatcher,
+            Some(Choice {
+                provider_id: "openai".into(),
+                model_id: Some("gpt-5-mini".into()),
+                voice: None
+            })
+        );
+        let by_provider =
+            VoiceSettings::from_room(&room(json!({"dispatcher": {"provider": "groq"}})));
+        assert_eq!(by_provider.dispatcher.unwrap().model_id, None);
+        // A model with no provider is not a choice.
+        assert_eq!(
+            VoiceSettings::from_room(&room(json!({"dispatcher": {"model": "gpt-5-mini"}})))
+                .dispatcher,
+            None
         );
     }
 

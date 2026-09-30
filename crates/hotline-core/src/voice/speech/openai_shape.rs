@@ -3,7 +3,7 @@
 //! Groq, OpenRouter and Mistral (listening only) answer it, and so does a
 //! custom `openai-compatible` connection that serves the `/audio` routes.
 
-use super::{Clip, INPUT_TYPES, Speech, SpeechError, SpeechId, base_mime, call, http_client, wav};
+use super::{Clip, Speech, SpeechError, SpeechId, TurnClock, base_mime, call, http_client, wav};
 use async_trait::async_trait;
 use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
@@ -63,6 +63,7 @@ pub struct OpenAiShape {
     endpoint: Endpoint,
     job: Job,
     http: reqwest::Client,
+    clock: TurnClock,
 }
 
 impl OpenAiShape {
@@ -73,6 +74,7 @@ impl OpenAiShape {
                 model: model.to_string(),
             },
             http: http_client()?,
+            clock: TurnClock::default(),
         })
     }
 
@@ -92,7 +94,14 @@ impl OpenAiShape {
                 max_chars,
             },
             http: http_client()?,
+            clock: TurnClock::default(),
         })
+    }
+
+    /// Times an utterance to its first clip with the adapters that share this clock.
+    pub fn with_clock(mut self, clock: &TurnClock) -> OpenAiShape {
+        self.clock = clock.clone();
+        self
     }
 
     fn post(&self, route: &str) -> reqwest::RequestBuilder {
@@ -161,10 +170,6 @@ impl Speech for OpenAiShape {
         }
     }
 
-    fn accepts(&self) -> &[&str] {
-        INPUT_TYPES
-    }
-
     fn output_mime(&self) -> &str {
         match &self.job {
             Job::Speak { format, .. } => format.mime(),
@@ -173,6 +178,23 @@ impl Speech for OpenAiShape {
     }
 
     async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError> {
+        self.clock.heard();
+        let words = self.hear(clip).await;
+        self.clock.unanswered(&words);
+        words
+    }
+
+    async fn speak(&self, text: &str) -> Result<Clip, SpeechError> {
+        let clip = self.say(text).await;
+        if clip.is_ok() {
+            self.clock.first_clip(&self.id());
+        }
+        clip
+    }
+}
+
+impl OpenAiShape {
+    async fn hear(&self, clip: Clip) -> Result<String, SpeechError> {
         let Job::Listen { model } = &self.job else {
             return Err(SpeechError::WrongJob);
         };
@@ -208,7 +230,7 @@ impl Speech for OpenAiShape {
             .ok_or_else(|| self.malformed())
     }
 
-    async fn speak(&self, text: &str) -> Result<Clip, SpeechError> {
+    async fn say(&self, text: &str) -> Result<Clip, SpeechError> {
         let Job::Speak {
             model,
             voice,

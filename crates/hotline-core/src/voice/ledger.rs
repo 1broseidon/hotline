@@ -4,7 +4,8 @@
 //!
 //! It fails closed. A file that cannot be read, or a charge that cannot be
 //! written down, ends calls until it can: an unknown balance is not a
-//! balance of zero.
+//! balance of zero. Every check tries a write that failed again, so a disk
+//! that comes back turns voice back on without a restart.
 
 use crate::voice::settings::VoiceSettings;
 use chrono::{Local, NaiveDate};
@@ -13,6 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 const FILE: &str = "voice-ledger.json";
@@ -128,13 +130,21 @@ struct State {
     /// `None` until the file has been read; a failed read leaves it `None`
     /// and is tried again on the next call, so mending the file mends the ledger.
     record: Option<Record>,
-    /// The last write failed, so what is in memory is not what is on disk.
-    unsaved: bool,
+    /// Goes up with every change to `record`, so a write that arrives late
+    /// never puts an older balance over a newer one.
+    version: u64,
 }
 
 pub struct Ledger {
     path: PathBuf,
+    /// The balance in memory. Held for arithmetic and a copy, never for the disk.
     state: Mutex<State>,
+    /// The newest version on disk. Held for the write itself, which is what
+    /// keeps two writes from interleaving, and never together with `state`:
+    /// a check must not wait on somebody's fsync.
+    saved: Mutex<u64>,
+    /// The last write failed, so what is in memory is not what is on disk.
+    unsaved: AtomicBool,
 }
 
 impl Ledger {
@@ -144,8 +154,10 @@ impl Ledger {
             path: data_root.join(FILE),
             state: Mutex::new(State {
                 record: None,
-                unsaved: false,
+                version: 0,
             }),
+            saved: Mutex::new(0),
+            unsaved: AtomicBool::new(false),
         }
     }
 
@@ -166,11 +178,14 @@ impl Ledger {
     }
 
     fn check_on(&self, today: NaiveDate, settings: &VoiceSettings) -> Result<(), Exhausted> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.unsaved {
+        if self.still_unsaved() {
             return Err(Exhausted::Unreadable);
         }
-        let record = self.record(&mut state)?;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.load(&mut state)?;
+        let Some(record) = state.record.as_mut() else {
+            return Err(Exhausted::Unreadable);
+        };
         record.roll_to(today);
         if record.month_spend.total() >= settings.month_usd {
             Err(Exhausted::Month)
@@ -183,33 +198,42 @@ impl Ledger {
 
     fn charge_on(&self, today: NaiveDate, kind: Kind, usd: f64) {
         let usd = if usd.is_finite() { usd.max(0.0) } else { 0.0 };
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let Ok(record) = self.record(&mut state) else {
-            eprintln!(
-                "[voice] the ledger could not be read, so ${usd:.4} for {kind:?} was not recorded"
-            );
-            return;
+        let (version, bytes) = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.load(&mut state).is_err() {
+                eprintln!(
+                    "[voice] the ledger could not be read, so ${usd:.4} for {kind:?} was not recorded"
+                );
+                return;
+            }
+            let Some(record) = state.record.as_mut() else {
+                return;
+            };
+            record.roll_to(today);
+            record.day_spend.add(kind, usd);
+            record.month_spend.add(kind, usd);
+            let bytes = serde_json::to_vec_pretty(record);
+            state.version += 1;
+            (state.version, bytes)
         };
-        record.roll_to(today);
-        record.day_spend.add(kind, usd);
-        record.month_spend.add(kind, usd);
-        let saved = serde_json::to_vec_pretty(record)
-            .map_err(io::Error::other)
-            .and_then(|bytes| self.write(&bytes));
-        if let Err(error) = &saved {
-            eprintln!(
-                "[voice] the ledger could not be written, so calls are off until it can: {error}"
-            );
+        match bytes {
+            Ok(bytes) => self.persist(version, &bytes),
+            Err(error) => {
+                eprintln!(
+                    "[voice] the ledger could not be written, so calls are off until it can: {error}"
+                );
+                self.unsaved.store(true, Ordering::SeqCst);
+            }
         }
-        state.unsaved = saved.is_err();
     }
 
     fn budget_on(&self, today: NaiveDate, settings: &VoiceSettings) -> Budget {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let known = if state.unsaved {
+        let known = if self.still_unsaved() {
             None
         } else {
-            self.record(&mut state).ok().map(|record| {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            self.load(&mut state).ok();
+            state.record.as_mut().map(|record| {
                 record.roll_to(today);
                 (record.day_spend.total(), record.month_spend.total())
             })
@@ -224,11 +248,51 @@ impl Ledger {
         }
     }
 
-    fn record<'a>(&self, state: &'a mut State) -> Result<&'a mut Record, Exhausted> {
+    fn load(&self, state: &mut State) -> Result<(), Exhausted> {
         if state.record.is_none() {
             state.record = Some(self.read()?);
         }
-        state.record.as_mut().ok_or(Exhausted::Unreadable)
+        Ok(())
+    }
+
+    /// Whether the last write is still failing. A failed one is tried again
+    /// here, with the whole balance as it is now, so the moment the disk takes
+    /// a write voice is back.
+    fn still_unsaved(&self) -> bool {
+        if !self.unsaved.load(Ordering::SeqCst) {
+            return false;
+        }
+        let now = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .record
+                .as_ref()
+                .map(|record| (state.version, serde_json::to_vec_pretty(record)))
+        };
+        if let Some((version, Ok(bytes))) = now {
+            self.persist(version, &bytes);
+        }
+        self.unsaved.load(Ordering::SeqCst)
+    }
+
+    /// Puts a version on disk unless a newer one is already there.
+    fn persist(&self, version: u64, bytes: &[u8]) {
+        let mut saved = self.saved.lock().unwrap_or_else(PoisonError::into_inner);
+        if version <= *saved {
+            return;
+        }
+        match self.write(bytes) {
+            Ok(()) => {
+                *saved = version;
+                self.unsaved.store(false, Ordering::SeqCst);
+            }
+            Err(error) => {
+                eprintln!(
+                    "[voice] the ledger could not be written, so calls are off until it can: {error}"
+                );
+                self.unsaved.store(true, Ordering::SeqCst);
+            }
+        }
     }
 
     /// The record on disk. No file is a ledger that has never been charged;
@@ -245,12 +309,26 @@ impl Ledger {
     }
 
     fn write(&self, bytes: &[u8]) -> io::Result<()> {
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut staged = tempfile::NamedTempFile::new_in(parent)?;
-        staged.write_all(bytes)?;
-        staged.as_file().sync_all()?;
-        staged.persist(&self.path).map_err(|error| error.error)?;
-        Ok(())
+        off_the_runtime(|| {
+            let parent = self.path.parent().unwrap_or(Path::new("."));
+            let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+            staged.write_all(bytes)?;
+            staged.as_file().sync_all()?;
+            staged.persist(&self.path).map_err(|error| error.error)?;
+            Ok(())
+        })
+    }
+}
+
+/// Runs a write that waits on the disk without holding a runtime worker: on
+/// a multi-thread runtime the worker's other tasks move elsewhere first. A
+/// current-thread runtime, or none, has nowhere to move them and just waits.
+fn off_the_runtime<T>(work: impl FnOnce() -> T) -> T {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(work)
+        }
+        _ => work(),
     }
 }
 
@@ -274,10 +352,6 @@ const PRICES: &[(&str, f64, f64)] = &[
 /// Whisper's price, and a premium voice's, for a provider not in the table.
 const UNKNOWN_PRICE: (f64, f64) = (0.006, 0.03);
 
-/// The dispatcher's price when the catalogue has none: dollars per million tokens.
-const ESTIMATE_INPUT_PER_MILLION: f64 = 5.0;
-const ESTIMATE_OUTPUT_PER_MILLION: f64 = 25.0;
-
 fn price(provider_id: &str) -> (f64, f64) {
     PRICES
         .iter()
@@ -293,26 +367,6 @@ pub fn stt_usd(provider_id: &str, seconds: f64) -> f64 {
 /// The cost of speaking this many characters.
 pub fn tts_usd(provider_id: &str, characters: usize) -> f64 {
     price(provider_id).1 * characters as f64 / 1000.0
-}
-
-/// The cost of one dispatcher call: the model catalogue's price if it has
-/// one for exactly this provider and model, else a conservative estimate.
-pub fn dispatcher_usd(
-    provider_id: &str,
-    model_id: &str,
-    input_tokens: u64,
-    output_tokens: u64,
-) -> f64 {
-    let (input, output) = crate::models::catalog()
-        .providers
-        .get(provider_id)
-        .and_then(|provider| provider.models.get(model_id))
-        .and_then(|model| model.cost.as_ref())
-        .map_or(
-            (ESTIMATE_INPUT_PER_MILLION, ESTIMATE_OUTPUT_PER_MILLION),
-            |cost| (cost.input, cost.output),
-        );
-    (input * input_tokens as f64 + output * output_tokens as f64) / 1_000_000.0
 }
 
 #[cfg(test)]
@@ -498,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn a_charge_that_cannot_be_written_down_ends_calls() {
+    fn a_charge_that_cannot_be_written_down_ends_calls_until_it_can() {
         let root = tempfile::tempdir().unwrap();
         let gone = root.path().join("gone");
         let ledger = Ledger::open(&gone);
@@ -509,13 +563,137 @@ mod tests {
             ledger.check_on(today, &settings(2.0, 20.0)),
             Err(Exhausted::Unreadable)
         );
+        assert_eq!(
+            ledger.budget_on(today, &settings(2.0, 20.0)).spent_day_usd,
+            2.0,
+            "a balance that is not on disk is reported spent"
+        );
 
-        // Once it can be written again, the next charge writes all of it.
+        // The disk comes back and nobody charges anything: the next check
+        // writes what it was holding, and voice is on again, with that spend.
         fs::create_dir(&gone).unwrap();
-        ledger.charge_on(today, Kind::Tts, 0.1);
         assert_eq!(ledger.check_on(today, &settings(2.0, 20.0)), Ok(()));
         let saved: Record = serde_json::from_slice(&fs::read(gone.join(FILE)).unwrap()).unwrap();
-        assert!((saved.day_spend.tts - 0.2).abs() < 1e-9);
+        assert!((saved.day_spend.tts - 0.1).abs() < 1e-9);
+        assert_eq!(
+            Ledger::open(&gone)
+                .budget_on(today, &settings(2.0, 20.0))
+                .spent_day_usd,
+            0.1
+        );
+    }
+
+    #[test]
+    fn a_status_read_also_tries_a_failed_write_again() {
+        let root = tempfile::tempdir().unwrap();
+        let gone = root.path().join("gone");
+        let ledger = Ledger::open(&gone);
+        let today = date(2026, 9, 30);
+        ledger.charge_on(today, Kind::Stt, 0.25);
+        assert_eq!(
+            ledger.budget_on(today, &settings(2.0, 20.0)).spent_day_usd,
+            2.0
+        );
+        fs::create_dir(&gone).unwrap();
+        assert_eq!(
+            ledger.budget_on(today, &settings(2.0, 20.0)).spent_day_usd,
+            0.25
+        );
+    }
+
+    #[test]
+    fn a_disk_that_keeps_failing_keeps_voice_off() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = Ledger::open(&root.path().join("gone"));
+        let today = date(2026, 9, 30);
+        ledger.charge_on(today, Kind::Tts, 0.1);
+        for _ in 0..3 {
+            assert_eq!(
+                ledger.check_on(today, &settings(2.0, 20.0)),
+                Err(Exhausted::Unreadable)
+            );
+        }
+    }
+
+    /// Charges land from many threads at once, and the file ends up with
+    /// all of them: a write that arrives late never puts an older balance
+    /// over a newer one.
+    #[test]
+    fn concurrent_charges_are_all_on_disk_at_the_end() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = std::sync::Arc::new(Ledger::open(root.path()));
+        let today = date(2026, 9, 30);
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let ledger = ledger.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..25 {
+                        ledger.charge_on(today, Kind::Tts, 0.001);
+                        let _ = ledger.check_on(today, &settings(100.0, 100.0));
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        let saved: Record =
+            serde_json::from_slice(&fs::read(root.path().join(FILE)).unwrap()).unwrap();
+        assert!(
+            (saved.day_spend.tts - 0.2).abs() < 1e-9,
+            "{}",
+            saved.day_spend.tts
+        );
+        assert!((saved.month_spend.tts - 0.2).abs() < 1e-9);
+    }
+
+    /// A check waits for arithmetic and never for somebody's fsync.
+    #[test]
+    fn a_check_does_not_wait_for_a_write_in_progress() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = std::sync::Arc::new(Ledger::open(root.path()));
+        let today = date(2026, 9, 30);
+        ledger.charge_on(today, Kind::Tts, 0.1);
+        let held = ledger.saved.lock().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let asking = ledger.clone();
+        std::thread::spawn(move || {
+            let checked = asking.check_on(today, &settings(2.0, 20.0));
+            let budget = asking.budget_on(today, &settings(2.0, 20.0));
+            sender.send((checked, budget.spent_day_usd)).unwrap();
+        });
+        let (checked, spent) = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("a check waited for the disk");
+        drop(held);
+        assert_eq!(checked, Ok(()));
+        assert!((spent - 0.1).abs() < 1e-9);
+    }
+
+    /// A write is made off the runtime's worker where there is one to spare,
+    /// and just made where there is not; neither panics.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_charge_from_a_runtime_worker_is_written() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = std::sync::Arc::new(Ledger::open(root.path()));
+        let today = date(2026, 9, 30);
+        let charging = ledger.clone();
+        tokio::spawn(async move { charging.charge_on(today, Kind::Tts, 0.3) })
+            .await
+            .unwrap();
+        assert_eq!(
+            ledger.budget_on(today, &settings(2.0, 20.0)).spent_day_usd,
+            0.3
+        );
+        assert!(root.path().join(FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn a_charge_from_a_current_thread_runtime_is_written() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = Ledger::open(root.path());
+        ledger.charge_on(date(2026, 9, 30), Kind::Stt, 0.3);
+        assert!(root.path().join(FILE).exists());
     }
 
     #[test]
@@ -550,30 +728,5 @@ mod tests {
         assert!((tts_usd("custom-1234", 1000) - 0.03).abs() < 1e-9);
         assert!((stt_usd("custom-1234", 60.0) - 0.006).abs() < 1e-9);
         assert_eq!(stt_usd("openai", -3.0), 0.0);
-    }
-
-    #[test]
-    fn the_dispatcher_costs_what_the_catalogue_says_or_the_estimate() {
-        let (provider_id, model_id, cost) = crate::models::catalog()
-            .providers
-            .iter()
-            .find_map(|(provider_id, provider)| {
-                provider.models.iter().find_map(|(model_id, model)| {
-                    model
-                        .cost
-                        .as_ref()
-                        .filter(|cost| cost.input > 0.0)
-                        .map(|cost| (provider_id.clone(), model_id.clone(), cost.clone()))
-                })
-            })
-            .expect("the catalogue prices at least one model");
-        let expected = (cost.input * 4000.0 + cost.output * 100.0) / 1e6;
-        assert!((dispatcher_usd(&provider_id, &model_id, 4000, 100) - expected).abs() < 1e-12);
-
-        let estimate = (5.0 * 4000.0 + 25.0 * 100.0) / 1e6;
-        assert!((dispatcher_usd("custom-1234", "any", 4000, 100) - estimate).abs() < 1e-12);
-        assert!(
-            (dispatcher_usd(&provider_id, "no-such-model", 4000, 100) - estimate).abs() < 1e-12
-        );
     }
 }

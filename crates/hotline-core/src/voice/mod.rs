@@ -55,6 +55,7 @@ struct Call {
     speech: CancellationToken,
     deliveries: CancellationToken,
     utterance_pending: bool,
+    first_clip_started: Option<Instant>,
 }
 
 impl Call {
@@ -228,6 +229,7 @@ impl Calls {
                 speech: CancellationToken::new(),
                 deliveries: CancellationToken::new(),
                 utterance_pending: false,
+                first_clip_started: None,
             });
             let this = self.clone();
             let id = id.to_string();
@@ -403,6 +405,7 @@ impl Calls {
             call.deliveries.cancel();
             call.deliveries = CancellationToken::new();
             call.utterance_pending = true;
+            call.first_clip_started = Some(Instant::now());
             call.seq = Some(seq);
             call.activity = Instant::now();
             call.state(VoiceState::Thinking, None);
@@ -521,6 +524,7 @@ impl Calls {
             let _ = self.change(&id, |call| {
                 if matches!(next, Work::Utterance { .. }) {
                     call.utterance_pending = false;
+                    call.first_clip_started = None;
                 }
                 if call.state != VoiceState::Held {
                     call.state(
@@ -552,11 +556,13 @@ impl Calls {
         speech_cancel: &CancellationToken,
     ) -> Result<(), String> {
         let services = self.services()?;
+        let bytes = clip.bytes.len();
+        let billable_ms = speech::billable_ms(&clip.mime, bytes, duration);
         self.pay(
             Kind::Stt,
             ledger::stt_usd(
                 &services.speech.stt.id().provider_id,
-                duration as f64 / 1000.0,
+                billable_ms as f64 / 1000.0,
             ),
         )?;
         let text = tokio::select! {
@@ -578,7 +584,7 @@ impl Calls {
             return Ok(());
         }
         self.record("user", &text)?;
-        if goodbye(&text) {
+        if goodbye(&text) && speech::plausible_goodbye(duration, bytes) {
             if self
                 .say(id, "Goodbye.", speech_cancel, &context.cancel)
                 .await
@@ -813,13 +819,23 @@ impl Calls {
             if call.state != VoiceState::Held
                 && !interrupted.is_some_and(CancellationToken::is_cancelled)
             {
-                let _ = call.events.send(VoiceEvent::Clip {
+                let sent = call.events.send(VoiceEvent::Clip {
                     id: line.into(),
                     index,
                     r#final: last,
                     mime_type: clip.mime.clone(),
                     data: STANDARD.encode(&clip.bytes),
                 });
+                if sent.is_ok()
+                    && let Some(started) = call.first_clip_started.take()
+                {
+                    eprintln!(
+                        "[voice] utterance to first clip call={} seq={}: {}ms",
+                        call.id,
+                        call.seq.unwrap_or_default(),
+                        started.elapsed().as_millis()
+                    );
+                }
             }
             Ok(())
         });

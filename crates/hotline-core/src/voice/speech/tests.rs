@@ -157,10 +157,10 @@ async fn an_aac_clip_goes_as_m4a() {
 }
 
 #[tokio::test]
-async fn both_input_types_are_accepted_and_others_are_refused_before_a_request() {
+async fn a_type_is_read_as_a_mime_is_and_types_other_than_wav_and_mp4_are_refused_before_a_request()
+{
     let (url, requests, _server) = ok("application/json", br#"{"text": "x"}"#).await;
     let ears = OpenAiShape::listener(endpoint(&url, None), "whisper-1").unwrap();
-    assert_eq!(ears.accepts(), ["audio/wav", "audio/mp4"]);
 
     // A parameter or a different case is still the same type.
     let clip = Clip {
@@ -603,7 +603,6 @@ async fn a_gemini_adapter_refuses_the_job_it_was_not_built_for() {
         Err(SpeechError::WrongJob)
     );
     assert!(requests.lock().unwrap().is_empty());
-    assert_eq!(google_listener(&url).accepts(), ["audio/wav", "audio/mp4"]);
     assert_eq!(
         google_speaker(&url).id(),
         SpeechId {
@@ -614,93 +613,86 @@ async fn a_gemini_adapter_refuses_the_job_it_was_not_built_for() {
     );
 }
 
-// ── The fallback ────────────────────────────────────────────────────────────
+// ── The utterance clock ─────────────────────────────────────────────────────
 
-fn voice_at(url: &str, provider_id: &str) -> Arc<dyn Speech> {
-    Arc::new(
-        OpenAiShape::speaker(
-            Endpoint {
-                provider_id: provider_id.into(),
-                base_url: format!("{url}/v1"),
-                key: None,
-            },
-            "tts-1",
-            "alloy",
-            AudioFormat::Wav,
-            4096,
-        )
-        .unwrap(),
+#[tokio::test]
+async fn the_ears_start_the_clock_and_the_first_clip_of_the_answer_stops_it() {
+    let (url, _requests, _server) = ok("application/json", br#"{"text": "ask Mack"}"#).await;
+    let (speaking, _requests, _server) = ok("audio/wav", b"sound".to_vec()).await;
+    let clock = TurnClock::default();
+    let ears = OpenAiShape::listener(endpoint(&url, None), "whisper-1")
+        .unwrap()
+        .with_clock(&clock);
+    let mouth = OpenAiShape::speaker(
+        endpoint(&speaking, None),
+        "tts-1",
+        "alloy",
+        AudioFormat::Wav,
+        4096,
     )
-}
+    .unwrap()
+    .with_clock(&clock);
 
-fn ears() -> Arc<dyn Speech> {
-    Arc::new(OpenAiShape::listener(endpoint("http://127.0.0.1:1", None), "whisper-1").unwrap())
+    assert!(!clock.waiting());
+    assert_eq!(ears.transcribe(wav_clip()).await.unwrap(), "ask Mack");
+    assert!(clock.waiting(), "the answer is still to come");
+    mouth.speak("Handing that to Mack.").await.unwrap();
+    assert!(!clock.waiting());
+    // A delivery, with no utterance behind it, starts nothing and reports nothing.
+    mouth.speak("Mack is done.").await.unwrap();
+    assert!(!clock.waiting());
 }
 
 #[tokio::test]
-async fn a_voice_that_fails_is_retried_once_on_the_fallback() {
-    let (broken, first, _a) = answering(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "text/plain",
-        b"down".to_vec(),
+async fn an_utterance_that_says_nothing_or_fails_is_not_waited_on() {
+    let (silent, _requests, _server) = ok("application/json", br#"{"text": "  "}"#).await;
+    let (refusing, _requests, _server) =
+        answering(StatusCode::INTERNAL_SERVER_ERROR, "text/plain", Vec::new()).await;
+    for url in [silent, refusing] {
+        let clock = TurnClock::default();
+        let ears = OpenAiShape::listener(endpoint(&url, None), "whisper-1")
+            .unwrap()
+            .with_clock(&clock);
+        let _ = ears.transcribe(wav_clip()).await;
+        assert!(!clock.waiting());
+    }
+}
+
+#[tokio::test]
+async fn gemini_shares_the_clock_too_and_a_failed_clip_leaves_it_running() {
+    let (listening, _requests, _server) = ok(
+        "application/json",
+        json!({"candidates": [{"content": {"parts": [{"text": "ask Mack"}]}}]}).to_string(),
     )
     .await;
-    let (working, second, _b) = ok("audio/wav", b"from-the-fallback".to_vec()).await;
-    let set = SpeechSet {
-        stt: ears(),
-        tts: voice_at(&broken, "openai"),
-        fallback_tts: Some(voice_at(&working, "groq")),
-    };
-
-    let clip = set.speak("Handing that to Mack.").await.unwrap();
-
-    assert_eq!(clip.bytes, b"from-the-fallback");
-    assert_eq!(first.lock().unwrap().len(), 1);
-    assert_eq!(second.lock().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn a_voice_that_works_is_not_doubled_by_the_fallback() {
-    let (working, first, _a) = ok("audio/wav", b"primary".to_vec()).await;
-    let (spare, second, _b) = ok("audio/wav", b"spare".to_vec()).await;
-    let set = SpeechSet {
-        stt: ears(),
-        tts: voice_at(&working, "openai"),
-        fallback_tts: Some(voice_at(&spare, "groq")),
-    };
-    assert_eq!(set.speak("Hi.").await.unwrap().bytes, b"primary");
-    assert_eq!(first.lock().unwrap().len(), 1);
-    assert!(second.lock().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn with_no_fallback_the_failure_is_the_answer_and_with_two_failures_it_is_the_last() {
-    let (broken, _first, _a) = answering(StatusCode::BAD_GATEWAY, "text/plain", Vec::new()).await;
-    let (also_broken, _second, _b) =
-        answering(StatusCode::TOO_MANY_REQUESTS, "text/plain", Vec::new()).await;
-
-    let alone = SpeechSet {
-        stt: ears(),
-        tts: voice_at(&broken, "openai"),
-        fallback_tts: None,
-    };
-    assert_eq!(
-        alone.speak("Hi.").await,
-        Err(SpeechError::Refused {
-            provider_id: "openai".into(),
-            status: 502
-        })
+    let (broken, _requests, _server) =
+        answering(StatusCode::BAD_GATEWAY, "text/plain", Vec::new()).await;
+    let (working, _requests, _server) = ok(
+        "application/json",
+        json!({"candidates": [{"content": {"parts": [{"inlineData": {
+            "mimeType": "audio/L16;rate=24000",
+            "data": STANDARD.encode([1u8, 0]),
+        }}]}}]})
+        .to_string(),
+    )
+    .await;
+    let clock = TurnClock::default();
+    let ears = google_listener(&listening).with_clock(&clock);
+    ears.transcribe(wav_clip()).await.unwrap();
+    assert!(clock.waiting());
+    // The voice that failed answered nothing, so the answer is still awaited.
+    assert!(
+        google_speaker(&broken)
+            .with_clock(&clock)
+            .speak("Hi.")
+            .await
+            .is_err()
     );
-
-    let both = SpeechSet {
-        fallback_tts: Some(voice_at(&also_broken, "groq")),
-        ..alone
-    };
-    assert_eq!(
-        both.speak("Hi.").await,
-        Err(SpeechError::Refused {
-            provider_id: "groq".into(),
-            status: 429
-        })
-    );
+    assert!(clock.waiting());
+    google_speaker(&working)
+        .with_clock(&clock)
+        .speak("Hi.")
+        .await
+        .unwrap();
+    assert!(!clock.waiting());
 }

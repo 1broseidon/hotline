@@ -4,6 +4,7 @@
 use super::{
     ledger::Kind,
     metering::{BUDGET_ERROR, Budget},
+    settings::VoiceSettings,
 };
 use crate::contract::{Command, ModelCost, ScheduleKind, VoiceModel};
 use crate::log::{Log, StreamId};
@@ -288,8 +289,13 @@ impl ProviderDispatcher {
         )
     }
 
+    /// The model that routes what was said: the one `settings.voice.dispatcher`
+    /// names, else the quickest chat model of the room's default provider. A
+    /// named provider that is not connected is an error and not a quiet switch,
+    /// because what the person said would go to a provider they did not choose.
     pub fn resolve(vault: Arc<Vault>, log: &Log) -> Result<Arc<dyn Dispatcher>, String> {
         let settings = crate::room::settings(log);
+        let voice = VoiceSettings::from_room(&settings);
         let keys = vault.provider_auth();
         let metadata = vault.model_metadata();
         let choices = crate::models::choices(
@@ -298,26 +304,44 @@ impl ProviderDispatcher {
             &vault.account_models(),
             &metadata,
         );
-        let preferred = crate::models::preferred_model(&settings)
-            .or_else(|| choices.first().map(|choice| choice.id.clone()))
-            .ok_or("Choose a default room model and connect its provider before calling.")?;
-        let provider = preferred
-            .split_once('/')
-            .ok_or("The room's default model needs a provider.")?
-            .0;
+        let (provider, named) = match &voice.dispatcher {
+            Some(pick) => {
+                if !keys.contains_key(&pick.provider_id) {
+                    return Err(format!(
+                        "Voice is set to use {} for its dispatcher, which is not connected. Connect it in Settings, or clear that choice.",
+                        pick.provider_id
+                    ));
+                }
+                (pick.provider_id.clone(), pick.model_id.clone())
+            }
+            None => {
+                let preferred = crate::models::preferred_model(&settings)
+                    .or_else(|| choices.first().map(|choice| choice.id.clone()))
+                    .ok_or(
+                        "Choose a default room model and connect its provider before calling.",
+                    )?;
+                let provider = preferred
+                    .split_once('/')
+                    .ok_or("The room's default model needs a provider.")?
+                    .0
+                    .to_string();
+                (provider, None)
+            }
+        };
         // Provider catalogues do not publish latency. Prefer the newest model in
         // their lightweight family; preserve catalogue order within a family.
-        let model = choices
-            .iter()
-            .filter(|choice| {
-                choice
-                    .id
-                    .split_once('/')
-                    .is_some_and(|(id, _)| id == provider)
-            })
-            .min_by_key(|choice| speed_family(&choice.id))
-            .map(|choice| choice.id.clone())
-            .ok_or("The room's default provider has no available dispatcher model.")?;
+        let model = match named {
+            Some(id) => format!("{provider}/{id}"),
+            None => choices
+                .iter()
+                .filter_map(|choice| {
+                    let (id, model) = choice.id.split_once('/')?;
+                    (id == provider && is_chat(model)).then_some((choice, speed_family(model)))
+                })
+                .min_by_key(|(_, family)| *family)
+                .map(|(choice, _)| choice.id.clone())
+                .ok_or("The room's default provider has no available dispatcher model.")?,
+        };
         let price = metadata
             .get(&model)
             .and_then(|entry| entry.cost.clone())
@@ -355,6 +379,17 @@ impl ProviderDispatcher {
             price,
         }))
     }
+}
+
+/// Ids that name a model for something other than talking: a gateway lists
+/// them beside its chat models, and a name like `gpt-4o-mini-tts` or
+/// `text-embedding-3-small` would otherwise pass for a lightweight one.
+const NOT_CHAT: &[&str] = &["tts", "embed", "whisper", "transcribe", "image", "audio"];
+
+/// Whether this model id (without its provider) could route a spoken request.
+fn is_chat(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    !NOT_CHAT.iter().any(|name| model.contains(name))
 }
 
 fn speed_family(model: &str) -> u8 {
@@ -877,5 +912,160 @@ mod tests {
         let large = untrusted(&json!({"text":format!("{} Critical warning.", "x".repeat(64_001))}));
         assert!(large.contains("too large for voice"));
         assert!(!large.contains("xxxx"));
+    }
+
+    /// Two custom gateways on a scratch desk; the first is the room's default.
+    fn gateways(
+        first: &[&str],
+        second: &[&str],
+    ) -> (
+        tempfile::TempDir,
+        Arc<crate::desk::Desk>,
+        Arc<Vault>,
+        [String; 2],
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let desk =
+            Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
+        let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
+        let connect = |name: &str, models: &[&str]| {
+            vault
+                .save_custom(
+                    None,
+                    crate::contract::CustomProviderDraft {
+                        name: name.into(),
+                        base_url: "http://127.0.0.1:9/v1".into(),
+                        api: crate::contract::OpenAiApi::ChatCompletions,
+                        models: models.iter().map(|model| model.to_string()).collect(),
+                        secret: None,
+                    },
+                )
+                .unwrap()
+                .provider_id
+        };
+        let ids = [connect("First", first), connect("Second", second)];
+        desk.log
+            .append(
+                &StreamId::Room,
+                &json!({"kind":"setting","id":"defaultModelId","value":format!("{}/{}", ids[0], first[0])}),
+            )
+            .unwrap();
+        (root, desk, vault, ids)
+    }
+
+    fn voice_setting(desk: &crate::desk::Desk, value: Value) {
+        desk.log
+            .append(
+                &StreamId::Room,
+                &json!({"kind":"setting","id":"voice","value":value}),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn a_model_for_anything_but_chat_is_never_the_dispatcher() {
+        for model in [
+            "gpt-4o-mini-tts",
+            "text-embedding-3-small",
+            "whisper-large-v3-turbo",
+            "gpt-4o-mini-transcribe",
+            "gpt-image-1-mini",
+            "gpt-4o-audio-preview",
+            "Gemini-3.5-Flash-TTS",
+        ] {
+            assert!(!is_chat(model), "{model}");
+        }
+        for model in [
+            "gpt-5-mini",
+            "claude-haiku-4-5",
+            "gemini-3.5-flash-lite",
+            "grok-4",
+            "llama-3.3-70b",
+        ] {
+            assert!(is_chat(model), "{model}");
+        }
+        assert_eq!(speed_family("gemini-3.5-flash-lite"), 0);
+        assert_eq!(speed_family("gpt-5-mini"), 1);
+        assert_eq!(speed_family("gpt-5"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_gateways_speech_and_embedding_models_do_not_pass_for_a_fast_chat_model() {
+        let (_root, desk, vault, ids) = gateways(
+            &[
+                "gpt-4o-mini-tts",
+                "text-embedding-3-small",
+                "whisper-large-v3-mini",
+                "gpt-image-1-mini",
+                "gpt-4o-mini-transcribe",
+                "gpt-4o-audio-mini",
+                "slow-large",
+                "fast-mini",
+            ],
+            &["other-large"],
+        );
+        let dispatcher = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
+        assert_eq!(dispatcher.id().provider_id, ids[0]);
+        assert_eq!(dispatcher.id().model_id, "fast-mini");
+    }
+
+    #[tokio::test]
+    async fn a_provider_with_only_models_for_other_things_has_no_dispatcher() {
+        let (_root, desk, vault, _) = gateways(
+            &["gpt-4o-mini-tts", "text-embedding-3-small"],
+            &["other-large"],
+        );
+        let error = ProviderDispatcher::resolve(vault, &desk.log).err().unwrap();
+        assert_eq!(
+            error,
+            "The room's default provider has no available dispatcher model."
+        );
+    }
+
+    #[tokio::test]
+    async fn the_owner_can_name_the_dispatchers_model() {
+        let (_root, desk, vault, ids) = gateways(&["slow-large", "fast-mini"], &["other-large"]);
+        voice_setting(
+            &desk,
+            json!({"dispatcher": {"provider": ids[0], "model": "slow-large"}}),
+        );
+        let dispatcher = ProviderDispatcher::resolve(vault.clone(), &desk.log).unwrap();
+        assert_eq!(dispatcher.id().provider_id, ids[0]);
+        assert_eq!(dispatcher.id().model_id, "slow-large");
+
+        // Their word is enough: a model the catalogue never listed is still theirs.
+        voice_setting(
+            &desk,
+            json!({"dispatcher": {"provider": ids[0], "model": "brand-new-model"}}),
+        );
+        let dispatcher = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
+        assert_eq!(dispatcher.id().model_id, "brand-new-model");
+    }
+
+    #[tokio::test]
+    async fn naming_only_a_provider_picks_its_quickest_chat_model_and_can_leave_the_default() {
+        let (_root, desk, vault, ids) = gateways(
+            &["slow-large"],
+            &["gpt-4o-mini-tts", "second-large", "second-mini"],
+        );
+        voice_setting(&desk, json!({"dispatcher": {"provider": ids[1]}}));
+        let dispatcher = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
+        assert_eq!(dispatcher.id().provider_id, ids[1]);
+        assert_eq!(dispatcher.id().model_id, "second-mini");
+    }
+
+    #[tokio::test]
+    async fn a_dispatcher_provider_that_is_not_connected_is_an_error_not_a_switch() {
+        let (_root, desk, vault, _) = gateways(&["slow-large", "fast-mini"], &["other-large"]);
+        voice_setting(
+            &desk,
+            json!({"dispatcher": {"provider": "openai", "model": "gpt-5-mini"}}),
+        );
+        let error = ProviderDispatcher::resolve(vault, &desk.log).err().unwrap();
+        assert_eq!(
+            error,
+            "Voice is set to use openai for its dispatcher, which is not connected. Connect it in Settings, or clear that choice."
+        );
     }
 }

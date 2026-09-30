@@ -12,12 +12,14 @@ beside them (`crates/hotline-core/src/voice/`).
 `resolve(vault, settings)` returns a `SpeechSet` of three: `stt`, `tts` and an
 optional `fallback_tts`. An adapter is built for one job, so `id()` names the
 model behind that job, and the other job answers `WrongJob`. `output_mime()`
-reports the primary TTS format for the call descriptor (default `audio/wav`). Every adapter
-accepts `audio/wav` (16 kHz mono PCM16) and `audio/mp4` (AAC).
+reports the primary TTS format for the call descriptor (default `audio/wav`).
+`transcribe` takes `audio/wav` (16 kHz mono PCM16) and `audio/mp4` (AAC); any
+other type is refused before a request.
 
-`SpeechSet::speak` tries the voice and, if it fails, tries once on the
-fallback. Each clip carries its own type: `audio/wav` where the provider can
-make one, `audio/mpeg` where it cannot.
+The fallback is the desk's to use: when the voice fails it asks `fallback_tts`,
+once (`Calls::synthesize`), and reserves the second call's cost like the first.
+Each clip carries its own type: `audio/wav` where the provider can make one,
+`audio/mpeg` where it cannot.
 
 A speech error carries the provider and an HTTP status and never a response
 body, because a provider's error text can echo what was said.
@@ -61,7 +63,8 @@ speak. `settings.voice` overrides any of it:
 { "dayUsd": 2, "monthUsd": 20,
   "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "cedar" },
-  "fallbackTts": { "provider": "google" } }
+  "fallbackTts": { "provider": "google" },
+  "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
 ```
 
 Every key is optional and a value that cannot be read costs only itself. A
@@ -70,14 +73,53 @@ job, is an error, not a quiet switch: the audio would go to a provider the
 owner did not choose. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
+`dispatcher` names the chat model that routes what was said. Without it the
+desk takes the quickest chat model of the room's default provider: a model whose
+id says `tts`, `embed`, `whisper`, `transcribe`, `image` or `audio` is never
+picked, because a gateway lists those beside its chat models. `provider` alone
+picks that provider's quickest; `model` is taken as given. A provider that is
+not connected is an error, like the speech choices above.
+
 ## Timing
 
-Every call logs its time to first byte and its total, tagged with the provider
-and model, to stderr:
+Every provider call logs three moments, tagged with the provider and model, to
+stderr: when the response headers arrived, when the first byte of the body did,
+and when it was whole. A provider that streams can send headers early and sound
+late, and one that does not lands all three together.
 
 ```
-[voice] speak openai/gpt-4o-mini-tts: first byte 412ms, done 655ms
+[voice] speak openai/gpt-4o-mini-tts: headers 180ms, first byte 412ms, done 655ms
 ```
+
+The desk times each accepted utterance to its first published clip, including
+the bundled acknowledgement and the durable STT reservation. The line includes
+the call and sequence, not the words or audio; it measures desk publication,
+not transport or client playback latency:
+
+```text
+[voice] utterance to first clip call=<call-id> seq=0: 1412ms
+```
+
+A shared speech adapter set also logs `transcription to synthesized clip` when
+its first TTS result follows transcription. That provider-only measurement
+excludes bundled desk audio and is separate from the call measurement.
+
+## Clip checks
+
+`voice/speech/clip.rs` has two checks that need only a clip's size and length.
+Neither is called by the speech layer; the desk asks them beside its own.
+
+- `billable_ms(mime, bytes, claimed_ms) -> u32` is what a speech-to-text
+  reservation should use for a clip's length. An MP4 carries its length in a
+  header the client wrote, so an MP4 is never billed for less than could fit in
+  its bytes at 32 kbit/s (at most 20 s); a WAV is billed as claimed, since its
+  length is its size.
+- `plausible_goodbye(duration_ms, bytes) -> bool` is a necessary condition for
+  hanging up on a farewell: a clip of at least 400 ms (`MIN_GOODBYE_MS`) with at
+  least a byte for each millisecond. Whisper-style engines answer noise with
+  "Bye." or "Thank you.", so the desk asks `goodbye(text) &&
+  plausible_goodbye(duration_ms, bytes)`. This rejects short or sparse clips;
+  it cannot distinguish noise from speech in a longer, sufficiently large clip.
 
 ## The ledger
 
@@ -90,15 +132,23 @@ and `monthUsd`, $2 and $20 by default; zero turns voice off.
 Days and months are the desk host's local calendar. A clock that goes backwards
 keeps counting against the later day. The ledger fails closed: a file that
 exists and cannot be read or understood, or a charge that could not be written
-down, makes `check` fail until it can, and reading is tried again on every
-check, so mending the file mends the ledger.
+down, makes `check` fail until it can. Reading is tried again on every check,
+so mending the file mends the ledger, and so is a write that failed: each
+`check` (and each status read) writes the balance it is holding again, so a disk
+that comes back turns voice back on without a restart. The fsync runs without
+the ledger balance lock held. A healthy direct ledger check need not wait for
+another write, but retrying a failed write still waits for disk. The desk's
+`Budget` gate also serializes checks and reservations through persistence so
+paid work cannot start before its reservation is durable. Slow disk therefore
+still affects calls. On a multi-thread runtime writes use `block_in_place` so
+they do not hold a runtime worker.
 
-Prices are in the ledger module and are rounded up, since they are a guard and
-not an invoice: speech to text per minute and text to speech per 1,000
-characters by provider, one high price for a provider not in the table. A
-dispatcher call is priced from the model catalogue when it has a price for
-exactly that provider and model, and at $5 per million input tokens and $25 per
-million output tokens when it does not.
+Prices in the ledger module are rounded up, since they are a guard and not an
+invoice: speech to text per minute and text to speech per 1,000 characters by
+provider, one high price for a provider not in the table. The dispatcher is not
+in that table: `voice/dispatcher.rs` reserves each call from its model's own
+price, the vault's model metadata first, then the bundled catalogue, and $5 per
+million input tokens and $25 per million output tokens when neither has one.
 
 ## Checking against the real endpoints
 

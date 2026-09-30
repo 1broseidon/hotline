@@ -861,10 +861,12 @@ traffic controls.
 Voice commands and `{"call":"<callId>"}` subscriptions are available to the
 local desk and paired owners. Companions receive `code: "forbidden"`.
 An owner hello advertises `voice` when `voice.status` reports availability.
-Speech comes from connected providers. The dispatcher uses the room's default
-provider and prefers its newest lightweight model family; provider catalogues
-supply no measured latency ranking. `settings.voice` selects speech models,
-voices and spending caps; see [Voice providers and settings](voice.md).
+Speech comes from connected providers. By default the dispatcher uses the room's
+default provider and prefers its lightweight chat models, excluding speech,
+embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
+provider and model explicitly; catalogues supply no measured latency ranking.
+`settings.voice` also selects speech models, voices and spending caps; see
+[Voice providers and settings](voice.md).
 No extra speech credential is created.
 
 | Command | Params | Result |
@@ -884,7 +886,10 @@ ended call needs a new UUID to start again.
 
 Utterances carry standard base64, at most 2 MiB decoded audio and 20 seconds.
 WAV must be 16 kHz mono PCM16. MP4 must carry a duration in its media header.
-The server checks the actual duration against `durationMs` (250 ms tolerance).
+The server checks the WAV sample duration or MP4 header against `durationMs`
+(250 ms tolerance). An MP4 STT reservation also uses its byte count at 32 kbit/s,
+capped at 20 seconds, when that exceeds the header duration. This is a
+conservative estimate, not verification of the encoded audio's duration.
 `seq` increases per call. A held call refuses microphone audio. A call still
 processing its previous utterance refuses another until it can accept work;
 the caller may retry a refused sequence. Calls end after ten minutes without
@@ -935,7 +940,10 @@ One failed utterance speaks a bundled “Sorry, say that again.” and returns t
 `listening` (or stays held). Three consecutive failed work items end with a
 bundled explanation and reason `error`; success resets that count. Budget
 failure ends immediately with its bundled line. Failed goodbye synthesis uses
-a bundled “Goodbye.” and still ends with reason `goodbye`. Clients must drain
+a bundled “Goodbye.” and still ends with reason `goodbye`. The whole-utterance
+farewell bypass requires at least 400 ms of audio and one byte per millisecond;
+shorter or sparser clips follow the dispatcher path. This size/duration check
+does not classify noise in a sufficiently long clip. Clients must drain
 final queued audio for `goodbye`, `budget`, and `error`; `ended` means the desk
 will produce no further clips.
 

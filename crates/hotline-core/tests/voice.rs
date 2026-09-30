@@ -283,7 +283,8 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
     assert_eq!(heard["event"]["seq"], 0);
     let said = until(&mut socket, |f| f["event"]["type"] == "said").await;
     let clip = until(&mut socket, |f| f["event"]["type"] == "clip").await;
-    assert_eq!(said["event"]["text"], "One moment.");
+    // No bundled acknowledgement: the first words are the dispatcher's own.
+    assert_ne!(said["event"]["text"], "");
     assert_eq!(clip["event"]["id"], said["event"]["id"]);
     let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
     let narrated = until(&mut socket, |f| f["event"]["type"] == "said").await;

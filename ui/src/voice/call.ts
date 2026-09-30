@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { activeDeskId, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
 import type { VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { ClipPlayer } from "./player";
@@ -54,6 +55,20 @@ const wireTransport: CallTransport = {
 	command: (cmd, params) => (wire.command as (c: string, p: unknown) => Promise<unknown>)(cmd, params),
 	subscribe: (target, handlers) => wire.subscribe(target as Target, handlers),
 };
+
+/**
+ * A call belongs to the desk it was placed on: moving to another desk in
+ * the window leaves it talking to the first, and hanging up reaches it.
+ */
+function deskTransport(): CallTransport {
+	const deskId = activeDeskId();
+	if (deskId === null) return wireTransport;
+	const one = wireFor(deskId);
+	return {
+		command: (cmd, params) => (one.command as (c: string, p: unknown) => Promise<unknown>)(cmd, params),
+		subscribe: (target, handlers) => one.subscribe(target as Target, handlers),
+	};
+}
 
 const ENDED_WORDS: Record<EndReason, string | undefined> = {
 	client: undefined,
@@ -404,7 +419,7 @@ export function currentCall(): Call | null {
 
 export async function startCall(names?: Names): Promise<Call> {
 	active?.hangUp();
-	const call = new Call(wireTransport, names);
+	const call = new Call(deskTransport(), names);
 	active = call;
 	for (const holder of holders) holder();
 	await call.start();

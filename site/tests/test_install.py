@@ -105,6 +105,7 @@ desktop_macos() {{ echo INSTALL >>"$LOG"; }}
         self.assertIn("Hotline unknown is installed", out)
         self.assertEqual(self.actions(), ["INSTALL"])
 
+    @unittest.skipUnless(Path("/proc/self/exe").exists(), "matching a running binary needs /proc (Linux)")
     def test_old_running_binary_uses_matching_door_metadata(self):
         # A harmless Python executable stands in for an old binary that does not
         # print Hotline's --version format. Its live inode can match /proc/PID/exe.
@@ -117,6 +118,9 @@ desktop_macos() {{ echo INSTALL >>"$LOG"; }}
 
     def test_force_reaches_apt_reinstall(self):
         self.stub("dpkg-query", "echo 'install ok installed 0.26.0'")
+        # The host's own arch and dpkg are not a Debian x86_64 box everywhere CI runs (macOS).
+        self.stub("dpkg", "exit 0")
+        self.stub("arch", "echo x86_64")
         source = INSTALL.read_text()
         desktop = source[source.index("desktop_linux() {"):source.index("# The address this host")]
         self.run_shell(desktop + '''

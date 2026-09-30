@@ -112,8 +112,6 @@ const LOST = "Lost the connection to the desk.";
 
 /** How much audio before the detector is sure it heard speech is kept, so a word's first sound is not clipped. */
 const PREROLL_MS = 400;
-/** How long the desk may be out of reach before the call is given up. */
-const LOST_MS = 5_000;
 
 type Names = (personaId: string) => string | undefined;
 
@@ -131,7 +129,6 @@ export class Call {
 	private seq = 0;
 	private unsubscribe: (() => void) | null = null;
 	private unwatch: (() => void) | null = null;
-	private lostTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Whether the desk has made the call; before it, there is nothing to hang up there. */
 	private started = false;
 	/** The desk's own word on where the call stands. */
@@ -333,16 +330,10 @@ export class Call {
 	private connection(state: Reach): void {
 		if (this.ended) return;
 		if (state === "gone") return this.fail("This desk is no longer paired with this computer.");
-		if (state === "open") {
-			if (this.lostTimer !== null) clearTimeout(this.lostTimer);
-			this.lostTimer = null;
-			if (this.snapshot.trouble === LOST) this.set({ trouble: undefined });
-			return;
-		}
-		if (this.lostTimer !== null) return;
-		this.set({ trouble: LOST });
-		this.lostTimer = setTimeout(() => this.fail(LOST), LOST_MS);
+		// The desk ends a call whose connection drops, so there is nothing to wait for.
+		if (state === "closed") this.fail(LOST);
 	}
+
 
 	private async micLost(): Promise<void> {
 		if (this.ended || this.held) return;
@@ -409,7 +400,7 @@ export class Call {
 				durationMs: Math.round((total / rate) * 1000),
 			})
 			.then(() => {
-				if (this.snapshot.trouble !== undefined && this.snapshot.trouble !== LOST) this.set({ trouble: undefined });
+				if (this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
 			})
 			.catch((error: unknown) => {
 				this.awaiting = false;
@@ -462,8 +453,6 @@ export class Call {
 		this.set({ phase: "ended", ended: reason, ...(words && !this.snapshot.trouble ? { trouble: words } : {}) });
 		cancelAnimationFrame(this.raf);
 		for (const listener of this.levels) listener(0);
-		if (this.lostTimer !== null) clearTimeout(this.lostTimer);
-		this.lostTimer = null;
 		this.unwatch?.();
 		this.unwatch = null;
 		this.unsubscribe?.();

@@ -143,14 +143,14 @@ describe("a call with the desk", () => {
 		expect(r.played).toEqual([]);
 	});
 
-	test("a desk out of reach for five seconds ends the call, and a quick reconnect does not", async () => {
+	test("a desk out of reach ends the call: the desk has ended it too", async () => {
 		const r = rig();
 		await r.call.start();
-		r.connection("closed");
-		expect(r.call.current.trouble).toBe("Lost the connection to the desk.");
 		r.connection("open");
-		expect(r.call.current.trouble).toBeUndefined();
 		expect(r.call.current.phase).toBe("listening");
+		r.connection("closed");
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe("Lost the connection to the desk.");
 	});
 
 	test("a desk that no longer pairs ends the call at once", async () => {

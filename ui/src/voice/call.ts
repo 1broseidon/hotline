@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { wire } from "../wire";
+import { type Target, wire } from "../wire";
+import type { VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { ClipPlayer } from "./player";
 import { TurnDetector } from "./turn";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
@@ -27,7 +28,7 @@ export type CallLine =
 
 export type CallCard = { personaId: string; requestId: string; kind: string };
 
-export type EndReason = "client" | "goodbye" | "budget" | "replaced" | "error" | "idle";
+export type EndReason = VoiceEndReason;
 
 export type CallSnapshot = {
 	phase: CallPhase;
@@ -40,14 +41,8 @@ export type CallSnapshot = {
 	trouble?: string;
 };
 
-/** What the desk sends on `{call: id}`. */
-export type CallEvent =
-	| { type: "state"; state: "listening" | "thinking" | "speaking" | "held" | "ended"; reason?: EndReason }
-	| { type: "heard"; seq: number; text: string }
-	| { type: "said"; id: string; text: string }
-	| { type: "clip"; id: string; index: number; final: boolean; mimeType: string; data: string }
-	| { type: "delivery"; personaId: string; eventId: string; text: string }
-	| { type: "card"; personaId: string; requestId: string; kind: string };
+/** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
+export type CallEvent = VoiceEvent;
 
 /** The two things a call needs from a desk; the wire in the window, a fake in tests. */
 export type CallTransport = {
@@ -55,12 +50,9 @@ export type CallTransport = {
 	subscribe(target: unknown, handlers: { snapshot(items: unknown[]): void; event(item: unknown): void }): () => void;
 };
 
-/* voice.* is not in the generated Command union until the desk core lands
- * it; the contract is BRO-168's, and this is the one place that spells it. */
 const wireTransport: CallTransport = {
 	command: (cmd, params) => (wire.command as (c: string, p: unknown) => Promise<unknown>)(cmd, params),
-	subscribe: (target, handlers) =>
-		(wire.subscribe as (t: unknown, h: unknown) => () => void)(target, handlers),
+	subscribe: (target, handlers) => wire.subscribe(target as Target, handlers),
 };
 
 const ENDED_WORDS: Record<EndReason, string | undefined> = {

@@ -36,6 +36,8 @@ import type {
 	TeammateToolLedger,
 	ThreadSearchHit,
 	TranscriptEvent,
+	VoiceCall,
+	VoiceStatus,
 	Welcome,
 } from "./generated/contract";
 import { activeDeskId, allDesks, wireFor } from "./desks";
@@ -201,6 +203,12 @@ type Results = {
 	"secrets.passkey.cancel": null;
 	"desk.looking": null;
 	welcome: Welcome;
+	"voice.status": VoiceStatus;
+	"voice.call_start": VoiceCall;
+	"voice.utterance": null;
+	"voice.interrupt": null;
+	"voice.hold": null;
+	"voice.call_end": null;
 };
 
 /** Every command the window may send, with what it sends and what it gets back. */

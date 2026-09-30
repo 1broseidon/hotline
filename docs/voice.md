@@ -90,15 +90,19 @@ and `monthUsd`, $2 and $20 by default; zero turns voice off.
 Days and months are the desk host's local calendar. A clock that goes backwards
 keeps counting against the later day. The ledger fails closed: a file that
 exists and cannot be read or understood, or a charge that could not be written
-down, makes `check` fail until it can, and reading is tried again on every
-check, so mending the file mends the ledger.
+down, makes `check` fail until it can. Reading is tried again on every check,
+so mending the file mends the ledger, and so is a write that failed: each
+`check` (and each status read) writes the balance it is holding again, so a disk
+that comes back turns voice back on without a restart. The fsync is made without
+the balance's lock held, so a check never waits on one, and on a multi-thread
+runtime it is made with `block_in_place`, so it does not hold a worker.
 
-Prices are in the ledger module and are rounded up, since they are a guard and
-not an invoice: speech to text per minute and text to speech per 1,000
-characters by provider, one high price for a provider not in the table. A
-dispatcher call is priced from the model catalogue when it has a price for
-exactly that provider and model, and at $5 per million input tokens and $25 per
-million output tokens when it does not.
+Prices in the ledger module are rounded up, since they are a guard and not an
+invoice: speech to text per minute and text to speech per 1,000 characters by
+provider, one high price for a provider not in the table. The dispatcher is not
+in that table: `voice/dispatcher.rs` reserves each call from its model's own
+price, the vault's model metadata first, then the bundled catalogue, and $5 per
+million input tokens and $25 per million output tokens when neither has one.
 
 ## Checking against the real endpoints
 

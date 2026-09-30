@@ -96,7 +96,7 @@ fn gemini_mime(mime: &str) -> Option<&'static str> {
 }
 
 /// The sample rate in a mime type such as `audio/L16;codec=pcm;rate=24000`.
-fn pcm_rate(mime: &str) -> u32 {
+pub(super) fn pcm_rate(mime: &str) -> u32 {
     mime.split(';')
         .find_map(|parameter| parameter.trim().strip_prefix("rate="))
         .and_then(|rate| rate.parse().ok())

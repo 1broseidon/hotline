@@ -214,6 +214,25 @@ async fn an_adapter_built_for_one_job_refuses_the_other() {
 }
 
 #[tokio::test]
+async fn raw_pcm_is_asked_for_and_comes_back_as_wav_at_the_rate_it_names() {
+    let (url, requests, _server) = ok("audio/pcm;rate=16000;channels=1", vec![1, 0, 2, 0]).await;
+    let mouth = OpenAiShape::speaker(
+        endpoint(&url, Some("test-key")),
+        "google/gemini-3.8-flash-tts",
+        "Kore",
+        AudioFormat::Pcm,
+        4096,
+    )
+    .unwrap();
+
+    let clip = mouth.speak("Handing that to Mack.").await.unwrap();
+
+    assert_eq!(clip.mime, "audio/wav");
+    assert_eq!(clip.bytes, pcm16_wav(&[1, 0, 2, 0], 16_000));
+    assert_eq!(requests.lock().unwrap()[0].json()["response_format"], "pcm");
+}
+
+#[tokio::test]
 async fn a_sentence_is_posted_as_bare_text_and_comes_back_as_a_clip() {
     let (url, requests, _server) = ok("audio/wav", pcm16_wav(&[1, 0, 2, 0], 24_000)).await;
     let mouth = OpenAiShape::speaker(

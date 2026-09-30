@@ -28,6 +28,10 @@ pub struct Endpoint {
 pub enum AudioFormat {
     Wav,
     Mp3,
+    /// Raw 16-bit PCM, the only thing some voices make (Gemini's, through
+    /// OpenRouter). Each piece is wrapped as WAV at the rate the response
+    /// names, so everything after the request sees WAV.
+    Pcm,
 }
 
 impl AudioFormat {
@@ -35,12 +39,13 @@ impl AudioFormat {
         match self {
             AudioFormat::Wav => "wav",
             AudioFormat::Mp3 => "mp3",
+            AudioFormat::Pcm => "pcm",
         }
     }
 
     fn mime(self) -> &'static str {
         match self {
-            AudioFormat::Wav => "audio/wav",
+            AudioFormat::Wav | AudioFormat::Pcm => "audio/wav",
             AudioFormat::Mp3 => "audio/mpeg",
         }
     }
@@ -139,6 +144,13 @@ impl OpenAiShape {
         if reply.bytes.is_empty() {
             return Err(self.malformed());
         }
+        if format == AudioFormat::Pcm {
+            let rate = super::google::pcm_rate(reply.content_type.as_deref().unwrap_or(""));
+            return Ok(Clip {
+                mime: format.mime().to_string(),
+                bytes: wav::pcm16_wav(&reply.bytes, rate),
+            });
+        }
         Ok(Clip {
             mime: clip_mime(reply.content_type.as_deref(), format).to_string(),
             bytes: reply.bytes,
@@ -225,7 +237,7 @@ impl OpenAiShape {
             .and_then(|body| {
                 body.get("text")?
                     .as_str()
-                    .map(|text| text.trim().to_string())
+                    .map(|text| without_markers(text).trim().to_string())
             })
             .ok_or_else(|| self.malformed())
     }
@@ -253,12 +265,29 @@ impl OpenAiShape {
     }
 }
 
+/// A transcript without the `<|speaker:0|>`-style markers some models put
+/// in it: the dispatcher reads what was said, not who a diarizer thinks
+/// said it.
+fn without_markers(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("<|") {
+        let Some(end) = rest[start..].find("|>") else {
+            break;
+        };
+        out.push_str(&rest[..start]);
+        rest = &rest[start + end + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// One clip from the pieces of a sentence spoken in parts.
 fn join(clips: Vec<Clip>, format: AudioFormat) -> Option<Clip> {
     let bytes = match format {
         // MP3 frames stand alone, so the pieces play back to back as they are.
         AudioFormat::Mp3 => clips.into_iter().flat_map(|clip| clip.bytes).collect(),
-        AudioFormat::Wav => {
+        AudioFormat::Wav | AudioFormat::Pcm => {
             let wavs: Vec<Vec<u8>> = clips.into_iter().map(|clip| clip.bytes).collect();
             wav::join(&wavs)?
         }
@@ -363,5 +392,20 @@ mod tests {
             "audio/wav"
         );
         assert_eq!(clip_mime(None, AudioFormat::Mp3), "audio/mpeg");
+    }
+}
+
+#[cfg(test)]
+mod marker_tests {
+    use super::without_markers;
+
+    #[test]
+    fn diarizer_markers_are_dropped_and_plain_text_is_kept() {
+        assert_eq!(
+            without_markers("<|speaker:0|> Hi, this is a quick check."),
+            " Hi, this is a quick check."
+        );
+        assert_eq!(without_markers("a <|x|>b<|y|> c"), "a b c");
+        assert_eq!(without_markers("less than <| alone"), "less than <| alone");
     }
 }

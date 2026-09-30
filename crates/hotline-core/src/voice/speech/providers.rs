@@ -183,11 +183,23 @@ fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> 
             .filter(|model| *model != default.model)?;
         catalog::default_voice(connection.root.as_deref(), &connection.provider_id, model)
     });
+    let model = named_model.unwrap_or(default.model);
     Some(Speaking {
-        model: named_model.unwrap_or(default.model),
+        format: format_for(&connection.provider_id, &model, default.format),
+        model,
         voice: voice.unwrap_or(default.voice),
         ..default
     })
+}
+
+/// The format a model will actually answer in. Gemini's voices through
+/// OpenRouter refuse everything but raw PCM; the rest take the provider's.
+fn format_for(provider_id: &str, model: &str, default: AudioFormat) -> AudioFormat {
+    if provider_id == "openrouter" && model.starts_with("google/") {
+        AudioFormat::Pcm
+    } else {
+        default
+    }
 }
 
 /// What the owner can pick for hearing and for speaking, and what each

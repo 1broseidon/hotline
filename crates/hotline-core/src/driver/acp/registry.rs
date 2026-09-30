@@ -142,6 +142,7 @@ pub async fn backends(root: &Path) -> Vec<Backend> {
 /// session reads.
 pub fn cached_backends(root: &Path) -> Vec<Backend> {
     let catalogue = read_catalogue(root).unwrap_or_default();
+    let machine = Machine::here();
     let mut backends: Vec<Backend> = Vec::new();
 
     for native in NATIVE {
@@ -157,7 +158,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
                 ),
                 args: native.args.iter().map(|arg| (*arg).to_string()).collect(),
             }),
-            unavailable: found.is_none().then(|| "Not installed".to_string()),
+            unavailable: found.is_none().then(|| machine.missing(native.command)),
         });
     }
 
@@ -172,7 +173,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
             id: adapted.id.to_string(),
             name: adapted.name.to_string(),
             description: adapted.description.to_string(),
-            unavailable: adapter_missing(adapted.client, &launch.command),
+            unavailable: adapter_missing(&machine, adapted.client, &launch.command),
             launch: Some(launch),
         });
     }
@@ -190,7 +191,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
                 ),
                 Some(launch) => which(&launch.command)
                     .is_none()
-                    .then(|| "Not installed".to_string()),
+                    .then(|| machine.missing(&launch.command)),
             };
             Backend {
                 id: agent.id.clone(),
@@ -222,7 +223,7 @@ pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
         ));
     };
     match (backend.unavailable, backend.launch) {
-        (Some(reason), _) => Err(format!("{} cannot start: it {reason}.", backend.name)),
+        (Some(reason), _) => Err(cannot_start(&backend.name, &reason)),
         (None, None) => Err(format!("{} has no launch command.", backend.name)),
         (None, Some(mut launch)) => {
             // Capture the executable once; terminal auth must not resolve a new
@@ -235,6 +236,12 @@ pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
             Ok(launch)
         }
     }
+}
+
+/// The error for a start that cannot happen. The reason is a sentence of its
+/// own, as `unavailable` is on the wire, so it is not the tail of this one.
+fn cannot_start(name: &str, reason: &str) -> String {
+    format!("{name} cannot start: {}.", reason.trim_end_matches('.'))
 }
 
 // -- the published catalogue -----------------------------------------------
@@ -303,13 +310,11 @@ fn launch_for(agent: &Published) -> Option<Launch> {
 /// different program and may well not be installed. A row that probed only
 /// the first offered a start that fails at the spawn, with `unavailable`
 /// saying nothing.
-fn adapter_missing(client: &str, launcher: &str) -> Option<String> {
+fn adapter_missing(machine: &Machine, client: &str, launcher: &str) -> Option<String> {
     if which(client).is_none() {
-        return Some("Not installed".to_string());
+        return Some(machine.missing(client));
     }
-    which(launcher)
-        .is_none()
-        .then(|| "Not installed".to_string())
+    which(launcher).is_none().then(|| machine.missing(launcher))
 }
 
 fn npx(package: &str, extra: &[String]) -> Launch {
@@ -374,6 +379,159 @@ async fn refresh_catalogue(root: &Path) {
     {
         let _ = std::fs::write(path, bytes);
     }
+}
+
+// -- why a command is missing ------------------------------------------------
+
+/// Where a person's own installs of a CLI go, under their home: the folder
+/// the Claude and Codex installers use, npm's per-user prefix, and Claude's
+/// older local install.
+const PER_USER_BINS: &[&str] = &[".local/bin", ".npm-global/bin", ".claude/local"];
+
+/// Where a system-wide install goes.
+const SYSTEM_BINS: &[&str] = &["/usr/local/bin", "/usr/bin"];
+
+/// A login account on this machine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Account {
+    name: String,
+    home: PathBuf,
+}
+
+/// What can be said about a command that is not on the desk's PATH: who runs
+/// the desk, and who else has an account here. A served desk runs as a
+/// service account with its own HOME and PATH, so a CLI installed and signed
+/// in for the person who set it up is invisible to it, and "Not installed"
+/// sends them to install what they already have.
+///
+/// Only whether an executable is there is ever asked, by its metadata. Nobody's
+/// files are opened, and a folder this account may not enter says nothing.
+#[derive(Default)]
+struct Machine {
+    /// The account the desk runs as.
+    own_name: String,
+    /// The desk's own HOME, which a service sets and passwd may not agree with.
+    own_home: Option<PathBuf>,
+    /// The people's accounts, other than the desk's own, by name.
+    others: Vec<Account>,
+    /// Where a system-wide install would be.
+    system_bins: Vec<PathBuf>,
+}
+
+impl Machine {
+    #[cfg(unix)]
+    fn here() -> Machine {
+        // SAFETY: geteuid takes no arguments and cannot fail.
+        let uid = unsafe { libc::geteuid() };
+        let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+        let (own_name, others) = read_accounts(&passwd, uid);
+        Machine {
+            own_name: own_name
+                .or_else(|| std::env::var("USER").ok())
+                .unwrap_or_else(|| format!("uid {uid}")),
+            own_home: std::env::var_os("HOME").map(PathBuf::from),
+            others,
+            system_bins: SYSTEM_BINS.iter().map(PathBuf::from).collect(),
+        }
+    }
+
+    /// Windows has no other accounts to look through, and its PATH rules are
+    /// the one `which` already follows.
+    #[cfg(not(unix))]
+    fn here() -> Machine {
+        Machine::default()
+    }
+
+    /// Why `command` cannot be started: where it is, if it is somewhere the
+    /// desk cannot see, else the plain fact.
+    fn missing(&self, command: &str) -> String {
+        // In the desk's own home or a system folder, but not on its PATH.
+        let own = self.own_home.iter().flat_map(|home| {
+            PER_USER_BINS
+                .iter()
+                .map(move |folder| home.join(folder).join(command))
+        });
+        let system = self.system_bins.iter().map(|folder| folder.join(command));
+        if let Some(found) = own.chain(system).find(|path| executable(path)) {
+            let folder = found
+                .parent()
+                .map_or_else(String::new, |folder| folder.display().to_string());
+            return format!(
+                "{command} is at {}, which is not on the desk's PATH. Add {folder} to PATH in the service unit (see docs/serve.md).",
+                found.display()
+            );
+        }
+        // Installed for somebody else, who is not who the desk runs as.
+        let owners: Vec<&str> = self
+            .others
+            .iter()
+            .filter(|account| {
+                PER_USER_BINS
+                    .iter()
+                    .any(|folder| executable(&account.home.join(folder).join(command)))
+            })
+            .map(|account| account.name.as_str())
+            .collect();
+        let own = &self.own_name;
+        match owners.as_slice() {
+            [] => "Not installed".to_string(),
+            [only] => format!(
+                "{command} is installed for {only}, but the desk runs as {own}. Run the desk as {only} (see docs/serve.md), or install {command} for {own}."
+            ),
+            [rest @ .., last] => format!(
+                "{command} is installed for {} and {last}, but the desk runs as {own}. Run the desk as one of them (see docs/serve.md), or install {command} for {own}.",
+                rest.join(", ")
+            ),
+        }
+    }
+}
+
+/// Whether there is a program here, by its metadata alone.
+fn executable(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
+    }
+}
+
+/// The name of the account with this uid, and the people's other accounts, from
+/// the text of a passwd file. A person's account is one a login can use: a uid
+/// in the range a Linux distribution gives people, a shell that is not
+/// `nologin` or `false`, and a home that is a path.
+fn read_accounts(passwd: &str, uid: u32) -> (Option<String>, Vec<Account>) {
+    let mut own = None;
+    let mut others = Vec::new();
+    for line in passwd.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        let [name, _, id, _, _, home, shell] = fields[..] else {
+            continue;
+        };
+        let Ok(id) = id.parse::<u32>() else {
+            continue;
+        };
+        if id == uid {
+            own = Some(name.to_string());
+        } else if (1000..60000).contains(&id)
+            && Path::new(home).is_absolute()
+            && !shell.ends_with("/nologin")
+            && !shell.ends_with("/false")
+        {
+            others.push(Account {
+                name: name.to_string(),
+                home: PathBuf::from(home),
+            });
+        }
+    }
+    others.sort_by(|a, b| a.name.cmp(&b.name));
+    (own, others)
 }
 
 // -- PATH -------------------------------------------------------------------
@@ -552,14 +710,232 @@ mod tests {
         if cfg!(windows) {
             return;
         }
-        assert_eq!(adapter_missing("sh", "sh"), None);
+        let nobody_else = Machine::default();
+        assert_eq!(adapter_missing(&nobody_else, "sh", "sh"), None);
         assert_eq!(
-            adapter_missing("sh", NOWHERE),
+            adapter_missing(&nobody_else, "sh", NOWHERE),
             Some("Not installed".to_string())
         );
         assert_eq!(
-            adapter_missing(NOWHERE, "sh"),
+            adapter_missing(&nobody_else, NOWHERE, "sh"),
             Some("Not installed".to_string())
+        );
+    }
+
+    #[cfg(unix)]
+    fn program(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn somebody(name: &str, home: &Path) -> Account {
+        Account {
+            name: name.to_string(),
+            home: home.to_path_buf(),
+        }
+    }
+
+    fn desk_as(own: &str, others: Vec<Account>) -> Machine {
+        Machine {
+            own_name: own.to_string(),
+            own_home: None,
+            others,
+            system_bins: Vec::new(),
+        }
+    }
+
+    const PASSWD: &str = "\
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+hotline:x:998:998::/var/lib/hotline:/usr/sbin/nologin
+agent:x:1001:1001:Agent:/home/agent:/bin/bash
+bob:x:1002:1002:Bob:/home/bob:/bin/zsh
+service:x:1003:1003::/srv/service:/usr/sbin/nologin
+locked:x:1004:1004::/home/locked:/bin/false
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+a line that is not passwd
+broken:x:not-a-number:1:::/bin/sh
+";
+
+    /// A person's account is one a login can use; the desk's own is whatever
+    /// account has its uid.
+    #[test]
+    fn people_are_the_accounts_a_login_could_use() {
+        let (own, others) = read_accounts(PASSWD, 998);
+        assert_eq!(own.as_deref(), Some("hotline"));
+        assert_eq!(
+            others,
+            [
+                somebody("agent", Path::new("/home/agent")),
+                somebody("bob", Path::new("/home/bob")),
+            ]
+        );
+        // The desk running as one of them leaves the other, and not itself.
+        let (own, others) = read_accounts(PASSWD, 1001);
+        assert_eq!(own.as_deref(), Some("agent"));
+        assert_eq!(others, [somebody("bob", Path::new("/home/bob"))]);
+        assert_eq!(read_accounts("", 5), (None, Vec::new()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cli_installed_for_another_user_says_so_and_what_to_do() {
+        let root = scratch("other-user");
+        let home = root.join("home/agent");
+        program(&home.join(".local/bin/claude"));
+        let machine = desk_as("hotline", vec![somebody("agent", &home)]);
+        assert_eq!(
+            machine.missing("claude"),
+            "claude is installed for agent, but the desk runs as hotline. Run the desk as agent (see docs/serve.md), or install claude for hotline."
+        );
+        // Not everything they have is a CLI the desk was asked about.
+        assert_eq!(machine.missing("codex"), "Not installed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn each_place_a_person_installs_a_cli_is_looked_in() {
+        let root = scratch("places");
+        let home = root.join("home/agent");
+        for folder in PER_USER_BINS {
+            let command = format!("cli-in-{}", folder.replace('/', "-"));
+            program(&home.join(folder).join(&command));
+            let machine = desk_as("hotline", vec![somebody("agent", &home)]);
+            assert!(
+                machine.missing(&command).contains("installed for agent"),
+                "{folder}"
+            );
+        }
+        // Somewhere they do not install is not looked in.
+        program(&home.join("elsewhere/bin/claude"));
+        let machine = desk_as("hotline", vec![somebody("agent", &home)]);
+        assert_eq!(machine.missing("claude"), "Not installed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn several_people_are_named_in_order() {
+        let root = scratch("several");
+        let accounts: Vec<Account> = ["agent", "bob", "carol"]
+            .iter()
+            .map(|name| {
+                let home = root.join("home").join(name);
+                program(&home.join(".local/bin/claude"));
+                somebody(name, &home)
+            })
+            .collect();
+        let both = desk_as("hotline", accounts[..2].to_vec());
+        assert_eq!(
+            both.missing("claude"),
+            "claude is installed for agent and bob, but the desk runs as hotline. Run the desk as one of them (see docs/serve.md), or install claude for hotline."
+        );
+        let three = desk_as("hotline", accounts);
+        assert!(
+            three
+                .missing("claude")
+                .starts_with("claude is installed for agent, bob and carol, but"),
+            "{}",
+            three.missing("claude")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_program_counts_as_installed() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("not-a-program");
+        let home = root.join("home/agent");
+        let bin = home.join(".local/bin");
+        std::fs::create_dir_all(bin.join("a-folder")).unwrap();
+        std::fs::write(bin.join("not-executable"), "text").unwrap();
+        std::fs::set_permissions(
+            bin.join("not-executable"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        let machine = desk_as("hotline", vec![somebody("agent", &home)]);
+        assert_eq!(machine.missing("a-folder"), "Not installed");
+        assert_eq!(machine.missing("not-executable"), "Not installed");
+    }
+
+    /// The desk cannot tell what is in a home it may not enter, and does not
+    /// guess: that is today's sentence, never a claim about somebody else.
+    #[cfg(unix)]
+    #[test]
+    fn a_home_the_desk_may_not_enter_says_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid takes no arguments and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let root = scratch("private-home");
+        let home = root.join("home/agent");
+        program(&home.join(".local/bin/claude"));
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let machine = desk_as("hotline", vec![somebody("agent", &home)]);
+        let said = machine.missing("claude");
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(said, "Not installed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cli_in_the_desks_own_home_or_a_system_folder_is_a_path_problem_not_a_user_one() {
+        let root = scratch("off-path");
+        let own = root.join("var-lib-hotline");
+        program(&own.join(".local/bin/claude"));
+        let system = root.join("usr-local-bin");
+        program(&system.join("codex"));
+        let other_home = root.join("home/agent");
+        program(&other_home.join(".local/bin/claude"));
+        let machine = Machine {
+            own_name: "hotline".to_string(),
+            own_home: Some(own.clone()),
+            others: vec![somebody("agent", &other_home)],
+            system_bins: vec![system.clone()],
+        };
+        // The desk's own copy is the nearer explanation, and the cheaper fix.
+        assert_eq!(
+            machine.missing("claude"),
+            format!(
+                "claude is at {0}/.local/bin/claude, which is not on the desk's PATH. Add {0}/.local/bin to PATH in the service unit (see docs/serve.md).",
+                own.display()
+            )
+        );
+        assert_eq!(
+            machine.missing("codex"),
+            format!(
+                "codex is at {0}/codex, which is not on the desk's PATH. Add {0} to PATH in the service unit (see docs/serve.md).",
+                system.display()
+            )
+        );
+    }
+
+    #[test]
+    fn a_command_nobody_has_is_still_not_installed() {
+        assert_eq!(
+            desk_as("hotline", Vec::new()).missing("claude"),
+            "Not installed"
+        );
+        assert_eq!(Machine::default().missing("claude"), "Not installed");
+    }
+
+    /// The reason is a sentence of its own, so the error that carries it does
+    /// not run it on to "it".
+    #[test]
+    fn a_start_that_cannot_happen_reads_as_a_sentence() {
+        assert_eq!(
+            cannot_start("Claude Code", "Not installed"),
+            "Claude Code cannot start: Not installed."
+        );
+        assert_eq!(
+            cannot_start(
+                "Claude Code",
+                "claude is installed for agent, but the desk runs as hotline. Run the desk as agent (see docs/serve.md), or install claude for hotline."
+            ),
+            "Claude Code cannot start: claude is installed for agent, but the desk runs as hotline. Run the desk as agent (see docs/serve.md), or install claude for hotline."
         );
     }
 }

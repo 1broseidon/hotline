@@ -365,7 +365,7 @@ struct Session {
     quiet: Mutex<Option<QuietWindow>>,
     /// The turn's latest reply, which goes to the phone when the turn ends:
     /// a chatty turn is one notification, not one per bubble.
-    glance: Mutex<Option<String>>,
+    glance: Mutex<Option<Glance>>,
     /// The agent's own id for this conversation, waiting for the turn that
     /// makes it worth remembering.
     ///
@@ -375,6 +375,12 @@ struct Session {
     /// restored from a checkpoint has nothing to write: the id is already on
     /// the record.
     pending_checkpoint: Mutex<Option<String>>,
+}
+
+/// Pacing keeps this ID on the first bubble, while narration needs the full reply.
+struct Glance {
+    event_id: String,
+    text: String,
 }
 
 /// Something a prompt wants stamped on the user line it is about to write,
@@ -4249,12 +4255,16 @@ impl Room {
         // to a thought and says nothing anywhere.
         if let Update::Message {
             kind: MessageKind::Agent,
+            id,
             text,
-            ..
         } = &update
             && !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
+            && !text.trim().is_empty()
         {
-            *lock(&session.glance) = Some(text.clone());
+            *lock(&session.glance) = Some(Glance {
+                event_id: id.clone(),
+                text: text.trim().to_string(),
+            });
         }
         let card = match &update {
             Update::Permission {
@@ -4293,25 +4303,17 @@ impl Room {
     /// it took: the report when the agent worked, or the answer that needed
     /// no tool.
     fn send_glance(&self, session: &Session) {
-        let Some(text) = lock(&session.glance).take() else {
+        let Some(Glance { event_id, text }) = lock(&session.glance).take() else {
             return;
         };
         let name = self
             .persona(&session.persona_id)
             .map(|persona| persona.name)
             .unwrap_or_else(|_| "Hotline".to_string());
-        if let Some(voice) = lock(&self.voice).upgrade() {
-            let event_id = self
-                .tape(&session.persona_id)
-                .into_iter()
-                .rev()
-                .find(|event| event["kind"] == "agent" && event["text"] == text)
-                .and_then(|event| event["id"].as_str().map(str::to_string));
-            if let Some(event_id) = event_id
-                && voice.delivery(&session.persona_id, &event_id, &name, &text)
-            {
-                return;
-            }
+        if let Some(voice) = lock(&self.voice).upgrade()
+            && voice.delivery(&session.persona_id, &event_id, &name, &text)
+        {
+            return;
         }
         self.push.notify(&name, &text, &session.persona_id, None);
     }

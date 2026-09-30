@@ -15,9 +15,13 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 /// How far back to look for the last thing said. A message is the last line
-/// in a transcript far more often than not, and a teammate that has spent
-/// the last 64KB on tool calls alone has nothing worth previewing anyway.
+/// in a transcript far more often than not, so the roster's activity and
+/// waiting state are read from this much and no more.
 const TAIL_BYTES: u64 = 64 * 1024;
+/// How much further a preview looks when that tail holds no message. A turn
+/// that has run for a long time is all tool calls and thoughts, and a roster
+/// row with no last message sorts to the bottom of every list on the phone.
+const PREVIEW_REACH: [u64; 2] = [1024 * 1024, 8 * 1024 * 1024];
 
 fn segment_size(path: &Path) -> u64 {
     fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
@@ -118,6 +122,28 @@ pub fn preview(root: &Path, persona_id: &str) -> Option<Value> {
 /// Reuse a tail already read for the roster's activity and waiting state.
 pub(crate) fn preview_from_tail(tail: &[Value]) -> Option<Value> {
     tail.iter().rev().find_map(message_preview)
+}
+
+/// The preview for a tail already read, looking further back only when that
+/// tail holds no message and the tape has more than it read.
+pub(crate) fn preview_reaching(root: &Path, persona_id: &str, tail: &[Value]) -> Option<Value> {
+    if let Some(found) = preview_from_tail(tail) {
+        return Some(found);
+    }
+    let segments = segments_of(root, persona_id);
+    let size = logical_size(&segments);
+    for reach in PREVIEW_REACH {
+        if size <= TAIL_BYTES {
+            break;
+        }
+        if let Some(found) = preview_from_tail(&read_tail_logical(&segments, reach)) {
+            return Some(found);
+        }
+        if size <= reach {
+            break;
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -268,6 +294,22 @@ mod tests {
         assert_eq!(
             preview(&root, "p"),
             Some(json!({"from": "me", "text": "tail hit", "at": 2}))
+        );
+    }
+
+    /// A long turn: the last message is further back than the tail window,
+    /// under tool calls alone, and the roster row still knows when it was said.
+    #[test]
+    fn a_message_under_a_long_run_of_tool_calls_still_previews() {
+        let root = scratch("previews-long-turn");
+        let padding = |n: u32| json!({"kind": "tool", "id": format!("t{n}"), "ts": n, "status": "pending", "note": "x".repeat(20_000)});
+        let mut events = vec![json!({"kind": "user", "id": "u1", "ts": 1, "text": "start"})];
+        events.extend((2..40).map(padding));
+        write_tape(&root, "p", 1, &events);
+        assert!(preview_from_tail(&tail(&root, "p")).is_none());
+        assert_eq!(
+            preview_reaching(&root, "p", &tail(&root, "p")),
+            Some(json!({"from": "me", "text": "start", "at": 1}))
         );
     }
 

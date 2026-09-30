@@ -150,6 +150,13 @@ export class Call {
 		sink.connect(ctx.destination);
 		this.processor = processor;
 
+		// The call exists once the desk has answered call_start; only then can it be watched.
+		try {
+			await this.transport.command("voice.call_start", { callId: this.id });
+		} catch (error) {
+			this.fail(error instanceof Error ? error.message : String(error));
+			return;
+		}
 		this.unsubscribe = this.transport.subscribe(
 			{ call: this.id },
 			{
@@ -159,12 +166,6 @@ export class Call {
 				event: (item) => this.receive(item as CallEvent),
 			},
 		);
-		try {
-			await this.transport.command("voice.call_start", { callId: this.id });
-		} catch (error) {
-			this.fail(error instanceof Error ? error.message : String(error));
-			return;
-		}
 		this.listen();
 		this.chime("connect");
 		this.tick();

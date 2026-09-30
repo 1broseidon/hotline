@@ -450,7 +450,7 @@ impl Calls {
                             text: BUDGET_LINE.into(),
                         },
                     );
-                    self.clip(&id, &line, 0, true, &closing);
+                    self.clip(&id, &line, 0, true, &closing, None);
                     let _ = self.finish(&id, VoiceEndReason::Budget);
                 } else {
                     self.emit(
@@ -652,14 +652,31 @@ impl Calls {
             if interrupted.is_cancelled() || ended.is_cancelled() {
                 return Ok(());
             }
-            self.clip(id, &line, index as u32, index + 1 == sentences.len(), &clip);
+            self.clip(
+                id,
+                &line,
+                index as u32,
+                index + 1 == sentences.len(),
+                &clip,
+                Some(interrupted),
+            );
         }
         Ok(())
     }
 
-    fn clip(&self, id: &str, line: &str, index: u32, last: bool, clip: &Clip) {
+    fn clip(
+        &self,
+        id: &str,
+        line: &str,
+        index: u32,
+        last: bool,
+        clip: &Clip,
+        interrupted: Option<&CancellationToken>,
+    ) {
         let _ = self.change(id, |call| {
-            if call.state != VoiceState::Held {
+            if call.state != VoiceState::Held
+                && !interrupted.is_some_and(CancellationToken::is_cancelled)
+            {
                 let _ = call.events.send(VoiceEvent::Clip {
                     id: line.into(),
                     index,

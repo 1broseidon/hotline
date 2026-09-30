@@ -439,3 +439,30 @@ fn mp4_duration_cannot_be_hidden_behind_a_short_client_claim() {
     assert!(validate_audio("audio/mp4", &mp4(10000), 1000).is_err());
     assert!(validate_audio("audio/mp4", &mp4(1000)[..16], 1000).is_err());
 }
+
+#[tokio::test]
+async fn a_late_provider_completion_cannot_publish_after_interrupt() {
+    let (_root, desk, calls) = desk(services());
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk).unwrap();
+    let (_, mut events) = calls.subscribe(&id).unwrap();
+    let generation = lock(&calls.calls).back().unwrap().speech.clone();
+    calls.interrupt(&id).unwrap();
+    // Model the provider returning between the outer cancellation check and
+    // publishing its finished clip. The publication boundary must recheck it.
+    calls.clip(
+        &id,
+        "old-sentence",
+        0,
+        true,
+        &Clip {
+            mime: "audio/wav".into(),
+            bytes: wav(),
+        },
+        Some(&generation),
+    );
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(event, VoiceEvent::Clip { .. }));
+    }
+    calls.end(&id).unwrap();
+}

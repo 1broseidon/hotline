@@ -870,7 +870,7 @@ No extra speech credential is created.
 | Command | Params | Result |
 | --- | --- | --- |
 | `voice.status` | `{}` | `VoiceStatus`: availability, provider/model selections and budget |
-| `voice.call_start` | `{callId}` | `{callId,input:["audio/wav","audio/mp4"],output:"audio/wav"|"audio/mpeg"}` |
+| `voice.call_start` | `{callId}` | `{callId,input:["audio/wav","audio/mp4"],output:"audio/wav"\|"audio/mpeg"}` |
 | `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
 | `voice.interrupt` | `{callId}` | void |
 | `voice.hold` | `{callId,hold}` | void |
@@ -904,7 +904,7 @@ The call subscription starts with a one-element `snapshot` containing its
 | `card` | `personaId`, `requestId`, `kind` |
 
 An end reason is `client`, `goodbye`, `budget`, `replaced`, `error` or `idle`.
-Each clip is a complete playable sentence. A subscriber that misses events
+Each clip is a complete playable sentence, limited to 2 MiB decoded audio. A subscriber that misses events
 must reconnect; the desk closes that socket rather than silently dropping audio.
 Provider selections in `VoiceStatus` are optional when unavailable; `unavailable`
 is a sentence explaining what the owner needs to change.

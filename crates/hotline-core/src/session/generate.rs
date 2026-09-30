@@ -265,7 +265,21 @@ pub(super) fn read_workspace_image(
 ) -> Result<Vec<u8>, String> {
     let path = Path::new(requested);
     let requested = if workspace.reach() == Reach::Workspace && path.is_absolute() {
-        path.strip_prefix(workspace.display_root())
+        // The same folder can be spelled two ways (macOS's `/var` is
+        // `/private/var`), so a path that doesn't start with the root as
+        // written is tried again with both resolved. The workspace still
+        // confines what the relative path can open.
+        let inside = path
+            .strip_prefix(workspace.display_root())
+            .map(Path::to_path_buf)
+            .or_else(|_| {
+                let root = std::fs::canonicalize(workspace.display_root()).map_err(|_| ())?;
+                let real = std::fs::canonicalize(path).map_err(|_| ())?;
+                real.strip_prefix(root)
+                    .map(Path::to_path_buf)
+                    .map_err(|_| ())
+            });
+        inside
             .map_err(|_| format!("{noun} must be inside your workspace."))?
             .to_string_lossy()
             .into_owned()

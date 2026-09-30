@@ -98,6 +98,12 @@ fn png() -> Vec<u8> {
     bytes.into_inner()
 }
 
+/// The temp dir as the desk reports it: resolved, as a saved file's path is
+/// (macOS's `/var` is `/private/var`, Windows adds `\\?\`).
+fn real(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    std::fs::canonicalize(dir.path()).unwrap()
+}
+
 fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().join("workspace");
@@ -179,7 +185,7 @@ async fn generation_through_rig_keeps_the_image_in_the_workspace_and_chat_and_ch
     }).to_string(), &mut ToolContext::new()).await;
     assert!(result.is_success(), "{result:?}");
     let result: Value = serde_json::from_str(result.output().as_text().unwrap()).unwrap();
-    assert_eq!(result["path"], json!(dir.path().join("workspace/hero.png")));
+    assert_eq!(result["path"], json!(real(&dir).join("workspace/hero.png")));
     assert_eq!(result["model"], "fake-image");
     assert_eq!(result["costUsd"], 0.006);
     assert_eq!(result["transparent"], true);
@@ -359,7 +365,7 @@ async fn generated_svg_keeps_the_same_bounded_vector_file_in_workspace_and_chat(
     .unwrap();
     assert_eq!(
         result["path"],
-        json!(dir.path().join("workspace/diagram.svg"))
+        json!(real(&dir).join("workspace/diagram.svg"))
     );
     let attachment = &attachments(&room)[0];
     assert_eq!(attachment["mimeType"], "image/svg+xml");
@@ -425,6 +431,28 @@ async fn references_obey_reach_and_valid_references_reach_the_image_model() {
     );
     assert_eq!(requests[0].aspect, Aspect::Square);
     assert!(requests[0].prompt.contains("make this blue"));
+}
+
+/// macOS spells its temp folder two ways (`/var` and `/private/var`); a
+/// symlink to the same folder stands in for that here.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_reference_named_through_another_spelling_of_the_workspace_is_inside_it() {
+    let (dir, room, tools) = room();
+    let fake = Fake::new("fake");
+    install(&room, fake.clone(), None);
+    std::fs::write(dir.path().join("workspace/logo.png"), png()).unwrap();
+    let alias = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(dir.path(), alias.path().join("same")).unwrap();
+    let reference = alias.path().join("same/workspace/logo.png");
+    tools
+        .call(
+            "generate_image",
+            &json!({ "prompt": "make this blue", "references": [reference] }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fake.requests.lock().unwrap()[0].references.len(), 1);
 }
 
 #[tokio::test]
@@ -548,7 +576,7 @@ async fn a_connected_custom_provider_generates_through_the_real_resolver_and_htt
     })).await.unwrap()).unwrap();
     assert_eq!(
         result["path"],
-        json!(dir.path().join("workspace/resolved.png"))
+        json!(real(&dir).join("workspace/resolved.png"))
     );
     assert_eq!(result["model"], "fake-image-model");
     assert_eq!(result["transparent"], false);

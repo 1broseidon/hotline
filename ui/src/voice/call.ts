@@ -253,8 +253,7 @@ export class Call {
 		for (const id of this.seen) this.muted.add(id);
 		this.audio.stopPlayback();
 		this.awaiting = false;
-		// The desk says where it stands next; until then, listen.
-		this.desk = "listening";
+		// Work the desk has not finished keeps it thinking; it says when it can listen.
 		this.settle();
 	}
 
@@ -272,8 +271,8 @@ export class Call {
 				this.awaiting = false;
 				if (event.state === "ended") {
 					const reason = event.reason ?? "error";
-					// A goodbye or a spent budget is said before the line goes: let the last sentence finish.
-					if ((reason === "goodbye" || reason === "budget") && this.audio.playing) this.closing = reason;
+					// A goodbye, a spent budget or a failure is said before the line goes: let the last sentence finish.
+					if ((reason === "goodbye" || reason === "budget" || reason === "error") && this.audio.playing) this.closing = reason;
 					else this.end(reason);
 					return;
 				}

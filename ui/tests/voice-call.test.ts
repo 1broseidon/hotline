@@ -141,6 +141,28 @@ describe("a call with the desk", () => {
 		expect(r.played).toEqual(["one", "new"]);
 	});
 
+	test("cutting in on unfinished work waits for the desk to say it can listen", async () => {
+		const r = rig();
+		await r.call.start();
+		r.desk({ type: "state", state: "thinking" });
+		r.desk({ type: "clip", id: "ack", index: 0, final: true, mimeType: "audio/wav", data: "one moment" });
+		r.call.interrupt();
+		expect(r.call.current.phase).toBe("thinking");
+		r.desk({ type: "state", state: "listening" });
+		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("a failure is said before the line goes", async () => {
+		const r = rig();
+		await r.call.start();
+		r.desk({ type: "clip", id: "sorry", index: 0, final: true, mimeType: "audio/wav", data: "sorry" });
+		r.desk({ type: "state", state: "ended", reason: "error" });
+		expect(r.call.current.phase).toBe("speaking");
+		r.finishClip();
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.ended).toBe("error");
+	});
+
 	test("a snapshot after a reconnect never plays audio again", async () => {
 		const r = rig();
 		await r.call.start();

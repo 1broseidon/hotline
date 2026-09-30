@@ -15,6 +15,7 @@ pub mod credentials;
 pub mod desk;
 pub mod driver;
 mod fence;
+pub mod imagegen;
 mod images;
 pub mod import;
 pub mod log;

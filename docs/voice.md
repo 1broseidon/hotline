@@ -61,7 +61,8 @@ speak. `settings.voice` overrides any of it:
 { "dayUsd": 2, "monthUsd": 20,
   "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "cedar" },
-  "fallbackTts": { "provider": "google" } }
+  "fallbackTts": { "provider": "google" },
+  "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
 ```
 
 Every key is optional and a value that cannot be read costs only itself. A
@@ -69,6 +70,13 @@ Every key is optional and a value that cannot be read costs only itself. A
 job, is an error, not a quiet switch: the audio would go to a provider the
 owner did not choose. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
+
+`dispatcher` names the chat model that routes what was said. Without it the
+desk takes the quickest chat model of the room's default provider: a model whose
+id says `tts`, `embed`, `whisper`, `transcribe`, `image` or `audio` is never
+picked, because a gateway lists those beside its chat models. `provider` alone
+picks that provider's quickest; `model` is taken as given. A provider that is
+not connected is an error, like the speech choices above.
 
 ## Timing
 

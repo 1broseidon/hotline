@@ -11,6 +11,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+pub(super) mod quota;
+
 const REFERENCE_BYTES: u64 = 20 * 1024 * 1024;
 
 #[derive(Deserialize)]
@@ -115,6 +117,18 @@ impl Room {
             .map_err(|_| "The room's spending settings could not be read.".to_string())?;
             current.validate()?;
             let estimate = generator.estimate_usd(&request);
+            let slot = if subscription && generator.id().provider_id == "openai-codex" {
+                let quota = self.subscription_images.clone();
+                Some(
+                    tokio::task::spawn_blocking(move || quota.reserve())
+                        .await
+                        .map_err(|_| {
+                            "The ChatGPT image limit could not be checked.".to_string()
+                        })??,
+                )
+            } else {
+                None
+            };
             let ledger = self.spending.clone();
             let reservation = if subscription {
                 None
@@ -125,16 +139,28 @@ impl Room {
                         .map_err(|_| "The image's spending could not be reserved.".to_string())??,
                 )
             };
-            if let Some(capability) = &capability {
-                capability.check()?;
-            }
             let before_send = || {
                 if let Some(capability) = &capability {
                     capability.check().map_err(|_| ImageError::Revoked)?;
                 }
                 Ok(())
             };
-            let result = generator.generate_checked(&request, &before_send).await;
+            let result = match before_send() {
+                Ok(()) => generator.generate_checked(&request, &before_send).await,
+                Err(error) => Err(error),
+            };
+            if matches!(
+                &result,
+                Err(ImageError::Refused {
+                    status: 400..=499,
+                    ..
+                } | ImageError::Revoked)
+            ) && let Some(slot) = slot
+            {
+                tokio::task::spawn_blocking(move || slot.release())
+                    .await
+                    .map_err(|_| "The ChatGPT image slot could not be returned.".to_string())??;
+            }
             let charge = match &result {
                 Ok(image) => Some(image.cost_usd.unwrap_or(estimate)),
                 Err(

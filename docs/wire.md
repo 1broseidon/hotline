@@ -377,6 +377,15 @@ reads Codex CLI credentials. Subscription results return `costUsd: null` and
 `billing: "subscription"`; paid-provider results retain their existing numeric
 cost. Subscription calls do not reserve or charge the dollar ledger, including
 when dollar spending is disabled or exhausted. Malformed settings still refuse.
+Each room has 20 `openai-codex` image slots per UTC day, shared by all its
+teammates, with a durable slot reserved before each attempt. A provider 400–499 refusal
+(including 429), or revocation before dispatch, returns the slot. Timeouts,
+server failures, unreachable providers and malformed responses keep it.
+The counter survives restart; a backward clock keeps the later day's count.
+An unreadable or unwritable counter refuses the request and retries storage
+on the next call. Paid image providers do not read or change this counter.
+At the cap, the tool returns “This room has made 20 ChatGPT images today;
+the limit resets tomorrow.” No image or fallback request is sent.
 Upstream subscription limits still apply, and refusals are not retried through
 another provider. This internal endpoint may change; live compatibility and
 account entitlement must be verified separately before relying on it.

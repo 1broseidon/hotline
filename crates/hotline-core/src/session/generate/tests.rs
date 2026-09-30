@@ -52,6 +52,15 @@ impl Fake {
             prepared: None,
         })
     }
+
+    fn chatgpt() -> Arc<Self> {
+        let mut fake = Self::new("subscription-image");
+        let provider = Arc::get_mut(&mut fake).unwrap();
+        provider.subscription = true;
+        provider.estimate = 0.0;
+        provider.cost = None;
+        fake
+    }
 }
 
 #[async_trait]
@@ -61,7 +70,12 @@ impl ImageGen for Fake {
     }
     fn id(&self) -> ImageId {
         ImageId {
-            provider_id: "fake".into(),
+            provider_id: if self.subscription {
+                "openai-codex"
+            } else {
+                "fake"
+            }
+            .into(),
             model_id: self.model.into(),
         }
     }
@@ -197,6 +211,236 @@ fn attachments(room: &Room) -> Vec<Value> {
         .collect()
 }
 
+const SUBSCRIPTION_LIMIT: &str =
+    "This room has made 20 ChatGPT images today; the limit resets tomorrow.";
+
+fn subscription_counter(count: u32) -> Value {
+    json!({
+        "version": 1,
+        "day": chrono::Utc::now().timestamp().div_euclid(86_400),
+        "count": count
+    })
+}
+
+fn subscription_count(room: &Room) -> u64 {
+    let counter: Value = serde_json::from_slice(
+        &std::fs::read(room.log().root().join("chatgpt-images.json")).unwrap(),
+    )
+    .unwrap();
+    counter["count"].as_u64().unwrap()
+}
+
+#[tokio::test]
+async fn chatgpt_image_quota_is_shared_by_teammates_and_survives_reopening_the_room() {
+    let (dir, room, ada) = room();
+    let second_workspace = dir.path().join("grace");
+    std::fs::create_dir(&second_workspace).unwrap();
+    let mut grace = serde_json::to_value(room.persona("ada").unwrap()).unwrap();
+    grace["kind"] = json!("persona");
+    grace["id"] = json!("grace");
+    grace["name"] = json!("Grace");
+    grace["cwd"] = json!(second_workspace);
+    room.log().append(&StreamId::Room, &grace).unwrap();
+    let grace = TeammateTools::new(&room, "grace");
+    let fake = Fake::chatgpt();
+    let fallback = Fake::new("paid");
+    install(&room, fake.clone(), Some(fallback.clone()));
+    for count in 0..20 {
+        let tools = if count % 2 == 0 { &ada } else { &grace };
+        tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap();
+    }
+    assert_eq!(subscription_count(&room), 20);
+    for tools in [&ada, &grace] {
+        assert_eq!(
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap_err(),
+            SUBSCRIPTION_LIMIT
+        );
+    }
+    assert_eq!(fake.requests.lock().unwrap().len(), 20);
+    assert!(fallback.requests.lock().unwrap().is_empty());
+    for persona in ["ada", "grace"] {
+        assert_eq!(
+            room.log()
+                .load(&StreamId::Tape(persona.into()))
+                .iter()
+                .filter(|event| event.get("attachments").is_some())
+                .count(),
+            10
+        );
+    }
+    assert!(!room.log().root().join("spending.json").exists());
+    let data = room.log().root().to_path_buf();
+    drop(ada);
+    drop(grace);
+    drop(room);
+    let reopened = Room::new(Log::open(data), Arc::new(NoKeys));
+    install(&reopened, fake.clone(), Some(fallback.clone()));
+    let tools = TeammateTools::new(&reopened, "ada");
+    assert_eq!(
+        tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap_err(),
+        SUBSCRIPTION_LIMIT
+    );
+    assert_eq!(fake.requests.lock().unwrap().len(), 20);
+    assert!(fallback.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_client_refusals_including_rate_limits_release_the_daily_slot() {
+    for status in [400, 401, 403, 429, 499] {
+        let (_dir, room, tools) = room();
+        let mut refused = Fake::chatgpt();
+        Arc::get_mut(&mut refused).unwrap().error = Some(ImageError::Refused {
+            provider_id: "openai-codex".into(),
+            status,
+        });
+        let fallback = Fake::new("paid");
+        install(&room, refused.clone(), Some(fallback.clone()));
+        let error = tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap_err();
+        assert!(error.contains(&status.to_string()), "{error}");
+        assert_eq!(subscription_count(&room), 0, "{status}");
+        assert_eq!(refused.requests.lock().unwrap().len(), 1);
+        assert!(attachments(&room).is_empty());
+        let success = Fake::chatgpt();
+        install(&room, success.clone(), Some(fallback.clone()));
+        for _ in 0..20 {
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap_err(),
+            SUBSCRIPTION_LIMIT
+        );
+        assert_eq!(success.requests.lock().unwrap().len(), 20);
+        assert_eq!(attachments(&room).len(), 20);
+        assert!(fallback.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn uncertain_chatgpt_failures_keep_the_daily_slot_and_never_try_paid_fallback() {
+    for error in [
+        ImageError::RefreshTimedOut,
+        ImageError::Refused {
+            provider_id: "openai-codex".into(),
+            status: 503,
+        },
+        // Transport timeouts are reported as Unreachable by the adapter.
+        ImageError::Unreachable {
+            provider_id: "openai-codex".into(),
+        },
+        ImageError::Malformed {
+            provider_id: "openai-codex".into(),
+        },
+    ] {
+        let (_dir, room, tools) = room();
+        let mut failed = Fake::chatgpt();
+        Arc::get_mut(&mut failed).unwrap().error = Some(error.clone());
+        let fallback = Fake::new("paid");
+        install(&room, failed.clone(), Some(fallback.clone()));
+        assert!(
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .is_err()
+        );
+        assert_eq!(subscription_count(&room), 1, "{error}");
+        let success = Fake::chatgpt();
+        install(&room, success.clone(), Some(fallback.clone()));
+        for _ in 0..19 {
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            tools
+                .call("generate_image", &json!({"prompt":"draw"}))
+                .await
+                .unwrap_err(),
+            SUBSCRIPTION_LIMIT
+        );
+        assert_eq!(failed.requests.lock().unwrap().len(), 1);
+        assert_eq!(success.requests.lock().unwrap().len(), 19);
+        assert_eq!(attachments(&room).len(), 19);
+        assert!(fallback.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn paid_images_ignore_and_never_change_the_chatgpt_quota_file() {
+    let (_dir, room, tools) = room();
+    let paid = Fake::new("paid");
+    install(&room, paid.clone(), None);
+    let path = room.log().root().join("chatgpt-images.json");
+    tools
+        .call("generate_image", &json!({"prompt":"draw"}))
+        .await
+        .unwrap();
+    assert!(!path.exists());
+    for counter in [
+        b"broken counter".to_vec(),
+        serde_json::to_vec(&subscription_counter(20)).unwrap(),
+    ] {
+        std::fs::write(&path, &counter).unwrap();
+        tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), counter);
+    }
+    assert_eq!(paid.requests.lock().unwrap().len(), 3);
+    assert_eq!(attachments(&room).len(), 3);
+    assert!((room.spending_summary().unwrap().day_usd - 0.018).abs() < 1e-10);
+}
+
+#[tokio::test]
+async fn chatgpt_quota_storage_failure_stops_dispatch_and_retries_after_repair() {
+    let (_dir, room, tools) = room();
+    let fake = Fake::chatgpt();
+    let fallback = Fake::new("paid");
+    install(&room, fake.clone(), Some(fallback.clone()));
+    let path = room.log().root().join("chatgpt-images.json");
+    std::fs::create_dir(&path).unwrap();
+    let error = tools
+        .call("generate_image", &json!({"prompt":"draw"}))
+        .await
+        .unwrap_err();
+    assert_ne!(error, SUBSCRIPTION_LIMIT);
+    assert!(
+        !error.contains(&path.to_string_lossy().to_string()),
+        "{error}"
+    );
+    assert!(fake.requests.lock().unwrap().is_empty());
+    assert!(fallback.requests.lock().unwrap().is_empty());
+    assert!(attachments(&room).is_empty());
+    std::fs::remove_dir(&path).unwrap();
+    std::fs::write(&path, serde_json::to_vec(&subscription_counter(0)).unwrap()).unwrap();
+    tools
+        .call("generate_image", &json!({"prompt":"draw"}))
+        .await
+        .unwrap();
+    assert_eq!(subscription_count(&room), 1);
+    assert_eq!(fake.requests.lock().unwrap().len(), 1);
+    assert!(fallback.requests.lock().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn subscription_images_report_unknown_cost_without_touching_dollar_spending() {
     let (dir, room, tools) = room();
@@ -309,6 +553,7 @@ async fn revocation_during_subscription_refresh_prevents_dispatch_and_publicatio
     assert!(attachments(&room).is_empty());
     assert!(!dir.path().join("workspace/revoked.png").exists());
     assert!(!room.log().root().join("spending.json").exists());
+    assert_eq!(subscription_count(&room), 0);
 }
 
 #[tokio::test]

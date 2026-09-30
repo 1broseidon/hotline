@@ -4064,6 +4064,7 @@ dependencies = [
  "portable-pty",
  "qrcode",
  "rcgen",
+ "regex",
  "reqwest 0.13.4",
  "rig",
  "rmcp",

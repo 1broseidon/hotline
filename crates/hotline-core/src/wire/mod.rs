@@ -48,7 +48,7 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 
-mod commands;
+pub(crate) mod commands;
 mod files;
 mod roster;
 mod schedules;
@@ -605,13 +605,16 @@ impl Seat {
             // A thread between two teammates is read the way a tape is: the
             // phone already reads the marker for it on either tape, and the
             // thread holds what was said, never a setting.
-            Seat::Phone => matches!(
-                target,
-                Target::Tape(_)
-                    | Target::Thread(_)
-                    | Target::View(ViewName::Roster)
-                    | Target::Schedules(_)
-            ),
+            Seat::Phone => {
+                !matches!(target, Target::Tape(id) if id == crate::voice::TAPE_ID)
+                    && matches!(
+                        target,
+                        Target::Tape(_)
+                            | Target::Thread(_)
+                            | Target::View(ViewName::Roster)
+                            | Target::Schedules(_)
+                    )
+            }
         }
     }
 }
@@ -1186,6 +1189,16 @@ async fn answer(
                             }
                             status
                         })
+                    }
+                    (Command::VoiceCallStart { call_id }, _) => {
+                        let call_id = call_id.clone();
+                        let result = commands::run(command, log, room).await;
+                        if result.is_ok()
+                            && let Some(voice) = room.voice()
+                        {
+                            voice.bind_connection(call_id, sender.cancel.clone());
+                        }
+                        result
                     }
                     _ => commands::run(command, log, room).await,
                 };

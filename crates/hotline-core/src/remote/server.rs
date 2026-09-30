@@ -195,9 +195,16 @@ async fn handle(
             return;
         }
         let _slot = slot;
+        // Authentication has finished. Owners can send bounded voice clips;
+        // companion input retains the smaller legacy cap.
+        let message_max = if phone.role == DeviceRole::Owner {
+            3 * 1024 * 1024
+        } else {
+            65_536
+        };
         let config = WebSocketConfig::default()
-            .max_message_size(Some(65_536))
-            .max_frame_size(Some(65_536));
+            .max_message_size(Some(message_max))
+            .max_frame_size(Some(message_max));
         let socket =
             WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config))
                 .await;

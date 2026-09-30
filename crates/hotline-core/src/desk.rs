@@ -97,6 +97,15 @@ impl Desk {
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
     ) -> io::Result<Desk> {
+        Self::open_with_voice_services(root, store, None)
+    }
+
+    /// Open with supplied speech and dispatcher seams; None resolves the vault.
+    pub fn open_with_voice_services(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+        services: Option<crate::voice::Services>,
+    ) -> io::Result<Desk> {
         let log = Log::open(root);
         log.migrate_backend_id()?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
@@ -119,8 +128,11 @@ impl Desk {
                 }
             });
         }));
+        let voice =
+            crate::voice::Calls::new(log.clone(), vault.clone(), Arc::downgrade(&room), services);
+        room.set_voice(&voice);
         Ok(Desk {
-            voice: crate::voice::Calls::new(log.clone()),
+            voice,
             log,
             room,
             vault,
@@ -1233,7 +1245,12 @@ mod tests {
         let room = Room::with_agents(log.clone(), Arc::new(TestKeys), agents.clone());
         let vault = Arc::new(Vault::open(&root, log.clone()).unwrap());
         let desk = Desk {
-            voice: crate::voice::Calls::new(log.clone()),
+            voice: crate::voice::Calls::new(
+                log.clone(),
+                vault.clone(),
+                Arc::downgrade(&room),
+                None,
+            ),
             remote: Mutex::default(),
             log: log.clone(),
             room,

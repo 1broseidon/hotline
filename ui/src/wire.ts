@@ -39,6 +39,8 @@ import type {
 	VoiceCall,
 	VoiceStatus,
 	Welcome,
+	VoiceCall,
+	VoiceStatus,
 } from "./generated/contract";
 import { activeDeskId, allDesks, wireFor } from "./desks";
 
@@ -90,6 +92,12 @@ type Params<N extends CommandName> = Extract<Command, { cmd: N }> extends {
  * this table is the window's one remaining spelling of the reply.
  */
 type Results = {
+	"voice.status": VoiceStatus;
+	"voice.call_start": VoiceCall;
+	"voice.utterance": null;
+	"voice.interrupt": null;
+	"voice.hold": null;
+	"voice.call_end": null;
     "remote.status": RemoteStatus;
     "remote.configure": RemoteStatus;
     "remote.devices": RemoteDevice[];

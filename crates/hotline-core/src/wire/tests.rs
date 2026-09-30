@@ -4185,14 +4185,13 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
 async fn voice_is_owner_only_through_the_real_handler() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
-    Log::open(root.path())
-        .append(
-            &StreamId::Room,
-            &json!({"kind":"setting","id":"voice","value":{"stub":true}}),
-        )
-        .unwrap();
     let desk = Arc::new(
-        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+        crate::desk::Desk::open_with_voice_services(
+            root.path(),
+            Arc::new(MemoryStore::default()),
+            Some(crate::voice::tests::services()),
+        )
+        .unwrap(),
     );
     let room: Arc<dyn RoomHandle> = desk.clone();
     let call = uuid::Uuid::new_v4().to_string();
@@ -4224,6 +4223,14 @@ async fn voice_is_owner_only_through_the_real_handler() {
     )
     .await;
     assert_eq!(denied["code"], FORBIDDEN);
+    let hidden = remote_control_answer(
+        Seat::Phone,
+        &room,
+        &desk.log,
+        json!({"id":20,"sub":{"tape":crate::voice::TAPE_ID}}),
+    )
+    .await;
+    assert_eq!(hidden["code"], FORBIDDEN);
     for seat in [Seat::Desk, Seat::Owner] {
         let allowed = remote_control_answer(
             seat,

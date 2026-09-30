@@ -29,6 +29,7 @@ import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { askedFor } from "./PasskeyArm";
 import { SentFile } from "./SentFile";
+import { outputText, stepTitle } from "../stepText";
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -354,7 +355,7 @@ export function Transcript({
 		{!following && (
 			<button
 				type="button"
-				className="control btn send absolute bottom-3 right-8"
+				className="control btn send jump-latest absolute bottom-3 right-8"
 				title="Jump to the latest"
 				aria-label="Jump to the latest"
 				onClick={() => {
@@ -978,12 +979,19 @@ export function stepsSummary(items: Step[]): string {
 }
 
 /** Each step as a row: a thought in italics, a tool with its output behind a press. */
-export function StepRows({ items }: { items: Step[] }) {
+export function StepRows({ items, settled = false }: { items: Step[]; /** The turn is over: nothing in it is still running. */ settled?: boolean }) {
 	return items.map((item) =>
 		item.kind === "thought" ? (
 			<Thought key={item.id} id={item.id} text={item.text} />
 		) : (
-			<Tool key={item.id} id={item.id} title={item.title} status={item.status} output={item.output} />
+			<Tool
+				key={item.id}
+				id={item.id}
+				title={item.title}
+				// A harness that never closed a call leaves it running on the tape after the turn ended.
+				status={settled && (item.status === "in_progress" || item.status === "pending") ? "completed" : item.status}
+				output={item.output}
+			/>
 		),
 	);
 }
@@ -1425,21 +1433,53 @@ function Tool({
 					className={`step-mark ${status === "in_progress" ? "beat" : ""}`}
 					style={{ background: STATUS_INK[status] }}
 				/>
-				<span className="step-title">{title}</span>
+				<span className="step-title" title={title}>
+					{stepTitle(title)}
+				</span>
 				{status === "failed" && <span className="shrink-0 text-danger">failed</span>}
 				{status === "in_progress" && <span className="shrink-0 text-ink-3">running</span>}
 				{hasOutput && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
 			</button>
-			{open && hasOutput && <div className="step-out">{output.map(outputText).join("\n\n")}</div>}
+			{open && hasOutput && <StepOutput output={output} />}
 		</div>
 	);
 }
 
-function outputText(one: ToolOutput): string {
-	if (one.type === "text") return one.text;
-	const before = one.oldText == null ? [] : one.oldText.split("\n").map((line) => `- ${line}`);
-	const after = one.newText.split("\n").map((line) => `+ ${line}`);
-	return [one.path, ...before, ...after].join("\n");
+
+/** A tool's output, cleaned once per output rather than on every streamed word. */
+const StepOutput = memo(function StepOutput({ output }: { output: ToolOutput[] }) {
+	const parts = useMemo(() => output.map((one) => ({ edit: one.type === "diff", text: outputText(one) })), [output]);
+	return (
+		<div className="step-out">
+			{parts.map((part, at) => (
+				<div key={at} className="step-out-part">
+					{part.edit ? <EditLines text={part.text} /> : part.text}
+				</div>
+			))}
+		</div>
+	);
+});
+
+/** An edit: its path, then its lines tinted by whether they went or came, a run of one kind as one block. */
+function EditLines({ text }: { text: string }) {
+	const [path, ...lines] = text.split("\n");
+	const runs: { kind: string; lines: string[] }[] = [];
+	for (const line of lines) {
+		const kind = line.startsWith("+ ") ? "step-edit-add" : line.startsWith("- ") ? "step-edit-del" : "step-edit-same";
+		const last = runs[runs.length - 1];
+		if (last?.kind === kind) last.lines.push(line);
+		else runs.push({ kind, lines: [line] });
+	}
+	return (
+		<>
+			<div className="step-edit-path">{path}</div>
+			{runs.map((run, at) => (
+				<div key={at} className={run.kind}>
+					{run.lines.join("\n")}
+				</div>
+			))}
+		</>
+	);
 }
 
 /**

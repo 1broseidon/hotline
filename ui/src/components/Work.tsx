@@ -12,9 +12,9 @@ export type OpenWork = { personaId: string; blockId: string | null };
 const FOLLOW_SLACK = 48;
 
 /**
- * A teammate's work for one turn, in the inspector's place beside the
- * conversation: a window onto what it did, not a second transcript. The
- * steps run top to bottom in the instrument voice and the window follows
+ * A teammate's work for one turn, as a card floating in the window's corner
+ * over the conversation: a window onto what it did, not a second transcript.
+ * The steps run top to bottom in the instrument voice and the window follows
  * the newest until you scroll back, so a running turn can be watched and a
  * finished one read. A caption opens its own run; the mark opens the turn
  * running now, and keeps showing it once it has finished.
@@ -49,7 +49,7 @@ export function Work({
 	useEffect(() => setFollowing(true), [run?.id]);
 
 	return (
-		<aside className="inspector work-pane" aria-label={`${name}'s work`}>
+		<aside className="work-float" aria-label={`${name}'s work`}>
 			<Band>
 				<div className="min-w-0 flex-1 pl-1">
 					<h2 className="flex items-center gap-2 truncate text-lg font-semibold">
@@ -75,7 +75,7 @@ export function Work({
 					{run === undefined ? (
 						<p className="work-empty">{waiting ? `${name} is getting started.` : "This turn's steps are no longer on the tape."}</p>
 					) : (
-						<StepRows items={run.items} />
+						<StepRows items={run.items} settled={!running} />
 					)}
 				</div>
 				{!following && count > 0 && (

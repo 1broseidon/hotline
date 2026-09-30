@@ -457,7 +457,7 @@ export function App() {
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
-			<main className="@container flex min-w-0 flex-1 flex-col gap-0">
+			<main className="@container flex min-w-0 flex-1 flex-col gap-0" data-call={call !== null ? "" : undefined}>
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
 				<div className="flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
@@ -509,14 +509,6 @@ export function App() {
 								selfName={selected.persona.name}
 								onClose={() => setAside(null)}
 							/>
-						) : aside?.kind === "work" ? (
-							<Work
-								key={`work-${aside.work.personaId}`}
-								open={aside.work}
-								name={selected.persona.name}
-								live={selected.session.state === "thinking"}
-								onClose={() => setAside(null)}
-							/>
 						) : aside?.kind === "subagent" ? (
 							<Subagent
 								key={`run-${aside.run.runId}`}
@@ -554,7 +546,21 @@ export function App() {
 						</div>
 					</div>
 				)}
-				{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={select} />}
+				{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
+				{((selected && aside?.kind === "work") || call !== null) && (
+					<div className="float-stack">
+						{selected && aside?.kind === "work" && (
+							<Work
+								key={`work-${aside.work.personaId}`}
+								open={aside.work}
+								name={selected.persona.name}
+								live={selected.session.state === "thinking"}
+								onClose={() => setAside(null)}
+							/>
+						)}
+						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={select} />}
+					</div>
+				)}
 				</div>
 			</main>
 			</div>

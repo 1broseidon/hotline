@@ -1286,6 +1286,22 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
+	.step-out-part + .step-out-part {
+		margin-top: 10px;
+	}
+	.step-edit-path {
+		margin-bottom: 4px;
+		color: var(--ink-3);
+	}
+	.step-edit-add {
+		color: var(--accent);
+	}
+	.step-edit-del {
+		color: var(--danger);
+	}
+	.step-edit-same {
+		color: var(--ink-3);
+	}
 	.steps {
 		margin: 4px 0;
 		border-left: 2px solid var(--line);
@@ -1876,11 +1892,20 @@
 		width: 320px;
 		flex-shrink: 0;
 	}
-	/* A turn's work beside the conversation: wider than the inspector, and a
-	 * window rather than a page, so it sits a step down in the well with
-	 * the steps in the instrument voice, following the newest. */
-	.work-pane {
-		width: 400px;
+	/* A turn's work floats in the window's corner, over the conversation
+	 * rather than beside it: a translucent card you glance at and close,
+	 * with the steps in the instrument voice, following the newest. */
+	.work-float {
+		position: relative;
+		display: flex;
+		width: min(400px, calc(100vw - 32px));
+		/* Never down over the composer, whose top is 68px above the column's foot. */
+		max-height: min(540px, calc(100% - 68px));
+		min-height: 0;
+		flex: 0 1 auto;
+		flex-direction: column;
+		border-radius: var(--radius-pane);
+		overflow: clip;
 	}
 	.work-window {
 		min-height: 0;
@@ -1889,7 +1914,7 @@
 		margin: 0 8px 8px;
 		padding: 8px 4px;
 		border-radius: var(--radius-card);
-		background: var(--well);
+		background: color-mix(in oklab, var(--well) 55%, transparent);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 	}
 	.work-window .step {
@@ -2167,28 +2192,54 @@
 	 * call: it swells with whoever is talking (--level, 0..1, set from the
 	 * audio, not from React), in ink while you speak and in the accent
 	 * while the desk does, because the accent is an agent at work. */
-	.call-float {
+	/* What floats over the window, down its right edge: a turn's work hangs
+	 * from under the header, where it covers the older conversation rather
+	 * than the newest, and the call keeps the bottom corner by the composer,
+	 * so neither moves the other. The column takes no clicks; its cards do. */
+	.float-stack {
 		position: fixed;
+		top: 80px;
 		right: 16px;
 		bottom: 16px;
 		z-index: 40;
 		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 10px;
+		pointer-events: none;
+	}
+	.float-stack > * {
+		pointer-events: auto;
+	}
+	/* Floating cards are glass: the window shows through, blurred, so they
+	 * read as over the conversation rather than in it. Their shadow is the
+	 * tight one: the float shadow's 32px blur, over a conversation that
+	 * scrolls or streams beneath it, cost WebKit a tenth of a core. */
+	.work-float,
+	.call-float {
+		background: color-mix(in oklab, var(--pop) 72%, transparent);
+		-webkit-backdrop-filter: blur(20px) saturate(1.4);
+		backdrop-filter: blur(20px) saturate(1.4);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-glass);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.call-float {
+		display: flex;
 		width: 208px;
+		flex-shrink: 0;
+		margin-top: auto;
 		flex-direction: column;
 		align-items: center;
 		gap: 12px;
 		padding: 10px 12px 14px;
 		border-radius: var(--radius-pane);
-		background: var(--pop);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line),
-			var(--shadow-float);
-		animation: pop-in var(--dur-open) var(--ease-out) both;
 	}
 	/* In a narrow window the composer runs the full width; sit above it. */
 	@container (max-width: 716px) {
-		.call-float {
+		.float-stack {
 			bottom: 84px;
 		}
 	}
@@ -2303,5 +2354,15 @@
 		.call-mark {
 			animation: none;
 		}
+	}
+}
+
+/* Jump-to-latest sits in the same corner as the call; it steps out from under
+ * the card rather than show through its glass. Utilities, to outrank its own
+ * right-8; an attribute rather than :has, which a streaming tape would make
+ * the engine re-check on every word. */
+@layer utilities {
+	main[data-call] .jump-latest {
+		right: 236px;
 	}
 }

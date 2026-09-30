@@ -211,7 +211,9 @@ impl Host {
 
 impl Room {
     /// A room already known exactly, such as the one a running service was
-    /// started on, which has no other to be mistaken for.
+    /// started on, which has no other to be mistaken for. Only the Linux
+    /// updater asks for one.
+    #[cfg(target_os = "linux")]
     pub fn exact(root: PathBuf) -> Room {
         Room {
             root,

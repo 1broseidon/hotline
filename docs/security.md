@@ -930,3 +930,25 @@ made it so.
   shell administration, not isolation between computer viewers. Download handles
   are process-wide random ids, not window-bound. A compromised main window or
   local process that steals its owner token still has owner authority.
+
+
+### Voice calls
+
+`voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
+desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
+`voice-dispatcher` tape is also refused as a companion subscription. No microphone
+audio is written to the tape: only transcriptions and spoken text are indexed.
+
+The dispatcher executes a fixed command allowlist in `voice::dispatcher::Context`.
+It cannot answer permission/human/passkey cards, edit policies, read arbitrary
+files, or change credentials. Text handoffs use the ordinary session commands;
+those commands retain the teammate's existing permissions and approval gates.
+Disconnect/revocation cancels the call's authority to dispatch further actions,
+while already accepted teammate work continues. Clip queues are bounded; an
+out-of-date subscriber is disconnected instead of losing audio silently.
+
+Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the voice
+state-machine tests, `voice::dispatcher::tests`, and the WebSocket scripted client
+in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
+errors, fallback and persistent budget failures. Live provider latency is a
+separate measurement; fake-provider test timings are not a production guarantee.

@@ -525,6 +525,7 @@ struct PasskeyArming {
 const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub struct Room {
+    voice: Mutex<std::sync::Weak<crate::voice::Calls>>,
     log: Log,
     /// A computer being set up behind a session that started without it,
     /// per teammate: downloading, ready to join once the turn ends, or
@@ -665,6 +666,7 @@ impl Room {
             }
         };
         let room = Arc::new(Self {
+            voice: Mutex::new(std::sync::Weak::new()),
             log,
             keys,
             agents,
@@ -774,6 +776,7 @@ impl Room {
         let teammates: Vec<String> = room::roster(&self.log)
             .into_iter()
             .map(|persona| persona.id)
+            .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
             .collect();
         let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
             thread::list_all_keys(self.log.root())
@@ -4297,7 +4300,40 @@ impl Room {
             .persona(&session.persona_id)
             .map(|persona| persona.name)
             .unwrap_or_else(|_| "Hotline".to_string());
+        if let Some(voice) = lock(&self.voice).upgrade() {
+            let event_id = self
+                .tape(&session.persona_id)
+                .into_iter()
+                .rev()
+                .find(|event| event["kind"] == "agent" && event["text"] == text)
+                .and_then(|event| event["id"].as_str().map(str::to_string));
+            if let Some(event_id) = event_id
+                && voice.delivery(&session.persona_id, &event_id, &name, &text)
+            {
+                return;
+            }
+        }
         self.push.notify(&name, &text, &session.persona_id, None);
+    }
+
+    pub(crate) fn set_voice(&self, voice: &Arc<crate::voice::Calls>) {
+        *lock(&self.voice) = Arc::downgrade(voice);
+    }
+
+    pub(crate) fn voice_record(&self, kind: &str, text: &str) -> Result<String, String> {
+        let id = new_id();
+        self.try_write_value(
+            crate::voice::TAPE_ID,
+            &json!({
+                "kind": kind, "id": id, "ts": now_ms(), "text": text,
+            }),
+        )
+        .map_err(|_| "The voice conversation could not be saved.".to_string())?;
+        Ok(id)
+    }
+
+    pub(crate) fn voice_push(&self, persona_id: &str, name: &str, text: &str) {
+        self.push.notify(name, text, persona_id, None);
     }
 
     /// The title of a notification about a card: the teammate needs you.
@@ -4426,6 +4462,11 @@ impl Room {
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
         self.index(persona_id, event);
+        if persona_id != crate::voice::TAPE_ID
+            && let Some(voice) = lock(&self.voice).upgrade()
+        {
+            voice.card(persona_id, event);
+        }
         Ok(())
     }
 

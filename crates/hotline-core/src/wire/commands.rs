@@ -26,7 +26,9 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
-        Command::VoiceCallStart { call_id } => Ok(json!(voice(room)?.start(&call_id)?)),
+        Command::VoiceCallStart { call_id } => {
+            Ok(json!(voice(room)?.start(&call_id, room.clone())?))
+        }
         Command::VoiceUtterance {
             call_id,
             seq,

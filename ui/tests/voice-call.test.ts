@@ -9,7 +9,7 @@ type Handlers = { snapshot(items: unknown[]): void; event(item: unknown): void }
 function rig() {
 	const sent: { cmd: string; params: Record<string, unknown> }[] = [];
 	let handlers: Handlers | null = null;
-	let connection: ((state: "connecting" | "open" | "closed") => void) | null = null;
+	let connection: ((state: "open" | "closed" | "gone") => void) | null = null;
 	let callStart: (() => void) | null = null;
 	let holdStart = false;
 	const transport: CallTransport = {
@@ -66,7 +66,7 @@ function rig() {
 		mic,
 		desk: (event: unknown) => handlers?.event(event),
 		snapshot: (items: unknown[]) => handlers?.snapshot(items),
-		connection: (state: "connecting" | "open" | "closed") => connection?.(state),
+		connection: (state: "open" | "closed" | "gone") => connection?.(state),
 		finishClip: () => {
 			queue = Math.max(0, queue - 1);
 			if (queue === 0) idle();
@@ -151,6 +151,14 @@ describe("a call with the desk", () => {
 		r.connection("open");
 		expect(r.call.current.trouble).toBeUndefined();
 		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("a desk that no longer pairs ends the call at once", async () => {
+		const r = rig();
+		await r.call.start();
+		r.connection("gone");
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe("This desk is no longer paired with this computer.");
 	});
 
 	test("hold lets the microphone go and resume takes it back", async () => {

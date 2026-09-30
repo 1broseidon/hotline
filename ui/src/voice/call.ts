@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { activeDeskId, wireFor } from "../desks";
+import { activeDeskId, allDesks, watchDesks, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
 import type { VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
@@ -46,12 +46,18 @@ export type CallSnapshot = {
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
 export type CallEvent = VoiceEvent;
 
+export type Reach = "open" | "closed" | "gone";
+
 /** The two things a call needs from a desk; the wire in the window, a fake in tests. */
 export type CallTransport = {
 	command(cmd: string, params: Record<string, unknown>): Promise<unknown>;
 	subscribe(target: unknown, handlers: { snapshot(items: unknown[]): void; event(item: unknown): void }): () => void;
-	/** The socket to the desk opening and closing; a call without one cannot tell. */
-	onConnection?(watcher: (state: "connecting" | "open" | "closed") => void): () => void;
+	/**
+	 * Whether the desk can be reached: `closed` is out of reach for now,
+	 * `gone` is removed or no longer pairs with this computer. A call
+	 * without it cannot tell.
+	 */
+	onConnection?(watcher: (state: Reach) => void): () => void;
 };
 
 const wireTransport: CallTransport = {
@@ -70,7 +76,26 @@ function deskTransport(): CallTransport {
 	return {
 		command: (cmd, params) => (one.command as (c: string, p: unknown) => Promise<unknown>)(cmd, params),
 		subscribe: (target, handlers) => one.subscribe(target as Target, handlers),
-		onConnection: (watcher) => one.onConnection(watcher),
+		// A server desk is reached through the shell's bridge, whose socket
+		// stays open while the server is down: its own state says more.
+		onConnection: (watcher) => {
+			let socket = "connecting";
+			const report = () => {
+				const desk = allDesks().find((candidate) => candidate.id === deskId);
+				if (desk === undefined || desk.state === "revoked") return watcher("gone");
+				const deskUp = desk.kind !== "remote" || desk.state === undefined || desk.state === "open";
+				watcher(socket === "open" && deskUp ? "open" : "closed");
+			};
+			const unwire = one.onConnection((state) => {
+				socket = state;
+				report();
+			});
+			const undesk = watchDesks(report);
+			return () => {
+				unwire();
+				undesk();
+			};
+		},
 	};
 }
 
@@ -305,8 +330,9 @@ export class Call {
 		this.set({ phase: "listening" });
 	}
 
-	private connection(state: "connecting" | "open" | "closed"): void {
+	private connection(state: Reach): void {
 		if (this.ended) return;
+		if (state === "gone") return this.fail("This desk is no longer paired with this computer.");
 		if (state === "open") {
 			if (this.lostTimer !== null) clearTimeout(this.lostTimer);
 			this.lostTimer = null;

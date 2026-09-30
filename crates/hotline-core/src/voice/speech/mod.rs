@@ -327,10 +327,11 @@ mod timing_tests {
             numbers[numbers.len() - 2],
             numbers[numbers.len() - 1],
         );
-        assert!((30..70).contains(&headers), "{line}");
-        assert!((70..110).contains(&first_byte), "{line}");
-        assert!(done >= 110, "{line}");
-        assert!(headers < first_byte && first_byte < done, "{line}");
+        // Sleeps only promise a minimum, and a loaded CI runner oversleeps:
+        // assert the floors and the order, never a ceiling.
+        assert!(headers >= 30, "{line}");
+        assert!(first_byte >= headers + 40, "{line}");
+        assert!(done >= first_byte + 40, "{line}");
     }
 
     #[test]

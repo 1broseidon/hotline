@@ -170,6 +170,15 @@ pub fn settings(log: &Log) -> Map<String, Value> {
     settings_from_events(&log.load(&StreamId::Room))
 }
 
+/// Whether the owner has set `key`, as opposed to it standing at its default.
+pub(crate) fn is_set(log: &Log, key: &str) -> bool {
+    log.load(&StreamId::Room).iter().any(|event| {
+        is_kind(event, "setting")
+            && !is_deleted(event)
+            && event.get("id").and_then(Value::as_str) == Some(key)
+    })
+}
+
 pub fn try_settings(log: &Log) -> Result<Map<String, Value>, String> {
     let events = log.try_load_strict(&StreamId::Room).map_err(|_| {
         "The room's settings could not be safely read. Images and spending are unavailable."
@@ -683,6 +692,30 @@ mod tests {
         let servers = folded["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["id"], "good");
+    }
+
+    #[test]
+    fn voice_follows_the_shared_spending_caps_only_once_the_owner_has_set_them() {
+        use crate::voice::settings::VoiceSettings;
+        let log = scratch("voice-shared-caps");
+        append(
+            &log,
+            &setting("voice", json!({"dayUsd": 5, "monthUsd": 50})),
+        );
+        assert!(!is_set(&log, "spending"));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
+        append(
+            &log,
+            &setting("spending", json!({"dayUsd": 0.5, "monthUsd": 4})),
+        );
+        assert!(is_set(&log, "spending"));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!((voice.day_usd, voice.month_usd), (0.5, 4.0));
+        append(&log, &tombstone("setting", "spending"));
+        assert!(!is_set(&log, "spending"));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
     }
 
     #[test]

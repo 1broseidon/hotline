@@ -2046,6 +2046,85 @@ pub struct VoiceStatus {
     pub budget: VoiceBudget,
 }
 
+/// One model a connected provider can be asked to do a job with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilityModel {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The voices that speak with this model, the provider's default first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voices: Option<Vec<String>>,
+}
+
+/// A connected provider and the models it can do one job with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CapabilityProvider {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub models: Vec<CapabilityModel>,
+}
+
+/// A provider, and the model and voice on it when they are known.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilityPick {
+    pub provider_id: String,
+    pub provider_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+}
+
+/// One job the owner can pick a provider for.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilityJob {
+    /// What the owner chose; absent means automatic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<CapabilityPick>,
+    /// What automatic resolves to right now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automatic: Option<CapabilityPick>,
+    /// Why nothing can do this job yet, as a sentence for a person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+    /// Connected providers only, in the order they were connected.
+    pub options: Vec<CapabilityProvider>,
+}
+
+/// The shared caps and what has been spent against them so far.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilitySpending {
+    pub day_usd: f64,
+    pub month_usd: f64,
+    pub spent_day_usd: f64,
+    pub spent_month_usd: f64,
+    /// Set when a tally could not be read, so the spent figures are not whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CapabilityOptions {
+    pub images: CapabilityJob,
+    pub stt: CapabilityJob,
+    pub tts: CapabilityJob,
+    pub dispatcher: CapabilityJob,
+    pub spending: CapabilitySpending,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -2322,6 +2401,8 @@ pub enum Command {
     },
     #[serde(rename = "images.status")]
     ImagesStatus {},
+    #[serde(rename = "capabilities.options")]
+    CapabilitiesOptions {},
     #[serde(rename = "credential.create")]
     CredentialCreate {
         provider_id: String,

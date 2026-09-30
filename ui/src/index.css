@@ -502,6 +502,11 @@
 		flex-shrink: 0;
 		color: var(--ink-3);
 	}
+	/* Use for: a job's model and its voice share a row, and a resolved
+	 * Automatic reads "Automatic · Provider · model", which needs the room. */
+	.use-for .picker {
+		max-width: 260px;
+	}
 	/* The same pull-down inside a form: framed like a key. */
 	.picker-field {
 		width: 100%;

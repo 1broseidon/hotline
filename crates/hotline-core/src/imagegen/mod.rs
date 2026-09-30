@@ -21,7 +21,7 @@ mod tests;
 pub use google::Google;
 pub use openai::OpenAi;
 pub use openrouter::OpenRouter;
-pub use providers::{describe, model, resolve};
+pub use providers::{describe, model, options, resolve};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

@@ -9,6 +9,7 @@
 //! tools — over its conversation, and over the teammates it shares the room
 //! with. The wire is built on top of these.
 
+mod capabilities;
 pub mod computer;
 pub mod contract;
 pub mod credentials;

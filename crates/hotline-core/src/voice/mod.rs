@@ -154,7 +154,7 @@ impl Calls {
     }
 
     fn settings(&self) -> VoiceSettings {
-        VoiceSettings::from_room(&crate::room::settings(&self.log))
+        VoiceSettings::from_log(&self.log)
     }
     fn services(&self) -> Result<Services, String> {
         if let Some(services) = &self.injected {
@@ -164,6 +164,11 @@ impl Calls {
             speech: speech::resolve(&self.vault, &self.settings())?,
             dispatcher: ProviderDispatcher::resolve(self.vault.clone(), &self.log)?,
         })
+    }
+
+    /// What voice has spent so far against its caps, from its own tally.
+    pub(crate) fn balance(&self) -> ledger::Budget {
+        self.ledger.balance()
     }
 
     pub fn status(&self) -> VoiceStatus {

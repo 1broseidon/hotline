@@ -6,6 +6,7 @@ use super::{
     Google, ImageGen, ImageSet, ImageSettings, Model, OpenAi, OpenRouter, google, openai,
     openrouter,
 };
+use crate::contract::{CapabilityModel, CapabilityProvider};
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use std::collections::HashSet;
@@ -64,6 +65,9 @@ struct Row {
     /// A second model on the same provider, for when it's the only one
     /// connected that can draw.
     also: Option<&'static str>,
+    /// Every model it is known to draw with, the default first, for the
+    /// owner to choose from.
+    models: &'static [&'static str],
 }
 
 const ROWS: &[Row] = &[
@@ -73,6 +77,17 @@ const ROWS: &[Row] = &[
         base_url: openrouter::BASE_URL,
         draws: "openai/gpt-image-2.5-flare",
         also: Some("google/gemini-3.1-flash-image"),
+        models: &[
+            "openai/gpt-image-2.5-flare",
+            "openai/gpt-image-2.5-sunburst",
+            "openai/gpt-image-1-mini",
+            "openai/gpt-image-2",
+            "google/gemini-3.1-flash-image",
+            "google/gemini-3.1-flash-lite-image",
+            "google/gemini-3-pro-image",
+            "sourceful/riverflow-v2.5-fast",
+            "x-ai/grok-imagine-image-2.0",
+        ],
     },
     Row {
         provider_id: openai::PROVIDER_ID,
@@ -80,6 +95,12 @@ const ROWS: &[Row] = &[
         base_url: openai::BASE_URL,
         draws: "gpt-image-2.5-flare",
         also: Some("gpt-image-1-mini"),
+        models: &[
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst",
+            "gpt-image-1-mini",
+            "gpt-image-2",
+        ],
     },
     Row {
         provider_id: google::PROVIDER_ID,
@@ -87,6 +108,11 @@ const ROWS: &[Row] = &[
         base_url: google::BASE_URL,
         draws: "gemini-3.1-flash-image",
         also: Some("gemini-3.1-flash-lite-image"),
+        models: &[
+            "gemini-3.1-flash-image",
+            "gemini-3.1-flash-lite-image",
+            "gemini-3-pro-image",
+        ],
     },
 ];
 
@@ -197,6 +223,42 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
         }),
         _ => None,
     }
+}
+
+/// The models each connected provider can draw with, for the owner to pick
+/// from: the ones the desk knows for a provider it knows, a custom
+/// connection's own image models. A provider with none is left out.
+pub fn options(vault: &Vault) -> Vec<CapabilityProvider> {
+    options_from(&connections(vault))
+}
+
+fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
+    connections
+        .iter()
+        .filter_map(|connection| {
+            let ids: Vec<String> = match row(&connection.provider_id) {
+                Some(row) => row.models.iter().map(|id| id.to_string()).collect(),
+                None => connection
+                    .models
+                    .iter()
+                    .filter(|id| id.to_ascii_lowercase().contains("image"))
+                    .cloned()
+                    .collect(),
+            };
+            (!ids.is_empty()).then(|| CapabilityProvider {
+                provider_id: connection.provider_id.clone(),
+                provider_name: connection.name.clone(),
+                models: ids
+                    .into_iter()
+                    .map(|id| CapabilityModel {
+                        id,
+                        label: None,
+                        voices: None,
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
 }
 
 /// The first connected provider that can draw, or the owner's choice. A
@@ -350,6 +412,31 @@ mod tests {
                 .unwrap()
                 .contains("can't make images")
         );
+    }
+
+    #[test]
+    fn every_row_offers_its_default_first_and_its_fallback() {
+        for row in ROWS {
+            assert_eq!(row.models[0], row.draws, "{}", row.name);
+            assert!(row.models.contains(&row.also.unwrap()), "{}", row.name);
+            assert!(row.models.iter().all(|id| known(id).is_some()));
+        }
+    }
+
+    #[test]
+    fn the_options_are_the_connected_providers_that_draw() {
+        let offered = options_from(&[
+            keyed("openai"),
+            custom(&["llama-3", "my-image-1"]),
+            custom(&["llama-3"]),
+        ]);
+        assert_eq!(offered.len(), 2);
+        assert_eq!(offered[0].provider_name, "OpenAI");
+        assert_eq!(offered[0].models[0].id, "gpt-image-2.5-flare");
+        assert_eq!(offered[1].provider_name, "My gateway");
+        assert_eq!(offered[1].models.len(), 1);
+        assert_eq!(offered[1].models[0].id, "my-image-1");
+        assert!(options_from(&[custom(&["llama-3"])]).is_empty());
     }
 
     #[test]

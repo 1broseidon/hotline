@@ -231,6 +231,15 @@ impl RoomHandle for Desk {
         }
     }
 
+    fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
+        Ok(crate::capabilities::options(
+            &self.vault,
+            &self.log,
+            self.room.spending_summary(),
+            self.voice.balance(),
+        ))
+    }
+
     fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
         Some(self.voice.clone())
     }

@@ -102,7 +102,7 @@ decision for George, not a bug fix.
 `generate_image` is available to teammate sessions on Hotline Agent and ACP,
 not to their subagent runs. It uses only providers already connected by the
 owner; no key or provider response body appears in the result or a failure.
-`settings.images`, `settings.spending` and `images.status` require the local
+`settings.images`, `settings.spending`, `images.status` and `capabilities.options` require the local
 desk or owner seat. Companion status requests are refused before dispatch.
 
 Reference files use the same cap-std workspace handle and current capability

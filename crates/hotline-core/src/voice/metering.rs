@@ -24,7 +24,7 @@ impl Budget {
         }
     }
     fn settings(&self) -> VoiceSettings {
-        VoiceSettings::from_room(&crate::room::settings(&self.log))
+        VoiceSettings::from_log(&self.log)
     }
     pub fn check(&self) -> Result<(), Exhausted> {
         let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);

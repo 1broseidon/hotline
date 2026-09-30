@@ -4403,6 +4403,163 @@ async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
 }
 
 #[tokio::test]
+async fn capabilities_options_are_for_the_desk_and_owner_and_never_a_companion() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let request = json!({"id": 1, "cmd": "capabilities.options", "params": {}});
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        let answer = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        if seat == Seat::Phone {
+            assert_eq!(answer["code"], FORBIDDEN, "{answer}");
+            assert!(answer.get("result").is_none());
+        } else {
+            assert_eq!(answer["ok"], true, "{answer}");
+        }
+    }
+    let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let answer = remote_control_answer(Seat::Owner, &quiet, &desk.log, request).await;
+    assert_eq!(answer["ok"], false, "{answer}");
+}
+
+#[tokio::test]
+async fn capabilities_options_list_only_connected_providers_and_what_automatic_picks() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let request = json!({"id": 1, "cmd": "capabilities.options", "params": {}});
+    let empty = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    assert_eq!(empty["ok"], true, "{empty}");
+    let result = &empty["result"];
+    for job in ["images", "stt", "tts"] {
+        assert_eq!(result[job]["options"], json!([]), "{job}");
+        assert!(
+            result[job]["unavailable"]
+                .as_str()
+                .unwrap()
+                .contains("Connect")
+        );
+        assert!(result[job].get("automatic").is_none());
+        assert!(result[job].get("selected").is_none());
+    }
+    assert_eq!(
+        result["spending"],
+        json!({"dayUsd": 2.0, "monthUsd": 20.0, "spentDayUsd": 0.0, "spentMonthUsd": 0.0})
+    );
+
+    let secret = "capabilities-private-credential";
+    desk.credential_create("anthropic", "Chat only", secret)
+        .unwrap();
+    desk.credential_create("groq", "Speech", secret).unwrap();
+    desk.credential_create("openai", "Everything", secret)
+        .unwrap();
+    let answer = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    assert!(!answer.to_string().contains(secret));
+    let result = &answer["result"];
+    let names = |job: &str| -> Vec<String> {
+        result[job]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|provider| provider["providerName"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(names("images"), ["OpenAI"]);
+    assert_eq!(names("stt"), ["Groq", "OpenAI"]);
+    assert_eq!(names("tts"), ["Groq", "OpenAI"]);
+    assert!(names("dispatcher").contains(&"OpenAI".to_string()));
+    assert!(
+        result["images"]["options"][0]["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|model| model["id"].as_str().unwrap().contains("image"))
+    );
+    assert_eq!(
+        result["images"]["automatic"],
+        json!({"providerId": "openai", "providerName": "OpenAI", "modelId": "gpt-image-2.5-flare"})
+    );
+    assert_eq!(
+        result["stt"]["automatic"]["modelId"],
+        "whisper-large-v3-turbo"
+    );
+    assert_eq!(result["tts"]["automatic"]["providerId"], "groq");
+    assert_eq!(result["tts"]["automatic"]["voice"], "hannah");
+    assert_eq!(
+        result["tts"]["options"][1]["models"][0]["voices"][0],
+        "marin"
+    );
+
+    // A choice is reported as made, and automatic still says what it would be.
+    let selected = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({"id": 2, "cmd": "settings.update", "params": {"patch": {
+            "images": {"provider": "openai", "model": "gpt-image-1-mini"},
+            "voice": {"tts": {"provider": "openai", "voice": "cedar"}},
+            "spending": {"dayUsd": 0.5, "monthUsd": 5.0}
+        }}}),
+    )
+    .await;
+    assert_eq!(selected["ok"], true, "{selected}");
+    let answer = remote_control_answer(Seat::Desk, &handle, &desk.log, request).await;
+    let result = &answer["result"];
+    assert_eq!(result["images"]["selected"]["modelId"], "gpt-image-1-mini");
+    assert_eq!(result["tts"]["selected"]["providerName"], "OpenAI");
+    assert_eq!(result["tts"]["selected"]["voice"], "cedar");
+    assert_eq!(result["tts"]["automatic"]["providerId"], "groq");
+    assert!(result["stt"].get("selected").is_none());
+    assert_eq!(result["spending"]["dayUsd"], 0.5);
+    assert_eq!(result["spending"]["monthUsd"], 5.0);
+}
+
+#[tokio::test]
+async fn capabilities_options_add_the_image_and_voice_tallies_into_one_spent_figure() {
+    use crate::credentials::tests::MemoryStore;
+    use crate::spending::{SpendLedger, SpendingSettings};
+    let root = tempfile::tempdir().unwrap();
+    SpendLedger::new(root.path().to_path_buf())
+        .reserve(&SpendingSettings::default(), 0.25)
+        .unwrap()
+        .charge(0.125)
+        .unwrap();
+    std::fs::write(
+        root.path().join("voice-ledger.json"),
+        json!({
+            "day": chrono::Local::now().format("%Y-%m-%d").to_string(),
+            "month": chrono::Local::now().format("%Y-%m").to_string(),
+            "daySpend": {"stt": 0.0, "tts": 0.25, "dispatcher": 0.0},
+            "monthSpend": {"stt": 0.0, "tts": 0.5, "dispatcher": 0.0}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let answer = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        json!({"id": 1, "cmd": "capabilities.options", "params": {}}),
+    )
+    .await;
+    assert_eq!(
+        answer["result"]["spending"]["spentDayUsd"], 0.375,
+        "{answer}"
+    );
+    assert_eq!(answer["result"]["spending"]["spentMonthUsd"], 0.625);
+}
+
+#[tokio::test]
 async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();

@@ -93,6 +93,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
+| `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
@@ -312,6 +313,13 @@ anything: both are read when a computer wakes, as are the teammate's own
 Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
+
+`capabilities.options` feeds Settings > Providers > Use for, and reads the same
+connections `images.status` and `voice.status` resolve from. Its spending
+figures are the caps in `settings.spending`, which govern images and voice
+alike, and the sum of the image tally and voice's own tally, which are still two
+separate files. Voice reads `settings.spending` when the owner has set it and
+falls back to `settings.voice.dayUsd` and `monthUsd` otherwise.
 
 `images` is an `ImageSettings` object `{provider?: string, model?: string}`,
 defaulting to `{}`. An omitted provider selects the first connected provider

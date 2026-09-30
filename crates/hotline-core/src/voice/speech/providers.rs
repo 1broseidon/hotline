@@ -4,6 +4,7 @@
 
 use super::google::{self, Google};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechSet, TurnClock};
+use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use crate::voice::settings::{Choice, VoiceSettings};
@@ -30,6 +31,8 @@ struct Row {
     /// The default model, voice and format to speak with, if the provider speaks
     /// in a shape we can ask for.
     speak: Option<(&'static str, &'static str, AudioFormat, usize)>,
+    /// The voices the owner can pick to speak with, the default first.
+    voices: &'static [&'static str],
 }
 
 /// The one table of what each provider hears and says by default, chosen for
@@ -43,6 +46,7 @@ const ROWS: &[Row] = &[
         base_url: "https://api.openai.com/v1",
         listen: "gpt-4o-mini-transcribe",
         speak: Some(("gpt-4o-mini-tts", "marin", AudioFormat::Wav, 4096)),
+        voices: &["marin", "cedar", "alloy", "ash", "coral", "sage", "verse"],
     },
     Row {
         provider_id: google::PROVIDER_ID,
@@ -50,6 +54,7 @@ const ROWS: &[Row] = &[
         base_url: google::BASE_URL,
         listen: "gemini-3.5-flash-lite",
         speak: Some(("gemini-3.8-flash-tts", "Sulafat", AudioFormat::Wav, 4096)),
+        voices: &["Sulafat", "Kore", "Puck", "Charon", "Aoede"],
     },
     Row {
         provider_id: "openrouter",
@@ -57,6 +62,7 @@ const ROWS: &[Row] = &[
         base_url: "https://openrouter.ai/api/v1",
         listen: "openai/whisper-large-v3-turbo",
         speak: Some(("x-ai/grok-voice-tts-1.0", "eve", AudioFormat::Mp3, 4096)),
+        voices: &["eve", "ara", "rex", "sal", "leo"],
     },
     Row {
         provider_id: "groq",
@@ -70,6 +76,7 @@ const ROWS: &[Row] = &[
             AudioFormat::Wav,
             200,
         )),
+        voices: &["hannah", "autumn", "diana", "troy", "austin", "daniel"],
     },
     Row {
         provider_id: "mistral",
@@ -77,6 +84,7 @@ const ROWS: &[Row] = &[
         base_url: "https://api.mistral.ai/v1",
         listen: "voxtral-mini-latest",
         speak: None,
+        voices: &[],
     },
 ];
 
@@ -168,6 +176,103 @@ fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> 
         voice: named_voice.unwrap_or(default.voice),
         ..default
     })
+}
+
+/// What the owner can pick for hearing and for speaking, and what each
+/// resolves to when they pick nothing.
+pub struct Options {
+    pub stt: Vec<CapabilityProvider>,
+    pub tts: Vec<CapabilityProvider>,
+    pub automatic_stt: Option<CapabilityPick>,
+    pub automatic_tts: Option<CapabilityPick>,
+}
+
+/// Every connected provider's models for each speech job, from the same
+/// connections `resolve` reads. Only a custom connection offers more than
+/// its provider's default model, because its model ids are all we know.
+pub fn options(vault: &Vault) -> Options {
+    options_from(&connections(vault))
+}
+
+fn options_from(connections: &[Connection]) -> Options {
+    let provider = |connection: &Connection, models: Vec<CapabilityModel>| CapabilityProvider {
+        provider_id: connection.provider_id.clone(),
+        provider_name: connection.name.clone(),
+        models,
+    };
+    let plain = |id: String| CapabilityModel {
+        id,
+        label: None,
+        voices: None,
+    };
+    let mut stt = Vec::new();
+    let mut tts = Vec::new();
+    for connection in connections {
+        let hears: Vec<String> = match row(&connection.provider_id) {
+            Some(row) => vec![row.listen.to_string()],
+            None => connection
+                .models
+                .iter()
+                .filter(|id| {
+                    let id = id.to_ascii_lowercase();
+                    ["whisper", "transcribe"]
+                        .iter()
+                        .any(|word| id.contains(word))
+                })
+                .cloned()
+                .collect(),
+        };
+        if !hears.is_empty() {
+            stt.push(provider(connection, hears.into_iter().map(plain).collect()));
+        }
+        let speaks: Vec<CapabilityModel> = match row(&connection.provider_id) {
+            Some(Row {
+                speak: Some((model, ..)),
+                voices,
+                ..
+            }) => vec![CapabilityModel {
+                id: model.to_string(),
+                label: None,
+                voices: Some(voices.iter().map(|voice| voice.to_string()).collect()),
+            }],
+            Some(_) => Vec::new(),
+            None => connection
+                .models
+                .iter()
+                .filter(|id| {
+                    let id = id.to_ascii_lowercase();
+                    ["tts", "speech"].iter().any(|word| id.contains(word))
+                })
+                .cloned()
+                .map(plain)
+                .collect(),
+        };
+        if !speaks.is_empty() {
+            tts.push(provider(connection, speaks));
+        }
+    }
+    Options {
+        stt,
+        tts,
+        automatic_stt: connections.iter().find_map(|connection| {
+            let model = listening(connection, None)?;
+            Some(CapabilityPick {
+                provider_id: connection.provider_id.clone(),
+                provider_name: connection.name.clone(),
+                model_id: Some(model),
+                voice: None,
+            })
+        }),
+        automatic_tts: connections.iter().find_map(|connection| {
+            let voice = speaking(connection, None)?;
+            Some(CapabilityPick {
+                provider_id: connection.provider_id.clone(),
+                provider_name: connection.name.clone(),
+                model_id: Some(voice.model),
+                voice: Some(voice.voice),
+            })
+        }),
+    }
 }
 
 /// The connected providers in the order the owner connected them, one each.
@@ -589,6 +694,54 @@ mod tests {
             set.fallback_tts.as_ref().unwrap().id().provider_id,
             "google"
         );
+    }
+
+    #[test]
+    fn every_voice_list_starts_with_the_voice_the_provider_speaks_with() {
+        for row in ROWS {
+            match row.speak {
+                Some((_, voice, ..)) => assert_eq!(row.voices.first(), Some(&voice)),
+                None => assert!(row.voices.is_empty()),
+            }
+        }
+    }
+
+    #[test]
+    fn the_options_are_what_the_connected_providers_can_do() {
+        let options = options_from(&[
+            connected("mistral"),
+            connected("openai"),
+            custom(&["llama-3", "whisper-1", "my-tts"]),
+        ]);
+        let names = |providers: &[CapabilityProvider]| {
+            providers
+                .iter()
+                .map(|p| p.provider_name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&options.stt), ["Mistral", "OpenAI", "Cloudflare"]);
+        assert_eq!(names(&options.tts), ["OpenAI", "Cloudflare"]);
+        assert_eq!(options.stt[2].models[0].id, "whisper-1");
+        let openai = &options.tts[0].models[0];
+        assert_eq!(openai.id, "gpt-4o-mini-tts");
+        assert_eq!(openai.voices.as_ref().unwrap()[0], "marin");
+        let stt = options.automatic_stt.unwrap();
+        assert_eq!(
+            (stt.provider_name.as_str(), stt.model_id.as_deref()),
+            ("Mistral", Some("voxtral-mini-latest"))
+        );
+        let tts = options.automatic_tts.unwrap();
+        assert_eq!(
+            (
+                tts.provider_id.as_str(),
+                tts.model_id.as_deref(),
+                tts.voice.as_deref()
+            ),
+            ("openai", Some("gpt-4o-mini-tts"), Some("marin"))
+        );
+        let none = options_from(&[]);
+        assert!(none.stt.is_empty() && none.tts.is_empty());
+        assert!(none.automatic_stt.is_none() && none.automatic_tts.is_none());
     }
 
     #[test]

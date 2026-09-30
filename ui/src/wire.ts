@@ -14,6 +14,7 @@ import type {
 	FileChunk,
 	GlobalSearchHit,
 	HostBrowser,
+	CapabilityOptions,
 	ImagesStatus,
 	LoginPrompt,
 	LoginStatus,
@@ -111,6 +112,7 @@ type Results = {
 	"persona.delete": null;
 	"settings.update": Record<string, unknown>;
 	"images.status": ImagesStatus;
+	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;

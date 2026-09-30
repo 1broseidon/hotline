@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Providers has a "Use for" block: pick which connected provider
+  and model draws images, hears you, speaks, and answers a call, each with
+  Automatic as the first choice, and set one daily and monthly spending cap.
+  Voice follows the same cap once it is set; images and voice still keep
+  separate tallies, and the block shows their sum (BRO-175).
+
 ### Fixed
 
 - Anonymous connections behind a tunnel can no longer hold a fixed set of

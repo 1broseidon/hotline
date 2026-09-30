@@ -87,6 +87,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         }
     }
 
+    /// The providers the owner can pick for each job, the choice made and what
+    /// automatic would pick now.
+    fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
+        Err("This room cannot list what its providers can do.".into())
+    }
+
     fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
         None
     }

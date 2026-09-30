@@ -10,7 +10,13 @@
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
+//!
+//! The caps are shared with images: when the owner has set `settings.spending`
+//! (`{ "dayUsd": 2, "monthUsd": 20 }`) its limits govern voice too, and
+//! `dayUsd` and `monthUsd` here are only the fallback for a room that never
+//! did. Voice and images still keep separate tallies of what they spent.
 
+use crate::log::Log;
 use serde_json::{Map, Value};
 
 pub const DEFAULT_DAY_USD: f64 = 2.0;
@@ -52,15 +58,35 @@ impl Default for VoiceSettings {
 }
 
 impl VoiceSettings {
+    /// The voice preferences of the room behind `log`. `room::settings` always
+    /// carries a default `spending`, which says nothing the owner chose, so it
+    /// counts only once the owner has set it.
+    pub fn from_log(log: &Log) -> VoiceSettings {
+        let mut settings = crate::room::settings(log);
+        if !crate::room::is_set(log, "spending") {
+            settings.remove("spending");
+        }
+        VoiceSettings::from_room(&settings)
+    }
+
     /// The voice preferences in the room's settings, as `room::settings`
     /// returns them.
     pub fn from_room(settings: &Map<String, Value>) -> VoiceSettings {
-        let Some(voice) = settings.get("voice").and_then(Value::as_object) else {
-            return VoiceSettings::default();
+        let empty = Map::new();
+        let voice = settings
+            .get("voice")
+            .and_then(Value::as_object)
+            .unwrap_or(&empty);
+        let shared = settings.get("spending").and_then(Value::as_object);
+        // The shared caps win when they are there; a cap that cannot be read
+        // falls back to voice's own, then to the default.
+        let limit = |key: &str, default: f64| {
+            let own = cap(voice, key, default);
+            shared.map_or(own, |shared| cap(shared, key, own))
         };
         VoiceSettings {
-            day_usd: cap(voice, "dayUsd", DEFAULT_DAY_USD),
-            month_usd: cap(voice, "monthUsd", DEFAULT_MONTH_USD),
+            day_usd: limit("dayUsd", DEFAULT_DAY_USD),
+            month_usd: limit("monthUsd", DEFAULT_MONTH_USD),
             stt: choice(voice, "stt"),
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
@@ -70,8 +96,8 @@ impl VoiceSettings {
 }
 
 /// Zero is a cap (voice is off); a negative or non-numeric one is not.
-fn cap(voice: &Map<String, Value>, key: &str, default: f64) -> f64 {
-    voice
+fn cap(source: &Map<String, Value>, key: &str, default: f64) -> f64 {
+    source
         .get(key)
         .and_then(Value::as_f64)
         .filter(|usd| usd.is_finite() && *usd >= 0.0)
@@ -171,6 +197,22 @@ mod tests {
                 .dispatcher,
             None
         );
+    }
+
+    #[test]
+    fn the_shared_spending_caps_win_over_voices_own() {
+        let mut settings = room(json!({"dayUsd": 5, "monthUsd": 50}));
+        settings.insert("spending".into(), json!({"dayUsd": 0.25, "monthUsd": 3}));
+        let voice = VoiceSettings::from_room(&settings);
+        assert_eq!((voice.day_usd, voice.month_usd), (0.25, 3.0));
+        // One the shared setting cannot give falls back to voice's own.
+        settings.insert("spending".into(), json!({"dayUsd": -1, "monthUsd": 3}));
+        let voice = VoiceSettings::from_room(&settings);
+        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 3.0));
+        // With no spending setting at all, voice's own caps stand.
+        settings.remove("spending");
+        let voice = VoiceSettings::from_room(&settings);
+        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
     }
 
     #[test]

@@ -21,7 +21,7 @@ mod wav;
 pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
-pub use providers::resolve;
+pub use providers::{options, resolve};
 
 use async_trait::async_trait;
 use std::fmt;

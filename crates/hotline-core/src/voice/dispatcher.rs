@@ -296,11 +296,21 @@ impl ProviderDispatcher {
     pub fn resolve(vault: Arc<Vault>, log: &Log) -> Result<Arc<dyn Dispatcher>, String> {
         let settings = crate::room::settings(log);
         let voice = VoiceSettings::from_room(&settings);
+        Self::resolve_with(vault, &settings, &voice)
+    }
+
+    /// The same, for the settings given: the owner's pick left out says what
+    /// automatic would choose.
+    pub(crate) fn resolve_with(
+        vault: Arc<Vault>,
+        settings: &serde_json::Map<String, Value>,
+        voice: &VoiceSettings,
+    ) -> Result<Arc<dyn Dispatcher>, String> {
         let keys = vault.provider_auth();
         let metadata = vault.model_metadata();
         let choices = crate::models::choices(
             &keys,
-            &crate::models::enabled_models(&settings),
+            &crate::models::enabled_models(settings),
             &vault.account_models(),
             &metadata,
         );
@@ -315,7 +325,7 @@ impl ProviderDispatcher {
                 (pick.provider_id.clone(), pick.model_id.clone())
             }
             None => {
-                let preferred = crate::models::preferred_model(&settings)
+                let preferred = crate::models::preferred_model(settings)
                     .or_else(|| choices.first().map(|choice| choice.id.clone()))
                     .ok_or(
                         "Choose a default room model and connect its provider before calling.",
@@ -387,7 +397,7 @@ impl ProviderDispatcher {
 const NOT_CHAT: &[&str] = &["tts", "embed", "whisper", "transcribe", "image", "audio"];
 
 /// Whether this model id (without its provider) could route a spoken request.
-fn is_chat(model: &str) -> bool {
+pub(crate) fn is_chat(model: &str) -> bool {
     let model = model.to_ascii_lowercase();
     !NOT_CHAT.iter().any(|name| model.contains(name))
 }

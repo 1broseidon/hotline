@@ -104,6 +104,8 @@ export class Call {
 	private unsubscribe: (() => void) | null = null;
 	private deskPhase: CallEvent & { type: "state" } = { type: "state", state: "listening" };
 	private pendingFrom: string | undefined;
+	/** The desk has ended the call; this waits for the last clip to finish first. */
+	private closing: EndReason | null = null;
 	private level = 0;
 	private raf = 0;
 
@@ -224,7 +226,12 @@ export class Call {
 		switch (event.type) {
 			case "state":
 				this.deskPhase = event;
-				if (event.state === "ended") this.end(event.reason ?? "error");
+				if (event.state === "ended") {
+					const reason = event.reason ?? "error";
+					// A goodbye or a spent budget is said before the line goes: let the last sentence finish.
+					if ((reason === "goodbye" || reason === "budget") && this.player?.busy) this.closing = reason;
+					else this.end(reason);
+				}
 				else if (event.state === "thinking" && this.snapshot.phase !== "held") this.set({ phase: "thinking" });
 				return;
 			case "heard":
@@ -253,6 +260,7 @@ export class Call {
 
 	/** The last clip finished: back to listening, unless the desk is still working on an answer. */
 	private spoken(): void {
+		if (this.closing !== null) return this.end(this.closing);
 		if (this.snapshot.phase !== "speaking") return;
 		if (this.deskPhase.state === "thinking") this.set({ phase: "thinking" });
 		else this.listen();

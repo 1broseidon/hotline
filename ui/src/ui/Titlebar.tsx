@@ -71,7 +71,7 @@ export function Titlebar({
 						type="button"
 						className="control btn-icon"
 						title={call.open ? "Hang up" : "Talk to the desk"}
-						aria-label={call.open ? "Hang up" : "Talk to the desk"}
+						aria-label="Talk to the desk"
 						aria-pressed={call.open}
 						onClick={call.onToggle}
 					>

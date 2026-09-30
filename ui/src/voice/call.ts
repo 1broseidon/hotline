@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { activeDeskId, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
 import type { VoiceEndReason, VoiceEvent } from "../generated/contract";
-import { ClipPlayer } from "./player";
+import { type CallAudio, webAudio } from "./audio";
 import { TurnDetector } from "./turn";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 
@@ -35,11 +35,12 @@ export type CallSnapshot = {
 	phase: CallPhase;
 	lines: CallLine[];
 	cards: CallCard[];
-	startedAt: number;
+	/** Talk time: `base` ms banked, plus the time since `since` while the line is live and not on hold. */
+	clock: { base: number; since: number | null };
 	/** Why it ended, once it has. */
 	ended?: EndReason;
 	/** One sentence for a person, when something went wrong. */
-	trouble?: string;
+	trouble?: string | undefined;
 };
 
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
@@ -49,6 +50,8 @@ export type CallEvent = VoiceEvent;
 export type CallTransport = {
 	command(cmd: string, params: Record<string, unknown>): Promise<unknown>;
 	subscribe(target: unknown, handlers: { snapshot(items: unknown[]): void; event(item: unknown): void }): () => void;
+	/** The socket to the desk opening and closing; a call without one cannot tell. */
+	onConnection?(watcher: (state: "connecting" | "open" | "closed") => void): () => void;
 };
 
 const wireTransport: CallTransport = {
@@ -67,6 +70,7 @@ function deskTransport(): CallTransport {
 	return {
 		command: (cmd, params) => (one.command as (c: string, p: unknown) => Promise<unknown>)(cmd, params),
 		subscribe: (target, handlers) => one.subscribe(target as Target, handlers),
+		onConnection: (watcher) => one.onConnection(watcher),
 	};
 }
 
@@ -79,40 +83,56 @@ const ENDED_WORDS: Record<EndReason, string | undefined> = {
 	error: "The desk dropped the call.",
 };
 
+const LOST = "Lost the connection to the desk.";
+
 /** How much audio before the detector is sure it heard speech is kept, so a word's first sound is not clipped. */
 const PREROLL_MS = 400;
-/** The mic is read in blocks of this many frames: ~43ms at 48 kHz. */
-const BLOCK = 2048;
+/** How long the desk may be out of reach before the call is given up. */
+const LOST_MS = 5_000;
 
 type Names = (personaId: string) => string | undefined;
 
 export class Call {
 	readonly id = crypto.randomUUID();
-	private snapshot: CallSnapshot = { phase: "connecting", lines: [], cards: [], startedAt: Date.now() };
+	private snapshot: CallSnapshot = { phase: "connecting", lines: [], cards: [], clock: { base: 0, since: null } };
 	private readonly listeners = new Set<() => void>();
 	private readonly levels = new Set<(level: number) => void>();
+	private readonly audio: CallAudio;
 
-	private ctx: AudioContext | null = null;
-	private stream: MediaStream | null = null;
-	private processor: ScriptProcessorNode | null = null;
-	private outAnalyser: AnalyserNode | null = null;
-	private player: ClipPlayer | null = null;
-	private detector = new TurnDetector(performance.now());
+	private detector: TurnDetector;
 	private frames: Float32Array[] = [];
+	private rate = 48_000;
 	private heard = false;
 	private seq = 0;
 	private unsubscribe: (() => void) | null = null;
-	private deskPhase: CallEvent & { type: "state" } = { type: "state", state: "listening" };
+	private unwatch: (() => void) | null = null;
+	private lostTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Whether the desk has made the call; before it, there is nothing to hang up there. */
+	private started = false;
+	/** The desk's own word on where the call stands. */
+	private desk: "listening" | "thinking" | "speaking" | "held" = "listening";
+	/** An utterance is on its way and the desk has not answered with a state yet. */
+	private awaiting = false;
+	private held = false;
+	/** Sentences from a turn that was cut in on: their late clips are not played. */
+	private readonly muted = new Set<string>();
+	private readonly seen = new Set<string>();
 	private pendingFrom: string | undefined;
 	/** The desk has ended the call; this waits for the last clip to finish first. */
 	private closing: EndReason | null = null;
 	private level = 0;
+	private shown = 0;
 	private raf = 0;
 
 	constructor(
 		private readonly transport: CallTransport = wireTransport,
 		private readonly names: Names = () => undefined,
-	) {}
+		audio?: CallAudio,
+		private readonly now: () => number = () => performance.now(),
+	) {
+		this.audio = audio ?? webAudio({ onIdle: () => this.settle(), onLost: () => void this.micLost() });
+		this.detector = new TurnDetector(this.now());
+	}
 
 	// ------------------------------------------------------------- reading
 
@@ -135,38 +155,13 @@ export class Call {
 
 	/** From a press: the webview only lets audio start on a gesture. */
 	async start(): Promise<void> {
-		const ctx = new AudioContext();
-		this.ctx = ctx;
-		await ctx.resume();
 		try {
-			this.stream = await navigator.mediaDevices.getUserMedia({
-				audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-			});
+			await this.audio.open((block, rate) => this.hear(block, rate));
 		} catch {
 			this.fail("Hotline can't hear the microphone. Allow it in your system settings, then call again.");
 			return;
 		}
-		if (this.snapshot.phase === "ended") return this.release();
-
-		const out = ctx.createGain();
-		const analyser = ctx.createAnalyser();
-		analyser.fftSize = 1024;
-		out.connect(analyser);
-		analyser.connect(ctx.destination);
-		this.outAnalyser = analyser;
-		this.player = new ClipPlayer(ctx, out, () => this.spoken());
-
-		const mic = ctx.createMediaStreamSource(this.stream);
-		const processor = ctx.createScriptProcessor(BLOCK, 1, 1);
-		processor.onaudioprocess = (event) => this.hear(event.inputBuffer.getChannelData(0));
-		mic.connect(processor);
-		// A script processor only runs while it leads somewhere; this gain is silent.
-		const sink = ctx.createGain();
-		sink.gain.value = 0;
-		processor.connect(sink);
-		sink.connect(ctx.destination);
-		this.processor = processor;
-
+		if (this.ended) return;
 		// The call exists once the desk has answered call_start; only then can it be watched.
 		try {
 			await this.transport.command("voice.call_start", { callId: this.id });
@@ -174,45 +169,71 @@ export class Call {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return;
 		}
+		this.started = true;
+		if (this.ended) {
+			// Hung up while the desk was answering: tell it, now that it knows the call.
+			void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
+			return;
+		}
 		this.unsubscribe = this.transport.subscribe(
 			{ call: this.id },
 			{
+				// A snapshot is where the call stands, never audio to play again.
 				snapshot: (items) => {
-					for (const item of items) this.receive(item as CallEvent);
+					for (const item of items) if ((item as CallEvent).type === "state") this.receive(item as CallEvent);
 				},
 				event: (item) => this.receive(item as CallEvent),
 			},
 		);
-		this.listen();
-		this.chime("connect");
+		this.unwatch = this.transport.onConnection?.((state) => this.connection(state)) ?? null;
+		this.set({ clock: { base: 0, since: Date.now() } });
+		this.audio.chime("connect");
+		this.settle();
 		this.tick();
 	}
 
 	hangUp(): void {
-		if (this.snapshot.phase === "ended") return;
-		void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
+		if (this.ended) return;
+		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
 		this.end("client");
 	}
 
-	hold(on: boolean): void {
-		const phase = this.snapshot.phase;
-		if (phase === "ended" || phase === "connecting" || on === (phase === "held")) return;
+	async hold(on: boolean): Promise<void> {
+		if (this.ended || this.snapshot.phase === "connecting" || on === this.held) return;
+		if (this.closing !== null) return this.end(this.closing);
 		void this.transport.command("voice.hold", { callId: this.id, hold: on }).catch(() => {});
-		this.stream?.getAudioTracks().forEach((track) => (track.enabled = !on));
 		if (on) {
-			this.player?.stop();
-			this.set({ phase: "held" });
-		} else {
-			this.listen();
+			this.held = true;
+			this.audio.stopPlayback();
+			// Let the microphone go, so the system's mic light says so too.
+			this.audio.closeMic();
+			this.pauseClock();
+			this.settle();
+			return;
 		}
+		try {
+			await this.audio.reopenMic();
+		} catch {
+			this.fail("Hotline can't hear the microphone any more. Call again when it's back.");
+			return;
+		}
+		this.held = false;
+		this.resumeClock();
+		this.settle();
 	}
 
 	/** Cuts the desk off mid-sentence. It never stops a teammate's turn. */
 	interrupt(): void {
-		if (this.snapshot.phase !== "speaking" && this.snapshot.phase !== "thinking") return;
+		const phase = this.snapshot.phase;
+		if (phase !== "speaking" && phase !== "thinking") return;
+		if (this.closing !== null) return this.end(this.closing);
 		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
-		this.player?.stop();
-		this.listen();
+		for (const id of this.seen) this.muted.add(id);
+		this.audio.stopPlayback();
+		this.awaiting = false;
+		// The desk says where it stands next; until then, listen.
+		this.desk = "listening";
+		this.settle();
 	}
 
 	dismissCard(requestId: string): void {
@@ -221,18 +242,21 @@ export class Call {
 
 	// ------------------------------------------------------------- the desk
 
-	private receive(event: CallEvent): void {
-		if (this.snapshot.phase === "ended") return;
+	/** Exposed for tests; the subscription is the only caller in the window. */
+	receive(event: CallEvent): void {
+		if (this.ended) return;
 		switch (event.type) {
 			case "state":
-				this.deskPhase = event;
+				this.awaiting = false;
 				if (event.state === "ended") {
 					const reason = event.reason ?? "error";
 					// A goodbye or a spent budget is said before the line goes: let the last sentence finish.
-					if ((reason === "goodbye" || reason === "budget") && this.player?.busy) this.closing = reason;
+					if ((reason === "goodbye" || reason === "budget") && this.audio.playing) this.closing = reason;
 					else this.end(reason);
+					return;
 				}
-				else if (event.state === "thinking" && this.snapshot.phase !== "held") this.set({ phase: "thinking" });
+				this.desk = event.state;
+				this.settle();
 				return;
 			case "heard":
 				this.line({ kind: "you", id: `heard-${event.seq}`, text: event.text });
@@ -241,15 +265,17 @@ export class Call {
 				this.pendingFrom = this.names(event.personaId) ?? "A teammate";
 				return;
 			case "said": {
+				this.seen.add(event.id);
 				const from = this.pendingFrom;
 				this.pendingFrom = undefined;
 				this.line({ kind: "desk", id: event.id, text: event.text, ...(from ? { from } : {}) });
 				return;
 			}
 			case "clip":
-				if (this.snapshot.phase === "held") return;
-				this.player?.push(event.mimeType, event.data);
-				this.set({ phase: "speaking" });
+				this.seen.add(event.id);
+				if (this.held || this.muted.has(event.id)) return;
+				this.audio.play(event.mimeType, event.data);
+				this.settle();
 				return;
 			case "card":
 				if (this.snapshot.cards.some((card) => card.requestId === event.requestId)) return;
@@ -258,35 +284,64 @@ export class Call {
 		}
 	}
 
-	/** The last clip finished: back to listening, unless the desk is still working on an answer. */
-	private spoken(): void {
-		if (this.closing !== null) return this.end(this.closing);
-		if (this.snapshot.phase !== "speaking") return;
-		if (this.deskPhase.state === "thinking") this.set({ phase: "thinking" });
-		else this.listen();
+	/**
+	 * Where the call stands, worked out again from what is true now: the
+	 * line, the hold, what is playing, and what the desk last said. Every
+	 * change goes through here, so no one event can leave the mic shut.
+	 */
+	settle(): void {
+		if (this.ended) return;
+		if (this.closing !== null && !this.audio.playing) return this.end(this.closing);
+		// Until the desk has made the call and it is watched, it is still connecting.
+		if (this.unsubscribe === null) return;
+		if (this.held) return this.set({ phase: "held" });
+		if (this.audio.playing) return this.set({ phase: "speaking" });
+		if (this.awaiting || this.desk === "thinking" || this.desk === "speaking") return this.set({ phase: "thinking" });
+		const phase = this.snapshot.phase;
+		if (phase === "listening" || phase === "hearing") return;
+		this.frames = [];
+		this.heard = false;
+		this.detector.reset(this.now());
+		this.set({ phase: "listening" });
+	}
+
+	private connection(state: "connecting" | "open" | "closed"): void {
+		if (this.ended) return;
+		if (state === "open") {
+			if (this.lostTimer !== null) clearTimeout(this.lostTimer);
+			this.lostTimer = null;
+			if (this.snapshot.trouble === LOST) this.set({ trouble: undefined });
+			return;
+		}
+		if (this.lostTimer !== null) return;
+		this.set({ trouble: LOST });
+		this.lostTimer = setTimeout(() => this.fail(LOST), LOST_MS);
+	}
+
+	private async micLost(): Promise<void> {
+		if (this.ended || this.held) return;
+		try {
+			await this.audio.reopenMic();
+		} catch {
+			this.fail("Hotline can't hear the microphone any more. Call again when it's back.");
+		}
 	}
 
 	// ------------------------------------------------------------- hearing
 
-	private listen(): void {
-		if (this.snapshot.phase === "ended") return;
-		this.frames = [];
-		this.heard = false;
-		this.detector.reset(performance.now());
-		this.set({ phase: "listening" });
-	}
-
-	private hear(block: Float32Array): void {
+	/** Exposed for tests; the microphone is the only caller in the window. */
+	hear(block: Float32Array, rate: number): void {
 		const phase = this.snapshot.phase;
 		if (phase !== "listening" && phase !== "hearing") return;
+		this.rate = rate;
 		const level = rms(block);
 		this.level = level;
 		this.frames.push(block.slice());
 		if (!this.heard) {
-			const keep = Math.ceil((PREROLL_MS / 1000) * (this.ctx?.sampleRate ?? 48_000) / BLOCK);
+			const keep = Math.ceil(((PREROLL_MS / 1000) * rate) / block.length);
 			while (this.frames.length > keep) this.frames.shift();
 		}
-		for (const turn of this.detector.push(level, performance.now())) {
+		for (const turn of this.detector.push(level, this.now())) {
 			switch (turn.kind) {
 				case "start":
 					this.heard = true;
@@ -304,7 +359,7 @@ export class Call {
 	}
 
 	private send(): void {
-		const rate = this.ctx?.sampleRate ?? 48_000;
+		const rate = this.rate;
 		const total = this.frames.reduce((sum, block) => sum + block.length, 0);
 		const joined = new Float32Array(total);
 		let at = 0;
@@ -316,8 +371,9 @@ export class Call {
 		this.heard = false;
 		const clip = encodeWav(downsample(joined, rate, WAV_RATE));
 		const seq = ++this.seq;
-		this.set({ phase: "thinking" });
-		this.chime("think");
+		this.awaiting = true;
+		this.settle();
+		this.audio.chime("think");
 		this.transport
 			.command("voice.utterance", {
 				callId: this.id,
@@ -326,31 +382,42 @@ export class Call {
 				data: toBase64(clip),
 				durationMs: Math.round((total / rate) * 1000),
 			})
+			.then(() => {
+				if (this.snapshot.trouble !== undefined && this.snapshot.trouble !== LOST) this.set({ trouble: undefined });
+			})
 			.catch((error: unknown) => {
+				this.awaiting = false;
 				this.set({ trouble: error instanceof Error ? error.message : String(error) });
-				this.listen();
+				this.settle();
 			});
 	}
 
 	// ------------------------------------------------------------- the rest
 
+	private get ended(): boolean {
+		return this.snapshot.phase === "ended";
+	}
+
 	private tick = (): void => {
-		if (this.snapshot.phase === "ended") return;
+		if (this.ended) return;
 		let raw = 0;
-		if (this.snapshot.phase === "speaking" && this.outAnalyser) {
-			const buffer = new Float32Array(this.outAnalyser.fftSize);
-			this.outAnalyser.getFloatTimeDomainData(buffer);
-			raw = rms(buffer);
-		} else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing") {
-			raw = this.level;
-		}
+		if (this.snapshot.phase === "speaking") raw = this.audio.outputLevel();
+		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing") raw = this.level;
 		// Perceptual curve, fast attack and slow release, as Spark drew it.
 		const target = Math.min(1, Math.pow(raw * 9, 0.6));
-		const shown = (this.shown += (target - this.shown) * (target > this.shown ? 0.5 : 0.12));
-		for (const listener of this.levels) listener(shown);
+		this.shown += (target - this.shown) * (target > this.shown ? 0.5 : 0.12);
+		for (const listener of this.levels) listener(this.shown);
 		this.raf = requestAnimationFrame(this.tick);
 	};
-	private shown = 0;
+
+	private pauseClock(): void {
+		const { base, since } = this.snapshot.clock;
+		if (since !== null) this.set({ clock: { base: base + (Date.now() - since), since: null } });
+	}
+
+	private resumeClock(): void {
+		if (this.snapshot.clock.since === null) this.set({ clock: { base: this.snapshot.clock.base, since: Date.now() } });
+	}
 
 	private line(line: CallLine): void {
 		const lines = this.snapshot.lines.filter((one) => one.id !== line.id);
@@ -363,55 +430,26 @@ export class Call {
 	}
 
 	private end(reason: EndReason): void {
-		if (this.snapshot.phase === "ended") return;
+		if (this.ended) return;
+		this.pauseClock();
 		const words = ENDED_WORDS[reason];
 		this.set({ phase: "ended", ended: reason, ...(words && !this.snapshot.trouble ? { trouble: words } : {}) });
 		cancelAnimationFrame(this.raf);
 		for (const listener of this.levels) listener(0);
+		if (this.lostTimer !== null) clearTimeout(this.lostTimer);
+		this.lostTimer = null;
+		this.unwatch?.();
+		this.unwatch = null;
 		this.unsubscribe?.();
 		this.unsubscribe = null;
-		this.player?.stop();
-		const tone = this.ctx?.state === "running" ? this.chime("end") : 0;
-		setTimeout(() => this.release(), tone * 1000 + 80);
-	}
-
-	private release(): void {
-		if (this.processor) this.processor.onaudioprocess = null;
-		this.processor?.disconnect();
-		this.stream?.getTracks().forEach((track) => track.stop());
-		this.stream = null;
-		void this.ctx?.close().catch(() => {});
-		this.ctx = null;
+		this.audio.stopPlayback();
+		const tone = this.audio.chime("end");
+		setTimeout(() => this.audio.close(), tone * 1000 + 80);
 	}
 
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
 		for (const listener of this.listeners) listener();
-	}
-
-	/** Soft sine blips, like a phone line: rising to connect, one tick to think, falling to hang up. Seconds long. */
-	private chime(kind: "connect" | "think" | "end"): number {
-		const ctx = this.ctx;
-		if (!ctx || ctx.state === "closed") return 0;
-		const notes = { connect: [587.33, 880], think: [1174.66], end: [880, 587.33] }[kind];
-		const peak = kind === "think" ? 0.035 : 0.06;
-		const length = kind === "think" ? 0.07 : 0.11;
-		const step = 0.09;
-		const t0 = ctx.currentTime + 0.02;
-		notes.forEach((frequency, i) => {
-			const at = t0 + i * step;
-			const osc = ctx.createOscillator();
-			const gain = ctx.createGain();
-			osc.type = "sine";
-			osc.frequency.value = frequency;
-			gain.gain.setValueAtTime(0, at);
-			gain.gain.linearRampToValueAtTime(peak, at + 0.008);
-			gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-			osc.connect(gain).connect(ctx.destination);
-			osc.start(at);
-			osc.stop(at + length + 0.02);
-		});
-		return 0.02 + (notes.length - 1) * step + length;
 	}
 }
 
@@ -451,7 +489,7 @@ export function useCall(): Call | null {
 	);
 }
 
-const EMPTY: CallSnapshot = { phase: "ended", lines: [], cards: [], startedAt: 0 };
+const EMPTY: CallSnapshot = { phase: "ended", lines: [], cards: [], clock: { base: 0, since: null } };
 
 export function useCallSnapshot(call: Call | null): CallSnapshot {
 	return useSyncExternalStore(

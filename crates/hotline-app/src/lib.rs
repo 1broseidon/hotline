@@ -182,26 +182,44 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
 /// WebKitGTK refuses `getUserMedia` unless the application both turns
 /// media streams on and answers the permission request itself; wry does
 /// neither. A call with the desk needs the microphone, so the window gets
-/// audio capture and nothing else: a camera or screen request is still
-/// refused. The page is only ever our own UI. macOS (WKWebView) and Windows
-/// (WebView2) go through wry's own handling and the system's prompt.
+/// audio capture and nothing else, and only while it shows our own page:
+/// the origin it was built with. A camera or screen request, or any page
+/// the window was somehow navigated to, is refused. macOS (WKWebView) and
+/// Windows (WebView2) go through wry's own handling and the system's prompt.
 #[cfg(target_os = "linux")]
 fn allow_microphone(window: &tauri::WebviewWindow) {
-    let _ = window.with_webview(|view| {
+    let Ok(home) = window.url() else {
+        return;
+    };
+    // Scheme, host and port, compared by hand: `Url::origin` is opaque for
+    // `tauri://`, and two opaque origins are never equal.
+    let place = |url: &tauri::Url| {
+        (
+            url.scheme().to_string(),
+            url.host_str().map(str::to_string),
+            url.port_or_known_default(),
+        )
+    };
+    let home = place(&home);
+    let _ = window.with_webview(move |view| {
+        use webkit2gtk::glib::object::Cast;
         use webkit2gtk::{
             PermissionRequestExt, SettingsExt, UserMediaPermissionRequest,
             UserMediaPermissionRequestExt, WebViewExt,
         };
-        use webkit2gtk::glib::object::Cast;
         let view = view.inner();
         if let Some(settings) = WebViewExt::settings(&view) {
             settings.set_enable_media_stream(true);
         }
-        view.connect_permission_request(|_, request| {
+        view.connect_permission_request(move |view, request| {
             let Some(media) = request.downcast_ref::<UserMediaPermissionRequest>() else {
                 return false;
             };
-            if media.is_for_audio_device() && !media.is_for_video_device() {
+            let ours = view
+                .uri()
+                .and_then(|uri| tauri::Url::parse(uri.as_str()).ok())
+                .is_some_and(|page| place(&page) == home);
+            if ours && media.is_for_audio_device() && !media.is_for_video_device() {
                 request.allow();
             } else {
                 request.deny();

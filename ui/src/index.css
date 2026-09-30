@@ -2152,6 +2152,17 @@
 		width: 320px;
 		flex-shrink: 0;
 	}
+	/* In a narrow window the call takes the conversation's place, as the
+	 * inspector does (above). */
+	@container (max-width: 716px) {
+		.call-pane {
+			width: auto;
+			flex: 1;
+		}
+		.conversation:has(~ .call-pane) {
+			display: none;
+		}
+	}
 	.call-stage {
 		display: flex;
 		flex-direction: column;
@@ -2188,8 +2199,8 @@
 	.call-mark[data-phase="ended"] {
 		color: var(--ink-4);
 	}
-	.call-mark:disabled {
-		opacity: 1;
+	.call-mark[aria-disabled="true"] {
+		cursor: default;
 	}
 	@keyframes call-breathe {
 		50% {

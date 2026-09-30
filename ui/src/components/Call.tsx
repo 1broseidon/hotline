@@ -33,6 +33,7 @@ export function CallPane({
 }) {
 	const state = useCallSnapshot(call);
 	const stage = useRef<HTMLButtonElement>(null);
+	const again = useRef<HTMLButtonElement>(null);
 	const lines = useRef<HTMLDivElement>(null);
 
 	useEffect(
@@ -48,14 +49,19 @@ export function CallPane({
 	}, [state.lines.length]);
 
 	const live = state.phase !== "ended";
+	// When the line goes, the next thing to press is Call again.
+	useEffect(() => {
+		if (!live) again.current?.focus();
+	}, [live]);
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
 	return (
 		<aside className="inspector call-pane" aria-label="Call with the desk">
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Desk</h2>
-				<span className="instrument" aria-live="polite">
-					{WORDS[state.phase]}
-					{live && state.phase !== "connecting" && <> · <Clock since={state.startedAt} /></>}
+				<span className="instrument">
+					{/* Only the state is announced; the clock would be read out every second. */}
+					<span aria-live="polite">{WORDS[state.phase]}</span>
+					{live && state.phase !== "connecting" && <> · <Clock clock={state.clock} /></>}
 				</span>
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
 					<CloseIcon />
@@ -69,15 +75,18 @@ export function CallPane({
 					className="call-mark"
 					data-phase={state.phase}
 					aria-label={speaking ? "Cut in" : WORDS[state.phase]}
-					disabled={!speaking}
-					onClick={() => call.interrupt()}
+					// aria-disabled rather than disabled, so focus stays put when the desk stops talking.
+					aria-disabled={!speaking}
+					onClick={() => {
+						if (speaking) call.interrupt();
+					}}
 				>
 					<HotlineMark width={56} />
 				</button>
 				<p className="instrument call-hint">{speaking ? "Press to cut in" : state.phase === "held" ? "The desk is waiting" : " "}</p>
 			</div>
 
-			<div ref={lines} className="call-lines">
+			<div ref={lines} className="call-lines" role="log" aria-label="What was said">
 				{state.lines.map((line) =>
 					line.kind === "you" ? (
 						<div key={line.id} className="flex justify-end">
@@ -113,7 +122,11 @@ export function CallPane({
 			)}
 
 			<footer className="call-foot">
-				{state.trouble !== undefined && <p className="call-trouble">{state.trouble}</p>}
+				{state.trouble !== undefined && (
+					<p className="call-trouble" role="alert">
+						{state.trouble}
+					</p>
+				)}
 				{live ? (
 					<div className="flex gap-2">
 						<button
@@ -129,7 +142,7 @@ export function CallPane({
 						</button>
 					</div>
 				) : (
-					<button type="button" className="control btn btn-primary" onClick={() => void startCall(names)}>
+					<button ref={again} type="button" className="control btn btn-primary" onClick={() => void startCall(names)}>
 						Call again
 					</button>
 				)}
@@ -138,13 +151,16 @@ export function CallPane({
 	);
 }
 
-function Clock({ since }: { since: number }) {
+function Clock({ clock }: { clock: { base: number; since: number | null } }) {
 	const [now, setNow] = useState(Date.now());
 	useEffect(() => {
+		if (clock.since === null) return;
 		const timer = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(timer);
-	}, []);
-	const seconds = Math.max(0, Math.floor((now - since) / 1000));
+	}, [clock.since]);
+	// Talk time: it stops while the call is on hold, and never counts the dialling.
+	const ms = clock.base + (clock.since === null ? 0 : Math.max(0, now - clock.since));
+	const seconds = Math.floor(ms / 1000);
 	return (
 		<span className="tabular-nums">
 			{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}

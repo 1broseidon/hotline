@@ -1,4 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import type MermaidApi from "mermaid";
+// mermaid's single-file build, served as a file of its own. Its ES module
+// build splits into chunks that WebKitGTK's module loader rejects in
+// development; this is one classic script that sets `globalThis.mermaid`,
+// identical in development and in a release.
+import MERMAID_URL from "mermaid/dist/mermaid.min.js?url";
 
 /**
  * A ```mermaid block drawn as the diagram it describes.
@@ -10,8 +16,8 @@ import { useEffect, useState, useSyncExternalStore } from "react";
  * reason (HTML labels would need `foreignObject`), and mermaid runs in its
  * strict mode on top.
  *
- * Mermaid is a few megabytes, so it is fetched the first time a diagram is on
- * screen and never by a window that shows none. A block still streaming in is
+ * Mermaid is a few megabytes, so its script is loaded the first time a diagram
+ * is on screen and never by a window that shows none. A block still streaming in is
  * not drawn until its source stops changing, and one that does not parse stays
  * the code it was, with a line saying so.
  */
@@ -54,7 +60,11 @@ export function Mermaid({ source }: { source: string }) {
 				<pre>
 					<code>{source}</code>
 				</pre>
-				{failed !== null && current === null && <p className="mermaid-note">Couldn't draw this diagram, so here is its source.</p>}
+				{failed !== null && current === null && (
+					<p className="mermaid-note" title={failed}>
+						Couldn't draw this diagram, so here is its source.
+					</p>
+				)}
 				{current !== null && (
 					<button type="button" className="mermaid-toggle" onClick={() => setShowSource(false)}>
 						Show diagram
@@ -77,7 +87,26 @@ const SETTLE_MS = 300;
 
 type Palette = "light" | "dark";
 
-let loading: Promise<typeof import("mermaid").default> | null = null;
+let loading: Promise<typeof MermaidApi> | null = null;
+
+function load(): Promise<typeof MermaidApi> {
+	loading ??= new Promise((resolve, reject) => {
+		const script = document.createElement("script");
+		script.src = MERMAID_URL;
+		script.async = true;
+		script.onload = () => {
+			const loaded = (globalThis as { mermaid?: typeof MermaidApi }).mermaid;
+			if (loaded) resolve(loaded);
+			else reject(new Error("mermaid did not load"));
+		};
+		script.onerror = () => {
+			loading = null;
+			reject(new Error("mermaid could not be loaded"));
+		};
+		document.head.append(script);
+	});
+	return loading;
+}
 let drawn = 0;
 
 /** One render at a time: mermaid keeps global configuration, and the theme is part of it. */
@@ -85,8 +114,7 @@ let queue: Promise<unknown> = Promise.resolve();
 
 function draw(source: string, palette: Palette): Promise<string> {
 	const next = queue.then(async () => {
-		loading ??= import("mermaid").then((module) => module.default);
-		const mermaid = await loading;
+		const mermaid = await load();
 		mermaid.initialize({
 			startOnLoad: false,
 			securityLevel: "strict",

@@ -22,6 +22,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   picked by hand. A subscription that fails can fall back to another
   subscription, never to a paid API.
 
+### Fixed
+
+- A picture a teammate made showed twice in the conversation when it then
+  sent the same file. `generate_image` already posts it, the tools now say
+  so (including `set_avatar`, which used to ask for a `send_file`), and a
+  `send_file` of a picture just made is answered without posting it again.
+
 ## [0.30.0] - 2026-09-30
 
 ### Added

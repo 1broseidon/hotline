@@ -134,6 +134,7 @@ impl Room {
             "costUsd": spent_usd,
             "seconds": started.elapsed().as_secs_f64(),
             "transparent": transparent,
+            "inConversation": true,
         });
         if subscription {
             result["costUsd"] = Value::Null;

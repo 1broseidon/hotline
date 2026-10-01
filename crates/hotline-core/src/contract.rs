@@ -2314,6 +2314,12 @@ pub enum Command {
         #[serde(default)]
         offset: i64,
     },
+    /// Draws a picture for a teammate from its name and goal through the
+    /// room's image providers, within the spending cap, and puts it on the
+    /// roster: what setup offers when images are available. Answers the
+    /// teammate's [`Avatar`]. A picture the person chose is left alone.
+    #[serde(rename = "avatar.generate")]
+    AvatarGenerate { persona_id: String },
     /// Where to notify this phone: the token its push service issued, and
     /// which platform it is for. Sent by the phone after it connects.
     #[serde(rename = "mobile.push_register")]

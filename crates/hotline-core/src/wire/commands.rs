@@ -415,6 +415,12 @@ pub(crate) async fn run(
             crate::session::avatar::read(log.root(), &persona_id, &hash, offset)
                 .map(|chunk| json!(chunk))
         }
+        Command::AvatarGenerate { persona_id } => {
+            living(log, &persona_id)?;
+            room.generate_avatar(&persona_id)
+                .await
+                .map(|avatar| json!(avatar))
+        }
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room
             .import(&home_expanded(&from))

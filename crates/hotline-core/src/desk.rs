@@ -231,6 +231,10 @@ impl RoomHandle for Desk {
         }
     }
 
+    async fn generate_avatar(&self, persona_id: &str) -> Result<crate::contract::Avatar, String> {
+        self.room.generate_avatar(persona_id).await
+    }
+
     async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
         Ok(crate::capabilities::options(
             &self.vault,

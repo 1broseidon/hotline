@@ -10,6 +10,7 @@
 use super::{Room, generate::read_workspace_image};
 use crate::contract::{Avatar, AvatarBy};
 use crate::driver::CapabilityLease;
+use crate::imagegen::{self, Aspect, ImageRequest};
 use crate::images::DECODERS;
 use crate::paths;
 use crate::sent;
@@ -108,6 +109,55 @@ impl Room {
         })
     }
 
+    /// The setup screen's offer: a picture drawn from the teammate's name and
+    /// goal, in the house avatar style. It counts as the teammate's own, so
+    /// the teammate may redraw it later; one the person chose is kept.
+    pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
+        let persona = self.persona(persona_id)?;
+        if persona
+            .avatar
+            .as_ref()
+            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+        {
+            return Err("This teammate already has a picture you chose.".into());
+        }
+        let (prompt, aspect) = imagegen::styled(
+            Some("avatar"),
+            &avatar_subject(&persona.name, &persona.goal),
+            Aspect::Square,
+        )?;
+        let request = ImageRequest {
+            prompt,
+            aspect,
+            transparent: false,
+            references: Vec::new(),
+        };
+        let drawn = self.draw(&request, &None).await?;
+        let permit = DECODERS
+            .acquire()
+            .await
+            .map_err(|_| "The picture could not be prepared.".to_string())?;
+        let png = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            square(&drawn.image.bytes)
+        })
+        .await
+        .map_err(|_| "The picture could not be prepared.".to_string())??;
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        if self
+            .persona(persona_id)?
+            .avatar
+            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+        {
+            return Err("This teammate already has a picture you chose.".into());
+        }
+        self.write_avatar(persona_id, Some(png), AvatarBy::Own)?;
+        self.persona(persona_id)?
+            .avatar
+            .ok_or_else(|| "The picture could not be saved.".to_string())
+    }
+
     fn refuse_over_the_persons_choice(&self, persona_id: &str) -> Result<(), String> {
         let chosen = self
             .persona(persona_id)?
@@ -155,6 +205,20 @@ impl Room {
         remove_except(root, persona_id, hash.as_deref());
         Ok(hash)
     }
+}
+
+/// What the picture is of: the teammate as its name and job suggest, as one
+/// thing a person would remember rather than a portrait of a robot.
+fn avatar_subject(name: &str, goal: &str) -> String {
+    let goal: String = goal.trim().chars().take(600).collect();
+    let mut subject = format!("a teammate called {}", name.trim());
+    if !goal.is_empty() {
+        subject.push_str(&format!(", whose job is: {goal}"));
+    }
+    subject.push_str(
+        ". Draw one memorable animal, object or character that suits the name and the job.",
+    );
+    subject
 }
 
 /// Keeps a picture under its hash, unless it is already there.

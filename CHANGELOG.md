@@ -25,7 +25,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the teammate's workspace and posts it in the conversation, within the
   spending cap (BRO-174).
 - A teammate can set its own profile picture: "make an avatar for yourself"
-  draws one and `set_avatar` puts it on the roster (BRO-173).
+  draws one and `set_avatar` puts it on the roster (BRO-173). When images
+  are available, adding a teammate offers to make one for them, drawn from
+  their name and goal within the spending cap (`avatar.generate`).
 - Experimental: images through a ChatGPT subscription. Pick "Codex (ChatGPT
   subscription)" for images in Settings > Providers > Use for and they come
   from your ChatGPT sign-in instead of a paid key. It is only ever used when

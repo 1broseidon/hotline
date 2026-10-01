@@ -13,6 +13,14 @@ use std::time::Instant;
 
 const REFERENCE_BYTES: u64 = 20 * 1024 * 1024;
 
+/// An image as it came back, what it cost across every attempt, and whether
+/// a subscription paid for it.
+pub(crate) struct Drawn {
+    pub(crate) image: imagegen::Image,
+    pub(crate) spent_usd: f64,
+    pub(crate) subscription: bool,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Arguments {
@@ -55,11 +63,6 @@ impl Room {
         }
         let persona = self.persona(persona_id)?;
         let settings = crate::room::try_settings(self.log())?;
-        let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
-            "images",
-            settings.get("images").unwrap_or(&json!({})),
-        )?)
-        .map_err(|_| "The room's image settings could not be read.".to_string())?;
         let spending: SpendingSettings = serde_json::from_value(
             settings
                 .get("spending")
@@ -68,7 +71,6 @@ impl Room {
         )
         .map_err(|_| "The room's spending settings could not be read.".to_string())?;
         spending.validate()?;
-        let generators = self.resolve_images(&images)?;
         let workspace = Workspace::open_with_capability(
             PathBuf::from(&persona.cwd),
             persona.reach.unwrap_or_default(),
@@ -86,6 +88,75 @@ impl Room {
             transparent: args.transparent,
             references,
         };
+        let Drawn {
+            image,
+            spent_usd,
+            subscription,
+        } = self.draw(&request, &capability).await?;
+        if let Some(capability) = &capability {
+            capability.check()?;
+        }
+        let model = image.id.model_id;
+        let transparent = image.transparent;
+        let permit = crate::images::DECODERS
+            .acquire()
+            .await
+            .map_err(|_| "The generated image could not be prepared.".to_string())?;
+        let file = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            sent::generated::prepare(&name, image.bytes)
+        })
+        .await
+        .map_err(|_| "The generated image could not be prepared.".to_string())??;
+        let output = Workspace::open_with_capability(
+            PathBuf::from(&persona.cwd),
+            Reach::Workspace,
+            self.log.root().join("tool-output").join(persona_id),
+            capability.clone(),
+        )
+        .map_err(|error| error.to_string())?;
+        let file_name = file.name.clone();
+        let path =
+            tokio::task::spawn_blocking(move || output.create_file_path(&file.name, &file.bytes))
+                .await
+                .map_err(|_| "The generated image could not be written.".to_string())?
+                .map_err(|error| error.to_string())?;
+        self.send_file(
+            persona_id,
+            Source::GeneratedImage(file_name),
+            "",
+            capability,
+        )
+        .await?;
+        let mut result = json!({
+            "path": path,
+            "model": model,
+            "costUsd": spent_usd,
+            "seconds": started.elapsed().as_secs_f64(),
+            "transparent": transparent,
+        });
+        if subscription {
+            result["costUsd"] = Value::Null;
+            result["billing"] = json!("subscription");
+        }
+        Ok(result.to_string())
+    }
+
+    /// One image from the room's image providers, the owner's pick first and
+    /// then the paid fallback, each within the spending cap. A subscription
+    /// pick never falls back to a paid provider.
+    pub(crate) async fn draw(
+        &self,
+        request: &ImageRequest,
+        capability: &Option<CapabilityLease>,
+    ) -> Result<Drawn, String> {
+        let settings = crate::room::try_settings(self.log())?;
+        let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
+            "images",
+            settings.get("images").unwrap_or(&json!({})),
+        )?)
+        .map_err(|_| "The room's image settings could not be read.".to_string())?;
+        let generators = self.resolve_images(&images)?;
         let mut spent_usd = 0.0;
         let mut failure = None;
         for generator in std::iter::once(generators.primary).chain(generators.fallback) {
@@ -151,64 +222,21 @@ impl Room {
                     .map_err(|_| "The image's cost could not be recorded.".to_string())??;
             }
             spent_usd += charge.unwrap_or(estimate);
-            let image = match result {
-                Ok(image) => image,
+            match result {
+                Ok(image) => {
+                    return Ok(Drawn {
+                        image,
+                        spent_usd,
+                        subscription,
+                    });
+                }
                 Err(error) => {
                     failure = Some(error.to_string());
                     if subscription {
                         break;
                     }
-                    continue;
                 }
-            };
-            if let Some(capability) = &capability {
-                capability.check()?;
             }
-            let model = image.id.model_id;
-            let transparent = image.transparent;
-            let permit = crate::images::DECODERS
-                .acquire()
-                .await
-                .map_err(|_| "The generated image could not be prepared.".to_string())?;
-            let file = tokio::task::spawn_blocking(move || {
-                let _permit = permit;
-                sent::generated::prepare(&name, image.bytes)
-            })
-            .await
-            .map_err(|_| "The generated image could not be prepared.".to_string())??;
-            let output = Workspace::open_with_capability(
-                PathBuf::from(&persona.cwd),
-                Reach::Workspace,
-                self.log.root().join("tool-output").join(persona_id),
-                capability.clone(),
-            )
-            .map_err(|error| error.to_string())?;
-            let file_name = file.name.clone();
-            let path = tokio::task::spawn_blocking(move || {
-                output.create_file_path(&file.name, &file.bytes)
-            })
-            .await
-            .map_err(|_| "The generated image could not be written.".to_string())?
-            .map_err(|error| error.to_string())?;
-            self.send_file(
-                persona_id,
-                Source::GeneratedImage(file_name),
-                "",
-                capability,
-            )
-            .await?;
-            let mut result = json!({
-                "path": path,
-                "model": model,
-                "costUsd": spent_usd,
-                "seconds": started.elapsed().as_secs_f64(),
-                "transparent": transparent,
-            });
-            if subscription {
-                result["costUsd"] = Value::Null;
-                result["billing"] = json!("subscription");
-            }
-            return Ok(result.to_string());
         }
         Err(failure.unwrap_or_else(|| "No connected provider could make this image.".into()))
     }

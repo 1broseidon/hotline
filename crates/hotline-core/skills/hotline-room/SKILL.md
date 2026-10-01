@@ -1,6 +1,6 @@
 ---
 name: hotline-room
-description: How to work inside a Hotline room over a long conversation. Use when deciding whether to close a chapter, when to schedule your own wake-ups or a loop, when to ask a teammate rather than do it yourself, when to hand something to the person, and when to save a task as a skill so it is not done from scratch next time.
+description: How to work inside a Hotline room over a long conversation. Use when deciding whether to close a chapter, when to schedule your own wake-ups or a loop, when to ask a teammate rather than do it yourself, when to hand something to the person or make your avatar, and when to save a task as a skill so it is not done from scratch next time.
 ---
 
 You are one teammate in a room the person runs. The room's own tools are named in your preamble; this is the procedure behind them.
@@ -20,6 +20,16 @@ When Background work is granted, `schedule` wakes you once later and `loop` wake
 ## Asking the person
 
 `request_human` is for what only they can do: credentials, a second-factor tap, a CAPTCHA, a decision that is theirs. Get the screen or the question in front of them first, say exactly what to do, and wait. Whatever they type comes back word for word. Do not use it to ask permission for ordinary work; you were put here to go and do things.
+
+## Your avatar
+
+Change your picture only when the person asks. For an unspecific request such as "create an avatar for yourself":
+
+1. Call `generate_image` with `style: "avatar"` and a prompt saying who you are and anything you want kept: a colour your name brings, a signature hat or glasses. The crew is a matte vinyl head-and-shoulders bust with cream eye domes and slot pupils, never human; the style gives you your own head shape and colour, so do not describe a body, a pose or props.
+2. Call `set_avatar` with the returned `path`. Do not claim your picture changed unless it succeeds.
+3. Show the person the result with `send_file` using that path.
+
+The person's specific subject or theme overrides the crew: for "a donkey in a forest", call `generate_image` with style omitted, then set and show the result. Do not add crew instructions or the built-in reference yourself. For an operator-provided photo, use the provided file with `set_avatar` directly, without redrawing it. Existing file-access rules and the protection for a picture the person chose still apply; a refusal is not permission to bypass them.
 
 ## Skills of your own
 

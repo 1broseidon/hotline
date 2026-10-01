@@ -965,3 +965,23 @@ async fn setup_is_told_at_once_when_no_provider_can_draw() {
     install(&room, Fake::new("avatar-image"), None);
     room.can_draw_avatar("ada").unwrap();
 }
+
+/// The roster shows a picture on its way, and stops showing it however the
+/// drawing ends: each change nudges the roster through the teammate's info.
+#[tokio::test]
+async fn a_picture_being_drawn_is_on_the_roster_until_it_ends() {
+    let (_dir, room, _tools) = room();
+    let mut infos = room.subscribe_info();
+    assert!(!room.drawing("ada"));
+    {
+        let _drawing = room.start_drawing("ada");
+        assert!(room.drawing("ada"));
+        assert_eq!(infos.recv().await.unwrap().persona_id, "ada");
+    }
+    assert!(!room.drawing("ada"));
+    assert_eq!(infos.recv().await.unwrap().persona_id, "ada");
+
+    // A refused drawing ends the same way.
+    assert!(room.generate_avatar("ada").await.is_err());
+    assert!(!room.drawing("ada"));
+}

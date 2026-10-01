@@ -127,6 +127,7 @@ impl Room {
     /// the teammate may redraw it later; one the person chose is kept.
     pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
         let persona = self.persona(persona_id)?;
+        let _drawing = self.start_drawing(persona_id);
         if persona
             .avatar
             .as_ref()

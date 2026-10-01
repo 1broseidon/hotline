@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import type MermaidApi from "mermaid";
 // mermaid's single-file build, served as a file of its own. Its ES module
 // build splits into chunks that WebKitGTK's module loader rejects in
@@ -26,6 +27,7 @@ export function Mermaid({ source }: { source: string }) {
 	const [drawn, setDrawn] = useState<{ key: string; url: string } | null>(null);
 	const [failed, setFailed] = useState<string | null>(null);
 	const [showSource, setShowSource] = useState(false);
+	const [open, setOpen] = useState(false);
 	const key = `${theme}\n${source}`;
 
 	useEffect(() => {
@@ -75,11 +77,38 @@ export function Mermaid({ source }: { source: string }) {
 	}
 	return (
 		<div className="mermaid-block">
-			<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
+			<button type="button" className="mermaid-open" aria-label="Open the diagram full size" onClick={() => setOpen(true)}>
+				<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
+			</button>
 			<button type="button" className="mermaid-toggle" onClick={() => setShowSource(true)}>
 				Show source
 			</button>
+			{open && <FullSize url={current.url} onClose={() => setOpen(false)} />}
 		</div>
+	);
+}
+
+/** The diagram at its own size over the window, scrolling when it is bigger. Escape or a click outside closes it. */
+function FullSize({ url, onClose }: { url: string; onClose(): void }) {
+	useEffect(() => {
+		const close = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", close);
+		return () => window.removeEventListener("keydown", close);
+	}, [onClose]);
+	return createPortal(
+		<div
+			className="mermaid-full"
+			role="dialog"
+			aria-label="Diagram"
+			onClick={(event) => {
+				if (event.target === event.currentTarget) onClose();
+			}}
+		>
+			<img src={url} alt="Diagram" draggable={false} />
+		</div>,
+		document.body,
 	);
 }
 

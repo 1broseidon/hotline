@@ -2156,6 +2156,29 @@
 		border-radius: var(--radius-control);
 		background: var(--fill-code);
 	}
+	.mermaid-open {
+		display: block;
+		max-width: 100%;
+		cursor: zoom-in;
+	}
+	.mermaid-full {
+		position: fixed;
+		inset: 0;
+		z-index: 60;
+		display: grid;
+		place-items: center;
+		overflow: auto;
+		padding: 32px;
+		background: oklch(0% 0 0 / 0.72);
+		cursor: zoom-out;
+	}
+	.mermaid-full img {
+		max-width: none;
+		padding: 16px;
+		border-radius: var(--radius-control);
+		background: var(--raised);
+		cursor: default;
+	}
 	.mermaid-note {
 		margin-top: 4px;
 		font-size: var(--text-sm);

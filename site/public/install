@@ -7,6 +7,12 @@
 # Server options, asked for when they are missing and a terminal is attached:
 #   --listen IP:PORT             one local address and a fixed port
 #   --public-url https://HOST:PORT  where phones reach the desk
+# And, on a first install:
+#   --user NAME                  run the desk as this user, with their HOME and their
+#                                claude, codex and logins (default: whoever ran the
+#                                installer or sudo; as root alone, the one person's
+#                                account here, else the hotline service account;
+#                                --user hotline asks for the service account)
 # Either mode takes --version X.Y.Z, --yes (skip confirmation), and --force
 # (reinstall even the same version). For future server updates: sudo hotline update.
 #
@@ -50,6 +56,70 @@ as_desk() {
     else
         sudo -u "$(desk_user)" env HOTLINE_DATA_DIR="$ROOM" "$@"
     fi
+}
+
+# Who runs the desk on a first install, in run_user (empty for the hotline
+# service account) and why, in run_because. The user asked for, else the person
+# installing: whoever ran the installer, or whoever ran sudo. They installed
+# claude and codex and signed in to them as themselves, and a desk under another
+# account can see neither their CLIs nor their logins. Root with nobody behind
+# it (a fresh VPS) gets the one person's account here if there is exactly one,
+# and the service account otherwise. The desk never runs as root.
+pick_user() {
+    run_user=
+    run_because=
+    if [ -n "$run_as" ]; then
+        run_user=$run_as
+    elif [ "$(id -u)" -ne 0 ]; then
+        run_user=$(id -un)
+        run_because="who ran the installer"
+    elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+        run_user=$SUDO_USER
+        run_because="who ran sudo"
+    else
+        run_user=$(only_person)
+        run_because="the only person's account here; the desk never runs as root"
+    fi
+    case "$run_user" in
+        "" | hotline)
+            run_user=
+            return 0
+            ;;
+        root) fail "the desk does not run as root; name the user whose claude and codex it should use" ;;
+    esac
+    printf '%s\n' "$run_user" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' || fail "$run_user is not a user name"
+    id -u "$run_user" >/dev/null 2>&1 || fail "there is no user $run_user on this machine"
+}
+
+# The one person with a login on this machine: a regular account (uid 1000 to
+# 59999) with a shell and a home. Prints nothing when there are none or several.
+only_person() {
+    found=
+    count=0
+    for person in $(getent passwd 2>/dev/null | awk -F: '$3 >= 1000 && $3 < 60000 && $7 !~ /(nologin|false)$/ { print $1 ":" $6 }'); do
+        if [ -d "${person#*:}" ]; then
+            found=${person%%:*}
+            count=$((count + 1))
+        fi
+    done
+    if [ "$count" -eq 1 ]; then
+        echo "$found"
+    fi
+}
+
+# Points the unit just installed at another account: its user and group, its
+# HOME, and a PATH that starts where that person keeps their CLIs. Anything
+# else the person needs on PATH goes in with: sudo systemctl edit hotline.
+run_unit_as() {
+    unit_path="$3/.local/bin:$3/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
+    as_root sed -i \
+        -e "s|^User=.*|User=$1|" \
+        -e "s|^Group=.*|Group=$2|" \
+        -e "s|^Environment=HOME=.*|Environment=HOME=$3|" \
+        -e "s|^Environment=PATH=.*|Environment=PATH=$unit_path|" "$UNIT"
+    for line in "User=$1" "Group=$2" "Environment=HOME=$3" "Environment=PATH=$unit_path"; do
+        grep -qxF "$line" "$UNIT" || fail "could not set $line in $UNIT"
+    done
 }
 
 # Reads an answer from the terminal even though the script is on stdin.
@@ -252,13 +322,34 @@ server() {
     [ "$(uname -s)" = Linux ] || fail "the server install is for Linux with systemd; see https://hotline.dev/docs/server/"
     command -v systemctl >/dev/null 2>&1 || fail "the server install needs systemd; see https://hotline.dev/docs/server/install/"
     [ "$(id -u)" -eq 0 ] || need sudo
+
+    fresh=1
+    [ -f "$UNIT" ] && fresh=
+    # Who runs the desk is chosen once, at the first install. Moving an
+    # installed desk to another user means moving its room, which is not for
+    # an installer to do unasked, and sudo's name is no reason to.
+    run_user=
+    if [ -n "$fresh" ]; then
+        pick_user
+    elif [ -n "$run_as" ]; then
+        fail "the desk is already installed and runs as $(desk_user); --user is for a first install (see https://hotline.dev/docs/server/ to move one)"
+    fi
+    if [ -n "$run_user" ]; then
+        run_home=$(getent passwd "$run_user" | cut -d: -f6)
+        run_group=$(id -gn "$run_user")
+        case "$run_home" in /?*) ;; *) fail "$run_user has no home folder" ;; esac
+        [ -d "$run_home" ] || fail "$run_user's home $run_home does not exist"
+        printf '%s\n' "$run_home" | grep -Eq '^/[A-Za-z0-9._/+-]+$' || fail "$run_user's home $run_home has characters the unit cannot carry"
+        printf '%s\n' "$run_group" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' || fail "$run_user's group $run_group is not a group name"
+        say "The desk will run as $run_user${run_because:+ ($run_because)}, with their home and their installed CLIs and logins."
+        say "For a separate service account instead, run again with --user hotline."
+    fi
+
     machine=$(arch)
     dir="hotline-server_${version}_linux_${machine}"
     asset "$dir.tar.gz"
     tar -xzf "$work/$dir.tar.gz" -C "$work"
 
-    fresh=1
-    [ -f "$UNIT" ] && fresh=
     if [ -n "$fresh" ] || [ -n "$listen$public_url" ]; then
         guess=$(host_address)
         if [ -z "$listen" ]; then
@@ -275,12 +366,20 @@ server() {
     fi
 
     as_root install -m 0755 "$work/$dir/hotline" /usr/local/bin/hotline
-    if ! id hotline >/dev/null 2>&1; then
+    if [ -n "$run_user" ]; then
+        # The room stays where `hotline pair` and `status` look for it. Its
+        # parent is open to enter and the room itself is the user's alone.
+        as_root install -d -m 0755 /var/lib/hotline
+        as_root install -d -o "$run_user" -g "$run_group" -m 0700 "$ROOM"
+    elif ! id hotline >/dev/null 2>&1; then
         nologin=$(command -v nologin || echo /usr/sbin/nologin)
         as_root useradd --system --create-home --home-dir /var/lib/hotline --shell "$nologin" hotline
     fi
     if [ -n "$fresh" ]; then
         as_root install -m 0644 "$work/$dir/hotline.service" "$UNIT"
+        if [ -n "$run_user" ]; then
+            run_unit_as "$run_user" "$run_group" "$run_home"
+        fi
     fi
     if [ -z "$fresh" ] && [ -n "$listen" ]; then
         as_root cp "$UNIT" "$UNIT.previous"
@@ -326,11 +425,18 @@ server() {
     say ""
     if has_tty; then
         as_desk /usr/local/bin/hotline pair </dev/tty ||
-            say "Pair later with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair"
+            say "Pair later with: sudo -u $(desk_user) HOTLINE_DATA_DIR=$ROOM hotline pair"
     else
-        say "Pair a phone with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair"
+        say "Pair a phone with: sudo -u $(desk_user) HOTLINE_DATA_DIR=$ROOM hotline pair"
     fi
-    say "Next, connect a model: https://hotline.dev/docs/server/models/"
+    if [ "$(desk_user)" = hotline ]; then
+        say "The desk runs as the hotline service account, which has no claude or codex"
+        say "of its own yet. Install and sign in to one as that account:"
+        say "  sudo -u hotline -H bash"
+        say "See https://hotline.dev/docs/server/models/"
+    else
+        say "Next, connect a model: https://hotline.dev/docs/server/models/"
+    fi
 }
 
 main() {
@@ -339,6 +445,7 @@ main() {
     version=
     listen=
     public_url=
+    run_as=
     yes=
     force=
     while [ $# -gt 0 ]; do
@@ -352,8 +459,10 @@ main() {
             --listen=*) listen=${1#*=} ;;
             --public-url) public_url=${2:?--public-url needs a value}; shift ;;
             --public-url=*) public_url=${1#*=} ;;
+            --user) run_as=${2:?--user needs a value}; shift ;;
+            --user=*) run_as=${1#*=} ;;
             -h | --help)
-                say "usage: install [--server [--listen IP:PORT] [--public-url https://HOST:PORT]] [--version X.Y.Z] [--yes] [--force]"
+                say "usage: install [--server [--listen IP:PORT] [--public-url https://HOST:PORT] [--user NAME]] [--version X.Y.Z] [--yes] [--force]"
                 say "Docs: https://hotline.dev/docs/"
                 return
                 ;;
@@ -361,8 +470,8 @@ main() {
         esac
         shift
     done
-    if [ "$mode" = desktop ] && [ -n "$listen$public_url" ]; then
-        fail "--listen and --public-url are for --server"
+    if [ "$mode" = desktop ] && [ -n "$listen$public_url$run_as" ]; then
+        fail "--listen, --public-url and --user are for --server"
     fi
     need curl
     need tar

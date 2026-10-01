@@ -3178,6 +3178,23 @@ async fn a_repeated_request_id_does_not_duplicate_the_teammate() {
     assert_eq!(room::roster(&log).len(), 1);
 }
 
+/// Why a harness is unavailable can name the machine's accounts and folders:
+/// the owner reads it, a companion reads only that it is unavailable.
+#[tokio::test]
+async fn a_companion_reads_that_a_harness_is_unavailable_not_why() {
+    let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let request = json!({"id": 1, "cmd": "backends.list", "params": {}});
+    let reason = |answer: &Value| answer["result"][1]["unavailable"].clone();
+    let owner = remote_control_answer(Seat::Owner, &handle, &log, request.clone()).await;
+    assert_eq!(reason(&owner), "Not signed in.");
+    let phone = remote_control_answer(Seat::Phone, &handle, &log, request).await;
+    assert_eq!(phone["ok"], true, "{phone}");
+    assert_eq!(reason(&phone), super::PRIVATE_REASON);
+    assert!(phone["result"][0].get("unavailable").is_none());
+}
+
 /// A bad uuid, a blank name, an unknown backend and one `backends.list`
 /// reports unavailable are each refused with a sentence a phone can show.
 #[tokio::test]

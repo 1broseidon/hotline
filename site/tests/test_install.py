@@ -281,6 +281,208 @@ main --server --version 0.26.0 --yes
         self.run_shell('as_desk hotline status')
         self.assertEqual(self.actions(), [f"sudo -u hotline env HOTLINE_DATA_DIR={self.room} hotline status"])
 
+    # -- which user runs the desk (BRO-139) ------------------------------------
+
+    def pick(self, run_as="", sudo_user="", me="root", people=(), success=True):
+        """pick_user as `me`, on a machine whose passwd lists `people` (name, uid, shell, home)."""
+        passwd = "\n".join(f"{name}:x:{uid}:{uid}::{home}:{shell}" for name, uid, shell, home in people)
+        return self.run_shell(f'''
+id() {{
+    case "$*" in
+        -u) [ {shlex.quote(me)} = root ] && echo 0 || echo 1001 ;;
+        -un) echo {shlex.quote(me)} ;;
+        "-u agent" | "-u bob" | "-u carol") echo 1001 ;;
+        *) return 1 ;;
+    esac
+}}
+getent() {{ printf '%s\\n' {shlex.quote(passwd)}; }}
+run_as={shlex.quote(run_as)}
+{f"SUDO_USER={shlex.quote(sudo_user)}" if sudo_user else "unset SUDO_USER"}
+pick_user
+echo "$run_user"
+''', success=success).strip()
+
+    def person(self, name, uid=1001, shell="/bin/bash", home=None):
+        if home is None:
+            home = self.root / "people" / name
+            home.mkdir(parents=True, exist_ok=True)
+        return (name, uid, shell, str(home))
+
+    def test_the_desk_runs_as_whoever_installed_it_unless_told_otherwise(self):
+        self.assertEqual(self.pick(sudo_user="agent"), "agent")
+        self.assertEqual(self.pick(me="agent"), "agent")
+        self.assertEqual(self.pick(run_as="bob", sudo_user="agent"), "bob")
+        self.assertEqual(self.pick(run_as="bob", me="agent"), "bob")
+
+    def test_root_alone_runs_the_desk_as_the_one_person_here(self):
+        self.assertEqual(self.pick(people=[self.person("agent")]), "agent")
+        self.assertEqual(self.pick(sudo_user="root", people=[self.person("agent")]), "agent")
+        # Accounts nobody logs in to are not people.
+        system = [
+            ("daemon", 1, "/usr/sbin/nologin", "/usr/sbin"),
+            ("nobody", 65534, "/bin/sh", "/nonexistent"),
+            self.person("svc", shell="/usr/sbin/nologin"),
+            self.person("off", shell="/bin/false"),
+            self.person("gone", home=self.root / "no-such-home"),
+        ]
+        self.assertEqual(self.pick(people=system + [self.person("agent")]), "agent")
+        self.assertEqual(self.pick(people=system), "")
+
+    def test_the_service_account_is_there_for_anyone_who_names_it_and_for_root_among_several(self):
+        self.assertEqual(self.pick(), "")
+        self.assertEqual(self.pick(people=[self.person("agent"), self.person("bob")]), "")
+        self.assertEqual(self.pick(sudo_user="hotline"), "")
+        self.assertEqual(self.pick(run_as="hotline", sudo_user="agent"), "")
+        self.assertEqual(self.pick(run_as="hotline", people=[self.person("agent")]), "")
+
+    def test_a_user_that_cannot_run_the_desk_is_refused(self):
+        self.assertIn("does not run as root", self.pick(run_as="root", success=False))
+        self.assertIn("no user ghost", self.pick(run_as="ghost", success=False))
+        self.assertIn("is not a user name", self.pick(run_as="a;b", success=False))
+        self.assertIn("is not a user name", self.pick(run_as="-x", success=False))
+
+    def test_the_unit_is_pointed_at_the_users_account_and_nothing_else_moves(self):
+        packaged = (INSTALL.parents[2] / "packaging/hotline.service").read_text()
+        self.unit.write_text(packaged)
+        self.run_shell(f'''
+as_root() {{ "$@"; }}
+run_unit_as agent staff /home/agent
+''')
+        lines = set(self.unit.read_text().splitlines())
+        for line in (
+            "User=agent",
+            "Group=staff",
+            "Environment=HOME=/home/agent",
+            "Environment=PATH=/home/agent/.local/bin:/home/agent/.npm-global/bin:/usr/local/bin:/usr/bin:/bin",
+        ):
+            self.assertIn(line, lines)
+        for unchanged in ("Environment=HOTLINE_DATA_DIR=/var/lib/hotline/room", "UMask=0077", "Type=exec"):
+            self.assertIn(unchanged, lines)
+        self.assertEqual([line for line in packaged.splitlines() if line.startswith("ExecStart=")],
+                         [line for line in self.unit.read_text().splitlines() if line.startswith("ExecStart=")])
+        self.assertNotIn("User=hotline", lines)
+
+    def test_a_unit_that_cannot_be_pointed_at_the_user_is_an_error(self):
+        self.unit.write_text("[Service]\nUser=hotline\nEnvironment=HOME=/var/lib/hotline\n")
+        out = self.run_shell('as_root() { "$@"; }; run_unit_as agent agent /home/agent', success=False)
+        self.assertIn("could not set Group=agent", out)
+
+    def server_run(self, args, sudo_user=None, unit_exists=False, hotline_exists=False, success=True, home=None, alone=False):
+        """The real server() over a real archive, with privileged commands logged instead of run."""
+        directory = "hotline-server_0.26.0_linux_x86_64"
+        packaged = (INSTALL.parents[2] / "packaging/hotline.service").read_bytes()
+        archive = self.root / (directory + ".tar.gz")
+        with tarfile.open(archive, "w:gz") as tar:
+            for name, data in (("hotline", b"binary\n"), ("hotline.service", packaged)):
+                entry = tarfile.TarInfo(f"{directory}/{name}")
+                entry.size = len(data)
+                tar.addfile(entry, io.BytesIO(data))
+        (self.root / "checksums.txt").write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+        if unit_exists:
+            self.unit.write_bytes(packaged)
+        source = INSTALL.read_text()
+        server = source[source.index("server() {"):source.index("\nmain() {")]
+        agent_home = self.home if home is None else home
+        return self.run_shell(server + f'''
+fetch() {{ cp {shlex.quote(str(self.root))}/"${{1##*/}}" "$2"; }}
+id() {{
+    case "$1" in
+        -u) if [ -n "${{2:-}}" ]; then case "$2" in agent) echo 1001 ;; *) return 1 ;; esac; else echo 0; fi ;;
+        -gn) echo agentgroup ;;
+        hotline) {"return 0" if hotline_exists else "return 1"} ;;
+    esac
+}}
+getent() {{ {"" if alone else '[ -n "${2:-}" ] &&'} echo "agent:x:1001:1001:Agent:{agent_home}:/bin/bash"; }}
+as_root() {{
+    case "$1" in
+        sed) "$@" ;;
+        install) case "$*" in *" $UNIT") cp "$4" "$UNIT" ;; *) echo "$*" >>"$LOG" ;; esac ;;
+        *) echo "$*" >>"$LOG" ;;
+    esac
+}}
+as_desk() {{ return 0; }}
+desk_user() {{ sed -n 's/^User=//p' "$UNIT"; }}
+{f"SUDO_USER={shlex.quote(sudo_user)}" if sudo_user else "unset SUDO_USER"}
+main --server --version 0.26.0 --yes {args}
+''', success=success)
+
+    LISTEN = "--listen 192.0.2.10:9443 --public-url https://desk.example:9443"
+
+    def assert_runs_as_agent(self, out):
+        actions = self.actions()
+        self.assertIn("install -d -m 0755 /var/lib/hotline", actions)
+        self.assertIn(f"install -d -o agent -g agentgroup -m 0700 {self.room}", actions)
+        self.assertFalse([a for a in actions if a.startswith("useradd")], actions)
+        unit = self.unit.read_text().splitlines()
+        self.assertIn("User=agent", unit)
+        self.assertIn("Group=agentgroup", unit)
+        self.assertIn(f"Environment=HOME={self.home}", unit)
+        self.assertIn("The desk will run as agent", out)
+        self.assertIn(f"sudo -u agent HOTLINE_DATA_DIR={self.room} hotline pair", out)
+        self.assertNotIn("sudo -u hotline -H bash", out)
+
+    def test_a_first_server_install_can_run_the_desk_as_a_named_user(self):
+        out = self.server_run(f"{self.LISTEN} --user agent")
+        self.assert_runs_as_agent(out)
+
+    def test_a_first_server_install_under_sudo_runs_the_desk_as_the_person_who_ran_it(self):
+        out = self.server_run(self.LISTEN, sudo_user="agent")
+        self.assert_runs_as_agent(out)
+
+    def test_a_first_server_install_as_root_alone_runs_the_desk_as_the_one_person_here(self):
+        out = self.server_run(self.LISTEN, alone=True)
+        self.assert_runs_as_agent(out)
+        self.assertIn("the only person's account here", out)
+
+    def test_a_first_server_install_with_nobody_behind_it_is_as_it_was(self):
+        for args, sudo_user in ((self.LISTEN, None), (self.LISTEN, "root"), (f"{self.LISTEN} --user hotline", "agent")):
+            self.log.unlink(missing_ok=True)
+            self.unit.unlink(missing_ok=True)
+            out = self.server_run(args, sudo_user=sudo_user)
+            actions = self.actions()
+            self.assertTrue(any(a.startswith("useradd --system --create-home --home-dir /var/lib/hotline") for a in actions), actions)
+            self.assertFalse([a for a in actions if a.startswith("install -d")], actions)
+            unit = self.unit.read_text().splitlines()
+            self.assertIn("User=hotline", unit)
+            self.assertIn("Environment=HOME=/var/lib/hotline", unit)
+            self.assertNotIn("The desk will run as", out)
+            self.assertIn(f"sudo -u hotline HOTLINE_DATA_DIR={self.room} hotline pair", out)
+            self.assertIn("sudo -u hotline -H bash", out)
+            self.assertIn("Environment=PATH=/var/lib/hotline/.local/bin:/var/lib/hotline/.npm-global/bin:/usr/local/bin:/usr/bin:/bin", unit)
+
+    def test_an_installed_desk_keeps_its_user_however_it_is_upgraded(self):
+        # sudo's name is no reason to move a room the desk already has.
+        out = self.server_run("", sudo_user="agent", unit_exists=True, hotline_exists=True)
+        self.assertFalse([a for a in self.actions() if a.startswith("install -d")], self.actions())
+        self.assertIn("User=hotline", self.unit.read_text().splitlines())
+        self.assertNotIn("The desk will run as", out)
+
+    def test_naming_a_user_for_an_installed_desk_is_refused_before_anything_changes(self):
+        out = self.server_run("--user agent", unit_exists=True, hotline_exists=True, success=False)
+        self.assertIn("--user is for a first install", out)
+        self.assertEqual(self.actions(), [])
+
+    def test_a_named_user_needs_a_home_the_unit_can_carry(self):
+        for home, complaint in (
+            (self.root / "no-such-home", "does not exist"),
+            ("", "has no home folder"),
+            ("relative/home", "has no home folder"),
+        ):
+            out = self.server_run(f"{self.LISTEN} --user agent", success=False, home=home)
+            self.assertIn(complaint, out)
+            self.assertEqual(self.actions(), [])
+        odd = self.root / "home|with pipe"
+        odd.mkdir()
+        out = self.server_run(f"{self.LISTEN} --user agent", success=False, home=odd)
+        self.assertIn("characters the unit cannot carry", out)
+        self.assertEqual(self.actions(), [])
+
+    def test_help_lists_user_and_the_desktop_install_refuses_it(self):
+        self.assertIn("--user NAME", self.run_shell("main --help"))
+        out = self.run_shell("main --user agent", success=False)
+        self.assertIn("are for --server", out)
+        self.assertEqual(self.actions(), [])
+
     def test_pipe_to_sh_help(self):
         result = subprocess.run(["sh", "-s", "--", "--help"], input=INSTALL.read_text(),
                                 text=True, capture_output=True, timeout=10)

@@ -24,7 +24,7 @@ Turning a computer on is a grant, so it happens on the server, not the phone.
 Find the teammate's id, then turn its computer on:
 
 ```sh
-H="sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline"
+H="sudo -u $(systemctl show -p User --value hotline) HOTLINE_DATA_DIR=/var/lib/hotline/room hotline"
 sudo grep -o '"id":"[^"]*","name":"[^"]*"' /var/lib/hotline/room/room.jsonl | sort -u
 echo '{"id":"TEAMMATE_ID","patch":{"computer":{"enabled":true}}}' | $H wire persona.update
 ```

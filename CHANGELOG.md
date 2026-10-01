@@ -52,6 +52,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the window asks for the address of the page you land on and finishes the
   sign-in with it. Only that sign-in's own callback is accepted, and a wrong
   address leaves it waiting (BRO-154).
+- A harness the desk cannot start now says why when the CLI is installed for
+  someone else on the machine ("claude is installed for agent, but the desk
+  runs as hotline …") or is in the desk's own home or a system folder but off
+  its PATH, instead of only "Not installed". The desk checks that an
+  executable exists and opens nobody's files (BRO-139). A companion phone
+  only reads that a harness is unavailable here; the reason is for the owner.
+- The server installer runs the desk as the person installing it, whether
+  they ran it as themselves or with `sudo`, so it sees their `claude`,
+  `codex` and logins. As root with nobody behind it, it uses the one
+  person's account on the machine, or else creates the `hotline` service
+  account and says how to set up a harness for it; the desk never runs as
+  root. `--user NAME` chooses, and an upgrade never changes the user
+  (BRO-139).
 
 ## [0.30.0] - 2026-09-30
 

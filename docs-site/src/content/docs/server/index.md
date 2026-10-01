@@ -11,7 +11,7 @@ connected, and the phone picks up where they are when you open it.
 A server is not self-explanatory the way the desktop app is, so this section
 goes in order:
 
-1. [Install](/docs/server/install/): the binary, a service account, and a
+1. [Install](/docs/server/install/): the binary, the account it runs as, and a
    systemd unit that listens on one address.
 2. [Pair your phone](/docs/server/pair/): `hotline pair` prints a QR code and
    your phone scans it.

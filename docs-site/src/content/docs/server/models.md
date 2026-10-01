@@ -8,13 +8,13 @@ from a provider you connect, or on a **harness** such as Claude Code or Codex
 that brings its own sign-in. On a server, connecting providers is a one-time
 step you do on the server itself. Your phone can't do it.
 
-Every command here runs as the service account against the running desk.
-`hotline wire` reads its parameters from standard input, never from the
-command line, so a key stays out of your shell history and the process list.
-Start with a variable for the account:
+Every command here runs as the account the desk runs as, against the
+running desk. `hotline wire` reads its parameters from standard input, never
+from the command line, so a key stays out of your shell history and the
+process list. Start with a variable for the account:
 
 ```sh
-H="sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline"
+H="sudo -u $(systemctl show -p User --value hotline) HOTLINE_DATA_DIR=/var/lib/hotline/room hotline"
 ```
 
 :::note
@@ -59,9 +59,10 @@ key for now, or connect the provider in the desktop app and use that machine.
 ## A harness that is already signed in
 
 A harness uses its own login, not Hotline's, so a teammate on Claude Code
-needs no provider at all if Claude Code is signed in **for the `hotline`
-account**. Harnesses live under that account's home (`/var/lib/hotline`),
-not yours. Sign in as it, for example:
+needs no provider at all if Claude Code is signed in **for the account the
+desk runs as**. When that is you, your own login is the one it uses. When it
+is the `hotline` service account, harnesses live under its home
+(`/var/lib/hotline`), not yours. Sign in as it, for example:
 
 ```sh
 sudo -u hotline -H bash -lc 'npx -y @anthropic-ai/claude-code'   # then /login

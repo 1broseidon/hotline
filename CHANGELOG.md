@@ -8,6 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Agents the ACP registry ships as prebuilt archives can be teammates:
+  Google Antigravity, Goose, Amp, Kimi, Mistral Vibe, Junie and the rest of
+  the registry's binary agents. The first start downloads the archive for
+  this computer, checks it against its published SHA-256 when there is one,
+  and unpacks it under the data directory's `acp-agents/`; later starts reuse
+  it, and a new release replaces the old one. An agent with nothing published
+  for this computer still shows why it is unavailable.
+
 ### Changed
 
 - A teammate's face in the rail turns a ring while something is on its way:

@@ -146,6 +146,9 @@ fn terminal_blocking(
     let mut command = CommandBuilder::new(&launch.command);
     command.args(&launch.args);
     command.args(&method.args);
+    for (name, value) in &launch.env {
+        command.env(name, value);
+    }
     command.cwd(cwd);
     command.env("TERM", "xterm-256color");
     for (name, value) in method.env {
@@ -309,6 +312,7 @@ mod tests {
             let launch = Launch {
                 command: "/bin/sh".into(),
                 args: vec!["-c".into()],
+                env: Vec::new(),
             };
             let method = AuthMethodTerminal::new("terminal", "Fixture")
                 .args(vec![code.into()])
@@ -400,6 +404,7 @@ mod tests {
                 let launch = Launch {
                     command: "/bin/sh".into(),
                     args: vec!["-c".into()],
+                    env: Vec::new(),
                 };
                 let method = AuthMethodTerminal::new("terminal", "Fixture")
                     .args(vec![code.into()])

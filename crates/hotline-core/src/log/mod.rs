@@ -146,6 +146,38 @@ impl Log {
         Ok(fold(events.into_iter()))
     }
 
+    pub(crate) fn try_load_strict(&self, stream: &StreamId) -> io::Result<Vec<Value>> {
+        let mut events = Vec::new();
+        for file in self.readable_files(stream) {
+            let text = match fs::read_to_string(&file) {
+                Ok(text) => text,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+                let event: Value = serde_json::from_str(line).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "The room stream contains an unreadable event.",
+                    )
+                })?;
+                if !event
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !id.is_empty())
+                    || event.get("kind").and_then(Value::as_str).is_none()
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "The room stream contains an invalid event.",
+                    ));
+                }
+                events.push(event);
+            }
+        }
+        Ok(fold(events.into_iter()))
+    }
+
     /// Adds one event to the end of the stream, then hands it to whoever is
     /// listening.
     pub fn append(&self, stream: &StreamId, event: &Value) -> io::Result<Appended> {

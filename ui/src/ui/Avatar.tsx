@@ -1,12 +1,31 @@
+import { useEffect, useState } from "react";
+import { avatarUrl } from "../avatars";
+
 /**
- * A teammate's face: the first letter of the name on a disc whose colour is
- * hashed from the id, so a teammate keeps its colour when the one above it
- * is deleted. The lightness and chroma are the tokens' (ui/src/tokens.css);
- * only the hue is chosen here. Red is missing on purpose: it is the colour of
- * something wrong.
+ * A teammate's face: its picture in the circle when it has one (`hash` is the
+ * picture's, from the teammate's record), else the first letter of the name on
+ * a disc whose colour is hashed from the id, so a teammate keeps its colour
+ * when the one above it is deleted. The initial also shows while the picture
+ * comes and if it cannot be read. The lightness and chroma are the tokens'
+ * (ui/src/tokens.css); only the hue is chosen here. Red is missing on
+ * purpose: it is the colour of something wrong.
  */
-export function Avatar({ id, name, size = 28 }: { id: string; name: string; size?: number }) {
-	return (
+export function Avatar({
+	id,
+	name,
+	size = 28,
+	hash,
+	busy = false,
+}: {
+	id: string;
+	name: string;
+	size?: number;
+	hash?: string | undefined;
+	/** Something is on its way: a session starting, a picture being drawn. A ring turns around the face. */
+	busy?: boolean;
+}) {
+	const url = usePicture(id, hash);
+	const face = (
 		<span
 			aria-hidden="true"
 			className="avatar"
@@ -17,9 +36,35 @@ export function Avatar({ id, name, size = 28 }: { id: string; name: string; size
 				background: faceOf(id),
 			}}
 		>
-			{initialOf(name)}
+			{url === undefined ? initialOf(name) : <img className="avatar-picture" src={url} alt="" draggable={false} />}
 		</span>
 	);
+	if (!busy) return face;
+	return (
+		<span className="avatar-busy">
+			{face}
+			<span aria-hidden="true" className="avatar-ring" />
+		</span>
+	);
+}
+
+/** The picture's URL once it has arrived; undefined before, and if it cannot be read. */
+function usePicture(personaId: string, hash: string | undefined): string | undefined {
+	const [loaded, setLoaded] = useState<{ hash: string; url: string } | undefined>(undefined);
+	useEffect(() => {
+		if (hash === undefined) return;
+		let gone = false;
+		avatarUrl(personaId, hash).then(
+			(url) => {
+				if (!gone) setLoaded({ hash, url });
+			},
+			() => {},
+		);
+		return () => {
+			gone = true;
+		};
+	}, [personaId, hash]);
+	return hash !== undefined && loaded?.hash === hash ? loaded.url : undefined;
 }
 
 function faceOf(personaId: string): string {

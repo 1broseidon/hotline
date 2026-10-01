@@ -97,6 +97,90 @@ decision for George, not a bug fix.
   for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.
 
+## Generated images (BRO-174)
+
+`generate_image` is available to teammate sessions on Hotline Agent and ACP,
+not to their subagent runs. It uses only providers already connected by the
+owner; no key or provider response body appears in the result or a failure.
+`settings.images`, `settings.spending`, `images.status` and `capabilities.options` require the local
+desk or owner seat. Companion status requests are refused before dispatch.
+
+Reference files use the same cap-std workspace handle and current capability
+lease as the file tools. Workspace reach refuses traversal and escaping
+symlinks; machine reach can read elsewhere. Output always lands inside the
+teammate's workspace, even with machine reach, using create-only publication
+so an existing file or symlink is never overwritten. The kept conversation
+copy uses `send_file`'s posting, quiet-window and readback path; generated
+PNG, JPEG, WebP and SVG bypass photo-to-JPEG normalization, preserve alpha
+and are limited to 2048 pixels on their longer edge. Decoding and reference
+reads have byte and allocation ceilings.
+
+Each dollar-billed provider attempt reserves its estimate durably before the request,
+including the single fallback. A successful result settles its reported
+cost, or the estimate if absent. Provider 400–499 refusals settle at zero;
+timeouts, server failures, malformed responses and cancelled requests retain
+their estimates, because they cannot prove the provider did no paid work.
+The minimal ledger lives at `<data>/spending.json`, under the room's one
+writer, with UTC day/month caps and atomic replacement. Corrupt saved caps
+or a corrupt, missing-after-use, unreadable or unwritable ledger block
+spending rather than restore an empty budget. Reads and saves retry on the
+next call after storage recovers; a bad ledger keeps refusing until repaired.
+Failed settlements are retained and retried before admitting more spending;
+once replacement succeeds they are not applied twice if directory sync fails.
+A backward clock keeps the future ledger period and its higher totals instead
+of resetting usage. Either zero cap disables it. Reservation and settlement
+IO, including fsync, run on blocking workers, not async runtime threads.
+No room or ledger mutex stays held across generation. The capability lease
+is checked again before fallback, output writing and conversation posting.
+
+`session::generate::tests` drives the real Rig and MCP entry points against
+a fake `ImageGen`, and the resolver/HTTP adapter against a connected mock
+provider. It proves workspace/chat copies, accounting, denied budgets and
+references, fallback reservation, disabled spending, excluded subagents and
+revocation. `sent::generated::tests` proves format/alpha retention and size
+limits; `spending::tests` proves durable, concurrent, fail-closed accounting.
+The wire tests prove owner/desk status and companion refusals.
+
+Subscription images (a Hotline ChatGPT sign-in, or a Grok sign-in) are the
+resolver's first automatic choice, ahead of paid keys. A subscription falls
+back only to another subscription, never to a paid API; a paid selection may
+fall back to a subscription, which costs no dollars. The draw loop enforces
+the same boundary: after a subscription attempt it stops at the first paid
+generator. ChatGPT reuses Hotline's saved login and noninteractive Rig
+refresh, never Codex CLI's credential directory; the image destination is
+fixed to the ChatGPT Codex backend. Grok reuses Hotline's saved xAI device
+login and its shared refresh lock, sending the bearer only to
+`https://api.x.ai/v1`. HTTP redirects are disabled for both. Subscription
+requests bypass dollar reservations without modifying the ledger and report
+unknown monetary cost (`costUsd: null`, `billing: "subscription"`). Dollar
+caps do not constrain subscription quota. The tool still validates settings,
+checks reach and capability leases, and posts through the same file path.
+The adapter rechecks the caller's lease after authentication refresh and
+immediately before dispatch, so stopping the teammate during refresh sends
+neither prompt nor references. Refresh timeouts report a retryable delay,
+not an invalid login.
+`imagegen::tests` proves the JSON request and account headers against localhost,
+login rereads and safe refusals; resolver tests prove subscriptions first and
+no paid fallback. `session::generate::tests` proves subscription output and
+unchanged dollar accounting even with disabled or exhausted budgets.
+`imagegen::chatgpt::tests` covers revocation during refresh with a local HTTP
+server, and the tool-handler tests prove that it leaves no file or chat post.
+`wire::tests::chatgpt_images_status_requires_owner_selection_without_checking_entitlement`
+proves selected status and companion denial through the real handler. Status
+is configuration, not an entitlement check. Live compatibility is unverified;
+the internal upstream endpoint can change or reject an account independently
+of a successful sign-in. No automatic retry or paid fallback masks that failure.
+
+Residual risk: dispatched provider work can finish and cost money after
+revocation; it cannot be recalled. A reported price above its estimate is
+recorded and blocks later work if over the cap, not retroactively prevented.
+Unknown failed-request costs are estimates, not invoices. Failed settlements
+stay in memory until storage recovers; restarting first retains only the
+durably reserved estimate. Generated files
+and chat copies share the existing retention policy; no automatic cleanup
+is added. Voice will use the same spending interface when its branch is
+integrated; it is not charged by this image-only branch yet.
+
 ## Operator actions are not agent capabilities
 
 Some things the person does from the desk are one-shot transfers, not standing
@@ -930,3 +1014,43 @@ made it so.
   shell administration, not isolation between computer viewers. Download handles
   are process-wide random ids, not window-bound. A compromised main window or
   local process that steals its owner token still has owner authority.
+
+
+### Voice calls
+
+`voice.*` commands and `{"call":"id"}` subscriptions are restricted to the local
+desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
+`voice-dispatcher` tape is also refused as a companion subscription. No microphone
+audio is written to the tape: only transcriptions and spoken text are indexed.
+
+The dispatcher executes a fixed command allowlist in `voice::dispatcher::Context`.
+It cannot answer permission/human/passkey cards, edit policies, read arbitrary
+files, or change credentials. Text handoffs use the ordinary session commands;
+those commands retain the teammate's existing permissions and approval gates.
+Disconnect/revocation cancels the call's authority to dispatch further actions,
+while already accepted teammate work continues. Clip queues are bounded; an
+out-of-date subscriber is disconnected instead of losing audio silently.
+
+Only a context created for a new heard utterance can invoke action commands.
+Narration has no tools. Conversation tails, history, and narrated replies are
+escaped untrusted blocks; this is a prompt boundary, not a guarantee against
+model misinterpretation. The core caps handoffs at three per utterance and
+rejects attachments and reply targets. Startup is asynchronous, with a bounded
+wait, and a queued acknowledgement never establishes successful delivery.
+
+Voice-created schedules are agent-origin jobs (`operatorCreated: false`), require
+the live background-work grant under the ordinary schedule mutation lock, and
+are checked again before firing. The dispatcher refuses loops, intervals, quiet
+jobs, and cancellation of jobs created outside this call. The trusted voice
+origin is an internal task scope; wire parameters cannot set it. Reply provenance
+is retained in the opaque user event ID so only voice handoffs can rewrite an
+out-of-call push. A held call sends normal pushes.
+
+Proofs: `voice::tests::voice_schedules_require_a_grant_and_cannot_escape_the_call_scope`,
+`a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup`,
+`session::tests::only_the_reply_to_a_voice_handoff_gets_a_summarised_push`,
+`wire::tests::voice_is_owner_only_through_the_real_handler`, the voice
+state-machine tests, `voice::dispatcher::tests`, and the WebSocket scripted client
+in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
+errors, fallback and persistent budget failures. Live provider latency is a
+separate measurement; fake-provider test timings are not a production guarantee.

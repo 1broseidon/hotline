@@ -502,6 +502,18 @@
 		flex-shrink: 0;
 		color: var(--ink-3);
 	}
+	/* Use for: a job's model and its voice share a row, and a resolved
+	 * Automatic reads "Automatic · Provider · model", which needs the room. */
+	.use-for .picker {
+		max-width: 200px;
+	}
+	/* Voice's own parts, opened under it: indented so they read as its. */
+	.use-for-nested {
+		padding-left: 28px;
+	}
+	.use-for-nested .group-row-title {
+		color: var(--ink-2);
+	}
 	/* The same pull-down inside a form: framed like a key. */
 	.picker-field {
 		width: 100%;
@@ -853,6 +865,35 @@
 		font-weight: 600;
 		color: var(--face-ink);
 		user-select: none;
+		overflow: hidden;
+	}
+	.avatar-picture {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	/* Something on its way to this face: a quarter arc turning around it.
+	 * Stepped like the beat below, twelve positions a turn, so a machine
+	 * drawing without a GPU repaints twelve times a second and not every frame. */
+	.avatar-busy {
+		position: relative;
+		display: inline-flex;
+		flex-shrink: 0;
+	}
+	.avatar-ring {
+		position: absolute;
+		inset: -3px;
+		border-radius: 50%;
+		border: 2px solid transparent;
+		border-top-color: var(--accent);
+		border-right-color: var(--accent);
+		pointer-events: none;
+		animation: avatar-spin 1s steps(12) infinite;
+	}
+	@keyframes avatar-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	/* A working teammate's mark: it breathes. Nothing else in the window
@@ -1267,6 +1308,22 @@
 		color: var(--ink-2);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+	.step-out-part + .step-out-part {
+		margin-top: 10px;
+	}
+	.step-edit-path {
+		margin-bottom: 4px;
+		color: var(--ink-3);
+	}
+	.step-edit-add {
+		color: var(--accent);
+	}
+	.step-edit-del {
+		color: var(--danger);
+	}
+	.step-edit-same {
+		color: var(--ink-3);
 	}
 	.steps {
 		margin: 4px 0;
@@ -1858,11 +1915,40 @@
 		width: 320px;
 		flex-shrink: 0;
 	}
-	/* A turn's work beside the conversation: wider than the inspector, and a
-	 * window rather than a page, so it sits a step down in the well with
-	 * the steps in the instrument voice, following the newest. */
-	.work-pane {
-		width: 400px;
+	/* A turn's work floats in the window's corner, over the conversation
+	 * rather than beside it: a translucent card you glance at and close,
+	 * with the steps in the instrument voice, following the newest. */
+	.work-float {
+		position: relative;
+		display: flex;
+		width: min(400px, calc(100vw - 32px));
+		/* One height whatever the run holds, never down over the composer,
+		 * whose top is 68px above the column's foot. */
+		height: min(360px, calc(100% - 68px));
+		flex-shrink: 0;
+		flex-direction: column;
+		border-radius: var(--radius-pane);
+		overflow: clip;
+	}
+	/* A window too narrow for the card to float beside the words docks it
+	 * under the composer, the width of the column, where it pushes the
+	 * conversation up instead of covering it. */
+	.work-dock {
+		flex-shrink: 0;
+		padding: 0 24px 12px;
+		margin-top: -4px;
+	}
+	.work-float.work-docked {
+		width: 100%;
+		max-width: 46rem;
+		height: min(240px, 34vh);
+		margin: 0 auto;
+		background: var(--pop);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
 	}
 	.work-window {
 		min-height: 0;
@@ -1871,7 +1957,7 @@
 		margin: 0 8px 8px;
 		padding: 8px 4px;
 		border-radius: var(--radius-card);
-		background: var(--well);
+		background: color-mix(in oklab, var(--well) 55%, transparent);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 	}
 	.work-window .step {
@@ -2079,6 +2165,81 @@
 		padding: 0;
 		font-size: inherit;
 	}
+	.mermaid-block {
+		margin: 0.6em 0;
+	}
+	.mermaid-block pre {
+		margin: 0;
+	}
+	.mermaid-diagram {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		padding: 12px;
+		border-radius: var(--radius-control);
+		background: var(--fill-code);
+	}
+	/* Anything pressed to open in the viewer. */
+	.picture-open {
+		display: block;
+		max-width: 100%;
+		cursor: zoom-in;
+	}
+	.viewer {
+		position: fixed;
+		inset: 0;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		background: oklch(0% 0 0 / 0.78);
+	}
+	.viewer-bar {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+		padding: 10px 12px;
+	}
+	.viewer-stage {
+		flex: 1;
+		min-height: 0;
+		display: grid;
+		place-items: center;
+		overflow: auto;
+		padding: 0 24px 24px;
+	}
+	.viewer-stage img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: var(--radius-chip);
+		/* A diagram is transparent; a pane behind it keeps its ink readable. */
+		background: var(--canvas);
+		cursor: zoom-in;
+	}
+	/* At its own size: bigger than the window scrolls, and grid centring would
+	 * clip the top and left, so it starts from the corner instead. */
+	.viewer-actual {
+		place-items: start;
+	}
+	.viewer-actual img {
+		max-width: none;
+		max-height: none;
+		margin: auto;
+		cursor: zoom-out;
+	}
+	.mermaid-note {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.mermaid-toggle {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.mermaid-toggle:hover {
+		color: var(--ink-2);
+	}
 	.md blockquote {
 		margin: 0.6em 0;
 		padding-left: 10px;
@@ -2121,7 +2282,8 @@
 	.menu,
 	.rail-tip,
 	.search-panel,
-	.row-lit {
+	.row-lit,
+	.avatar-ring {
 		animation: none;
 	}
 	.row-lit {
@@ -2139,4 +2301,192 @@
 .tape-row {
 	content-visibility: auto;
 	contain-intrinsic-block-size: auto 96px;
+}
+/* That skipping clips paint to the row, so the emoji hung off a bubble's
+ * lower edge get the room below it inside the row. */
+.said-group:has(> .speech > .reactions) {
+	padding-bottom: 10px;
+}
+
+@layer components {
+	/* ---------------------------------------------------------- the call
+	 * A call with the desk floats in the window's bottom-right corner, over
+	 * whatever is open, so the conversation and its composer stay usable.
+	 * Voice only: the mark, the state and the controls. The mark is the
+	 * call: it swells with whoever is talking (--level, 0..1, set from the
+	 * audio, not from React), in ink while you speak and in the accent
+	 * while the desk does, because the accent is an agent at work. */
+	/* What floats over the window, down its right edge: a turn's work hangs
+	 * from under the header, where it covers the older conversation rather
+	 * than the newest, and the call keeps the bottom corner by the composer,
+	 * so neither moves the other. The column takes no clicks; its cards do. */
+	.float-stack {
+		position: fixed;
+		top: 80px;
+		right: 16px;
+		bottom: 16px;
+		z-index: 40;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 10px;
+		pointer-events: none;
+	}
+	.float-stack > * {
+		pointer-events: auto;
+	}
+	/* Floating cards are glass: the window shows through, blurred, so they
+	 * read as over the conversation rather than in it. Their shadow is the
+	 * tight one: the float shadow's 32px blur, over a conversation that
+	 * scrolls or streams beneath it, cost WebKit a tenth of a core. */
+	.work-float,
+	.call-float {
+		background: color-mix(in oklab, var(--pop) 72%, transparent);
+		-webkit-backdrop-filter: blur(20px) saturate(1.4);
+		backdrop-filter: blur(20px) saturate(1.4);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-glass);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.call-float {
+		display: flex;
+		width: 208px;
+		flex-shrink: 0;
+		margin-top: auto;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		padding: 10px 12px 14px;
+		border-radius: var(--radius-pane);
+	}
+	/* In a narrow window the composer runs the full width; sit above it. */
+	@container (max-width: 716px) {
+		.float-stack {
+			bottom: 84px;
+		}
+	}
+	.call-top {
+		display: flex;
+		width: 100%;
+		align-items: center;
+		gap: 6px;
+		padding-left: 4px;
+	}
+	.call-mark {
+		--level: 0;
+		display: grid;
+		place-items: center;
+		width: 88px;
+		height: 88px;
+		border-radius: 50%;
+		color: var(--ink-3);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			0 0 0 calc(var(--level) * 14px) var(--fill-hover);
+	}
+	.call-mark[data-phase="hearing"] {
+		color: var(--ink);
+	}
+	.call-mark[data-phase="speaking"],
+	.call-mark[data-phase="thinking"] {
+		color: var(--accent);
+		cursor: pointer;
+	}
+	.call-mark[data-phase="thinking"] {
+		animation: call-breathe 1800ms var(--ease-out) infinite;
+	}
+	.call-mark[data-phase="held"],
+	.call-mark[data-phase="ended"] {
+		color: var(--ink-4);
+	}
+	.call-mark[aria-disabled="true"] {
+		cursor: default;
+	}
+	@keyframes call-breathe {
+		50% {
+			opacity: 0.6;
+		}
+	}
+	.call-card {
+		display: flex;
+		width: 100%;
+		align-items: center;
+		padding: 6px 10px;
+		border-radius: var(--radius-control);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--accent);
+		font-size: var(--text-md);
+		text-align: left;
+	}
+	.call-trouble {
+		font-size: var(--text-md);
+		color: var(--ink-2);
+		text-align: center;
+	}
+	.call-controls {
+		display: flex;
+		gap: 16px;
+	}
+	/* The call's own controls are round and wordless, like a phone's:
+	 * hold and resume in the quiet fill, hanging up in red, calling again
+	 * in the accent. */
+	.call-button {
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		color: var(--ink-2);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.call-button:hover:not(:disabled) {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.call-button:disabled {
+		opacity: 0.5;
+	}
+	.call-button-end,
+	.call-button-end:hover:not(:disabled) {
+		color: white;
+		background: var(--danger);
+	}
+	.call-button-end:hover:not(:disabled) {
+		filter: brightness(1.1);
+	}
+	.call-button-start,
+	.call-button-start:hover:not(:disabled) {
+		color: var(--on-accent);
+		background: var(--accent);
+	}
+	.call-button-start:hover:not(:disabled) {
+		filter: brightness(1.1);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.call-mark {
+			animation: none;
+		}
+	}
+}
+
+/* Jump-to-latest sits in the same corner as the call; it steps out from under
+ * the card rather than show through its glass. Utilities, to outrank its own
+ * right-8; an attribute rather than :has, which a streaming tape would make
+ * the engine re-check on every word. */
+@layer utilities {
+	main[data-call] .jump-latest {
+		right: 236px;
+	}
 }

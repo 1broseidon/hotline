@@ -156,7 +156,7 @@ pub async fn complete(
     prompt: &str,
     output_limit: Option<u64>,
 ) -> Result<String, String> {
-    let agent = agent_builder(keys, model_id, None, output_limit, Reuse::Once)
+    let agent = completion_builder(keys, model_id, output_limit)
         .await?
         .preamble(system)
         .build();
@@ -164,6 +164,26 @@ pub async fn complete(
         .prompt(prompt)
         .await
         .map_err(|error| error.to_string())
+}
+
+/// Shared provider construction for bounded room services that own no teammate.
+pub(crate) async fn completion_builder(
+    keys: &HashMap<String, ProviderAuth>,
+    model_id: &str,
+    output_limit: Option<u64>,
+) -> Result<rig::agent::AgentBuilder, String> {
+    completion_builder_with_effort(keys, model_id, None, output_limit).await
+}
+
+/// The same, at a thinking level the model lists; `None` leaves it to the
+/// model.
+pub(crate) async fn completion_builder_with_effort(
+    keys: &HashMap<String, ProviderAuth>,
+    model_id: &str,
+    effort: Option<&str>,
+    output_limit: Option<u64>,
+) -> Result<rig::agent::AgentBuilder, String> {
+    agent_builder(keys, model_id, effort, output_limit, Reuse::Once).await
 }
 
 /// One line of the conversation the agent is being started back into.

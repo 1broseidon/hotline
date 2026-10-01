@@ -17,11 +17,19 @@ use crate::driver::CapabilityLease;
 use crate::images::DECODERS;
 use crate::sent::{self, Prepared};
 use crate::tools::Workspace;
+use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The most a caption may say. More than this is a message of its own.
 pub(crate) const MAX_CAPTION_CHARS: usize = 2000;
+
+/// A picture `generate_image` posted: its SHA-256, and when.
+pub(super) type Drawn = ([u8; 32], i64);
+
+/// How long a picture `generate_image` posted counts as just posted. Asked
+/// for again after that, it is sent again.
+const REPEAT_MS: i64 = 10 * 60 * 1000;
 
 const QUIET: &str = "This is a quiet scheduled run, and nothing from it reaches the person, so the file was not sent. If they need it, send it when you are next talking with them.";
 
@@ -29,6 +37,7 @@ const QUIET: &str = "This is a quiet scheduled run, and nothing from it reaches 
 pub(crate) enum Source {
     /// A path in the teammate's workspace, or anywhere under machine reach.
     Workspace(String),
+    GeneratedImage(String),
     /// A path on its computer.
     Computer(String),
     /// Its computer's screen now, or one window of it, or one region.
@@ -65,9 +74,14 @@ impl Room {
         if self.is_quiet(persona_id) {
             return Err(QUIET.to_string());
         }
+        let generated = matches!(&source, Source::GeneratedImage(_));
+        let workspace = matches!(&source, Source::Workspace(_));
         let taken = match source {
+            Source::GeneratedImage(path) => {
+                from_workspace(&persona, self.log.root(), &path, capability.clone()).await?
+            }
             Source::Workspace(path) => {
-                from_workspace(&persona, self.log.root(), &path, capability).await?
+                from_workspace(&persona, self.log.root(), &path, capability.clone()).await?
             }
             Source::Computer(path) => {
                 let ready = self.computer_to_send_from(persona_id).await?;
@@ -93,7 +107,19 @@ impl Room {
                 }
             }
         };
-        let file = prepare(taken.name, taken.bytes).await?;
+        let digest: [u8; 32] = Sha256::digest(&taken.bytes).into();
+        // Models like to send the picture they just made, which
+        // `generate_image` has already put in the conversation.
+        if workspace && self.just_drew(persona_id, &digest) {
+            return Ok(format!(
+                "{} is already in the conversation: generate_image posted it. Nothing was sent again; say anything about it in your reply.",
+                taken.name
+            ));
+        }
+        let file = prepare(taken.name, taken.bytes, generated).await?;
+        if let Some(capability) = &capability {
+            capability.check()?;
+        }
         let id = new_id();
         let root = self.log.root();
         let path = sent::store(root, persona_id, &id, &file)
@@ -116,6 +142,12 @@ impl Room {
             ring: None,
             receipt: None,
         };
+        if let Some(capability) = &capability
+            && let Err(refused) = capability.check()
+        {
+            sent::discard(root, persona_id, &id);
+            return Err(refused);
+        }
         if let Err(refused) = self.post_file(persona_id, event) {
             sent::discard(root, persona_id, &id);
             return Err(refused);
@@ -126,11 +158,26 @@ impl Room {
             caption.to_string()
         };
         self.push.notify(&persona.name, &body, persona_id, None);
+        if generated {
+            let mut drawn = lock(&self.drawn);
+            let recent = drawn.entry(persona_id.to_string()).or_default();
+            recent.retain(|(_, at)| now_ms() - at < REPEAT_MS);
+            recent.push((digest, now_ms()));
+        }
         Ok(sent_sentence(&file))
     }
 
+    /// Whether `generate_image` posted this picture for this teammate lately.
+    fn just_drew(&self, persona_id: &str, digest: &[u8; 32]) -> bool {
+        lock(&self.drawn).get(persona_id).is_some_and(|recent| {
+            recent
+                .iter()
+                .any(|(drawn, at)| drawn == digest && now_ms() - at < REPEAT_MS)
+        })
+    }
+
     /// Whether a quiet scheduled run holds this teammate's voice right now.
-    fn is_quiet(&self, persona_id: &str) -> bool {
+    pub(super) fn is_quiet(&self, persona_id: &str) -> bool {
         let session = lock(&self.sessions).get(persona_id).cloned();
         session.is_some_and(|session| quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()))
     }
@@ -207,14 +254,18 @@ async fn from_workspace(
 
 /// Makes the file what it will be kept as, off the async workers: an image
 /// is decoded and encoded again.
-async fn prepare(name: String, bytes: Vec<u8>) -> Result<Prepared, String> {
+async fn prepare(name: String, bytes: Vec<u8>, generated: bool) -> Result<Prepared, String> {
     let permit = DECODERS
         .acquire()
         .await
         .map_err(|_| "The file could not be prepared.".to_string())?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        sent::prepare(&name, bytes)
+        if generated {
+            sent::generated::prepare(&name, bytes)
+        } else {
+            sent::prepare(&name, bytes)
+        }
     })
     .await
     .map_err(|_| "The file could not be prepared.".to_string())?

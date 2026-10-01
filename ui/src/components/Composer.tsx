@@ -3,7 +3,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
-import { pickAttachments } from "../serverFiles";
+import { readImage } from "@tauri-apps/plugin-clipboard-manager";
+import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
 
 /** The field stops growing here, and scrolls from then on. */
@@ -29,9 +30,9 @@ export function isDown(state: SessionState): boolean {
  * there is something to send. Stop stays separate while the teammate is
  * working, so a correction never needs an interruption first. Attach is the
  * plus at the left end. A reply being composed is a one-line quote at the
- * head of the pill, and chips there are files picked or dropped, never a
- * path typed or pasted into it. Escape puts the chips down first, then the
- * quote, then it interrupts a turn.
+ * head of the pill, and chips there are files picked, dropped or pasted,
+ * never a path typed or pasted into it as words. Escape puts the chips down
+ * first, then the quote, then it interrupts a turn.
  */
 export function Composer({
 	personaId,
@@ -57,6 +58,7 @@ export function Composer({
 }) {
 	const [text, setText] = useState("");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const [pasteFailed, setPasteFailed] = useState<string | null>(null);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
 	const hasContent = text.trim().length > 0 || attachments.length > 0;
@@ -144,6 +146,21 @@ export function Composer({
 		area.current?.focus();
 	}, [refill]);
 
+	// A pasted picture or file is bytes, not a path: the desk keeps a copy
+	// and the chip names that.
+	const paste = async (files: File[]) => {
+		setPasteFailed(null);
+		try {
+			for (const file of files) {
+				const name = pastedName(file);
+				const kept = await stage(name, new Uint8Array(await file.arrayBuffer()));
+				setAttachments((known) => [...known, { ...fromDroppedPath(kept.path), name, size: kept.size }]);
+			}
+		} catch (error) {
+			setPasteFailed(`Couldn't attach what was pasted: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	};
+
 	const attach = async () => {
 		const picked = await pickAttachments();
 		if (picked.length > 0) setAttachments((known) => mergeDropped(known, picked.map((file) => file.path)));
@@ -195,6 +212,19 @@ export function Composer({
 						aria-label={`Message ${name}`}
 						placeholder="Message"
 						onChange={(event) => setText(event.target.value)}
+						onPaste={(event) => {
+							const files = Array.from(event.clipboardData.files);
+							if (files.length > 0) {
+								event.preventDefault();
+								void paste(files);
+								return;
+							}
+							// Some webviews (WebKitGTK) keep a copied picture from the page; the
+							// shell can still read it when there is no text.
+							if (event.clipboardData.getData("text/plain") === "") {
+								void shellPicture().then((file) => file && paste([file]));
+							}
+						}}
 						onKeyDown={(event) => {
 							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 								event.preventDefault();
@@ -216,6 +246,7 @@ export function Composer({
 							}
 						}}
 					/>
+					{pasteFailed !== null && <p className="pt-1 text-xs text-danger">{pasteFailed}</p>}
 				</div>
 				{working && (
 					<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
@@ -239,6 +270,32 @@ export function Composer({
 			</div>
 		</div>
 	);
+}
+
+/** A screenshot pastes as `image.png`; one name per paste keeps chips apart. */
+function pastedName(file: File): string {
+	if (file.name !== "" && !/^image\.[a-z]+$/i.test(file.name)) return file.name;
+	const extension = file.type.startsWith("image/") ? file.type.slice(6).replace("jpeg", "jpg").replace("svg+xml", "svg") : "png";
+	const now = new Date();
+	const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((part) => String(part).padStart(2, "0")).join(".");
+	return `Pasted image ${time}.${extension}`;
+}
+
+/** The picture on the system clipboard as a PNG, through the shell; null when there is none. */
+async function shellPicture(): Promise<File | null> {
+	try {
+		const image = await readImage();
+		const [{ width, height }, rgba] = await Promise.all([image.size(), image.rgba()]);
+		const canvas = document.createElement("canvas");
+		canvas.width = width;
+		canvas.height = height;
+		canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+		const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+		return png && new File([png], "image.png", { type: "image/png" });
+	} catch {
+		// No picture there, or no shell: a browser tab.
+		return null;
+	}
 }
 
 /**

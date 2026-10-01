@@ -86,6 +86,9 @@ export function NewTeammateForm({
 	const [computer, setComputer] = useState(false);
 	// A computer is offered only where one can start.
 	const [computerReady, setComputerReady] = useState(false);
+	// A picture is offered only where the room can draw one: the provider that would.
+	const [imagesBy, setImagesBy] = useState<string | null>(null);
+	const [picture, setPicture] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const modelId = pickedModel ?? defaultModelId ?? lastModelId ?? "";
@@ -101,6 +104,10 @@ export function NewTeammateForm({
 			.command("computer.runtimes", {})
 			.then((reports) => setComputerReady(reports.some((one) => one.state === "ready")))
 			.catch(() => setComputerReady(false));
+		void wire
+			.command("capabilities.options", {})
+			.then(({ images }) => setImagesBy((images.selected ?? images.automatic)?.providerName ?? null))
+			.catch(() => setImagesBy(null));
 	}, []);
 
 	const available = (id: string) => backends.some((one) => one.id === id && one.unavailable === undefined);
@@ -127,6 +134,11 @@ export function NewTeammateForm({
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			await wire.command("session.start", { personaId: persona.id });
+			// Drawn while they settle in: the initial shows until the roster
+			// brings the picture, and a refusal leaves the initial in place.
+			if (imagesBy !== null && picture) {
+				void wire.command("avatar.generate", { personaId: persona.id }).catch((error: Error) => console.warn("avatar.generate", error.message));
+			}
 			onCreated(persona.id);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
@@ -209,6 +221,21 @@ export function NewTeammateForm({
 						label="Model"
 						onChange={setPickedModel}
 					/>
+				</div>
+			)}
+
+			{imagesBy !== null && (
+				<div>
+					<p className="label">Picture</p>
+					<div className="grouped">
+						<SwitchRow
+							title="Make a picture"
+							value={`Drawn from the name and goal with ${imagesBy}`}
+							checked={picture}
+							disabled={busy}
+							onChange={setPicture}
+						/>
+					</div>
 				</div>
 			)}
 

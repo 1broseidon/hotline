@@ -9,12 +9,14 @@
 //! tools — over its conversation, and over the teammates it shares the room
 //! with. The wire is built on top of these.
 
+mod capabilities;
 pub mod computer;
 pub mod contract;
 pub mod credentials;
 pub mod desk;
 pub mod driver;
 mod fence;
+pub mod imagegen;
 mod images;
 pub mod import;
 pub mod log;
@@ -31,7 +33,9 @@ pub mod room_lock;
 mod sent;
 pub mod session;
 pub mod skills;
+pub mod spending;
 pub mod store;
 pub mod tools;
 pub mod vault;
+pub mod voice;
 pub mod wire;

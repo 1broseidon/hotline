@@ -20,6 +20,7 @@ cap-std = "4.0.3"
 ignore = "0.4.33"
 grep-searcher = "0.1.17"
 grep-regex = "0.1.14"
+regex = "1"
 globset = "0.4.20"
 futures-util = "0.3.34"
 tokio-tungstenite = "0.30"
@@ -32,9 +33,16 @@ agent-client-protocol = { version = "=2.0.0", features = ["unstable_end_turn_tok
 # `compat` bridges ACP futures-io; `io` streams staged computer uploads.
 tokio-util = { version = "0.7", features = ["compat", "io"] }
 # Keep TLS explicit rather than inheriting it from Rig. Computer file uploads
-# stream their staged bodies instead of buffering whole files in memory.
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "stream"] }
+# stream their staged bodies instead of buffering whole files in memory, and a
+# spoken clip goes to a speech-to-text provider as a multipart form.
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
 url = "2.5.8"
+# Agents the ACP registry ships as prebuilt archives: zip, tar.gz and tar.bz2
+# are what it publishes, unpacked in Rust so no unzip or tar has to be installed.
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+bzip2 = "0.6"
 # Canonical paths without Windows' \\?\ prefix, for paths a person or a message will show.
 dunce = "1.0.5"
 # OpenRouter PKCE and xAI's device flow; inference remains on Rig.
@@ -86,6 +94,7 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+roxmltree = "0.20"
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

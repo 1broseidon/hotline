@@ -28,6 +28,7 @@
     "opener:allow-open-url",
     "opener:allow-reveal-item-in-dir",
     "opener:allow-default-urls",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-image"
   ]
 }

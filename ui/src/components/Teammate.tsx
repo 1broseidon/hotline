@@ -177,7 +177,12 @@ export function Teammate({
 					{/* Who they are, the way a contact card opens: the face, the name
 					    and what they are for, each edited where it stands. */}
 					<div className="profile">
-						<Avatar id={persona.id} name={name.trim() || persona.name} size={44} />
+						<Avatar id={persona.id} name={name.trim() || persona.name} size={44} hash={persona.avatar?.hash} />
+						{persona.avatar !== undefined && (
+							<button type="button" className="control btn btn-sm" disabled={busy} onClick={() => save({ avatar: null } as unknown as Partial<Persona>)}>
+								Use initial
+							</button>
+						)}
 						<input
 							aria-label="Name"
 							className="profile-name"

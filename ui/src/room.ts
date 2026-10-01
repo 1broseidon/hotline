@@ -151,6 +151,17 @@ export function useRoomSettings(): {
 }
 
 /**
+ * One setting as the owner last wrote it, undefined when they never did or
+ * have cleared it. For a setting whose whole object a write replaces, so the
+ * writer can change one key and keep the rest.
+ */
+export function useRawSetting(key: string): unknown {
+	const events = useRoom(pickSettings);
+	const event = events.get(key);
+	return event === undefined || event.deleted ? undefined : event.value;
+}
+
+/**
  * A number that goes up whenever the room's model choices may have changed:
  * a connection added or removed, a provider's list refreshed or edited, or
  * the "Models shown" filter saved. A list fetched in an effect that depends

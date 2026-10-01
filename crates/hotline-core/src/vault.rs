@@ -167,6 +167,11 @@ impl Vault {
         Ok(credential)
     }
 
+    /// The data root this vault lives in.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// Opens the vault over a data root, refusing one whose directory or file
     /// is not the plain directory and plain file it must be.
     ///

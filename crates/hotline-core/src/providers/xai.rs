@@ -461,6 +461,32 @@ async fn list_models_with(
     discovery::xai_listing(&body)
 }
 
+/// The subscription's current bearer, for a request Rig doesn't build (the
+/// Imagine API). `rejected` is a bearer the server just refused: it is
+/// refreshed unless another client already has.
+pub(crate) async fn bearer(dir: &CredentialFile, rejected: Option<&str>) -> Result<String, String> {
+    let rejected = match rejected {
+        Some(token) => Some(Tokens::read(dir)?).filter(|current| current.access_token == token),
+        None => None,
+    };
+    TokenStore::shared(dir)
+        .tokens(&http_client()?, TOKEN_URL, rejected.as_ref())
+        .await
+        .map(|tokens| tokens.access_token)
+}
+
+/// A sign-in good for the next hour, for tests outside this module.
+#[cfg(test)]
+pub(crate) fn sign_in_for_test(dir: &CredentialFile, access_token: &str) {
+    Tokens {
+        access_token: access_token.into(),
+        refresh_token: "test-refresh".into(),
+        refresh_at: now() + 3600,
+    }
+    .save(dir)
+    .unwrap();
+}
+
 pub(crate) fn client(
     dir: &CredentialFile,
 ) -> Result<rig::providers::xai::Client<SubscriptionHttp>, String> {

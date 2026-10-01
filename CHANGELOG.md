@@ -37,6 +37,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   Automatic as the first choice, and set one daily and monthly spending cap.
   Voice follows the same cap once it is set; images and voice still keep
   separate tallies, and the block shows their sum (BRO-175).
+- The call assistant can run at a chosen thinking level: pick its model in
+  Use for, then Low thinking for a quicker answer from a stronger model,
+  where the model offers levels.
 
 ### Changed
 
@@ -45,7 +48,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   read cleanly: commands without the shell wrapper and leading `cd`, tool
   ids as words, output without colour codes or progress redraws, a shell
   tool's JSON as what the command printed, an edit as its changed lines,
-  and a teammate's thinking as one Thinking row you open.
+  and a teammate's thinking as one Thinking row you open. The card belongs
+  to its teammate: it hides on Settings and on a teammate with none open,
+  and is there again when you come back. In a narrow window it docks under
+  the composer instead of covering the conversation.
 - A long turn keeps its last message in the conversation and the roster
   preview (#112), and consecutive scheduled runs group into one row (#113).
 - The first-run screen offers Connect to a server beside creating a first

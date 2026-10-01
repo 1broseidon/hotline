@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { BackendChoice, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
+import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
-import { DEFAULT_IDLE_HOURS, useModelsRevision, useRoomSettings } from "../room";
+import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -16,7 +16,10 @@ import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { ConnectProvider, ProviderRow } from "./ConnectProvider";
 import { SecretsSection } from "./Secrets";
+import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
+import { UseFor } from "./UseFor";
+import { tagsFor } from "../useFor";
 
 import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
@@ -614,6 +617,25 @@ function ProvidersSection({
 	const [choosing, setChoosing] = useState(false);
 	const [adding, setAdding] = useState<{ provider: Provider; replacing: Credential | undefined } | null>(null);
 	const [open, setOpen] = useState<string | null>(null);
+	/* What each job can run on, for the tags on a connection and the Use for
+	 * block. Null until it arrives, and for good on a desk too old to say. */
+	const [capabilities, setCapabilities] = useState<CapabilityOptions | null>(null);
+	const modelsRevision = useModelsRevision();
+	const images = useRawSetting("images");
+	const voice = useRawSetting("voice");
+	const spending = useRawSetting("spending");
+
+	const reloadCapabilities = () =>
+		wire
+			.command("capabilities.options", {})
+			.then(setCapabilities)
+			.catch(() => setCapabilities(null));
+
+	// A connection coming or going, or any of the settings the block writes,
+	// changes what it shows.
+	useEffect(() => {
+		void reloadCapabilities();
+	}, [modelsRevision, JSON.stringify([images, voice, spending])]);
 
 	const reload = () =>
 		wire
@@ -750,6 +772,9 @@ function ProvidersSection({
 												: `${one.credential.custom ? (one.credential.custom.api === "responses" ? "Responses" : "Chat Completions") : one.credential.credentialKind === "oauth" ? "Signed in" : one.credential.credentialKind === "local" ? one.credential.baseUrl : "API key"} · ${modelsShownText(enabledModels[one.credential.providerId])}`}
 											</span>
 										</span>
+										{capabilities !== null && !one.credential.revoked && (
+											<span className="shrink-0 text-sm text-ink-3">{tagsFor(capabilities, one.credential.providerId).join(" · ")}</span>
+										)}
 										<ChevronRightIcon className="shrink-0 text-ink-3" />
 									</button>
 								))
@@ -757,6 +782,7 @@ function ProvidersSection({
 						</div>
 						<p className="group-hint">API keys, OpenRouter and Grok sign-ins use your OS credential store. ChatGPT and Copilot keep tokens in permission-restricted files.</p>
 					</section>
+					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
@@ -1234,7 +1260,7 @@ function ServerPage({
 	);
 }
 
-function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http" }> }) {
+export function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http" }> }) {
 	const [status, setStatus] = useState<McpOAuthStatus | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
@@ -1311,6 +1337,10 @@ function McpOAuthControls({ server }: { server: Extract<McpServer, { type: "http
 					</div>
 				</div>
 			</div>
+			{/* On a server's desk the provider's redirect lands on the wrong computer's loopback (BRO-154). */}
+			{onServer() && state === "pending" && status?.loginId !== undefined && (
+				<McpPasteBack loginId={status.loginId} onStatus={setStatus} />
+			)}
 			{state === "failed" && status?.error !== undefined && <Refusal message="Sign-in failed." detail={status.error} />}
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>

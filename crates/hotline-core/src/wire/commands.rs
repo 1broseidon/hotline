@@ -19,12 +19,50 @@ use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
+// Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
+tokio::task_local! { pub(crate) static VOICE_COMMAND: (); }
+
+pub(crate) fn from_voice() -> bool {
+    VOICE_COMMAND.try_with(|()| ()).is_ok()
+}
+
 pub(crate) async fn run(
     command: Command,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
 ) -> Result<Value, String> {
     match command {
+        Command::ImagesStatus {} => Ok(json!(room.images_status())),
+        Command::CapabilitiesOptions {} => room
+            .capability_options()
+            .await
+            .map(|options| json!(options)),
+        Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
+        Command::VoiceCallStart { call_id } => {
+            Ok(json!(voice(room)?.start(&call_id, room.clone())?))
+        }
+        Command::VoiceUtterance {
+            call_id,
+            seq,
+            mime_type,
+            data,
+            duration_ms,
+        } => {
+            voice(room)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceInterrupt { call_id } => {
+            voice(room)?.interrupt(&call_id)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceHold { call_id, hold } => {
+            voice(room)?.hold(&call_id, hold)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceCallEnd { call_id } => {
+            voice(room)?.end(&call_id)?;
+            Ok(Value::Null)
+        }
         Command::FilesBrowse { path } => {
             tokio::task::spawn_blocking(move || super::files::browse(&path))
                 .await
@@ -133,6 +171,11 @@ pub(crate) async fn run(
             delete_persona(log, room, &id)
         }
         Command::SettingsUpdate { mut patch } => {
+            for (key, value) in &mut patch {
+                if !value.is_null() {
+                    *value = room::normalize_setting(key, value)?;
+                }
+            }
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
             if let Some(value) = patch.get_mut("mcpServers")
@@ -363,6 +406,21 @@ pub(crate) async fn run(
             crate::sent::read_message(log, &persona_id, &event_id, index.unwrap_or(0), offset)
                 .map(|chunk| json!(chunk))
         }
+        Command::AvatarRead {
+            persona_id,
+            hash,
+            offset,
+        } => {
+            living(log, &persona_id)?;
+            crate::session::avatar::read(log.root(), &persona_id, &hash, offset)
+                .map(|chunk| json!(chunk))
+        }
+        Command::AvatarGenerate { persona_id } => {
+            living(log, &persona_id)?;
+            room.generate_avatar(&persona_id)
+                .await
+                .map(|()| Value::Null)
+        }
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room
             .import(&home_expanded(&from))
@@ -535,6 +593,11 @@ pub(crate) async fn run(
     }
 }
 
+fn voice(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::voice::Calls>, String> {
+    room.voice()
+        .ok_or_else(|| "Voice is not available on this desk.".into())
+}
+
 fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -584,7 +647,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         id: id.clone(),
         name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
         goal: given(draft.goal).unwrap_or_default(),
-        face: None,
+        avatar: None,
         team: given(draft.team),
         backend_id,
         cwd: given(draft.cwd).unwrap_or_else(|| {
@@ -902,6 +965,9 @@ fn update_persona(
     patch: &Value,
 ) -> Result<(Value, bool), String> {
     let previous = living(log, id)?;
+    if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
+        return Err("A picture can only be cleared here, with `avatar: null`.".into());
+    }
     let mut record = json!(previous);
     let fields = record
         .as_object_mut()
@@ -922,6 +988,9 @@ fn update_persona(
         room.invalidate(id)?;
     }
     room::append_persona(log, &updated)?;
+    if updated.avatar.is_none() {
+        crate::session::avatar::remove_except(log.root(), id, None);
+    }
     Ok((json!(updated), reattaches))
 }
 
@@ -944,7 +1013,7 @@ fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Person
 }
 
 /// A patch of these fields rebuilds the driver, so a live session has to
-/// restart for the new tools to take effect. `name`, `team`, `face`,
+/// restart for the new tools to take effect. `name`, `team`, `avatar`,
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
 /// switch live.
 fn persona_patch_reattaches(patch: &Value) -> bool {

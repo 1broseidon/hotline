@@ -1,8 +1,9 @@
 //! Operator-only Remote commands through the running desk's loopback Door.
 use crate::door;
+use crate::room::Room;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use std::{path::Path, process::ExitCode, time::Duration};
+use std::{process::ExitCode, time::Duration};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 
@@ -18,9 +19,9 @@ fn outcome(result: Result<(), String>) -> ExitCode {
     }
 }
 
-pub fn devices(root: &Path) -> ExitCode {
+pub fn devices(room: &Room) -> ExitCode {
     outcome(door::runtime().block_on(async {
-        let desk = door::running(root)?;
+        let desk = door::running(room)?;
         let devices = door::ask(&desk, "remote.devices", json!({})).await?;
         let devices = devices
             .as_array()
@@ -40,18 +41,18 @@ pub fn devices(root: &Path) -> ExitCode {
     }))
 }
 
-pub fn revoke(root: &Path, id: &str) -> ExitCode {
+pub fn revoke(room: &Room, id: &str) -> ExitCode {
     outcome(door::runtime().block_on(async {
-        let desk = door::running(root)?;
+        let desk = door::running(room)?;
         door::ask(&desk, "remote.revoke", json!({"deviceId":id})).await?;
         println!("Device revoked.");
         Ok(())
     }))
 }
 
-pub fn pair(root: &Path, companion: bool, json: bool, link: bool) -> ExitCode {
+pub fn pair(room: &Room, companion: bool, json: bool, link: bool) -> ExitCode {
     outcome(door::runtime().block_on(async {
-        let desk = door::running(root)?;
+        let desk = door::running(room)?;
         let url = format!("ws://127.0.0.1:{}/ws?token={}", desk.port, desk.token);
         let (mut socket, _) = tokio::time::timeout(
             Duration::from_secs(5),

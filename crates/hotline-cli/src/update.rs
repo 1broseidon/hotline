@@ -554,7 +554,7 @@ mod linux {
             }
             verify_process(state.pid, binary)?;
             let data = process_data(state.pid)?;
-            let door = crate::door::running(&data)?;
+            let door = crate::door::running(&crate::room::Room::exact(data))?;
             if door.pid != state.pid || door.version != version.to_string() {
                 return Err("Door does not belong to the expected service process/version".into());
             }

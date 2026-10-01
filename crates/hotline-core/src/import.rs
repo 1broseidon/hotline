@@ -22,7 +22,7 @@ mod records;
 mod schedules;
 mod threads;
 
-use crate::contract::{Face, HarnessChoice, Persona, PersonaComputer, Reach, WebSearchPolicy};
+use crate::contract::{HarnessChoice, Persona, PersonaComputer, Reach, WebSearchPolicy};
 use crate::log::{Log, StreamId};
 use crate::store::search::Indexer;
 use crate::vault::Vault;
@@ -469,13 +469,11 @@ fn append_persona(log: &Log, persona: &Persona) -> io::Result<()> {
 
 /// The previous edition's persona JSON, as a teammate this room can hold.
 ///
-/// Optional fields an older build spelled differently (an emoji face, a
+/// Optional fields an older build spelled differently (a
 /// `{brave: false}` web-search policy) are dropped rather than taking the
-/// whole teammate with them: the roster is the thing being imported, and a
-/// face can be chosen again.
+/// whole teammate with them: the roster is the thing being imported.
 fn persona_from_legacy(mut value: Value) -> Result<Persona, String> {
     if let Some(object) = value.as_object_mut() {
-        strip_if_invalid::<Face>(object, "face");
         strip_if_invalid::<WebSearchPolicy>(object, "webSearchPolicy");
         strip_if_invalid::<PersonaComputer>(object, "computer");
         strip_if_invalid::<HarnessChoice>(object, "harnessOverride");

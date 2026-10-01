@@ -42,6 +42,7 @@ class InstallerTests(unittest.TestCase):
         source = source.replace("/Applications", str(self.applications))
         source = source.replace("__HOME_APPS__", "$HOME/Applications")
         source = source.replace("/usr/libexec/PlistBuddy", str(self.bin / "PlistBuddy"))
+        source = source.replace("/proc/", str(self.root / "proc") + "/")
         self.source = self.root / "functions.sh"
         self.source.write_text(source)
 
@@ -106,17 +107,31 @@ desktop_macos() {{ echo INSTALL >>"$LOG"; }}
         self.assertEqual(self.actions(), ["INSTALL"])
 
     def test_old_running_binary_uses_matching_door_metadata(self):
-        # A harmless Python executable stands in for an old binary that does not
-        # print Hotline's --version format. Its live inode can match /proc/PID/exe.
-        self.unit.touch()
-        self.binary.symlink_to(f"/proc/{os.getpid()}/exe")
-        (self.room / "door.json").write_text(f'{{"version":"0.26.0", "pid":{os.getpid()}}}')
+        # Model Linux's /proc executable link without depending on the test host.
+        # The installer's -ef check still compares real filesystem identities.
+        self.server_install(supports_version=False)
+        running = self.root / "proc/12345/exe"
+        running.parent.mkdir(parents=True)
+        running.symlink_to(self.binary)
+        (self.room / "door.json").write_text('{"version":"0.26.0", "pid":12345}')
         out = self.run_shell('main --server --version 0.26.0')
         self.assertIn("Hotline 0.26.0 is installed", out)
         self.assertEqual(self.actions(), [])
+        # A replaced binary must not inherit the still-running process's version.
+        old_binary = self.root / "hotline.old"
+        self.binary.rename(old_binary)
+        running.unlink()
+        running.symlink_to(old_binary)
+        self.server_install(supports_version=False)
+        out = self.run_shell('main --server --version 0.26.0')
+        self.assertIn("Hotline unknown is installed", out)
+        self.assertEqual(self.actions(), ["INSTALL"])
 
     def test_force_reaches_apt_reinstall(self):
         self.stub("dpkg-query", "echo 'install ok installed 0.26.0'")
+        # The host's own arch and dpkg are not a Debian x86_64 box everywhere CI runs (macOS).
+        self.stub("dpkg", "exit 0")
+        self.stub("arch", "echo x86_64")
         source = INSTALL.read_text()
         desktop = source[source.index("desktop_linux() {"):source.index("# The address this host")]
         self.run_shell(desktop + '''

@@ -93,6 +93,11 @@
 		0 0 0 var(--hairline) oklch(100% 0 0 / 0.08),
 		0 1px 2px oklch(0% 0 0 / 0.3),
 		0 12px 32px -8px oklch(0% 0 0 / 0.55);
+	/* A card floating over a conversation that moves under it: tighter, so
+	 * repainting it as the conversation scrolls stays cheap. */
+	--shadow-glass:
+		0 0 0 var(--hairline) oklch(100% 0 0 / 0.08),
+		0 6px 16px -6px oklch(0% 0 0 / 0.5);
 	--scrim: oklch(0% 0 0 / 0.45);
 
 	/* ------------------------------------------------------------- radius
@@ -166,6 +171,9 @@
 		0 0 0 var(--hairline) oklch(20% 0.01 250 / 0.1),
 		0 1px 2px oklch(20% 0.01 250 / 0.08),
 		0 12px 32px -8px oklch(20% 0.01 250 / 0.22);
+	--shadow-glass:
+		0 0 0 var(--hairline) oklch(20% 0.01 250 / 0.1),
+		0 6px 16px -6px oklch(20% 0.01 250 / 0.2);
 	--scrim: oklch(20% 0.01 250 / 0.28);
 }
 

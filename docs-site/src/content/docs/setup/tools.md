@@ -16,7 +16,10 @@ Servers are added once, to the room, and granted per teammate.
 - **Reached at a URL**: a server that speaks streamable HTTP. **Auth** is
   either **OAuth sign-in**, which Hotline completes in your browser and keeps
   the tokens for, or a **Token** sent as a bearer header. Tokens are kept on
-  this machine, bound to that server's URL.
+  this machine, bound to that server's URL. On a desk on a server, the
+  browser can't reach the server's own address: approve there, then paste the
+  address of the page you land on (it won't load, and that's expected) and
+  choose **Finish sign-in**.
 
 Removing a server takes its tools away from every teammate on their next
 start.

@@ -8,21 +8,126 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Agents the ACP registry ships as prebuilt archives can be teammates:
+  Google Antigravity, Goose, Amp, Kimi, Mistral Vibe, Junie and the rest of
+  the registry's binary agents. The first start downloads the archive for
+  this computer, checks it against its published SHA-256 when there is one,
+  and unpacks it under the data directory's `acp-agents/`; later starts reuse
+  it, and a new release replaces the old one. An agent with nothing published
+  for this computer still shows why it is unavailable.
+- Grok draws. Connect xAI with a key or sign in with your Grok subscription
+  and teammates can make and edit images with Grok Imagine (up to five
+  reference images). A key is charged within the spending cap; the
+  subscription draws on your plan.
+
+### Changed
+
+- A teammate's face in the rail turns a ring while something is on its way:
+  its session starting, which can take a while when an agent is first
+  downloaded, or its picture being drawn. The roster row carries `drawing`,
+  so a phone can show the same.
+- A ChatGPT or Grok subscription is now the first choice for images when
+  you haven't picked one, ahead of paid keys, rather than needing to be
+  picked by hand. A subscription that fails can fall back to another
+  subscription, never to a paid API.
+- Default avatars, including setup, are drawn as the Hotline crew: a matte
+  vinyl head-and-shoulders bust with cream eye domes and slot pupils, on a
+  pale tint of the teammate's own colour. Every teammate gets one of twelve
+  head shapes from its id, so faces differ in outline and not only colour,
+  and a name that brings a colour keeps it (Clementine is tangerine). No
+  props, pins or logos. A person's custom subject or theme bypasses the crew
+  by omitting style; their photo can be used directly. Existing avatars and
+  the protection for pictures chosen by the person are unchanged.
+
 ### Fixed
 
+- A picture a teammate made showed twice in the conversation when it then
+  sent the same file. `generate_image` already posts it, the tools now say
+  so (including `set_avatar`, which used to ask for a `send_file`), and a
+  `send_file` of a picture just made is answered without posting it again.
+- Signing in to an OAuth MCP server on a desk on a server now completes from the
+  desktop: the browser's redirect cannot reach the server, so after approving,
+  the window asks for the address of the page you land on and finishes the
+  sign-in with it. Only that sign-in's own callback is accepted, and a wrong
+  address leaves it waiting (BRO-154).
 - A harness the desk cannot start now says why when the CLI is installed for
   someone else on the machine ("claude is installed for agent, but the desk
   runs as hotline …") or is in the desk's own home or a system folder but off
   its PATH, instead of only "Not installed". The desk checks that an
-  executable exists and opens nobody's files. The server installer takes
-  `--user NAME` on a first install, running the desk as that user with their
-  home and PATH (default: whoever ran `sudo`; `--user hotline` keeps the
-  service account), so a served desk sees the `claude` and `codex` installed
-  for its user (BRO-139).
+  executable exists and opens nobody's files (BRO-139).
+
+## [0.30.0] - 2026-09-30
+
+### Added
+
+- Call the desk. The phone button in the title bar starts a voice call with
+  the whole room, not one teammate: a dispatcher hears you, answers in a
+  sentence or two, hands work to teammates by name, and tells you when it
+  lands. The call floats in the window's bottom corner with hold, hang up
+  and press-the-mark-to-cut-in, so the conversation and composer stay
+  usable. Anything that needs your approval still arrives as a card, never
+  a spoken yes. Calls are for the owner's own window and phone; a desk on a
+  server takes them the same way (BRO-146, BRO-168, BRO-170).
+- Teammates can make images. A `generate_image` tool on every harness draws
+  through your connected OpenRouter, OpenAI or Google key, saves the file in
+  the teammate's workspace and posts it in the conversation, within the
+  spending cap (BRO-174).
+- A teammate can set its own profile picture: "make an avatar for yourself"
+  draws one and `set_avatar` puts it on the roster (BRO-173). When images
+  are available, adding a teammate offers to make one for them, drawn from
+  their name and goal within the spending cap (`avatar.generate`).
+- Experimental: images through a ChatGPT subscription. Pick "Codex (ChatGPT
+  subscription)" for images in Settings > Providers > Use for and they come
+  from your ChatGPT sign-in instead of a paid key. It is only ever used when
+  picked, never falls back to a paid provider, and does not count against
+  the dollar cap; ChatGPT's own limits apply, and the endpoint it uses is
+  Codex's internal one, which OpenAI can change (#120).
+- Settings > Providers has a "Use for" block: pick which connected provider
+  and model draws images, hears you, speaks, and answers a call, each with
+  Automatic as the first choice, and set one daily and monthly spending cap.
+  Voice follows the same cap once it is set; images and voice still keep
+  separate tallies, and the block shows their sum (BRO-175).
+- The call assistant can run at a chosen thinking level: pick its model in
+  Use for, then Low thinking for a quicker answer from a stronger model,
+  where the model offers levels.
+
+### Changed
+
+- A turn's work opens as a card floating under the header instead of a
+  pane beside the conversation, one height, following what arrives. Steps
+  read cleanly: commands without the shell wrapper and leading `cd`, tool
+  ids as words, output without colour codes or progress redraws, a shell
+  tool's JSON as what the command printed, an edit as its changed lines,
+  and a teammate's thinking as one Thinking row you open. The card belongs
+  to its teammate: it hides on Settings and on a teammate with none open,
+  and is there again when you come back. In a narrow window it docks under
+  the composer instead of covering the conversation.
+- A long turn keeps its last message in the conversation and the roster
+  preview (#112), and consecutive scheduled runs group into one row (#113).
+- The first-run screen offers Connect to a server beside creating a first
+  teammate (BRO-151).
+- ChatGPT's model list asks as the installed Codex, so new models show on
+  Refresh (BRO-162).
+
+### Fixed
+
+- On a served box, `hotline pair`, `devices`, `revoke`, `status` and `wire` find
+  the service's room without `HOTLINE_DATA_DIR`: with no `--data`, no
+  `HOTLINE_DATA_DIR` and no desk in your own data folder, they use the room the
+  hotline service names, then `/var/lib/hotline/room`. When your account cannot
+  read that room, the error names it and the `sudo -u` command to run as the
+  service's user, and "no door.json" points at the service's room (BRO-152).
 - Anonymous connections behind a tunnel can no longer hold a fixed set of
   slots and block paired devices from reconnecting. Pending sockets rotate
   under pressure and expire five seconds after acceptance; authenticated room
   and viewer sockets use separate device-based limits (BRO-163).
+- A blank desktop's setup screen offers Connect to a server beside creating a
+  first teammate, so a computer that only reaches a server never has to make a
+  local teammate to get past it. Pairing switches the window to the new desk
+  even when the shell announces the desk list after answering the pairing
+  (BRO-151).
 
 ### Security
 

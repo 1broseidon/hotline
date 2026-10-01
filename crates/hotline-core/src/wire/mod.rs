@@ -48,7 +48,7 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 
-mod commands;
+pub(crate) mod commands;
 mod files;
 mod roster;
 mod schedules;
@@ -76,6 +76,30 @@ mod tests;
 /// run to completion.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
+    fn images_status(&self) -> crate::contract::ImagesStatus {
+        crate::contract::ImagesStatus {
+            available: false,
+            unavailable: Some("This room cannot make images.".into()),
+            provider: None,
+            model: None,
+            spending: None,
+            spending_unavailable: None,
+        }
+    }
+
+    /// The providers the owner can pick for each job, the choice made and what
+    /// automatic would pick now.
+    async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
+        Err("This room cannot list what its providers can do.".into())
+    }
+
+    async fn generate_avatar(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This room cannot make images.".into())
+    }
+
+    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
+        None
+    }
     /// Remote owns a room handle, so implementations retain only a weak reference.
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         None
@@ -189,6 +213,11 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// Every session's info as it changes, for the roster view.
     fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo>;
+
+    /// Whether this teammate's picture is being drawn, for the roster row.
+    fn drawing(&self, _persona_id: &str) -> bool {
+        false
+    }
 
     /// Text as an agent writes it, for a tape subscription to forward. Never
     /// written to a tape: the durable line lands when the message is whole.
@@ -566,6 +595,8 @@ impl Seat {
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
                     | Command::FileRead { .. }
+                    // A picture is no more private than the name beside it.
+                    | Command::AvatarRead { .. }
                     // Older lines of a tape the phone already reads.
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
@@ -586,6 +617,14 @@ impl Seat {
         capabilities
     }
 
+    fn capabilities_for(self, room: &dyn RoomHandle) -> Vec<&'static str> {
+        let mut capabilities = self.capabilities();
+        if self == Seat::Owner && room.voice().is_some_and(|voice| voice.status().available) {
+            capabilities.push("voice");
+        }
+        capabilities
+    }
+
     pub fn permits_sub(&self, target: &Target) -> bool {
         match self {
             Seat::Desk | Seat::Owner => true,
@@ -594,13 +633,16 @@ impl Seat {
             // A thread between two teammates is read the way a tape is: the
             // phone already reads the marker for it on either tape, and the
             // thread holds what was said, never a setting.
-            Seat::Phone => matches!(
-                target,
-                Target::Tape(_)
-                    | Target::Thread(_)
-                    | Target::View(ViewName::Roster)
-                    | Target::Schedules(_)
-            ),
+            Seat::Phone => {
+                !matches!(target, Target::Tape(id) if id == crate::voice::TAPE_ID)
+                    && matches!(
+                        target,
+                        Target::Tape(_)
+                            | Target::Thread(_)
+                            | Target::View(ViewName::Roster)
+                            | Target::Schedules(_)
+                    )
+            }
         }
     }
 }
@@ -827,7 +869,7 @@ where
                 "protocolVersion": 1,
                 "desktopId": desktop_id,
                 "mode": "team",
-                "capabilities": Seat::for_phone(&phone).capabilities(),
+                "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
             })
             .to_string(),
         ))
@@ -858,7 +900,7 @@ where
             "protocolVersion": 2,
             "desktopId": desktop_id,
             "mode": "team",
-            "capabilities": Seat::for_phone(&phone).capabilities(),
+            "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
         }).to_string())) => result?,
     }
     seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
@@ -1176,6 +1218,16 @@ async fn answer(
                             status
                         })
                     }
+                    (Command::VoiceCallStart { call_id }, _) => {
+                        let call_id = call_id.clone();
+                        let result = commands::run(command, log, room).await;
+                        if result.is_ok()
+                            && let Some(voice) = room.voice()
+                        {
+                            voice.bind_connection(call_id, sender.cancel.clone());
+                        }
+                        result
+                    }
                     _ => commands::run(command, log, room).await,
                 };
                 reply_to(sender, id, result, keep_null);
@@ -1333,6 +1385,45 @@ fn subscribe(
     }
 
     let stream = match target {
+        Target::Call(call_id) => {
+            let voice = room
+                .voice()
+                .ok_or_else(|| "Voice is not available on this desk.".to_string())?;
+            let (snapshot, mut events) = voice.subscribe(&call_id)?;
+            reply(sender, id, Ok(Value::Null));
+            if !send(sender, json!({"sub": id, "snapshot": [snapshot]})) {
+                return Ok(());
+            }
+            let sender = sender.clone();
+            subscriptions.insert(
+                id,
+                tokio::spawn(async move {
+                    loop {
+                        match events.recv().await {
+                            Ok(event) => {
+                                let ended = matches!(
+                                    event,
+                                    crate::contract::VoiceEvent::State {
+                                        state: crate::contract::VoiceState::Ended,
+                                        ..
+                                    }
+                                );
+                                if !send(&sender, json!({"sub": id, "event": event})) || ended {
+                                    break;
+                                }
+                            }
+                            Err(broadcast::error::RecvError::Lagged(_)) => {
+                                // Missing a clip changes what was said. Reconnect for a fresh state.
+                                sender.cancel.cancel();
+                                break;
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                }),
+            );
+            return Ok(());
+        }
         // The list is read before the subscription is acknowledged, because a
         // teammate the room does not hold, or a room that cannot be read, is
         // a refusal — never `ok` followed by an empty list. The room stream
@@ -1666,6 +1757,7 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
     json!(RosterEntry {
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),
+        drawing: room.drawing(&persona.id),
         session,
         preview,
         latest,

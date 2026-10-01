@@ -1502,7 +1502,7 @@ mod tests {
             id: id.to_string(),
             name: "Ada".to_string(),
             goal: String::new(),
-            face: None,
+            avatar: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: cwd.to_string(),

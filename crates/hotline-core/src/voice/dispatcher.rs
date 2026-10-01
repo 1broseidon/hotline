@@ -136,11 +136,23 @@ impl Context {
                 .into_iter()
                 .find(|p| &p.id == persona_id)
                 .ok_or("That teammate is no longer in the room.")?;
-            self.handoffs
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                    (n < 3).then_some(n + 1)
-                })
-                .map_err(|_| "One utterance can hand off at most three tasks.")?;
+            // A compare-and-swap loop, not `fetch_update`: newer toolchains
+            // deprecate that name and older ones lack its replacement.
+            let mut handed = self.handoffs.load(Ordering::SeqCst);
+            loop {
+                if handed >= 3 {
+                    return Err("One utterance can hand off at most three tasks.".into());
+                }
+                match self.handoffs.compare_exchange_weak(
+                    handed,
+                    handed + 1,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    Ok(_) => break,
+                    Err(actual) => handed = actual,
+                }
+            }
             let context = self.clone();
             let request = uuid::Uuid::new_v4().to_string();
             tokio::spawn(async move {

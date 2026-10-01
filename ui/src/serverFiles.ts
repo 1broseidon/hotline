@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { activeDeskId, allDesks } from "./desks";
 import type { Attachment } from "./generated/contract";
 import { openSentFile, pickDirectory, pickFiles, revealPath, saveSentFile } from "./native";
+import { toBase64 } from "./voice/wav";
 import { wire } from "./wire";
 
 /**
@@ -177,8 +178,41 @@ export async function pickAttachments(): Promise<{ path: string; size?: number }
 export async function carry(attachments: Attachment[], onProgress?: (sent: number, total: number) => void): Promise<Attachment[]> {
 	if (attachments.length === 0 || !onServer()) return attachments;
 	const carried: Attachment[] = [];
-	for (const attachment of attachments) carried.push({ ...attachment, path: await upload(attachment, onProgress) });
+	for (const attachment of attachments) {
+		carried.push(staged.has(attachment.path) ? attachment : { ...attachment, path: await upload(attachment, onProgress) });
+	}
 	return carried;
+}
+
+/** Paths [stage] put on the desk already, which [carry] leaves where they are. */
+const staged = new Set<string>();
+
+/** The wire's largest upload chunk. */
+const UPLOAD_CHUNK = 512 * 1024;
+
+/**
+ * Bytes the window holds, a pasted picture, as a file the desk can read: put
+ * in the desk's own uploads folder over its wire, which a desk on this
+ * computer and one on a server both keep. Answers where the desk has it.
+ */
+export async function stage(name: string, bytes: Uint8Array): Promise<{ path: string; size: number }> {
+	if (bytes.length === 0) throw new Error("There was nothing in it.");
+	const started = await wire.command("files.upload_start", { name });
+	let finished = false;
+	try {
+		let offset = 0;
+		while (offset < bytes.length) {
+			const data = toBase64(bytes.subarray(offset, offset + UPLOAD_CHUNK));
+			const wrote = await wire.command("files.upload_chunk", { uploadId: started.uploadId, offset, data });
+			offset = wrote.offset;
+		}
+		const done = await wire.command("files.upload_finish", { uploadId: started.uploadId });
+		finished = true;
+		staged.add(done.path);
+		return { path: done.path, size: bytes.length };
+	} finally {
+		if (!finished) await wire.command("files.upload_cancel", { uploadId: started.uploadId }).catch(() => {});
+	}
 }
 
 type LocalChunk = { data: string; size: number; next: number | null };

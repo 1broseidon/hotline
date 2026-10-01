@@ -4676,7 +4676,7 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
 }
 
 #[tokio::test]
-async fn chatgpt_images_status_requires_owner_selection_without_checking_entitlement() {
+async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -4689,7 +4689,8 @@ async fn chatgpt_images_status_requires_owner_selection_without_checking_entitle
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "images.status", "params": {}});
     let automatic = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
-    assert_eq!(automatic["result"]["available"], false);
+    assert_eq!(automatic["result"]["available"], true);
+    assert_eq!(automatic["result"]["provider"], "openai-codex");
     let selected = remote_control_answer(
         Seat::Owner,
         &handle,
@@ -5186,7 +5187,7 @@ fn a_long_turn_of_steps_still_opens_a_tape_on_the_last_message() {
 }
 
 #[tokio::test]
-async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscription_pick() {
+async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -5209,7 +5210,10 @@ async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscript
                 "models": [{"id": "gpt-image-2"}]
             }])
         );
-        assert!(offered["result"]["images"].get("automatic").is_none());
+        assert_eq!(
+            offered["result"]["images"]["automatic"]["providerId"],
+            "openai-codex"
+        );
         assert!(offered["result"]["images"].get("selected").is_none());
         assert!(
             !offered
@@ -5238,9 +5242,10 @@ async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscript
             "modelId": "gpt-image-2"
         })
     );
+    // A subscription stays the automatic pick when a paid key joins it.
     assert_eq!(
         offered["result"]["images"]["automatic"]["providerId"],
-        "openai"
+        "openai-codex"
     );
     let denied = remote_control_answer(Seat::Phone, &handle, &desk.log, request).await;
     assert_eq!(denied["code"], FORBIDDEN);

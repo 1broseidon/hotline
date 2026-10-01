@@ -258,6 +258,75 @@ async fn a_subscription_refusal_never_tries_a_paid_fallback() {
 }
 
 #[tokio::test]
+async fn sending_a_picture_just_made_does_not_post_it_twice() {
+    let (dir, room, tools) = room();
+    install(&room, Fake::new("paid"), None);
+    let made: Value = serde_json::from_str(
+        &tools
+            .call(
+                "generate_image",
+                &json!({"prompt":"a toad", "name":"toad.png"}),
+            )
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(made["inConversation"], true);
+    assert_eq!(attachments(&room).len(), 1);
+
+    let again = tools
+        .call(
+            "send_file",
+            &json!({"source": "workspace", "path": "toad.png", "caption": "here it is"}),
+        )
+        .await
+        .unwrap();
+    assert!(again.contains("already in the conversation"), "{again}");
+    assert_eq!(attachments(&room).len(), 1);
+
+    // A different picture still goes.
+    std::fs::write(dir.path().join("workspace").join("other.png"), {
+        let mut other = png();
+        other.extend_from_slice(b"different");
+        other
+    })
+    .unwrap();
+    tools
+        .call(
+            "send_file",
+            &json!({"source": "workspace", "path": "other.png"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(attachments(&room).len(), 2);
+}
+
+#[tokio::test]
+async fn a_subscription_refusal_may_try_another_subscription() {
+    let (_dir, room, tools) = room();
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.error = Some(ImageError::Refused {
+        provider_id: "openai-codex".into(),
+        status: 429,
+    });
+    let mut other = Fake::new("other-subscription");
+    Arc::get_mut(&mut other).unwrap().subscription = true;
+    install(&room, fake, Some(other.clone()));
+    let result: Value = serde_json::from_str(
+        &tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["billing"], "subscription");
+    assert_eq!(other.requests.lock().unwrap().len(), 1);
+    assert!(!room.log().root().join("spending.json").exists());
+}
+
+#[tokio::test]
 async fn subscription_images_cannot_read_references_outside_the_workspace() {
     let (dir, room, tools) = room();
     std::fs::write(dir.path().join("outside.png"), png()).unwrap();

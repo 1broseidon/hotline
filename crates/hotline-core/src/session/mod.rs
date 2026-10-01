@@ -538,6 +538,9 @@ pub struct Room {
     spending: crate::spending::SpendLedger,
     #[cfg(test)]
     image_generators: Mutex<Option<crate::imagegen::ImageSet>>,
+    /// Pictures `generate_image` posted lately, per teammate, by content and
+    /// when: `send_file` of the same picture soon after is a repeat.
+    drawn: Mutex<HashMap<String, Vec<files::Drawn>>>,
     /// A computer being set up behind a session that started without it,
     /// per teammate: downloading, ready to join once the turn ends, or
     /// failed. Watched by `computer_status`, which can wait on it.
@@ -684,6 +687,7 @@ impl Room {
             spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
             #[cfg(test)]
             image_generators: Mutex::new(None),
+            drawn: Mutex::default(),
             voice: Mutex::new(std::sync::Weak::new()),
             log,
             keys,

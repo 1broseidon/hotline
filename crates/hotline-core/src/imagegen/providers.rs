@@ -3,11 +3,13 @@
 //! has already connected it.
 
 use super::chatgpt::{self, ChatGpt};
+use super::xai::{self, Grok, GrokAuth};
 use super::{
     Google, ImageGen, ImageSet, ImageSettings, Model, OpenAi, OpenRouter, google, openai,
     openrouter,
 };
 use crate::contract::{CapabilityModel, CapabilityProvider};
+use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use std::collections::HashSet;
@@ -34,6 +36,9 @@ fn known(id: &str) -> Option<Model> {
         "google/gemini-3-pro-image" | "gemini-3-pro-image" => (false, 8, None, 0.20),
         "sourceful/riverflow-v2.5-fast" => (true, 4, None, 0.03),
         "x-ai/grok-imagine-image-2.0" => (false, 4, Some("low"), 0.05),
+        "grok-imagine-image-2.0" => (false, 5, None, 0.04),
+        "grok-imagine-image-quality" => (false, 5, None, 0.05),
+        "grok-imagine-image" => (false, 1, None, 0.02),
         _ => return None,
     };
     Some(Model {
@@ -116,6 +121,18 @@ const ROWS: &[Row] = &[
             "gemini-3-pro-image",
         ],
     },
+    Row {
+        provider_id: xai::PROVIDER_ID,
+        name: "Grok",
+        base_url: xai::BASE_URL,
+        draws: "grok-imagine-image-2.0",
+        also: Some("grok-imagine-image"),
+        models: &[
+            "grok-imagine-image-2.0",
+            "grok-imagine-image-quality",
+            "grok-imagine-image",
+        ],
+    },
 ];
 
 fn row(provider_id: &str) -> Option<&'static Row> {
@@ -127,6 +144,7 @@ fn row(provider_id: &str) -> Option<&'static Row> {
 enum ConnectionAuth {
     Key(Option<String>),
     ChatGpt(PathBuf),
+    Grok(CredentialFile),
 }
 
 #[derive(Clone)]
@@ -140,6 +158,14 @@ struct Connection {
 }
 
 impl Connection {
+    /// Draws on a subscription's limits rather than the spend ledger.
+    fn subscription(&self) -> bool {
+        matches!(
+            self.auth,
+            ConnectionAuth::ChatGpt(_) | ConnectionAuth::Grok(_)
+        )
+    }
+
     /// What this connection draws with: the named model, else its default.
     /// A custom connection draws only if it lists or is given an image model.
     fn draws(&self, named: Option<&str>) -> Option<Model> {
@@ -178,6 +204,13 @@ impl Connection {
             ConnectionAuth::ChatGpt(token_dir) => {
                 return Ok(Arc::new(ChatGpt::new(token_dir.clone())?));
             }
+            ConnectionAuth::Grok(tokens) => {
+                return Ok(Arc::new(Grok::new(
+                    &self.base_url,
+                    GrokAuth::Subscription(tokens.clone()),
+                    model,
+                )?));
+            }
             ConnectionAuth::Key(key) => key.as_deref(),
         };
         Ok(match self.provider_id.as_str() {
@@ -189,6 +222,11 @@ impl Connection {
             google::PROVIDER_ID => {
                 Arc::new(Google::new(&self.base_url, key.unwrap_or_default(), model)?)
             }
+            xai::PROVIDER_ID => Arc::new(Grok::new(
+                &self.base_url,
+                GrokAuth::Key(key.unwrap_or_default().to_string()),
+                model,
+            )?),
             // OpenAI and any custom connection that serves the OpenAI shape.
             _ => Arc::new(OpenAi::new(&self.provider_id, &self.base_url, key, model)?),
         })
@@ -226,6 +264,18 @@ fn connection(provider_id: &str, auth: &ProviderAuth) -> Option<Connection> {
         });
     }
     if let Some(row) = row(provider_id) {
+        // Grok's sign-in is a subscription: its bearer draws on the plan.
+        if let ProviderAuth::StoredLogin { tokens } = auth
+            && provider_id == xai::PROVIDER_ID
+        {
+            return Some(Connection {
+                provider_id: provider_id.into(),
+                name: "Grok (subscription)".into(),
+                base_url: row.base_url.into(),
+                auth: ConnectionAuth::Grok(tokens.clone()),
+                models: Vec::new(),
+            });
+        }
         let key = match auth {
             ProviderAuth::ApiKey(key) => key.clone(),
             // OpenRouter's sign-in is a PKCE exchange that leaves a plain key.
@@ -300,13 +350,16 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
         .collect()
 }
 
-/// The first connected provider that can draw, or the owner's choice. A
-/// choice naming a provider that isn't connected, or can't draw, is an
-/// error rather than a quiet switch: the words would go somewhere the owner
-/// didn't pick. When nothing can draw, the error is a sentence for a person.
+/// The owner's choice, or else the first connected provider that can draw,
+/// a subscription before a paid key: a picture the plan already covers
+/// costs nothing more. A choice naming a provider that isn't connected, or
+/// can't draw, is an error rather than a quiet switch: the words would go
+/// somewhere the owner didn't pick. When nothing can draw, the error is a
+/// sentence for a person.
 ///
 /// The fallback is the next connected provider that can draw, or, when only
-/// one can, its second model: so one model failing isn't the end of it.
+/// one can, its second model: so one model failing isn't the end of it. A
+/// subscription falls back only to a subscription, never to a paid API.
 pub fn resolve(vault: &Vault, settings: &ImageSettings) -> Result<ImageSet, String> {
     resolve_from(&connections(vault), settings)
 }
@@ -315,6 +368,17 @@ pub fn resolve(vault: &Vault, settings: &ImageSettings) -> Result<ImageSet, Stri
 /// nothing can, with the reason.
 pub fn describe(vault: &Vault, settings: &ImageSettings) -> Result<super::ImageId, String> {
     resolve(vault, settings).map(|set| set.primary.id())
+}
+
+pub(crate) const NOTHING_DRAWS: &str =
+    "Connect OpenRouter, OpenAI, Google, Grok or a ChatGPT subscription to make images.";
+
+/// The connections in the order they were connected, subscriptions first.
+fn subscriptions_first(connections: &[Connection]) -> impl Iterator<Item = &Connection> {
+    let (plans, paid): (Vec<_>, Vec<_>) = connections
+        .iter()
+        .partition(|connection| connection.subscription());
+    plans.into_iter().chain(paid)
 }
 
 fn resolve_from(connections: &[Connection], settings: &ImageSettings) -> Result<ImageSet, String> {
@@ -336,17 +400,13 @@ fn resolve_from(connections: &[Connection], settings: &ImageSettings) -> Result<
         }
         // Model ids are the provider's own, so a model without a provider
         // means nothing yet: the first provider draws with its default.
-        None => connections
-            .iter()
-            .filter(|connection| !matches!(connection.auth, ConnectionAuth::ChatGpt(_)))
+        None => subscriptions_first(connections)
             .find_map(|connection| Some((connection, connection.draws(None)?)))
-            .ok_or_else(|| "Connect OpenRouter, OpenAI or Google to make images.".to_string())?,
+            .ok_or_else(|| NOTHING_DRAWS.to_string())?,
     };
-    let fallback = connections
-        .iter()
-        .filter(|connection| !matches!(connection.auth, ConnectionAuth::ChatGpt(_)))
-        .filter(|_| !matches!(from.auth, ConnectionAuth::ChatGpt(_)))
+    let fallback = subscriptions_first(connections)
         .filter(|connection| connection.provider_id != from.provider_id)
+        .filter(|connection| connection.subscription() || !from.subscription())
         .find_map(|connection| Some((connection, connection.draws(None)?)))
         .or_else(|| Some((from, from.also(&model)?)));
     Ok(ImageSet {
@@ -389,40 +449,57 @@ mod tests {
         )
     }
 
-    #[test]
-    fn chatgpt_requires_explicit_selection_and_never_crosses_a_billing_boundary() {
-        let login = connection(
+    fn chatgpt_login() -> Connection {
+        connection(
             chatgpt::PROVIDER_ID,
             &ProviderAuth::Login {
                 token_dir: PathBuf::from("unused-test-login"),
             },
         )
-        .unwrap();
-        assert!(resolve_from(std::slice::from_ref(&login), &ImageSettings::default()).is_err());
-        let connected = [login, keyed("openai")];
+        .unwrap()
+    }
+
+    fn grok_login(dir: &std::path::Path) -> Connection {
+        let tokens = crate::credentials::CredentialFiles::new(
+            dir.into(),
+            crate::credentials::default_store(),
+        )
+        .file(dir.join("auth.json"));
+        connection(xai::PROVIDER_ID, &ProviderAuth::StoredLogin { tokens }).unwrap()
+    }
+
+    #[test]
+    fn a_subscription_draws_first_and_never_falls_back_to_a_paid_api() {
+        let connected = [keyed("openai"), chatgpt_login()];
         let automatic = resolve_from(&connected, &ImageSettings::default()).unwrap();
-        assert_eq!(automatic.primary.id().provider_id, "openai");
-        assert_eq!(automatic.fallback.unwrap().id().provider_id, "openai");
-        let settings = ImageSettings {
-            provider: Some(chatgpt::PROVIDER_ID.into()),
-            model: None,
-        };
-        let selected = resolve_from(&connected, &settings).unwrap();
-        assert_eq!(selected.primary.id().model_id, chatgpt::MODEL);
-        assert!(selected.primary.subscription());
-        assert!(selected.fallback.is_none());
         assert_eq!(
-            selected
+            automatic.primary.id().to_string(),
+            "openai-codex/gpt-image-2"
+        );
+        assert!(automatic.primary.subscription());
+        assert!(automatic.fallback.is_none());
+        assert_eq!(
+            automatic
                 .primary
                 .estimate_usd(&super::super::ImageRequest::default()),
             0.0
         );
+
+        // A paid choice may still fall back to the subscription.
+        let paid = ImageSettings {
+            provider: Some("openai".into()),
+            model: None,
+        };
+        let set = resolve_from(&connected, &paid).unwrap();
+        assert_eq!(set.primary.id().provider_id, "openai");
+        assert_eq!(set.fallback.unwrap().id().provider_id, chatgpt::PROVIDER_ID);
+
         assert!(
             resolve_from(
                 &connected,
                 &ImageSettings {
+                    provider: Some(chatgpt::PROVIDER_ID.into()),
                     model: Some("unsupported-image".into()),
-                    ..settings
                 }
             )
             .is_err()
@@ -434,6 +511,54 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn one_subscription_falls_back_to_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let connected = [keyed("openrouter"), chatgpt_login(), grok_login(dir.path())];
+        let set = resolve_from(&connected, &ImageSettings::default()).unwrap();
+        assert_eq!(
+            ids(&set),
+            (
+                "openai-codex/gpt-image-2".into(),
+                Some("xai/grok-imagine-image-2.0".into())
+            )
+        );
+        assert!(set.fallback.unwrap().subscription());
+    }
+
+    #[test]
+    fn grok_draws_with_a_key_or_on_its_subscription() {
+        let dir = tempfile::tempdir().unwrap();
+        let keyed = keyed("xai");
+        let set = resolve_from(std::slice::from_ref(&keyed), &ImageSettings::default()).unwrap();
+        assert_eq!(
+            ids(&set),
+            (
+                "xai/grok-imagine-image-2.0".into(),
+                Some("xai/grok-imagine-image".into())
+            )
+        );
+        assert!(!set.primary.subscription());
+        assert!(
+            set.primary
+                .estimate_usd(&super::super::ImageRequest::default())
+                > 0.0
+        );
+
+        let login = grok_login(dir.path());
+        assert_eq!(login.name, "Grok (subscription)");
+        let set = resolve_from(std::slice::from_ref(&login), &ImageSettings::default()).unwrap();
+        assert!(set.primary.subscription());
+        assert_eq!(set.primary.max_references(), 5);
+        assert_eq!(
+            set.fallback.unwrap().id().to_string(),
+            "xai/grok-imagine-image"
+        );
+        let offered = options_from(&[login]);
+        assert_eq!(offered[0].provider_id, "xai");
+        assert_eq!(offered[0].models[0].id, "grok-imagine-image-2.0");
     }
 
     #[test]
@@ -529,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn chatgpt_is_offered_for_explicit_selection_without_becoming_automatic() {
+    fn chatgpt_is_offered_with_its_one_model() {
         let login = connection(
             chatgpt::PROVIDER_ID,
             &ProviderAuth::Login {
@@ -543,14 +668,14 @@ mod tests {
         assert_eq!(offered[0].provider_name, "Codex (ChatGPT subscription)");
         assert_eq!(offered[0].models.len(), 1);
         assert_eq!(offered[0].models[0].id, chatgpt::MODEL);
-        assert!(resolve_from(&[login], &ImageSettings::default()).is_err());
+        assert!(resolve_from(&[login], &ImageSettings::default()).is_ok());
     }
 
     #[test]
     fn nothing_connected_that_draws_says_what_to_connect() {
         assert_eq!(
             resolve_from(&[], &ImageSettings::default()).err().unwrap(),
-            "Connect OpenRouter, OpenAI or Google to make images."
+            NOTHING_DRAWS
         );
     }
 

@@ -4,7 +4,7 @@
 //! There is never a new key. A provider counts only if the owner already
 //! connected it, and [`resolve`] picks the first that can draw unless
 //! `settings.images` names one. OpenRouter's unified Image API covers most
-//! models behind one request shape; OpenAI and Google have their own.
+//! models behind one request shape; OpenAI, Google and xAI have their own.
 //!
 //! This module only makes pictures. Where they go (the teammate's
 //! workspace, the conversation), what they may cost (the spend ledger) and
@@ -18,11 +18,14 @@ mod openrouter;
 mod providers;
 #[cfg(test)]
 mod tests;
+mod xai;
 
 pub use google::Google;
 pub use openai::OpenAi;
 pub use openrouter::OpenRouter;
+pub(crate) use providers::NOTHING_DRAWS;
 pub use providers::{describe, model, options, resolve};
+pub use xai::Grok;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

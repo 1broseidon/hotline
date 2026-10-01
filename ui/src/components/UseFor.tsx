@@ -163,7 +163,7 @@ export function UseFor({
 				)}
 				<SpendingRow spending={options.spending} onWrite={write} />
 			</div>
-			<p className="group-hint">Automatic picks the first eligible connected provider; ChatGPT subscription images require your selection. Dollar limits cover paid images and voice; zero disables paid usage. Subscription limits apply separately.</p>
+			<p className="group-hint">Automatic picks the first eligible connected provider, subscriptions before paid keys. Dollar limits cover paid images and voice; zero disables paid usage. Subscription limits apply separately.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);

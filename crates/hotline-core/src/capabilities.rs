@@ -61,7 +61,7 @@ pub async fn options(
                 }),
             unavailable: image_options
                 .is_empty()
-                .then(|| "Connect OpenRouter, OpenAI or Google to make images.".to_string()),
+                .then(|| crate::imagegen::NOTHING_DRAWS.to_string()),
             options: image_options,
         },
         stt: CapabilityJob {

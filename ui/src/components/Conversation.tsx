@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -55,6 +55,7 @@ export function Conversation({
 	onOpenSubagent,
 	onOpenWork,
 	workOpen,
+	dock,
 	models,
 	onSaid,
 }: {
@@ -81,6 +82,8 @@ export function Conversation({
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
+	/** The work card, docked under the composer when the window is too narrow for it to float. */
+	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -401,6 +404,7 @@ export function Conversation({
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
 				/>
+				{dock !== undefined && <div className="work-dock">{dock}</div>}
 				{searchOpen && (
 					<Search personaId={personaId} roster={roster} onClose={onCloseSearch} onPick={onPick} />
 				)}

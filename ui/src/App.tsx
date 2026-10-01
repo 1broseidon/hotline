@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
@@ -38,7 +38,7 @@ const SettingsRail = lazy(() => import("./components/Settings").then((module) =>
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
-type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent } | { kind: "work"; work: OpenWork };
+type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent };
 
 /**
  * The window for the active desk. Switching desks remounts all of it, so the
@@ -73,11 +73,32 @@ export function App() {
 	/* What stands in the inspector's place: a peer thread or a subagent's
 	 * run, opened from its line in the conversation. */
 	const [aside, setAside] = useState<Aside | null>(null);
+	/* The work card each teammate has open, by persona: it belongs to them,
+	 * so it goes when you leave them and is there again when you come back. */
+	const [works, setWorks] = useState<Record<string, string | null>>({});
+	const workOf = selectedId !== null && selectedId in works ? works[selectedId]! : undefined;
+	const closeWork = useCallback((personaId: string) => {
+		setWorks((was) => {
+			const { [personaId]: _, ...rest } = was;
+			return rest;
+		});
+	}, []);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
+	/* Under this the floating work card would sit on the conversation's
+	 * words, so it docks under the composer instead. */
+	const mainRef = useRef<HTMLElement>(null);
+	const [dockWork, setDockWork] = useState(false);
+	useLayoutEffect(() => {
+		const el = mainRef.current;
+		if (el === null) return;
+		const observer = new ResizeObserver(() => setDockWork(el.clientWidth < WORK_DOCK_BELOW));
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
 	/* The rail: how wide you dragged it, whether it is down to faces, and whether you closed it. */
 	const [railSize, setRailSize] = useRailSize();
 	const toggleRail = useCallback(() => setRailSize((was) => ({ ...was, open: !was.open })), [setRailSize]);
@@ -258,10 +279,10 @@ export function App() {
 	/* A caption or the mark, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
-			if (aside?.kind === "work" && aside.work.personaId === work.personaId && aside.work.blockId === work.blockId) setAside(null);
-			else openAside({ kind: "work", work });
+			if (works[work.personaId] === work.blockId && work.personaId in works) closeWork(work.personaId);
+			else setWorks((was) => ({ ...was, [work.personaId]: work.blockId }));
 		},
-		[aside, openAside],
+		[works, closeWork],
 	);
 
 	const removeTeammate = useCallback(
@@ -297,6 +318,11 @@ export function App() {
 				if (aside !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
 					event.preventDefault();
 					setAside(null);
+					return;
+				}
+				if (selectedId !== null && workOf !== undefined && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
+					event.preventDefault();
+					closeWork(selectedId);
 					return;
 				}
 				if (inspector && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
@@ -342,7 +368,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, aside, searchOpen, select, closePane, togglePane, toggleInspector, toggleRail]);
+	}, [roster, selectedId, pane, inspector, aside, workOf, closeWork, searchOpen, select, closePane, togglePane, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -412,6 +438,21 @@ export function App() {
 	 * names' width, and at the narrowest of it in a narrow window. */
 	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
 
+
+	/* The work card shows only on its own teammate's conversation: not over
+	 * Settings or another pane, and not on a teammate who has none open. */
+	const workCard = (entry: RosterEntry, blockId: string | null) => (
+		<Work
+			key={`work-${entry.persona.id}`}
+			open={{ personaId: entry.persona.id, blockId }}
+			name={entry.persona.name}
+			live={entry.session.state === "thinking"}
+			docked={dockWork}
+			onClose={() => closeWork(entry.persona.id)}
+		/>
+	);
+	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork ? workCard(selected, workOf) : null;
+
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
@@ -457,7 +498,7 @@ export function App() {
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
-			<main className="@container flex min-w-0 flex-1 flex-col gap-0" data-call={call !== null ? "" : undefined}>
+			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0" data-call={call !== null ? "" : undefined}>
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
 				<div className="flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
@@ -499,7 +540,8 @@ export function App() {
 							onOpenThread={openThread}
 							onOpenSubagent={openSubagent}
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
-							workOpen={aside?.kind === "work" ? aside.work.blockId : undefined}
+							workOpen={workOf}
+							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{aside?.kind === "thread" ? (
 							<Thread
@@ -547,17 +589,9 @@ export function App() {
 					</div>
 				)}
 				{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
-				{((selected && aside?.kind === "work") || call !== null) && (
+				{(floatWork !== null || call !== null) && (
 					<div className="float-stack">
-						{selected && aside?.kind === "work" && (
-							<Work
-								key={`work-${aside.work.personaId}`}
-								open={aside.work}
-								name={selected.persona.name}
-								live={selected.session.state === "thinking"}
-								onClose={() => setAside(null)}
-							/>
-						)}
+						{floatWork}
 						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={select} />}
 					</div>
 				)}
@@ -613,6 +647,8 @@ function keepRoster(deskId: string, roster: RosterEntry[]) {
 /** The open teammate survives a reload, which is what makes the tape
  * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
 const SELECTED_KEY = "hotline.rail.selected";
+/** The width of the window's main column below which a work card docks. */
+const WORK_DOCK_BELOW = 960;
 
 function perDesk(key: string): string {
 	return deskKey(key);

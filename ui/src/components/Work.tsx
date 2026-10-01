@@ -23,12 +23,15 @@ export function Work({
 	open,
 	name,
 	live,
+	docked = false,
 	onClose,
 }: {
 	open: OpenWork;
 	name: string;
 	/** A turn is running for this teammate. */
 	live: boolean;
+	/** Under the composer rather than floating over the conversation. */
+	docked?: boolean;
 	onClose(): void;
 }) {
 	const { events, streaming } = useTape(open.personaId);
@@ -51,7 +54,7 @@ export function Work({
 	useEffect(() => setFollowing(true), [run?.id]);
 
 	return (
-		<aside className="work-float" aria-label={`${name}'s work`}>
+		<aside className={docked ? "work-float work-docked" : "work-float"} aria-label={`${name}'s work`}>
 			<Band>
 				<div className="min-w-0 flex-1 pl-1">
 					<h2 className="flex items-center gap-2 truncate text-lg font-semibold">

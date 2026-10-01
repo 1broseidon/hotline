@@ -265,6 +265,8 @@ pub trait Dispatcher: Send + Sync {
 pub struct ProviderDispatcher {
     vault: Arc<Vault>,
     model: String,
+    /// The owner's thinking level, when the model lists it.
+    effort: Option<String>,
     price: ModelCost,
 }
 
@@ -314,7 +316,7 @@ impl ProviderDispatcher {
             &vault.account_models(),
             &metadata,
         );
-        let (provider, named) = match &voice.dispatcher {
+        let (provider, named, effort) = match &voice.dispatcher {
             Some(pick) => {
                 if !keys.contains_key(&pick.provider_id) {
                     return Err(format!(
@@ -322,7 +324,11 @@ impl ProviderDispatcher {
                         pick.provider_id
                     ));
                 }
-                (pick.provider_id.clone(), pick.model_id.clone())
+                (
+                    pick.provider_id.clone(),
+                    pick.model_id.clone(),
+                    pick.effort.clone(),
+                )
             }
             None => {
                 let preferred = crate::models::preferred_model(settings)
@@ -335,7 +341,7 @@ impl ProviderDispatcher {
                     .ok_or("The room's default model needs a provider.")?
                     .0
                     .to_string();
-                (provider, None)
+                (provider, None, None)
             }
         };
         // Provider catalogues do not publish latency. Prefer the newest model in
@@ -383,12 +389,25 @@ impl ProviderDispatcher {
         {
             return Err("The dispatcher model has an invalid price.".into());
         }
+        let effort = offered_effort(&model, effort);
         Ok(Arc::new(Self {
             vault,
             model,
+            effort,
             price,
         }))
     }
+}
+
+/// The owner's thinking level if the model lists it. A level the model
+/// doesn't list (the model changed, or the setting was typed by hand) is
+/// dropped rather than sent and refused.
+fn offered_effort(model: &str, effort: Option<String>) -> Option<String> {
+    effort.filter(|effort| {
+        crate::models::efforts(model)
+            .iter()
+            .any(|offered| offered == effort)
+    })
 }
 
 /// Ids that name a model for something other than talking: a gateway lists
@@ -543,9 +562,10 @@ impl Dispatcher for ProviderDispatcher {
         } else {
             Vec::new()
         };
-        let agent = crate::driver::rig::completion_builder(
+        let agent = crate::driver::rig::completion_builder_with_effort(
             &self.vault.provider_auth(),
             &self.model,
+            self.effort.as_deref(),
             Some(512),
         )
         .await?
@@ -581,9 +601,10 @@ impl Dispatcher for ProviderDispatcher {
         } else {
             Vec::new()
         };
-        let agent = crate::driver::rig::completion_builder(
+        let agent = crate::driver::rig::completion_builder_with_effort(
             &self.vault.provider_auth(),
             &self.model,
+            self.effort.as_deref(),
             Some(512),
         )
         .await?
@@ -642,9 +663,10 @@ impl Dispatcher for ProviderDispatcher {
     }
 
     async fn narrate(&self, name: &str, text: &str, ledger: Arc<Budget>) -> Result<String, String> {
-        let agent = crate::driver::rig::completion_builder(
+        let agent = crate::driver::rig::completion_builder_with_effort(
             &self.vault.provider_auth(),
             &self.model,
+            self.effort.as_deref(),
             Some(160),
         )
         .await?
@@ -1063,6 +1085,19 @@ mod tests {
         let dispatcher = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
         assert_eq!(dispatcher.id().provider_id, ids[1]);
         assert_eq!(dispatcher.id().model_id, "second-mini");
+    }
+
+    #[test]
+    fn the_dispatchers_thinking_level_is_kept_only_where_the_model_lists_it() {
+        let low = || Some("low".to_string());
+        assert_eq!(offered_effort("anthropic/claude-sonnet-4-6", low()), low());
+        assert_eq!(
+            offered_effort("anthropic/claude-sonnet-4-6", Some("turbo".into())),
+            None
+        );
+        assert_eq!(offered_effort("openai/gpt-4.1", low()), None);
+        assert_eq!(offered_effort("custom-x/fast-mini", low()), None);
+        assert_eq!(offered_effort("anthropic/claude-sonnet-4-6", None), None);
     }
 
     #[tokio::test]

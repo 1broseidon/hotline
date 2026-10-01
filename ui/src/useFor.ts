@@ -105,15 +105,56 @@ export function voiceChoices(job: CapabilityJob): PickerChoice[] {
 	return choices;
 }
 
-/** A choice the desk stores: `{provider, model?, voice?}`. */
-export type Stored = { provider: string; model?: string; voice?: string };
+/** The thinking levels of the model the owner picked; none for Automatic, which stores no level. */
+export function effortsOf(job: CapabilityJob): string[] {
+	const selected = job.selected;
+	if (selected === undefined) return [];
+	const provider = job.options.find((one) => one.providerId === selected.providerId);
+	const model = provider?.models.find((one) => one.id === selected.modelId) ?? provider?.models[0];
+	return model?.efforts ?? [];
+}
 
-export function stored(providerId: string, modelId: string | undefined, voice?: string): Stored {
+const EFFORT_LABELS: Record<string, string> = {
+	none: "None",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "Extra high",
+	max: "Max",
+};
+
+export function effortLabel(id: string): string {
+	return EFFORT_LABELS[id] ?? id;
+}
+
+/** The model's own level first, then each one it lists. */
+export function effortChoices(job: CapabilityJob): PickerChoice[] {
+	return [{ id: AUTOMATIC, name: "Default thinking" }, ...effortsOf(job).map((id) => ({ id, name: `${effortLabel(id)} thinking` }))];
+}
+
+/** A choice the desk stores: `{provider, model?, voice?, effort?}`. */
+export type Stored = { provider: string; model?: string; voice?: string; effort?: string };
+
+export function stored(providerId: string, modelId: string | undefined, voice?: string, effort?: string): Stored {
 	return {
 		provider: providerId,
 		...(modelId !== undefined ? { model: modelId } : {}),
 		...(voice !== undefined ? { voice } : {}),
+		...(effort !== undefined ? { effort } : {}),
 	};
+}
+
+/**
+ * The call assistant moved to another model: the level comes along when the
+ * new model lists it, so going from one fast model to another stays "Low".
+ */
+export function carriedEffort(job: CapabilityJob, providerId: string, modelId: string | undefined): string | undefined {
+	const effort = job.selected?.effort;
+	if (effort === undefined) return undefined;
+	const provider = job.options.find((one) => one.providerId === providerId);
+	const model = provider?.models.find((one) => one.id === modelId) ?? provider?.models[0];
+	return model?.efforts?.includes(effort) ? effort : undefined;
 }
 
 /**

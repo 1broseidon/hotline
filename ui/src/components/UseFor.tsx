@@ -6,8 +6,11 @@ import { wire } from "../wire";
 import { ChevronDownIcon } from "../icons";
 import {
 	AUTOMATIC,
+	carriedEffort,
 	choicesFor,
 	currentId,
+	effortChoices,
+	effortsOf,
 	parseCap,
 	type PickerChoice,
 	shortModel,
@@ -137,8 +140,24 @@ export function UseFor({
 								choices={shortChoices(options.dispatcher)}
 								placeholder="Automatic"
 								label="Model for the call assistant"
-								onChange={(id) => setVoice("dispatcher", pickModel(id))}
+								onChange={(id) => {
+									const next = pickModel(id);
+									setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
+								}}
 							/>
+							{effortsOf(options.dispatcher).length > 0 && (
+								<Picker
+									value={options.dispatcher.selected?.effort ?? AUTOMATIC}
+									choices={effortChoices(options.dispatcher)}
+									placeholder="Default thinking"
+									label="Call assistant thinking"
+									onChange={(id) => {
+										const selected = options.dispatcher.selected;
+										if (selected === undefined) return;
+										setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
+									}}
+								/>
+							)}
 						</JobRow>
 					</>
 				)}

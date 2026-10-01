@@ -5,7 +5,7 @@
 //!   "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
 //!   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "marin" },
 //!   "fallbackTts": { "provider": "google" },
-//!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
+//!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" } }
 //! ```
 //!
 //! Every key is optional. A value that cannot be read costs its own
@@ -29,6 +29,8 @@ pub struct Choice {
     pub provider_id: String,
     pub model_id: Option<String>,
     pub voice: Option<String>,
+    /// A thinking level for a chat model, as its Effort picker names it.
+    pub effort: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,6 +119,7 @@ fn choice(voice: &Map<String, Value>, key: &str) -> Option<Choice> {
         provider_id: text("provider")?,
         model_id: text("model"),
         voice: text("voice"),
+        effort: text("effort"),
     })
 }
 
@@ -157,7 +160,8 @@ mod tests {
             Some(Choice {
                 provider_id: "groq".into(),
                 model_id: None,
-                voice: None
+                voice: None,
+                effort: None
             })
         );
         assert_eq!(
@@ -165,7 +169,8 @@ mod tests {
             Some(Choice {
                 provider_id: "openai".into(),
                 model_id: Some("gpt-4o-mini-tts".into()),
-                voice: Some("cedar".into())
+                voice: Some("cedar".into()),
+                effort: None
             })
         );
         assert_eq!(
@@ -185,12 +190,17 @@ mod tests {
             Some(Choice {
                 provider_id: "openai".into(),
                 model_id: Some("gpt-5-mini".into()),
-                voice: None
+                voice: None,
+                effort: None
             })
         );
         let by_provider =
             VoiceSettings::from_room(&room(json!({"dispatcher": {"provider": "groq"}})));
         assert_eq!(by_provider.dispatcher.unwrap().model_id, None);
+        let thinking = VoiceSettings::from_room(&room(json!({
+            "dispatcher": {"provider": "anthropic", "model": "claude-sonnet-4-6", "effort": "low"},
+        })));
+        assert_eq!(thinking.dispatcher.unwrap().effort.as_deref(), Some("low"));
         // A model with no provider is not a choice.
         assert_eq!(
             VoiceSettings::from_room(&room(json!({"dispatcher": {"model": "gpt-5-mini"}})))

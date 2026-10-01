@@ -292,6 +292,7 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
                         id,
                         label: None,
                         voices: None,
+                        efforts: None,
                     })
                     .collect(),
             })

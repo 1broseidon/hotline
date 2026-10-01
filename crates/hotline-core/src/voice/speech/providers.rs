@@ -249,6 +249,7 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
         id,
         label: None,
         voices: None,
+        efforts: None,
     };
     let mut stt = Vec::new();
     let mut tts = Vec::new();
@@ -264,6 +265,7 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
                             id: model.id.clone(),
                             label: model.label.clone(),
                             voices: None,
+                            efforts: None,
                         })
                         .collect(),
                     _ => vec![plain(row.listen.to_string())],
@@ -300,12 +302,14 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
                             id: model.id.clone(),
                             label: model.label.clone(),
                             voices: Some(model.voices.clone()),
+                            efforts: None,
                         })
                         .collect(),
                     _ => vec![CapabilityModel {
                         id: default.to_string(),
                         label: None,
                         voices: Some(voices.iter().map(|voice| voice.to_string()).collect()),
+                        efforts: None,
                     }],
                 };
                 default_first(models, default, |model| &model.id)
@@ -336,6 +340,7 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
                 provider_name: connection.name.clone(),
                 model_id: Some(model),
                 voice: None,
+                effort: None,
             })
         }),
         automatic_tts: connections.iter().find_map(|connection| {
@@ -345,6 +350,7 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
                 provider_name: connection.name.clone(),
                 model_id: Some(voice.model),
                 voice: Some(voice.voice),
+                effort: None,
             })
         }),
     }
@@ -586,6 +592,7 @@ mod tests {
             provider_id: provider.into(),
             model_id: model.map(str::to_string),
             voice: voice.map(str::to_string),
+            effort: None,
         }
     }
 

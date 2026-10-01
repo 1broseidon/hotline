@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CapabilityJob, CapabilityOptions } from "../src/generated/contract";
-import { AUTOMATIC, choicesFor, currentId, parseCap, pickId, spentText, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
+import { AUTOMATIC, carriedEffort, choicesFor, effortChoices, effortsOf, currentId, parseCap, pickId, spentText, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
 
 const images: CapabilityJob = {
 	automatic: { providerId: "openrouter", providerName: "OpenRouter", modelId: "openai/gpt-image-2.5-flare" },
@@ -125,5 +125,39 @@ describe("a connection's tags", () => {
 		expect(tagsFor(options, "groq")).toEqual(["Voice"]);
 		expect(tagsFor(options, "anthropic")).toEqual(["Chat"]);
 		expect(tagsFor(options, "mistral")).toEqual([]);
+	});
+});
+
+describe("the call assistant's thinking", () => {
+	const dispatcher: CapabilityJob = {
+		automatic: { providerId: "groq", providerName: "Groq", modelId: "llama-3.3-70b" },
+		selected: { providerId: "anthropic", providerName: "Anthropic", modelId: "claude-sonnet-4-6", effort: "low" },
+		options: [
+			{ providerId: "groq", providerName: "Groq", models: [{ id: "llama-3.3-70b" }] },
+			{
+				providerId: "anthropic",
+				providerName: "Anthropic",
+				models: [
+					{ id: "claude-sonnet-4-6", efforts: ["low", "medium", "high", "max"] },
+					{ id: "claude-opus-5-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+					{ id: "claude-haiku-4-5" },
+				],
+			},
+		],
+	};
+
+	test("offers the picked model's levels after its own", () => {
+		expect(effortChoices(dispatcher).map((one) => one.name)).toEqual(["Default thinking", "Low thinking", "Medium thinking", "High thinking", "Max thinking"]);
+	});
+
+	test("has no levels on Automatic or on a model that takes none", () => {
+		expect(effortsOf({ ...dispatcher, selected: undefined })).toEqual([]);
+		expect(effortsOf({ ...dispatcher, selected: { providerId: "groq", providerName: "Groq", modelId: "llama-3.3-70b" } })).toEqual([]);
+	});
+
+	test("carries the level to a model that lists it and drops it otherwise", () => {
+		expect(carriedEffort(dispatcher, "anthropic", "claude-opus-5-5")).toBe("low");
+		expect(carriedEffort(dispatcher, "anthropic", "claude-haiku-4-5")).toBeUndefined();
+		expect(carriedEffort(dispatcher, "groq", "llama-3.3-70b")).toBeUndefined();
 	});
 });

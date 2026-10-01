@@ -2057,6 +2057,10 @@ pub struct CapabilityModel {
     /// The voices that speak with this model, the provider's default first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voices: Option<Vec<String>>,
+    /// The thinking levels this chat model takes, as a teammate's Effort
+    /// picker lists them; absent when it takes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<String>>,
 }
 
 /// A connected provider and the models it can do one job with.
@@ -2080,6 +2084,9 @@ pub struct CapabilityPick {
     pub model_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice: Option<String>,
+    /// The thinking level picked for the model; absent means the model's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// One job the owner can pick a provider for.

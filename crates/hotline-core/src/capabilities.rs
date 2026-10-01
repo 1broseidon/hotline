@@ -42,6 +42,7 @@ pub async fn options(
                         provider_id: provider_id.clone(),
                         model_id: images.model.clone(),
                         voice: None,
+                        effort: None,
                     },
                 )
             }),
@@ -54,6 +55,7 @@ pub async fn options(
                             provider_id: id.provider_id,
                             model_id: Some(id.model_id),
                             voice: None,
+                            effort: None,
                         },
                     )
                 }),
@@ -105,10 +107,12 @@ fn dispatcher(
         if !is_chat(model) {
             continue;
         }
+        let efforts = crate::models::efforts(&choice.id);
         let entry = CapabilityModel {
             id: model.to_string(),
             label: Some(choice.name.clone()).filter(|name| name != model),
             voices: None,
+            efforts: (!efforts.is_empty()).then_some(efforts),
         };
         match options
             .iter_mut()
@@ -139,6 +143,7 @@ fn dispatcher(
                     provider_id: id.provider_id,
                     model_id: Some(id.model_id),
                     voice: None,
+                    effort: None,
                 },
             );
             (Some(pick), None)
@@ -196,5 +201,6 @@ fn pick(options: &[CapabilityProvider], choice: &Choice) -> CapabilityPick {
             ),
         model_id: choice.model_id.clone(),
         voice: choice.voice.clone(),
+        effort: choice.effort.clone(),
     }
 }

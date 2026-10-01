@@ -38,6 +38,7 @@ fn pick(provider: &str) -> Option<Choice> {
         provider_id: provider.into(),
         model_id: None,
         voice: None,
+        effort: None,
     })
 }
 

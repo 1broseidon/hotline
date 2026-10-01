@@ -124,14 +124,23 @@ export type CapabilityModel = { id: string, label?: string,
 /**
  * The voices that speak with this model, the provider's default first.
  */
-voices?: Array<string>, };
+voices?: Array<string>, 
+/**
+ * The thinking levels this chat model takes, as a teammate's Effort
+ * picker lists them; absent when it takes none.
+ */
+efforts?: Array<string>, };
 
 export type CapabilityOptions = { images: CapabilityJob, stt: CapabilityJob, tts: CapabilityJob, dispatcher: CapabilityJob, spending: CapabilitySpending, };
 
 /**
  * A provider, and the model and voice on it when they are known.
  */
-export type CapabilityPick = { providerId: string, providerName: string, modelId?: string, voice?: string, };
+export type CapabilityPick = { providerId: string, providerName: string, modelId?: string, voice?: string, 
+/**
+ * The thinking level picked for the model; absent means the model's own.
+ */
+effort?: string, };
 
 /**
  * A connected provider and the models it can do one job with.

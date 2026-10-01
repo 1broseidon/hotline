@@ -358,16 +358,14 @@ provider, model and usage summary; no raw room content is included.
 Credentials and keys are never returned. Owners and the local desk may ask;
 companions receive `forbidden`. Test room handles default to unavailable.
 
-Experimental Codex subscription images require an existing Hotline ChatGPT
-sign-in and explicit `settings.images.provider: "openai-codex"`. The only
-supported model is `gpt-image-2` (also the default). This connection is never
-auto-selected or used as a fallback, and never falls back to a paid provider.
-`capabilities.options` offers it as `Codex (ChatGPT subscription)` in the
-image picker when the owner has connected that login. Choosing Automatic
-clears the explicit selection; it does not select the subscription connection.
-`available` means configured and selected, not verified image entitlement:
-status neither refreshes the login nor calls the provider. Clear the provider
-selection to return to automatic API-provider selection.
+Codex subscription images use an existing Hotline ChatGPT sign-in
+(`openai-codex`); the only supported model is `gpt-image-2` (also the
+default). Grok images use an xAI key or a Grok sign-in (`xai`, offered as
+`Grok` or `Grok (subscription)`), with `grok-imagine-image-2.0` by default.
+Automatic selection takes a subscription before a paid key, and a
+subscription falls back only to another subscription, never to a paid
+provider. `available` means configured, not verified image entitlement:
+status neither refreshes a login nor calls the provider.
 
 The existing `generate_image` tool uses the Codex backend's internal image
 endpoints, with automatic size and quality; aspect is a prompt instruction,
@@ -377,8 +375,8 @@ reads Codex CLI credentials. Subscription results return `costUsd: null` and
 `billing: "subscription"`; paid-provider results retain their existing numeric
 cost. Subscription calls do not reserve or charge the dollar ledger, including
 when dollar spending is disabled or exhausted. Malformed settings still refuse.
-Upstream subscription limits still apply, and refusals are not retried through
-another provider. This internal endpoint may change; live compatibility and
+Upstream subscription limits still apply, and a refusal is retried only
+through another subscription. This internal endpoint may change; live compatibility and
 account entitlement must be verified separately before relying on it.
 The capability lease is checked after login refresh and immediately before
 dispatch. A refresh that exceeds 30 seconds asks the caller to try again;

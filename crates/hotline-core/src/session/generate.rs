@@ -143,8 +143,8 @@ impl Room {
     }
 
     /// One image from the room's image providers, the owner's pick first and
-    /// then the paid fallback, each within the spending cap. A subscription
-    /// pick never falls back to a paid provider.
+    /// then the fallback, each paid attempt within the spending cap. A
+    /// subscription that fails never falls back to a paid provider.
     pub(crate) async fn draw(
         &self,
         request: &ImageRequest,
@@ -153,8 +153,13 @@ impl Room {
         let generators = self.image_generators()?;
         let mut spent_usd = 0.0;
         let mut failure = None;
+        let mut on_plan = false;
         for generator in std::iter::once(generators.primary).chain(generators.fallback) {
             let subscription = generator.subscription();
+            if on_plan && !subscription {
+                break;
+            }
+            on_plan = subscription;
             if let Some(capability) = &capability {
                 capability.check()?;
             }
@@ -165,9 +170,6 @@ impl Room {
                     }
                     .to_string(),
                 );
-                if subscription {
-                    break;
-                }
                 continue;
             }
             let settings = crate::room::try_settings(self.log())?;
@@ -226,9 +228,6 @@ impl Room {
                 }
                 Err(error) => {
                     failure = Some(error.to_string());
-                    if subscription {
-                        break;
-                    }
                 }
             }
         }
@@ -251,9 +250,10 @@ impl Room {
         if let Some(generators) = super::lock(&self.image_generators).clone() {
             return Ok(generators);
         }
-        let vault = self.vault.as_ref().ok_or_else(|| {
-            "Connect OpenRouter, OpenAI or Google in Providers to make images.".to_string()
-        })?;
+        let vault = self
+            .vault
+            .as_ref()
+            .ok_or_else(|| imagegen::NOTHING_DRAWS.to_string())?;
         imagegen::resolve(vault, settings)
     }
 

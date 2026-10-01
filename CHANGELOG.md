@@ -8,6 +8,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Grok draws. Connect xAI with a key or sign in with your Grok subscription
+  and teammates can make and edit images with Grok Imagine (up to five
+  reference images). A key is charged within the spending cap; the
+  subscription draws on your plan.
+
+### Changed
+
+- A ChatGPT or Grok subscription is now the first choice for images when
+  you haven't picked one, ahead of paid keys, rather than needing to be
+  picked by hand. A subscription that fails can fall back to another
+  subscription, never to a paid API.
+
 ## [0.30.0] - 2026-09-30
 
 ### Added

@@ -57,8 +57,11 @@ Ubuntu makes the default, says nothing.
 Two ways to fix it:
 
 - **Run the desk as the user who has the CLIs.** On a first install, the
-  installer does this for whoever ran it with `sudo`, and `--user NAME` names
-  someone else (`--user hotline` keeps the separate service account):
+  installer does this for whoever ran it, as themselves or with `sudo`. Run
+  as root with nobody behind it, as on a fresh VPS, it uses the one person's
+  account on the machine if there is exactly one, and the service account
+  otherwise; the desk never runs as root. `--user NAME` names someone else
+  (`--user hotline` asks for the separate service account):
 
   ```sh
   curl -fsSL https://hotline.dev/install | sh -s -- --server --user "$USER"
@@ -71,7 +74,9 @@ Two ways to fix it:
   first install: `--user` on an installed desk is refused, and an upgrade
   never changes the user.
 - **Keep the service account and install the CLI for it,** signing in as that
-  account.
+  account. Its login shell is `nologin`, so open one with
+  `sudo -u hotline -H bash`; the unit's `PATH` already starts with its
+  `~/.local/bin` and `~/.npm-global/bin`.
 
 To move an installed desk to a user, stop it, hand over the room and drop the
 account in with an override:

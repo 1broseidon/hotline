@@ -24,7 +24,7 @@ User=hotline
 Group=hotline
 Environment=HOME=/var/lib/hotline
 Environment=HOTLINE_DATA_DIR=/var/lib/hotline/room
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/var/lib/hotline/.local/bin:/var/lib/hotline/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 # Replace this documentation address and hostname before enabling the unit.
 ExecStart=/usr/local/bin/hotline serve --store file --listen 192.0.2.10:9443 --public-url https://desk.example:9443
 # The desk waits up to 30 s for running work, then leaves.

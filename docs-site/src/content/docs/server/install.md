@@ -1,6 +1,6 @@
 ---
 title: Install on a server
-description: The binary, a service account, and a systemd unit.
+description: The binary, the account it runs as, and a systemd unit.
 ---
 
 ## Quick install
@@ -12,24 +12,27 @@ curl -fsSL https://hotline.dev/install | sh -s -- --server
 ```
 
 It downloads the server build for your architecture, checks it against the
-release's checksums, installs `hotline` to `/usr/local/bin`, creates the
-`hotline` account and the unit below, and starts the desk. It asks for the
+release's checksums, installs `hotline` to `/usr/local/bin`, writes the unit
+below, and starts the desk. It asks for `sudo` when it needs it, and for the
 [listen address and public URL](#listen-address-and-tls), or takes them as
 `--listen` and `--public-url`. Once the desk is up it shows a pairing QR, so
 keep your phone handy.
 
-By default the desk runs as its own `hotline` account, which can't see the
-`claude` or `codex` you installed and signed in to as yourself. To run it as
-you instead, pass `--user`, or run the installer with `sudo`, which uses your
-name:
+The desk runs as you, whether you ran the installer as yourself or with
+`sudo`, so it sees the `claude` and `codex` you installed and signed in to.
+Run as root with nobody behind it, as on a fresh VPS, it uses the one
+person's account on the machine if there is exactly one. Otherwise it creates
+a `hotline` service account and tells you how to set up a harness for it
+(`sudo -u hotline -H bash`, then install and sign in). The desk never runs as
+root. To choose, pass `--user`:
 
 ```sh
 curl -fsSL https://hotline.dev/install | sh -s -- --server --user "$USER"
 ```
 
 The unit then runs as you, with your home, and puts `~/.local/bin` and
-`~/.npm-global/bin` first on its `PATH`. `--user hotline` keeps the separate
-account. It only applies to a first install; an upgrade never changes who the
+`~/.npm-global/bin` first on its `PATH`. `--user hotline` asks for the
+separate account. It only applies to a first install; an upgrade never changes who the
 desk runs as. A desk that runs as you runs its teammates' tools as you, so use
 the service account on a server that is shared or holds anything you wouldn't
 hand an agent. [Harnesses and the account the desk runs as](https://github.com/1broseidon/hotline/blob/main/docs/serve.md)
@@ -136,7 +139,7 @@ hotline serve --store file --listen 192.0.2.10:9443 --public-url https://desk.ex
   DNS name or IP, or a TLS proxy in front of the desk. It goes into the
   pairing QR. Don't put credentials or a query in it.
 - TLS is self-signed unless you pass `--tls-cert fullchain.pem --tls-key
-  key.pem`, which the service account must be able to read. `--tls self`
+  key.pem`, which the account the desk runs as must be able to read. `--tls self`
   says the default out loud. The phone trusts the server's key, not its
   certificate, so rotating certificates never breaks a pairing.
 - `--store file` keeps secrets as owner-only files under the room. Encrypt
@@ -150,7 +153,7 @@ else the port offers nothing but TLS and a closed door.
 ## Check it's running
 
 ```sh
-sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline status
+sudo -u "$(systemctl show -p User --value hotline)" HOTLINE_DATA_DIR=/var/lib/hotline/room hotline status
 ```
 
 A fresh room says **No teammate can run yet: connect a model provider**.

@@ -283,23 +283,57 @@ main --server --version 0.26.0 --yes
 
     # -- which user runs the desk (BRO-139) ------------------------------------
 
-    def pick(self, run_as="", sudo_user="", success=True):
+    def pick(self, run_as="", sudo_user="", me="root", people=(), success=True):
+        """pick_user as `me`, on a machine whose passwd lists `people` (name, uid, shell, home)."""
+        passwd = "\n".join(f"{name}:x:{uid}:{uid}::{home}:{shell}" for name, uid, shell, home in people)
         return self.run_shell(f'''
-id() {{ case "$2" in agent | bob) echo 1001 ;; *) return 1 ;; esac; }}
+id() {{
+    case "$*" in
+        -u) [ {shlex.quote(me)} = root ] && echo 0 || echo 1001 ;;
+        -un) echo {shlex.quote(me)} ;;
+        "-u agent" | "-u bob" | "-u carol") echo 1001 ;;
+        *) return 1 ;;
+    esac
+}}
+getent() {{ printf '%s\\n' {shlex.quote(passwd)}; }}
 run_as={shlex.quote(run_as)}
 {f"SUDO_USER={shlex.quote(sudo_user)}" if sudo_user else "unset SUDO_USER"}
 pick_user
+echo "$run_user"
 ''', success=success).strip()
 
-    def test_the_desk_runs_as_whoever_ran_sudo_unless_told_otherwise(self):
-        self.assertEqual(self.pick(), "")
-        self.assertEqual(self.pick(sudo_user="agent"), "agent")
-        self.assertEqual(self.pick(run_as="bob", sudo_user="agent"), "bob")
+    def person(self, name, uid=1001, shell="/bin/bash", home=None):
+        if home is None:
+            home = self.root / "people" / name
+            home.mkdir(parents=True, exist_ok=True)
+        return (name, uid, shell, str(home))
 
-    def test_the_service_account_is_still_there_for_anyone_who_names_it_and_for_root(self):
-        self.assertEqual(self.pick(sudo_user="root"), "")
+    def test_the_desk_runs_as_whoever_installed_it_unless_told_otherwise(self):
+        self.assertEqual(self.pick(sudo_user="agent"), "agent")
+        self.assertEqual(self.pick(me="agent"), "agent")
+        self.assertEqual(self.pick(run_as="bob", sudo_user="agent"), "bob")
+        self.assertEqual(self.pick(run_as="bob", me="agent"), "bob")
+
+    def test_root_alone_runs_the_desk_as_the_one_person_here(self):
+        self.assertEqual(self.pick(people=[self.person("agent")]), "agent")
+        self.assertEqual(self.pick(sudo_user="root", people=[self.person("agent")]), "agent")
+        # Accounts nobody logs in to are not people.
+        system = [
+            ("daemon", 1, "/usr/sbin/nologin", "/usr/sbin"),
+            ("nobody", 65534, "/bin/sh", "/nonexistent"),
+            self.person("svc", shell="/usr/sbin/nologin"),
+            self.person("off", shell="/bin/false"),
+            self.person("gone", home=self.root / "no-such-home"),
+        ]
+        self.assertEqual(self.pick(people=system + [self.person("agent")]), "agent")
+        self.assertEqual(self.pick(people=system), "")
+
+    def test_the_service_account_is_there_for_anyone_who_names_it_and_for_root_among_several(self):
+        self.assertEqual(self.pick(), "")
+        self.assertEqual(self.pick(people=[self.person("agent"), self.person("bob")]), "")
         self.assertEqual(self.pick(sudo_user="hotline"), "")
         self.assertEqual(self.pick(run_as="hotline", sudo_user="agent"), "")
+        self.assertEqual(self.pick(run_as="hotline", people=[self.person("agent")]), "")
 
     def test_a_user_that_cannot_run_the_desk_is_refused(self):
         self.assertIn("does not run as root", self.pick(run_as="root", success=False))
@@ -333,7 +367,7 @@ run_unit_as agent staff /home/agent
         out = self.run_shell('as_root() { "$@"; }; run_unit_as agent agent /home/agent', success=False)
         self.assertIn("could not set Group=agent", out)
 
-    def server_run(self, args, sudo_user=None, unit_exists=False, hotline_exists=False, success=True, home=None):
+    def server_run(self, args, sudo_user=None, unit_exists=False, hotline_exists=False, success=True, home=None, alone=False):
         """The real server() over a real archive, with privileged commands logged instead of run."""
         directory = "hotline-server_0.26.0_linux_x86_64"
         packaged = (INSTALL.parents[2] / "packaging/hotline.service").read_bytes()
@@ -358,7 +392,7 @@ id() {{
         hotline) {"return 0" if hotline_exists else "return 1"} ;;
     esac
 }}
-getent() {{ echo "agent:x:1001:1001:Agent:{agent_home}:/bin/bash"; }}
+getent() {{ {"" if alone else '[ -n "${2:-}" ] &&'} echo "agent:x:1001:1001:Agent:{agent_home}:/bin/bash"; }}
 as_root() {{
     case "$1" in
         sed) "$@" ;;
@@ -385,6 +419,7 @@ main --server --version 0.26.0 --yes {args}
         self.assertIn(f"Environment=HOME={self.home}", unit)
         self.assertIn("The desk will run as agent", out)
         self.assertIn(f"sudo -u agent HOTLINE_DATA_DIR={self.room} hotline pair", out)
+        self.assertNotIn("sudo -u hotline -H bash", out)
 
     def test_a_first_server_install_can_run_the_desk_as_a_named_user(self):
         out = self.server_run(f"{self.LISTEN} --user agent")
@@ -393,6 +428,11 @@ main --server --version 0.26.0 --yes {args}
     def test_a_first_server_install_under_sudo_runs_the_desk_as_the_person_who_ran_it(self):
         out = self.server_run(self.LISTEN, sudo_user="agent")
         self.assert_runs_as_agent(out)
+
+    def test_a_first_server_install_as_root_alone_runs_the_desk_as_the_one_person_here(self):
+        out = self.server_run(self.LISTEN, alone=True)
+        self.assert_runs_as_agent(out)
+        self.assertIn("the only person's account here", out)
 
     def test_a_first_server_install_with_nobody_behind_it_is_as_it_was(self):
         for args, sudo_user in ((self.LISTEN, None), (self.LISTEN, "root"), (f"{self.LISTEN} --user hotline", "agent")):
@@ -407,6 +447,8 @@ main --server --version 0.26.0 --yes {args}
             self.assertIn("Environment=HOME=/var/lib/hotline", unit)
             self.assertNotIn("The desk will run as", out)
             self.assertIn(f"sudo -u hotline HOTLINE_DATA_DIR={self.room} hotline pair", out)
+            self.assertIn("sudo -u hotline -H bash", out)
+            self.assertIn("Environment=PATH=/var/lib/hotline/.local/bin:/var/lib/hotline/.npm-global/bin:/usr/local/bin:/usr/bin:/bin", unit)
 
     def test_an_installed_desk_keeps_its_user_however_it_is_upgraded(self):
         # sudo's name is no reason to move a room the desk already has.

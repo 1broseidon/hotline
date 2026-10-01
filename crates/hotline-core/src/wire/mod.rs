@@ -509,6 +509,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 }
 
+/// Reasons a harness is unavailable that say nothing about the machine's
+/// accounts or folders, which a companion may read as they are.
+const PLAIN_REASONS: &[&str] = &["Not installed", "is not published for this computer"];
+/// What a companion reads in place of any other reason.
+const PRIVATE_REASON: &str = "Not available on this desk. Its owner can see why.";
+
 /// What a socket may do, decided by the token it presented.
 ///
 /// Owners have the same authority as the local desk. Companion sockets keep
@@ -1206,6 +1212,21 @@ async fn answer(
                                 }
                             }
                             page
+                        })
+                    }
+                    // Why a harness is unavailable can name the machine's
+                    // accounts and folders. That is the owner's to read; a
+                    // companion sees that it is unavailable, not why.
+                    (Command::BackendsList {}, _) if seat == Seat::Phone => {
+                        commands::run(command, log, room).await.map(|mut list| {
+                            for backend in list.as_array_mut().into_iter().flatten() {
+                                if let Some(reason) = backend.get_mut("unavailable")
+                                    && !PLAIN_REASONS.contains(&reason.as_str().unwrap_or_default())
+                                {
+                                    *reason = Value::from(PRIVATE_REASON);
+                                }
+                            }
+                            list
                         })
                     }
                     // The viewer is a loopback URL with the computer's bearer

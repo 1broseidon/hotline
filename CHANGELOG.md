@@ -47,6 +47,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   sent the same file. `generate_image` already posts it, the tools now say
   so (including `set_avatar`, which used to ask for a `send_file`), and a
   `send_file` of a picture just made is answered without posting it again.
+- Signing in to an OAuth MCP server on a desk on a server now completes from the
+  desktop: the browser's redirect cannot reach the server, so after approving,
+  the window asks for the address of the page you land on and finishes the
+  sign-in with it. Only that sign-in's own callback is accepted, and a wrong
+  address leaves it waiting (BRO-154).
 
 ## [0.30.0] - 2026-09-30
 

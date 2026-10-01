@@ -1730,6 +1730,26 @@ mod tests {
     }
 
     #[test]
+    fn callback_validation_requires_the_exact_path_scheme_host_and_no_fragment() {
+        let expected = "http://127.0.0.1:4567/oauth/callback/linear";
+        let good = "http://127.0.0.1:4567/oauth/callback/linear?code=x&state=y";
+        assert!(validate_callback_url(expected, good).is_ok());
+        for wrong in [
+            "http://127.0.0.1:4567/callback?code=x&state=y",
+            "http://127.0.0.1:4567/oauth/callback/other?code=x&state=y",
+            "http://127.0.0.1:4567/oauth/callback/linear/?code=x&state=y",
+            "http://127.0.0.1:4567/oauth/callback/linear/extra?code=x&state=y",
+            "http://localhost:4567/oauth/callback/linear?code=x&state=y",
+            "https://127.0.0.1:4567/oauth/callback/linear?code=x&state=y",
+            "http://127.0.0.1:4567/oauth/callback/linear?code=x&state=y#fragment",
+            "http://[::1]:4567/oauth/callback/linear?code=x&state=y",
+        ] {
+            assert!(validate_callback_url(expected, wrong).is_err(), "{wrong}");
+        }
+        assert!(validate_callback_url(expected, "not a url").is_err());
+    }
+
+    #[test]
     fn remote_http_oauth_urls_are_refused_but_loopback_http_is_allowed() {
         assert!(validate_server_url("http://mcp.example.test/mcp", "MCP server URL").is_err());
         assert!(validate_server_url("http://127.0.0.1:4321/mcp", "MCP server URL").is_ok());
@@ -2011,6 +2031,133 @@ mod tests {
                 .expect("empty OAuth store")
                 .is_none()
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// `mcp.auth_callback` is what a window on a laptop sends when the desk is
+    /// on a server: the address the browser landed on, pasted by a person.
+    /// Whatever they paste, only this sign-in's own callback finishes it, a
+    /// wrong one leaves the sign-in waiting for the right one, and no answer
+    /// repeats the address, which carries the code.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_pasted_address_finishes_only_its_own_sign_in_and_is_never_echoed() {
+        let mock = MockOAuthServer::start().await;
+        let root = scratch("pasted");
+        let log = Log::open(&root);
+        let vault = Arc::new(Vault::open(&root, log).expect("vault"));
+        let server = mock.server();
+        let service = McpOAuthService::new(vault.clone());
+        let started = service.start(&server).await.expect("start OAuth");
+        let login_id = started["loginId"].as_str().expect("login id");
+        let state = state_from(&started);
+        let redirect = Url::parse(started["redirectUri"].as_str().expect("redirect")).unwrap();
+        let variant = |edit: &dyn Fn(&mut Url)| {
+            let mut url = redirect.clone();
+            url.query_pairs_mut()
+                .append_pair("code", "pasted-secret-code")
+                .append_pair("state", &state);
+            edit(&mut url);
+            url.to_string()
+        };
+
+        let cases: Vec<(&str, String, &str)> = vec![
+            (
+                "another path on this desk's port",
+                variant(&|url| url.set_path("/callback")),
+                "did not match the pending native sign-in",
+            ),
+            (
+                "another server's callback path",
+                variant(&|url| url.set_path("/oauth/callback/another-server")),
+                "did not match the pending native sign-in",
+            ),
+            (
+                "another host",
+                variant(&|url| url.set_host(Some("localhost")).expect("host")),
+                "did not match the pending native sign-in",
+            ),
+            (
+                "another port",
+                variant(&|url| {
+                    let port = url.port().expect("port");
+                    url.set_port(Some(port.wrapping_add(1).max(1024)))
+                        .expect("port");
+                }),
+                "did not match the pending native sign-in",
+            ),
+            (
+                "a fragment",
+                variant(&|url| url.set_fragment(Some("frag"))),
+                "did not match the pending native sign-in",
+            ),
+            (
+                "another sign-in's state",
+                {
+                    let mut url = redirect.clone();
+                    url.query_pairs_mut()
+                        .append_pair("code", "pasted-secret-code")
+                        .append_pair("state", "someone-elses-state");
+                    url.to_string()
+                },
+                "state did not match",
+            ),
+            (
+                "no state",
+                {
+                    let mut url = redirect.clone();
+                    url.query_pairs_mut()
+                        .append_pair("code", "pasted-secret-code");
+                    url.to_string()
+                },
+                "did not include state",
+            ),
+            (
+                "the authorization page instead of the callback",
+                format!(
+                    "{}&code=pasted-secret-code",
+                    started["authorizationUrl"]
+                        .as_str()
+                        .expect("authorization URL")
+                ),
+                "did not match the pending native sign-in",
+            ),
+            (
+                "something that is not an address",
+                "pasted-secret-code and some words".to_string(),
+                "",
+            ),
+        ];
+        for (what, pasted, expected) in cases {
+            let error = service.complete(login_id, &pasted).await.expect_err(what);
+            assert!(error.contains(expected), "{what}: {error}");
+            assert!(
+                !error.contains("pasted-secret-code") && !error.contains(&pasted),
+                "{what}: an answer repeated the address: {error}"
+            );
+        }
+
+        // A login this desk does not have is refused without touching another.
+        let good = variant(&|_| {});
+        let error = service
+            .complete("not-a-login", &good)
+            .await
+            .expect_err("unknown login");
+        assert!(error.contains("no longer pending"), "{error}");
+        assert!(!error.contains("pasted-secret-code"), "{error}");
+
+        // None of that spent the sign-in: it is still waiting, nothing was
+        // exchanged, and the right address finishes it.
+        assert_eq!(
+            service.status(&server).await.expect("pending status")["status"],
+            "pending"
+        );
+        assert_eq!(mock.state.code_exchanges.load(Ordering::SeqCst), 0);
+        let signed_in = service
+            .complete(login_id, &good.replace("pasted-secret-code", "good-code"))
+            .await
+            .expect("the right address finishes it");
+        assert_eq!(signed_in["status"], "signed_in");
+        assert_eq!(mock.state.code_exchanges.load(Ordering::SeqCst), 1);
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -130,6 +130,12 @@ pub fn acp_registry_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-registry.json")
 }
 
+/// Agents the ACP registry ships as prebuilt archives, unpacked one folder per
+/// agent and archive. Safe to delete: the next start downloads it again.
+pub fn acp_agents_dir(root: &Path) -> PathBuf {
+    root.join("acp-agents")
+}
+
 /// The speech models a provider offered when last asked, for the "Use for"
 /// pickers. A cache and nothing more: it holds model names and voices, never
 /// a key, and deleting it costs one fetch.

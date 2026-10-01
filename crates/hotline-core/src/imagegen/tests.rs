@@ -323,6 +323,105 @@ async fn openai_generates_from_words_and_edits_with_references() {
 }
 
 #[tokio::test]
+async fn grok_asks_for_base64_at_the_aspect_and_edits_with_json_references() {
+    let answer = json!({"data": [{"b64_json": STANDARD.encode(PNG)}]});
+    let (url, seen, _server) = answering(StatusCode::OK, answer.to_string().into_bytes()).await;
+    let adapter = Grok::new(
+        &url,
+        xai::GrokAuth::Key(SECRET.into()),
+        model("grok-imagine-image-2.0"),
+    )
+    .unwrap();
+    assert!(!adapter.subscription());
+    assert!(adapter.estimate_usd(&ask("a toad")) > 0.0);
+
+    let image = adapter
+        .generate(&ImageRequest {
+            aspect: Aspect::Tall,
+            transparent: true,
+            ..ask("a toad on a phone")
+        })
+        .await
+        .unwrap();
+    assert!(!image.transparent);
+    assert_eq!(image.id.to_string(), "xai/grok-imagine-image-2.0");
+    for references in [vec![reference()], vec![reference(), reference()]] {
+        adapter
+            .generate(&ImageRequest {
+                references,
+                ..ask("make it wave")
+            })
+            .await
+            .unwrap();
+    }
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].path, "/images/generations");
+    assert_eq!(seen[0].headers["authorization"], format!("Bearer {SECRET}"));
+    let body = seen[0].json();
+    assert_eq!(body["model"], "grok-imagine-image-2.0");
+    assert_eq!(body["aspect_ratio"], "9:16");
+    assert_eq!(body["response_format"], "b64_json");
+    assert_eq!(body["n"], 1);
+    assert!(body.get("background").is_none());
+    assert_eq!(seen[1].path, "/images/edits");
+    let one = seen[1].json();
+    assert_eq!(one["image"]["type"], "image_url");
+    assert!(
+        one["image"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,")
+    );
+    let two = seen[2].json();
+    assert!(two.get("image").is_none());
+    assert_eq!(two["images"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_grok_subscription_draws_with_its_sign_in_and_charges_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = crate::credentials::CredentialFiles::new(
+        dir.path().into(),
+        crate::credentials::default_store(),
+    )
+    .file(dir.path().join("auth.json"));
+    crate::providers::xai::sign_in_for_test(&tokens, "grok-access");
+    let answer = json!({"data": [{"b64_json": STANDARD.encode(PNG)}]});
+    let (url, seen, _server) = answering(StatusCode::OK, answer.to_string().into_bytes()).await;
+    let adapter = Grok::new(
+        &url,
+        xai::GrokAuth::Subscription(tokens.clone()),
+        model("grok-imagine-image-2.0"),
+    )
+    .unwrap();
+    assert!(adapter.subscription());
+    assert_eq!(adapter.estimate_usd(&ask("a toad")), 0.0);
+    adapter.generate(&ask("a toad")).await.unwrap();
+    assert_eq!(
+        seen.lock().unwrap()[0].headers["authorization"],
+        "Bearer grok-access"
+    );
+
+    // A refusal other than an expired bearer is the answer: no second try.
+    let (url, seen, _server) = answering(StatusCode::FORBIDDEN, b"{}".to_vec()).await;
+    let adapter = Grok::new(
+        &url,
+        xai::GrokAuth::Subscription(tokens),
+        model("grok-imagine-image-2.0"),
+    )
+    .unwrap();
+    assert_eq!(
+        adapter.generate(&ask("a toad")).await.unwrap_err(),
+        ImageError::Refused {
+            provider_id: "xai".into(),
+            status: 403
+        }
+    );
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn google_sends_the_key_as_a_header_and_finds_the_picture_among_parts() {
     let answer = json!({"candidates": [{"content": {"parts": [
         {"text": "Here is your image."},

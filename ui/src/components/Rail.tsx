@@ -178,6 +178,7 @@ function Row({
 	const vital = VITAL[entry.session.state];
 	const { preview, activity } = entry;
 	const working = entry.session.state === "thinking" && activity !== undefined;
+	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = working
 		? activity
 		: preview
@@ -212,7 +213,7 @@ function Row({
 			)}
 			{onTip !== undefined ? (
 				<span className="relative flex">
-					<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} />
+					<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
 					{unread && <span aria-hidden="true" className="rail-face-unread" />}
 					{vital.color !== null && (
 						<span
@@ -223,7 +224,7 @@ function Row({
 					)}
 				</span>
 			) : (
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} />
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
 			)}
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">

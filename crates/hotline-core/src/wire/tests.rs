@@ -3536,6 +3536,78 @@ async fn removing_a_tool_source_takes_it_out_of_every_grant() {
     assert!(granted(&log).is_empty());
 }
 
+/// A server that no longer exists is settled, not an error, even when a
+/// policy still names its id: its missing rows leave the ledger the last
+/// start published. A server that exists and failed, and the computer, stay.
+#[tokio::test]
+async fn a_server_that_no_longer_exists_leaves_no_missing_rows() {
+    use crate::contract::{AgentKind, ToolSourceKind, ToolState};
+    use crate::session::ledger::ToolLedger;
+    let root = scratch("stale-tool-rows");
+    let log = Log::open(&root);
+    // The ledger store is shared by every test; this teammate is only here.
+    let id = format!("stale-{}", uuid::Uuid::new_v4());
+    let persona = |server_ids: &[&str]| {
+        json!({
+            "kind": "persona", "id": id, "name": "Ada", "goal": "Tools",
+            "backendId": "hotline", "cwd": root.to_string_lossy(),
+            "mcpPolicy": { "mode": "some", "serverIds": server_ids },
+            "backgroundWork": false, "sessionCheckpoints": [], "lastSessionId": null,
+            "createdAt": 1, "updatedAt": 1,
+        })
+    };
+    let servers = |ids: &[&str]| {
+        let list: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({ "id": id, "type": "stdio", "name": id, "command": id, "args": [] }))
+            .collect();
+        json!({ "kind": "setting", "id": "mcpServers", "value": list })
+    };
+    log.append(&StreamId::Room, &servers(&["prism", "ketch"]))
+        .unwrap();
+    log.append(&StreamId::Room, &persona(&["prism", "ketch", "ghost"]))
+        .unwrap();
+    let room = Room::with_agents(log.clone(), Arc::new(NoKeys), Arc::new(NoAgents));
+    let mut ledger = ToolLedger::new(id.clone(), AgentKind::Hotline, "hotline");
+    ledger
+        .verified(ToolSourceKind::Builtin, "hotline", "send_file", "built in")
+        .absent(ToolSourceKind::Mcp, "prism", "prism", "failed to start")
+        .declared(ToolSourceKind::Mcp, "ketch", "search", "handed over")
+        .absent(ToolSourceKind::Mcp, "ghost", "ghost", "no longer exists")
+        .absent(
+            ToolSourceKind::Mcp,
+            crate::computer::SERVER_ID,
+            "computer",
+            "stopped",
+        );
+    ledger.publish();
+    let rows = |room: &Room| {
+        let mut rows: Vec<String> = room
+            .teammate_tools(&id)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.origin)
+            .collect();
+        rows.sort();
+        rows
+    };
+    // Ghost is gone though the policy names it; prism exists and failed.
+    assert_eq!(rows(&room), ["computer", "hotline", "ketch", "prism"]);
+
+    // Prism is deleted too: its failure is no longer news.
+    log.append(&StreamId::Room, &servers(&["ketch"])).unwrap();
+    assert_eq!(rows(&room), ["computer", "hotline", "ketch"]);
+    assert!(
+        room.teammate_tools(&id)
+            .unwrap()
+            .rows
+            .iter()
+            .any(|row| row.origin == "computer" && row.state == ToolState::Absent)
+    );
+    crate::session::ledger::forget(&id);
+}
+
 /// The room's server list is what every policy of "all" includes, so every
 /// live session restarts. A setting that does not name servers leaves them.
 #[tokio::test]
@@ -4676,7 +4748,7 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
 }
 
 #[tokio::test]
-async fn chatgpt_images_status_requires_owner_selection_without_checking_entitlement() {
+async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -4689,7 +4761,8 @@ async fn chatgpt_images_status_requires_owner_selection_without_checking_entitle
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "images.status", "params": {}});
     let automatic = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
-    assert_eq!(automatic["result"]["available"], false);
+    assert_eq!(automatic["result"]["available"], true);
+    assert_eq!(automatic["result"]["provider"], "openai-codex");
     let selected = remote_control_answer(
         Seat::Owner,
         &handle,
@@ -5186,7 +5259,7 @@ fn a_long_turn_of_steps_still_opens_a_tape_on_the_last_message() {
 }
 
 #[tokio::test]
-async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscription_pick() {
+async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -5209,7 +5282,10 @@ async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscript
                 "models": [{"id": "gpt-image-2"}]
             }])
         );
-        assert!(offered["result"]["images"].get("automatic").is_none());
+        assert_eq!(
+            offered["result"]["images"]["automatic"]["providerId"],
+            "openai-codex"
+        );
         assert!(offered["result"]["images"].get("selected").is_none());
         assert!(
             !offered
@@ -5238,9 +5314,10 @@ async fn capabilities_options_offer_chatgpt_images_only_as_an_explicit_subscript
             "modelId": "gpt-image-2"
         })
     );
+    // A subscription stays the automatic pick when a paid key joins it.
     assert_eq!(
         offered["result"]["images"]["automatic"]["providerId"],
-        "openai"
+        "openai-codex"
     );
     let denied = remote_control_answer(Seat::Phone, &handle, &desk.log, request).await;
     assert_eq!(denied["code"], FORBIDDEN);

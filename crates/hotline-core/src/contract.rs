@@ -2936,6 +2936,10 @@ pub struct RosterEntry {
     /// every desk from one roster, without opening each tape. Always
     /// written, so a phone can tell `false` from a desk that predates it.
     pub waiting: bool,
+    /// Its picture is being drawn: the face shows it is on its way rather
+    /// than leaving the initial looking final.
+    #[serde(default)]
+    pub drawing: bool,
     pub session: SessionInfo,
 }
 

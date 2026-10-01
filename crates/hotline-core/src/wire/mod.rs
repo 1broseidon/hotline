@@ -214,6 +214,11 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Every session's info as it changes, for the roster view.
     fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo>;
 
+    /// Whether this teammate's picture is being drawn, for the roster row.
+    fn drawing(&self, _persona_id: &str) -> bool {
+        false
+    }
+
     /// Text as an agent writes it, for a tape subscription to forward. Never
     /// written to a tape: the durable line lands when the message is whole.
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta>;
@@ -1752,6 +1757,7 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
     json!(RosterEntry {
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),
+        drawing: room.drawing(&persona.id),
         session,
         preview,
         latest,

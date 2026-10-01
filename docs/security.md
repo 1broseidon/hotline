@@ -141,12 +141,16 @@ revocation. `sent::generated::tests` proves format/alpha retention and size
 limits; `spending::tests` proves durable, concurrent, fail-closed accounting.
 The wire tests prove owner/desk status and companion refusals.
 
-Codex subscription images are experimental and opt-in through the owner's
-explicit `settings.images.provider: "openai-codex"` selection. The resolver
-excludes this connection from automatic selection and fallback in either
-direction. It reuses Hotline's saved login and noninteractive Rig refresh,
-never Codex CLI's credential directory; the image destination is fixed to
-the ChatGPT Codex backend and HTTP redirects are disabled. Subscription
+Subscription images (a Hotline ChatGPT sign-in, or a Grok sign-in) are the
+resolver's first automatic choice, ahead of paid keys. A subscription falls
+back only to another subscription, never to a paid API; a paid selection may
+fall back to a subscription, which costs no dollars. The draw loop enforces
+the same boundary: after a subscription attempt it stops at the first paid
+generator. ChatGPT reuses Hotline's saved login and noninteractive Rig
+refresh, never Codex CLI's credential directory; the image destination is
+fixed to the ChatGPT Codex backend. Grok reuses Hotline's saved xAI device
+login and its shared refresh lock, sending the bearer only to
+`https://api.x.ai/v1`. HTTP redirects are disabled for both. Subscription
 requests bypass dollar reservations without modifying the ledger and report
 unknown monetary cost (`costUsd: null`, `billing: "subscription"`). Dollar
 caps do not constrain subscription quota. The tool still validates settings,
@@ -156,7 +160,7 @@ immediately before dispatch, so stopping the teammate during refresh sends
 neither prompt nor references. Refresh timeouts report a retryable delay,
 not an invalid login.
 `imagegen::tests` proves the JSON request and account headers against localhost,
-login rereads and safe refusals; resolver tests prove explicit selection and
+login rereads and safe refusals; resolver tests prove subscriptions first and
 no paid fallback. `session::generate::tests` proves subscription output and
 unchanged dollar accounting even with disabled or exhausted budgets.
 `imagegen::chatgpt::tests` covers revocation during refresh with a local HTTP

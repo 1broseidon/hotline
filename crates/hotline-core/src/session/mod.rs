@@ -60,7 +60,7 @@ use crate::contract::{
     DeliveryCause, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
     PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
     SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
-    ToolOutput, ToolStatus, TranscriptEvent,
+    ToolOutput, ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -538,6 +538,9 @@ pub struct Room {
     spending: crate::spending::SpendLedger,
     #[cfg(test)]
     image_generators: Mutex<Option<crate::imagegen::ImageSet>>,
+    /// Pictures `generate_image` posted lately, per teammate, by content and
+    /// when: `send_file` of the same picture soon after is a repeat.
+    drawn: Mutex<HashMap<String, Vec<files::Drawn>>>,
     /// A computer being set up behind a session that started without it,
     /// per teammate: downloading, ready to join once the turn ends, or
     /// failed. Watched by `computer_status`, which can wait on it.
@@ -570,6 +573,10 @@ pub struct Room {
     /// being started; two teammates starting together is not a race.
     starts: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     info_changes: broadcast::Sender<SessionInfo>,
+    /// Teammates whose picture is being drawn right now. Not session state:
+    /// a picture is drawn whether or not a session is running, and nothing
+    /// about it survives a restart, so it lives here and not in the room.
+    drawing: Mutex<HashSet<String>>,
     deltas: broadcast::Sender<StreamDelta>,
     /// Wakes the scheduler when a job is written, so a create does not wait
     /// for the nearest existing nextAt.
@@ -680,6 +687,7 @@ impl Room {
             spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
             #[cfg(test)]
             image_generators: Mutex::new(None),
+            drawn: Mutex::default(),
             voice: Mutex::new(std::sync::Weak::new()),
             log,
             keys,
@@ -693,6 +701,7 @@ impl Room {
             computer_swaps: Mutex::new(HashMap::new()),
             computer_update_failures: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
+            drawing: Mutex::new(HashSet::new()),
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
             schedule_mutations: Mutex::new(()),
@@ -3120,6 +3129,23 @@ impl Room {
         }
     }
 
+    /// Whether this teammate's picture is being drawn.
+    pub fn drawing(&self, persona_id: &str) -> bool {
+        lock(&self.drawing).contains(persona_id)
+    }
+
+    /// Marks a picture as being drawn until the guard drops, telling the
+    /// roster both times. The roster rebuilds a row on any info change, so
+    /// the teammate's own info is the nudge.
+    pub(crate) fn start_drawing(&self, persona_id: &str) -> Drawing<'_> {
+        lock(&self.drawing).insert(persona_id.to_string());
+        let _ = self.info_changes.send(self.info(persona_id));
+        Drawing {
+            room: self,
+            persona_id: persona_id.to_string(),
+        }
+    }
+
     /// Every session state change from here on, for the roster view.
     pub fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo> {
         self.info_changes.subscribe()
@@ -3141,10 +3167,23 @@ impl Room {
         )
     }
 
-    /// What tools this teammate was given the last time it started. `None`
-    /// when it has never started under a Hotline that keeps a ledger.
+    /// What tools this teammate was given the last time it started, less
+    /// the missing rows of any server that no longer exists. `None` when it
+    /// has never started under a Hotline that keeps a ledger. Deleting a
+    /// server settles it: there is nothing to pick or fix, so nothing is owed
+    /// an error, even when an older policy still names its id. A server that
+    /// exists and failed stays missing out loud, and so does the teammate's
+    /// computer, which settings never list.
     pub fn teammate_tools(&self, persona_id: &str) -> Option<TeammateToolLedger> {
-        ledger::teammate_tools(persona_id)
+        let mut ledger = ledger::teammate_tools(persona_id)?;
+        let servers = mcp::servers(&room::settings(&self.log));
+        ledger.rows.retain(|row| {
+            row.source != ToolSourceKind::Mcp
+                || row.state != ToolState::Absent
+                || row.origin == crate::computer::SERVER_ID
+                || servers.iter().any(|server| server.id == row.origin)
+        });
+        Some(ledger)
     }
 
     pub async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
@@ -5217,3 +5256,20 @@ pub(crate) fn timed(ts: i64, text: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// A picture being drawn: dropping it, on success, refusal or cancellation
+/// alike, takes the teammate off the roster's drawing list.
+pub(crate) struct Drawing<'a> {
+    room: &'a Room,
+    persona_id: String,
+}
+
+impl Drop for Drawing<'_> {
+    fn drop(&mut self) {
+        lock(&self.room.drawing).remove(&self.persona_id);
+        let _ = self
+            .room
+            .info_changes
+            .send(self.room.info(&self.persona_id));
+    }
+}

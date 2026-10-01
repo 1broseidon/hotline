@@ -573,6 +573,10 @@ pub struct Room {
     /// being started; two teammates starting together is not a race.
     starts: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     info_changes: broadcast::Sender<SessionInfo>,
+    /// Teammates whose picture is being drawn right now. Not session state:
+    /// a picture is drawn whether or not a session is running, and nothing
+    /// about it survives a restart, so it lives here and not in the room.
+    drawing: Mutex<HashSet<String>>,
     deltas: broadcast::Sender<StreamDelta>,
     /// Wakes the scheduler when a job is written, so a create does not wait
     /// for the nearest existing nextAt.
@@ -697,6 +701,7 @@ impl Room {
             computer_swaps: Mutex::new(HashMap::new()),
             computer_update_failures: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
+            drawing: Mutex::new(HashSet::new()),
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
             schedule_mutations: Mutex::new(()),
@@ -3124,6 +3129,23 @@ impl Room {
         }
     }
 
+    /// Whether this teammate's picture is being drawn.
+    pub fn drawing(&self, persona_id: &str) -> bool {
+        lock(&self.drawing).contains(persona_id)
+    }
+
+    /// Marks a picture as being drawn until the guard drops, telling the
+    /// roster both times. The roster rebuilds a row on any info change, so
+    /// the teammate's own info is the nudge.
+    pub(crate) fn start_drawing(&self, persona_id: &str) -> Drawing<'_> {
+        lock(&self.drawing).insert(persona_id.to_string());
+        let _ = self.info_changes.send(self.info(persona_id));
+        Drawing {
+            room: self,
+            persona_id: persona_id.to_string(),
+        }
+    }
+
     /// Every session state change from here on, for the roster view.
     pub fn subscribe_info(&self) -> broadcast::Receiver<SessionInfo> {
         self.info_changes.subscribe()
@@ -5221,3 +5243,20 @@ pub(crate) fn timed(ts: i64, text: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// A picture being drawn: dropping it, on success, refusal or cancellation
+/// alike, takes the teammate off the roster's drawing list.
+pub(crate) struct Drawing<'a> {
+    room: &'a Room,
+    persona_id: String,
+}
+
+impl Drop for Drawing<'_> {
+    fn drop(&mut self) {
+        lock(&self.room.drawing).remove(&self.persona_id);
+        let _ = self
+            .room
+            .info_changes
+            .send(self.room.info(&self.persona_id));
+    }
+}

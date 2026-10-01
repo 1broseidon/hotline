@@ -877,7 +877,12 @@ activity?: string,
  * every desk from one roster, without opening each tape. Always
  * written, so a phone can tell `false` from a desk that predates it.
  */
-waiting: boolean, session: SessionInfo, };
+waiting: boolean, 
+/**
+ * Its picture is being drawn: the face shows it is on its way rather
+ * than leaving the initial looking final.
+ */
+drawing: boolean, session: SessionInfo, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

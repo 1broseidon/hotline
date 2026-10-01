@@ -10,6 +10,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Agents the ACP registry ships as prebuilt archives can be teammates:
+  Google Antigravity, Goose, Amp, Kimi, Mistral Vibe, Junie and the rest of
+  the registry's binary agents. The first start downloads the archive for
+  this computer, checks it against its published SHA-256 when there is one,
+  and unpacks it under the data directory's `acp-agents/`; later starts reuse
+  it, and a new release replaces the old one. An agent with nothing published
+  for this computer still shows why it is unavailable.
 - Grok draws. Connect xAI with a key or sign in with your Grok subscription
   and teammates can make and edit images with Grok Imagine (up to five
   reference images). A key is charged within the spending cap; the
@@ -17,6 +24,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- A teammate's face in the rail turns a ring while something is on its way:
+  its session starting, which can take a while when an agent is first
+  downloaded, or its picture being drawn. The roster row carries `drawing`,
+  so a phone can show the same.
 - A ChatGPT or Grok subscription is now the first choice for images when
   you haven't picked one, ahead of paid keys, rather than needing to be
   picked by hand. A subscription that fails can fall back to another

@@ -872,6 +872,29 @@
 		height: 100%;
 		object-fit: cover;
 	}
+	/* Something on its way to this face: a quarter arc turning around it.
+	 * Stepped like the beat below, twelve positions a turn, so a machine
+	 * drawing without a GPU repaints twelve times a second and not every frame. */
+	.avatar-busy {
+		position: relative;
+		display: inline-flex;
+		flex-shrink: 0;
+	}
+	.avatar-ring {
+		position: absolute;
+		inset: -3px;
+		border-radius: 50%;
+		border: 2px solid transparent;
+		border-top-color: var(--accent);
+		border-right-color: var(--accent);
+		pointer-events: none;
+		animation: avatar-spin 1s steps(12) infinite;
+	}
+	@keyframes avatar-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
 
 	/* A working teammate's mark: it breathes. Nothing else in the window
 	 * moves on its own. It breathes in steps, twelve a cycle: a smooth
@@ -2184,7 +2207,8 @@
 	.menu,
 	.rail-tip,
 	.search-panel,
-	.row-lit {
+	.row-lit,
+	.avatar-ring {
 		animation: none;
 	}
 	.row-lit {

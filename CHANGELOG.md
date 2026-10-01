@@ -18,6 +18,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   it, and a new release replaces the old one. An agent with nothing published
   for this computer still shows why it is unavailable.
 
+### Changed
+
+- A teammate's face in the rail turns a ring while something is on its way:
+  its session starting, which can take a while when an agent is first
+  downloaded, or its picture being drawn. The roster row carries `drawing`,
+  so a phone can show the same.
+
 ## [0.30.0] - 2026-09-30
 
 ### Added

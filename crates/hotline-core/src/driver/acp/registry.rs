@@ -6,7 +6,8 @@
 //! never waits on the network and an offline machine still gets the table),
 //! and a probe of what is actually installed. A locally installed binary
 //! always wins over a downloadable one, because the local copy carries the
-//! user's login.
+//! user's login. An agent the catalogue ships only as a prebuilt archive is
+//! downloaded the first time a session starts it (see `install`).
 //!
 //! Hotline Agent is deliberately absent. This module answers "which child
 //! process, started how", and the built-in agent has no child process, no
@@ -14,7 +15,8 @@
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 /// The registry's published catalogue: one request for every agent, carrying
@@ -30,11 +32,22 @@ const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 /// copy — or, failing that, the table below — is the answer either way.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How a backend is started: a command and its arguments, as spawned.
+/// How a backend is started: a command, its arguments and the environment
+/// its catalogue entry asks for, as spawned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launch {
     pub command: String,
     pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+/// A prebuilt archive the catalogue publishes for this machine, and the
+/// folder it unpacks into. The launch command lives inside `dir`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Archive {
+    pub url: String,
+    pub sha256: Option<String>,
+    pub dir: PathBuf,
 }
 
 /// One agent a teammate can be run on.
@@ -44,9 +57,11 @@ pub struct Backend {
     pub name: String,
     pub description: String,
     /// How to start it, when Hotline knows a way. `None` is an agent the
-    /// catalogue lists but distributes as a prebuilt archive, which Hotline does
-    /// not download.
+    /// catalogue lists with nothing published for this machine.
     pub launch: Option<Launch>,
+    /// Where `launch` comes from when it is a prebuilt archive: downloaded
+    /// before the first start, then reused.
+    pub archive: Option<Archive>,
     /// Absent when this backend can be started here; a sentence saying what is
     /// missing when it cannot. A missing login is not missing: that shows up
     /// when the session starts, and is not a reason to grey out the row.
@@ -156,7 +171,9 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
                     |found| found.to_string_lossy().into_owned(),
                 ),
                 args: native.args.iter().map(|arg| (*arg).to_string()).collect(),
+                env: Vec::new(),
             }),
+            archive: None,
             unavailable: found.is_none().then(|| "Not installed".to_string()),
         });
     }
@@ -166,7 +183,10 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
             .agents
             .iter()
             .find(|agent| agent.id == adapted.id)
-            .and_then(launch_for);
+            .and_then(|agent| match start_for(root, agent)? {
+                Start::Run(launch) => Some(launch),
+                Start::Fetch(..) => None,
+            });
         let launch = published.unwrap_or_else(|| npx(adapted.package, &[]));
         backends.push(Backend {
             id: adapted.id.to_string(),
@@ -174,6 +194,7 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
             description: adapted.description.to_string(),
             unavailable: adapter_missing(adapted.client, &launch.command),
             launch: Some(launch),
+            archive: None,
         });
     }
 
@@ -182,21 +203,29 @@ pub fn cached_backends(root: &Path) -> Vec<Backend> {
         .iter()
         .filter(|agent| !backends.iter().any(|known| known.id == agent.id))
         .map(|agent| {
-            let launch = launch_for(agent);
-            let unavailable = match &launch {
-                None => Some(
-                    "distributed as a prebuilt binary, which Hotline cannot install yet"
-                        .to_string(),
+            let (launch, archive, unavailable) = match start_for(root, agent) {
+                None => (
+                    None,
+                    None,
+                    Some("is not published for this computer".to_string()),
                 ),
-                Some(launch) => which(&launch.command)
-                    .is_none()
-                    .then(|| "Not installed".to_string()),
+                Some(Start::Run(launch)) => {
+                    let missing = which(&launch.command).is_none();
+                    (
+                        Some(launch),
+                        None,
+                        missing.then(|| "Not installed".to_string()),
+                    )
+                }
+                // Downloadable is available: the first start fetches it.
+                Some(Start::Fetch(launch, archive)) => (Some(launch), Some(archive), None),
             };
             Backend {
                 id: agent.id.clone(),
                 name: agent.name.clone().unwrap_or_else(|| agent.id.clone()),
                 description: agent.description.clone().unwrap_or_default(),
                 launch,
+                archive,
                 unavailable,
             }
         })
@@ -224,6 +253,8 @@ pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
     match (backend.unavailable, backend.launch) {
         (Some(reason), _) => Err(format!("{} cannot start: it {reason}.", backend.name)),
         (None, None) => Err(format!("{} has no launch command.", backend.name)),
+        // Already absolute, inside Hotline's own folder; `install` puts it there.
+        (None, Some(launch)) if backend.archive.is_some() => Ok(launch),
         (None, Some(mut launch)) => {
             // Capture the executable once; terminal auth must not resolve a new
             // PATH after initialize (its advertised environment can change PATH).
@@ -235,6 +266,23 @@ pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {
             Ok(launch)
         }
     }
+}
+
+/// Downloads and unpacks this backend's archive when it ships as one and is
+/// not here yet. Anything else is already as installed as Hotline can make it.
+pub async fn install(root: &Path, backend_id: &str) -> Result<(), String> {
+    let Some(backend) = known(root, backend_id) else {
+        return Ok(());
+    };
+    let (Some(archive), Some(launch)) = (backend.archive, backend.launch) else {
+        return Ok(());
+    };
+    if Path::new(&launch.command).is_file() {
+        return Ok(());
+    }
+    super::install::fetch(&archive, Path::new(&launch.command))
+        .await
+        .map_err(|error| format!("Could not install {}: {error}", backend.name))
 }
 
 // -- the published catalogue -----------------------------------------------
@@ -258,6 +306,23 @@ struct Distribution {
     npx: Option<Runner>,
     #[serde(default)]
     uvx: Option<Runner>,
+    /// Prebuilt archives keyed by platform, `linux-x86_64` and the like.
+    #[serde(default)]
+    binary: Option<BTreeMap<String, Target>>,
+}
+
+/// One platform's archive: where to fetch it, its digest when published,
+/// and the command inside it, relative to where it unpacks.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct Target {
+    archive: String,
+    cmd: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -276,24 +341,90 @@ struct Catalogue {
     agents: Vec<Published>,
 }
 
+/// How a catalogue entry starts: a command to run as it is, or one inside an
+/// archive that has to be fetched first.
+enum Start {
+    Run(Launch),
+    Fetch(Launch, Archive),
+}
+
 /// How a catalogue entry is started, or `None` when Hotline cannot start it.
 ///
-/// `npx` and `uvx` both fetch on demand, so they need no install step. A
-/// binary distribution is an archive to download, verify and unpack, which
-/// Hotline does not do — those are reported unavailable rather than offered and
-/// then failing at the moment somebody tries to use them.
-fn launch_for(agent: &Published) -> Option<Launch> {
+/// `npx` and `uvx` both fetch on demand, so they need no install step and are
+/// preferred. A binary distribution is an archive for this platform, unpacked
+/// into its own folder under the data directory; the folder is named for the
+/// archive's URL, so a new release is a new folder and never a half-replaced one.
+fn start_for(root: &Path, agent: &Published) -> Option<Start> {
     let distribution = agent.distribution.as_ref()?;
     if let Some(runner) = &distribution.npx {
-        return Some(npx(&runner.package, &runner.args));
+        return Some(Start::Run(npx(&runner.package, &runner.args)));
     }
-    let runner = distribution.uvx.as_ref()?;
-    let mut args = vec![runner.package.clone()];
-    args.extend(runner.args.iter().cloned());
-    Some(Launch {
-        command: "uvx".to_string(),
-        args,
-    })
+    if let Some(runner) = &distribution.uvx {
+        let mut args = vec![runner.package.clone()];
+        args.extend(runner.args.iter().cloned());
+        return Some(Start::Run(Launch {
+            command: "uvx".to_string(),
+            args,
+            env: Vec::new(),
+        }));
+    }
+    let target = distribution.binary.as_ref()?.get(&platform()?)?;
+    let command = inside(&target.cmd)?;
+    let dir = paths::acp_agents_dir(root)
+        .join(inside(&agent.id)?)
+        .join(folder_for(&target.archive));
+    let launch = Launch {
+        command: std::path::absolute(dir.join(command))
+            .ok()?
+            .to_string_lossy()
+            .into_owned(),
+        args: target.args.clone(),
+        env: target.env.clone().into_iter().collect(),
+    };
+    Some(Start::Fetch(
+        launch,
+        Archive {
+            url: target.archive.clone(),
+            sha256: target.sha256.clone(),
+            dir,
+        },
+    ))
+}
+
+/// The catalogue's name for this machine: `linux-x86_64`, `darwin-aarch64`,
+/// `windows-x86_64`.
+fn platform() -> Option<String> {
+    let os = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "darwin",
+        "windows" => "windows",
+        _ => return None,
+    };
+    let arch = match std::env::consts::ARCH {
+        arch @ ("x86_64" | "aarch64") => arch,
+        _ => return None,
+    };
+    Some(format!("{os}-{arch}"))
+}
+
+/// A path from the catalogue as one that stays inside the folder it is
+/// joined to: `./bin/agent` is `bin/agent`, and anything with `..`, a root or
+/// a drive in it is refused rather than followed out of Hotline's directory.
+fn inside(path: &str) -> Option<PathBuf> {
+    let mut relative = PathBuf::new();
+    for component in Path::new(path).components() {
+        match component {
+            Component::Normal(part) => relative.push(part),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    (!relative.as_os_str().is_empty()).then_some(relative)
+}
+
+fn folder_for(url: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(&Sha256::digest(url.as_bytes())[..8])
 }
 
 /// What a hand-taught adapter row is missing, or nothing when it can start.
@@ -318,6 +449,7 @@ fn npx(package: &str, extra: &[String]) -> Launch {
     Launch {
         command: "npx".to_string(),
         args,
+        env: Vec::new(),
     }
 }
 
@@ -512,6 +644,77 @@ mod tests {
         assert_eq!(archived.launch, None);
         assert!(archived.unavailable.is_some());
         assert!(launch(&root, "archived").is_err());
+    }
+
+    /// An agent shipped only as a prebuilt archive is offered when there is
+    /// one for this machine, and starts from its own folder under the data
+    /// directory with the catalogue's arguments and environment.
+    #[test]
+    fn a_prebuilt_archive_for_this_machine_is_offered_and_started_from_hotlines_folder() {
+        let root = scratch("binary");
+        let here = platform().unwrap();
+        write_catalogue(
+            &root,
+            serde_json::json!([
+                {
+                    "id": "antigravity-acp",
+                    "name": "Google Antigravity",
+                    "distribution": {"binary": {(here.as_str()): {
+                        "archive": "https://example.com/agy-acp-server.zip",
+                        "cmd": "./agy_acp_server.par",
+                        "args": ["--uid="],
+                        "env": {"AGY_ACP": "1"}
+                    }}}
+                },
+                {
+                    "id": "elsewhere",
+                    "distribution": {"binary": {"plan9-mips": {
+                        "archive": "https://example.com/x.tar.gz", "cmd": "./x"
+                    }}}
+                },
+                {
+                    "id": "escapes",
+                    "distribution": {"binary": {(here.as_str()): {
+                        "archive": "https://example.com/x.tar.gz", "cmd": "../../bin/sh"
+                    }}}
+                }
+            ]),
+        );
+        let backends = cached_backends(&root);
+
+        let agy = backends.iter().find(|b| b.id == "antigravity-acp").unwrap();
+        assert_eq!(agy.unavailable, None);
+        let archive = agy.archive.as_ref().unwrap();
+        assert!(
+            archive
+                .dir
+                .starts_with(paths::acp_agents_dir(&root).join("antigravity-acp"))
+        );
+        let started = launch(&root, "antigravity-acp").unwrap();
+        assert_eq!(
+            Path::new(&started.command),
+            std::path::absolute(archive.dir.join("agy_acp_server.par")).unwrap()
+        );
+        assert_eq!(started.args, ["--uid="]);
+        assert_eq!(started.env, [("AGY_ACP".to_string(), "1".to_string())]);
+
+        // Nothing for this machine, or a command that climbs out of its folder,
+        // is not something Hotline can offer.
+        for id in ["elsewhere", "escapes"] {
+            let backend = backends.iter().find(|b| b.id == id).unwrap();
+            assert!(backend.unavailable.is_some(), "{id}");
+            assert!(launch(&root, id).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_catalogue_path_never_leaves_its_folder() {
+        assert_eq!(inside("./bin/agent"), Some(PathBuf::from("bin/agent")));
+        assert_eq!(inside("agent"), Some(PathBuf::from("agent")));
+        assert_eq!(inside("../agent"), None);
+        assert_eq!(inside("bin/../../agent"), None);
+        assert_eq!(inside("/usr/bin/agent"), None);
+        assert_eq!(inside("."), None);
     }
 
     #[test]

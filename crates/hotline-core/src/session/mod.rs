@@ -60,7 +60,7 @@ use crate::contract::{
     DeliveryCause, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
     PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
     SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
-    ToolOutput, ToolStatus, TranscriptEvent,
+    ToolOutput, ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -3141,10 +3141,23 @@ impl Room {
         )
     }
 
-    /// What tools this teammate was given the last time it started. `None`
-    /// when it has never started under a Hotline that keeps a ledger.
+    /// What tools this teammate was given the last time it started, less
+    /// the missing rows of any server that no longer exists. `None` when it
+    /// has never started under a Hotline that keeps a ledger. Deleting a
+    /// server settles it: there is nothing to pick or fix, so nothing is owed
+    /// an error, even when an older policy still names its id. A server that
+    /// exists and failed stays missing out loud, and so does the teammate's
+    /// computer, which settings never list.
     pub fn teammate_tools(&self, persona_id: &str) -> Option<TeammateToolLedger> {
-        ledger::teammate_tools(persona_id)
+        let mut ledger = ledger::teammate_tools(persona_id)?;
+        let servers = mcp::servers(&room::settings(&self.log));
+        ledger.rows.retain(|row| {
+            row.source != ToolSourceKind::Mcp
+                || row.state != ToolState::Absent
+                || row.origin == crate::computer::SERVER_ID
+                || servers.iter().any(|server| server.id == row.origin)
+        });
+        Some(ledger)
     }
 
     pub async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {

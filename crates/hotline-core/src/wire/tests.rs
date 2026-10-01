@@ -3536,6 +3536,78 @@ async fn removing_a_tool_source_takes_it_out_of_every_grant() {
     assert!(granted(&log).is_empty());
 }
 
+/// A server that no longer exists is settled, not an error, even when a
+/// policy still names its id: its missing rows leave the ledger the last
+/// start published. A server that exists and failed, and the computer, stay.
+#[tokio::test]
+async fn a_server_that_no_longer_exists_leaves_no_missing_rows() {
+    use crate::contract::{AgentKind, ToolSourceKind, ToolState};
+    use crate::session::ledger::ToolLedger;
+    let root = scratch("stale-tool-rows");
+    let log = Log::open(&root);
+    // The ledger store is shared by every test; this teammate is only here.
+    let id = format!("stale-{}", uuid::Uuid::new_v4());
+    let persona = |server_ids: &[&str]| {
+        json!({
+            "kind": "persona", "id": id, "name": "Ada", "goal": "Tools",
+            "backendId": "hotline", "cwd": root.to_string_lossy(),
+            "mcpPolicy": { "mode": "some", "serverIds": server_ids },
+            "backgroundWork": false, "sessionCheckpoints": [], "lastSessionId": null,
+            "createdAt": 1, "updatedAt": 1,
+        })
+    };
+    let servers = |ids: &[&str]| {
+        let list: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({ "id": id, "type": "stdio", "name": id, "command": id, "args": [] }))
+            .collect();
+        json!({ "kind": "setting", "id": "mcpServers", "value": list })
+    };
+    log.append(&StreamId::Room, &servers(&["prism", "ketch"]))
+        .unwrap();
+    log.append(&StreamId::Room, &persona(&["prism", "ketch", "ghost"]))
+        .unwrap();
+    let room = Room::with_agents(log.clone(), Arc::new(NoKeys), Arc::new(NoAgents));
+    let mut ledger = ToolLedger::new(id.clone(), AgentKind::Hotline, "hotline");
+    ledger
+        .verified(ToolSourceKind::Builtin, "hotline", "send_file", "built in")
+        .absent(ToolSourceKind::Mcp, "prism", "prism", "failed to start")
+        .declared(ToolSourceKind::Mcp, "ketch", "search", "handed over")
+        .absent(ToolSourceKind::Mcp, "ghost", "ghost", "no longer exists")
+        .absent(
+            ToolSourceKind::Mcp,
+            crate::computer::SERVER_ID,
+            "computer",
+            "stopped",
+        );
+    ledger.publish();
+    let rows = |room: &Room| {
+        let mut rows: Vec<String> = room
+            .teammate_tools(&id)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.origin)
+            .collect();
+        rows.sort();
+        rows
+    };
+    // Ghost is gone though the policy names it; prism exists and failed.
+    assert_eq!(rows(&room), ["computer", "hotline", "ketch", "prism"]);
+
+    // Prism is deleted too: its failure is no longer news.
+    log.append(&StreamId::Room, &servers(&["ketch"])).unwrap();
+    assert_eq!(rows(&room), ["computer", "hotline", "ketch"]);
+    assert!(
+        room.teammate_tools(&id)
+            .unwrap()
+            .rows
+            .iter()
+            .any(|row| row.origin == "computer" && row.state == ToolState::Absent)
+    );
+    crate::session::ledger::forget(&id);
+}
+
 /// The room's server list is what every policy of "all" includes, so every
 /// live session restarts. A setting that does not name servers leaves them.
 #[tokio::test]

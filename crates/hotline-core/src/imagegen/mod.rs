@@ -291,28 +291,25 @@ pub struct ImageSet {
 /// one kind look like one set without every agent inventing the words.
 pub const STYLES: &[&str] = &["avatar"];
 
-/// The crew every avatar is drawn from: one plain character in the house
-/// finish, with a head shaped like the Hotline mark, sent as the first
-/// reference so the cast stays one set however many teammates there are.
+/// The approved unpinned desk collectible supplies the crew's material and
+/// lighting, not a template for every teammate's silhouette, pose or colour.
 const CREW: &[u8] = include_bytes!("house-avatar.jpg");
 
 const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, drawn as one of the Hotline crew. \
-The first reference image is the crew's base character. Keep EXACTLY its build and finish, but not its \
-pose: the head \
-shaped like the Hotline toad mark, with two big rounded eye domes side by side and short, dark, \
-horizontal slot pupils; the soft felt-clay texture; the stubby arms and round feet; and the dark \
-charcoal crew jacket with one small signal-green #6bcb62 pin shaped like the toad mark on the chest. \
-Not a new character, never a human. Nothing covers the eye domes: a hat sits behind or between them. \
-The pin is the only signal green in the picture.";
+A premium matte vinyl/resin designer desk collectible: adult and playful, with deliberate sculpted \
+forms, restrained detail and soft studio lighting. Not felt, clay, plush, chibi or a sticker. \
+The first reference image supplies the material finish and lighting, not a fixed head, body, pose or \
+colour to copy. Give this teammate its own silhouette: a broad wide-set amphibian head, an angular \
+continuous brow, or a flight cowl with goggles are welcome. Avoid twin fleshy domes split by a central \
+cleft. Wear a charcoal technical utility jacket with plain unadorned clothing: no pins, badges, logos, \
+patches, emblems or text anywhere. Do not invent a Hotline mark.";
 
-const STICKER: &str = "Premium die-cut sticker: a thick clean warm-white outline follows the whole \
-silhouette, character and props, with a subtle small drop shadow. Centred, generous scale, the whole \
-character visible and the head large in the frame. Must read clearly as a small circle 32 pixels wide. \
-No text, no letters.";
+const FRAMING: &str = "A studio portrait of a physical desk collectible, centred at generous scale, \
+with the whole character and its props visible and a readable silhouette at 32 pixels. No die-cut \
+outline or sticker border. Keep the background simple and the finish matte.";
 
-/// How a teammate stands. The base faces front and stands still, so every
-/// avatar is told to do otherwise, and a second hash of its id picks which
-/// way, so a roster reads as a cast rather than a row of the same figure.
+/// A second hash of the id picks a default pose so the roster reads as a
+/// cast, not copies of the reference. An explicitly requested pose wins.
 const POSES: [&str; 8] = [
     "mid-stride in three-quarter view, one arm up in a wave",
     "leaning on something to one side, arms folded, head tilted",
@@ -329,7 +326,7 @@ pub fn pose(persona_id: &str) -> &'static str {
 }
 
 /// A teammate's colour, the one its initial sits on (ui/src/ui/Avatar.tsx):
-/// the same hash of its id picks one of seven hues, here as felt for the
+/// the same hash of its id picks one of seven hues, here as matte pigment for the
 /// body and a deep shade of it for the background.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Face {
@@ -397,8 +394,8 @@ pub struct Styled {
 }
 
 /// The teammate's words with a named style laid over them. The subject is
-/// always theirs; a style only says how it's drawn. An avatar is square, in
-/// the teammate's own colour, and shows the model the crew first.
+/// always theirs; callers omit the style for an operator's custom theme. An
+/// avatar is square, in the teammate's own colour, and shows the crew first.
 pub fn styled(
     style: Option<&str>,
     prompt: &str,
@@ -421,13 +418,13 @@ pub fn styled(
             let pose = pose(persona_id);
             Ok(Styled {
                 prompt: format!(
-                    "{AVATAR}\n\nColour: this teammate's body is {name} felt ({body}) instead of the base's \
-teal, on a flat solid {background} background. But if its name is a thing with a colour of its own (a fruit, \
-a flower, a stone, a colour word), the body is that colour instead, its accents follow, and the background \
-is a deep dark shade of it.\n\nPose: the base stands still facing front; this one must not. Draw it \
-{pose}, expressive through the body and the tilt of the head, the pupils still slots. Give it one or two \
-props that suit who it is. Any further reference images are the teammate's own: follow them for its \
-colour, look and props.\n\n{STICKER}\n\nWho it is: {prompt}"
+                    "{AVATAR}\n\nColour: by default this teammate's body is {name} ({body}), on a \
+flat solid {background} background. If its name is a thing with a colour of its own (a fruit, a flower, \
+a stone, a colour word), use that colour and a deep dark shade of it for the background instead. \
+Preserve explicitly requested colours.\n\nPose: unless a pose is requested, draw it {pose}, expressive \
+through the body and the tilt of the head. Preserve its individual role, pose and props from the \
+prompt; otherwise give it one or two props that suit who it is. Further reference images guide its \
+individual look, colours and props, while clothing stays plain and unadorned.\n\n{FRAMING}\n\nWho it is: {prompt}"
                 ),
                 aspect: Aspect::Square,
                 references: vec![Reference {
@@ -485,6 +482,56 @@ mod style_tests {
         let face = face("mack");
         assert!(styled.prompt.contains(face.body) && styled.prompt.contains(face.background));
         assert!(styled.prompt.contains(pose("mack")));
+    }
+
+    #[test]
+    fn the_crew_is_mature_unbranded_and_individual() {
+        let subject = "Frankie, a blue engineer sitting with a notebook";
+        let styled = styled(Some("avatar"), subject, Aspect::Wide, "frankie").unwrap();
+        for instruction in [
+            "premium matte vinyl/resin designer desk collectible",
+            "adult and playful",
+            "Not felt, clay, plush, chibi or a sticker",
+            "not a fixed head, body, pose or colour to copy",
+            "broad wide-set amphibian head",
+            "angular continuous brow",
+            "flight cowl with goggles",
+            "Avoid twin fleshy domes split by a central cleft",
+            "charcoal technical utility jacket",
+            "no pins, badges, logos, patches",
+            "Preserve explicitly requested colours",
+            "unless a pose is requested",
+            "Preserve its individual role, pose and props",
+            "No die-cut outline or sticker border",
+        ] {
+            assert!(styled.prompt.contains(instruction), "{instruction}");
+        }
+        assert!(styled.prompt.ends_with(subject));
+        assert!(!styled.prompt.contains("Keep EXACTLY"));
+        assert!(!styled.prompt.contains("#6bcb62"));
+    }
+
+    #[test]
+    fn the_reference_is_the_approved_unpinned_collectible() {
+        use sha2::{Digest, Sha256};
+        // desk_frankie.png, resized to 768px and saved as quality-88 JPEG.
+        // Pin this approved asset so the former felt/pinned image cannot return unnoticed.
+        assert_eq!(
+            hex::encode(Sha256::digest(CREW)),
+            "cec3b4bc23af4e083df43d53d665de8baea9d562e2802118a6bbe6559ab547a2"
+        );
+        let image = image::load_from_memory_with_format(CREW, image::ImageFormat::Jpeg).unwrap();
+        assert_eq!((image.width(), image.height()), (768, 768));
+        assert!(CREW.len() < 100_000);
+    }
+
+    #[test]
+    fn a_custom_avatar_without_style_has_no_crew_instructions_or_reference() {
+        let prompt = "An avatar of a donkey in a forest";
+        let styled = styled(None, prompt, Aspect::Portrait, "frankie").unwrap();
+        assert_eq!(styled.prompt, prompt);
+        assert_eq!(styled.aspect, Aspect::Portrait);
+        assert!(styled.references.is_empty());
     }
 
     #[test]

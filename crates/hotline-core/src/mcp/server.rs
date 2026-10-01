@@ -115,7 +115,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once; their answer, and whatever they type with it, arrives later as its own message. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped) and what it is working on, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `generate_image` makes an image in your workspace and posts it here; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once; their answer, and whatever they type with it, arrives later as its own message. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped) and what it is working on, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `generate_image` makes an image in your workspace and posts it here; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -247,7 +247,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             GENERATE_IMAGE,
-            "Make one image through the room's connected image provider, save it in your workspace and post it in your conversation. Use it when the person asks or an image is clearly part of their task; say what you are going for. The room's dollar spending caps apply to paid API attempts, including a single fallback. Explicitly selected Codex subscription images use subscription limits instead and never fall back to a paid API. PNG, JPEG, WebP and SVG keep their format and transparency, at most 2048 px on the long edge. References are files your workspace tools may read (PNG, JPEG or WebP, at most 20 MB each). Returns path, model, costUsd, seconds and whether the requested transparency was supported; subscription results have costUsd null and billing subscription, not a known zero-dollar cost. One image per ask unless they want options.",
+            "Make one image through the room's connected image provider, save it in your workspace and post it in your conversation. Use it when the person asks or an image is clearly part of their task; say what you are going for. The room's dollar spending caps apply to paid API attempts, including a single fallback. Explicitly selected Codex subscription images use subscription limits instead and never fall back to a paid API. PNG, JPEG, WebP and SVG keep their format and transparency, at most 2048 px on the long edge. References are files your workspace tools may read (PNG, JPEG or WebP, at most 20 MB each). Returns path, model, costUsd, seconds and whether the requested transparency was supported; subscription results have costUsd null and billing subscription, not a known zero-dollar cost. One image per ask unless they want options. For a default avatar, use style `avatar`; for a specific custom subject/theme, omit style. An operator-provided photo can go directly to set_avatar without generation.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -255,7 +255,7 @@ fn descriptors() -> Vec<Tool> {
                     "aspect": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"], "default": "1:1" },
                     "transparent": { "type": "boolean", "default": false },
                     "references": { "type": "array", "items": { "type": "string" }, "maxItems": 16 },
-                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` draws you as one of the Hotline crew, in your own colour, with a pose and props from your prompt; then use set_avatar to make it yours. To keep your look in a redraw, pass your current picture as a reference." },
+                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` is the default for an unspecific request such as create an avatar for yourself: a premium matte vinyl/resin designer desk collectible, adult and playful, in a plain charcoal technical utility jacket with no pins, badges, logos or patches. The built-in reference guides finish, not a fixed silhouette, pose or colour; keep your individual role, colours and props. Omit style for an operator-requested custom subject/theme (for example a donkey in a forest), or use their photo directly with set_avatar. To keep your look in a crew redraw, pass your current picture as a reference." },
                     "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "A file name, not a path. The extension follows the provider's image format; existing files are never overwritten." },
                 },
                 "required": ["prompt"],
@@ -264,7 +264,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             SET_AVATAR,
-            "Make an image in your workspace your own profile picture, or clear it back to your initial. Change your picture only when the person asks. Give the `path` of a PNG, JPEG or WebP file your workspace tools may read (at most 20 MB); a transparent image is trimmed to its subject, and every picture is centred on a square. Or pass `clear: true`. If the person chose your current picture, this refuses. Returns the picture's hash. After setting it, show the person the picture with send_file.",
+            "Make an image in your workspace your own profile picture, or clear it back to your initial. Change your picture only when the person asks. Give the `path` of a PNG, JPEG or WebP file your workspace tools may read (at most 20 MB); a transparent image is trimmed to its subject, and every picture is centred on a square. Or pass `clear: true`. If the person chose your current picture, this refuses. Returns the picture's hash. For a default avatar, first generate_image with style `avatar`; for a custom subject/theme omit style, or set an operator-provided photo directly. After setting it, show the person the picture with send_file.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -1044,6 +1044,47 @@ mod tests {
         fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
             HashMap::new()
         }
+    }
+
+    #[test]
+    fn avatar_guidance_defaults_to_crew_but_respects_operator_overrides() {
+        assert!(HOW_TO_USE.contains("default avatar request"));
+        assert!(HOW_TO_USE.contains("style `avatar`"));
+        assert!(HOW_TO_USE.contains("custom subject/theme, omit style"));
+        assert!(HOW_TO_USE.contains("operator-provided photo directly"));
+        let tools = listing().tools;
+        let generate = tools
+            .iter()
+            .find(|tool| tool.name == GENERATE_IMAGE)
+            .unwrap();
+        let description = generate.description.as_deref().unwrap();
+        assert!(description.contains("default avatar"));
+        assert!(description.contains("custom subject/theme, omit style"));
+        let style = &generate.input_schema["properties"]["style"];
+        assert_eq!(style["enum"], json!(["avatar"]));
+        assert_eq!(generate.input_schema["required"], json!(["prompt"]));
+        let description = style["description"].as_str().unwrap();
+        assert!(description.contains("matte vinyl/resin"));
+        assert!(description.contains("no pins, badges, logos or patches"));
+        assert!(description.contains("not a fixed silhouette, pose or colour"));
+        assert!(description.contains("Omit style"));
+        let set = tools.iter().find(|tool| tool.name == SET_AVATAR).unwrap();
+        assert!(
+            set.description
+                .as_deref()
+                .unwrap()
+                .contains("If the person chose your current picture, this refuses")
+        );
+        let skill = include_str!("../../skills/hotline-room/SKILL.md");
+        let generate = skill.find("1. Call `generate_image`").unwrap();
+        let set = skill.find("2. Call `set_avatar`").unwrap();
+        let show = skill
+            .find("3. Show the person the result with `send_file`")
+            .unwrap();
+        assert!(generate < set && set < show);
+        assert!(skill.contains("style: \"avatar\""));
+        assert!(skill.contains("with style omitted"));
+        assert!(skill.contains("`set_avatar` directly, without redrawing it"));
     }
 
     fn scratch(name: &str) -> PathBuf {

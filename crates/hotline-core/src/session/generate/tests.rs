@@ -574,6 +574,62 @@ async fn references_obey_reach_and_valid_references_reach_the_image_model() {
     assert!(requests[0].prompt.contains("make this blue"));
 }
 
+#[tokio::test]
+async fn custom_avatar_requests_without_style_bypass_the_crew_through_the_handler() {
+    let (dir, room, tools) = room();
+    let fake = Fake::new("custom-avatar");
+    install(&room, fake.clone(), None);
+    let prompt = "An avatar of a donkey in a forest";
+    tools
+        .call(
+            "generate_image",
+            &json!({ "prompt": prompt, "aspect": "3:4" }),
+        )
+        .await
+        .unwrap();
+    let image = image::RgbaImage::from_pixel(64, 32, image::Rgba([30, 80, 120, 255]));
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let photo = bytes.into_inner();
+    std::fs::write(dir.path().join("workspace/photo.png"), &photo).unwrap();
+    let photo_prompt = "Make an avatar crop of this photo";
+    tools
+        .call(
+            "generate_image",
+            &json!({
+                "prompt": photo_prompt, "references": ["photo.png"], "aspect": "4:3"
+            }),
+        )
+        .await
+        .unwrap();
+    {
+        let requests = fake.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].prompt, prompt);
+        assert_eq!(requests[0].aspect, Aspect::Portrait);
+        assert!(requests[0].references.is_empty());
+        assert_eq!(requests[1].prompt, photo_prompt);
+        assert_eq!(requests[1].aspect, Aspect::Landscape);
+        assert_eq!(
+            requests[1].references,
+            vec![Reference {
+                mime: "image/png".into(),
+                bytes: photo
+            }]
+        );
+    }
+    assert!(room.persona("ada").unwrap().avatar.is_none());
+    // A provided file can be set directly: no generation or crew rewrite.
+    tools
+        .call("set_avatar", &json!({ "path": "photo.png" }))
+        .await
+        .unwrap();
+    assert!(room.persona("ada").unwrap().avatar.is_some());
+    assert_eq!(fake.requests.lock().unwrap().len(), 2);
+}
+
 /// macOS spells its temp folder two ways (`/var` and `/private/var`); a
 /// symlink to the same folder stands in for that here.
 #[cfg(unix)]
@@ -947,6 +1003,20 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
         let requests = fake.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(requests[0].prompt.contains("a teammate called Ada"));
+        assert!(
+            requests[0]
+                .prompt
+                .contains("premium matte vinyl/resin designer desk collectible")
+        );
+        assert!(
+            requests[0]
+                .prompt
+                .contains("no pins, badges, logos, patches")
+        );
+        assert_eq!(
+            requests[0].references[0].bytes,
+            include_bytes!("../../imagegen/house-avatar.jpg")
+        );
         assert!(
             requests[0]
                 .prompt

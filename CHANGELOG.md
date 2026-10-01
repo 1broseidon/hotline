@@ -10,15 +10,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
-- Avatars are drawn as the Hotline crew. Every avatar, from setup or from a
-  teammate's `generate_image` with the `avatar` style, starts from one
-  built-in felt character with a head shaped like the Hotline mark, a
-  charcoal crew jacket and a small green toad pin. The body takes the
-  teammate's own colour, the one its initial already sits on, unless the
-  name brings a colour of its own (Clementine is tangerine). Each teammate
-  gets one of eight poses, never the base's front-on stance, and the name
-  and job pick the props. The built-in reference adds about
-  a cent to each avatar.
+- Default avatars, including setup, use a mature Hotline crew: premium
+  matte vinyl/resin designer desk collectibles in plain charcoal technical
+  utility jackets, without pins, badges, logos or patches. The clean built-in
+  reference guides finish and lighting rather than locking every teammate to
+  one head or body. Individual colours, roles, poses and props remain theirs;
+  the seven roster colours and eight default poses still provide variety.
+  Teammates are guided to use the `avatar` style for a default self-avatar,
+  then set and show it. A person's custom subject or theme bypasses the crew
+  by omitting style; their photo can be used directly. Existing avatars and
+  the protection for pictures chosen by the person are unchanged.
 
 ## [0.30.0] - 2026-09-30
 

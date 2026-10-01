@@ -1,11 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
 import type MermaidApi from "mermaid";
-// mermaid's single-file build, served as a file of its own. Its ES module
-// build splits into chunks that WebKitGTK's module loader rejects in
-// development; this is one classic script that sets `globalThis.mermaid`,
-// identical in development and in a release.
-import MERMAID_URL from "mermaid/dist/mermaid.min.js?url";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Viewer } from "../ui/Viewer";
 
 /**
  * A ```mermaid block drawn as the diagram it describes.
@@ -18,9 +13,10 @@ import MERMAID_URL from "mermaid/dist/mermaid.min.js?url";
  * strict mode on top.
  *
  * Mermaid is a few megabytes, so its script is loaded the first time a diagram
- * is on screen and never by a window that shows none. A block still streaming in is
- * not drawn until its source stops changing, and one that does not parse stays
- * the code it was, with a line saying so.
+ * is on screen and never by a window that shows none. A block still streaming
+ * in is not drawn until its source stops changing, and one that does not parse
+ * stays the code it was, with a line saying so. A diagram drawn to fit a bubble
+ * is often too small to read, so pressing it opens it in the viewer.
  */
 export function Mermaid({ source }: { source: string }) {
 	const theme = useResolvedTheme();
@@ -77,38 +73,14 @@ export function Mermaid({ source }: { source: string }) {
 	}
 	return (
 		<div className="mermaid-block">
-			<button type="button" className="mermaid-open" aria-label="Open the diagram full size" onClick={() => setOpen(true)}>
+			<button type="button" className="picture-open" title="Open the diagram" onClick={() => setOpen(true)}>
 				<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
 			</button>
 			<button type="button" className="mermaid-toggle" onClick={() => setShowSource(true)}>
 				Show source
 			</button>
-			{open && <FullSize url={current.url} onClose={() => setOpen(false)} />}
+			{open && <Viewer src={current.url} alt="Diagram" onClose={() => setOpen(false)} />}
 		</div>
-	);
-}
-
-/** The diagram at its own size over the window, scrolling when it is bigger. Escape or a click outside closes it. */
-function FullSize({ url, onClose }: { url: string; onClose(): void }) {
-	useEffect(() => {
-		const close = (event: KeyboardEvent) => {
-			if (event.key === "Escape") onClose();
-		};
-		window.addEventListener("keydown", close);
-		return () => window.removeEventListener("keydown", close);
-	}, [onClose]);
-	return createPortal(
-		<div
-			className="mermaid-full"
-			role="dialog"
-			aria-label="Diagram"
-			onClick={(event) => {
-				if (event.target === event.currentTarget) onClose();
-			}}
-		>
-			<img src={url} alt="Diagram" draggable={false} />
-		</div>,
-		document.body,
 	);
 }
 
@@ -117,26 +89,36 @@ const SETTLE_MS = 300;
 type Palette = "light" | "dark";
 
 let loading: Promise<typeof MermaidApi> | null = null;
+let drawn = 0;
 
+/**
+ * mermaid's single-file build, as a classic script that sets
+ * `globalThis.mermaid`. Its ES module build splits into chunks WebKitGTK's
+ * module loader rejects in development; this one file behaves the same in
+ * development and in a release. Its URL is imported here, when a diagram is
+ * first drawn, so nothing runs it at import time.
+ */
 function load(): Promise<typeof MermaidApi> {
-	loading ??= new Promise((resolve, reject) => {
-		const script = document.createElement("script");
-		script.src = MERMAID_URL;
-		script.async = true;
-		script.onload = () => {
-			const loaded = (globalThis as { mermaid?: typeof MermaidApi }).mermaid;
-			if (loaded) resolve(loaded);
-			else reject(new Error("mermaid did not load"));
-		};
-		script.onerror = () => {
-			loading = null;
-			reject(new Error("mermaid could not be loaded"));
-		};
-		document.head.append(script);
-	});
+	loading ??= import("mermaid/dist/mermaid.min.js?url").then(
+		({ default: url }) =>
+			new Promise<typeof MermaidApi>((resolve, reject) => {
+				const script = document.createElement("script");
+				script.src = url;
+				script.async = true;
+				script.onload = () => {
+					const loaded = (globalThis as { mermaid?: typeof MermaidApi }).mermaid;
+					if (loaded) resolve(loaded);
+					else reject(new Error("mermaid did not load"));
+				};
+				script.onerror = () => {
+					loading = null;
+					reject(new Error("mermaid could not be loaded"));
+				};
+				document.head.append(script);
+			}),
+	);
 	return loading;
 }
-let drawn = 0;
 
 /** One render at a time: mermaid keeps global configuration, and the theme is part of it. */
 let queue: Promise<unknown> = Promise.resolve();
@@ -150,10 +132,7 @@ function draw(source: string, palette: Palette): Promise<string> {
 			htmlLabels: false,
 			flowchart: { htmlLabels: false },
 			theme: palette === "dark" ? "dark" : "neutral",
-			themeVariables: {
-				fontFamily: FONT,
-				background: "transparent",
-			},
+			themeVariables: { fontFamily: FONT, background: "transparent" },
 			fontFamily: FONT,
 		});
 		await mermaid.parse(source);

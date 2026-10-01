@@ -25,6 +25,7 @@ import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "
 import { Glyph, LANDED_MS } from "../ui/Glyph";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
+import { Viewer } from "../ui/Viewer";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { askedFor } from "./PasskeyArm";
@@ -1822,28 +1823,24 @@ function ExchangePaused({
 }
 
 /**
- * What the computer looked like. A thumbnail until asked for, because a
- * capture is evidence beside the words, not another message. Escape puts
- * it back when the button still has focus.
+ * What the computer looked like. A thumbnail beside the words, because a
+ * capture is evidence and not another message; pressed, it opens in the
+ * viewer at a size that can be read.
  */
 function ComputerFrame({ dataUrl }: { dataUrl: string }) {
 	const [open, setOpen] = useState(false);
 	return (
-		<button
-			type="button"
-			className="mt-2 block overflow-hidden rounded-md border border-line bg-raised p-0 text-left transition-[width]"
-			style={{ width: open ? "min(24rem, 100%)" : "7rem" }}
-			aria-expanded={open}
-			title={open ? "Hide the capture" : "Show the capture"}
-			onClick={() => setOpen((was) => !was)}
-			onKeyDown={(key) => {
-				if (key.key !== "Escape" || !open) return;
-				key.preventDefault();
-				setOpen(false);
-			}}
-		>
-			<img src={dataUrl} alt="The computer's screen at capture" className="block w-full" />
-		</button>
+		<>
+			<button
+				type="button"
+				className="picture-open mt-2 block w-28 overflow-hidden rounded-md border border-line bg-raised p-0 text-left"
+				title="Open the capture"
+				onClick={() => setOpen(true)}
+			>
+				<img src={dataUrl} alt="The computer's screen at capture" className="block w-full" />
+			</button>
+			{open && <Viewer src={dataUrl} alt="The computer's screen at capture" onClose={() => setOpen(false)} />}
+		</>
 	);
 }
 

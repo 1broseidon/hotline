@@ -14,8 +14,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate's `generate_image` with the `avatar` style, starts from one
   built-in felt character with a head shaped like the Hotline mark, a
   charcoal crew jacket and a small green toad pin. The body takes the
-  teammate's own colour, the one its initial already sits on, and the
-  name and job pick the pose and props. The built-in reference adds about
+  teammate's own colour, the one its initial already sits on, unless the
+  name brings a colour of its own (Clementine is tangerine). Each teammate
+  gets one of eight poses, never the base's front-on stance, and the name
+  and job pick the props. The built-in reference adds about
   a cent to each avatar.
 
 ## [0.30.0] - 2026-09-30

@@ -297,7 +297,8 @@ pub const STYLES: &[&str] = &["avatar"];
 const CREW: &[u8] = include_bytes!("house-avatar.jpg");
 
 const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, drawn as one of the Hotline crew. \
-The first reference image is the crew's base character. Keep EXACTLY its build and finish: the head \
+The first reference image is the crew's base character. Keep EXACTLY its build and finish, but not its \
+pose: the head \
 shaped like the Hotline toad mark, with two big rounded eye domes side by side and short, dark, \
 horizontal slot pupils; the soft felt-clay texture; the stubby arms and round feet; and the dark \
 charcoal crew jacket with one small signal-green #6bcb62 pin shaped like the toad mark on the chest. \
@@ -308,6 +309,24 @@ const STICKER: &str = "Premium die-cut sticker: a thick clean warm-white outline
 silhouette, character and props, with a subtle small drop shadow. Centred, generous scale, the whole \
 character visible and the head large in the frame. Must read clearly as a small circle 32 pixels wide. \
 No text, no letters.";
+
+/// How a teammate stands. The base faces front and stands still, so every
+/// avatar is told to do otherwise, and a second hash of its id picks which
+/// way, so a roster reads as a cast rather than a row of the same figure.
+const POSES: [&str; 8] = [
+    "mid-stride in three-quarter view, one arm up in a wave",
+    "leaning on something to one side, arms folded, head tilted",
+    "sitting cross-legged, busy with its prop in its lap",
+    "caught mid-hop, both feet off the ground, arms flung out",
+    "turned three-quarters away, glancing back over its shoulder",
+    "leaning in close to the viewer, head tipped, one hand raised",
+    "carrying its prop over one shoulder, mid-step, body twisted",
+    "crouched low and absorbed in its prop, seen from slightly above",
+];
+
+pub fn pose(persona_id: &str) -> &'static str {
+    POSES[((hash(persona_id) / 7) % POSES.len() as u64) as usize]
+}
 
 /// A teammate's colour, the one its initial sits on (ui/src/ui/Avatar.tsx):
 /// the same hash of its id picks one of seven hues, here as felt for the
@@ -359,10 +378,13 @@ const FACES: [Face; 7] = [
 ];
 
 pub fn face(persona_id: &str) -> Face {
-    let hash = persona_id
+    FACES[(hash(persona_id) % 7) as usize]
+}
+
+fn hash(persona_id: &str) -> u64 {
+    persona_id
         .encode_utf16()
-        .fold(0u64, |hash, unit| (hash * 31 + u64::from(unit)) % 1_000_003);
-    FACES[(hash % 7) as usize]
+        .fold(0u64, |hash, unit| (hash * 31 + u64::from(unit)) % 1_000_003)
 }
 
 /// A request with a named style laid over it.
@@ -396,12 +418,16 @@ pub fn styled(
                 body,
                 background,
             } = face(persona_id);
+            let pose = pose(persona_id);
             Ok(Styled {
                 prompt: format!(
-                    "{AVATAR}\n\nThis teammate's body is {name} felt ({body}) instead of the base's teal. \
-Give it a pose and one or two props that suit who it is. Any further reference images are the \
-teammate's own: follow them for its look and props.\n\n{STICKER} Flat solid background in {background}.\n\n\
-Who it is: {prompt}"
+                    "{AVATAR}\n\nColour: this teammate's body is {name} felt ({body}) instead of the base's \
+teal, on a flat solid {background} background. But if its name is a thing with a colour of its own (a fruit, \
+a flower, a stone, a colour word), the body is that colour instead, its accents follow, and the background \
+is a deep dark shade of it.\n\nPose: the base stands still facing front; this one must not. Draw it \
+{pose}, expressive through the body and the tilt of the head, the pupils still slots. Give it one or two \
+props that suit who it is. Any further reference images are the teammate's own: follow them for its \
+colour, look and props.\n\n{STICKER}\n\nWho it is: {prompt}"
                 ),
                 aspect: Aspect::Square,
                 references: vec![Reference {
@@ -458,6 +484,17 @@ mod style_tests {
         assert!(image::load_from_memory(&styled.references[0].bytes).is_ok());
         let face = face("mack");
         assert!(styled.prompt.contains(face.body) && styled.prompt.contains(face.background));
+        assert!(styled.prompt.contains(pose("mack")));
+    }
+
+    #[test]
+    fn poses_spread_across_a_roster() {
+        let poses: std::collections::HashSet<_> =
+            ["mack", "poe", "toad", "frankie", "clementine", "p_01J9ZK"]
+                .into_iter()
+                .map(pose)
+                .collect();
+        assert!(poses.len() >= 4, "{poses:?}");
     }
 
     #[test]

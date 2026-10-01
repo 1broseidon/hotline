@@ -291,43 +291,46 @@ pub struct ImageSet {
 /// one kind look like one set without every agent inventing the words.
 pub const STYLES: &[&str] = &["avatar"];
 
-/// The approved unpinned desk collectible supplies the crew's material and
-/// lighting, not a template for every teammate's silhouette, pose or colour.
+/// One finished crew portrait: it shows the model the finish, the framing
+/// and the eyes every teammate shares, never the head, which is each one's own.
 const CREW: &[u8] = include_bytes!("house-avatar.jpg");
 
-const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, drawn as one of the Hotline crew. \
-A premium matte vinyl/resin designer desk collectible: adult and playful, with deliberate sculpted \
-forms, restrained detail and soft studio lighting. Not felt, clay, plush, chibi or a sticker. \
-The first reference image supplies the material finish and lighting, not a fixed head, body, pose or \
-colour to copy. Give this teammate its own silhouette: a broad wide-set amphibian head, an angular \
-continuous brow, or a flight cowl with goggles are welcome. Avoid twin fleshy domes split by a central \
-cleft. Wear a charcoal technical utility jacket with plain unadorned clothing: no pins, badges, logos, \
-patches, emblems or text anywhere. Do not invent a Hotline mark.";
+const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, one of the Hotline crew. \
+From the first reference image take ONLY the finish, framing and eyes: a premium matte vinyl designer \
+collectible, a front-facing head-and-shoulders bust with the head filling most of the frame, soft even \
+studio light, a plain charcoal jacket, and two raised cream eye domes with short, black, horizontal slot \
+pupils. Adult and quietly playful, never human, never felt, plush or chibi. No props, no hands, no pins, \
+badges, logos or text.";
 
-const FRAMING: &str = "A studio portrait of a physical desk collectible, centred at generous scale, \
-with the whole character and its props visible and a readable silhouette at 32 pixels. No die-cut \
-outline or sticker border. Keep the background simple and the finish matte.";
+const FRAMING: &str = "The background is one flat solid colour filling the entire square edge to edge, \
+like the reference: no circle, frame, border or vignette. Must read clearly as a small circle 32 pixels wide.";
 
-/// A second hash of the id picks a default pose so the roster reads as a
-/// cast, not copies of the reference. An explicitly requested pose wins.
-const POSES: [&str; 8] = [
-    "mid-stride in three-quarter view, one arm up in a wave",
-    "leaning on something to one side, arms folded, head tilted",
-    "sitting cross-legged, busy with its prop in its lap",
-    "caught mid-hop, both feet off the ground, arms flung out",
-    "turned three-quarters away, glancing back over its shoulder",
-    "leaning in close to the viewer, head tipped, one hand raised",
-    "carrying its prop over one shoulder, mid-step, body twisted",
-    "crouched low and absorbed in its prop, seen from slightly above",
+/// The head is what tells teammates apart at 32 pixels, so a second hash of
+/// the id picks its outline; colour, finish and eyes are shared.
+const HEADS: [&str; 12] = [
+    "a squat, wide, low toad head, much wider than it is tall, sitting on the shoulders with no visible neck, \
+a heavy knobbly brow and warty bumps across the crown",
+    "an axolotl head, broad and rounded, with three soft feathery gill fronds fanning out on each side",
+    "a tall, narrow, long-snouted tree-frog head, taller than it is wide, the eye domes set high on top of a \
+long slender neck",
+    "a broad, flat horned-frog head with a small pointed horn above each eye dome and a very wide mouth",
+    "a round, smooth tree-frog head with a short soft snout, the eye domes set high and wide",
+    "a long, low salamander head, flat-topped and wide, the eye domes set out at the sides",
+    "a chameleon head with a smooth rounded casque rising high behind the eye domes",
+    "a pear-shaped head, narrow at the eye domes and widening to heavy rounded jowls",
+    "a newt head with a soft ridged crest running from the brow over the back of the head",
+    "a boxy, square-jawed frog head built from flat planes with crisp edges",
+    "a wide, flat gecko head with a broad rounded snout and a slight underbite",
+    "a small round head on a thick neck, the eye domes so large they take up its whole top half",
 ];
 
-pub fn pose(persona_id: &str) -> &'static str {
-    POSES[((hash(persona_id) / 7) % POSES.len() as u64) as usize]
+pub fn head(persona_id: &str) -> &'static str {
+    HEADS[((hash(persona_id) / 7) % HEADS.len() as u64) as usize]
 }
 
 /// A teammate's colour, the one its initial sits on (ui/src/ui/Avatar.tsx):
 /// the same hash of its id picks one of seven hues, here as matte pigment for the
-/// body and a deep shade of it for the background.
+/// body and a pale tint of it for the background.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Face {
     pub name: &'static str,
@@ -335,42 +338,42 @@ pub struct Face {
     pub background: &'static str,
 }
 
-/// The hues 70 + 43n of `oklch(72% 0.10 h)` and `oklch(32% 0.045 h)`.
+/// The hues 70 + 43n of `oklch(72% 0.10 h)` and `oklch(92% 0.035 h)`.
 const FACES: [Face; 7] = [
     Face {
         name: "warm caramel",
         body: "#cd995c",
-        background: "#422f18",
+        background: "#f4e1cc",
     },
     Face {
         name: "olive",
         body: "#a5ab5f",
-        background: "#333519",
+        background: "#e4e8cd",
     },
     Face {
         name: "muted sage green",
         body: "#6db78a",
-        background: "#1e3a29",
+        background: "#d3ecdb",
     },
     Face {
         name: "teal",
         body: "#48b8bc",
-        background: "#103a3b",
+        background: "#cbeced",
     },
     Face {
         name: "sky blue",
         body: "#69acde",
-        background: "#1d3648",
+        background: "#d1e8fa",
     },
     Face {
         name: "periwinkle",
         body: "#9e9ce1",
-        background: "#303049",
+        background: "#e1e2fc",
     },
     Face {
         name: "orchid pink",
         body: "#c78ec4",
-        background: "#3f2a3e",
+        background: "#f2ddf1",
     },
 ];
 
@@ -415,16 +418,16 @@ pub fn styled(
                 body,
                 background,
             } = face(persona_id);
-            let pose = pose(persona_id);
+            let head = head(persona_id);
             Ok(Styled {
                 prompt: format!(
-                    "{AVATAR}\n\nColour: by default this teammate's body is {name} ({body}), on a \
-flat solid {background} background. If its name is a thing with a colour of its own (a fruit, a flower, \
-a stone, a colour word), use that colour and a deep dark shade of it for the background instead. \
-Preserve explicitly requested colours.\n\nPose: unless a pose is requested, draw it {pose}, expressive \
-through the body and the tilt of the head. Preserve its individual role, pose and props from the \
-prompt; otherwise give it one or two props that suit who it is. Further reference images guide its \
-individual look, colours and props, while clothing stays plain and unadorned.\n\n{FRAMING}\n\nWho it is: {prompt}"
+                    "{AVATAR}\n\nHead: do NOT copy the reference's head. The outline of the head is what makes \
+this teammate recognisable, so draw {head}.\n\nColour: its skin is {name} ({body}), on a flat pale \
+{background} background. If its name is a thing with a colour of its own (a fruit, a flower, a stone, a \
+colour word), use that colour and a pale tint of it instead. Requested colours win.\n\nSignature: one \
+item that suits who it is, such as headwear, glasses, a headset, a scarf or a different collar, worn so it \
+never covers the eye domes. Anything the prompt asks for wins over these defaults, and further reference \
+images are the teammate's own: follow them for its head, colour and signature.\n\n{FRAMING}\n\nWho it is: {prompt}"
                 ),
                 aspect: Aspect::Square,
                 references: vec![Reference {
@@ -481,47 +484,39 @@ mod style_tests {
         assert!(image::load_from_memory(&styled.references[0].bytes).is_ok());
         let face = face("mack");
         assert!(styled.prompt.contains(face.body) && styled.prompt.contains(face.background));
-        assert!(styled.prompt.contains(pose("mack")));
+        assert!(styled.prompt.contains(head("mack")));
     }
 
     #[test]
-    fn the_crew_is_mature_unbranded_and_individual() {
-        let subject = "Frankie, a blue engineer sitting with a notebook";
+    fn the_crew_shares_a_finish_but_not_a_head() {
+        let subject = "Frankie, a blue engineer with a notebook";
         let styled = styled(Some("avatar"), subject, Aspect::Wide, "frankie").unwrap();
         for instruction in [
-            "premium matte vinyl/resin designer desk collectible",
-            "adult and playful",
-            "Not felt, clay, plush, chibi or a sticker",
-            "not a fixed head, body, pose or colour to copy",
-            "broad wide-set amphibian head",
-            "angular continuous brow",
-            "flight cowl with goggles",
-            "Avoid twin fleshy domes split by a central cleft",
-            "charcoal technical utility jacket",
-            "no pins, badges, logos, patches",
-            "Preserve explicitly requested colours",
-            "unless a pose is requested",
-            "Preserve its individual role, pose and props",
-            "No die-cut outline or sticker border",
+            "take ONLY the finish, framing and eyes",
+            "head-and-shoulders bust",
+            "cream eye domes",
+            "never human",
+            "no pins",
+            "do NOT copy the reference's head",
+            head("frankie"),
+            "Requested colours win",
+            "edge to edge",
         ] {
             assert!(styled.prompt.contains(instruction), "{instruction}");
         }
         assert!(styled.prompt.ends_with(subject));
-        assert!(!styled.prompt.contains("Keep EXACTLY"));
-        assert!(!styled.prompt.contains("#6bcb62"));
     }
 
     #[test]
-    fn the_reference_is_the_approved_unpinned_collectible() {
+    fn the_reference_is_the_crew_portrait() {
         use sha2::{Digest, Sha256};
-        // desk_frankie.png, resized to 768px and saved as quality-88 JPEG.
-        // Pin this approved asset so the former felt/pinned image cannot return unnoticed.
+        // Flash's avatar, the first bust approved for the crew, as a quality-88 JPEG.
         assert_eq!(
             hex::encode(Sha256::digest(CREW)),
-            "cec3b4bc23af4e083df43d53d665de8baea9d562e2802118a6bbe6559ab547a2"
+            "1b8ee649225870758a84130701390be0797a29f751f546a10e29482e00621d72"
         );
         let image = image::load_from_memory_with_format(CREW, image::ImageFormat::Jpeg).unwrap();
-        assert_eq!((image.width(), image.height()), (768, 768));
+        assert_eq!((image.width(), image.height()), (512, 512));
         assert!(CREW.len() < 100_000);
     }
 
@@ -535,13 +530,13 @@ mod style_tests {
     }
 
     #[test]
-    fn poses_spread_across_a_roster() {
-        let poses: std::collections::HashSet<_> =
+    fn heads_spread_across_a_roster() {
+        let heads: std::collections::HashSet<_> =
             ["mack", "poe", "toad", "frankie", "clementine", "p_01J9ZK"]
                 .into_iter()
-                .map(pose)
+                .map(head)
                 .collect();
-        assert!(poses.len() >= 4, "{poses:?}");
+        assert!(heads.len() >= 4, "{heads:?}");
     }
 
     #[test]

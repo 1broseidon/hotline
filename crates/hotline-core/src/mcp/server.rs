@@ -255,7 +255,7 @@ fn descriptors() -> Vec<Tool> {
                     "aspect": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"], "default": "1:1" },
                     "transparent": { "type": "boolean", "default": false },
                     "references": { "type": "array", "items": { "type": "string" }, "maxItems": 16 },
-                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` is the default for an unspecific request such as create an avatar for yourself: a premium matte vinyl/resin designer desk collectible, adult and playful, in a plain charcoal technical utility jacket with no pins, badges, logos or patches. The built-in reference guides finish, not a fixed silhouette, pose or colour; keep your individual role, colours and props. Omit style for an operator-requested custom subject/theme (for example a donkey in a forest), or use their photo directly with set_avatar. To keep your look in a crew redraw, pass your current picture as a reference." },
+                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` is the default for an unspecific request such as create an avatar for yourself: a matte vinyl head-and-shoulders bust of one of the Hotline crew, with cream eye domes, a head shape and colour of your own and one signature item, and no pins, badges, logos or props. Say who you are and anything you want kept. Omit style for an operator-requested custom subject/theme (for example a donkey in a forest), or use their photo directly with set_avatar. To keep your look in a crew redraw, pass your current picture as a reference." },
                     "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "A file name, not a path. The extension follows the provider's image format; existing files are never overwritten." },
                 },
                 "required": ["prompt"],
@@ -1064,9 +1064,9 @@ mod tests {
         assert_eq!(style["enum"], json!(["avatar"]));
         assert_eq!(generate.input_schema["required"], json!(["prompt"]));
         let description = style["description"].as_str().unwrap();
-        assert!(description.contains("matte vinyl/resin"));
-        assert!(description.contains("no pins, badges, logos or patches"));
-        assert!(description.contains("not a fixed silhouette, pose or colour"));
+        assert!(description.contains("head-and-shoulders bust"));
+        assert!(description.contains("no pins, badges, logos or props"));
+        assert!(description.contains("a head shape and colour of your own"));
         assert!(description.contains("Omit style"));
         let set = tools.iter().find(|tool| tool.name == SET_AVATAR).unwrap();
         assert!(

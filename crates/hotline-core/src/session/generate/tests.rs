@@ -1003,16 +1003,8 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
         let requests = fake.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(requests[0].prompt.contains("a teammate called Ada"));
-        assert!(
-            requests[0]
-                .prompt
-                .contains("premium matte vinyl/resin designer desk collectible")
-        );
-        assert!(
-            requests[0]
-                .prompt
-                .contains("no pins, badges, logos, patches")
-        );
+        assert!(requests[0].prompt.contains("head-and-shoulders bust"));
+        assert!(requests[0].prompt.contains(crate::imagegen::head("ada")));
         assert_eq!(
             requests[0].references[0].bytes,
             include_bytes!("../../imagegen/house-avatar.jpg")

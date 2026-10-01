@@ -10,14 +10,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
-- Default avatars, including setup, use a mature Hotline crew: premium
-  matte vinyl/resin designer desk collectibles in plain charcoal technical
-  utility jackets, without pins, badges, logos or patches. The clean built-in
-  reference guides finish and lighting rather than locking every teammate to
-  one head or body. Individual colours, roles, poses and props remain theirs;
-  the seven roster colours and eight default poses still provide variety.
-  Teammates are guided to use the `avatar` style for a default self-avatar,
-  then set and show it. A person's custom subject or theme bypasses the crew
+- Default avatars, including setup, are drawn as the Hotline crew: a matte
+  vinyl head-and-shoulders bust with cream eye domes and slot pupils, on a
+  pale tint of the teammate's own colour. Every teammate gets one of twelve
+  head shapes from its id, so faces differ in outline and not only colour,
+  and a name that brings a colour keeps it (Clementine is tangerine). No
+  props, pins or logos. A person's custom subject or theme bypasses the crew
   by omitting style; their photo can be used directly. Existing avatars and
   the protection for pictures chosen by the person are unchanged.
 

@@ -2142,6 +2142,33 @@
 		padding: 0;
 		font-size: inherit;
 	}
+	.mermaid-block {
+		margin: 0.6em 0;
+	}
+	.mermaid-block pre {
+		margin: 0;
+	}
+	.mermaid-diagram {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		padding: 12px;
+		border-radius: var(--radius-control);
+		background: var(--fill-code);
+	}
+	.mermaid-note {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.mermaid-toggle {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.mermaid-toggle:hover {
+		color: var(--ink-2);
+	}
 	.md blockquote {
 		margin: 0.6em 0;
 		padding-left: 10px;

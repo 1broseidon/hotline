@@ -258,6 +258,75 @@ async fn a_subscription_refusal_never_tries_a_paid_fallback() {
 }
 
 #[tokio::test]
+async fn sending_a_picture_just_made_does_not_post_it_twice() {
+    let (dir, room, tools) = room();
+    install(&room, Fake::new("paid"), None);
+    let made: Value = serde_json::from_str(
+        &tools
+            .call(
+                "generate_image",
+                &json!({"prompt":"a toad", "name":"toad.png"}),
+            )
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(made["inConversation"], true);
+    assert_eq!(attachments(&room).len(), 1);
+
+    let again = tools
+        .call(
+            "send_file",
+            &json!({"source": "workspace", "path": "toad.png", "caption": "here it is"}),
+        )
+        .await
+        .unwrap();
+    assert!(again.contains("already in the conversation"), "{again}");
+    assert_eq!(attachments(&room).len(), 1);
+
+    // A different picture still goes.
+    std::fs::write(dir.path().join("workspace").join("other.png"), {
+        let mut other = png();
+        other.extend_from_slice(b"different");
+        other
+    })
+    .unwrap();
+    tools
+        .call(
+            "send_file",
+            &json!({"source": "workspace", "path": "other.png"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(attachments(&room).len(), 2);
+}
+
+#[tokio::test]
+async fn a_subscription_refusal_may_try_another_subscription() {
+    let (_dir, room, tools) = room();
+    let mut fake = Fake::new("subscription-image");
+    let provider = Arc::get_mut(&mut fake).unwrap();
+    provider.subscription = true;
+    provider.error = Some(ImageError::Refused {
+        provider_id: "openai-codex".into(),
+        status: 429,
+    });
+    let mut other = Fake::new("other-subscription");
+    Arc::get_mut(&mut other).unwrap().subscription = true;
+    install(&room, fake, Some(other.clone()));
+    let result: Value = serde_json::from_str(
+        &tools
+            .call("generate_image", &json!({"prompt":"draw"}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["billing"], "subscription");
+    assert_eq!(other.requests.lock().unwrap().len(), 1);
+    assert!(!room.log().root().join("spending.json").exists());
+}
+
+#[tokio::test]
 async fn subscription_images_cannot_read_references_outside_the_workspace() {
     let (dir, room, tools) = room();
     std::fs::write(dir.path().join("outside.png"), png()).unwrap();
@@ -560,15 +629,74 @@ async fn references_obey_reach_and_valid_references_reach_the_image_model() {
     std::fs::write(&reference, png()).unwrap();
     tools.call("generate_image", &json!({ "prompt": "make this blue", "references": [reference], "style": "avatar", "aspect": "16:9" })).await.unwrap();
     let requests = fake.requests.lock().unwrap();
+    // The crew goes first, so the prompt's "first reference" is always it.
+    assert_eq!(requests[0].references.len(), 2);
+    assert_eq!(requests[0].references[0].mime, "image/jpeg");
     assert_eq!(
-        requests[0].references,
-        vec![Reference {
+        requests[0].references[1],
+        Reference {
             mime: "image/png".into(),
             bytes: png()
-        }]
+        }
     );
     assert_eq!(requests[0].aspect, Aspect::Square);
     assert!(requests[0].prompt.contains("make this blue"));
+}
+
+#[tokio::test]
+async fn custom_avatar_requests_without_style_bypass_the_crew_through_the_handler() {
+    let (dir, room, tools) = room();
+    let fake = Fake::new("custom-avatar");
+    install(&room, fake.clone(), None);
+    let prompt = "An avatar of a donkey in a forest";
+    tools
+        .call(
+            "generate_image",
+            &json!({ "prompt": prompt, "aspect": "3:4" }),
+        )
+        .await
+        .unwrap();
+    let image = image::RgbaImage::from_pixel(64, 32, image::Rgba([30, 80, 120, 255]));
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let photo = bytes.into_inner();
+    std::fs::write(dir.path().join("workspace/photo.png"), &photo).unwrap();
+    let photo_prompt = "Make an avatar crop of this photo";
+    tools
+        .call(
+            "generate_image",
+            &json!({
+                "prompt": photo_prompt, "references": ["photo.png"], "aspect": "4:3"
+            }),
+        )
+        .await
+        .unwrap();
+    {
+        let requests = fake.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].prompt, prompt);
+        assert_eq!(requests[0].aspect, Aspect::Portrait);
+        assert!(requests[0].references.is_empty());
+        assert_eq!(requests[1].prompt, photo_prompt);
+        assert_eq!(requests[1].aspect, Aspect::Landscape);
+        assert_eq!(
+            requests[1].references,
+            vec![Reference {
+                mime: "image/png".into(),
+                bytes: photo
+            }]
+        );
+    }
+    assert!(room.persona("ada").unwrap().avatar.is_none());
+    // A provided file can be set directly: no generation or crew rewrite.
+    tools
+        .call("set_avatar", &json!({ "path": "photo.png" }))
+        .await
+        .unwrap();
+    assert!(room.persona("ada").unwrap().avatar.is_some());
+    assert_eq!(fake.requests.lock().unwrap().len(), 2);
 }
 
 /// macOS spells its temp folder two ways (`/var` and `/private/var`); a
@@ -944,6 +1072,18 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
         let requests = fake.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(requests[0].prompt.contains("a teammate called Ada"));
+        assert!(requests[0].prompt.contains("head-and-shoulders bust"));
+        assert!(requests[0].prompt.contains(crate::imagegen::head("ada")));
+        assert_eq!(
+            requests[0].references[0].bytes,
+            include_bytes!("../../imagegen/house-avatar.jpg")
+        );
+        assert!(
+            requests[0]
+                .prompt
+                .contains(crate::imagegen::face("ada").body)
+        );
+        assert_eq!(requests[0].references.len(), 1);
         assert_eq!(requests[0].aspect, Aspect::Square);
     }
     assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);
@@ -964,4 +1104,24 @@ async fn setup_is_told_at_once_when_no_provider_can_draw() {
     assert!(error.contains("Connect"), "{error}");
     install(&room, Fake::new("avatar-image"), None);
     room.can_draw_avatar("ada").unwrap();
+}
+
+/// The roster shows a picture on its way, and stops showing it however the
+/// drawing ends: each change nudges the roster through the teammate's info.
+#[tokio::test]
+async fn a_picture_being_drawn_is_on_the_roster_until_it_ends() {
+    let (_dir, room, _tools) = room();
+    let mut infos = room.subscribe_info();
+    assert!(!room.drawing("ada"));
+    {
+        let _drawing = room.start_drawing("ada");
+        assert!(room.drawing("ada"));
+        assert_eq!(infos.recv().await.unwrap().persona_id, "ada");
+    }
+    assert!(!room.drawing("ada"));
+    assert_eq!(infos.recv().await.unwrap().persona_id, "ada");
+
+    // A refused drawing ends the same way.
+    assert!(room.generate_avatar("ada").await.is_err());
+    assert!(!room.drawing("ada"));
 }

@@ -28,6 +28,7 @@
 mod auth;
 #[cfg(test)]
 mod auth_tests;
+mod install;
 pub mod registry;
 
 use super::{
@@ -1056,11 +1057,13 @@ impl Driver for ChildAgent {
 
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         self.check_capability()?;
+        registry::install(&self.root, &self.backend_id).await?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
         *lock(&self.launch) = Some(launch.clone());
         let mut command = tokio::process::Command::new(&launch.command);
         command
             .args(&launch.args)
+            .envs(launch.env.iter().cloned())
             .current_dir(&persona.cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

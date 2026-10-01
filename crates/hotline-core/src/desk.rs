@@ -407,6 +407,10 @@ impl RoomHandle for Desk {
         self.room.subscribe_info()
     }
 
+    fn drawing(&self, persona_id: &str) -> bool {
+        self.room.drawing(persona_id)
+    }
+
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
         self.room.subscribe_deltas()
     }

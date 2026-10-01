@@ -127,6 +127,7 @@ impl Room {
     /// the teammate may redraw it later; one the person chose is kept.
     pub(crate) async fn generate_avatar(&self, persona_id: &str) -> Result<Avatar, String> {
         let persona = self.persona(persona_id)?;
+        let _drawing = self.start_drawing(persona_id);
         if persona
             .avatar
             .as_ref()
@@ -134,16 +135,17 @@ impl Room {
         {
             return Err("This teammate already has a picture you chose.".into());
         }
-        let (prompt, aspect) = imagegen::styled(
+        let styled = imagegen::styled(
             Some("avatar"),
             &avatar_subject(&persona.name, &persona.goal),
             Aspect::Square,
+            persona_id,
         )?;
         let request = ImageRequest {
-            prompt,
-            aspect,
+            prompt: styled.prompt,
+            aspect: styled.aspect,
             transparent: false,
-            references: Vec::new(),
+            references: styled.references,
         };
         let drawn = self.draw(&request, &None).await?;
         let permit = DECODERS
@@ -220,8 +222,7 @@ impl Room {
     }
 }
 
-/// What the picture is of: the teammate as its name and job suggest, as one
-/// thing a person would remember rather than a portrait of a robot.
+/// Who the crew member is: its name and job, which pick its pose and props.
 fn avatar_subject(name: &str, goal: &str) -> String {
     let goal: String = goal.trim().chars().take(600).collect();
     let mut subject = format!("a teammate called {}", name.trim());
@@ -229,7 +230,7 @@ fn avatar_subject(name: &str, goal: &str) -> String {
         subject.push_str(&format!(", whose job is: {goal}"));
     }
     subject.push_str(
-        ". Draw one memorable animal, object or character that suits the name and the job.",
+        ". Choose a pose and props a person would remember it by. If the name is a thing, it carries or wears that thing.",
     );
     subject
 }

@@ -51,17 +51,18 @@ async fn main() {
         eprintln!("Set OPENROUTER_API_KEY, OPENAI_API_KEY or GEMINI_API_KEY.");
         std::process::exit(2);
     }
-    let (prompt, aspect) = imagegen::styled(
+    let styled = imagegen::styled(
         Some("avatar"),
-        "a small lighthouse with a warm light",
+        "a lighthouse keeper with a warm lantern",
         Aspect::Wide,
+        "image-check",
     )
     .unwrap();
     let request = ImageRequest {
-        prompt,
-        aspect,
+        prompt: styled.prompt,
+        aspect: styled.aspect,
         transparent: true,
-        references: Vec::new(),
+        references: styled.references,
     };
     let mut failed = false;
     for adapter in adapters {

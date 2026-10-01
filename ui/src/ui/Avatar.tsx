@@ -10,9 +10,22 @@ import { avatarUrl } from "../avatars";
  * (ui/src/tokens.css); only the hue is chosen here. Red is missing on
  * purpose: it is the colour of something wrong.
  */
-export function Avatar({ id, name, size = 28, hash }: { id: string; name: string; size?: number; hash?: string | undefined }) {
+export function Avatar({
+	id,
+	name,
+	size = 28,
+	hash,
+	busy = false,
+}: {
+	id: string;
+	name: string;
+	size?: number;
+	hash?: string | undefined;
+	/** Something is on its way: a session starting, a picture being drawn. A ring turns around the face. */
+	busy?: boolean;
+}) {
 	const url = usePicture(id, hash);
-	return (
+	const face = (
 		<span
 			aria-hidden="true"
 			className="avatar"
@@ -24,6 +37,13 @@ export function Avatar({ id, name, size = 28, hash }: { id: string; name: string
 			}}
 		>
 			{url === undefined ? initialOf(name) : <img className="avatar-picture" src={url} alt="" draggable={false} />}
+		</span>
+	);
+	if (!busy) return face;
+	return (
+		<span className="avatar-busy">
+			{face}
+			<span aria-hidden="true" className="avatar-ring" />
 		</span>
 	);
 }

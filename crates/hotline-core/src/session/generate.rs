@@ -57,7 +57,8 @@ impl Room {
             return Err("generate_image takes at most 16 reference images.".into());
         }
         let name = image_name(args.name.as_deref(), &args.prompt)?;
-        let (prompt, aspect) = imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect)?;
+        let styled =
+            imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect, persona_id)?;
         if self.is_quiet(persona_id) {
             return Err("This is a quiet scheduled run; make the image when you are talking with the person.".into());
         }
@@ -78,13 +79,15 @@ impl Room {
             capability.clone(),
         )
         .map_err(|error| error.to_string())?;
-        let references =
+        let theirs =
             tokio::task::spawn_blocking(move || read_references(&workspace, &args.references))
                 .await
                 .map_err(|_| "The reference images could not be read.".to_string())??;
+        let mut references = styled.references;
+        references.extend(theirs);
         let request = ImageRequest {
-            prompt,
-            aspect,
+            prompt: styled.prompt,
+            aspect: styled.aspect,
             transparent: args.transparent,
             references,
         };
@@ -134,6 +137,7 @@ impl Room {
             "costUsd": spent_usd,
             "seconds": started.elapsed().as_secs_f64(),
             "transparent": transparent,
+            "inConversation": true,
         });
         if subscription {
             result["costUsd"] = Value::Null;
@@ -143,8 +147,8 @@ impl Room {
     }
 
     /// One image from the room's image providers, the owner's pick first and
-    /// then the paid fallback, each within the spending cap. A subscription
-    /// pick never falls back to a paid provider.
+    /// then the fallback, each paid attempt within the spending cap. A
+    /// subscription that fails never falls back to a paid provider.
     pub(crate) async fn draw(
         &self,
         request: &ImageRequest,
@@ -153,8 +157,13 @@ impl Room {
         let generators = self.image_generators()?;
         let mut spent_usd = 0.0;
         let mut failure = None;
+        let mut on_plan = false;
         for generator in std::iter::once(generators.primary).chain(generators.fallback) {
             let subscription = generator.subscription();
+            if on_plan && !subscription {
+                break;
+            }
+            on_plan = subscription;
             if let Some(capability) = &capability {
                 capability.check()?;
             }
@@ -165,9 +174,6 @@ impl Room {
                     }
                     .to_string(),
                 );
-                if subscription {
-                    break;
-                }
                 continue;
             }
             let settings = crate::room::try_settings(self.log())?;
@@ -226,9 +232,6 @@ impl Room {
                 }
                 Err(error) => {
                     failure = Some(error.to_string());
-                    if subscription {
-                        break;
-                    }
                 }
             }
         }
@@ -251,9 +254,10 @@ impl Room {
         if let Some(generators) = super::lock(&self.image_generators).clone() {
             return Ok(generators);
         }
-        let vault = self.vault.as_ref().ok_or_else(|| {
-            "Connect OpenRouter, OpenAI or Google in Providers to make images.".to_string()
-        })?;
+        let vault = self
+            .vault
+            .as_ref()
+            .ok_or_else(|| imagegen::NOTHING_DRAWS.to_string())?;
         imagegen::resolve(vault, settings)
     }
 

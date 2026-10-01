@@ -940,11 +940,12 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
         room.persona("ada").unwrap().avatar.unwrap().hash,
         avatar.hash
     );
-    let requests = fake.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert!(requests[0].prompt.contains("a teammate called Ada"));
-    assert_eq!(requests[0].aspect, Aspect::Square);
-    drop(requests);
+    {
+        let requests = fake.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].prompt.contains("a teammate called Ada"));
+        assert_eq!(requests[0].aspect, Aspect::Square);
+    }
     assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);
 
     // A picture the person chose is theirs: setup never draws over it.

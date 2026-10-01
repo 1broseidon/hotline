@@ -179,7 +179,7 @@ impl Room {
             )
             .map_err(|_| "The room's spending settings could not be read.".to_string())?;
             current.validate()?;
-            let estimate = generator.estimate_usd(&request);
+            let estimate = generator.estimate_usd(request);
             let ledger = self.spending.clone();
             let reservation = if subscription {
                 None
@@ -199,7 +199,7 @@ impl Room {
                 }
                 Ok(())
             };
-            let result = generator.generate_checked(&request, &before_send).await;
+            let result = generator.generate_checked(request, &before_send).await;
             let charge = match &result {
                 Ok(image) => Some(image.cost_usd.unwrap_or(estimate)),
                 Err(

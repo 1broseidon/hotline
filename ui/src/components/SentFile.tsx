@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { Attachment, FileChunk } from "../generated/contract";
 import { FileIcon, FolderIcon } from "../icons";
 import { onServer, openSent, saveSent, showPath } from "../serverFiles";
 import { sizeText } from "../sizes";
+import { Viewer } from "../ui/Viewer";
 import { wire } from "../wire";
 
 /**
@@ -11,8 +12,9 @@ import { wire } from "../wire";
  * A picture is drawn in the bubble, read over the wire by its message the
  * way a phone reads it, with its place held at its own shape until it
  * arrives. Anything else is a card that names it. Nothing opens on its own:
- * a picture or a PDF opens in the system's viewer when pressed, and any
- * file can be saved where the person chooses or shown in its folder. Where
+ * a picture opens in the window's own viewer when pressed, a PDF in the
+ * system's, and any file can be saved where the person chooses or shown in
+ * its folder. Where
  * the file came from is on hover. On a desk on a server the file is brought
  * down to open or save it, and its folder is the server's (serverFiles.ts).
  */
@@ -34,6 +36,7 @@ export function SentFile({
 		work().catch((failed: unknown) => setError(failed instanceof Error ? failed.message : String(failed)));
 	};
 	const pdf = file.mimeType === "application/pdf";
+	const [viewing, setViewing] = useState(false);
 	const actions = (
 		<span className="sent-actions">
 			{pdf && (
@@ -60,7 +63,16 @@ export function SentFile({
 	if (file.kind === "image") {
 		return (
 			<figure className="sent-file" title={file.origin}>
-				<SentPicture personaId={personaId} eventId={eventId} index={index} file={file} onOpen={() => act(() => openSent(sent))} />
+				<SentPicture
+					personaId={personaId}
+					eventId={eventId}
+					index={index}
+					file={file}
+					viewing={viewing}
+					onOpen={() => setViewing(true)}
+					onClose={() => setViewing(false)}
+					actions={actions}
+				/>
 				<figcaption className="sent-caption">
 					<span className="chip-name">{file.name}</span>
 					{actions}
@@ -87,28 +99,37 @@ export function SentFile({
 	);
 }
 
-/** The picture, at most a column wide; pressed, it opens full size in the system's viewer. */
+/** The picture, at most a column wide; pressed, it opens in the viewer with the same Save and folder actions. */
 function SentPicture({
 	personaId,
 	eventId,
 	index,
 	file,
+	viewing,
 	onOpen,
+	onClose,
+	actions,
 }: {
 	personaId: string;
 	eventId: string;
 	index: number;
 	file: Attachment;
+	viewing: boolean;
 	onOpen(): void;
+	onClose(): void;
+	actions: ReactNode;
 }) {
 	const url = useSentFile(personaId, eventId, index);
 	const shape = file.width !== undefined && file.height !== undefined ? `${file.width} / ${file.height}` : "4 / 3";
 	if (url === null) return <p className="sent-missing">{`${file.name} could not be read.`}</p>;
 	if (url === undefined) return <div className="sent-picture sent-placeholder" style={{ aspectRatio: shape }} />;
 	return (
-		<button type="button" className="sent-open" title="Open full size" onClick={onOpen}>
-			<img className="sent-picture" src={url} alt={file.name} width={file.width} height={file.height} />
-		</button>
+		<>
+			<button type="button" className="sent-open picture-open" title="Open full size" onClick={onOpen}>
+				<img className="sent-picture" src={url} alt={file.name} width={file.width} height={file.height} />
+			</button>
+			{viewing && <Viewer src={url} alt={file.name} onClose={onClose} actions={actions} />}
+		</>
 	);
 }
 

@@ -2165,6 +2165,81 @@
 		padding: 0;
 		font-size: inherit;
 	}
+	.mermaid-block {
+		margin: 0.6em 0;
+	}
+	.mermaid-block pre {
+		margin: 0;
+	}
+	.mermaid-diagram {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		padding: 12px;
+		border-radius: var(--radius-control);
+		background: var(--fill-code);
+	}
+	/* Anything pressed to open in the viewer. */
+	.picture-open {
+		display: block;
+		max-width: 100%;
+		cursor: zoom-in;
+	}
+	.viewer {
+		position: fixed;
+		inset: 0;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		background: oklch(0% 0 0 / 0.78);
+	}
+	.viewer-bar {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+		padding: 10px 12px;
+	}
+	.viewer-stage {
+		flex: 1;
+		min-height: 0;
+		display: grid;
+		place-items: center;
+		overflow: auto;
+		padding: 0 24px 24px;
+	}
+	.viewer-stage img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: var(--radius-chip);
+		/* A diagram is transparent; a pane behind it keeps its ink readable. */
+		background: var(--canvas);
+		cursor: zoom-in;
+	}
+	/* At its own size: bigger than the window scrolls, and grid centring would
+	 * clip the top and left, so it starts from the corner instead. */
+	.viewer-actual {
+		place-items: start;
+	}
+	.viewer-actual img {
+		max-width: none;
+		max-height: none;
+		margin: auto;
+		cursor: zoom-out;
+	}
+	.mermaid-note {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.mermaid-toggle {
+		margin-top: 4px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
+	.mermaid-toggle:hover {
+		color: var(--ink-2);
+	}
 	.md blockquote {
 		margin: 0.6em 0;
 		padding-left: 10px;

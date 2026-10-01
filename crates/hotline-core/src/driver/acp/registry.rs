@@ -25,6 +25,12 @@ use std::time::Duration;
 /// budget shared with everything else on the machine.
 const REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 
+/// What this build keeps of each catalogue entry. A cache written by a build
+/// that kept less (before binary distributions, say) is refetched rather than
+/// trusted for the rest of its day, because the missing fields cannot be
+/// told apart from an agent that published none.
+const CATALOGUE_FORMAT: u32 = 2;
+
 /// How long a fetched catalogue is used before Hotline asks again.
 const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -336,6 +342,8 @@ struct Runner {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Catalogue {
+    #[serde(default)]
+    format: u32,
     fetched_at: i64,
     #[serde(default)]
     agents: Vec<Published>,
@@ -464,6 +472,12 @@ fn still_the_days(fetched_at: i64, now: i64) -> bool {
     (0..CACHE_TTL_MS).contains(&now.saturating_sub(fetched_at))
 }
 
+/// Whether a cached catalogue can stand in for a fetch: written by this
+/// build's format, and still the day's.
+fn fresh(catalogue: &Catalogue, now: i64) -> bool {
+    catalogue.format == CATALOGUE_FORMAT && still_the_days(catalogue.fetched_at, now)
+}
+
 fn read_catalogue(root: &Path) -> Option<Catalogue> {
     let bytes = std::fs::read(paths::acp_registry_path(root)).ok()?;
     serde_json::from_slice(&bytes).ok()
@@ -474,7 +488,7 @@ fn read_catalogue(root: &Path) -> Option<Catalogue> {
 /// hand, and never the ones it was.
 async fn refresh_catalogue(root: &Path) {
     let cached = read_catalogue(root);
-    if cached.is_some_and(|catalogue| still_the_days(catalogue.fetched_at, now_ms())) {
+    if cached.is_some_and(|catalogue| fresh(&catalogue, now_ms())) {
         return;
     }
     let fetched = reqwest::Client::new()
@@ -496,6 +510,7 @@ async fn refresh_catalogue(root: &Path) {
         return;
     }
     let catalogue = Catalogue {
+        format: CATALOGUE_FORMAT,
         fetched_at: now_ms(),
         agents,
     };
@@ -744,6 +759,22 @@ mod tests {
         // And a number nothing can be subtracted from is stale, not a panic.
         assert!(!still_the_days(i64::MIN, now));
         assert!(!still_the_days(i64::MAX, now));
+    }
+
+    /// A cache an older build wrote dropped fields this one reads, so it is
+    /// refetched however young it is.
+    #[test]
+    fn a_catalogue_an_older_build_cached_is_fetched_again() {
+        let now = 1_700_000_000_000;
+        let older: Catalogue =
+            serde_json::from_value(serde_json::json!({"fetchedAt": now, "agents": []})).unwrap();
+        assert!(!fresh(&older, now));
+        let current = Catalogue {
+            format: CATALOGUE_FORMAT,
+            fetched_at: now,
+            agents: Vec::new(),
+        };
+        assert!(fresh(&current, now));
     }
 
     /// An adapter is two programs: the harness's own CLI and whatever starts

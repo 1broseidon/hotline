@@ -255,7 +255,7 @@ fn descriptors() -> Vec<Tool> {
                     "aspect": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"], "default": "1:1" },
                     "transparent": { "type": "boolean", "default": false },
                     "references": { "type": "array", "items": { "type": "string" }, "maxItems": 16 },
-                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` draws a profile picture; then use set_avatar to make it yours." },
+                    "style": { "type": "string", "enum": ["avatar"], "description": "`avatar` draws you as one of the Hotline crew, in your own colour, with a pose and props from your prompt; then use set_avatar to make it yours. To keep your look in a redraw, pass your current picture as a reference." },
                     "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "A file name, not a path. The extension follows the provider's image format; existing files are never overwritten." },
                 },
                 "required": ["prompt"],

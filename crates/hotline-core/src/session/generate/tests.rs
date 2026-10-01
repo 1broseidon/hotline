@@ -560,12 +560,15 @@ async fn references_obey_reach_and_valid_references_reach_the_image_model() {
     std::fs::write(&reference, png()).unwrap();
     tools.call("generate_image", &json!({ "prompt": "make this blue", "references": [reference], "style": "avatar", "aspect": "16:9" })).await.unwrap();
     let requests = fake.requests.lock().unwrap();
+    // The crew goes first, so the prompt's "first reference" is always it.
+    assert_eq!(requests[0].references.len(), 2);
+    assert_eq!(requests[0].references[0].mime, "image/jpeg");
     assert_eq!(
-        requests[0].references,
-        vec![Reference {
+        requests[0].references[1],
+        Reference {
             mime: "image/png".into(),
             bytes: png()
-        }]
+        }
     );
     assert_eq!(requests[0].aspect, Aspect::Square);
     assert!(requests[0].prompt.contains("make this blue"));
@@ -944,6 +947,12 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
         let requests = fake.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(requests[0].prompt.contains("a teammate called Ada"));
+        assert!(
+            requests[0]
+                .prompt
+                .contains(crate::imagegen::face("ada").body)
+        );
+        assert_eq!(requests[0].references.len(), 1);
         assert_eq!(requests[0].aspect, Aspect::Square);
     }
     assert_eq!(room.spending_summary().unwrap().day_usd, 0.006);

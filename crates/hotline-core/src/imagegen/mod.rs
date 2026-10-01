@@ -291,22 +291,125 @@ pub struct ImageSet {
 /// one kind look like one set without every agent inventing the words.
 pub const STYLES: &[&str] = &["avatar"];
 
-const AVATAR: &str = "Profile avatar for an AI teammate in a chat app. One subject, centred, \
-filling most of a square frame. Bold simple shapes, flat colour with soft shading, friendly. \
-Plain solid background in one soft colour, or transparent. No text, no letters, no border, \
-no frame. Must read clearly when shown as a small circle 32 pixels wide.";
+/// The crew every avatar is drawn from: one plain character in the house
+/// finish, with a head shaped like the Hotline mark, sent as the first
+/// reference so the cast stays one set however many teammates there are.
+const CREW: &[u8] = include_bytes!("house-avatar.jpg");
+
+const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, drawn as one of the Hotline crew. \
+The first reference image is the crew's base character. Keep EXACTLY its build and finish: the head \
+shaped like the Hotline toad mark, with two big rounded eye domes side by side and short, dark, \
+horizontal slot pupils; the soft felt-clay texture; the stubby arms and round feet; and the dark \
+charcoal crew jacket with one small signal-green #6bcb62 pin shaped like the toad mark on the chest. \
+Not a new character, never a human. Nothing covers the eye domes: a hat sits behind or between them. \
+The pin is the only signal green in the picture.";
+
+const STICKER: &str = "Premium die-cut sticker: a thick clean warm-white outline follows the whole \
+silhouette, character and props, with a subtle small drop shadow. Centred, generous scale, the whole \
+character visible and the head large in the frame. Must read clearly as a small circle 32 pixels wide. \
+No text, no letters.";
+
+/// A teammate's colour, the one its initial sits on (ui/src/ui/Avatar.tsx):
+/// the same hash of its id picks one of seven hues, here as felt for the
+/// body and a deep shade of it for the background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Face {
+    pub name: &'static str,
+    pub body: &'static str,
+    pub background: &'static str,
+}
+
+/// The hues 70 + 43n of `oklch(72% 0.10 h)` and `oklch(32% 0.045 h)`.
+const FACES: [Face; 7] = [
+    Face {
+        name: "warm caramel",
+        body: "#cd995c",
+        background: "#422f18",
+    },
+    Face {
+        name: "olive",
+        body: "#a5ab5f",
+        background: "#333519",
+    },
+    Face {
+        name: "muted sage green",
+        body: "#6db78a",
+        background: "#1e3a29",
+    },
+    Face {
+        name: "teal",
+        body: "#48b8bc",
+        background: "#103a3b",
+    },
+    Face {
+        name: "sky blue",
+        body: "#69acde",
+        background: "#1d3648",
+    },
+    Face {
+        name: "periwinkle",
+        body: "#9e9ce1",
+        background: "#303049",
+    },
+    Face {
+        name: "orchid pink",
+        body: "#c78ec4",
+        background: "#3f2a3e",
+    },
+];
+
+pub fn face(persona_id: &str) -> Face {
+    let hash = persona_id
+        .encode_utf16()
+        .fold(0u64, |hash, unit| (hash * 31 + u64::from(unit)) % 1_000_003);
+    FACES[(hash % 7) as usize]
+}
+
+/// A request with a named style laid over it.
+#[derive(Debug)]
+pub struct Styled {
+    pub prompt: String,
+    pub aspect: Aspect,
+    /// What the style shows the model, before any references of the caller's.
+    pub references: Vec<Reference>,
+}
 
 /// The teammate's words with a named style laid over them. The subject is
-/// always theirs; a style only says how it's drawn. An avatar is square.
+/// always theirs; a style only says how it's drawn. An avatar is square, in
+/// the teammate's own colour, and shows the model the crew first.
 pub fn styled(
     style: Option<&str>,
     prompt: &str,
     aspect: Aspect,
-) -> Result<(String, Aspect), String> {
+    persona_id: &str,
+) -> Result<Styled, String> {
     let prompt = prompt.trim();
     match style {
-        None => Ok((prompt.to_string(), aspect)),
-        Some("avatar") => Ok((format!("{AVATAR}\n\nThe subject: {prompt}"), Aspect::Square)),
+        None => Ok(Styled {
+            prompt: prompt.to_string(),
+            aspect,
+            references: Vec::new(),
+        }),
+        Some("avatar") => {
+            let Face {
+                name,
+                body,
+                background,
+            } = face(persona_id);
+            Ok(Styled {
+                prompt: format!(
+                    "{AVATAR}\n\nThis teammate's body is {name} felt ({body}) instead of the base's teal. \
+Give it a pose and one or two props that suit who it is. Any further reference images are the \
+teammate's own: follow them for its look and props.\n\n{STICKER} Flat solid background in {background}.\n\n\
+Who it is: {prompt}"
+                ),
+                aspect: Aspect::Square,
+                references: vec![Reference {
+                    mime: "image/jpeg".into(),
+                    bytes: CREW.to_vec(),
+                }],
+            })
+        }
         Some(other) => Err(format!(
             "There's no image style called \"{other}\". The styles are: {}.",
             STYLES.join(", ")
@@ -320,19 +423,55 @@ mod style_tests {
 
     #[test]
     fn a_style_keeps_the_subject_and_squares_an_avatar() {
-        let (prompt, aspect) =
-            styled(Some("avatar"), "  an otter in a hard hat ", Aspect::Wide).unwrap();
-        assert!(prompt.ends_with("The subject: an otter in a hard hat"));
-        assert_eq!(aspect, Aspect::Square);
+        let styled = styled(
+            Some("avatar"),
+            "  an otter in a hard hat ",
+            Aspect::Wide,
+            "p1",
+        )
+        .unwrap();
+        assert!(styled.prompt.ends_with("Who it is: an otter in a hard hat"));
+        assert_eq!(styled.aspect, Aspect::Square);
+        let plain = super::styled(None, "a lighthouse", Aspect::Wide, "p1").unwrap();
         assert_eq!(
-            styled(None, "a lighthouse", Aspect::Wide).unwrap(),
-            ("a lighthouse".into(), Aspect::Wide)
+            (plain.prompt.as_str(), plain.aspect, plain.references.len()),
+            ("a lighthouse", Aspect::Wide, 0)
         );
         assert!(
-            styled(Some("noir"), "x", Aspect::Square)
+            super::styled(Some("noir"), "x", Aspect::Square, "p1")
                 .unwrap_err()
                 .contains("avatar")
         );
+    }
+
+    #[test]
+    fn an_avatar_shows_the_crew_first_in_the_teammates_own_colour() {
+        let styled = styled(
+            Some("avatar"),
+            "a teammate called Mack",
+            Aspect::Square,
+            "mack",
+        )
+        .unwrap();
+        assert_eq!(styled.references.len(), 1);
+        assert_eq!(styled.references[0].mime, "image/jpeg");
+        assert!(image::load_from_memory(&styled.references[0].bytes).is_ok());
+        let face = face("mack");
+        assert!(styled.prompt.contains(face.body) && styled.prompt.contains(face.background));
+    }
+
+    #[test]
+    fn a_face_is_the_hue_the_initial_sits_on() {
+        // What Avatar.tsx's faceOf picks for these ids, worked out in Node.
+        for (id, index) in [
+            ("mack", 1),
+            ("p_01J9ZK", 2),
+            ("persona-ünïcode", 6),
+            ("", 0),
+        ] {
+            assert_eq!(face(id), FACES[index], "{id}");
+        }
+        assert_ne!(face("a"), face("b"));
     }
 
     #[test]

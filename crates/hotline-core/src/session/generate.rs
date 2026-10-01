@@ -57,7 +57,8 @@ impl Room {
             return Err("generate_image takes at most 16 reference images.".into());
         }
         let name = image_name(args.name.as_deref(), &args.prompt)?;
-        let (prompt, aspect) = imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect)?;
+        let styled =
+            imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect, persona_id)?;
         if self.is_quiet(persona_id) {
             return Err("This is a quiet scheduled run; make the image when you are talking with the person.".into());
         }
@@ -78,13 +79,15 @@ impl Room {
             capability.clone(),
         )
         .map_err(|error| error.to_string())?;
-        let references =
+        let theirs =
             tokio::task::spawn_blocking(move || read_references(&workspace, &args.references))
                 .await
                 .map_err(|_| "The reference images could not be read.".to_string())??;
+        let mut references = styled.references;
+        references.extend(theirs);
         let request = ImageRequest {
-            prompt,
-            aspect,
+            prompt: styled.prompt,
+            aspect: styled.aspect,
             transparent: args.transparent,
             references,
         };

@@ -150,13 +150,7 @@ impl Room {
         request: &ImageRequest,
         capability: &Option<CapabilityLease>,
     ) -> Result<Drawn, String> {
-        let settings = crate::room::try_settings(self.log())?;
-        let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
-            "images",
-            settings.get("images").unwrap_or(&json!({})),
-        )?)
-        .map_err(|_| "The room's image settings could not be read.".to_string())?;
-        let generators = self.resolve_images(&images)?;
+        let generators = self.image_generators()?;
         let mut spent_usd = 0.0;
         let mut failure = None;
         for generator in std::iter::once(generators.primary).chain(generators.fallback) {
@@ -239,6 +233,17 @@ impl Room {
             }
         }
         Err(failure.unwrap_or_else(|| "No connected provider could make this image.".into()))
+    }
+
+    /// The providers the room's image settings name, the owner's pick first.
+    pub(crate) fn image_generators(&self) -> Result<ImageSet, String> {
+        let settings = crate::room::try_settings(self.log())?;
+        let images: ImageSettings = serde_json::from_value(crate::room::normalize_setting(
+            "images",
+            settings.get("images").unwrap_or(&json!({})),
+        )?)
+        .map_err(|_| "The room's image settings could not be read.".to_string())?;
+        self.resolve_images(&images)
     }
 
     fn resolve_images(&self, settings: &ImageSettings) -> Result<ImageSet, String> {

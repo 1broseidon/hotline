@@ -1,5 +1,4 @@
 import type {
-	Avatar,
 	BackendChoice,
 	CatalogModel,
 	ChapterSummary,
@@ -167,7 +166,7 @@ type Results = {
 	"file.read": FileChunk;
 	/** One part of a teammate's picture, by the hash on its record. */
 	"avatar.read": FileChunk;
-	"avatar.generate": Avatar;
+	"avatar.generate": null;
 	"files.browse": {
 		path: string;
 		parent: string | null;

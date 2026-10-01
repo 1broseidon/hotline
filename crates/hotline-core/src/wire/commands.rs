@@ -419,7 +419,7 @@ pub(crate) async fn run(
             living(log, &persona_id)?;
             room.generate_avatar(&persona_id)
                 .await
-                .map(|avatar| json!(avatar))
+                .map(|()| Value::Null)
         }
         Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
         Command::RoomImport { from } => room

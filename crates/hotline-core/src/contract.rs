@@ -2316,8 +2316,11 @@ pub enum Command {
     },
     /// Draws a picture for a teammate from its name and goal through the
     /// room's image providers, within the spending cap, and puts it on the
-    /// roster: what setup offers when images are available. Answers the
-    /// teammate's [`Avatar`]. A picture the person chose is left alone.
+    /// roster: what setup offers when images are available. Answers `null`
+    /// once the drawing has started, since a socket's commands are answered
+    /// in order and a picture takes up to a minute; the roster carries it
+    /// when it lands. Refused at once when no provider can draw or the
+    /// person chose the current picture.
     #[serde(rename = "avatar.generate")]
     AvatarGenerate { persona_id: String },
     /// Where to notify this phone: the token its push service issued, and

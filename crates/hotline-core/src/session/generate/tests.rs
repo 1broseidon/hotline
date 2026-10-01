@@ -955,3 +955,12 @@ async fn setup_draws_a_picture_from_the_name_and_goal_and_charges_it() {
     assert!(error.contains("you chose"), "{error}");
     assert_eq!(fake.requests.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn setup_is_told_at_once_when_no_provider_can_draw() {
+    let (_dir, room, _tools) = room();
+    let error = room.can_draw_avatar("ada").unwrap_err();
+    assert!(error.contains("Connect"), "{error}");
+    install(&room, Fake::new("avatar-image"), None);
+    room.can_draw_avatar("ada").unwrap();
+}

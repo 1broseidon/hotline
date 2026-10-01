@@ -93,7 +93,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("This room cannot list what its providers can do.".into())
     }
 
-    async fn generate_avatar(&self, _persona_id: &str) -> Result<crate::contract::Avatar, String> {
+    async fn generate_avatar(&self, _persona_id: &str) -> Result<(), String> {
         Err("This room cannot make images.".into())
     }
 

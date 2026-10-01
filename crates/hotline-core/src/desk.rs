@@ -231,8 +231,16 @@ impl RoomHandle for Desk {
         }
     }
 
-    async fn generate_avatar(&self, persona_id: &str) -> Result<crate::contract::Avatar, String> {
-        self.room.generate_avatar(persona_id).await
+    async fn generate_avatar(&self, persona_id: &str) -> Result<(), String> {
+        self.room.can_draw_avatar(persona_id)?;
+        let room = self.room.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            if let Err(error) = room.generate_avatar(&persona_id).await {
+                eprintln!("the picture for {persona_id} could not be drawn: {error}");
+            }
+        });
+        Ok(())
     }
 
     async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {

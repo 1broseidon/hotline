@@ -109,6 +109,19 @@ impl Room {
         })
     }
 
+    /// Whether setup's offer can go ahead, answered before the drawing starts
+    /// so a refusal reaches the person rather than a log.
+    pub(crate) fn can_draw_avatar(&self, persona_id: &str) -> Result<(), String> {
+        let persona = self.persona(persona_id)?;
+        if persona
+            .avatar
+            .is_some_and(|avatar| avatar.by == AvatarBy::Person)
+        {
+            return Err("This teammate already has a picture you chose.".into());
+        }
+        self.image_generators().map(|_| ())
+    }
+
     /// The setup screen's offer: a picture drawn from the teammate's name and
     /// goal, in the house avatar style. It counts as the teammate's own, so
     /// the teammate may redraw it later; one the person chose is kept.

@@ -212,7 +212,7 @@ function Row({
 			)}
 			{onTip !== undefined ? (
 				<span className="relative flex">
-					<Avatar id={entry.persona.id} name={entry.persona.name} size={28} />
+					<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} />
 					{unread && <span aria-hidden="true" className="rail-face-unread" />}
 					{vital.color !== null && (
 						<span
@@ -223,7 +223,7 @@ function Row({
 					)}
 				</span>
 			) : (
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} />
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} />
 			)}
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">

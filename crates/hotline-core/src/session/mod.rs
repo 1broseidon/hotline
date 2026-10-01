@@ -34,10 +34,12 @@
 //! tools, the workspace, or the harness invalidate old handles and queued
 //! work before a live session is rebuilt.
 
+pub(crate) mod avatar;
 mod chapters;
 mod escalation;
 pub(crate) mod exchanges;
 pub(crate) mod files;
+pub(crate) mod generate;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod narration;
@@ -365,7 +367,7 @@ struct Session {
     quiet: Mutex<Option<QuietWindow>>,
     /// The turn's latest reply, which goes to the phone when the turn ends:
     /// a chatty turn is one notification, not one per bubble.
-    glance: Mutex<Option<String>>,
+    glance: Mutex<Option<Glance>>,
     /// The agent's own id for this conversation, waiting for the turn that
     /// makes it worth remembering.
     ///
@@ -375,6 +377,12 @@ struct Session {
     /// restored from a checkpoint has nothing to write: the id is already on
     /// the record.
     pending_checkpoint: Mutex<Option<String>>,
+}
+
+/// Pacing keeps this ID on the first bubble, while narration needs the full reply.
+struct Glance {
+    event_id: String,
+    text: String,
 }
 
 /// Something a prompt wants stamped on the user line it is about to write,
@@ -525,7 +533,11 @@ struct PasskeyArming {
 const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub struct Room {
+    voice: Mutex<std::sync::Weak<crate::voice::Calls>>,
     log: Log,
+    spending: crate::spending::SpendLedger,
+    #[cfg(test)]
+    image_generators: Mutex<Option<crate::imagegen::ImageSet>>,
     /// A computer being set up behind a session that started without it,
     /// per teammate: downloading, ready to join once the turn ends, or
     /// failed. Watched by `computer_status`, which can wait on it.
@@ -665,6 +677,10 @@ impl Room {
             }
         };
         let room = Arc::new(Self {
+            spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
+            #[cfg(test)]
+            image_generators: Mutex::new(None),
+            voice: Mutex::new(std::sync::Weak::new()),
             log,
             keys,
             agents,
@@ -774,6 +790,7 @@ impl Room {
         let teammates: Vec<String> = room::roster(&self.log)
             .into_iter()
             .map(|persona| persona.id)
+            .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
             .collect();
         let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
             thread::list_all_keys(self.log.root())
@@ -2241,7 +2258,7 @@ impl Room {
                     text: text.to_string(),
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,
-                    steer: true,
+                    steer: !crate::wire::commands::from_voice(),
                     said: None,
                     unprompted: None,
                 },
@@ -2371,7 +2388,12 @@ impl Room {
     /// the invariant: what was said is a fact the moment somebody said it, and
     /// a turn that fails must not lose the message that started it.
     async fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
-        let id = new_id();
+        // The opaque event ID carries provenance through queued turns and restarts.
+        let id = if crate::wire::commands::from_voice() {
+            format!("voice:{}", new_id())
+        } else {
+            new_id()
+        };
         if let Some(attachments) = &sending.attachments {
             let root = self.log.root().to_path_buf();
             let persona_id = session.persona_id.clone();
@@ -4091,7 +4113,13 @@ impl Room {
             }
             *lock(&session.active_handoff) = None;
             self.fail_in_flight(&session, &mut in_flight);
-            self.send_glance(&session);
+            self.send_glance(
+                &session,
+                wired
+                    .said
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with("voice:")),
+            );
             if asked {
                 // A permission the turn left open is a button nobody is
                 // behind. A `request_human` wait is not: the tool is still
@@ -4246,12 +4274,16 @@ impl Room {
         // to a thought and says nothing anywhere.
         if let Update::Message {
             kind: MessageKind::Agent,
+            id,
             text,
-            ..
         } = &update
             && !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
+            && !text.trim().is_empty()
         {
-            *lock(&session.glance) = Some(text.clone());
+            *lock(&session.glance) = Some(Glance {
+                event_id: id.clone(),
+                text: text.trim().to_string(),
+            });
         }
         let card = match &update {
             Update::Permission {
@@ -4289,15 +4321,45 @@ impl Room {
     /// The turn's reply to the phone, one notification however many bubbles
     /// it took: the report when the agent worked, or the answer that needed
     /// no tool.
-    fn send_glance(&self, session: &Session) {
-        let Some(text) = lock(&session.glance).take() else {
+    fn send_glance(&self, session: &Session, from_voice: bool) {
+        let Some(Glance { event_id, text }) = lock(&session.glance).take() else {
             return;
         };
         let name = self
             .persona(&session.persona_id)
             .map(|persona| persona.name)
             .unwrap_or_else(|_| "Hotline".to_string());
+        if let Some(voice) = lock(&self.voice).upgrade()
+            && voice.delivery(&session.persona_id, &event_id, &name, &text, from_voice)
+        {
+            return;
+        }
         self.push.notify(&name, &text, &session.persona_id, None);
+    }
+
+    pub(crate) fn set_voice(&self, voice: &Arc<crate::voice::Calls>) {
+        *lock(&self.voice) = Arc::downgrade(voice);
+    }
+
+    pub(crate) fn voice_record(&self, kind: &str, text: &str) -> Result<String, String> {
+        let id = new_id();
+        self.try_write_value(
+            crate::voice::TAPE_ID,
+            &json!({
+                "kind": kind, "id": id, "ts": now_ms(), "text": text,
+            }),
+        )
+        .map_err(|_| "The voice conversation could not be saved.".to_string())?;
+        Ok(id)
+    }
+
+    pub(crate) fn voice_push(&self, persona_id: &str, name: &str, text: &str) {
+        self.push.notify(name, text, persona_id, None);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sent_voice_pushes(&self) -> Vec<Value> {
+        lock(&self.push.sent).clone()
     }
 
     /// The title of a notification about a card: the teammate needs you.
@@ -4426,6 +4488,11 @@ impl Room {
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
         self.index(persona_id, event);
+        if persona_id != crate::voice::TAPE_ID
+            && let Some(voice) = lock(&self.voice).upgrade()
+        {
+            voice.card(persona_id, event);
+        }
         Ok(())
     }
 

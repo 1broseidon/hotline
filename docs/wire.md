@@ -92,6 +92,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `settings.update` | `{patch}` | every setting, defaults included |
+| `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
+| `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
@@ -122,6 +124,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, offset}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64; `next` is where the next part starts, absent at the end |
+| `avatar.read` | `{personaId, hash, offset?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. Every seat may read one |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -311,6 +314,76 @@ Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
 
+`capabilities.options` feeds Settings > Providers > Use for, and reads the same
+connections `images.status` and `voice.status` resolve from. Its spending
+figures are the caps in `settings.spending`, which govern images and voice
+alike, and the sum of the image tally and voice's own tally, which are still two
+separate files. The `stt` and `tts` options are every speech model each
+connected provider offers, as the provider lists them (cached for a day; the
+provider's default when it cannot be asked), with voices on each speaking
+model and the default model first; see `docs/voice.md`. The command may wait on
+those lists for up to five seconds; starting a call does not. Voice reads `settings.spending` when the owner has set it and
+falls back to `settings.voice.dayUsd` and `monthUsd` otherwise.
+
+`images` is an `ImageSettings` object `{provider?: string, model?: string}`,
+defaulting to `{}`. An omitted provider selects the first connected provider
+that can make images, on its default model; a model is used only with an
+explicit provider. An unavailable explicit provider is reported rather than
+silently switched. `spending` is a `SpendingSettings` object
+`{dayUsd: number, monthUsd: number}`, defaulting to `$2` per UTC day and `$20`
+per UTC month. Omitted spending fields take their defaults; each limit must
+be finite and non-negative, and either zero limit disables spending. Each object replaces
+the whole setting rather than merging its fields. Top-level `null` restores
+the whole object's defaults. Image selections must be non-blank strings when
+present. Both objects are typed and validated before any key in an update is
+written; unknown settings keys retain their existing map semantics. Malformed
+stored image or spending overrides remain visible so consumers refuse them
+rather than automatically selecting a provider or restoring paid budgets.
+
+`images.status` describes the current selection using the desk's existing
+vault connections. It makes no image or provider request and changes no
+settings. `available: true` carries the resolved provider and model ids;
+`available: false` carries an `unavailable` reason and omits those ids.
+`spending`, when readable, is `SpendingSummary` `{dayUsd, monthUsd}`: recorded
+usage including reservations for the current UTC day and month, not the caps.
+It comes from the same room ledger image generation uses. Invalid saved
+spending settings or an unreadable ledger omit that summary and carry a
+`spendingUnavailable` reason; image-provider availability is independent of
+this spending readiness. A status read never creates a spending file.
+Status and image generation read settings strictly: a malformed room JSONL
+line or an `images`/`spending` event whose kind is not `setting` refuses the
+operation rather than restoring defaults. Status reports `available: false`
+with safe `unavailable` and `spendingUnavailable` reasons and omits the
+provider, model and usage summary; no raw room content is included.
+Credentials and keys are never returned. Owners and the local desk may ask;
+companions receive `forbidden`. Test room handles default to unavailable.
+
+Experimental Codex subscription images require an existing Hotline ChatGPT
+sign-in and explicit `settings.images.provider: "openai-codex"`. The only
+supported model is `gpt-image-2` (also the default). This connection is never
+auto-selected or used as a fallback, and never falls back to a paid provider.
+`capabilities.options` offers it as `Codex (ChatGPT subscription)` in the
+image picker when the owner has connected that login. Choosing Automatic
+clears the explicit selection; it does not select the subscription connection.
+`available` means configured and selected, not verified image entitlement:
+status neither refreshes the login nor calls the provider. Clear the provider
+selection to return to automatic API-provider selection.
+
+The existing `generate_image` tool uses the Codex backend's internal image
+endpoints, with automatic size and quality; aspect is a prompt instruction,
+not a guaranteed pixel ratio. It supports up to five PNG, JPEG or WebP
+references. It refreshes only Hotline's saved login, never starts a login or
+reads Codex CLI credentials. Subscription results return `costUsd: null` and
+`billing: "subscription"`; paid-provider results retain their existing numeric
+cost. Subscription calls do not reserve or charge the dollar ledger, including
+when dollar spending is disabled or exhausted. Malformed settings still refuse.
+Upstream subscription limits still apply, and refusals are not retried through
+another provider. This internal endpoint may change; live compatibility and
+account entitlement must be verified separately before relying on it.
+The capability lease is checked after login refresh and immediately before
+dispatch. A refresh that exceeds 30 seconds asks the caller to try again;
+it does not claim the login is invalid or send an image request.
+
 `computer.capacity` reports totals, not free resources, cached for about a
 minute per runtime preference. Docker/Podman totals take precedence, then
 host totals, then four CPUs and 8 GiB. A stopped installed runtime keeps its
@@ -471,6 +544,13 @@ kept for that message. A message with no such file is `"That message has
 no file."`; an offset past the end is refused in a sentence. A phone needs
 no capability to ask: only a desk that serves `file.read` sends a
 teammate's file.
+
+A teammate's `avatar` is `{hash, by: "self"|"person", updatedAt}`, and is
+absent when the teammate shows its initial. The picture is kept under
+`avatars/<teammate>/<hash>.png` and never rewritten, so a client may cache it
+by hash for good. A teammate sets its own with the `set_avatar` tool;
+`persona.update` accepts `avatar: null` to clear it and nothing else for that
+field. Neither restarts the session.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code
@@ -672,7 +752,7 @@ A paired companion's socket is the phone seat: a smaller fixed set of commands
 four kinds of subscription — a tape, a thread, the roster, and a teammate's
 schedules. It never opens the room stream or a run, and it can
 neither make, cancel nor quiet a job. It reads a file a teammate sent with
-`file.read`, because the file is part of the conversation it already
+`file.read` and a teammate's picture with `avatar.read`, because the file is part of the conversation it already
 reads. It may add a teammate through `mobile.persona_create`, a narrow
 create confined in core rather than by what the phone's form leaves out,
 and read `backends.list` to know which harness to offer; the full
@@ -855,3 +935,123 @@ Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection
 floods or a proxy that refuses traffic. Public deployments still need edge
 traffic controls.
+
+## Voice calls
+
+Voice commands and `{"call":"<callId>"}` subscriptions are available to the
+local desk and paired owners. Companions receive `code: "forbidden"`.
+An owner hello advertises `voice` when `voice.status` reports availability.
+Speech comes from connected providers. By default the dispatcher uses the room's
+default provider and prefers its lightweight chat models, excluding speech,
+embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
+provider and model explicitly; catalogues supply no measured latency ranking.
+`settings.voice` also selects speech models, voices and spending caps; see
+[Voice providers and settings](voice.md).
+No extra speech credential is created.
+
+| Command | Params | Result |
+| --- | --- | --- |
+| `voice.status` | `{}` | `VoiceStatus`: availability, provider/model selections and budget |
+| `voice.call_start` | `{callId}` | `{callId,input:["audio/wav","audio/mp4"],output:"audio/wav"\|"audio/mpeg"}` |
+| `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
+| `voice.interrupt` | `{callId}` | void |
+| `voice.hold` | `{callId,hold}` | void |
+| `voice.call_end` | `{callId}` | void |
+
+`callId` is a client-generated UUID. Repeating a retained id returns the same
+call descriptor, including an ended call; the desk retains the latest 32 call
+ids for the life of this process. A different id ends the previous call with
+`replaced`. A disconnected or revoked opening connection ends its call. An
+ended call needs a new UUID to start again.
+
+Utterances carry standard base64, at most 2 MiB decoded audio and 20 seconds.
+WAV must be 16 kHz mono PCM16. MP4 must carry a duration in its media header.
+The server checks the WAV sample duration or MP4 header against `durationMs`
+(250 ms tolerance). An MP4 STT reservation also uses its byte count at 32 kbit/s,
+capped at 20 seconds, when that exceeds the header duration. This is a
+conservative estimate, not verification of the encoded audio's duration.
+`seq` increases per call. A held call refuses microphone audio. A call still
+processing its previous utterance refuses another until it can accept work;
+the caller may retry a refused sequence. Calls end after ten minutes without
+operator activity. An interrupt discards speech without cancelling a teammate's
+turn or the dispatcher's pending text answer. A hold also suppresses clips;
+teammate replies received while held use their ordinary push. Resuming or
+interrupting an unfinished utterance leaves the state `thinking` and refuses
+new utterances until that work finishes. The answer is still recorded and sent
+as `said`, even when its speech was interrupted.
+
+The call subscription starts with a one-element `snapshot` containing its
+`state` event. Updates use the normal `event` envelope:
+
+| Event | Fields |
+| --- | --- |
+| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason` |
+| `heard` | `seq`, `text` |
+| `said` | `id`, `text` |
+| `clip` | matching `id`, `index`, `final`, `mimeType`, base64 `data` |
+| `delivery` | `personaId`, `eventId`, narrated `text` |
+| `card` | `personaId`, `requestId`, `kind` |
+
+An end reason is `client`, `goodbye`, `budget`, `replaced`, `error` or `idle`.
+Each clip is a complete playable sentence, limited to 2 MiB decoded audio. A subscriber that misses events
+must reconnect; the desk closes that socket rather than silently dropping audio.
+Provider selections in `VoiceStatus` are optional when unavailable; `unavailable`
+is a sentence explaining what the owner needs to change.
+
+
+After a nonempty, non-goodbye `heard`, the desk says nothing until the
+dispatcher answers: the call is `thinking`, and a client covers the wait with
+its own sound (the desktop plays a short blip-blip, repeated while it lasts)
+rather than speech. Dispatcher text streams at sentence boundaries; each
+sentence has its own `said.id` and complete clip (`index: 0`, `final: true`).
+Clients
+must queue clips across successive `said` IDs instead of replacing playback.
+
+A completed teammate reply during an active, unheld call is narrated and sent as
+`delivery`, then `said`, then sentence `clip` events. Failed or empty narration
+falls back to the reply's first sentence, except a budget refusal, which ends
+the call without another paid request. Outside a call, only a reply to a
+handoff made by the voice dispatcher may have a summarized push. Every other
+push retains the teammate's own text without a narration request. If voice is
+unavailable or narration is busy, the original reply remains the push body.
+Each `clip.mimeType` describes that clip, including bundled and fallback clips;
+`call_start.output` describes only the primary speech adapter.
+
+One failed utterance speaks a bundled “Sorry, say that again.” and returns to
+`listening` (or stays held). Three consecutive failed work items end with a
+bundled explanation and reason `error`; success resets that count. Budget
+failure ends immediately with its bundled line. Failed goodbye synthesis uses
+a bundled “Goodbye.” and still ends with reason `goodbye`. The whole-utterance
+farewell bypass requires at least 400 ms of audio and one byte per millisecond;
+shorter or sparser clips follow the dispatcher path. This size/duration check
+does not classify noise in a sufficiently long clip. Clients must drain
+final queued audio for `goodbye`, `budget`, and `error`; `ended` means the desk
+will produce no further clips.
+
+The dispatcher can read roster/state and a conversation tail, send text through
+`session.start`/`session.prompt`, and list/create/cancel schedules. A separate
+command allowlist refuses approval, credential, file and administration commands.
+Action tools are offered only on turns driven by a new utterance, never on
+narration. Conversation tails and narrated text are bounded, escaped untrusted
+blocks. Each utterance can queue at most three text handoffs. A queued result
+means startup is pending, not that the task has landed; startup failures produce
+a spoken notice or normal push. Handoffs queue behind ongoing teammate work.
+Their user event IDs carry the opaque `voice:` prefix for reply provenance.
+
+Voice schedules require the target teammate's live background-work grant,
+including at firing time. They must be one-shot `schedule` jobs, with no `every`
+or `quiet` field, and are recorded with `operatorCreated: false`. A call retains at most 32 created job IDs and can cancel only jobs it created.
+Ordinary operator-created schedules retain their existing behavior.
+Approval requests arrive as `card` and must be answered in the existing UI.
+The dispatcher has no persona: its `voice-dispatcher` tape is hidden from the
+roster and rail, but indexed by `search.all` and `search.thread`.
+
+Speech attempts and conservative dispatcher estimates are reserved before a
+request so cancellation or a lost response cannot erase their cost. Reservations
+serialize across calls and push narration, and cannot exceed the remaining cap.
+Dispatcher estimates count input bytes plus a fixed prompt/tool allowance and the
+output limit; reported usage above the reservation is additionally charged.
+These are spending guards, not provider invoices. Each fallback attempt is charged separately.
+An unavailable or exhausted ledger stops work; a bundled spoken system
+line can be played without a further paid request. A whole-utterance
+farewell such as “goodbye” bypasses the dispatcher model.

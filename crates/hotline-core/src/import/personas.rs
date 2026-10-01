@@ -81,9 +81,8 @@ fn nonempty(class: &Map<String, Value>, key: &str) -> Option<String> {
 
 /// Whether JavaScript would have taken this value as present.
 ///
-/// Two fields are carried through unexamined — `face`, which is the UI's own
-/// vocabulary, and `webSearchPolicy` — and the original guards both with a
-/// plain truthiness test. Spelling that test here is what keeps a stored `null`
+/// `webSearchPolicy` is carried through unexamined, and the original guards it
+/// with a plain truthiness test. Spelling that test here is what keeps a stored `null`
 /// or `""` omitted rather than passed on as a value.
 fn truthy(value: &Value) -> bool {
     match value {
@@ -192,7 +191,6 @@ fn persona_of(record: &ResourceRecord, root: &Path) -> Value {
         "goal".to_string(),
         json!(text(replicated, "goal").unwrap_or_default()),
     );
-    insert_if_truthy(&mut persona, "face", replicated);
     if let Some(team) = text(replicated, "team") {
         persona.insert("team".to_string(), json!(team));
     }
@@ -305,7 +303,6 @@ mod tests {
                     "name": "Ada",
                     "goal": "prove the machine",
                     "team": "Maths",
-                    "face": { "kind": "emoji", "value": "🐸" },
                     "backendId": "pi",
                     "modelId": "m1",
                     "modeId": "architect",
@@ -324,7 +321,6 @@ mod tests {
                 "id": "fixture-ada",
                 "name": "Ada",
                 "goal": "prove the machine",
-                "face": { "kind": "emoji", "value": "🐸" },
                 "team": "Maths",
                 "backendId": "pi",
                 "cwd": "/tmp/fixture-ada",

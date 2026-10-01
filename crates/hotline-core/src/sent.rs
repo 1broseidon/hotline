@@ -8,7 +8,8 @@
 //! data directory, and nothing changes it afterwards.
 //!
 //! An image goes through the same policy as one the person attaches
-//! ([`crate::images`]) and is kept as the JPEG that makes. Anything else is
+//! ([`crate::images`]) and is kept as the JPEG that makes. Generated pictures
+//! keep their own format and alpha through [`generated`]. Anything else is
 //! kept byte for byte, up to [`MAX_BYTES`]. No type is refused: the person
 //! opens a file by choice, and the desk never opens one on its own.
 //!
@@ -25,6 +26,8 @@ use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+
+pub(crate) mod generated;
 
 /// The most a file may weigh, whatever it is.
 pub(crate) const MAX_BYTES: u64 = 25 * 1024 * 1024;
@@ -379,7 +382,7 @@ pub(crate) fn read(
     read_path(&path, offset, false)
 }
 
-fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
+pub(crate) fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
     let missing = || {
         if image_only {
             "That image has no retained copy. Send it again to make it available.".to_string()

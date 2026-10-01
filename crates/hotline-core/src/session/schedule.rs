@@ -374,7 +374,7 @@ impl Room {
                 prompt,
                 quiet,
             },
-            true,
+            !crate::wire::commands::from_voice(),
         )
     }
 
@@ -545,7 +545,7 @@ mod tests {
             id: "ada".to_string(),
             name: "Ada".to_string(),
             goal: String::new(),
-            face: None,
+            avatar: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: "/tmp/ada".to_string(),

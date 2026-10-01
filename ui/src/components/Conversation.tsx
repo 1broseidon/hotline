@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -55,6 +55,7 @@ export function Conversation({
 	onOpenSubagent,
 	onOpenWork,
 	workOpen,
+	dock,
 	models,
 	onSaid,
 }: {
@@ -81,6 +82,8 @@ export function Conversation({
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
+	/** The work card, docked under the composer when the window is too narrow for it to float. */
+	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
 	const personaId = persona.id;
@@ -299,7 +302,7 @@ export function Conversation({
 					aria-expanded={inspectorOpen}
 					onClick={onToggleInspector}
 				>
-					<Avatar id={persona.id} name={persona.name} size={20} />
+					<Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />
 					<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
 					{session.state === "thinking" && (
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
@@ -369,6 +372,7 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
+					avatarHash={persona.avatar?.hash}
 					events={shown}
 					streaming={streaming}
 					live={session.state === "thinking"}
@@ -400,6 +404,7 @@ export function Conversation({
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
 				/>
+				{dock !== undefined && <div className="work-dock">{dock}</div>}
 				{searchOpen && (
 					<Search personaId={personaId} roster={roster} onClose={onCloseSearch} onPick={onPick} />
 				)}

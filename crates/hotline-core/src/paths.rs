@@ -130,6 +130,14 @@ pub fn acp_registry_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-registry.json")
 }
 
+/// The speech models a provider offered when last asked, for the "Use for"
+/// pickers. A cache and nothing more: it holds model names and voices, never
+/// a key, and deleting it costs one fetch.
+pub fn speech_models_path(root: &Path, provider_id: &str) -> PathBuf {
+    root.join("cache")
+        .join(format!("speech-models-{provider_id}.json"))
+}
+
 /// The skills gateway: the operator's folder of skills, one directory each,
 /// granted per teammate. Made on first use; empty until a skill is added.
 pub fn skills_path(root: &Path) -> PathBuf {
@@ -347,6 +355,27 @@ pub fn sent_file_dir(root: &Path, persona_id: &str, event_id: &str) -> Option<Pa
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || character == '-');
     plausible.then(|| managed_path(&sent_files_dir(root), persona_id, "").join(event_id))
+}
+
+/// The teammates' pictures: a directory per teammate, and inside it one PNG
+/// per picture, named by the hash of its bytes.
+pub fn avatars_dir(root: &Path) -> PathBuf {
+    root.join("avatars")
+}
+
+/// The directory one teammate's pictures are kept in.
+pub fn avatar_dir(root: &Path, persona_id: &str) -> PathBuf {
+    managed_path(&avatars_dir(root), persona_id, "")
+}
+
+/// Where a picture is kept, or nothing when the hash is not the 64 lowercase
+/// hex digits of one.
+pub fn avatar_path(root: &Path, persona_id: &str, hash: &str) -> Option<PathBuf> {
+    let genuine = hash.len() == 64
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    genuine.then(|| avatar_dir(root, persona_id).join(format!("{hash}.png")))
 }
 
 #[cfg(test)]

@@ -29,6 +29,7 @@ import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { askedFor } from "./PasskeyArm";
 import { SentFile } from "./SentFile";
+import { joinThoughts, outputText, stepTitle } from "../stepText";
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
@@ -65,6 +66,7 @@ export type Speakers = { me: string; them: string; mine: "user" | "agent" };
 export function Transcript({
 	personaId,
 	name,
+	avatarHash,
 	events,
 	streaming,
 	live,
@@ -83,6 +85,8 @@ export function Transcript({
 }: {
 	personaId: string;
 	name: string;
+	/** The teammate's picture, when it has one. */
+	avatarHash?: string | undefined;
 	events: TranscriptEvent[];
 	streaming: Streaming[];
 	/** A turn is running: the mark is up, above the composer. */
@@ -228,7 +232,7 @@ export function Transcript({
 	if (empty) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16">
-				<Avatar id={personaId} name={name} size={48} />
+				<Avatar id={personaId} name={name} size={48} hash={avatarHash} />
 				<p className="text-lg font-semibold">{name}</p>
 				<p className="text-center text-sm text-ink-3">Nothing said yet. Say hello below.</p>
 			</div>
@@ -351,7 +355,7 @@ export function Transcript({
 		{!following && (
 			<button
 				type="button"
-				className="control btn send absolute bottom-3 right-8"
+				className="control btn send jump-latest absolute bottom-3 right-8"
 				title="Jump to the latest"
 				aria-label="Jump to the latest"
 				onClick={() => {
@@ -974,13 +978,32 @@ export function stepsSummary(items: Step[]): string {
 	return `${items.length} ${items.length === 1 ? "step" : "steps"}${failed ? " · one failed" : ""}`;
 }
 
-/** Each step as a row: a thought in italics, a tool with its output behind a press. */
-export function StepRows({ items }: { items: Step[] }) {
-	return items.map((item) =>
-		item.kind === "thought" ? (
-			<Thought key={item.id} id={item.id} text={item.text} />
+/**
+ * Each step as a row, its detail behind a press: a run of thoughts as one
+ * "Thinking" row, since harnesses send thinking in pieces that break
+ * mid-sentence, and a tool with its output.
+ */
+export function StepRows({ items, settled = false }: { items: Step[]; /** The turn is over: nothing in it is still running. */ settled?: boolean }) {
+	const rows: ({ kind: "thinking"; id: string; pieces: string[] } | Extract<Step, { kind: "tool" }>)[] = [];
+	for (const item of items) {
+		const last = rows[rows.length - 1];
+		if (item.kind === "thought") {
+			if (last?.kind === "thinking") last.pieces.push(item.text);
+			else rows.push({ kind: "thinking", id: item.id, pieces: [item.text] });
+		} else rows.push(item);
+	}
+	return rows.map((row, at) =>
+		row.kind === "thinking" ? (
+			<Thought key={row.id} id={row.id} text={joinThoughts(row.pieces)} live={!settled && at === rows.length - 1} />
 		) : (
-			<Tool key={item.id} id={item.id} title={item.title} status={item.status} output={item.output} />
+			<Tool
+				key={row.id}
+				id={row.id}
+				title={row.title}
+				// A harness that never closed a call leaves it running on the tape after the turn ended.
+				status={settled && (row.status === "in_progress" || row.status === "pending") ? "completed" : row.status}
+				output={row.output}
+			/>
 		),
 	);
 }
@@ -1373,14 +1396,15 @@ function unquoted(text: string): string {
 	return lines.slice(end).join("\n").replace(/^\n+/, "");
 }
 
-/** What the agent was thinking, one line until pressed. */
-function Thought({ id, text }: { id: string; text: string }) {
+/** What the agent was thinking: "Thinking" until pressed, the whole thought after. */
+function Thought({ id, text, live }: { id: string; text: string; /** Still arriving. */ live: boolean }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div data-step-id={id}>
 			<button type="button" className="step" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-				<span aria-hidden="true" className="step-mark" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
-				<span className="step-title font-sans italic text-ink-3">{firstLine(text)}</span>
+				<span aria-hidden="true" className={`step-mark ${live ? "beat" : ""}`} style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
+				<span className="step-title font-sans italic text-ink-3">Thinking</span>
+				{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
 			</button>
 			{open && <div className="step-out font-sans not-italic">{text}</div>}
 		</div>
@@ -1407,7 +1431,8 @@ function Tool({
 	output: ToolOutput[] | undefined;
 }) {
 	const [open, setOpen] = useState(false);
-	const hasOutput = output !== undefined && output.length > 0;
+	// Some harnesses record an empty text output; that is nothing to open.
+	const hasOutput = output !== undefined && output.some((one) => one.type === "diff" || one.text.trim() !== "");
 	return (
 		<div data-step-id={id}>
 			<button
@@ -1422,21 +1447,56 @@ function Tool({
 					className={`step-mark ${status === "in_progress" ? "beat" : ""}`}
 					style={{ background: STATUS_INK[status] }}
 				/>
-				<span className="step-title">{title}</span>
+				<span className="step-title" title={title}>
+					{stepTitle(title)}
+				</span>
 				{status === "failed" && <span className="shrink-0 text-danger">failed</span>}
 				{status === "in_progress" && <span className="shrink-0 text-ink-3">running</span>}
 				{hasOutput && (open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />)}
 			</button>
-			{open && hasOutput && <div className="step-out">{output.map(outputText).join("\n\n")}</div>}
+			{open && hasOutput && <StepOutput output={output} />}
 		</div>
 	);
 }
 
-function outputText(one: ToolOutput): string {
-	if (one.type === "text") return one.text;
-	const before = one.oldText == null ? [] : one.oldText.split("\n").map((line) => `- ${line}`);
-	const after = one.newText.split("\n").map((line) => `+ ${line}`);
-	return [one.path, ...before, ...after].join("\n");
+
+/** A tool's output, cleaned once per output rather than on every streamed word. */
+const StepOutput = memo(function StepOutput({ output }: { output: ToolOutput[] }) {
+	const parts = useMemo(
+		() => output.map((one) => ({ edit: one.type === "diff", text: outputText(one) })).filter((part) => part.text !== ""),
+		[output],
+	);
+	return (
+		<div className="step-out">
+			{parts.map((part, at) => (
+				<div key={at} className="step-out-part">
+					{part.edit ? <EditLines text={part.text} /> : part.text}
+				</div>
+			))}
+		</div>
+	);
+});
+
+/** An edit: its path, then its lines tinted by whether they went or came, a run of one kind as one block. */
+function EditLines({ text }: { text: string }) {
+	const [path, ...lines] = text.split("\n");
+	const runs: { kind: string; lines: string[] }[] = [];
+	for (const line of lines) {
+		const kind = line.startsWith("+ ") ? "step-edit-add" : line.startsWith("- ") ? "step-edit-del" : "step-edit-same";
+		const last = runs[runs.length - 1];
+		if (last?.kind === kind) last.lines.push(line);
+		else runs.push({ kind, lines: [line] });
+	}
+	return (
+		<>
+			<div className="step-edit-path">{path}</div>
+			{runs.map((run, at) => (
+				<div key={at} className={run.kind}>
+					{run.lines.join("\n")}
+				</div>
+			))}
+		</>
+	);
 }
 
 /**

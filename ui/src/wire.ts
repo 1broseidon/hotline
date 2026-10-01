@@ -14,6 +14,8 @@ import type {
 	FileChunk,
 	GlobalSearchHit,
 	HostBrowser,
+	CapabilityOptions,
+	ImagesStatus,
 	LoginPrompt,
 	LoginStatus,
 	PasskeyRegistration,
@@ -37,6 +39,8 @@ import type {
 	ThreadSearchHit,
 	TranscriptEvent,
 	Welcome,
+	VoiceCall,
+	VoiceStatus,
 } from "./generated/contract";
 import { activeDeskId, allDesks, wireFor } from "./desks";
 
@@ -88,6 +92,12 @@ type Params<N extends CommandName> = Extract<Command, { cmd: N }> extends {
  * this table is the window's one remaining spelling of the reply.
  */
 type Results = {
+	"voice.status": VoiceStatus;
+	"voice.call_start": VoiceCall;
+	"voice.utterance": null;
+	"voice.interrupt": null;
+	"voice.hold": null;
+	"voice.call_end": null;
     "remote.status": RemoteStatus;
     "remote.configure": RemoteStatus;
     "remote.devices": RemoteDevice[];
@@ -101,6 +111,8 @@ type Results = {
 	"persona.update": Persona;
 	"persona.delete": null;
 	"settings.update": Record<string, unknown>;
+	"images.status": ImagesStatus;
+	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
 	"credential.login": LoginPrompt;
 	"credential.login_cancel": null;
@@ -152,6 +164,9 @@ type Results = {
 	"search.all": GlobalSearchResult;
 	/** One part of a file a teammate sent, by its message. */
 	"file.read": FileChunk;
+	/** One part of a teammate's picture, by the hash on its record. */
+	"avatar.read": FileChunk;
+	"avatar.generate": null;
 	"files.browse": {
 		path: string;
 		parent: string | null;

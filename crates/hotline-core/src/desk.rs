@@ -8,8 +8,8 @@
 
 use crate::contract::{
     Attachment, BackendChoice, CatalogModel, ChapterClose, ChapterSummary, ConfigChoice,
-    Credential, CredentialKind, LoginPrompt, LoginState, LoginStatus, SessionInfo, SkillEntry,
-    SkillSource, StreamDelta,
+    Credential, CredentialKind, ImageSettings, ImagesStatus, LoginPrompt, LoginState, LoginStatus,
+    SessionInfo, SkillEntry, SkillSource, StreamDelta,
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
@@ -72,6 +72,7 @@ enum LoginOutcome {
 
 /// Everything that runs behind one data directory.
 pub struct Desk {
+    voice: Arc<crate::voice::Calls>,
     remote: Mutex<Weak<crate::remote::Remote>>,
     pub log: Log,
     room: Arc<Room>,
@@ -96,6 +97,15 @@ impl Desk {
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
     ) -> io::Result<Desk> {
+        Self::open_with_voice_services(root, store, None)
+    }
+
+    /// Open with supplied speech and dispatcher seams; None resolves the vault.
+    pub fn open_with_voice_services(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+        services: Option<crate::voice::Services>,
+    ) -> io::Result<Desk> {
         let log = Log::open(root);
         log.migrate_backend_id()?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
@@ -118,7 +128,11 @@ impl Desk {
                 }
             });
         }));
+        let voice =
+            crate::voice::Calls::new(log.clone(), vault.clone(), Arc::downgrade(&room), services);
+        room.set_voice(&voice);
         Ok(Desk {
+            voice,
             log,
             room,
             vault,
@@ -171,6 +185,77 @@ impl Drop for Desk {
 
 #[async_trait]
 impl RoomHandle for Desk {
+    fn images_status(&self) -> ImagesStatus {
+        let settings = match room::try_settings(&self.log) {
+            Ok(settings) => settings,
+            Err(error) => {
+                return ImagesStatus {
+                    available: false,
+                    unavailable: Some(error.clone()),
+                    provider: None,
+                    model: None,
+                    spending: None,
+                    spending_unavailable: Some(error),
+                };
+            }
+        };
+        let description = room::normalize_setting("images", &settings["images"])
+            .and_then(|value| {
+                serde_json::from_value::<ImageSettings>(value)
+                    .map_err(|_| "The room's image settings could not be read.".to_string())
+            })
+            .and_then(|settings| crate::imagegen::describe(&self.vault, &settings));
+        let summary = room::normalize_setting("spending", &settings["spending"])
+            .and_then(|_| self.room.spending_summary());
+        let (spending, spending_unavailable) = match summary {
+            Ok(summary) => (Some(summary), None),
+            Err(error) => (None, Some(error)),
+        };
+        match description {
+            Ok(image) => ImagesStatus {
+                available: true,
+                unavailable: None,
+                provider: Some(image.provider_id),
+                model: Some(image.model_id),
+                spending,
+                spending_unavailable,
+            },
+            Err(unavailable) => ImagesStatus {
+                available: false,
+                unavailable: Some(unavailable),
+                provider: None,
+                model: None,
+                spending,
+                spending_unavailable,
+            },
+        }
+    }
+
+    async fn generate_avatar(&self, persona_id: &str) -> Result<(), String> {
+        self.room.can_draw_avatar(persona_id)?;
+        let room = self.room.clone();
+        let persona_id = persona_id.to_string();
+        tokio::spawn(async move {
+            if let Err(error) = room.generate_avatar(&persona_id).await {
+                eprintln!("the picture for {persona_id} could not be drawn: {error}");
+            }
+        });
+        Ok(())
+    }
+
+    async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
+        Ok(crate::capabilities::options(
+            &self.vault,
+            &self.log,
+            self.room.spending_summary(),
+            self.voice.balance(),
+        )
+        .await)
+    }
+
+    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
+        Some(self.voice.clone())
+    }
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         self.remote
             .lock()
@@ -1140,7 +1225,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             goal: "Keep the revocation test deterministic.".to_string(),
-            face: None,
+            avatar: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: root.join(id).to_string_lossy().into_owned(),
@@ -1228,6 +1313,12 @@ mod tests {
         let room = Room::with_agents(log.clone(), Arc::new(TestKeys), agents.clone());
         let vault = Arc::new(Vault::open(&root, log.clone()).unwrap());
         let desk = Desk {
+            voice: crate::voice::Calls::new(
+                log.clone(),
+                vault.clone(),
+                Arc::downgrade(&room),
+                None,
+            ),
             remote: Mutex::default(),
             log: log.clone(),
             room,

@@ -29,7 +29,9 @@
 //! makes a delete something a mirror can ship, rather than an absence it has
 //! to notice.
 
-use crate::contract::{Persona, ScheduleKind, ScheduledJob, SessionCheckpoint};
+use crate::contract::{
+    ImageSettings, Persona, ScheduleKind, ScheduledJob, SessionCheckpoint, SpendingSettings,
+};
 use crate::log::{Log, StreamId};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -47,7 +49,42 @@ fn defaults() -> Map<String, Value> {
     settings.insert("chapterIdleHours".into(), Value::from(8));
     settings.insert("mcpServers".into(), Value::Array(Vec::new()));
     settings.insert("enabledModels".into(), json!({}));
+    settings.insert("images".into(), json!(ImageSettings::default()));
+    settings.insert("spending".into(), json!(SpendingSettings::default()));
     settings
+}
+
+pub(crate) fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
+    if matches!(key, "images" | "spending") && !value.is_object() {
+        return Err(format!("The {key} setting must be an object."));
+    }
+    match key {
+        "images" => {
+            let settings: ImageSettings = serde_json::from_value(value.clone()).map_err(|_| {
+                "Images settings must be an object with optional provider and model strings."
+                    .to_string()
+            })?;
+            for (name, selection) in [
+                ("provider", settings.provider.as_deref()),
+                ("model", settings.model.as_deref()),
+            ] {
+                if selection.is_some_and(|selection| selection.trim().is_empty()) {
+                    return Err(format!("The images {name} must not be blank."));
+                }
+            }
+            Ok(json!(settings))
+        }
+        "spending" => {
+            let settings: SpendingSettings =
+                serde_json::from_value(value.clone()).map_err(|_| {
+                    "Spending settings must be an object with numeric dayUsd and monthUsd limits."
+                        .to_string()
+                })?;
+            settings.validate()?;
+            Ok(json!(settings))
+        }
+        _ => Ok(value.clone()),
+    }
 }
 
 /// The one id every `models` event shares.
@@ -130,15 +167,45 @@ fn personas(events: &[Value]) -> Vec<Persona> {
 /// A deleted setting is not an override, so its default stands again — which
 /// is what "delete" means to somebody clearing a preference.
 pub fn settings(log: &Log) -> Map<String, Value> {
+    settings_from_events(&log.load(&StreamId::Room))
+}
+
+/// Whether the owner has set `key`, as opposed to it standing at its default.
+pub(crate) fn is_set(log: &Log, key: &str) -> bool {
+    log.load(&StreamId::Room).iter().any(|event| {
+        is_kind(event, "setting")
+            && !is_deleted(event)
+            && event.get("id").and_then(Value::as_str) == Some(key)
+    })
+}
+
+pub fn try_settings(log: &Log) -> Result<Map<String, Value>, String> {
+    let events = log.try_load_strict(&StreamId::Room).map_err(|_| {
+        "The room's settings could not be safely read. Images and spending are unavailable."
+            .to_string()
+    })?;
+    if events.iter().any(|event| {
+        matches!(
+            event.get("id").and_then(Value::as_str),
+            Some("images" | "spending")
+        ) && !is_kind(event, "setting")
+    }) {
+        return Err("An image or spending setting has an invalid event kind.".into());
+    }
+    Ok(settings_from_events(&events))
+}
+
+fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     let mut settings = defaults();
-    for event in log.load(&StreamId::Room) {
-        if !is_kind(&event, "setting") || is_deleted(&event) {
+    for event in events {
+        if !is_kind(event, "setting") || is_deleted(event) {
             continue;
         }
         let Some(key) = event.get("id").and_then(Value::as_str) else {
             continue;
         };
         let value = event.get("value").cloned().unwrap_or(Value::Null);
+        let value = normalize_setting(key, &value).unwrap_or(value);
         settings.insert(key.to_string(), value);
     }
     // The raw list is what was stored; a half-written entry costs that
@@ -491,7 +558,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             goal: "Keep the harbour running.".to_string(),
-            face: None,
+            avatar: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: "/tmp/harbour".to_string(),
@@ -625,6 +692,125 @@ mod tests {
         let servers = folded["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["id"], "good");
+    }
+
+    #[test]
+    fn voice_follows_the_shared_spending_caps_only_once_the_owner_has_set_them() {
+        use crate::voice::settings::VoiceSettings;
+        let log = scratch("voice-shared-caps");
+        append(
+            &log,
+            &setting("voice", json!({"dayUsd": 5, "monthUsd": 50})),
+        );
+        assert!(!is_set(&log, "spending"));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
+        append(
+            &log,
+            &setting("spending", json!({"dayUsd": 0.5, "monthUsd": 4})),
+        );
+        assert!(is_set(&log, "spending"));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!((voice.day_usd, voice.month_usd), (0.5, 4.0));
+        append(&log, &tombstone("setting", "spending"));
+        assert!(!is_set(&log, "spending"));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
+    }
+
+    #[test]
+    fn image_and_spending_settings_have_typed_defaults_and_tombstones_restore_them() {
+        let log = scratch("image-spending-settings");
+        assert_eq!(settings(&log)["images"], json!({}));
+        assert_eq!(
+            settings(&log)["spending"],
+            json!({"dayUsd": 2.0, "monthUsd": 20.0})
+        );
+        append(
+            &log,
+            &setting(
+                "images",
+                json!({"provider": "openai", "model": "gpt-image-1-mini"}),
+            ),
+        );
+        append(&log, &setting("spending", json!({"dayUsd": 0.0})));
+        let selected = settings(&log);
+        let images: ImageSettings = serde_json::from_value(selected["images"].clone()).unwrap();
+        assert_eq!(images.provider.as_deref(), Some("openai"));
+        assert_eq!(images.model.as_deref(), Some("gpt-image-1-mini"));
+        assert_eq!(
+            selected["spending"],
+            json!({"dayUsd": 0.0, "monthUsd": 20.0})
+        );
+        append(&log, &tombstone("setting", "images"));
+        append(&log, &tombstone("setting", "spending"));
+        assert_eq!(settings(&log)["images"], json!(ImageSettings::default()));
+        assert_eq!(
+            settings(&log)["spending"],
+            json!(SpendingSettings::default())
+        );
+    }
+
+    #[test]
+    fn malformed_image_and_spending_settings_remain_visible_to_fail_closed() {
+        let log = scratch("invalid-image-spending-settings");
+        append(&log, &setting("images", json!({"provider": 17})));
+        append(
+            &log,
+            &setting("spending", json!({"dayUsd": -1.0, "monthUsd": 0.0})),
+        );
+        assert_eq!(settings(&log)["images"], json!({"provider": 17}));
+        assert_eq!(
+            settings(&log)["spending"],
+            json!({"dayUsd": -1.0, "monthUsd": 0.0})
+        );
+        assert!(serde_json::from_value::<ImageSettings>(settings(&log)["images"].clone()).is_err());
+        assert!(normalize_setting("spending", &settings(&log)["spending"]).is_err());
+        assert_eq!(try_settings(&log).unwrap(), settings(&log));
+    }
+
+    #[test]
+    fn strict_settings_preserve_zero_limits_and_refuse_corrupt_saved_caps() {
+        let log = scratch("strict-spending-settings");
+        assert_eq!(try_settings(&log).unwrap(), settings(&log));
+        append(&log, &setting("spending", json!({"dayUsd": 0.0})));
+        assert_eq!(
+            try_settings(&log).unwrap()["spending"],
+            json!({"dayUsd": 0.0, "monthUsd": 20.0})
+        );
+        std::fs::write(
+            crate::paths::room_path(log.root()),
+            "{\"kind\":\"setting\",\"id\":\"spending\",\"value\":{\"dayUsd\":0,\"monthUsd\":0},\"private\":\"corrupt-room-canary\"\n",
+        ).unwrap();
+        assert_eq!(
+            settings(&log)["spending"],
+            json!(SpendingSettings::default())
+        );
+        let error = try_settings(&log).unwrap_err();
+        assert!(error.contains("could not be safely read"));
+        assert!(!error.contains("corrupt-room-canary"));
+    }
+
+    #[test]
+    fn strict_settings_refuse_reserved_ids_with_other_event_kinds() {
+        let log = scratch("strict-setting-event-kinds");
+        for key in ["images", "spending"] {
+            append(&log, &setting(key, json!({})));
+            assert!(try_settings(&log).is_ok());
+            for deleted in [false, true] {
+                append(
+                    &log,
+                    &json!({"kind": "credential", "id": key, "deleted": deleted}),
+                );
+                assert!(
+                    try_settings(&log)
+                        .unwrap_err()
+                        .contains("invalid event kind")
+                );
+            }
+            append(&log, &tombstone("setting", key));
+            assert_eq!(try_settings(&log).unwrap(), settings(&log));
+        }
     }
 
     fn job(

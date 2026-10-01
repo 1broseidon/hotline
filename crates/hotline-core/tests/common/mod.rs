@@ -23,11 +23,13 @@ impl SecretStore for MemoryStore {
     }
 }
 
-fn store() -> Arc<dyn SecretStore> {
+#[allow(dead_code)]
+pub fn store() -> Arc<dyn SecretStore> {
     static STORE: OnceLock<Arc<MemoryStore>> = OnceLock::new();
     STORE.get_or_init(Default::default).clone()
 }
 
+#[allow(dead_code)]
 pub fn open_desk(root: &Path) -> io::Result<Desk> {
     Desk::open_with_store(root, store())
 }

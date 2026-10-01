@@ -20,107 +20,35 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use ts_rs::TS;
 
+pub use crate::imagegen::ImageSettings;
+pub use crate::spending::{SpendingSettings, SpendingSummary};
+
 // ---------------------------------------------------------------------------
-// Faces
+// Avatars
 // ---------------------------------------------------------------------------
 
-/// A teammate's face: the activity mark, wearing something it chose.
-///
-/// The parts are closed vocabularies rather than free drawing, so that every
-/// pick renders clean; the geometry and the veto list over the combinations
-/// the eye rejects live in `src/shared/face.ts`, which owns the rendering and
-/// the judgement and takes the vocabulary from here.
+/// A teammate's picture: a square PNG the desk keeps under
+/// `avatars/<teammate>/<hash>.png`, named by the SHA-256 of its bytes, so a
+/// picture is never rewritten and a window can cache it by hash for good.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
-pub struct Face {
-    /// The vocabulary's version, and so far its only one.
-    #[ts(type = "1")]
-    pub v: u8,
-    /// OKLCH hue of the disc; lightness and chroma are fixed app-wide.
-    ///
-    /// Kept as the number it was written as rather than as a float, because
-    /// re-spelling a stored `70` as `70.0` would be a teammate whose record
-    /// changed on the way through a process that only meant to read it.
-    #[ts(type = "number")]
-    pub hue: serde_json::Number,
-    pub body: FaceBody,
-    pub eyes: FaceEyes,
-    pub mouth: FaceMouth,
-    pub hat: FaceHat,
-    pub marks: FaceMarks,
-    pub pattern: FacePattern,
+pub struct Avatar {
+    /// Lowercase hex SHA-256 of the kept PNG.
+    pub hash: String,
+    pub by: AvatarBy,
+    /// When the picture was set, as an ISO timestamp.
+    pub updated_at: String,
 }
 
+/// Who chose the picture. A teammate does not replace one the person chose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
-pub enum FaceBody {
-    Round,
-    Wide,
-    Tall,
-    Squat,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceEyes {
-    Round,
-    Half,
-    Wide,
-    Narrow,
-    Asym,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceMouth {
-    None,
-    Flat,
-    Smile,
-    Smirk,
-    Open,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceHat {
-    None,
-    Crown,
-    Beanie,
-    Beret,
-    Halo,
-    Antenna,
-    Sprout,
-}
-
-/// `Spots` and `Stripe` are retired from what an agent may choose and stay in
-/// the vocabulary anyway: a stored face may still wear them, and curation
-/// reads them as their nearest living kin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FaceMarks {
-    None,
-    Spots,
-    Stripe,
-    Freckles,
-    Monocle,
-}
-
-/// `Spotted` is retired the same way — a stored spotted disc reads as a
-/// lilypad now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum FacePattern {
-    Solid,
-    Spotted,
-    Waterline,
-    Ripples,
-    Lilypad,
+pub enum AvatarBy {
+    #[serde(rename = "self")]
+    Own,
+    Person,
 }
 
 // ---------------------------------------------------------------------------
@@ -144,10 +72,11 @@ pub struct Persona {
     pub id: String,
     pub name: String,
     pub goal: String,
-    /// The icon the agent chose for itself at creation. Absent on teammates
-    /// made before faces existed, who keep the hashed-colour initial.
+    /// The teammate's picture. Absent means the initial on its hashed colour.
+    /// A record written before pictures existed may still carry a `face`,
+    /// which is read past and dropped the next time the record is written.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub face: Option<Face>,
+    pub avatar: Option<Avatar>,
     /// The team this teammate sits on — a label, not an entity. Teams are not
     /// agents and never speak: addressing one round-robins to the next
     /// available member, who routes it onward. Distinct labels ARE the teams;
@@ -2062,6 +1991,219 @@ pub enum UploadDestination {
     Path { path: String },
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ImagesStatus {
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spending: Option<SpendingSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spending_unavailable: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct VoiceModel {
+    pub provider_id: String,
+    pub model_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceBudget {
+    pub day_usd: f64,
+    pub month_usd: f64,
+    pub spent_day_usd: f64,
+    pub spent_month_usd: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct VoiceStatus {
+    pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stt: Option<VoiceModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tts: Option<VoiceModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_tts: Option<VoiceModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatcher: Option<VoiceModel>,
+    pub budget: VoiceBudget,
+}
+
+/// One model a connected provider can be asked to do a job with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilityModel {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The voices that speak with this model, the provider's default first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voices: Option<Vec<String>>,
+    /// The thinking levels this chat model takes, as a teammate's Effort
+    /// picker lists them; absent when it takes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<String>>,
+}
+
+/// A connected provider and the models it can do one job with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CapabilityProvider {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub models: Vec<CapabilityModel>,
+}
+
+/// A provider, and the model and voice on it when they are known.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilityPick {
+    pub provider_id: String,
+    pub provider_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    /// The thinking level picked for the model; absent means the model's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+/// One job the owner can pick a provider for.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilityJob {
+    /// What the owner chose; absent means automatic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<CapabilityPick>,
+    /// What automatic resolves to right now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automatic: Option<CapabilityPick>,
+    /// Why nothing can do this job yet, as a sentence for a person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+    /// Connected providers only, in the order they were connected.
+    pub options: Vec<CapabilityProvider>,
+}
+
+/// The shared caps and what has been spent against them so far.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct CapabilitySpending {
+    pub day_usd: f64,
+    pub month_usd: f64,
+    pub spent_day_usd: f64,
+    pub spent_month_usd: f64,
+    /// Set when a tally could not be read, so the spent figures are not whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct CapabilityOptions {
+    pub images: CapabilityJob,
+    pub stt: CapabilityJob,
+    pub tts: CapabilityJob,
+    pub dispatcher: CapabilityJob,
+    pub spending: CapabilitySpending,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceCall {
+    pub call_id: String,
+    pub input: Vec<String>,
+    pub output: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum VoiceState {
+    Listening,
+    Thinking,
+    Speaking,
+    Held,
+    Ended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum VoiceEndReason {
+    Client,
+    Goodbye,
+    Budget,
+    Replaced,
+    Error,
+    Idle,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub enum VoiceEvent {
+    State {
+        state: VoiceState,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<VoiceEndReason>,
+    },
+    Heard {
+        seq: u32,
+        text: String,
+    },
+    Said {
+        id: String,
+        text: String,
+    },
+    Clip {
+        id: String,
+        index: u32,
+        r#final: bool,
+        mime_type: String,
+        data: String,
+    },
+    Delivery {
+        persona_id: String,
+        event_id: String,
+        text: String,
+    },
+    Card {
+        persona_id: String,
+        request_id: String,
+        kind: String,
+    },
+}
+
 /// Everything a client may ask the room to do or to answer.
 ///
 /// One enum, so the window's whole API is generated from it and a command the
@@ -2077,6 +2219,24 @@ pub enum UploadDestination {
 )]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
+    #[serde(rename = "voice.status")]
+    VoiceStatus {},
+    #[serde(rename = "voice.call_start")]
+    VoiceCallStart { call_id: String },
+    #[serde(rename = "voice.utterance")]
+    VoiceUtterance {
+        call_id: String,
+        seq: u32,
+        mime_type: String,
+        data: String,
+        duration_ms: u32,
+    },
+    #[serde(rename = "voice.interrupt")]
+    VoiceInterrupt { call_id: String },
+    #[serde(rename = "voice.hold")]
+    VoiceHold { call_id: String, hold: bool },
+    #[serde(rename = "voice.call_end")]
+    VoiceCallEnd { call_id: String },
     /// Listener and pairing controls belong to the local desk, never a remote owner.
     #[serde(rename = "remote.status")]
     RemoteStatus {},
@@ -2144,6 +2304,25 @@ pub enum Command {
         #[serde(default)]
         offset: i64,
     },
+    /// A teammate's kept picture, named by the hash on its record. Any seat
+    /// may read one. The answer is a [`FileChunk`], a part at a time from
+    /// `offset`.
+    #[serde(rename = "avatar.read")]
+    AvatarRead {
+        persona_id: String,
+        hash: String,
+        #[serde(default)]
+        offset: i64,
+    },
+    /// Draws a picture for a teammate from its name and goal through the
+    /// room's image providers, within the spending cap, and puts it on the
+    /// roster: what setup offers when images are available. Answers `null`
+    /// once the drawing has started, since a socket's commands are answered
+    /// in order and a picture takes up to a minute; the roster carries it
+    /// when it lands. Refused at once when no provider can draw or the
+    /// person chose the current picture.
+    #[serde(rename = "avatar.generate")]
+    AvatarGenerate { persona_id: String },
     /// Where to notify this phone: the token its push service issued, and
     /// which platform it is for. Sent by the phone after it connects.
     #[serde(rename = "mobile.push_register")]
@@ -2236,6 +2415,10 @@ pub enum Command {
         #[ts(type = "Record<string, unknown>")]
         patch: Map<String, Value>,
     },
+    #[serde(rename = "images.status")]
+    ImagesStatus {},
+    #[serde(rename = "capabilities.options")]
+    CapabilitiesOptions {},
     #[serde(rename = "credential.create")]
     CredentialCreate {
         provider_id: String,
@@ -2655,6 +2838,7 @@ pub enum Command {
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum Target {
+    Call(String),
     Room,
     Tape(String),
     Thread(String),
@@ -2796,6 +2980,28 @@ mod tests {
     use crate::store::{chapters, previews, search};
     use serde_json::{Value, json};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn images_settings_and_status_have_additive_wire_shapes() {
+        let config = ts_rs::Config::default();
+        assert_eq!(
+            serde_json::to_value(ImageSettings::default()).unwrap(),
+            json!({})
+        );
+        assert!(ImageSettings::decl(&config).contains("provider?: string"));
+        assert!(ImageSettings::decl(&config).contains("model?: string"));
+        assert!(SpendingSettings::decl(&config).contains("dayUsd: number"));
+        assert!(SpendingSettings::decl(&config).contains("monthUsd: number"));
+        assert!(ImagesStatus::decl(&config).contains("unavailable?: string"));
+        assert!(ImagesStatus::decl(&config).contains("provider?: string"));
+        assert!(ImagesStatus::decl(&config).contains("model?: string"));
+        assert!(ImagesStatus::decl(&config).contains("spending?: SpendingSummary"));
+        assert!(ImagesStatus::decl(&config).contains("spendingUnavailable?: string"));
+        let command = Command::ImagesStatus {};
+        let value = json!({"cmd": "images.status", "params": {}});
+        assert_eq!(serde_json::to_value(&command).unwrap(), value);
+        assert_eq!(serde_json::from_value::<Command>(value).unwrap(), command);
+    }
 
     fn scratch(name: &str) -> (PathBuf, Log) {
         let dir = std::env::temp_dir().join(format!(

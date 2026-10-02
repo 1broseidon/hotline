@@ -1529,6 +1529,7 @@ mod tests {
                 mounts: None,
                 secrets: None,
             }),
+            voice: None,
             session_checkpoints: Vec::new(),
             last_session_id: None,
             created_at: 1,

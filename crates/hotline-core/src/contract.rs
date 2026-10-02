@@ -134,6 +134,12 @@ pub struct Persona {
     /// user-configured servers. Absent means off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<PersonaComputer>,
+    /// The voice this teammate speaks in on a direct call, as picked from the
+    /// desk's speaking model. It applies only while the desk still speaks
+    /// with that provider and model; otherwise the desk's own voice is used.
+    /// Absent means the desk's voice.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<PersonaVoice>,
     /// The last durable ACP session for each backend this teammate has used.
     ///
     /// ACP session ids are opaque to the agent that issued them. Keeping one
@@ -2050,6 +2056,16 @@ pub struct VoiceStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatcher: Option<VoiceModel>,
     pub budget: VoiceBudget,
+}
+
+/// A teammate's own voice: one of a speaking model's voices.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct PersonaVoice {
+    pub provider_id: String,
+    pub model_id: String,
+    pub voice: String,
 }
 
 /// One model a connected provider can be asked to do a job with.

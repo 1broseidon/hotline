@@ -167,6 +167,12 @@ which summarises lists rather than reading them out.
 Short plain replies are spoken as written. Without a dispatcher, a direct call
 hands every utterance to the session and speaks its replies as before.
 
+A teammate may have its own voice (`Persona.voice`: provider, model and
+voice), picked on its card from the voices of the model the desk speaks with.
+A direct call to that teammate speaks in it while the desk still speaks with
+that provider and model; otherwise, or if the provider refuses the voice, the
+call uses the desk's voice. Desk calls always use the desk's voice.
+
 ## Timing
 
 Every provider call logs three moments, tagged with the provider and model, to

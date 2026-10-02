@@ -174,41 +174,49 @@ export function Teammate({
 			</Band>
 			<Scroll>
 				<div className="flex flex-col gap-5 px-4 pb-4 pt-2">
-					{/* Who they are, the way a contact card opens: the face, the name
-					    and what they are for, each edited where it stands. */}
-					<div className="profile">
-						<Avatar id={persona.id} name={name.trim() || persona.name} size={44} hash={persona.avatar?.hash} />
-						{persona.avatar !== undefined && (
-							<button type="button" className="control btn btn-sm" disabled={busy} onClick={() => save({ avatar: null } as unknown as Partial<Persona>)}>
-								Use initial
-							</button>
-						)}
-						<input
-							aria-label="Name"
-							className="profile-name"
-							value={name}
-							autoComplete="off"
-							spellCheck={false}
-							onChange={(event) => setName(event.target.value)}
-							onBlur={saveName}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") event.currentTarget.blur();
-								if (event.key === "Escape") {
-									setName(persona.name);
-									event.currentTarget.blur();
-								}
-							}}
-						/>
-						<textarea
-							ref={goalField}
-							aria-label="Goal"
-							className="profile-goal"
-							rows={1}
-							placeholder="What this teammate is for"
-							value={goal}
-							onChange={(event) => setGoal(event.target.value)}
-							onBlur={saveGoal}
-						/>
+					{/* Who they are, the way a contact card opens: the face beside the
+					    name and what they are for, each edited where it stands, and
+					    the voice they answer a call in when the desk can speak. */}
+					<div className="grouped profile-card">
+						<div className="profile">
+							<div className="profile-face">
+								<Avatar id={persona.id} name={name.trim() || persona.name} size={44} hash={persona.avatar?.hash} />
+								{persona.avatar !== undefined && (
+									<button type="button" className="control btn-quiet profile-face-reset" disabled={busy} onClick={() => save({ avatar: null } as unknown as Partial<Persona>)}>
+										Use initial
+									</button>
+								)}
+							</div>
+							<div className="profile-text">
+								<input
+									aria-label="Name"
+									className="profile-name"
+									value={name}
+									autoComplete="off"
+									spellCheck={false}
+									onChange={(event) => setName(event.target.value)}
+									onBlur={saveName}
+									onKeyDown={(event) => {
+										if (event.key === "Enter") event.currentTarget.blur();
+										if (event.key === "Escape") {
+											setName(persona.name);
+											event.currentTarget.blur();
+										}
+									}}
+								/>
+								<textarea
+									ref={goalField}
+									aria-label="Goal"
+									className="profile-goal"
+									rows={1}
+									placeholder="What this teammate is for"
+									value={goal}
+									onChange={(event) => setGoal(event.target.value)}
+									onBlur={saveGoal}
+								/>
+							</div>
+						</div>
+						<VoiceRow persona={persona} disabled={busy} onSave={save} />
 					</div>
 
 					<section>
@@ -348,6 +356,79 @@ export function Teammate({
 }
 
 /** A row's words: the title, and after a dot the value, if it has one. */
+/** What the desk speaks with now, and the voices that model offers. */
+type Speaking = { providerId: string; modelId: string; voice?: string; voices: string[] };
+
+/** The desk's speaking model and its voices, or null while the desk cannot speak. */
+function useSpeaking(): Speaking | null {
+	const [speaking, setSpeaking] = useState<Speaking | null>(null);
+	useEffect(() => {
+		let cancelled = false;
+		void Promise.all([wire.command("voice.status", {}), wire.command("capabilities.options", {})]).then(
+			([status, options]) => {
+				if (cancelled) return;
+				const tts = status.tts;
+				const voices = options.tts.options
+					.find((provider) => provider.providerId === tts?.providerId)
+					?.models.find((model) => model.id === tts?.modelId)?.voices;
+				setSpeaking(tts === undefined || voices === undefined || voices.length === 0 ? null : { ...tts, voices });
+			},
+			() => {
+				if (!cancelled) setSpeaking(null);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	return speaking;
+}
+
+/** Voices read as names: "eve" is Eve. */
+function voiceName(voice: string): string {
+	return voice.charAt(0).toUpperCase() + voice.slice(1);
+}
+
+const DESK_VOICE = "";
+
+/**
+ * The voice this teammate answers a direct call in. It is one of the desk's
+ * speaking model's voices; a voice picked for a model the desk no longer
+ * speaks with reads as the desk's, which is what a call would use.
+ */
+function VoiceRow({ persona, disabled, onSave }: { persona: Persona; disabled: boolean; onSave(patch: Partial<Persona>): void }) {
+	const speaking = useSpeaking();
+	if (speaking === null) return null;
+	const own = persona.voice;
+	const current =
+		own !== undefined && own.providerId === speaking.providerId && own.modelId === speaking.modelId && speaking.voices.includes(own.voice)
+			? own.voice
+			: DESK_VOICE;
+	const desk = speaking.voice ?? speaking.voices[0];
+	const choices = [
+		{ id: DESK_VOICE, name: desk === undefined ? "The desk's" : `The desk's · ${voiceName(desk)}` },
+		...speaking.voices.map((voice) => ({ id: voice, name: voiceName(voice) })),
+	];
+	return (
+		<div className="group-row">
+			<RowText title="Voice" />
+			<Picker
+				value={current}
+				choices={choices}
+				placeholder="Voice"
+				label={`The voice ${persona.name} answers a call in`}
+				disabled={disabled}
+				onChange={(voice) => {
+					if (voice === current) return;
+					onSave({
+						voice: voice === DESK_VOICE ? null : { providerId: speaking.providerId, modelId: speaking.modelId, voice },
+					} as unknown as Partial<Persona>);
+				}}
+			/>
+		</div>
+	);
+}
+
 function RowText({ title, value }: { title: string; value?: string }) {
 	return (
 		<span className="group-row-text">

@@ -286,7 +286,7 @@ impl Calls {
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let budget = self.ledger.balance();
-        let speech = self.resolve_speech(input_mode);
+        let speech = self.resolve_speech(input_mode, None);
         let dispatcher = self.dispatcher();
         let budget_error = self.ledger.check().err().map(|e| e.to_string());
         let direct_available = speech.is_ok() && budget_error.is_none();
@@ -364,7 +364,7 @@ impl Calls {
         }
         if !calls.iter().any(|call| call.id == id) {
             // Direct calls do not need a separate routing model.
-            let speech_services = self.resolve_speech(input_mode)?;
+            let speech_services = self.resolve_speech(input_mode, target.as_deref())?;
             if target.is_none() {
                 self.dispatcher()?;
             }
@@ -627,7 +627,7 @@ impl Calls {
                 return Err("The previous utterance is still being handled.".into());
             }
             let speech = CancellationToken::new();
-            call.speech_services = self.resolve_speech(input_mode)?;
+            call.speech_services = self.resolve_speech(input_mode, call.target.as_deref())?;
             call.work
                 .try_send(work(speech.clone()))
                 .map_err(|_| "The voice call is busy. Try again shortly.".to_string())?;
@@ -645,7 +645,12 @@ impl Calls {
         })
     }
 
-    fn resolve_speech(&self, input_mode: VoiceInputMode) -> Result<CallSpeech, String> {
+    /// A direct call to `target` speaks in that teammate's own voice when it has one.
+    fn resolve_speech(
+        &self,
+        input_mode: VoiceInputMode,
+        target: Option<&str>,
+    ) -> Result<CallSpeech, String> {
         if let Some(services) = &self.injected {
             return Ok(match input_mode {
                 VoiceInputMode::Audio => CallSpeech::audio(services.speech.clone()),
@@ -655,14 +660,26 @@ impl Calls {
                 }),
             });
         }
-        match input_mode {
-            VoiceInputMode::Audio => {
-                speech::resolve(&self.vault, &self.settings()).map(CallSpeech::audio)
-            }
+        let resolve = |settings: &VoiceSettings| match input_mode {
+            VoiceInputMode::Audio => speech::resolve(&self.vault, settings).map(CallSpeech::audio),
             VoiceInputMode::Text => {
-                speech::resolve_output(&self.vault, &self.settings()).map(CallSpeech::output)
+                speech::resolve_output(&self.vault, settings).map(CallSpeech::output)
             }
-        }
+        };
+        let settings = self.settings();
+        let desk = resolve(&settings)?;
+        let own = target
+            .and_then(|target| {
+                crate::room::roster(&self.log)
+                    .into_iter()
+                    .find(|persona| persona.id == target)
+            })
+            .and_then(|persona| persona.voice)
+            .and_then(|voice| own_voice(&settings, &voice, &desk.tts.id()));
+        // A voice the provider no longer takes leaves the desk's in place.
+        Ok(own
+            .and_then(|settings| resolve(&settings).ok())
+            .unwrap_or(desk))
     }
 
     fn speech_for(&self, id: &str) -> Result<CallSpeech, String> {
@@ -729,7 +746,8 @@ impl Calls {
                 {
                     return Err("Start a new, increasing voice sequence with audio.".into());
                 }
-                let services = self.resolve_speech(VoiceInputMode::Audio)?;
+                let services =
+                    self.resolve_speech(VoiceInputMode::Audio, call.target.as_deref())?;
                 let stt = services
                     .stt
                     .as_ref()
@@ -1749,7 +1767,7 @@ impl Calls {
         // Text-only desks retain their ordinary push and incur no voice cost.
         if origin.is_some_and(|origin| origin.direct)
             || !from_voice
-            || self.resolve_speech(VoiceInputMode::Text).is_err()
+            || self.resolve_speech(VoiceInputMode::Text, None).is_err()
             || self.dispatcher().is_err()
             || self.ledger.check().is_err()
         {
@@ -1905,6 +1923,27 @@ fn goodbye(text: &str) -> bool {
     let spoken = PUNCTUATION.replace_all(&lower, "");
     let spoken = spoken.split_whitespace().collect::<Vec<_>>().join(" ");
     GOODBYE.is_match(&spoken)
+}
+
+/// The desk's settings with a teammate's own voice, when the desk still
+/// speaks with the provider and model that voice was picked from.
+fn own_voice(
+    settings: &VoiceSettings,
+    voice: &crate::contract::PersonaVoice,
+    speaking: &speech::SpeechId,
+) -> Option<VoiceSettings> {
+    (speaking.provider_id == voice.provider_id
+        && speaking.model_id == voice.model_id
+        && speaking.voice.as_deref() != Some(voice.voice.as_str()))
+    .then(|| VoiceSettings {
+        tts: Some(settings::Choice {
+            provider_id: voice.provider_id.clone(),
+            model_id: Some(voice.model_id.clone()),
+            voice: Some(voice.voice.clone()),
+            effort: None,
+        }),
+        ..settings.clone()
+    })
 }
 
 /// A short reply that only says the work has started.

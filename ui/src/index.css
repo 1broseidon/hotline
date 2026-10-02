@@ -1795,14 +1795,39 @@
 	/* The teammate pane opens on who they are: the face, the name in the
 	 * heading's size and the goal under it like a bio, both plain text
 	 * until pointed at, when they show the field they are. */
+	/* The teammate's card: the face beside the name and goal, then a row
+	 * per thing about how they come across, divided like any grouped list. */
 	.profile {
 		display: flex;
-		flex-direction: column;
 		align-items: flex-start;
-		gap: 2px;
+		gap: 12px;
+		padding: 12px 12px 10px;
 	}
-	.profile .avatar {
-		margin-bottom: 8px;
+	.profile-face {
+		display: flex;
+		flex: none;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+	}
+	.profile-face-reset {
+		padding: 0 4px;
+		border-radius: var(--radius-control);
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
+	.profile-text {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		flex-direction: column;
+		gap: 2px;
+		/* The name sits level with the face's centre line, not its top edge. */
+		padding-top: 6px;
+	}
+	.profile + .group-row {
+		border-top: var(--hairline) solid var(--line);
 	}
 	.profile-name,
 	.profile-goal {

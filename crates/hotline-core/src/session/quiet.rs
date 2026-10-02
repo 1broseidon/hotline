@@ -188,6 +188,7 @@ mod tests {
             scheduled: None,
             ring: None,
             receipt: None,
+            client: None,
         }
     }
 

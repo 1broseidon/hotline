@@ -205,6 +205,7 @@ impl Room {
                 scheduled: None,
                 ring: None,
                 receipt: None,
+                client: None,
             },
         );
         let outcome = match self.run_to_end(&spec, &cancel, &mut running).await {
@@ -336,6 +337,7 @@ impl Room {
                             scheduled: None,
                             ring: None,
                             receipt: None,
+                            client: None,
                         },
                     );
                 }

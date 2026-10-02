@@ -1026,6 +1026,11 @@ pub enum TranscriptEvent {
         ring: Option<RingIntent>,
         #[serde(skip_serializing_if = "Option::is_none")]
         receipt: Option<Receipt>,
+        /// Which of the person's apps this was written in. Never drawn: the
+        /// teammate hears it beside the time, so "my browser" means the
+        /// right one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client: Option<Client>,
     },
     Agent {
         id: String,
@@ -1315,6 +1320,16 @@ pub enum RingIntent {
 /// for delivery and nothing more. `read` means the recipient's *agent* has
 /// been handed it. Delivery to a machine is not the interesting fact and is
 /// deliberately not a rung.
+/// Which of the person's apps a message was written in: the desktop app on
+/// this desk's own machine, or their phone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum Client {
+    Desktop,
+    Phone,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]

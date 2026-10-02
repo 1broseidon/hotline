@@ -56,6 +56,8 @@ pub(super) struct Scripted {
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
     unconsumed: Option<Unconsumed>,
+    /// Each prompt exactly as handed over, stamp and all.
+    heard: Arc<Mutex<Vec<String>>>,
 }
 
 /// What one turn was handed to be heard through, if anything.
@@ -85,6 +87,7 @@ impl Scripted {
             escalations: Arc::new(Mutex::new(Vec::new())),
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
+            heard: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -161,6 +164,7 @@ impl Driver for Scripted {
         attachments: Vec<Attachment>,
         reach: Reach,
     ) -> mpsc::Receiver<Update> {
+        lock(&self.heard).push(text.clone());
         lock(&self.prompts).push(words_of(&text));
         lock(&self.attachments).push(attachments);
         lock(&self.reaches).push(reach);
@@ -250,6 +254,10 @@ pub(super) fn words_of(heard: &str) -> String {
         .strip_prefix('[')
         .and_then(|rest| rest.split_once("] "))
         .unwrap_or_else(|| panic!("a line reached the driver untimed: {heard}"));
+    let stamp = stamp
+        .strip_suffix(" · desktop")
+        .or_else(|| stamp.strip_suffix(" · phone"))
+        .unwrap_or(stamp);
     assert!(
         chrono::NaiveDateTime::parse_from_str(stamp, "%a %d %b %Y, %H:%M").is_ok(),
         "not a local day and time: [{stamp}]"
@@ -6297,4 +6305,85 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
         })
     );
     calls.end(&call).unwrap();
+}
+
+/// Which of the person's apps wrote a line rides beside its time, for the
+/// teammate only: the tape keeps the words as they were typed.
+#[tokio::test]
+async fn a_line_says_which_app_wrote_it_to_the_teammate_and_not_the_tape() {
+    let agents = Fake::new(Scripted::new(Vec::new()));
+    let prompts = agents.driver.heard.clone();
+    let room = room("client", agents);
+    room.start("ada").await.unwrap();
+    crate::wire::commands::PROMPT_CLIENT
+        .scope(
+            crate::contract::Client::Phone,
+            room.prompt("ada", "run it in the browser", None, None),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while lock(&prompts).is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let heard = lock(&prompts)[0].clone();
+    assert!(
+        heard.ends_with(" · phone] run it in the browser"),
+        "{heard}"
+    );
+    let line = tape(&room, "ada")
+        .into_iter()
+        .rev()
+        .find(|event| event["kind"] == "user")
+        .unwrap();
+    assert_eq!(line["text"], "run it in the browser");
+    assert_eq!(line["client"], "phone");
+    // A restart rebuilds the history from the tape and keeps where it came from.
+    let rebuilt = said(&tape(&room, "ada"));
+    assert!(
+        rebuilt
+            .iter()
+            .any(|line| matches!(line, Said::User(text) if text.contains(" · phone] run it"))),
+        "{rebuilt:?}"
+    );
+}
+
+#[test]
+fn a_stamp_names_the_app_only_when_it_is_known() {
+    let at = Local
+        .with_ymd_and_hms(2026, 10, 2, 16, 20, 0)
+        .unwrap()
+        .timestamp_millis();
+    assert_eq!(
+        timed_from(at, Some(crate::contract::Client::Desktop), "open it"),
+        "[Fri 2 Oct 2026, 16:20 · desktop] open it"
+    );
+    assert_eq!(timed_from(at, None, "open it"), timed(at, "open it"));
+}
+
+/// No tab opens on a screen nobody is looking at, and nothing but a web link
+/// is handed to the system's opener.
+#[tokio::test]
+async fn a_link_opens_only_for_a_person_at_this_computer() {
+    let room = room("open-link", Fake::new(Scripted::new(Vec::new())));
+    room.start("ada").await.unwrap();
+    crate::wire::commands::PROMPT_CLIENT
+        .scope(
+            crate::contract::Client::Phone,
+            room.prompt("ada", "open ketch.run", None, None),
+        )
+        .await
+        .unwrap();
+    let away = room
+        .open_link("ada", "https://ketch.run")
+        .await
+        .unwrap_err();
+    assert!(away.contains("not at this computer"), "{away}");
+    for refused in ["file:///etc/passwd", "javascript:alert(1)", "ketch.run", ""] {
+        let refused = room.open_link("ada", refused).await.unwrap_err();
+        assert!(refused.contains("http or https"), "{refused}");
+    }
 }

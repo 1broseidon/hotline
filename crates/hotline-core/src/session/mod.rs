@@ -56,7 +56,7 @@ pub use schedule::{parse_duration, parse_when};
 
 use crate::computer::Computer;
 use crate::contract::{
-    Attachment, ChapterClose, ChapterSummary, ComputerStatus, ConfigChoice, CookieSite,
+    Attachment, ChapterClose, ChapterSummary, Client, ComputerStatus, ConfigChoice, CookieSite,
     DeliveryCause, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
     PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
     SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
@@ -2433,6 +2433,7 @@ impl Room {
             }
         }
         let ts = now_ms();
+        let client = crate::wire::commands::prompt_client();
         self.append(
             session,
             TranscriptEvent::User {
@@ -2445,10 +2446,11 @@ impl Room {
                 scheduled: None,
                 ring: None,
                 receipt: Some(Receipt::Sent),
+                client,
             },
         );
         let mut wire = sending.wire;
-        wire.text = timed(ts, &wire.text);
+        wire.text = timed_from(ts, client, &wire.text);
         wire.said = Some(id);
         self.dispatch(session.clone(), wire);
     }
@@ -2498,6 +2500,7 @@ impl Room {
             scheduled,
             ring,
             receipt,
+            client,
         } = serde_json::from_value::<TranscriptEvent>(line.clone())
             .map_err(|error| format!("The last message could not be read: {error}"))?
         else {
@@ -2520,9 +2523,32 @@ impl Room {
                 scheduled,
                 ring,
                 receipt,
+                client,
             },
         );
         Ok(())
+    }
+
+    /// Opens a web link in the person's own browser on this computer. Only
+    /// while they are here: their last message came from the desktop app, so
+    /// a tab never opens on a screen nobody is looking at.
+    pub async fn open_link(&self, persona_id: &str, link: &str) -> Result<String, String> {
+        let link = url::Url::parse(link.trim())
+            .ok()
+            .filter(|link| matches!(link.scheme(), "http" | "https"))
+            .ok_or("open_link needs a full http or https link.")?;
+        let session = self.session(persona_id)?;
+        let here = self
+            .tape(&session.persona_id)
+            .iter()
+            .rev()
+            .find(|event| event["kind"] == "user" && event.get("scheduled").is_none())
+            .is_some_and(|event| event.get("client").and_then(Value::as_str) == Some("desktop"));
+        if !here {
+            return Err("The person is not at this computer, so nothing was opened. Put the link in your reply instead.".into());
+        }
+        open_in_browser(link.as_str()).await?;
+        Ok("Opened in the person's browser on this computer.".into())
     }
 
     /// Hands the driver a line: on the turn in flight if there is one, on a
@@ -4278,6 +4304,7 @@ impl Room {
                 scheduled: None,
                 ring: None,
                 receipt: Some(Receipt::Sent),
+                client: None,
             },
         );
         wire.said = Some(id);
@@ -4851,7 +4878,13 @@ fn said(events: &[Value]) -> Vec<Said> {
         let text = crate::sent::message_text(event);
         match event.get("kind")?.as_str()? {
             "user" => Some(Said::User(match event.get("ts").and_then(Value::as_i64) {
-                Some(ts) => timed(ts, &text),
+                Some(ts) => timed_from(
+                    ts,
+                    event
+                        .get("client")
+                        .and_then(|client| serde_json::from_value(client.clone()).ok()),
+                    &text,
+                ),
                 None => text,
             })),
             "agent" => Some(Said::Agent(text)),
@@ -5330,19 +5363,62 @@ pub(crate) fn now_ms() -> i64 {
     Local::now().timestamp_millis()
 }
 
+/// The system's own opener, so the link lands in whatever browser the
+/// person made their default.
+async fn open_in_browser(link: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = tokio::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        // Not `cmd /c start`: cmd would read a link's `&` as its own.
+        let mut command = tokio::process::Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = tokio::process::Command::new("xdg-open");
+    command
+        .arg(link)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    crate::process_windows::quiet(&mut command);
+    let status = tokio::time::timeout(Duration::from_secs(10), command.status())
+        .await
+        .map_err(|_| "The browser did not answer in time.".to_string())?
+        .map_err(|_| "This computer has no way to open a browser.".to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("This computer could not open its browser.".into())
+    }
+}
+
 /// What the preamble says in place of a date: the clock is on the lines.
-pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one.";
+pub(crate) const CLOCK: &str = "Every message you get opens with the local day and time it was sent, in brackets, like [Thu 24 Sep 2026, 15:12]: that is how you know the date and the hour. Do not open your own messages with one. The brackets may also say where the person wrote from. `desktop` means they are at this computer in Hotline's desktop app: their browser, screen and apps are this computer's, so 'open it in my browser' means opening it here with `open_link`. `phone` means they are away from this computer, on their phone or another of their devices, and cannot see its screen: do browser work on your own computer if you have one, and bring the result back here as a link, a screenshot or a file with `send_file`. Act on this without mentioning it.";
 
 /// A line as the model hears it: the local day and time it was said, then
 /// the words. The time rides on the line and never in the preamble, so the
 /// preamble reads the same every day and stays a cached prefix, and a
 /// chapter that runs past midnight still knows what day it is.
 pub(crate) fn timed(ts: i64, text: &str) -> String {
+    timed_from(ts, None, text)
+}
+
+/// The same, naming which of the person's apps wrote it when the door it came
+/// in at knows: `[Fri 2 Oct 2026, 16:20 · phone]`.
+pub(crate) fn timed_from(ts: i64, client: Option<Client>, text: &str) -> String {
     let at = Local
         .timestamp_millis_opt(ts)
         .single()
         .unwrap_or_else(Local::now);
-    format!("[{}] {text}", at.format("%a %-d %b %Y, %H:%M"))
+    let from = match client {
+        Some(Client::Desktop) => " · desktop",
+        Some(Client::Phone) => " · phone",
+        None => "",
+    };
+    format!("[{}{from}] {text}", at.format("%a %-d %b %Y, %H:%M"))
 }
 
 #[cfg(test)]

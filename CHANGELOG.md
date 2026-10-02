@@ -10,6 +10,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Teammates know whether you are writing from the desktop app or your phone,
+  without it showing in the conversation, and act on it: at the desktop,
+  "open it in my browser" opens your own default browser; from the phone,
+  browsing happens on the teammate's computer and comes back as a link,
+  screenshot or file.
 - A teammate can have its own voice for direct calls, picked on its card from
   the voices the desk speaks with. The teammate pane's header is now one card
   with the picture, name, goal and voice.

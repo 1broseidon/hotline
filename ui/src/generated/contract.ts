@@ -184,6 +184,18 @@ export type ChapterStatus = "in-progress" | "done";
 export type ChapterSummary = { id: string, startedAt: number, endedAt?: number, title?: string, note?: string, status?: ChapterStatus, closedBy?: ChapterClose, messages: number, };
 
 /**
+ * How far one message in a teammate-to-teammate thread has got.
+ *
+ * `sent` is written when the message enters the thread — it has been accepted
+ * for delivery and nothing more. `read` means the recipient's *agent* has
+ * been handed it. Delivery to a machine is not the interesting fact and is
+ * deliberately not a rung.
+ * Which of the person's apps a message was written in: the desktop app on
+ * this desk's own machine, or their phone.
+ */
+export type Client = "desktop" | "phone";
+
+/**
  * Everything a client may ask the room to do or to answer.
  *
  * One enum, so the window's whole API is generated from it and a command the
@@ -830,14 +842,6 @@ export type PullStatus = "pulling" | "done" | "failed";
  */
 export type Reach = "workspace" | "machine";
 
-/**
- * How far one message in a teammate-to-teammate thread has got.
- *
- * `sent` is written when the message enters the thread — it has been accepted
- * for delivery and nothing more. `read` means the recipient's *agent* has
- * been handed it. Delivery to a machine is not the interesting fact and is
- * deliberately not a rung.
- */
 export type Receipt = "sent" | "read";
 
 export type RemoteDevice = { id: string, name: string, pairedAt: number, role: DeviceRole, publicKey?: string, };
@@ -1274,7 +1278,13 @@ scheduled?: ScheduledRun,
 /**
  * An emphasis on this bubble.
  */
-ring?: RingIntent, receipt?: Receipt, } | { "kind": "agent", id: string, ts: number, 
+ring?: RingIntent, receipt?: Receipt, 
+/**
+ * Which of the person's apps this was written in. Never drawn: the
+ * teammate hears it beside the time, so "my browser" means the
+ * right one.
+ */
+client?: Client, } | { "kind": "agent", id: string, ts: number, 
 /**
  * With a file, the caption, which may be empty.
  */

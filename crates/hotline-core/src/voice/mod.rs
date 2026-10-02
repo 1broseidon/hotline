@@ -406,8 +406,18 @@ impl Calls {
             let this = self.clone();
             let id = id.to_string();
             let context = Context::new(self.log.clone(), room, cancel.clone());
+            // What the person says on this call carries the app they called from.
+            let client = crate::wire::commands::prompt_client();
             tokio::spawn(async move {
-                this.run(id, context, rx).await;
+                let run = this.run(id, context, rx);
+                match client {
+                    Some(client) => {
+                        crate::wire::commands::PROMPT_CLIENT
+                            .scope(client, run)
+                            .await
+                    }
+                    None => run.await,
+                }
             });
         }
         Ok(VoiceCall {
@@ -1239,6 +1249,8 @@ impl Calls {
             ))
         })?;
         let handed_off = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Read here, in the call's scope: the voice may run its tool elsewhere.
+        let client = crate::wire::commands::prompt_client();
         let hand_off: Arc<dyn Fn() -> Result<serde_json::Value, String> + Send + Sync> = {
             let handed_off = handed_off.clone();
             let room = Arc::downgrade(&room);
@@ -1278,6 +1290,16 @@ impl Calls {
                             crate::wire::commands::CALL_ORIGIN
                                 .scope(origin, room.prompt(&target, &text, None, None)),
                         );
+                        let prompt = async move {
+                            match client {
+                                Some(client) => {
+                                    crate::wire::commands::PROMPT_CLIENT
+                                        .scope(client, prompt)
+                                        .await
+                                }
+                                None => prompt.await,
+                            }
+                        };
                         tokio::time::timeout(Duration::from_secs(60), prompt)
                             .await
                             .map_err(|_| "The teammate did not accept it in time.".to_string())?

@@ -19,7 +19,7 @@ pub mod rig;
 
 use crate::contract::{
     Attachment, ConfigChoice, NoticeLevel, PermissionOption, Persona, Reach, SessionCapabilities,
-    SessionConfig, TokenUsage,
+    SessionConfig, SubagentStatus, TokenUsage,
 };
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -263,6 +263,27 @@ pub enum Update {
     },
 }
 
+/// A subagent a harness runs on its own, as it reports it: an agent that
+/// shows its subagents as sessions of their own rather than as tool calls.
+/// `child` is the harness's name for the subagent's session; the reports for
+/// one child arrive in order, beginning with `Started`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SubagentReport {
+    Started {
+        child: String,
+        title: String,
+        /// What it was asked to do, as near the words it was handed as the
+        /// harness says.
+        task: String,
+    },
+    /// Something the subagent did, in the vocabulary of a turn.
+    Update { child: String, update: Update },
+    Ended {
+        child: String,
+        status: SubagentStatus,
+    },
+}
+
 #[derive(Clone, Debug)]
 pub struct ChapterBoundary(Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<String>>>>>);
 
@@ -367,6 +388,13 @@ pub trait Driver: Send + Sync {
     /// as it runs a turn. A driver whose agent only speaks when prompted
     /// answers `None`.
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
+        None
+    }
+
+    /// The subagents the agent runs and shows, each as it starts, works and
+    /// ends. Hotline Agent's subagents are the room's own runs, so only a
+    /// harness that reports its own answers `Some`.
+    fn subscribe_subagents(&self) -> Option<mpsc::UnboundedReceiver<SubagentReport>> {
         None
     }
 

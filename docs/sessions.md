@@ -160,7 +160,7 @@ report arrives later as the job's result — so the teammate keeps talking
 with the person while it works, and a message from the person reaches the
 teammate without waiting for any subagent.
 
-There is one kind of subagent. It is the teammate's agent started fresh by
+A Hotline Agent subagent is the teammate's agent started fresh by
 `Room::run` (`session/runner.rs`): the teammate's working directory, reach,
 granted MCP servers, and the model and effort its session is on at that
 moment, with a system prompt of its own that makes it a worker reporting
@@ -181,6 +181,24 @@ tool call's id. Stop, revocation or any other end of the teammate's turn
 cancels its runs and waits for them to settle; a run the process died under
 is settled as `cancelled` on the next start. The authority rules are
 [security.md](security.md#grant-lifecycle).
+
+An ACP harness's own subagents become runs too. Hotline offers
+`clientCapabilities.subagents` at `initialize`. An adapter that takes it
+announces each subagent on the parent session with `subagent_spawned`,
+sends the subagent's work on a session of its own, and ends it with
+`subagent_state_update`. These are the draft updates from
+agent-client-protocol#1992 that Claude's and Codex's adapters send. The
+Rust SDK does not carry them yet, so `driver/acp.rs` reads `session/update`
+raw: announcements, then updates on a known child session, then everything
+else as before. Each child is reported to the room as a `SubagentReport`
+(`Driver::subscribe_subagents`). `Room::watch_subagents` writes it as a run
+with the same marker, stream, roster entry and funnel as above, except the
+harness does the work and nothing in Hotline drives or cancels it. The
+child's own words never reach the parent's turn, and its mode and config
+updates are ignored. A subagent the harness never ends is settled as
+`cancelled` when its session ends or is replaced. An adapter that does not
+take the capability keeps showing subagents as tool calls on the
+teammate's turn.
 
 `drive` in the same module is the loop both a run and a peer exchange use to
 take one prompt to its end on a stream nobody is watching: the funnel's

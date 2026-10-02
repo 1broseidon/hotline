@@ -32,12 +32,12 @@ mod install;
 pub mod registry;
 
 use super::{
-    CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip,
+    CapabilityLease, Driver, DriverInfo, MessageKind, SubagentReport, ToolImage, Update, clip,
     with_image_placeholders,
 };
 use crate::contract::{
     AgentKind, Attachment, NoticeLevel, PermissionOption as CardOption, Persona, Reach,
-    SessionCapabilities, TokenUsage, ToolSourceKind, ToolState,
+    SessionCapabilities, SubagentStatus, TokenUsage, ToolSourceKind, ToolState,
 };
 use crate::mcp::server::{Served, TeammateTools};
 use crate::mcp::{self, HttpAuth, McpServer, McpTransport};
@@ -50,10 +50,12 @@ use agent_client_protocol::schema::v1::{
     InitializeRequest, LoadSessionRequest, NewSessionRequest, PromptRequest, ReadTextFileRequest,
     ReadTextFileResponse, RequestPermissionOutcome, RequestPermissionRequest,
     RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome, SessionId,
-    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
-    WriteTextFileRequest, WriteTextFileResponse,
+    SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest, WriteTextFileRequest,
+    WriteTextFileResponse,
 };
-use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
+use agent_client_protocol::{
+    Agent, ByteStreams, Client, ConnectionTo, JsonRpcNotification, JsonRpcRequest, Responder,
+};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body;
@@ -368,6 +370,7 @@ impl ChildAgent {
         self.live.briefed.store(false, Ordering::SeqCst);
         lock(&self.live.open).take();
         lock(&self.live.tools).clear();
+        self.live.forget_subagents();
         lock(&self.live.stderr).clear();
         Ok(persona)
     }
@@ -446,6 +449,12 @@ struct Live {
     /// changed, so without somewhere to merge into, a status change arrives as
     /// a payload of blanks and erases the title.
     tools: Mutex<HashMap<String, ToolLine>>,
+    /// Where the agent's subagents are reported, once the session has asked
+    /// (see [`Driver::subscribe_subagents`]).
+    subagent_reports: Mutex<Option<mpsc::UnboundedSender<SubagentReport>>>,
+    /// The subagent sessions the agent has announced and not yet ended, by
+    /// their session id, each with its own open message and tool calls.
+    children: Mutex<HashMap<String, Arc<Scribe>>>,
     /// Permission requests waiting on a person, by the id their card carries.
     pending: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     /// `session/load` replays the whole history; nothing is written while it
@@ -509,6 +518,24 @@ struct ToolLine {
     /// The first path the call named, which is the detail a permission answer
     /// usually turns on.
     location: Option<String>,
+}
+
+/// What a subagent's session has open: the conversation's own lives on
+/// [`Live`].
+#[derive(Default)]
+struct Scribe {
+    open: Mutex<Option<OpenMessage>>,
+    tools: Mutex<HashMap<String, ToolLine>>,
+}
+
+/// Where translated updates are written: the conversation's running turn, or
+/// one of the agent's subagents, each with the message and tool calls it has
+/// open.
+struct Pen<'a> {
+    live: &'a Live,
+    open: &'a Mutex<Option<OpenMessage>>,
+    tools: &'a Mutex<HashMap<String, ToolLine>>,
+    child: Option<&'a str>,
 }
 
 impl Live {
@@ -622,65 +649,69 @@ impl Live {
         }
     }
 
-    /// Adds text to the message being streamed, opening one — and closing any
-    /// message of the other kind — when the agent changes voice.
-    ///
-    /// A new id from the agent is a new message too. A reply cut off by a
-    /// steered line and the reply to that line are two messages, and without
-    /// the id they would run together into one.
-    async fn chunk(&self, kind: MessageKind, text: &str, from: Option<&acp::MessageId>) {
-        if text.is_empty() {
-            return;
+    fn pen(&self) -> Pen<'_> {
+        Pen {
+            live: self,
+            open: &self.open,
+            tools: &self.tools,
+            child: None,
         }
-        let from = from.map(|id| id.0.to_string());
-        // The message of the other voice is closed first, so the tape never
-        // holds a message that changed halfway through from speech to thought.
-        let closing = {
-            let mut open = lock(&self.open);
-            let changed = open.as_ref().is_none_or(|message| {
-                message.kind != kind
-                    || (message.from.is_some() && from.is_some() && message.from != from)
-            });
-            changed.then(|| open.take()).flatten()
-        };
-        self.close(closing).await;
-        let id = {
-            let mut open = lock(&self.open);
-            let message = open.get_or_insert_with(|| OpenMessage {
-                id: new_id(),
-                kind,
-                text: String::new(),
-                from,
-            });
-            message.text.push_str(text);
-            message.id.clone()
-        };
-        self.emit(Update::Delta {
-            kind,
-            message_id: id,
-            text: text.to_string(),
-        })
-        .await;
     }
 
-    /// Closes the streamed message: one durable [`Update::Message`] holding
-    /// everything its deltas carried.
     async fn flush(&self) {
-        let open = lock(&self.open).take();
-        self.close(open).await;
+        self.pen().flush().await;
     }
 
-    async fn close(&self, open: Option<OpenMessage>) {
-        let Some(message) = open else { return };
-        if message.text.is_empty() {
-            return;
+    fn subscribe_subagents(&self) -> mpsc::UnboundedReceiver<SubagentReport> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *lock(&self.subagent_reports) = Some(sender);
+        receiver
+    }
+
+    fn report(&self, report: SubagentReport) {
+        if let Some(reports) = lock(&self.subagent_reports).as_ref() {
+            let _ = reports.send(report);
         }
-        self.emit(Update::Message {
-            kind: message.kind,
-            id: message.id,
-            text: message.text,
-        })
-        .await;
+    }
+
+    /// Ends every subagent still open, which is what a session that ended
+    /// or was replaced does to them: nobody will hear how they finished.
+    fn forget_subagents(&self) {
+        let children: Vec<String> = lock(&self.children)
+            .drain()
+            .map(|(child, _)| child)
+            .collect();
+        for child in children {
+            self.report(SubagentReport::Ended {
+                child,
+                status: SubagentStatus::Cancelled,
+            });
+        }
+    }
+
+    /// A subagent the agent announced, or one it says has ended. Anything the
+    /// session it names says from now until it ends is the subagent's.
+    async fn subagent(&self, announced: Announced) {
+        match announced {
+            Announced::Spawned { child, title, task } => {
+                let fresh = {
+                    let mut children = lock(&self.children);
+                    let fresh = !children.contains_key(&child);
+                    children.entry(child.clone()).or_default();
+                    fresh
+                };
+                if fresh {
+                    self.report(SubagentReport::Started { child, title, task });
+                }
+            }
+            Announced::Ended { child, status } => {
+                let Some(scribe) = lock(&self.children).remove(&child) else {
+                    return;
+                };
+                Pen::child(self, &child, &scribe).flush().await;
+                self.report(SubagentReport::Ended { child, status });
+            }
+        }
     }
 
     /// Answers every permission still waiting, which is what the end of a turn
@@ -705,6 +736,91 @@ impl Live {
         } else {
             format!(" The backend said: {tail}")
         }
+    }
+}
+
+impl<'a> Pen<'a> {
+    fn child(live: &'a Live, child: &'a str, scribe: &'a Scribe) -> Self {
+        Pen {
+            live,
+            open: &scribe.open,
+            tools: &scribe.tools,
+            child: Some(child),
+        }
+    }
+
+    /// Hands one update to where this pen writes. A subagent's run keeps only
+    /// whole messages, so its deltas go nowhere.
+    async fn emit(&self, update: Update) {
+        match self.child {
+            None => self.live.emit(update).await,
+            Some(_) if matches!(update, Update::Delta { .. }) => {}
+            Some(child) => self.live.report(SubagentReport::Update {
+                child: child.to_string(),
+                update,
+            }),
+        }
+    }
+
+    /// Adds text to the message being streamed, opening one — and closing any
+    /// message of the other kind — when the agent changes voice.
+    ///
+    /// A new id from the agent is a new message too. A reply cut off by a
+    /// steered line and the reply to that line are two messages, and without
+    /// the id they would run together into one.
+    async fn chunk(&self, kind: MessageKind, text: &str, from: Option<&acp::MessageId>) {
+        if text.is_empty() {
+            return;
+        }
+        let from = from.map(|id| id.0.to_string());
+        // The message of the other voice is closed first, so the tape never
+        // holds a message that changed halfway through from speech to thought.
+        let closing = {
+            let mut open = lock(self.open);
+            let changed = open.as_ref().is_none_or(|message| {
+                message.kind != kind
+                    || (message.from.is_some() && from.is_some() && message.from != from)
+            });
+            changed.then(|| open.take()).flatten()
+        };
+        self.close(closing).await;
+        let id = {
+            let mut open = lock(self.open);
+            let message = open.get_or_insert_with(|| OpenMessage {
+                id: new_id(),
+                kind,
+                text: String::new(),
+                from,
+            });
+            message.text.push_str(text);
+            message.id.clone()
+        };
+        self.emit(Update::Delta {
+            kind,
+            message_id: id,
+            text: text.to_string(),
+        })
+        .await;
+    }
+
+    /// Closes the streamed message: one durable [`Update::Message`] holding
+    /// everything its deltas carried.
+    async fn flush(&self) {
+        let open = lock(self.open).take();
+        self.close(open).await;
+    }
+
+    async fn close(&self, open: Option<OpenMessage>) {
+        let Some(message) = open else { return };
+        if message.text.is_empty() {
+            return;
+        }
+        self.emit(Update::Message {
+            kind: message.kind,
+            id: message.id,
+            text: message.text,
+        })
+        .await;
     }
 }
 
@@ -1433,6 +1549,9 @@ impl Driver for ChildAgent {
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
         Some(self.live.subscribe_unprompted())
     }
+    fn subscribe_subagents(&self) -> Option<mpsc::UnboundedReceiver<SubagentReport>> {
+        Some(self.live.subscribe_subagents())
+    }
 }
 
 impl ChildAgent {
@@ -1469,18 +1588,7 @@ impl ChildAgent {
         self.check_capability()?;
 
         let initialized = connection
-            .send_request(
-                InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
-                    // Hotline answers file reads and writes on the agent's behalf
-                    // so an agent that expects an editor to own the files gets
-                    // one. Login's PTY is desktop-owned, not an agent terminal tool.
-                    ClientCapabilities::new()
-                        .fs(FileSystemCapabilities::new()
-                            .read_text_file(true)
-                            .write_text_file(true))
-                        .auth(acp::AuthCapabilities::new().terminal(cfg!(unix))),
-                ),
-            )
+            .send_request(initialize_request())
             .block_task()
             .await;
         let initialized = match initialized {
@@ -1818,6 +1926,7 @@ impl ChildAgent {
         restored: bool,
     ) {
         lock(&self.live.tools).clear();
+        self.live.forget_subagents();
         let disposition = Disposition::of(modes.as_ref(), configs.as_deref());
         let mut session = lock(&self.live.session);
         session.id = Some(id.clone());
@@ -1922,13 +2031,13 @@ async fn connect(
             .builder()
             .name("Hotline")
             .on_receive_notification(
-                move |notification: SessionNotification, _cx| {
+                move |notification: RawSessionUpdate, _cx| {
                     let live = updates.clone();
                     async move {
                         // Harness login is not a conversation, including unsolicited
                         // session/update notifications emitted by authenticate.
                         if !lock(&live.auth).as_ref().is_some_and(|a| a.running()) {
-                            between_turns(&live, notification.update).await;
+                            receive(&live, notification).await;
                         }
                         Ok(())
                     }
@@ -1976,6 +2085,125 @@ async fn connect(
     started
         .await
         .map_err(|_| "The agent's connection ended before it opened.".to_string())
+}
+
+/// `session/update` as it comes off the wire, before it is read as one of the
+/// updates the SDK knows. Subagents arrive as ACP's draft subagent updates
+/// (agent-client-protocol#1992), which the SDK does not carry yet, and as
+/// ordinary updates on sessions of their own.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, JsonRpcNotification)]
+#[notification(method = "session/update")]
+#[serde(rename_all = "camelCase")]
+struct RawSessionUpdate {
+    session_id: String,
+    update: Value,
+}
+
+/// `initialize`, with the capabilities the SDK has no field for yet.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, JsonRpcRequest)]
+#[request(method = "initialize", response = acp::InitializeResponse)]
+struct RawInitialize(Value);
+
+/// A subagent's comings and goings, as the agent announces them on the
+/// session that started it.
+#[derive(Debug, PartialEq)]
+enum Announced {
+    Spawned {
+        child: String,
+        title: String,
+        task: String,
+    },
+    Ended {
+        child: String,
+        status: SubagentStatus,
+    },
+}
+
+/// The announcement in an update, if it is one. Claude's and Codex's
+/// adapters send `subagent_spawned` and `subagent_state_update`; ACP's RFD
+/// describes a `subagent_update` that neither sends yet.
+fn announced(update: &Value) -> Option<Announced> {
+    let text = |key: &str| update.get(key).and_then(Value::as_str).map(str::trim);
+    let child = text("subagentSessionId")
+        .filter(|child| !child.is_empty())?
+        .to_string();
+    match text("sessionUpdate")? {
+        "subagent_spawned" => {
+            let task = text("task").unwrap_or_default();
+            Some(Announced::Spawned {
+                title: clip(
+                    text("name")
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or("Subagent"),
+                    TITLE_CHARS,
+                ),
+                // The adapter's own prompt is what the subagent was told; the
+                // task is its summary of it.
+                task: text("prompt")
+                    .filter(|prompt| !prompt.is_empty())
+                    .unwrap_or(task)
+                    .to_string(),
+                child,
+            })
+        }
+        "subagent_state_update" => Some(Announced::Ended {
+            status: match text("state")? {
+                "completed" => SubagentStatus::Done,
+                "failed" => SubagentStatus::Failed,
+                // Disconnected is an outcome nobody saw, which a run that
+                // outlived its process is too.
+                _ => SubagentStatus::Cancelled,
+            },
+            child,
+        }),
+        _ => None,
+    }
+}
+
+/// What Hotline says it can do when it meets an agent.
+fn initialize_request() -> RawInitialize {
+    let request = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
+        // Hotline answers file reads and writes on the agent's behalf
+        // so an agent that expects an editor to own the files gets
+        // one. Login's PTY is desktop-owned, not an agent terminal tool.
+        ClientCapabilities::new()
+            .fs(FileSystemCapabilities::new()
+                .read_text_file(true)
+                .write_text_file(true))
+            .auth(acp::AuthCapabilities::new().terminal(cfg!(unix))),
+    );
+    let mut request = serde_json::to_value(request).unwrap_or_default();
+    // Subagents shown as sessions of their own, which each become a run with
+    // its own transcript. An agent that does not know the field keeps
+    // showing them as tool calls.
+    if let Some(capabilities) = request
+        .get_mut("clientCapabilities")
+        .and_then(Value::as_object_mut)
+    {
+        capabilities.insert("subagents".into(), serde_json::json!({}));
+    }
+    RawInitialize(request)
+}
+
+/// One `session/update`: a subagent's, or the conversation's own.
+async fn receive(live: &Arc<Live>, notification: RawSessionUpdate) {
+    if live.replaying.load(Ordering::SeqCst) {
+        return;
+    }
+    if let Some(announced) = announced(&notification.update) {
+        live.subagent(announced).await;
+        return;
+    }
+    let Ok(update) = serde_json::from_value::<SessionUpdate>(notification.update) else {
+        return;
+    };
+    let child = lock(&live.children).get(&notification.session_id).cloned();
+    match child {
+        Some(scribe) => {
+            translate_in(&Pen::child(live, &notification.session_id, &scribe), update).await;
+        }
+        None => between_turns(live, update).await,
+    }
 }
 
 /// One `session/update`, including those the agent sends with no prompt out.
@@ -2032,39 +2260,46 @@ fn watch_unprompted(live: std::sync::Weak<Live>, generation: u64) {
 
 /// One `session/update`, as the room's vocabulary sees it.
 async fn translate(live: &Live, update: SessionUpdate) {
+    translate_in(&live.pen(), update).await;
+}
+
+/// One `session/update`, written where `pen` writes: the conversation's turn,
+/// or a subagent's run.
+async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
+    let live = pen.live;
     if live.replaying.load(Ordering::SeqCst) {
         return;
     }
     match update {
         SessionUpdate::AgentMessageChunk(chunk) => {
             if let ContentBlock::Text(text) = chunk.content {
-                live.chunk(MessageKind::Agent, &text.text, chunk.message_id.as_ref())
+                pen.chunk(MessageKind::Agent, &text.text, chunk.message_id.as_ref())
                     .await;
             }
         }
         SessionUpdate::AgentThoughtChunk(chunk) => {
             if let ContentBlock::Text(text) = chunk.content {
-                live.chunk(MessageKind::Thought, &text.text, chunk.message_id.as_ref())
+                pen.chunk(MessageKind::Thought, &text.text, chunk.message_id.as_ref())
                     .await;
             }
         }
         SessionUpdate::ToolCall(call) => {
-            live.flush().await;
+            pen.flush().await;
             let line = ToolLine {
                 title: clip(&call.title, TITLE_CHARS),
                 kind: kind_of(call.kind),
                 location: first_location(&call.locations),
             };
-            live.emit(Update::ToolCall {
+            pen.emit(Update::ToolCall {
                 call_id: call.tool_call_id.0.to_string(),
                 title: line.title.clone(),
                 kind: line.kind.clone(),
             })
             .await;
             let finished = finished(call.status, &call.content);
-            lock(&live.tools).insert(call.tool_call_id.0.to_string(), line);
+            lock(pen.tools).insert(call.tool_call_id.0.to_string(), line);
             if let Some((ok, output, images)) = finished {
-                live.emit(Update::ToolResult {
+                pen.emit(Update::ToolResult {
                     call_id: call.tool_call_id.0.to_string(),
                     ok,
                     output,
@@ -2079,7 +2314,7 @@ async fn translate(live: &Live, update: SessionUpdate) {
             // Absent means unchanged, so anything the update left out falls
             // back to what the call was announced with.
             let line = {
-                let mut tools = lock(&live.tools);
+                let mut tools = lock(pen.tools);
                 let previous = tools.get(&call_id);
                 let line = ToolLine {
                     title: fields
@@ -2110,7 +2345,7 @@ async fn translate(live: &Live, update: SessionUpdate) {
             let content = fields.content.unwrap_or_default();
             match fields.status.and_then(|status| finished(status, &content)) {
                 Some((ok, output, images)) => {
-                    live.emit(Update::ToolResult {
+                    pen.emit(Update::ToolResult {
                         call_id,
                         ok,
                         output,
@@ -2121,7 +2356,7 @@ async fn translate(live: &Live, update: SessionUpdate) {
                 // Still running: the line is written again so a title or a
                 // path the agent only learned now reaches the transcript.
                 None => {
-                    live.emit(Update::ToolCall {
+                    pen.emit(Update::ToolCall {
                         call_id,
                         title: line.title,
                         kind: line.kind,
@@ -2134,7 +2369,7 @@ async fn translate(live: &Live, update: SessionUpdate) {
         // the plan arrives as the one thing the window does draw. When the
         // window grows a plan panel this becomes an Update of its own.
         SessionUpdate::Plan(plan) => {
-            live.flush().await;
+            pen.flush().await;
             let lines: Vec<String> = plan
                 .entries
                 .iter()
@@ -2143,12 +2378,15 @@ async fn translate(live: &Live, update: SessionUpdate) {
             if lines.is_empty() {
                 return;
             }
-            live.emit(Update::Notice {
+            pen.emit(Update::Notice {
                 level: NoticeLevel::Info,
                 text: format!("Plan:\n{}", lines.join("\n")),
             })
             .await;
         }
+        // A subagent's own pickers are not the conversation's.
+        SessionUpdate::CurrentModeUpdate(_) | SessionUpdate::ConfigOptionUpdate(_)
+            if pen.child.is_some() => {}
         SessionUpdate::CurrentModeUpdate(mode) => {
             lock(&live.session).info.current_mode_id = Some(mode.current_mode_id.0.to_string());
             live.publish_info();
@@ -2708,6 +2946,7 @@ fn new_id() -> String {
 mod tests {
     use super::*;
     use crate::contract::{McpPolicy, PolicyMode, SessionCheckpoint};
+    use agent_client_protocol::schema::v1::SessionNotification;
     use agent_client_protocol::schema::v1::{
         AgentCapabilities, ContentChunk, Implementation, InitializeResponse, LoadSessionResponse,
         NewSessionResponse, PermissionOptionKind, PromptResponse, SessionMode, SessionModeState,
@@ -3367,6 +3606,262 @@ mod tests {
             prompted[0].len(),
             2,
             "house style is in the preamble, not a second block"
+        );
+    }
+
+    /// An agent that shows its subagents as sessions of their own: it is
+    /// told Hotline takes them, and announces one mid-turn whose work never
+    /// reaches the conversation's turn.
+    fn subagent_agent(
+        capabilities: Arc<Mutex<Option<Value>>>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("subagents")
+                .on_receive_request(
+                    async move |request: RawInitialize, responder: Responder<InitializeResponse>, _cx| {
+                        *capabilities.lock().unwrap() = request.0.get("clientCapabilities").cloned();
+                        responder.respond(
+                            InitializeResponse::new(ProtocolVersion::V1)
+                                .agent_info(Implementation::new("subagents", "1.0.0")),
+                        )
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_request: NewSessionRequest,
+                                responder: Responder<NewSessionResponse>,
+                                _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("parent")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_request: PromptRequest,
+                                responder: Responder<PromptResponse>,
+                                cx: ConnectionTo<Client>| {
+                        let say = |session: &str, update: Value| {
+                            cx.send_notification(RawSessionUpdate {
+                                session_id: session.to_string(),
+                                update,
+                            })
+                        };
+                        say("parent", serde_json::json!({
+                            "sessionUpdate": "subagent_spawned",
+                            "subagentSessionId": "child-1",
+                            "name": "Test investigator",
+                            "task": "Check the tests",
+                            "prompt": "Run the tests and report.",
+                            "capabilities": {},
+                        }))?;
+                        say("child-1", serde_json::json!({
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": { "type": "text", "text": "Running them." },
+                        }))?;
+                        say("child-1", serde_json::json!({
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": "c9",
+                            "title": "cargo test",
+                            "kind": "execute",
+                            "status": "in_progress",
+                        }))?;
+                        say("child-1", serde_json::json!({
+                            "sessionUpdate": "tool_call_update",
+                            "toolCallId": "c9",
+                            "status": "completed",
+                            "content": [{ "type": "content", "content": { "type": "text", "text": "3 passed" } }],
+                        }))?;
+                        say("child-1", serde_json::json!({
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": { "type": "text", "text": "All 3 pass." },
+                        }))?;
+                        // A picker on the child is the child's own.
+                        say("child-1", serde_json::json!({
+                            "sessionUpdate": "current_mode_update",
+                            "currentModeId": "child-mode",
+                        }))?;
+                        say("parent", serde_json::json!({
+                            "sessionUpdate": "subagent_state_update",
+                            "subagentSessionId": "child-1",
+                            "state": "completed",
+                        }))?;
+                        say("parent", serde_json::json!({
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": { "type": "text", "text": "They pass." },
+                        }))?;
+                        responder.respond(PromptResponse::new(StopReason::EndTurn))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the subagent agent ended: {error}");
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_subagent_session_is_reported_apart_from_the_turn() {
+        let capabilities = Arc::new(Mutex::new(None));
+        let agent = subagent_agent(capabilities.clone());
+        let held = room("subagent-room");
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch("subagents"),
+            "claude".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        let mut reports = Driver::subscribe_subagents(&driver).unwrap();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+        assert_eq!(
+            capabilities.lock().unwrap().as_ref().unwrap()["subagents"],
+            serde_json::json!({}),
+            "Hotline says it takes subagents as sessions"
+        );
+
+        let mut updates = driver
+            .prompt(
+                "are the tests green".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        let mut turn = Vec::new();
+        loop {
+            let update = next(&mut updates).await;
+            let done = matches!(update, Update::Turn { .. });
+            turn.push(update);
+            if done {
+                break;
+            }
+        }
+        assert_eq!(
+            turn.iter()
+                .filter_map(|update| match update {
+                    Update::Message { text, .. } => Some(text.as_str()),
+                    Update::ToolCall { .. } | Update::ToolResult { .. } => Some("tool"),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            ["They pass."],
+            "the turn holds only the conversation's own words: {turn:?}"
+        );
+        assert_eq!(
+            driver.live.session.lock().unwrap().info.current_mode_id,
+            None
+        );
+
+        let mut reported = Vec::new();
+        while let Ok(report) = reports.try_recv() {
+            reported.push(report);
+        }
+        let child = || "child-1".to_string();
+        assert_eq!(
+            reported,
+            [
+                SubagentReport::Started {
+                    child: child(),
+                    title: "Test investigator".to_string(),
+                    task: "Run the tests and report.".to_string(),
+                },
+                SubagentReport::Update {
+                    child: child(),
+                    update: Update::Message {
+                        kind: MessageKind::Agent,
+                        id: match &reported[1] {
+                            SubagentReport::Update {
+                                update: Update::Message { id, .. },
+                                ..
+                            } => id.clone(),
+                            other => panic!("not the first words: {other:?}"),
+                        },
+                        text: "Running them.".to_string(),
+                    },
+                },
+                SubagentReport::Update {
+                    child: child(),
+                    update: Update::ToolCall {
+                        call_id: "c9".to_string(),
+                        title: "cargo test".to_string(),
+                        kind: "execute".to_string(),
+                    },
+                },
+                SubagentReport::Update {
+                    child: child(),
+                    update: Update::ToolResult {
+                        call_id: "c9".to_string(),
+                        ok: true,
+                        output: "3 passed".to_string(),
+                        images: Vec::new(),
+                    },
+                },
+                SubagentReport::Update {
+                    child: child(),
+                    update: Update::Message {
+                        kind: MessageKind::Agent,
+                        id: match &reported[4] {
+                            SubagentReport::Update {
+                                update: Update::Message { id, .. },
+                                ..
+                            } => id.clone(),
+                            other => panic!("not the last words: {other:?}"),
+                        },
+                        text: "All 3 pass.".to_string(),
+                    },
+                },
+                SubagentReport::Ended {
+                    child: child(),
+                    status: SubagentStatus::Done,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn announcements_are_read_from_the_adapters_draft_updates() {
+        assert_eq!(
+            announced(&serde_json::json!({
+                "sessionUpdate": "subagent_spawned",
+                "subagentSessionId": "t1:generation:2",
+                "name": "",
+                "task": "Explore the repo",
+                "capabilities": {},
+            })),
+            Some(Announced::Spawned {
+                child: "t1:generation:2".to_string(),
+                title: "Subagent".to_string(),
+                task: "Explore the repo".to_string(),
+            })
+        );
+        for (state, status) in [
+            ("completed", SubagentStatus::Done),
+            ("failed", SubagentStatus::Failed),
+            ("cancelled", SubagentStatus::Cancelled),
+            ("disconnected", SubagentStatus::Cancelled),
+        ] {
+            assert_eq!(
+                announced(&serde_json::json!({
+                    "sessionUpdate": "subagent_state_update",
+                    "subagentSessionId": "c",
+                    "state": state,
+                })),
+                Some(Announced::Ended {
+                    child: "c".to_string(),
+                    status,
+                })
+            );
+        }
+        assert_eq!(
+            announced(&serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "hi" },
+            })),
+            None
         );
     }
 
@@ -4509,7 +5004,9 @@ mod tests {
                 .zip(ids)
             {
                 let id = id.map(acp::MessageId::new);
-                live.chunk(MessageKind::Agent, text, id.as_ref()).await;
+                live.pen()
+                    .chunk(MessageKind::Agent, text, id.as_ref())
+                    .await;
             }
             live.flush().await;
             lock(&live.updates).take();

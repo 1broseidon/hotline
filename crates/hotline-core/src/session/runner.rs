@@ -18,6 +18,11 @@
 //! - **A scheduled firing**, next: a quiet job is a run whose report nobody
 //!   sees unless it escalates.
 //!
+//! A harness that runs subagents of its own and shows them — Claude's and
+//! Codex's ACP adapters do — has each written here as a run too
+//! ([`Room::watch_subagents`]): the harness does the work, and the room keeps
+//! the marker and the transcript the same way it does for its own.
+//!
 //! A run never writes to its teammate's tape. The one line it keeps there is
 //! a [`TranscriptEvent::Subagent`] marker, rewritten by id as the run goes,
 //! which is what the person presses to open the run's own transcript.
@@ -28,13 +33,14 @@
 //! never hold more than its parent did.
 
 use super::{
-    CLOCK, Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index, timed,
+    CLOCK, PendingTool, Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index,
+    timed,
 };
 use crate::contract::{
     NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
     TranscriptEvent,
 };
-use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, Update};
+use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, SubagentReport, Update};
 use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
@@ -42,6 +48,7 @@ use futures_util::future::BoxFuture;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// What one driver turn came to, as the stream it was written to saw it.
@@ -274,6 +281,105 @@ impl Room {
         Ok(outcome_of(driven))
     }
 
+    /// Writes the subagents a harness reports as runs of `persona_id`'s, for
+    /// as long as the harness reports them. A subagent the harness never said
+    /// the end of is settled as cancelled when the reports stop.
+    pub(super) fn watch_subagents(
+        self: &Arc<Self>,
+        persona_id: String,
+        mut reports: mpsc::UnboundedReceiver<SubagentReport>,
+    ) {
+        let room = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut runs = HashMap::new();
+            while let Some(report) = reports.recv().await {
+                let Some(room) = room.upgrade() else {
+                    break;
+                };
+                room.harness_report(&persona_id, &mut runs, report);
+            }
+        });
+    }
+
+    fn harness_report(
+        self: &Arc<Self>,
+        persona_id: &str,
+        runs: &mut HashMap<String, HarnessRun>,
+        report: SubagentReport,
+    ) {
+        match report {
+            SubagentReport::Started { child, title, task } => {
+                if runs.contains_key(&child) {
+                    return;
+                }
+                let running = Running {
+                    room: Arc::downgrade(self),
+                    persona_id: persona_id.to_string(),
+                    run_id: new_id(),
+                    title,
+                    started: now_ms(),
+                    driver: None,
+                    lease: None,
+                    settled: false,
+                };
+                running.mark(SubagentStatus::Running, None);
+                if !task.trim().is_empty() {
+                    self.append_run(
+                        &running.run_id,
+                        TranscriptEvent::User {
+                            id: new_id(),
+                            ts: running.started,
+                            text: task,
+                            attachments: None,
+                            reactions: None,
+                            reply_to: None,
+                            scheduled: None,
+                            ring: None,
+                            receipt: None,
+                        },
+                    );
+                }
+                runs.insert(
+                    child,
+                    HarnessRun {
+                        running,
+                        voice: narration::Voice::new(),
+                        in_flight: HashMap::new(),
+                    },
+                );
+            }
+            SubagentReport::Update { child, update } => {
+                let Some(run) = runs.get_mut(&child) else {
+                    return;
+                };
+                for update in run.voice.step(update) {
+                    for event in event_of(update, &mut run.in_flight) {
+                        self.append_run(&run.running.run_id, event);
+                    }
+                }
+            }
+            SubagentReport::Ended { child, status } => {
+                let Some(mut run) = runs.remove(&child) else {
+                    return;
+                };
+                let run_id = run.running.run_id.clone();
+                for update in run.voice.finish() {
+                    for event in event_of(update, &mut run.in_flight) {
+                        self.append_run(&run_id, event);
+                    }
+                }
+                for (call_id, pending) in run.in_flight.drain() {
+                    self.append_run(&run_id, pending.event(&call_id, ToolStatus::Failed, None));
+                }
+                run.running.settle(match status {
+                    SubagentStatus::Done => RunEnd::Done,
+                    SubagentStatus::Failed => RunEnd::Failed,
+                    SubagentStatus::Running | SubagentStatus::Cancelled => RunEnd::Cancelled,
+                });
+            }
+        }
+    }
+
     /// One event onto a run's own stream. Nothing indexes it and nothing
     /// stamps it: a run's words are the teammate's working, not its
     /// conversation.
@@ -445,6 +551,13 @@ impl Drop for Running {
     fn drop(&mut self) {
         self.settle(RunEnd::Cancelled);
     }
+}
+
+/// A subagent a harness is running, as its run is being written.
+struct HarnessRun {
+    running: Running,
+    voice: narration::Voice,
+    in_flight: HashMap<String, PendingTool>,
 }
 
 fn marker_id(run_id: &str) -> String {

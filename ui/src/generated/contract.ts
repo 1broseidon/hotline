@@ -707,6 +707,13 @@ webSearchPolicy?: WebSearchPolicy,
  */
 computer?: PersonaComputer, 
 /**
+ * The voice this teammate speaks in on a direct call, as picked from the
+ * desk's speaking model. It applies only while the desk still speaks
+ * with that provider and model; otherwise the desk's own voice is used.
+ * Absent means the desk's voice.
+ */
+voice?: PersonaVoice, 
+/**
  * The last durable ACP session for each backend this teammate has used.
  *
  * ACP session ids are opaque to the agent that issued them. Keeping one
@@ -779,6 +786,11 @@ backgroundWork?: boolean, };
  * The linked desktop a teammate lives on.
  */
 export type PersonaNode = { id: string, name: string, };
+
+/**
+ * A teammate's own voice: one of a speaking model's voices.
+ */
+export type PersonaVoice = { providerId: string, modelId: string, voice: string, };
 
 export type PlanEntry = { content: string, status: string, priority?: string, };
 

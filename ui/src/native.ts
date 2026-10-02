@@ -98,6 +98,17 @@ export async function confirmRemove(name: string): Promise<boolean> {
 	}
 }
 
+export async function confirmRemovePicture(name: string): Promise<boolean> {
+	try {
+		return await ask(`Remove ${name}'s picture? Their initial takes its place.`, {
+			title: "Hotline",
+			kind: "warning",
+		});
+	} catch {
+		return false;
+	}
+}
+
 export async function toggleMaximize(): Promise<void> {
 	try {
 		await getCurrentWindow().toggleMaximize();

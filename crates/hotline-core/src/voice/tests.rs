@@ -1953,3 +1953,46 @@ fn a_link_is_said_as_its_site_and_shown_in_full() {
     );
     assert!(!speech_ready("Here it is: https://ketch.run"));
 }
+
+#[test]
+fn a_teammate_voice_applies_only_to_the_model_it_was_picked_from() {
+    let desk = VoiceSettings::default();
+    let ara = crate::contract::PersonaVoice {
+        provider_id: "xai-subscription".into(),
+        model_id: "grok-voice-tts-1.0".into(),
+        voice: "ara".into(),
+    };
+    let speaking = |provider: &str, model: &str, voice: &str| speech::SpeechId {
+        provider_id: provider.into(),
+        model_id: model.into(),
+        voice: Some(voice.into()),
+    };
+    let own = own_voice(
+        &desk,
+        &ara,
+        &speaking("xai-subscription", "grok-voice-tts-1.0", "eve"),
+    )
+    .unwrap();
+    let tts = own.tts.unwrap();
+    assert_eq!(
+        (
+            tts.provider_id.as_str(),
+            tts.model_id.as_deref(),
+            tts.voice.as_deref()
+        ),
+        ("xai-subscription", Some("grok-voice-tts-1.0"), Some("ara"))
+    );
+    assert_eq!(own.day_usd, desk.day_usd);
+    // The desk moved to another provider or model: its own voice stands.
+    assert!(own_voice(&desk, &ara, &speaking("xai", "grok-voice-tts-1.0", "eve")).is_none());
+    assert!(own_voice(&desk, &ara, &speaking("xai-subscription", "other", "eve")).is_none());
+    // Already that voice: nothing to change.
+    assert!(
+        own_voice(
+            &desk,
+            &ara,
+            &speaking("xai-subscription", "grok-voice-tts-1.0", "ara")
+        )
+        .is_none()
+    );
+}

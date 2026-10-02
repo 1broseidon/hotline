@@ -703,6 +703,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: draft.computer,
+        voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
         created_at: stamped,

@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate can have its own voice for direct calls, picked on its card from
+  the voices the desk speaks with. The teammate pane's header is now one card
+  with the picture, name, goal and voice.
+
 ### Changed
 
 - A direct call answers at once, in the teammate's own first-person voice,

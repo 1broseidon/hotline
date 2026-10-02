@@ -16,7 +16,8 @@ not cancel accepted teammate work.
 | `voice.text` | One finalized device transcript `{callId,seq,text}` per turn on a negotiated text call. | Owner/local desk, opening connection, increasing sequence, pending-turn gate and cancellation remain enforced. Nonblank, at most 8,000 characters/32,000 UTF-8 bytes. No remote STT request or spend. |
 | `voice.audio` | Negotiated by `audio/pcm` in the call's input list. Existing WAV/AAC utterances remain available. | PCM16 little endian, mono, 16 kHz. At most 32 KiB per chunk and 20 seconds per turn. Sequence and chunk index increase. Empty final chunk commits. No partial transcript can dispatch work. |
 | `clip` events | Existing independently playable WAV/MP3 clips, increasing indices; last chunk has `final: true`. | Bounded producer channel; cancellation drops provider work and rejects stale output. Whole-clip fallback for other providers/clients. |
-| Direct replies | Committed acknowledgement/report messages only. | Internal call/turn origin follows queued or accepted steering inputs. Unrelated agent output cannot enter a direct call. |
+| Direct replies | Committed acknowledgement/report messages only; with a dispatcher, the turn's final reply only, retold in the first person when long. | Internal call/turn origin follows queued or accepted steering inputs. Unrelated agent output cannot enter a direct call. Replies to any of the call's last 16 handed-off turns are accepted. |
+| Direct front | With a dispatcher, the dispatcher model answers as the teammate and hands work to the session through `hand_to_session`. | At most one handoff per utterance. Status questions reach no session. A front failure before handoff forwards the words unchanged. |
 
 Changes to optional fields are additive (R1); routing, streaming and reply
 attribution change behavior (R2). Core owns origin and seat enforcement;

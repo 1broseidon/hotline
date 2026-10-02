@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- A direct call answers at once, in the teammate's own first-person voice,
+  while the teammate does the work in its session. Asking how it is going is
+  answered from the conversation without interrupting the teammate, and the
+  finished reply is told in the teammate's words rather than cut to its first
+  two sentences.
+
 ## [0.31.0] - 2026-10-02
 
 ### Added

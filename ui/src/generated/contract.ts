@@ -1359,7 +1359,11 @@ export type VoiceModel = { providerId: string, modelId: string, voice?: string, 
 
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 
-export type VoiceStatus = { capabilities: Array<string>, available: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, };
+export type VoiceStatus = { capabilities: Array<string>, available: boolean,
+/**
+ * Direct teammate calls need speech and budget, but no desk dispatcher.
+ */
+directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, };
 
 /**
  * Which of the desk's web search a teammate gets — the same

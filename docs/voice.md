@@ -17,7 +17,7 @@ reports the primary TTS format for the call descriptor (default `audio/wav`).
 other type is refused before a request.
 
 Adapters can additionally accept live input through `transcribe_live` and
-produce progressive output through `speak_progressive`. The call negotiates
+produce progressive output through `speak_chunks`. The call negotiates
 these paths explicitly; existing providers and callers retain whole clips.
 Only a finalized live transcript enters the desk or teammate's session.
 

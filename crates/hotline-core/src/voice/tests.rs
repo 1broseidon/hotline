@@ -991,6 +991,21 @@ fn sentence_boundaries_keep_paths_versions_and_late_warnings() {
     pending.push_str("rs. Next");
     assert_eq!(take_sentences(&mut pending, false), ["Check main.rs."]);
     assert_eq!(take_sentences(&mut pending, true), ["Next"]);
+    // A list is said item by item, and a run-on is cut at a pause.
+    assert_eq!(
+        sentences("Here are the files:\n- `a.png` (2 MB)\n- `b.png` (1 MB)"),
+        [
+            "Here are the files:",
+            "- `a.png` (2 MB)",
+            "- `b.png` (1 MB)"
+        ]
+    );
+    let run_on = "word ".repeat(70) + "and then, " + &"more ".repeat(70);
+    let pieces = sentences(&run_on);
+    assert!(pieces.len() > 1 && pieces.iter().all(|p| p.len() <= 300));
+    assert_eq!(pieces.join(" "), run_on.trim());
+    let unbroken = "é".repeat(400);
+    assert_eq!(sentences(&unbroken).concat(), unbroken);
 }
 
 #[tokio::test]
@@ -1863,5 +1878,59 @@ async fn speaking_over_a_thinking_front_frees_the_call_for_the_next_turn() {
     .unwrap();
     assert!(handed(&calls, &id).is_empty());
     gate.add_permits(2);
+    calls.end(&id).unwrap();
+}
+
+#[test]
+fn only_a_bare_acknowledgement_counts_as_one() {
+    for ack in [
+        "on it",
+        "On it.",
+        "Got it, looking now.",
+        "Sure!",
+        "Working on it…",
+    ] {
+        assert!(acknowledgement(ack), "{ack}");
+    }
+    for reply in [
+        "On it. The tests passed and I pushed the fix to the branch.",
+        "Done.",
+        "Okay, done.",
+        "The largest file is shooting-stars-wallpaper.png.",
+        "No.",
+    ] {
+        assert!(!acknowledgement(reply), "{reply}");
+    }
+}
+
+#[tokio::test]
+async fn a_fronted_call_does_not_repeat_the_teammates_bare_acknowledgement() {
+    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("On it.".into(), false))).await;
+    let mack = calls
+        .change(&id, |call| {
+            call.seq = Some(1);
+            Ok(call.target.clone().unwrap())
+        })
+        .unwrap();
+    let origin = Origin {
+        call_id: id.clone(),
+        seq: 1,
+        direct: true,
+    };
+    assert!(calls.delivery(&mack, "ack", "Mack", "on it", true, Some(&origin)));
+    assert!(calls.delivery(
+        &mack,
+        "done",
+        "Mack",
+        "The build is green.",
+        true,
+        Some(&origin)
+    ));
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The build is green."),
+    )
+    .await;
+    assert_eq!(*lock(&fake.spoken), ["The build is green."]);
     calls.end(&id).unwrap();
 }

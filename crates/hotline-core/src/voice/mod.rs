@@ -1406,6 +1406,16 @@ impl Calls {
         speech: &CancellationToken,
     ) -> Result<(), String> {
         self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
+        // The call's own voice already acknowledged the request; a turn that
+        // ends on the teammate's bare "on it" would say it twice.
+        if acknowledgement(&delivery.text)
+            && self.change(id, |call| Ok(call.target.is_some()))?
+            && self
+                .dispatcher()
+                .is_ok_and(|dispatcher| dispatcher.fronts())
+        {
+            return Ok(());
+        }
         let text = tokio::select! {
             _ = context.cancel.cancelled() => return Ok(()),
             _ = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
@@ -1877,17 +1887,54 @@ fn goodbye(text: &str) -> bool {
     GOODBYE.is_match(&spoken)
 }
 
+/// A short reply that only says the work has started.
+fn acknowledgement(text: &str) -> bool {
+    let words: String = text
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '\'' || c == '’' {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    let words: Vec<&str> = words.split_whitespace().collect();
+    let phrase = words.join(" ");
+    words.len() <= 6
+        && [
+            "on it",
+            "got it",
+            "will do",
+            "working on it",
+            "looking now",
+            "checking now",
+            "one sec",
+            "one moment",
+            "sure",
+            "okay",
+            "ok",
+        ]
+        .iter()
+        .any(|ack| phrase == *ack || phrase.starts_with(&format!("{ack} ")))
+        && !phrase.contains("done")
+        && !phrase.contains("finished")
+}
+
 fn sentences(text: &str) -> Vec<String> {
     take_sentences(&mut text.to_string(), true)
 }
 
-/// A boundary needs following whitespace, so file names and versions stay intact.
+/// A boundary needs following whitespace, so file names and versions stay
+/// intact. A line break is a boundary too: list items rarely end in a stop.
 fn take_sentences(pending: &mut String, finished: bool) -> Vec<String> {
     let mut ends = Vec::new();
     let mut chars = pending.char_indices().peekable();
     while let Some((at, c)) = chars.next() {
-        if matches!(c, '.' | '!' | '?')
-            && chars.peek().is_some_and(|(_, next)| next.is_whitespace())
+        if c == '\n'
+            || matches!(c, '.' | '!' | '?')
+                && chars.peek().is_some_and(|(_, next)| next.is_whitespace())
         {
             ends.push(at + c.len_utf8());
         }
@@ -1900,11 +1947,43 @@ fn take_sentences(pending: &mut String, finished: bool) -> Vec<String> {
     for end in ends {
         let sentence = pending[start..end].trim();
         if !sentence.is_empty() {
-            out.push(sentence.to_string());
+            out.extend(spoken_lengths(sentence));
         }
         start = end;
     }
     pending.drain(..start);
+    out
+}
+
+/// The longest piece sent to speech at once. A run-on sentence is cut at a
+/// comma-like pause, else a space, so no one request nears the audio limit.
+const SPOKEN_PIECE: usize = 300;
+
+fn spoken_lengths(sentence: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = sentence;
+    while rest.len() > SPOKEN_PIECE {
+        let mut limit = SPOKEN_PIECE;
+        while !rest.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        let head = &rest[..limit];
+        let cut = [", ", "; ", ": ", " - "]
+            .iter()
+            .filter_map(|pause| head.rfind(pause).map(|at| at + 1))
+            .max()
+            .filter(|&at| at > SPOKEN_PIECE / 3)
+            .or_else(|| head.rfind(' ').filter(|&at| at > 0))
+            .unwrap_or(limit);
+        let piece = rest[..cut].trim();
+        if !piece.is_empty() {
+            out.push(piece.to_string());
+        }
+        rest = rest[cut..].trim_start();
+    }
+    if !rest.is_empty() {
+        out.push(rest.to_string());
+    }
     out
 }
 

@@ -159,9 +159,11 @@ fails before it decides, the words are handed over unchanged. A handoff that
 cannot start the teammate or reach its session is reported on the call.
 
 While the front speaks for the call, the teammate's own interim
-acknowledgements are not spoken; its reply at the end of the turn is. Replies
+acknowledgements are not spoken, nor a turn that ends on a bare one; its
+reply at the end of the turn is. Replies
 to any turn handed off on this call are delivered, not only to the latest one,
-and longer replies are retold in the first person by the dispatcher's model.
+and longer replies are retold in the first person by the dispatcher's model,
+which summarises lists rather than reading them out.
 Short plain replies are spoken as written. Without a dispatcher, a direct call
 hands every utterance to the session and speaks its replies as before.
 

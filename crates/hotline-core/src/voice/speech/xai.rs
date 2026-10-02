@@ -406,6 +406,7 @@ impl Xai {
     }
 
     async fn connect_once(&self, model: &str, bearer: Option<&str>) -> Result<Socket, SpeechError> {
+        crate::desk::install_crypto_provider();
         let mut url = url::Url::parse(&format!(
             "{}/stt",
             self.endpoint.base_url.trim_end_matches('/')

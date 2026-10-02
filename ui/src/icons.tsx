@@ -225,6 +225,13 @@ export const WarningIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+/* Live voice, beside the words in the composer. */
+export const VoiceIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M2.5 6v4M5.25 3.5v9M8 5v6M10.75 2.5v11M13.5 6v4" />
+	</svg>
+);
+
 /* A handset, for a call with the desk. */
 export const PhoneIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>

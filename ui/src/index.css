@@ -1529,6 +1529,17 @@
 	.composer-send:hover {
 		background: var(--accent-hover);
 	}
+	.composer-voice {
+		background: var(--fill-active);
+		color: var(--ink);
+	}
+	.composer-voice:hover {
+		background: var(--line-strong);
+	}
+	.composer-send:disabled {
+		background: var(--fill-active);
+		color: var(--ink-3);
+	}
 	.composer-stop {
 		background: var(--fill-active);
 		color: var(--ink);

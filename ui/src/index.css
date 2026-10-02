@@ -1803,19 +1803,8 @@
 		gap: 12px;
 		padding: 12px 12px 10px;
 	}
-	.profile-face {
-		display: flex;
+	.profile .avatar {
 		flex: none;
-		flex-direction: column;
-		align-items: center;
-		gap: 4px;
-	}
-	.profile-face-reset {
-		padding: 0 4px;
-		border-radius: var(--radius-control);
-		font-size: var(--text-xs);
-		line-height: var(--text-xs--line-height);
-		color: var(--ink-3);
 	}
 	.profile-text {
 		display: flex;
@@ -1823,8 +1812,19 @@
 		flex: 1;
 		flex-direction: column;
 		gap: 2px;
-		/* The name sits level with the face's centre line, not its top edge. */
-		padding-top: 6px;
+		padding-top: 4px;
+	}
+	/* A long goal keeps the card at its resting size: four lines, fading
+	 * out, and scrolling within those four lines while it is edited. */
+	.profile .profile-goal {
+		max-height: calc(var(--text-sm--line-height) * 4 + 4px);
+	}
+	.profile .profile-goal[data-clipped] {
+		mask-image: linear-gradient(to bottom, black calc(100% - 1.25em), transparent);
+	}
+	.profile .profile-goal:focus {
+		overflow-y: auto;
+		mask-image: none;
 	}
 	.profile + .group-row {
 		border-top: var(--hairline) solid var(--line);

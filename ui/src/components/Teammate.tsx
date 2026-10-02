@@ -91,12 +91,15 @@ export function Teammate({
 		setPathShown(false);
 	}, [persona.id]);
 
-	// The goal is as tall as its text, never a well with room to spare.
+	// The goal is as tall as its text, never a well with room to spare, up to
+	// the card's four lines; past them it fades out.
+	const [goalClipped, setGoalClipped] = useState(false);
 	useEffect(() => {
 		const field = goalField.current;
 		if (!field) return;
 		field.style.height = "0";
 		field.style.height = `${field.scrollHeight}px`;
+		setGoalClipped(field.scrollHeight > field.clientHeight + 1);
 	}, [goal]);
 
 	useEffect(() => {
@@ -179,14 +182,7 @@ export function Teammate({
 					    the voice they answer a call in when the desk can speak. */}
 					<div className="grouped profile-card">
 						<div className="profile">
-							<div className="profile-face">
-								<Avatar id={persona.id} name={name.trim() || persona.name} size={44} hash={persona.avatar?.hash} />
-								{persona.avatar !== undefined && (
-									<button type="button" className="control btn-quiet profile-face-reset" disabled={busy} onClick={() => save({ avatar: null } as unknown as Partial<Persona>)}>
-										Use initial
-									</button>
-								)}
-							</div>
+							<Avatar id={persona.id} name={name.trim() || persona.name} size={64} hash={persona.avatar?.hash} />
 							<div className="profile-text">
 								<input
 									aria-label="Name"
@@ -208,6 +204,7 @@ export function Teammate({
 									ref={goalField}
 									aria-label="Goal"
 									className="profile-goal"
+									data-clipped={goalClipped || undefined}
 									rows={1}
 									placeholder="What this teammate is for"
 									value={goal}

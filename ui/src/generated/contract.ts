@@ -1364,7 +1364,7 @@ export type VoiceModel = { providerId: string, modelId: string, voice?: string, 
 
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 
-export type VoiceStatus = { capabilities: Array<string>, available: boolean,
+export type VoiceStatus = { capabilities: Array<string>, available: boolean, 
 /**
  * Direct teammate calls need speech and budget, but no desk dispatcher.
  */

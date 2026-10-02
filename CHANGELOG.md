@@ -8,15 +8,33 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-02
+
 ### Added
 
-- Agents the ACP registry ships as prebuilt archives can be teammates:
-  Google Antigravity, Goose, Amp, Kimi, Mistral Vibe, Junie and the rest of
-  the registry's binary agents. The first start downloads the archive for
-  this computer, checks it against its published SHA-256 when there is one,
-  and unpacks it under the data directory's `acp-agents/`; later starts reuse
-  it, and a new release replaces the old one. An agent with nothing published
-  for this computer still shows why it is unavailable.
+- Call a teammate directly through their existing conversation, session and
+  permissions. The call stays with the chosen desk and teammate; only replies
+  belonging to that call are spoken. Hold, interrupt and hangup stop speech
+  without canceling teammate work already accepted. Call the desk remains
+  the primary entry point.
+- Desktop and server support for finalized on-device phone transcripts.
+  Compatible companion builds with native speech recognition can send text
+  without a remote transcription provider or transcription charge. Older
+  clients keep the recorded-audio path; the desktop update does not install
+  the phone's native module.
+- Native Grok speech through an xAI API key, with live transcription and
+  streamed speech. Experimental Grok subscription speech uses the existing
+  sign-in and must be selected explicitly in Settings > Providers > Use for.
+  It is never chosen automatically or switched to paid API speech on failure.
+  Access depends on provider entitlement and limits; subscription speech adds
+  no estimated API speech spend, while dispatcher and agent costs still apply.
+- Mermaid diagrams render inside messages, with a source toggle. Diagrams,
+  sent pictures and computer captures open in the window's own viewer, where
+  they can be shown at full size.
+- Agents the ACP registry ships as prebuilt archives can be teammates. The
+  first start downloads the archive for this computer and checks its published
+  SHA-256 when one is provided. Later starts reuse the installed version;
+  unsupported platforms show why the agent is unavailable.
 - Grok draws. Connect xAI with a key or sign in with your Grok subscription
   and teammates can make and edit images with Grok Imagine (up to five
   reference images). A key is charged within the spending cap; the
@@ -24,61 +42,60 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- Calls can play speech as playable chunks arrive instead of waiting for the
+  complete reply. Supported providers also receive microphone audio while
+  you talk; other providers retain whole clips.
+- An empty message input offers a waveform button to call that teammate.
+  A draft switches it to Send; Stop stays separate while work is running.
 - A subagent a teammate has running shows in the conversation's header, so
-  you no longer scroll back to its line to find it. One is named, several
-  are counted in a menu, and pressing one opens its run in the work card,
-  the floating card a turn's steps open in, instead of the old side pane:
-  the task it was handed, its steps and what it said, following the newest
-  as it works. The header clears when the run finishes; its line in the
-  conversation keeps how it went and still opens it. The roster row carries
-  `subagents`, so a phone can show the same.
-- A Claude or Codex teammate's subagents can show as runs of their own:
-  the same line, header button and work card as a Hotline Agent subagent,
-  with the subagent's own steps instead of one tool call on the teammate's
-  turn. Hotline offers ACP's draft subagent capability, and an adapter that
-  takes it gets this. Claude's and Codex's current adapter releases do not
-  read it yet, so their subagents stay tool calls until the adapters update.
+  you no longer scroll back to find it. Pressing one opens its task, steps
+  and replies in the work card. The header clears when the run finishes;
+  its line in the conversation keeps the result and still opens the run.
+- ACP teammates, including Claude and Codex, can show subagents as separate
+  runs when their adapter accepts and reports ACP's draft subagent capability.
+  Adapters that do not report subagent sessions keep showing their work as
+  tool calls on the teammate's turn.
 - A teammate's face in the rail turns a ring while something is on its way:
   its session starting, which can take a while when an agent is first
-  downloaded, or its picture being drawn. The roster row carries `drawing`,
-  so a phone can show the same.
+  downloaded, or its picture being drawn.
 - A ChatGPT or Grok subscription is now the first choice for images when
   you haven't picked one, ahead of paid keys, rather than needing to be
   picked by hand. A subscription that fails can fall back to another
   subscription, never to a paid API.
 - Default avatars, including setup, are drawn as the Hotline crew: a matte
-  vinyl head-and-shoulders bust with cream eye domes and slot pupils, on a
-  pale tint of the teammate's own colour. Every teammate gets one of twelve
-  head shapes from its id, so faces differ in outline and not only colour,
-  and a name that brings a colour keeps it (Clementine is tangerine). No
-  props, pins or logos. A person's custom subject or theme bypasses the crew
-  by omitting style; their photo can be used directly. Existing avatars and
-  the protection for pictures chosen by the person are unchanged.
+  collectible bust with cream eye domes and slot pupils, varied head shapes
+  and the teammate's own colour. Custom subjects and themes bypass the crew
+  preset, and a photo can be used directly. Existing avatars and protection
+  for pictures chosen by the person are unchanged.
+- The website has a refreshed introduction, current desktop and phone
+  screenshots, and a clearer explanation of a teammate's own computer.
 
 ### Fixed
 
+- Voice detection gives an established utterance a quieter continuation
+  threshold and 1.2 seconds to pause. Brief noises must contribute enough
+  measured speech time to start a turn, and missing meter samples no longer
+  end one early.
+- Direct teammate calls remain available when speech is configured but the
+  desk dispatcher is unavailable, including text calls without remote STT.
+- Pasted pictures become attachments in the message input, including on
+  WebKitGTK desktops where the image is only available from the system clipboard.
+- Reactions under message bubbles are no longer clipped by the row layout.
+- Removing an MCP server clears its stale missing rows from the tools list.
 - A picture a teammate made showed twice in the conversation when it then
-  sent the same file. `generate_image` already posts it, the tools now say
-  so (including `set_avatar`, which used to ask for a `send_file`), and a
-  `send_file` of a picture just made is answered without posting it again.
-- Signing in to an OAuth MCP server on a desk on a server now completes from the
-  desktop: the browser's redirect cannot reach the server, so after approving,
-  the window asks for the address of the page you land on and finishes the
-  sign-in with it. Only that sign-in's own callback is accepted, and a wrong
-  address leaves it waiting (BRO-154).
-- A harness the desk cannot start now says why when the CLI is installed for
-  someone else on the machine ("claude is installed for agent, but the desk
-  runs as hotline …") or is in the desk's own home or a system folder but off
-  its PATH, instead of only "Not installed". The desk checks that an
-  executable exists and opens nobody's files (BRO-139). A companion phone
-  only reads that a harness is unavailable here; the reason is for the owner.
-- The server installer runs the desk as the person installing it, whether
-  they ran it as themselves or with `sudo`, so it sees their `claude`,
-  `codex` and logins. As root with nobody behind it, it uses the one
-  person's account on the machine, or else creates the `hotline` service
-  account and says how to set up a harness for it; the desk never runs as
-  root. `--user NAME` chooses, and an upgrade never changes the user
-  (BRO-139).
+  sent the same file. Sending a picture just posted by `generate_image` is
+  now answered without posting it again.
+- OAuth MCP sign-in on a server desk can finish from the desktop by pasting
+  the browser's final redirect address. Only that sign-in's own callback is
+  accepted; a wrong address leaves it waiting (BRO-154).
+- Unavailable harnesses explain when the CLI is installed for another account
+  or off the desk's PATH, instead of only saying "Not installed". Reasons
+  remain visible only to the owner (BRO-139).
+- A first server installation runs the desk as the person installing it,
+  including through `sudo`, so it can find their harnesses and logins.
+  Root-only installs choose the single person's account or a dedicated service
+  account. `--user NAME` chooses explicitly; the desk never runs as root and
+  upgrades preserve the existing service user (BRO-139).
 
 ## [0.30.0] - 2026-09-30
 

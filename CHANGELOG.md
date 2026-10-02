@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-10-02
+
 ### Added
 
 - Teammates know whether you are writing from the desktop app or your phone,
@@ -26,6 +28,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   answered from the conversation without interrupting the teammate, and the
   finished reply is told in the teammate's words rather than cut to its first
   two sentences.
+- A call points to a list, table, file or link in the chat instead of reading
+  it out, says a link as its site's name rather than spelling the address,
+  speaks long replies in pieces, and does not repeat a bare acknowledgement.
+
+### Fixed
+
+- Grok live transcription connects again; calls using it no longer report
+  that live voice input is busy.
+- The first Grok speech clip plays before a full second is buffered.
+- Talking over a direct call's reply frees the call for your next turn.
 
 ## [0.31.0] - 2026-10-02
 

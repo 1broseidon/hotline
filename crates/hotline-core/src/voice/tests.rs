@@ -18,6 +18,10 @@ pub(crate) struct Fake {
     pub answer_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     pub narration: Mutex<Option<Result<String, String>>>,
     pub narrations: AtomicUsize,
+    /// When set, direct calls get a front that says this and, if true, hands off.
+    pub front: Mutex<Option<Result<(String, bool), String>>>,
+    pub fronted: Mutex<Vec<Front>>,
+    pub first_person: AtomicUsize,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -35,6 +39,9 @@ impl Default for Fake {
             answer_gate: Mutex::new(None),
             narration: Mutex::new(None),
             narrations: AtomicUsize::new(0),
+            front: Mutex::new(None),
+            fronted: Mutex::new(Vec::new()),
+            first_person: AtomicUsize::new(0),
         }
     }
 }
@@ -121,6 +128,33 @@ impl Dispatcher for Fake {
             return result;
         }
         Ok(format!("{name} says: {text}"))
+    }
+    fn fronts(&self) -> bool {
+        lock(&self.front).is_some()
+    }
+    async fn front_stream(
+        &self,
+        front: Front,
+        _: &str,
+        _: Arc<Budget>,
+        output: mpsc::Sender<String>,
+    ) -> Result<(), String> {
+        lock(&self.fronted).push(front.clone());
+        let plan = lock(&self.front).clone().unwrap();
+        let (line, hand) = plan?;
+        if hand {
+            (front.hand_off)()?;
+        }
+        output.send(line).await.map_err(|e| e.to_string())
+    }
+    async fn narrate_first_person(
+        &self,
+        _: &str,
+        text: &str,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        self.first_person.fetch_add(1, Ordering::SeqCst);
+        Ok(format!("In my words: {text}"))
     }
 }
 pub(crate) fn services() -> Services {
@@ -1664,4 +1698,142 @@ async fn streaming_failure_falls_back_only_before_audio_and_drops_rejected_produ
         );
         calls.end(&id).unwrap();
     }
+}
+
+async fn fronted_call(
+    plan: Result<(String, bool), String>,
+) -> (
+    tempfile::TempDir,
+    Arc<Fake>,
+    Arc<Calls>,
+    String,
+    broadcast::Receiver<VoiceEvent>,
+) {
+    use crate::contract::Command;
+    let fake = Arc::new(Fake::default());
+    *lock(&fake.front) = Some(plan);
+    *lock(&fake.transcript) = "Can you check the build?".into();
+    let (root, desk, calls) = desk(with_fake(fake.clone()));
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
+    let persona = crate::wire::commands::run(create, &desk.log, &handle)
+        .await
+        .unwrap();
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk).unwrap();
+    calls
+        .change(&id, |call| {
+            call.target = Some(persona["id"].as_str().unwrap().into());
+            Ok(())
+        })
+        .unwrap();
+    let (_, rx) = calls.subscribe(&id).unwrap();
+    (root, fake, calls, id, rx)
+}
+fn handed(calls: &Calls, id: &str) -> Vec<u32> {
+    calls
+        .change(id, |call| Ok(lock(&call.handed).iter().copied().collect()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_fronted_call_answers_in_first_person_without_handing_off_a_question() {
+    let (_root, fake, calls, id, mut rx) =
+        fronted_call(Ok(("I'm still on the tests.".into(), false))).await;
+    utterance(&calls, &id, 1).unwrap();
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "I'm still on the tests."),
+    )
+    .await;
+    event(&mut rx, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Listening,
+                ..
+            }
+        )
+    })
+    .await;
+    let fronted = lock(&fake.fronted).clone();
+    assert_eq!(fronted.len(), 1);
+    assert_eq!(fronted[0].name, "Mack");
+    assert_eq!(fronted[0].goal, "Keep the build green");
+    assert!(!fronted[0].working);
+    assert!(handed(&calls, &id).is_empty());
+    assert_eq!(fake.answers.load(Ordering::SeqCst), 0);
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn a_fronted_handoff_is_acknowledged_once_and_a_lost_one_is_reported() {
+    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("On it.".into(), true))).await;
+    utterance(&calls, &id, 1).unwrap();
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
+    )
+    .await;
+    assert_eq!(handed(&calls, &id), [1]);
+    // A second call to the tool in the same turn queues nothing more.
+    let front = lock(&fake.fronted)[0].clone();
+    assert_eq!((front.hand_off)().unwrap()["status"], "already handed");
+    assert_eq!(handed(&calls, &id), [1]);
+    // This desk has no provider, so the teammate cannot start: the caller is told.
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text.contains("didn't reach my session")),
+    )
+    .await;
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn a_failed_front_hands_the_words_over_unchanged() {
+    let (_root, fake, calls, id, _rx) = fronted_call(Err("provider down".into())).await;
+    utterance(&calls, &id, 1).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while handed(&calls, &id).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(handed(&calls, &id), [1]);
+    assert!(!lock(&fake.spoken).iter().any(|line| line == "On it."));
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn work_handed_off_earlier_still_reports_in_first_person_after_a_later_question() {
+    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("Nearly there.".into(), false))).await;
+    let mack = calls
+        .change(&id, |call| {
+            call.seq = Some(5);
+            lock(&call.handed).push_back(4);
+            Ok(call.target.clone().unwrap())
+        })
+        .unwrap();
+    let earlier = Origin {
+        call_id: id.clone(),
+        seq: 4,
+        direct: true,
+    };
+    let unasked = Origin {
+        seq: 3,
+        ..earlier.clone()
+    };
+    assert!(!calls.delivery(&mack, "stale", "Mack", "Old.", true, Some(&unasked)));
+    let report = "The build is green again. I fixed the flaky `config.rs` test, reran the suite \
+                  twice, and pushed the change to the branch so you can review it.";
+    assert!(calls.delivery(&mack, "done", "Mack", report, true, Some(&earlier)));
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text.starts_with("In my words:")),
+    )
+    .await;
+    assert_eq!(fake.first_person.load(Ordering::SeqCst), 1);
+    assert_eq!(fake.narrations.load(Ordering::SeqCst), 0);
+    calls.end(&id).unwrap();
 }

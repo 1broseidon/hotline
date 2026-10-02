@@ -12,7 +12,7 @@ use crate::contract::{
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use dispatcher::{Context, Dispatcher, ProviderDispatcher};
+use dispatcher::{Context, Dispatcher, Front, ProviderDispatcher};
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
 use settings::VoiceSettings;
@@ -150,6 +150,10 @@ struct Call {
     deliveries: CancellationToken,
     utterance_pending: bool,
     first_clip_started: Option<Instant>,
+    /// The turns of a direct call that reached the teammate's session. Its
+    /// voice answers some turns itself, so a reply can belong to an earlier
+    /// turn than the latest.
+    handed: Arc<Mutex<VecDeque<u32>>>,
 }
 
 impl Call {
@@ -397,6 +401,7 @@ impl Calls {
                 deliveries: CancellationToken::new(),
                 utterance_pending: false,
                 first_clip_started: None,
+                handed: Arc::default(),
             });
             let this = self.clone();
             let id = id.to_string();
@@ -1086,35 +1091,15 @@ impl Calls {
             direct: target.is_some(),
         };
         if let Some(target) = target {
-            let room = self.room.upgrade().ok_or("The desk has closed.")?;
-            // Room owns session startup/reuse, revocable grants, steering and tape.
-            // Once accepted, this work is independent of the call's speech token.
-            tokio::select! {
-                biased;
-                _ = context.cancel.cancelled() => return Ok(()),
-                _ = speech_cancel.cancelled() => return Ok(()),
-                started = tokio::time::timeout(Duration::from_secs(60), room.start(&target)) => {
-                    started.map_err(|_| "The teammate did not start in time.".to_string())??;
-                }
-            }
-            if context.cancel.is_cancelled() || speech_cancel.is_cancelled() {
-                return Ok(());
-            }
-            let prompt = crate::wire::commands::VOICE_COMMAND.scope(
-                (),
-                crate::wire::commands::CALL_ORIGIN
-                    .scope(origin, room.prompt(&target, &text, None, None)),
-            );
-            // Chapter/start gates can still wait before the instruction is
-            // accepted. Cancellation stops that wait, not an accepted turn.
-            return tokio::select! {
-                biased;
-                _ = context.cancel.cancelled() => Ok(()),
-                _ = speech_cancel.cancelled() => Ok(()),
-                accepted = tokio::time::timeout(Duration::from_secs(60), prompt) => {
-                    accepted.map_err(|_| "The teammate did not accept the instruction in time.".to_string())?
-                }
+            let front = self.dispatcher().ok().filter(|d| d.fronts());
+            let Some(front) = front else {
+                return self
+                    .hand_off(id, &target, &text, origin, context, speech_cancel)
+                    .await;
             };
+            return self
+                .front(id, front, &target, text, origin, context, speech_cancel)
+                .await;
         }
         let dispatcher = self.dispatcher()?;
         let context = context.with_origin(origin);
@@ -1157,6 +1142,199 @@ impl Calls {
         }
     }
 
+    /// The person's words into the teammate's own session, where the work is
+    /// done: what a direct call does with every utterance when nothing can
+    /// speak for the teammate.
+    async fn hand_off(
+        &self,
+        id: &str,
+        target: &str,
+        text: &str,
+        origin: Origin,
+        context: &Context,
+        speech_cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        let room = self.room.upgrade().ok_or("The desk has closed.")?;
+        self.change(id, |call| {
+            let mut handed = lock(&call.handed);
+            if handed.len() >= 16 {
+                handed.pop_front();
+            }
+            handed.push_back(origin.seq);
+            Ok(())
+        })?;
+        // Room owns session startup/reuse, revocable grants, steering and tape.
+        // Once accepted, this work is independent of the call's speech token.
+        tokio::select! {
+            biased;
+            _ = context.cancel.cancelled() => return Ok(()),
+            _ = speech_cancel.cancelled() => return Ok(()),
+            started = tokio::time::timeout(Duration::from_secs(60), room.start(target)) => {
+                started.map_err(|_| "The teammate did not start in time.".to_string())??;
+            }
+        }
+        if context.cancel.is_cancelled() || speech_cancel.is_cancelled() {
+            return Ok(());
+        }
+        let prompt = crate::wire::commands::VOICE_COMMAND.scope(
+            (),
+            crate::wire::commands::CALL_ORIGIN.scope(origin, room.prompt(target, text, None, None)),
+        );
+        // Chapter/start gates can still wait before the instruction is
+        // accepted. Cancellation stops that wait, not an accepted turn.
+        tokio::select! {
+            biased;
+            _ = context.cancel.cancelled() => Ok(()),
+            _ = speech_cancel.cancelled() => Ok(()),
+            accepted = tokio::time::timeout(Duration::from_secs(60), prompt) => {
+                accepted.map_err(|_| "The teammate did not accept the instruction in time.".to_string())?
+            }
+        }
+    }
+
+    /// A direct call's turn, answered at once by the teammate's voice: a
+    /// quick model speaking as the teammate, which hands the person's words
+    /// to the teammate's session when they ask for work and otherwise answers
+    /// from the conversation. The teammate's own reply arrives later as a
+    /// delivery, said in its words.
+    #[allow(clippy::too_many_arguments)]
+    async fn front(
+        &self,
+        id: &str,
+        dispatcher: Arc<dyn Dispatcher>,
+        target: &str,
+        text: String,
+        origin: Origin,
+        context: &Context,
+        speech_cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        let room = self.room.upgrade().ok_or("The desk has closed.")?;
+        let persona = crate::room::roster(&self.log)
+            .into_iter()
+            .find(|persona| persona.id == target)
+            .ok_or("That teammate is no longer in the room.")?;
+        let (work, notices, handed) = self.change(id, |call| {
+            Ok((
+                call.work.clone(),
+                call.deliveries.clone(),
+                call.handed.clone(),
+            ))
+        })?;
+        let handed_off = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hand_off: Arc<dyn Fn() -> Result<serde_json::Value, String> + Send + Sync> = {
+            let handed_off = handed_off.clone();
+            let room = Arc::downgrade(&room);
+            let target = target.to_string();
+            let name = persona.name.clone();
+            let text = text.clone();
+            let cancel = context.cancel.clone();
+            Arc::new(move || {
+                if handed_off.swap(true, Ordering::SeqCst) {
+                    return Ok(serde_json::json!({"status": "already handed"}));
+                }
+                {
+                    let mut handed = lock(&handed);
+                    if handed.len() >= 16 {
+                        handed.pop_front();
+                    }
+                    handed.push_back(origin.seq);
+                }
+                let room = room.clone();
+                let target = target.clone();
+                let name = name.clone();
+                let text = text.clone();
+                let origin = origin.clone();
+                let cancel = cancel.clone();
+                let work = work.clone();
+                let notices = notices.clone();
+                // Accepted work outlives what the voice says about it; only
+                // the call ending stops a handoff still waiting to land.
+                tokio::spawn(async move {
+                    let landed = async {
+                        let room = room.upgrade().ok_or("The desk has closed.".to_string())?;
+                        tokio::time::timeout(Duration::from_secs(60), room.start(&target))
+                            .await
+                            .map_err(|_| "The teammate did not start in time.".to_string())??;
+                        let prompt = crate::wire::commands::VOICE_COMMAND.scope(
+                            (),
+                            crate::wire::commands::CALL_ORIGIN
+                                .scope(origin, room.prompt(&target, &text, None, None)),
+                        );
+                        tokio::time::timeout(Duration::from_secs(60), prompt)
+                            .await
+                            .map_err(|_| "The teammate did not accept it in time.".to_string())?
+                    };
+                    let landed = tokio::select! {
+                        _ = cancel.cancelled() => return,
+                        landed = landed => landed,
+                    };
+                    if landed.is_err() {
+                        let _ = work.try_send(Work::Notice(
+                            Delivery {
+                                persona: target.clone(),
+                                event: String::new(),
+                                name: name.clone(),
+                                text: "That didn't reach my session. Check our conversation before you try again.".into(),
+                            },
+                            notices.child_token(),
+                        ));
+                    }
+                });
+                Ok(serde_json::json!({"status": "queued"}))
+            })
+        };
+        let front = Front {
+            name: persona.name.clone(),
+            goal: persona.goal.clone(),
+            working: matches!(
+                room.info(target).state,
+                crate::contract::SessionState::Thinking | crate::contract::SessionState::Starting
+            ),
+            recent: recent(&self.log, target),
+            hand_off: hand_off.clone(),
+        };
+        let (output, mut answers) = mpsc::channel(8);
+        let produce = async {
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                dispatcher.front_stream(front, &text, self.ledger.clone(), output),
+            )
+            .await
+            .map_err(|_| "The voice timed out.".to_string())?
+        };
+        let consume = async {
+            let mut failure = None;
+            while let Some(sentence) = answers.recv().await {
+                if failure.is_none()
+                    && let Err(error) = self
+                        .say(id, &sentence, speech_cancel, &context.cancel)
+                        .await
+                {
+                    failure = Some(error);
+                }
+            }
+            failure.map_or(Ok(()), Err)
+        };
+        let (produced, spoken) = tokio::select! {
+            _ = context.cancel.cancelled() => return Ok(()),
+            done = async { tokio::join!(produce, consume) } => done,
+        };
+        if [&produced, &spoken]
+            .iter()
+            .any(|result| result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR))
+        {
+            return Err(BUDGET_ERROR.to_string());
+        }
+        // A voice that failed before deciding must not lose the request: the
+        // words go to the teammate as they would without a voice.
+        if produced.is_err() && !handed_off.load(Ordering::SeqCst) && !speech_cancel.is_cancelled()
+        {
+            hand_off()?;
+            return Ok(());
+        }
+        produced.and(spoken)
+    }
+
     async fn summary(&self, delivery: &Delivery) -> Result<String, String> {
         if speech_ready(&delivery.text) {
             return Ok(delivery.text.trim().to_string());
@@ -1185,6 +1363,38 @@ impl Calls {
         }
     }
 
+    /// A teammate's finished reply, said by the teammate on its own call:
+    /// as it wrote it when it is already short enough to say, else in a few
+    /// first-person sentences, else its opening sentences.
+    async fn in_own_words(&self, delivery: &Delivery) -> Result<String, String> {
+        let opening = || {
+            sentences(&delivery.text)
+                .into_iter()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        if speech_ready(&delivery.text) {
+            return Ok(delivery.text.trim().to_string());
+        }
+        if delivery.text.len() > 32_000 {
+            return Ok(opening());
+        }
+        let Ok(dispatcher) = self.dispatcher() else {
+            return Ok(opening());
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(30),
+            dispatcher.narrate_first_person(&delivery.name, &delivery.text, self.ledger.clone()),
+        )
+        .await;
+        match result {
+            Ok(Err(error)) if error == BUDGET_ERROR => Err(error),
+            Ok(Ok(text)) if !text.trim().is_empty() => Ok(sentences(&text).join(" ")),
+            _ => Ok(opening()),
+        }
+    }
+
     async fn narrate(
         &self,
         id: &str,
@@ -1198,7 +1408,7 @@ impl Calls {
             _ = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
             text = async {
                 if self.change(id, |call| Ok(call.target.is_some()))? {
-                    Ok(sentences(&delivery.text).into_iter().take(2).collect::<Vec<_>>().join(" "))
+                    self.in_own_words(delivery).await
                 } else { self.summary(delivery).await }
             } => text?,
         };
@@ -1496,8 +1706,11 @@ impl Calls {
                 && origin.is_none_or(|origin| origin.call_id == call.id)
                 && call.target.as_ref().is_none_or(|target| {
                     target == persona
-                        && origin
-                            .is_some_and(|origin| origin.direct && call.seq == Some(origin.seq))
+                        && origin.is_some_and(|origin| {
+                            origin.direct
+                                && (call.seq == Some(origin.seq)
+                                    || lock(&call.handed).contains(&origin.seq))
+                        })
                 })
         }) {
             if call.spoken_events.iter().any(|id| id == event) {
@@ -1542,6 +1755,15 @@ impl Calls {
             this.push(&delivery, summary.as_deref().unwrap_or(&delivery.text));
         });
         true
+    }
+
+    /// Whether a direct call's turns are answered by the teammate's voice,
+    /// which acknowledges and reports progress itself.
+    pub(crate) fn fronted(&self, origin: &Origin) -> bool {
+        origin.direct
+            && self
+                .dispatcher()
+                .is_ok_and(|dispatcher| dispatcher.fronts())
     }
 
     pub(crate) fn handoff_failed(&self, persona: &str, name: &str) {
@@ -1596,6 +1818,32 @@ impl Calls {
             }
         }
     }
+}
+
+/// A teammate's conversation as its voice reads it: the newest lines first,
+/// each cut short, with tool steps as their titles.
+fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
+    let clip = |text: &str| text.chars().take(600).collect::<String>();
+    log.load(&crate::log::StreamId::Tape(persona.into()))
+        .into_iter()
+        .rev()
+        .filter_map(|event| {
+            let kind = event["kind"].as_str()?.to_string();
+            match kind.as_str() {
+                "user" | "agent" => {
+                    Some(serde_json::json!({"kind": kind, "text": clip(event["text"].as_str()?)}))
+                }
+                "tool" => Some(serde_json::json!({
+                    "kind": "step",
+                    "title": clip(event["title"].as_str().unwrap_or_default()),
+                    "status": event["status"],
+                })),
+                "turn" => Some(serde_json::json!({"kind": "turn ended"})),
+                _ => None,
+            }
+        })
+        .take(24)
+        .collect()
 }
 
 fn speech_ready(text: &str) -> bool {

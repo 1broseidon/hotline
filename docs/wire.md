@@ -943,7 +943,11 @@ traffic controls.
 
 Voice commands and `{"call":"<callId>"}` subscriptions are available to the
 local desk and paired owners. Companions receive `code: "forbidden"`.
-An owner hello advertises `voice` when `voice.status` reports availability.
+An owner hello advertises `voice` and `voiceDirectCalls` when speech and the
+budget permit an audio or text direct call, and `voiceTextInput` when text is
+ready. `VoiceStatus.available` reports desk readiness for the requested mode,
+including the dispatcher; additive `directAvailable` reports readiness without
+that dispatcher. A direct call can work while desk routing is misconfigured.
 Speech comes from connected providers. By default the dispatcher uses the room's
 default provider and prefers its lightweight chat models, excluding speech,
 embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
@@ -954,18 +958,46 @@ No extra speech credential is created.
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `voice.status` | `{}` | `VoiceStatus`: availability, provider/model selections and budget |
-| `voice.call_start` | `{callId}` | `{callId,input:["audio/wav","audio/mp4"],output:"audio/wav"\|"audio/mpeg"}` |
+| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and budget |
+| `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text"}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, and optional echoed `personaId` |
+| `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
+| `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
 | `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
 | `voice.interrupt` | `{callId}` | void |
 | `voice.hold` | `{callId,hold}` | void |
 | `voice.call_end` | `{callId}` | void |
 
-`callId` is a client-generated UUID. Repeating a retained id returns the same
-call descriptor, including an ended call; the desk retains the latest 32 call
+`callId` is a client-generated UUID. Omitting `personaId` calls the desk;
+including it calls that teammate's existing session, chapter and harness.
+Clients require `voiceDirectCalls` before sending a target and check its echo
+in the descriptor. The core validates the target before replacing an active
+call. A direct turn has the same operator origin and standing grants as typed
+input, and its replies must carry that call and turn's internal origin.
+
+Repeating a retained id with the same target and input mode returns the same
+call descriptor, including an ended call; changing either is refused. The desk retains the latest 32 call
 ids for the life of this process. A different id ends the previous call with
 `replaced`. A disconnected or revoked opening connection ends its call. An
 ended call needs a new UUID to start again.
+
+`inputMode` defaults to `"audio"`. A client requires `voiceTextInput` before
+requesting `"text"`, verifies the echoed mode and `text/plain` input format,
+and submits only finalized recognition through `voice.text`. Text is nonblank,
+at most 8,000 characters and 32,000 UTF-8 bytes. It uses the same increasing
+sequence, pending-turn gate, opening connection and cancellation as audio;
+duplicate commits and input from the wrong mode are refused. Text resolves
+output only, makes no remote STT request or reservation, and retains TTS,
+dispatcher (for desk calls), budget and owner-seat enforcement.
+
+`streamAudio: true` opts into progressive speech output and, on audio calls
+when the selected STT adapter supports it, adds `audio/pcm` to the existing
+WAV/MP4 input list.
+Without that input format, a client retains its whole-clip microphone path.
+`voice.audio` chunks contain base64 PCM16 little endian, mono at 16 kHz, at
+most 32 KiB decoded per chunk and 20 seconds per turn. Sequence and chunk
+indices increase within the call; an empty final chunk commits the turn.
+Partial recognition never dispatches work. Hold, interrupt, disconnect and
+revocation cancel unfinished microphone input. See [the call contract ledger](voice-calls.md).
 
 Utterances carry standard base64, at most 2 MiB decoded audio and 20 seconds.
 WAV must be 16 kHz mono PCM16. MP4 must carry a duration in its media header.
@@ -996,7 +1028,9 @@ The call subscription starts with a one-element `snapshot` containing its
 | `card` | `personaId`, `requestId`, `kind` |
 
 An end reason is `client`, `goodbye`, `budget`, `replaced`, `error` or `idle`.
-Each clip is a complete playable sentence, limited to 2 MiB decoded audio. A subscriber that misses events
+Each clip is independently playable, limited to 2 MiB decoded audio. Progressive
+chunks retain one `said.id`, increasing indices, and `final: true` on the last
+chunk. A subscriber that misses events
 must reconnect; the desk closes that socket rather than silently dropping audio.
 Provider selections in `VoiceStatus` are optional when unavailable; `unavailable`
 is a sentence explaining what the owner needs to change.
@@ -1006,7 +1040,8 @@ After a nonempty, non-goodbye `heard`, the desk says nothing until the
 dispatcher answers: the call is `thinking`, and a client covers the wait with
 its own sound (the desktop plays a short blip-blip, repeated while it lasts)
 rather than speech. Dispatcher text streams at sentence boundaries; each
-sentence has its own `said.id` and complete clip (`index: 0`, `final: true`).
+sentence has its own `said.id`. Whole-clip output uses `index: 0`, `final: true`;
+negotiated progressive output can carry multiple clips for that sentence.
 Clients
 must queue clips across successive `said` IDs instead of replacing playback.
 

@@ -173,7 +173,10 @@ error or a cancel says so and keeps what it had said.
 A run writes to its own stream, `runs/<runId>.jsonl`, the way a tape is
 written. On the teammate's tape it leaves one `subagent` line, rewritten as
 the run goes from `running` to `done`, `failed` or `cancelled`; pressing it
-opens the run in the inspector's place. The run id is the job id and the
+opens the run in the work card, the same floating card a turn's steps open
+in. While a run is going, the teammate's roster row lists it in `subagents`
+(`Room::subagents`), so the conversation's band names it and opens it from
+there however far its line has scrolled up. The run id is the job id and the
 tool call's id. Stop, revocation or any other end of the teammate's turn
 cancels its runs and waits for them to settle; a run the process died under
 is settled as `cancelled` on the next start. The authority rules are

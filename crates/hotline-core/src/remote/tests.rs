@@ -670,7 +670,13 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     // companion keeps the smaller command set.
     assert_eq!(
         read(&mut phone).await["capabilities"],
-        json!(["personaCreate", "personaEdit", "schedules", "threads"])
+        json!([
+            "personaCreate",
+            "personaEdit",
+            "schedules",
+            "threads",
+            "runs"
+        ])
     );
 
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;

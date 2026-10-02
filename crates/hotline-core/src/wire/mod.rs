@@ -219,6 +219,11 @@ pub trait RoomHandle: Send + Sync + 'static {
         false
     }
 
+    /// The subagents this teammate has running, for the roster row.
+    fn subagents(&self, _persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
+        Vec::new()
+    }
+
     /// Text as an agent writes it, for a tape subscription to forward. Never
     /// written to a tape: the durable line lands when the message is whole.
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta>;
@@ -628,10 +633,10 @@ impl Seat {
         if matches!(self, Seat::Owner | Seat::Desk)
             && let Some(voice) = room.voice()
         {
-            let audio = voice.status().available;
+            let audio = voice.status().direct_available;
             let text = voice
                 .status_for(crate::contract::VoiceInputMode::Text)
-                .available;
+                .direct_available;
             if audio || text {
                 capabilities.push("voice");
                 capabilities.push("voiceDirectCalls");
@@ -650,13 +655,16 @@ impl Seat {
             // stream they are kept on, which also carries every setting.
             // A thread between two teammates is read the way a tape is: the
             // phone already reads the marker for it on either tape, and the
-            // thread holds what was said, never a setting.
+            // thread holds what was said, never a setting. A subagent's run
+            // is the same: its line is on the tape, and the run holds the
+            // task, its steps and what it said.
             Seat::Phone => {
                 !matches!(target, Target::Tape(id) if id == crate::voice::TAPE_ID)
                     && matches!(
                         target,
                         Target::Tape(_)
                             | Target::Thread(_)
+                            | Target::Run(_)
                             | Target::View(ViewName::Roster)
                             | Target::Schedules(_)
                     )
@@ -1331,15 +1339,21 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// `{"schedules": "<personaId>"}` subscription. A desk from before this list
 /// sends none, and a phone must read that as "not here", never as "nothing".
 /// `threads`: the `{"thread": "<key>"}` subscription, to read two
-/// teammates' conversation. `personaEdit`: `mobile.persona_update` and
+/// teammates' conversation. `runs`: the `{"run": "<runId>"}` subscription,
+/// to read a subagent's run. `personaEdit`: `mobile.persona_update` and
 /// `persona.delete`, renaming, re-aiming and removing a teammate.
 /// `personaAccess`, sent to the owner phone only: `mobile.persona_access`,
 /// a teammate's reach or mode and its background work.
 /// `personaComputer`, also owner-only: `mobile.persona_computer`, enabling
 /// a computer and choosing resource limits. `computer.capacity` is read-only
 /// and available to every phone seat.
-pub(crate) const PHONE_CAPABILITIES: &[&str] =
-    &["personaCreate", "personaEdit", "schedules", "threads"];
+pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
+    "personaCreate",
+    "personaEdit",
+    "schedules",
+    "threads",
+    "runs",
+];
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";
@@ -1791,6 +1805,7 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),
         drawing: room.drawing(&persona.id),
+        subagents: room.subagents(&persona.id),
         session,
         preview,
         latest,

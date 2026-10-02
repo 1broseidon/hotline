@@ -2035,6 +2035,10 @@ pub struct VoiceStatus {
     #[serde(default)]
     pub capabilities: Vec<String>,
     pub available: bool,
+    /// Direct teammate calls need speech and budget, but no desk dispatcher.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub direct_available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2984,7 +2988,24 @@ pub struct RosterEntry {
     /// than leaving the initial looking final.
     #[serde(default)]
     pub drawing: bool,
+    /// Subagents this teammate has running, oldest first, so the
+    /// conversation can show them without scrolling back to their lines.
+    /// Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<RunningSubagent>>", optional)]
+    pub subagents: Vec<RunningSubagent>,
     pub session: SessionInfo,
+}
+
+/// A subagent still running, as its teammate's roster row lists it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct RunningSubagent {
+    pub run_id: String,
+    /// The short label the teammate gave the task.
+    pub title: String,
+    pub started_at: i64,
 }
 
 /// With `default`, absence is None; a present null is Some(None).
@@ -3060,6 +3081,17 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn direct_voice_readiness_is_an_additive_optional_field() {
+        let old: VoiceStatus = serde_json::from_value(json!({
+            "capabilities":["voiceDirectCalls"], "available":true,
+            "budget":{"dayUsd":2,"monthUsd":20,"spentDayUsd":0,"spentMonthUsd":0}
+        }))
+        .unwrap();
+        assert!(!old.direct_available);
+        assert!(VoiceStatus::decl(&ts_rs::Config::default()).contains("directAvailable?: boolean"));
     }
 
     #[test]

@@ -265,10 +265,10 @@ impl Calls {
         VoiceSettings::from_log(&self.log)
     }
     fn dispatcher(&self) -> Result<Arc<dyn Dispatcher>, String> {
-        self.injected
-            .as_ref()
-            .map(|s| Ok(s.dispatcher.clone()))
-            .unwrap_or_else(|| ProviderDispatcher::resolve(self.vault.clone(), &self.log))
+        if let Some(services) = &self.injected {
+            return Ok(services.dispatcher.clone());
+        }
+        ProviderDispatcher::resolve(self.vault.clone(), &self.log)
     }
 
     /// What voice has spent so far against its caps, from its own tally.
@@ -284,15 +284,18 @@ impl Calls {
         let budget = self.ledger.balance();
         let speech = self.resolve_speech(input_mode);
         let dispatcher = self.dispatcher();
+        let budget_error = self.ledger.check().err().map(|e| e.to_string());
+        let direct_available = speech.is_ok() && budget_error.is_none();
         let unavailable = speech
             .as_ref()
             .err()
             .cloned()
             .or_else(|| dispatcher.as_ref().err().cloned())
-            .or_else(|| self.ledger.check().err().map(|e| e.to_string()));
+            .or(budget_error);
         VoiceStatus {
             capabilities: vec!["voiceDirectCalls".into(), "voiceTextInput".into()],
             available: unavailable.is_none(),
+            direct_available,
             unavailable,
             stt: speech
                 .as_ref()

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
-const { Call } = await import("../src/voice/call");
+const { Call, supportsDirectCalls } = await import("../src/voice/call");
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
 
@@ -16,10 +16,11 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	const audioAcks: (() => void)[] = [];
 	let resumeMic: (() => void) | null = null;
 	let holdResume = false;
+	let status: unknown = { available: true, capabilities };
 	const transport: CallTransport = {
 		command: (cmd, params) => {
 			sent.push({ cmd, params });
-			if (cmd === "voice.status") return Promise.resolve({ available: true, capabilities });
+			if (cmd === "voice.status") return Promise.resolve(status);
 			if (cmd === "voice.audio" && holdAudio) return new Promise((resolve) => audioAcks.push(() => resolve(null)));
 			if (cmd === "voice.call_start" && holdStart) return new Promise((resolve) => (callStart = () => resolve(null)));
 			if (cmd === "voice.call_start") return Promise.resolve(response);
@@ -69,6 +70,7 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	idle = () => call.settle();
 	return {
 		call,
+		status: (value: unknown) => (status = value),
 		sent,
 		played,
 		mic,
@@ -279,6 +281,28 @@ describe("a call with the desk", () => {
 		expect(r.sent.map((one) => one.cmd)).toEqual(["voice.status"]);
 		expect(r.call.current.phase).toBe("ended");
 		expect(r.call.current.trouble).toContain("needs an update");
+	});
+
+	test("a ready direct call starts even when the desk dispatcher is unavailable", async () => {
+		const r = rig({ target: { personaId: "mack", name: "Mack" } }, { personaId: "mack", input: ["audio/wav"] });
+		r.status({ available: false, directAvailable: true, capabilities: ["voiceDirectCalls"], unavailable: "Connect the dispatcher." });
+		await r.call.start();
+		expect(r.sent.map((one) => one.cmd)).toEqual(["voice.status", "voice.call_start"]);
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("direct readiness preserves older desks and refuses explicit speech or budget failures", async () => {
+		expect(supportsDirectCalls({ available: true, capabilities: ["voiceDirectCalls"] })).toBe(true);
+		expect(supportsDirectCalls({ available: false, capabilities: ["voiceDirectCalls"] })).toBe(false);
+		expect(supportsDirectCalls({ available: true, directAvailable: false, capabilities: ["voiceDirectCalls"] })).toBe(false);
+		expect(supportsDirectCalls({ available: true, directAvailable: true, capabilities: [] })).toBe(false);
+		const r = rig({ target: { personaId: "mack", name: "Mack" } }, { personaId: "mack" });
+		r.status({ available: false, directAvailable: false, capabilities: ["voiceDirectCalls"], unavailable: "Today's voice budget is spent." });
+		await r.call.start();
+		expect(r.sent.map((one) => one.cmd)).toEqual(["voice.status"]);
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toContain("budget is spent");
 	});
 
 	test("an ignored direct target is ended instead of silently becoming a desk call", async () => {

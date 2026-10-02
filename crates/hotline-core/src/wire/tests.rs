@@ -2336,9 +2336,9 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
 }
 
 /// A phone reads one teammate's schedules and nothing it could change them
-/// or the room with: no job made, cancelled or quieted, and no room or run
-/// stream, which is where a setting would reach it. A thread between two
-/// teammates is read like a tape: it holds what they said.
+/// or the room with: no job made, cancelled or quieted, and no room stream,
+/// which is where a setting would reach it. A thread between two teammates
+/// and a subagent's run are read like a tape: they hold what was said.
 #[test]
 fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     use crate::contract::ScheduleKind;
@@ -2346,9 +2346,8 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     assert!(Seat::Phone.permits_sub(&Target::Tape("ada".to_string())));
     assert!(Seat::Phone.permits_sub(&Target::Thread("ada~bob".to_string())));
     assert!(Seat::Phone.permits_sub(&Target::View(ViewName::Roster)));
-    for target in [Target::Room, Target::Run("run-1".to_string())] {
-        assert!(!Seat::Phone.permits_sub(&target), "{target:?}");
-    }
+    assert!(Seat::Phone.permits_sub(&Target::Run("run-1".to_string())));
+    assert!(!Seat::Phone.permits_sub(&Target::Room));
     let create = Command::ScheduleCreate {
         persona_id: "ada".to_string(),
         kind: ScheduleKind::Loop,
@@ -4478,6 +4477,146 @@ async fn voice_is_owner_only_through_the_real_handler() {
         !Seat::Phone
             .capabilities_for(room.as_ref())
             .contains(&"voiceTextInput")
+    );
+}
+
+#[tokio::test]
+async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speech_and_budget() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    desk.credential_create("openai", "Speech fixture", "unused-test-key")
+        .unwrap();
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"voice", "value":{"dispatcher":{"provider":"not-connected"}}
+                }),
+            ),
+        )
+        .unwrap();
+    for params in [json!({}), json!({"inputMode":"text"})] {
+        let answer = remote_control_answer(
+            Seat::Owner,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":"voice.status","params":params}),
+        )
+        .await;
+        assert_eq!(answer["ok"], true);
+        assert_eq!(answer["result"]["available"], false);
+        assert_eq!(answer["result"]["directAvailable"], true);
+        if params.get("inputMode").is_some() {
+            assert!(answer["result"].get("stt").is_none());
+        } else {
+            assert_eq!(answer["result"]["stt"]["providerId"], "openai");
+        }
+        assert_eq!(answer["result"]["tts"]["providerId"], "openai");
+        assert!(answer["result"].get("dispatcher").is_none());
+    }
+    for seat in [Seat::Owner, Seat::Desk] {
+        let capabilities = seat.capabilities_for(room.as_ref());
+        assert!(capabilities.contains(&"voice"));
+        assert!(capabilities.contains(&"voiceDirectCalls"));
+        assert!(capabilities.contains(&"voiceTextInput"));
+    }
+    assert!(
+        !Seat::Phone
+            .capabilities_for(room.as_ref())
+            .contains(&"voiceDirectCalls")
+    );
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"spending", "value":{"dayUsd":0,"monthUsd":0}
+                }),
+            ),
+        )
+        .unwrap();
+    assert!(!desk.voice().unwrap().status().direct_available);
+    assert!(
+        !desk
+            .voice()
+            .unwrap()
+            .status_for(crate::contract::VoiceInputMode::Text)
+            .direct_available
+    );
+    assert!(
+        !Seat::Owner
+            .capabilities_for(room.as_ref())
+            .contains(&"voice")
+    );
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"spending", "value":{"dayUsd":2,"monthUsd":20}
+                }),
+            ),
+        )
+        .unwrap();
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"voice", "value":{
+                        "stt":{"provider":"not-connected"},
+                        "dispatcher":{"provider":"not-connected"}
+                    }
+                }),
+            ),
+        )
+        .unwrap();
+    assert!(!desk.voice().unwrap().status().direct_available);
+    let text = remote_control_answer(
+        Seat::Owner,
+        &room,
+        &desk.log,
+        json!({"id":2,"cmd":"voice.status","params":{"inputMode":"text"}}),
+    )
+    .await;
+    assert_eq!(text["ok"], true);
+    assert_eq!(text["result"]["available"], false);
+    assert_eq!(text["result"]["directAvailable"], true);
+    assert!(text["result"].get("stt").is_none());
+    for seat in [Seat::Owner, Seat::Desk] {
+        let capabilities = seat.capabilities_for(room.as_ref());
+        assert!(capabilities.contains(&"voice"));
+        assert!(capabilities.contains(&"voiceDirectCalls"));
+        assert!(capabilities.contains(&"voiceTextInput"));
+    }
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({"id":"voice", "value":{"tts":{"provider":"not-connected"}}}),
+            ),
+        )
+        .unwrap();
+    for mode in [
+        crate::contract::VoiceInputMode::Audio,
+        crate::contract::VoiceInputMode::Text,
+    ] {
+        assert!(!desk.voice().unwrap().status_for(mode).direct_available);
+    }
+    assert!(
+        !Seat::Owner
+            .capabilities_for(room.as_ref())
+            .contains(&"voiceDirectCalls")
     );
 }
 

@@ -585,3 +585,82 @@ async fn direct_call_uses_existing_conversation(device_text: bool) {
     socket.close(None).await.unwrap();
     server.abort();
 }
+
+#[tokio::test]
+async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher() {
+    let root = tempfile::tempdir().unwrap();
+    let desk =
+        Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
+    let door = Door::bind(desk.log.clone(), "readiness-test".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=readiness-test"))
+        .await
+        .unwrap();
+    send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"}}}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 2).await["ok"], true);
+    send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let persona = until(&mut socket, |f| f["id"] == 3).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(
+        &mut socket,
+        json!({"id":4,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 4).await;
+    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["directAvailable"], true);
+    send(
+        &mut socket,
+        json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 5).await["ok"], false);
+    let call = Uuid::new_v4().to_string();
+    send(&mut socket, json!({"id":6,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
+    let started = until(&mut socket, |f| f["id"] == 6).await;
+    assert_eq!(started["ok"], true);
+    assert_eq!(started["result"]["personaId"], persona);
+    send(
+        &mut socket,
+        json!({"id":7,"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], true);
+    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 8).await["ok"], true);
+    send(
+        &mut socket,
+        json!({"id":9,"cmd":"voice.status","params":{"inputMode":"text"}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 9).await;
+    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["directAvailable"], true);
+    assert!(status["result"].get("stt").is_none());
+    send(
+        &mut socket,
+        json!({"id":10,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string(),"inputMode":"text"}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 10).await["ok"], false);
+    let text_call = Uuid::new_v4().to_string();
+    send(&mut socket, json!({"id":11,"cmd":"voice.call_start","params":{"callId":text_call,"personaId":persona,"inputMode":"text","streamAudio":true}})).await;
+    let started = until(&mut socket, |f| f["id"] == 11).await;
+    assert_eq!(started["ok"], true);
+    assert_eq!(started["result"]["personaId"], persona);
+    assert_eq!(started["result"]["inputMode"], "text");
+    assert_eq!(started["result"]["input"], json!(["text/plain"]));
+    send(
+        &mut socket,
+        json!({"id":12,"cmd":"voice.call_end","params":{"callId":text_call}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 12).await["ok"], true);
+    socket.close(None).await.unwrap();
+    server.abort();
+}

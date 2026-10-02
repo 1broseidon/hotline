@@ -17,10 +17,10 @@ import type {
 	ToolLedgerRow,
 } from "../generated/contract";
 import { chordKeys } from "../chords";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, FolderIcon, InfoIcon, PlusIcon, RevealIcon, WarningIcon } from "../icons";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, FolderIcon, InfoIcon, PlusIcon, RevealIcon, TrashIcon, WarningIcon } from "../icons";
 import type { McpServer } from "../mcp";
 import { COMPUTER_STATUS_EVERY_MS } from "../computer";
-import { confirmRemove } from "../native";
+import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { firstLine, useRoomSettings } from "../room";
 import { Avatar } from "../ui/Avatar";
@@ -144,6 +144,10 @@ export function Teammate({
 		save({ name: trimmed });
 	};
 
+	const removePicture = async () => {
+		if (await confirmRemovePicture(persona.name)) save({ avatar: null } as unknown as Partial<Persona>);
+	};
+
 	const saveGoal = () => {
 		if (goal !== persona.goal) save({ goal });
 	};
@@ -182,7 +186,23 @@ export function Teammate({
 					    the voice they answer a call in when the desk can speak. */}
 					<div className="grouped profile-card">
 						<div className="profile">
-							<Avatar id={persona.id} name={name.trim() || persona.name} size={64} hash={persona.avatar?.hash} />
+							{persona.avatar === undefined ? (
+								<Avatar id={persona.id} name={name.trim() || persona.name} size={64} />
+							) : (
+								<button
+									type="button"
+									className="profile-picture"
+									title="Remove picture"
+									aria-label={`Remove ${persona.name}'s picture`}
+									disabled={busy}
+									onClick={() => void removePicture()}
+								>
+									<Avatar id={persona.id} name={name.trim() || persona.name} size={64} hash={persona.avatar.hash} />
+									<span className="profile-picture-remove" aria-hidden>
+										<TrashIcon />
+									</span>
+								</button>
+							)}
 							<div className="profile-text">
 								<input
 									aria-label="Name"

@@ -1806,6 +1806,31 @@
 	.profile .avatar {
 		flex: none;
 	}
+	/* A picture removes on press, after asking; hovering says so with a bin. */
+	.profile-picture {
+		position: relative;
+		flex: none;
+		border-radius: 9999px;
+	}
+	.profile-picture-remove {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		border-radius: 9999px;
+		background: rgb(0 0 0 / 0.55);
+		color: white;
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.profile-picture-remove svg {
+		width: 20px;
+		height: 20px;
+	}
+	.profile-picture:hover .profile-picture-remove,
+	.profile-picture:focus-visible .profile-picture-remove {
+		opacity: 1;
+	}
 	.profile-text {
 		display: flex;
 		min-width: 0;

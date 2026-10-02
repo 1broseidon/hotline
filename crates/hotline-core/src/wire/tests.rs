@@ -2336,9 +2336,9 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
 }
 
 /// A phone reads one teammate's schedules and nothing it could change them
-/// or the room with: no job made, cancelled or quieted, and no room or run
-/// stream, which is where a setting would reach it. A thread between two
-/// teammates is read like a tape: it holds what they said.
+/// or the room with: no job made, cancelled or quieted, and no room stream,
+/// which is where a setting would reach it. A thread between two teammates
+/// and a subagent's run are read like a tape: they hold what was said.
 #[test]
 fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     use crate::contract::ScheduleKind;
@@ -2346,9 +2346,8 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     assert!(Seat::Phone.permits_sub(&Target::Tape("ada".to_string())));
     assert!(Seat::Phone.permits_sub(&Target::Thread("ada~bob".to_string())));
     assert!(Seat::Phone.permits_sub(&Target::View(ViewName::Roster)));
-    for target in [Target::Room, Target::Run("run-1".to_string())] {
-        assert!(!Seat::Phone.permits_sub(&target), "{target:?}");
-    }
+    assert!(Seat::Phone.permits_sub(&Target::Run("run-1".to_string())));
+    assert!(!Seat::Phone.permits_sub(&Target::Room));
     let create = Command::ScheduleCreate {
         persona_id: "ada".to_string(),
         kind: ScheduleKind::Loop,

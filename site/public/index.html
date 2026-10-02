@@ -3,23 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hotline</title>
-<meta name="description" content="A local-first room for your team of agents. Open source, self-hosted, on your machine.">
+<title>Hotline — an open source, self-hosted room for AI agent teams</title>
+<meta name="description" content="Run a team of AI agents on your own machine, across Claude, OpenAI, Gemini and local models. Pairs with your phone. Self-hosted and open source.">
 <link rel="canonical" href="https://hotline.dev/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0a0b0d">
 <meta name="color-scheme" content="dark">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hotline">
-<meta property="og:title" content="Hotline">
-<meta property="og:description" content="A local-first room for your team of agents. Open source, self-hosted, on your machine.">
+<meta property="og:title" content="Hotline — an open source, self-hosted room for AI agent teams">
+<meta property="og:description" content="Run a team of AI agents on your own machine, across Claude, OpenAI, Gemini and local models. Pairs with your phone. Self-hosted and open source.">
 <meta property="og:url" content="https://hotline.dev/">
 <meta property="og:image" content="https://hotline.dev/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Hotline">
-<meta name="twitter:description" content="A local-first room for your team of agents. Open source, self-hosted, on your machine.">
+<meta name="twitter:title" content="Hotline — an open source, self-hosted room for AI agent teams">
+<meta name="twitter:description" content="Run a team of AI agents on your own machine, across Claude, OpenAI, Gemini and local models. Pairs with your phone. Self-hosted and open source.">
 <meta name="twitter:image" content="https://hotline.dev/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -425,7 +425,9 @@
   body.bare .viewport { padding: 0; display: block; }
   body.bare .frame { width: 1280px; }
   body.bare .stage { border-radius: 0; box-shadow: none; }
-  body.bare .controls { display: none; }
+  body.bare .controls, body.bare .mast, body.bare .split, body.bare .works, body.bare .sect:not(#tour), body.bare #tour > header, body.bare .closing, body.bare footer.site, body.bare .capbar { display: none !important; }
+  body.bare #tour { padding: 0; margin: 0; max-width: none; }
+  body.bare #tour .tour { display: block; }
 
   @media (prefers-reduced-motion: reduce) {
     body:not(.bare) .vital, body:not(.bare) .step-mark, body:not(.bare) .composer .caret, body:not(.bare) .glyph-dots .g-eyeL, body:not(.bare) .glyph-dots .g-eyeR, body:not(.bare) .glyph-dots .g-dot, body:not(.bare) .camera-drift { animation-duration: 0.01s; animation-iteration-count: 1; }
@@ -512,6 +514,271 @@
     .get .row { justify-content: flex-start; }
     footer.site { padding: 28px 16px 32px; }
   }
+
+  /* ------------------------------------------------------------ the pitch */
+  .wrap { max-width: 1280px; margin: 0 auto; padding-inline: 24px; }
+  .kick { font: 500 11.5px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 20px; }
+  .kick i { font-style: normal; color: var(--accent); }
+  .lede .kick { gap: 6px 0; max-width: none; margin: 0 0 22px; font: 500 11.5px var(--font-mono); line-height: 1.4; letter-spacing: .08em; }
+  .lede .kick > * + *::before { content: "·"; margin: 0 10px; color: var(--ink-4); }
+  .lede .kick span { color: var(--ink-3); }
+  a.inl { color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; transition: color .13s var(--ease-out), text-decoration-color .13s var(--ease-out); }
+  a.inl:hover { color: var(--ink); text-decoration-color: var(--accent); }
+  .lede { padding-block: 72px 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 32px 48px; }
+  .lede h1 { margin: 0; font-size: clamp(40px, 5.4vw, 68px); line-height: 1.02; letter-spacing: -0.038em; font-weight: 600; max-width: 20ch; text-wrap: balance; }
+  .lede p { margin: 22px 0 0; max-width: 54ch; font-size: 18.5px; line-height: 1.5; color: var(--ink-2); text-wrap: pretty; }
+  .lede .cta { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+  .lede .cta .row { display: flex; gap: 8px; }
+  .lede .cta small { font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  .btn.lg { height: 42px; padding: 0 18px; font-size: 14px; border-radius: 8px; }
+  .btn.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .btn.ghost:hover { background: var(--fill-hover); }
+
+  .sect { padding-block: 112px 0; }
+  .sect > header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 46ch); gap: 16px 48px; align-items: end; margin-bottom: 44px; }
+  .sect h2 { margin: 0; font-size: clamp(28px, 3.2vw, 40px); line-height: 1.08; letter-spacing: -0.03em; font-weight: 600; text-wrap: balance; max-width: 20ch; }
+  .sect > header p { margin: 0; font-size: 16px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }
+  .sect .kick { margin-bottom: 14px; }
+
+  /* Both apps, as they are. */
+  .shot { margin: 0; border-radius: 16px; overflow: hidden; background: radial-gradient(900px 480px at 30% 0%, oklch(22% 0.03 250 / .7), transparent 70%), var(--well); box-shadow: inset 0 0 0 1px var(--line); }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot figcaption { padding: 16px 22px; border-top: 1px solid var(--line); font: 400 12px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); display: flex; gap: 8px 24px; flex-wrap: wrap; }
+  .shot figcaption b { color: var(--ink-2); font-weight: 500; }
+
+  /* Four reasons, on hairlines. */
+  .pillars { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+  .pillars article { padding: 28px 28px 8px 0; }
+  .pillars article + article { padding-left: 28px; border-left: 1px solid var(--line); }
+  .pillars .k { font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+  .pillars h3 { margin: 14px 0 10px; font-size: 18px; line-height: 1.25; letter-spacing: -0.015em; font-weight: 600; }
+  .pillars p { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-3); text-wrap: pretty; }
+  .pillars code, .install code { font: 400 .9em var(--font-mono); color: var(--ink-2); }
+
+  /* Side by side. */
+  .compare { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .compare th, .compare td { text-align: left; padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .compare thead th { font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); padding-block: 0 14px; }
+  .compare thead th.us { color: var(--accent); }
+  .compare tbody th { font-weight: 500; color: var(--ink-2); width: 26%; padding-left: 0; }
+  .compare td { color: var(--ink-3); width: 37%; }
+  .compare td.us { color: var(--ink); background: oklch(100% 0 0 / .025); }
+  .compare tbody tr:last-child > * { border-bottom: 0; }
+
+  /* Install: two commands and the buttons. */
+  .install { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .cmd { border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--line); padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .cmd .k { font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); }
+  .cmd h3 { margin: -6px 0 0; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+  .cmd p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--ink-3); }
+  .cmd pre { margin: 0; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; border-radius: 8px; background: var(--canvas); box-shadow: var(--top-light), inset 0 0 0 1px var(--line); font: 400 13px var(--font-mono); color: var(--ink); overflow-x: auto; }
+  .cmd pre span { flex: 1; white-space: nowrap; }
+  .cmd pre span::before { content: "$ "; color: var(--ink-4); }
+  .cmd .copy { flex: none; height: 28px; padding: 0 10px; border-radius: 6px; border: 0; background: var(--pop); color: var(--ink-2); font: 500 12px var(--font-sans); cursor: pointer; transition: background .13s var(--ease-out), color .13s var(--ease-out); }
+  .cmd .copy:hover { background: var(--pressed); color: var(--ink); }
+  .cmd .copy.ok { color: var(--accent); }
+  .cmd .get { margin-top: auto; padding-top: 6px; display: flex; flex-direction: column; gap: 10px; }
+  .cmd .get .row { justify-content: flex-start; }
+  .cmd .get small { font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  .closing { padding-block: 112px 24px; text-align: center; }
+  .closing h2 { margin: 0 auto; max-width: 22ch; font-size: clamp(32px, 4vw, 52px); line-height: 1.05; letter-spacing: -0.035em; font-weight: 600; text-wrap: balance; }
+  .closing p { margin: 16px auto 28px; max-width: 52ch; color: var(--ink-3); font-size: 16px; line-height: 1.55; }
+  .closing .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+  @media (max-width: 980px) {
+    .lede { grid-template-columns: 1fr; }
+    .lede .cta { align-items: flex-start; }
+    .sect > header { grid-template-columns: 1fr; }
+    .pillars { grid-template-columns: 1fr 1fr; }
+    .pillars article:nth-child(3) { border-left: 0; padding-left: 0; }
+    .pillars article:nth-child(n+3) { border-top: 1px solid var(--line); }
+    .install { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding-inline: 16px; }
+    .lede { padding-block: 40px 28px; }
+    .lede p { font-size: 17px; }
+    .lede .kick span:last-child { display: none; }
+    .lede .cta .row { flex-wrap: wrap; }
+    .sect { padding-block: 80px 0; }
+    .pillars { grid-template-columns: 1fr; }
+    .pillars article, .pillars article + article { padding: 22px 0 18px; border-left: 0; }
+    .pillars article + article { border-top: 1px solid var(--line); }
+    .compare thead { display: none; }
+    .compare tr { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); padding: 14px 0; }
+    .compare th, .compare td { border: 0; padding: 4px 0; width: auto; }
+    .compare tbody th { grid-column: 1 / -1; padding-bottom: 8px; }
+    .compare td { padding-right: 12px; font-size: 14px; }
+    .compare td.us { background: transparent; }
+    .compare td::before { content: attr(data-h); display: block; font: 500 10.5px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px; }
+    .compare td.us::before { color: var(--accent); }
+    .shot { border-radius: 12px; }
+    .shot figcaption { padding: 12px 16px; }
+    .closing { text-align: left; padding-block: 80px 8px; }
+    .closing h2, .closing p { margin-inline: 0; }
+    .closing .row { justify-content: flex-start; }
+  }
+
+  /* ------------------------------------------------------------ mock: shared */
+  #title, #outro { display: none !important; }
+  .mast nav a.dl { color: var(--ink); }
+  .btn.lg svg { width: 15px; height: 15px; }
+  .curl { display: inline-flex; align-items: center; gap: 10px; font: 400 12.5px var(--font-mono); color: var(--ink-4); }
+  .curl code { color: var(--ink-2); }
+  .curl .copy { height: 24px; padding: 0 8px; border: 0; border-radius: 5px; background: var(--fill-hover); color: var(--ink-3); font: 500 11.5px var(--font-sans); cursor: pointer; }
+  .curl .copy:hover { background: var(--fill-active); color: var(--ink); }
+  .curl .copy.ok, .cmd .copy.ok { color: var(--accent); }
+  .works { display: flex; align-items: center; gap: 12px 28px; flex-wrap: wrap; padding-block: 28px; border-block: 1px solid var(--line); }
+  .works .k { font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); }
+  .works ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 26px; }
+  .works li { font-size: 15px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink-3); }
+  .works li.sep { width: 1px; height: 16px; background: var(--line-strong); }
+  .cmd .get .row .btn { height: 30px; font-size: 12.5px; }
+  .closing .btn.ghost:first-child { background: var(--ink); color: var(--ground); box-shadow: none; }
+
+  /* The mark in the masthead is at work, the way it is above a running teammate's composer. */
+  .mast .brand svg.mast-glyph { width: 34px; height: 24.3px; overflow: visible; color: var(--ink); margin-top: -6px; }
+  .mast-glyph .g-pupils { fill: var(--ground); }
+  .mast-glyph .g-receiver { transform-box: fill-box; transform-origin: center; }
+  .mast-glyph .g-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ------------------------------------------------------------ option B */
+  .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: center; padding-block: 56px 72px; }
+  .split .kick { margin-bottom: 22px; flex-direction: column; gap: 0; }
+  .split .kick i { color: var(--accent); }
+  .split h1 { margin: 0; font-size: clamp(40px, 4.6vw, 64px); line-height: 1.02; letter-spacing: -0.04em; font-weight: 600; text-wrap: balance; }
+  .split p.sub { margin: 22px 0 0; font-size: 18px; line-height: 1.55; color: var(--ink-2); text-wrap: pretty; max-width: 46ch; }
+  .split .row { display: flex; gap: 10px; margin-top: 32px; flex-wrap: wrap; }
+  .split .curl { margin-top: 18px; }
+  .split .facts { list-style: none; margin: 36px 0 0; padding: 22px 0 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, auto); gap: 6px 28px; justify-content: start; }
+  .split .facts li { font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  .split .facts b { display: block; font: 500 14px var(--font-sans); letter-spacing: -0.01em; color: var(--ink); margin-bottom: 2px; }
+  .split figure { margin: 0 -40px 0 0; border-radius: 16px; overflow: hidden; box-shadow: 0 0 0 1px var(--line), 0 40px 100px -40px oklch(0% 0 0 / .9); }
+  .split figure img { display: block; width: 100%; height: auto; }
+
+  /* The tour: chapters on the left, the film on the right. */
+  #tour .tour { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; align-items: start; }
+  #tour .hero { background: none; display: contents; }
+  #tour .hero::before { display: none; }
+  #tour .viewport { grid-column: 2; grid-row: 1; padding: 0; }
+  #tour .controls { grid-column: 1; grid-row: 1; flex-direction: column; align-items: stretch; padding: 0; gap: 0; overflow: visible; max-width: none; margin: 0; border-top: 1px solid var(--line); }
+  #tour .controls .bar { display: none; }
+  #tour .controls .play { order: 99; align-self: flex-start; margin: 14px 0 0; height: 32px; padding: 0 10px; gap: 8px; color: var(--ink-3); font: 500 12px var(--font-sans); }
+  #tour .controls .play::after { content: "Pause tour"; }
+  #tour .controls .play[aria-label="Play"]::after { content: "Play tour"; }
+  #tour .controls button[data-go] { height: auto; text-align: left; padding: 14px 0 14px 18px; border-bottom: 1px solid var(--line); position: relative; display: block; color: var(--ink-3); font: 500 15px var(--font-sans); letter-spacing: -0.01em; transition: color .2s var(--ease-out); }
+  #tour .controls button[data-go]::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 2px; border-radius: 2px; background: transparent; transition: background .2s var(--ease-out); }
+  #tour .controls button[data-go] small { display: block; margin-top: 4px; font: 400 13px/1.45 var(--font-sans); color: var(--ink-4); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .4s var(--ease-out), opacity .3s var(--ease-out); }
+  #tour .controls button[data-go]:hover { color: var(--ink); }
+  #tour .controls button.on { color: var(--ink); }
+  #tour .controls button.on::before { background: var(--accent); }
+  #tour .controls button.on small { max-height: 60px; opacity: 1; }
+
+  /* Reasons as an editorial list. */
+  .reasons { border-top: 1px solid var(--line); }
+  .reasons article { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px 40px; padding: 30px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .reasons .n { font: 500 11.5px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+  .reasons h3 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: -0.025em; font-weight: 600; }
+  .reasons p { margin: 0; font-size: 16px; line-height: 1.6; color: var(--ink-3); text-wrap: pretty; }
+  .works { margin-top: 0; }
+
+  @media (max-width: 1100px) {
+    .split { grid-template-columns: 1fr; gap: 40px; }
+    .split figure { margin: 0; }
+    #tour .tour { grid-template-columns: 1fr; }
+    #tour .viewport, #tour .controls { grid-column: 1; grid-row: auto; }
+    #tour .controls { flex-direction: row; overflow-x: auto; border-top: 0; }
+    #tour .controls button[data-go] { border-bottom: 0; padding: 12px 14px; font: 400 12px var(--font-mono); white-space: nowrap; }
+    #tour .controls button[data-go] small { display: none; }
+    #tour .controls button[data-go]::before { left: 14px; right: 14px; top: 0; bottom: auto; width: auto; height: 2px; }
+    #tour .controls .play { order: -1; margin: 0; align-self: center; }
+    #tour .controls .play::after { content: none; }
+  }
+  @media (max-width: 720px) {
+    .split { padding-block: 36px 48px; }
+    .split .curl { display: none; }
+    .split .facts { grid-template-columns: repeat(2, auto); }
+    #tour .frame { border-radius: 10px; }
+    #tour .capbar { grid-column: 1; }
+    .reasons article { grid-template-columns: 1fr; gap: 8px; padding: 24px 0; }
+  }
+
+  /* ------------------------------------------------------------ lower half */
+  .pc { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 64px; align-items: center; }
+  .pc h2 { margin: 0; }
+  .pc-copy > p:not(.kick) { margin: 18px 0 0; font-size: 16.5px; line-height: 1.6; color: var(--ink-2); text-wrap: pretty; max-width: 48ch; }
+  .specs { list-style: none; margin: 32px 0 0; padding: 0; border-top: 1px solid var(--line); }
+  .specs li { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 14px; line-height: 1.5; }
+  .specs b { font-weight: 500; color: var(--ink); }
+  .specs span { color: var(--ink-3); }
+  .specs code { font: 400 .92em var(--font-mono); color: var(--ink-2); }
+
+  .screen-ill { margin: 0; }
+  .sw { border-radius: 12px; overflow: hidden; background: var(--well); box-shadow: 0 0 0 1px var(--line-strong), 0 40px 90px -36px oklch(0% 0 0 / .9); }
+  .sw > header { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .sw .lights { display: flex; gap: 6px; } .sw .lights i { width: 10px; height: 10px; border-radius: 50%; background: var(--pressed); }
+  .sw .tag { margin-left: auto; font: 400 11px var(--font-mono); letter-spacing: .04em; color: var(--accent); background: var(--accent-soft); padding: 3px 8px; border-radius: 999px; }
+  .sw > footer { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); }
+  .sw > footer .sp { flex: 1; }
+  .sw .live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sw .take { height: 26px; padding: 0 10px; border-radius: 6px; background: var(--pop); color: var(--ink); display: inline-flex; align-items: center; font-weight: 500; }
+  .desk-ill { position: relative; aspect-ratio: 16 / 10; background: radial-gradient(120% 90% at 20% 0%, oklch(30% 0.03 250), oklch(17% 0.01 250)); overflow: hidden; }
+  .desk-ill .bar { position: absolute; inset: 0 0 auto; height: 26px; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: oklch(10% 0.005 250 / .85); font: 400 10.5px var(--font-mono); color: var(--ink-3); }
+  .desk-ill .bar .sp { flex: 1; } .desk-ill .bar span:first-child { color: var(--ink); }
+  .br { position: absolute; left: 5%; top: 13%; width: 70%; border-radius: 8px; overflow: hidden; background: #f6f7f8; color: #1d2329; box-shadow: 0 18px 40px -12px oklch(0% 0 0 / .7); }
+  .br-top { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: #e8eaed; }
+  .br-top .dots { display: flex; gap: 5px; } .br-top .dots i { width: 8px; height: 8px; border-radius: 50%; background: #c4c8cc; }
+  .br-top .url { flex: 1; height: 20px; border-radius: 5px; background: #fff; font: 400 10.5px var(--font-mono); color: #57606a; display: flex; align-items: center; padding: 0 8px; white-space: nowrap; overflow: hidden; }
+  .br-body { padding: 14px 16px 16px; }
+  .br-body .t { margin: 0; font-size: 15px; font-weight: 600; }
+  .br-body .m { margin: 4px 0 12px; font-size: 11px; color: #57606a; }
+  .br-body .field { height: 30px; border: 2px solid #3b82f6; border-radius: 6px; display: flex; align-items: center; padding: 0 9px; font-size: 12.5px; }
+  .br-body .caret, .term .caret { display: inline-block; width: 1.5px; height: 1.05em; background: currentColor; margin-left: 2px; vertical-align: -2px; animation: blink 1.06s steps(1) infinite; }
+  .br-body .area { margin-top: 8px; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 9px; display: grid; gap: 6px; }
+  .br-body .area span { height: 6px; border-radius: 3px; background: #e3e6ea; } .br-body .area .s { width: 60%; }
+  .br-body .go { display: inline-block; margin-top: 12px; padding: 6px 11px; border-radius: 6px; background: #1f883d; color: #fff; font-size: 11.5px; font-weight: 600; }
+  .term { position: absolute; right: 4%; bottom: 7%; width: 54%; border-radius: 8px; padding: 12px 14px; background: oklch(13% 0.006 250 / .97); box-shadow: 0 0 0 1px oklch(100% 0 0 / .08), 0 18px 40px -12px oklch(0% 0 0 / .8); font: 400 11px/1.65 var(--font-mono); color: var(--ink-2); }
+  .term p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .term i { font-style: normal; color: var(--accent); } .term b { font-weight: 400; color: oklch(75% 0.1 250); }
+  .term .o { color: var(--ink-3); } .term em { font-style: normal; color: var(--accent); }
+  .desk-ill .cur { position: absolute; left: 33%; top: 47%; width: 15px; filter: drop-shadow(0 2px 3px oklch(0% 0 0 / .5)); }
+
+  .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .trio article { border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--line); padding: 24px 24px 22px; display: flex; flex-direction: column; }
+  .trio .k { font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+  .trio h3 { margin: 14px 0 8px; font-size: 19px; letter-spacing: -0.02em; font-weight: 600; }
+  .trio p { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-3); text-wrap: pretty; }
+  .trio small { margin-top: auto; padding-top: 18px; font: 400 11.5px var(--font-mono); letter-spacing: .03em; color: var(--ink-4); }
+
+  .inst { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 64px; align-items: start; }
+  .inst h2 { margin: 0; }
+  .inst > div > p:not(.kick) { margin: 18px 0 0; font-size: 15.5px; line-height: 1.6; color: var(--ink-3); max-width: 44ch; }
+  .inst code { font: 400 .9em var(--font-mono); color: var(--ink-2); }
+  .cmds { display: grid; gap: 14px; }
+  .cmds .cmd { padding: 16px 16px 14px; gap: 10px; }
+  .cmds .cmd .k a { margin-left: 8px; text-transform: none; letter-spacing: 0; font: 400 12px var(--font-sans); }
+  .cmds .get { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+  .cmds .get .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .cmds .get small { font: 400 11.5px var(--font-mono); letter-spacing: .04em; color: var(--ink-4); }
+  .cmds .get small a { color: var(--ink-3); text-decoration: none; } .cmds .get small a:hover { color: var(--ink); }
+  footer.site { margin-top: 96px; border-top: 1px solid var(--line); }
+  .sect > header p.kick, .pc .kick, .inst .kick { font: 500 11.5px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); margin: 0 0 14px; }
+  .cmds .get .row { justify-content: flex-start; }
+
+  @media (max-width: 1100px) {
+    .pc, .inst { grid-template-columns: 1fr; gap: 40px; }
+    .trio { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .specs li { grid-template-columns: 1fr; gap: 2px; }
+    .desk-ill { aspect-ratio: 4 / 3; }
+    .br { width: 88%; left: 4%; }
+    .term { width: 84%; font-size: 9.5px; bottom: 4%; padding: 9px 11px; }
+    .br-body .area, .br-body .m { display: none; }
+    .br-body { padding: 12px 12px 12px; }
+    .br-body .t { margin-bottom: 10px; }
+    footer.site { margin-top: 64px; }
+  }
 </style>
 
 </head>
@@ -539,6 +806,7 @@
     <symbol id="chevd" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="arrow" viewBox="0 0 16 16"><path d="M8 13V3.5M4 7.5 8 3.5l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="arrow-dl" viewBox="0 0 16 16"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="gh" viewBox="0 0 16 16"><path d="M8 .8a7.2 7.2 0 0 0-2.3 14c.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.8-.8-1-.8-1-.7-.5 0-.5 0-.5.7.1 1.1.8 1.1.8.7 1.1 1.7.8 2.1.6.1-.5.3-.8.5-1-1.6-.2-3.3-.8-3.3-3.6 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 2 .7a6.9 6.9 0 0 1 3.6 0c1.4-.9 2-.7 2-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.8-1.7 3.4-3.3 3.6.3.2.5.7.5 1.3v2c0 .2.1.5.5.4A7.2 7.2 0 0 0 8 .8Z" fill="currentColor"/></symbol>
     <symbol id="play-ico" viewBox="0 0 16 16"><path d="M4.5 3.2v9.6L12.5 8Z" fill="currentColor"/></symbol>
     <symbol id="pause-ico" viewBox="0 0 16 16"><rect x="3.5" y="3" width="3.2" height="10" rx="1" fill="currentColor"/><rect x="9.3" y="3" width="3.2" height="10" rx="1" fill="currentColor"/></symbol>
@@ -549,9 +817,32 @@
 </svg>
 
 <header class="mast">
-  <a class="brand" href="https://hotline.dev" aria-label="Hotline"><svg viewBox="0 0 56 28.5" aria-hidden="true"><use href="#hotline"/></svg><b>Hotline</b></a>
-  <nav><a href="/docs/">Docs</a><a href="https://github.com/1Broseidon/hotline"><svg aria-hidden="true"><use href="#gh"/></svg>GitHub</a></nav>
+  <a class="brand" href="https://hotline.dev" aria-label="Hotline"><svg class="glyph mast-glyph" id="mglyph" viewBox="4 8 56 40" aria-hidden="true"><g class="g-all"><g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g><g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g><g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g><g class="g-pupils"><rect x="14.5" y="28" width="11" height="4" rx="2"/><rect x="38.5" y="28" width="11" height="4" rx="2"/></g><g class="g-hand"><path class="g-receiver" d=""/></g><path class="g-line" d="" opacity="0"/></g></svg><b>Hotline</b></a>
+  <nav><a href="/docs/">Docs</a><a href="#install">Install</a><a href="https://github.com/1Broseidon/hotline"><svg aria-hidden="true"><use href="#gh"/></svg>GitHub</a></nav>
 </header>
+<section class="split wrap">
+  <div>
+    <p class="kick"><i>Open source · self-hosted · any model</i></p>
+    <h1>A room for your agents, on your machine.</h1>
+    <p class="sub">Run a team of agents across Claude, OpenAI, Gemini and local models in one window. They share project context, message each other and pair with your phone, with no cloud account.</p>
+    <div class="row"><a class="btn primary lg" data-dl-auto data-dl="mac" href="https://github.com/1Broseidon/hotline/releases/latest"><svg aria-hidden="true"><use href="#arrow-dl"/></svg><span>Download for macOS</span></a><a class="btn ghost lg" href="https://github.com/1Broseidon/hotline"><svg aria-hidden="true"><use href="#gh"/></svg><span>View on GitHub</span></a></div>
+    <div class="curl"><span>or</span><code>curl -fsSL hotline.dev/install | sh</code><button class="copy" type="button" data-copy-text="curl -fsSL https://hotline.dev/install | sh">Copy</button></div>
+    <ul class="facts"><li><b>Desktop</b>macOS · Windows · Linux</li><li><b>Phone</b>iPhone beta</li><li><b>Server</b>Any Linux box</li></ul>
+  </div>
+  <figure><img src="/showcase.webp" width="1920" height="1080" alt="Hotline on a desktop beside the Hotline phone app, showing the same room"></figure>
+</section>
+
+<section class="works wrap" aria-label="Works with">
+  <span class="k">Works with</span>
+  <ul><li>Anthropic</li><li>OpenAI</li><li>Google</li><li>OpenRouter</li><li>Ollama</li><li class="sep" aria-hidden="true"></li><li>Claude Code</li><li>Codex</li><li>opencode</li><li>any ACP agent</li></ul>
+</section>
+
+<section class="sect wrap" id="tour">
+  <header>
+    <div><p class="kick"><i>01</i><span>The tour</span></p><h2>Watch a room at work.</h2></div>
+    <p>Eight short scenes, about a minute in all: one agent, then a team, then its own computer, then rooms that have nothing to do with code. Pick any scene.</p>
+  </header>
+  <div class="tour">
 <section class="hero">
 <div class="viewport">
   <div class="frame">
@@ -690,26 +981,88 @@ Adds a changelog entry.</div>
 <div class="controls" id="controls">
   <div class="bar"><b id="bar"></b></div>
   <button class="play" id="play" aria-label="Pause"><svg aria-hidden="true"><use href="#pause-ico"/></svg></button>
-  <button data-go="1">room</button>
-  <button data-go="2">work</button>
-  <button data-go="3">redirect</button>
-  <button data-go="4">team</button>
-  <button data-go="5">computer</button>
-  <button data-go="6">books</button>
-  <button data-go="7">writers</button>
-  <button data-go="8">party</button>
+  <button data-go="1">The room</button>
+  <button data-go="2">The work</button>
+  <button data-go="3">The redirect</button>
+  <button data-go="4">The team</button>
+  <button data-go="5">The computer</button>
+  <button data-go="6">The books</button>
+  <button data-go="7">The writers’ room</button>
+  <button data-go="8">The party</button>
 </div>
 </section>
+  </div>
+</section>
 
-<section class="about">
-  <p><b>Hotline is a room for a team of agents</b>, on your machine. Each teammate has a name, a goal, its own tools and, when it needs one, its own computer. They ask each other for help, work on a schedule, and everything they do is on the record in one window. Open source under MIT or Apache-2.0, self-hosted, no account.</p>
-  <div class="get">
-    <div class="row">
-      <a class="btn primary" data-dl="mac" href="https://github.com/1Broseidon/hotline/releases/latest">Download for macOS</a>
-      <a class="btn" data-dl="win" href="https://github.com/1Broseidon/hotline/releases/latest">Windows</a>
-      <a class="btn" data-dl="linux" href="https://github.com/1Broseidon/hotline/releases/latest">Linux</a>
+<section class="sect wrap" id="computer">
+  <div class="pc">
+    <div class="pc-copy">
+      <p class="kick"><i>02</i><span>Its own computer</span></p>
+      <h2>Give a teammate its own computer.</h2>
+      <p>One switch in the teammate’s pane and it gets a whole Linux desktop, in a container on your machine: a screen, a browser, a shell and a home folder. It clicks, types and checks its work like you would, without touching your desktop.</p>
+      <ul class="specs">
+        <li><b>Runs locally</b><span>Docker, Podman or Apple <code>container</code>. Nothing leaves your machine.</span></li>
+        <li><b>Watch it work</b><span>Open the same screen view-only, or take control when it asks you to.</span></li>
+        <li><b>Locked down</b><span>A non-root user with every capability dropped. It sleeps after thirty idle minutes.</span></li>
+        <li><b>Open image</b><span><a class="inl" href="https://github.com/1broseidon/hotline-computer">hotline-computer</a> is open source too.</span></li>
+      </ul>
     </div>
-    <small><span data-version>latest</span> · Apple silicon · <a data-dl="macIntel" href="https://github.com/1Broseidon/hotline/releases/latest">Intel Mac</a> · <a data-dl="deb" href="https://github.com/1Broseidon/hotline/releases/latest">.deb</a> · <a data-dl="rpm" href="https://github.com/1Broseidon/hotline/releases/latest">.rpm</a> · <a href="https://github.com/1Broseidon/hotline/releases/latest">all releases</a></small>
+    <figure class="screen-ill" aria-label="A teammate's computer: a Linux desktop in a container, with a browser and a terminal">
+      <div class="sw">
+        <header><span class="lights"><i></i><i></i><i></i></span><b>Ada’s computer</b><span class="tag">container · local</span></header>
+        <div class="desk-ill">
+          <div class="bar"><span>hotline-computer</span><span class="sp"></span><span>chromium</span><span>alacritty</span><span class="clock">10:42</span></div>
+          <div class="br">
+            <div class="br-top"><span class="dots"><i></i><i></i><i></i></span><span class="url">github.com/acme/api/compare/main...fix/token-refresh</span></div>
+            <div class="br-body">
+              <p class="t">Open a pull request</p>
+              <p class="m">fix/token-refresh → main · 2 commits · 3 files changed</p>
+              <div class="field">Fix flaky token refresh<span class="caret"></span></div>
+              <div class="area"><span></span><span></span><span class="s"></span></div>
+              <span class="go">Create pull request</span>
+            </div>
+          </div>
+          <div class="term">
+            <p><i>ada@computer</i> <b>~/acme/api</b> $ cargo test auth::refresh</p>
+            <p class="o">running 42 tests</p>
+            <p class="o">test result: <em>ok</em>. 42 passed; 0 failed</p>
+            <p><i>ada@computer</i> <b>~/acme/api</b> $ <span class="caret"></span></p>
+          </div>
+          <svg class="cur" viewBox="0 0 18 24" aria-hidden="true"><path d="M2 1 L2 18 L6.5 13.8 L9.6 21 L12.4 19.8 L9.4 12.8 L15.5 12.8 Z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        </div>
+        <footer><span class="live"></span>Watching<span class="sp"></span><span class="take">Take control</span></footer>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="sect wrap" id="why">
+  <header>
+    <div><p class="kick"><i>03</i><span>Why self-host</span></p><h2>The agent app, minus the landlord.</h2></div>
+    <p>Hosted agent apps choose the model, keep your context and set the price. Hotline runs where you do.</p>
+  </header>
+  <div class="trio">
+    <article><span class="k">Self-hosted</span><h3>Your machine, your disk.</h3><p>On your laptop or a server you run. Transcripts and files stay local. No account.</p><small>vs. their servers and their database</small></article>
+    <article><span class="k">Any model</span><h3>Bring any model.</h3><p>Anthropic, OpenAI, Google, OpenRouter or Ollama, plus Claude Code, Codex and opencode over ACP, mixed in one room.</p><small>vs. one vendor’s lineup</small></article>
+    <article><span class="k">Open source</span><h3>Read every line.</h3><p>MIT or Apache-2.0. Fork it, audit it, send a pull request. Free; you pay your model provider.</p><small>vs. a closed subscription</small></article>
+  </div>
+</section>
+
+<section class="sect wrap" id="install">
+  <div class="inst">
+    <div>
+      <p class="kick"><i>04</i><span>Install</span></p>
+      <h2>Up and running in a minute.</h2>
+      <p>One command for the desktop app on macOS or Linux, or one for a headless desk on a server. On Windows, use the buttons or the <a class="inl" href="/docs/get-started/install/">PowerShell one-liner</a>. Then pair the <a class="inl" href="/docs/phone/">iPhone app</a>.</p>
+    </div>
+    <div class="cmds">
+      <div class="cmd"><span class="k">Desktop app</span><pre><span>curl -fsSL https://hotline.dev/install | sh</span><button class="copy" type="button">Copy</button></pre></div>
+      <div class="cmd"><span class="k">Headless server <a class="inl" href="/docs/server/">guide</a></span><pre><span>curl -fsSL https://hotline.dev/install | sh -s -- --server</span><button class="copy" type="button">Copy</button></pre></div>
+      <div class="get">
+        <div class="row"><a class="btn" data-dl="mac" href="https://github.com/1Broseidon/hotline/releases/latest">macOS</a><a class="btn" data-dl="win" href="https://github.com/1Broseidon/hotline/releases/latest">Windows</a><a class="btn" data-dl="linux" href="https://github.com/1Broseidon/hotline/releases/latest">Linux</a><a class="btn ghost" href="https://github.com/1Broseidon/hotline"><svg aria-hidden="true"><use href="#gh"/></svg>GitHub</a></div>
+        <small><span data-version>latest</span> · <a data-dl="macIntel" href="https://github.com/1Broseidon/hotline/releases/latest">Intel Mac</a> · <a data-dl="deb" href="https://github.com/1Broseidon/hotline/releases/latest">.deb</a> · <a data-dl="rpm" href="https://github.com/1Broseidon/hotline/releases/latest">.rpm</a> · <a href="https://github.com/1Broseidon/hotline/releases">all releases</a></small>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -958,8 +1311,7 @@ Adds a changelog entry.</div>
   const SCENES = [0, 2700, 7100, 13650, 19000, 24900, 34700, 43700, 54150, 64800];
   const beats = [
     // Title.
-    [0, () => title.classList.add("on")],
-    [2500, () => { title.classList.remove("on"); stage.classList.add("lit"); }],
+    [0, () => stage.classList.add("lit")],
 
     // The room. Push in close on the roster, then settle wide for Ada's first line.
     [2700, () => { chapter(1); caption("The room", "A room, not a chat.", "It keeps working whether or not you're watching."); }],
@@ -1090,11 +1442,10 @@ Adds a changelog entry.</div>
 
     // Outro.
     [64300, () => { clearCaption(); closeThread(); home(1200); }],
-    [64800, () => outro.classList.add("on")],
-    [66800, () => omark.classList.add("wink")],
   ];
   beats.sort((a, b) => a[0] - b[0]);
-  const END = 68500;
+  const END = 66000;
+  const START = 2600;
 
   // Playback engine: elapsed clock, pause, seek, and a fresh DOM on every restart.
   let playing = true, lastT = null, fired = 0, raf = 0;
@@ -1155,17 +1506,17 @@ Adds a changelog entry.</div>
     bar.style.width = `${Math.min(100, elapsed / END * 100)}%`;
     let sc = 0; SCENES.forEach((s, i) => { if (elapsed >= s) sc = i; });
     controls.querySelectorAll("[data-go]").forEach((b) => b.classList.toggle("on", +b.dataset.go === sc));
-    if (elapsed >= END) { playing = false; setPlayBtn(); }
+    if (elapsed >= END) { seek(START); }
   };
 
   playBtn.addEventListener("click", () => {
-    if (elapsed >= END) seek(0);
+    
     playing = !playing; setPlayBtn();
   });
   controls.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => {
     seek(SCENES[+b.dataset.go]); playing = true; setPlayBtn();
   }));
-  $("replay").addEventListener("click", (e) => { e.stopPropagation(); seek(0); playing = true; setPlayBtn(); });
+  $("replay").addEventListener("click", (e) => { e.stopPropagation(); seek(START); playing = true; setPlayBtn(); });
   stage.addEventListener("click", (e) => { if (e.target.closest("a, button")) return; playBtn.click(); });
   let away = false;
   new IntersectionObserver(([entry]) => {
@@ -1194,7 +1545,7 @@ Adds a changelog entry.</div>
   const begin = () => {
     document.body.classList.remove("fonts-pending");
     fit();
-    seek(q.has("t") ? +q.get("t") : 0);
+    seek(q.has("t") ? +q.get("t") : START);
     lastT = null;
     raf = requestAnimationFrame(tick);
   };
@@ -1217,6 +1568,175 @@ Adds a changelog entry.</div>
     if (rel.tag_name) document.querySelectorAll("[data-version]").forEach((el) => { el.textContent = rel.tag_name.replace(/^desktop-/, ""); });
   } catch (e) {}
 })();
+
+  document.querySelectorAll(".cmd .copy").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.previousElementSibling.textContent); b.textContent = "Copied"; b.classList.add("ok"); setTimeout(() => { b.textContent = "Copy"; b.classList.remove("ok"); }, 1600); } catch {}
+  }));
+
+  // One primary download, labelled for the visitor's own system.
+  (() => {
+    const ua = navigator.userAgent, p = /Windows/.test(ua) ? ["win", "Download for Windows"] : /Linux|X11/.test(ua) && !/Android/.test(ua) ? ["linux", "Download for Linux"] : ["mac", "Download for macOS"];
+    document.querySelectorAll("[data-dl-auto]").forEach((a) => { a.dataset.dl = p[0]; a.lastChild.textContent = p[1]; });
+  })();
+
+  document.querySelectorAll(".copy").forEach((b) => b.onclick = async () => {
+    const text = b.dataset.copyText || b.previousElementSibling.textContent;
+    try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; b.classList.add("ok"); setTimeout(() => { b.textContent = "Copy"; b.classList.remove("ok"); }, 1600); } catch {}
+  });
+
+  // The masthead mark, at work. A port of the window's own working glyph
+  // (ui/src/ui/Glyph.tsx and ui/src/ui/receiver.ts): the same poses, the
+  // same handset, the same line. Here it runs one turn on a loop: thinking,
+  // reading, searching, editing, running, the reply down the line, the
+  // hang-up and the wink, then a rest on the cradle.
+  (() => {
+    const svg = document.getElementById("mglyph"); if (!svg) return;
+
+    // receiver.ts: the brow, the small drawing the working glyph moves.
+    const G = { gap: 3.4, thick: 3.8, lips: 156, sag: 0 };
+    const LEFT = 20, RIGHT = 44, Y = 30, EYE = 10.5;
+    const rad = (d) => (d * Math.PI) / 180;
+    const n = (v) => +v.toFixed(2);
+    const at = (cx, r, d) => [cx + r * Math.cos(rad(d)), Y - r * Math.sin(rad(d))];
+    const pt = (p) => `${n(p[0])} ${n(p[1])}`;
+    const receiverPath = (g) => {
+      const r = EYE + g.gap, R = r + g.thick, e = g.thick / 2;
+      const join = (Math.asin(Math.min(1, (R - g.sag) / R)) * 180) / Math.PI;
+      const oL = at(LEFT, R, g.lips), iL = at(LEFT, r, g.lips), oR = at(RIGHT, R, 180 - g.lips), iR = at(RIGHT, r, 180 - g.lips);
+      return `M${pt(oL)}A${n(R)} ${n(R)} 0 0 1 ${pt(at(LEFT, R, join))}` +
+        `L${pt(at(RIGHT, R, 180 - join))}A${n(R)} ${n(R)} 0 0 1 ${pt(oR)}` +
+        `A${n(e)} ${n(e)} 0 0 1 ${pt(iR)}A${n(r)} ${n(r)} 0 0 0 ${RIGHT} ${n(Y - r)}` +
+        `L${LEFT} ${n(Y - r)}A${n(r)} ${n(r)} 0 0 0 ${pt(iL)}A${n(e)} ${n(e)} 0 0 1 ${pt(oL)}Z`;
+    };
+    const receiverLine = (g, count) => {
+      const r = EYE + g.gap, mid = r + g.thick / 2, arc = mid * rad(g.lips - 90), span = RIGHT - LEFT, total = 2 * arc + span;
+      const points = [];
+      for (let i = 0; i < count; i++) {
+        const s = (total * i) / (count - 1);
+        if (s < arc) points.push(at(LEFT, mid, g.lips - (s / mid) * (180 / Math.PI)));
+        else if (s < arc + span) { const x = LEFT + (s - arc); points.push([x, Y - mid + (g.sag / 2) * Math.sin((Math.PI * (x - LEFT)) / span)]); }
+        else points.push(at(RIGHT, mid, 90 - ((s - arc - span) / mid) * (180 / Math.PI)));
+      }
+      const top = Y - r - g.thick, bottom = Y - mid * Math.sin(rad(g.lips)) + g.thick / 2;
+      return { points, centre: [32, (top + bottom) / 2] };
+    };
+    svg.querySelector(".g-receiver").setAttribute("d", receiverPath(G));
+
+    // Glyph.tsx: the poses.
+    const REST = { pupil: 0, pupilY: 0, eyeL: 1, eyeR: 1, wide: 1, body: 1, rot: 0, dy: 0, lift: 0, tilt: 0, hx: 0, hy: 0, ht: 0 };
+    const DARTS = [-1, 0.6, -0.3, 1, -0.8, 0.2, 0.9, -0.6];
+    const KEYS = [0, 0.12, 0.22, 0.4, 0.49, 0.63, 0.71, 0.86];
+    const PHRASE = 1.15, HOP = 0.62, LINE_POINTS = 80, MORPH = 0.5, REEL = 0.4, DROP = 0.3, CLUNK = 0.12, WINK = 0.56;
+    const LINE_WIDTH = G.thick;
+    const ease = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+    const easeIn = (p) => p ** 3;
+    const clamp01 = (p) => Math.max(0, Math.min(1, p));
+    const winkAt = (p) => (p < 0.36 ? 1 - 0.92 * ease(p / 0.36) : p < 0.45 ? 0.08 : p < 0.78 ? 0.08 + 0.92 * ease((p - 0.45) / 0.33) : 1);
+    const hop = (t) => {
+      const p = (((t % HOP) + HOP) % HOP) / HOP;
+      if (p < 0.2) { const k = ease(p / 0.2); return { dy: 1.4 * k, body: 1 - 0.16 * k }; }
+      if (p < 0.72) { const q = (p - 0.2) / 0.52; return { dy: 1.4 - 7.4 * Math.sin(q * Math.PI) - 1.4 * q, body: q < 0.3 ? 0.84 + 0.24 * ease(q / 0.3) : 1.08 - 0.08 * ease((q - 0.3) / 0.7) }; }
+      const q = (p - 0.72) / 0.28; return { dy: 1.2 * Math.sin(q * Math.PI), body: 1 - 0.12 * Math.sin(q * Math.PI) };
+    };
+    const poseOf = (phase, t) => {
+      switch (phase) {
+        case "thinking": return { ...REST, rot: -3.6 * Math.sin(t * 0.7), dy: 2.2 * Math.sin(t * 0.5), pupil: 1.8 * Math.sin(t * 0.42), pupilY: -2.2, lift: 8, tilt: -16 + 3 * Math.sin(t * 0.6) };
+        case "read": { const p = (t / 1.7) % 1; const x = p < 0.82 ? -1 + (p / 0.82) * 2 : 1 - ((p - 0.82) / 0.18) * 2; return { ...REST, pupil: x * 2.8, pupilY: 1.3, eyeL: 0.62, eyeR: 0.62, lift: 3 }; }
+        case "search": {
+          const step = t / 0.42, k = Math.floor(step) % DARTS.length, prev = DARTS[(k + DARTS.length - 1) % DARTS.length];
+          const d = prev + (DARTS[k] - prev) * ease(clamp01((step - Math.floor(step)) / 0.28));
+          return { ...REST, pupil: d * 3, pupilY: DARTS[(k + 3) % DARTS.length] * 1.4, rot: d * 5, lift: 5, tilt: -d * 9 };
+        }
+        case "edit": {
+          const c = t % PHRASE; let tap = 0, side = 1, keys = 0;
+          for (let i = 0; i < KEYS.length && c >= KEYS[i]; i++) { keys = i + 1; side = i % 2 ? -1 : 1; tap = Math.exp(-(c - KEYS[i]) / 0.05); }
+          return { ...REST, pupil: -2.6 + (5.2 * keys) / KEYS.length, pupilY: 1.5, body: 1 - 0.06 * tap, dy: 0.7 * tap, rot: 1.3 * side * tap, lift: 2.5, hx: 3, tilt: 20, hy: -0.4 * tap };
+        }
+        case "execute": { const h = hop(t), lag = hop(t - 0.07); return { ...REST, body: h.body, dy: h.dy, pupilY: -0.4, lift: 4, tilt: -3, hy: lag.dy - h.dy }; }
+        default: return { ...REST };
+      }
+    };
+    const voiceLine = (t) => {
+      const pts = [];
+      for (let i = 0; i < LINE_POINTS; i++) { const u = i / (LINE_POINTS - 1), x = 10 + 44 * u; pts.push([x, 10 + 2.6 * Math.sin(Math.PI * u) ** 0.6 * Math.sin((2 * Math.PI * x) / 9 - 2 * Math.PI * 1.4 * t)]); }
+      return pts;
+    };
+    const watching = (pose, t, m) => { pose.pupilY = -1.8 * m; pose.pupil = 2.2 * Math.sin(t * 2.4) * m; pose.dy = 1.2 * m; };
+    const HANDSET = receiverLine(G, LINE_POINTS);
+    const heldLine = (lift, tilt, hx) => {
+      const [cx, cy] = HANDSET.centre, a = (tilt * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+      return HANDSET.points.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s + hx, cy + (x - cx) * s + (y - cy) * c - lift]);
+    };
+    const mix = (a, b, m) => a.map(([x, y], i) => [x + (b[i][0] - x) * m, y + (b[i][1] - y) * m]);
+    const set = (sel, name, v) => svg.querySelector(sel).setAttribute(name, v);
+    const paint = (pose, held, line) => {
+      const w = pose.wide, f = (v) => Math.max(0.001, v).toFixed(3);
+      set(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
+      set(".g-body", "transform", `scale(1 ${f(pose.body)})`);
+      set(".g-eyeL", "transform", `scale(${f(w)} ${f(pose.eyeL * w)})`);
+      set(".g-eyeR", "transform", `scale(${f(w)} ${f(pose.eyeR * w)})`);
+      set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} ${pose.pupilY.toFixed(2)}) scale(1 ${f(Math.max(pose.eyeL, pose.eyeR) * w)})`);
+      set(".g-hand", "transform", `translate(${held.hx.toFixed(2)} ${(pose.hy - held.lift).toFixed(2)})`);
+      set(".g-receiver", "transform", `rotate(${(held.tilt + pose.ht).toFixed(2)})`);
+      set(".g-hand", "opacity", line ? "0" : "1");
+      set(".g-line", "opacity", line ? "1" : "0");
+      if (line) { set(".g-line", "d", `M${line.points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L")}`); set(".g-line", "stroke-width", line.width.toFixed(2)); }
+    };
+
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { paint({ ...REST }, { lift: 0, tilt: 0, hx: 0 }, null); return; }
+
+    // One turn, on a loop. Each kind of work opens with a blink, as in the window.
+    const TURN = [["rest", 1.8], ["thinking", 3.0], ["read", 3.4], ["search", 2.6], ["edit", 3.45], ["execute", 2.48], ["writing", 3.2], ["landed", REEL + DROP + CLUNK + WINK + 0.1]];
+    const LEN = TURN.reduce((a, [, d]) => a + d, 0);
+    const pin = new URLSearchParams(location.search).get("mt"); // ?mt=seconds holds one moment, for frame checks
+    const held = { lift: 0, tilt: 0, hx: 0 };
+    let entry = { ...held }, spoken = 0, current = null, last = 0, blinkAt = -1, nextBlink = 0.7;
+    const t0 = performance.now();
+    const draw = (clock, dt) => {
+      const tl = clock % LEN;
+      let acc = 0, phase = "rest", t = 0;
+      for (const [p, d] of TURN) { if (tl < acc + d) { phase = p; t = tl - acc; break; } acc += d; }
+      if (phase !== current) { current = phase; entry = { ...held }; if (phase !== "writing" && phase !== "landed" && phase !== "rest") blinkAt = clock; }
+      if (clock > nextBlink) { blinkAt = clock; nextBlink = clock + 2.4 + Math.random() * 4; }
+      const gap = clock - blinkAt, blink = gap >= 0 && gap < 0.18 ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
+      const pose = poseOf(phase, t);
+      pose.eyeL = Math.min(pose.eyeL, blink); pose.eyeR = Math.min(pose.eyeR, blink);
+      const k = 1 - Math.exp(-dt / 0.08);
+      let line = null;
+      if (phase === "writing") {
+        const m = ease(clamp01(t / MORPH));
+        line = { points: mix(heldLine(entry.lift, entry.tilt, entry.hx), voiceLine(t), m), width: LINE_WIDTH };
+        watching(pose, t, m); spoken = t;
+      } else if (phase === "landed") {
+        if (t < REEL) {
+          const m = ease(t / REEL);
+          line = { points: mix(voiceLine(spoken + t), heldLine(3, 0, 0), m), width: LINE_WIDTH };
+          watching(pose, spoken + t, 1 - m);
+          Object.assign(held, { lift: 3, tilt: 0, hx: 0 });
+        } else {
+          const c = t - REEL;
+          held.lift = c < DROP ? 3 * (1 - easeIn(c / DROP)) : 0;
+          const d = c - DROP;
+          if (d >= 0 && d < CLUNK) pose.body = 1 - 0.1 * Math.sin((d / CLUNK) * Math.PI);
+          else if (d >= CLUNK && d < CLUNK + WINK) pose.eyeL = Math.min(pose.eyeL, winkAt((d - CLUNK) / WINK));
+        }
+      } else if (phase === "search" && t > 0.25) {
+        Object.assign(held, { lift: pose.lift, tilt: pose.tilt, hx: pose.hx });
+      } else {
+        held.lift += (pose.lift - held.lift) * k; held.tilt += (pose.tilt - held.tilt) * k; held.hx += (pose.hx - held.hx) * k;
+      }
+      paint(pose, held, line);
+    };
+    if (pin !== null) { for (let c = 0; c <= +pin; c += 0.05) draw(c, 0.05); return; }
+    // 20 frames a second on a timer, as in the window: smooth enough for a blink, a fraction of the cost.
+    const tick = () => {
+      setTimeout(tick, 50);
+      if (document.hidden) return;
+      const clock = (performance.now() - t0) / 1000;
+      draw(clock, Math.min(0.1, clock - last)); last = clock;
+    };
+    tick();
+  })();
 </script>
 
 </body>

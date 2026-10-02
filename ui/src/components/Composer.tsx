@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
-import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -26,8 +26,8 @@ export function isDown(state: SessionState): boolean {
  * The field is always open, because the teammate is always there. Whether
  * a session is up behind them is plumbing: a message typed at one that is
  * not running starts it and then says the message, and nothing on screen
- * asks the person to know the difference. The send key is there only when
- * there is something to send. Stop stays separate while the teammate is
+ * asks the person to know the difference. An empty field offers voice;
+ * words or files replace it with Send. Stop stays separate while the teammate is
  * working, so a correction never needs an interruption first. Attach is the
  * plus at the left end. A reply being composed is a one-line quote at the
  * head of the pill, and chips there are files picked, dropped or pasted,
@@ -40,6 +40,7 @@ export function Composer({
 	state,
 	replyQuote,
 	onSend,
+	onCall,
 	refill,
 	onCancel,
 	onClearReply,
@@ -50,6 +51,7 @@ export function Composer({
 	state: SessionState;
 	replyQuote: string | null;
 	onSend(text: string, attachments: Attachment[]): void;
+	onCall?: (() => void) | undefined;
 	/** Words a refused send handed back; a new nonce fills the field again. */
 	refill?: Refill;
 	onCancel(): void;
@@ -62,6 +64,9 @@ export function Composer({
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
 	const hasContent = text.trim().length > 0 || attachments.length > 0;
+	const hasDraft = text.length > 0 || attachments.length > 0 || replyQuote !== null;
+	const voice = !hasDraft && onCall !== undefined;
+	const actionShown = hasDraft || voice;
 	useEffect(() => { onDraftChange?.(hasContent); }, [hasContent, onDraftChange]);
 
 	// Grow with content, up to a ceiling. Before paint, because measuring after
@@ -253,18 +258,19 @@ export function Composer({
 						<StopIcon />
 					</button>
 				)}
-				{(!working || hasContent) && (
+				{(!working || actionShown) && (
 					<button
 						type="button"
-						className="composer-key composer-send"
-						title="Send (Enter)"
-						aria-label="Send"
-						aria-hidden={!hasContent}
-						tabIndex={hasContent ? 0 : -1}
-						data-shown={hasContent ? "true" : undefined}
-						onClick={submit}
+						className={`composer-key composer-send${voice ? " composer-voice" : ""}`}
+						title={voice ? `Talk to ${name}` : "Send (Enter)"}
+						aria-label={voice ? `Talk to ${name}` : "Send"}
+						aria-hidden={!actionShown}
+						tabIndex={actionShown ? 0 : -1}
+						data-shown={actionShown ? "true" : undefined}
+						disabled={!voice && !hasContent}
+						onClick={voice ? onCall : submit}
 					>
-						<ArrowUpIcon />
+						{voice ? <VoiceIcon /> : <ArrowUpIcon />}
 					</button>
 				)}
 			</div>

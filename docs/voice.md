@@ -146,6 +146,33 @@ readiness and retains the desk's availability check for its primary call.
 omission assesses audio readiness. A direct text call needs output and budget,
 while a desk text call also needs the dispatcher.
 
+When the dispatcher is ready, a direct call answers in the teammate's own
+voice before the teammate does anything. The dispatcher's model speaks as the
+teammate, in the first person, from the teammate's name, goal, whether it is
+working, and the newest 24 entries of its conversation. A question about how
+the work is going is answered from that conversation and reaches no session.
+A request for work calls the front's one tool, `hand_to_session`, which hands
+the words to the teammate's session exactly as a call without a front would,
+at most once per utterance; the front then says a short acknowledgement. The
+front never claims work is done and never answers an approval. If the front
+fails before it decides, the words are handed over unchanged. A handoff that
+cannot start the teammate or reach its session is reported on the call.
+
+While the front speaks for the call, the teammate's own interim
+acknowledgements are not spoken, nor a turn that ends on a bare one; its
+reply at the end of the turn is. Replies
+to any turn handed off on this call are delivered, not only to the latest one,
+and longer replies are retold in the first person by the dispatcher's model,
+which summarises lists rather than reading them out.
+Short plain replies are spoken as written. Without a dispatcher, a direct call
+hands every utterance to the session and speaks its replies as before.
+
+A teammate may have its own voice (`Persona.voice`: provider, model and
+voice), picked on its card from the voices of the model the desk speaks with.
+A direct call to that teammate speaks in it while the desk still speaks with
+that provider and model; otherwise, or if the provider refuses the voice, the
+call uses the desk's voice. Desk calls always use the desk's voice.
+
 ## Timing
 
 Every provider call logs three moments, tagged with the provider and model, to

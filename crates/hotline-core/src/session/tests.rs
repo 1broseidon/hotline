@@ -400,6 +400,7 @@ pub(super) fn persona(id: &str) -> Persona {
         allowed_senders: Vec::new(),
         web_search_policy: None,
         computer: None,
+        voice: None,
         session_checkpoints: Vec::new(),
         last_session_id: None,
         created_at: 1_700_000_000_000,

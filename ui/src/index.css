@@ -1795,14 +1795,64 @@
 	/* The teammate pane opens on who they are: the face, the name in the
 	 * heading's size and the goal under it like a bio, both plain text
 	 * until pointed at, when they show the field they are. */
+	/* The teammate's card: the face beside the name and goal, then a row
+	 * per thing about how they come across, divided like any grouped list. */
 	.profile {
 		display: flex;
-		flex-direction: column;
 		align-items: flex-start;
-		gap: 2px;
+		gap: 12px;
+		padding: 12px 12px 10px;
 	}
 	.profile .avatar {
-		margin-bottom: 8px;
+		flex: none;
+	}
+	/* A picture removes on press, after asking; hovering says so with a bin. */
+	.profile-picture {
+		position: relative;
+		flex: none;
+		border-radius: 9999px;
+	}
+	.profile-picture-remove {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		border-radius: 9999px;
+		background: rgb(0 0 0 / 0.55);
+		color: white;
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.profile-picture-remove svg {
+		width: 20px;
+		height: 20px;
+	}
+	.profile-picture:hover .profile-picture-remove,
+	.profile-picture:focus-visible .profile-picture-remove {
+		opacity: 1;
+	}
+	.profile-text {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		flex-direction: column;
+		gap: 2px;
+		padding-top: 4px;
+	}
+	/* A long goal keeps the card at its resting size: four lines, fading
+	 * out, and scrolling within those four lines while it is edited. */
+	.profile .profile-goal {
+		max-height: calc(var(--text-sm--line-height) * 4 + 4px);
+	}
+	.profile .profile-goal[data-clipped] {
+		mask-image: linear-gradient(to bottom, black calc(100% - 1.25em), transparent);
+	}
+	.profile .profile-goal:focus {
+		overflow-y: auto;
+		mask-image: none;
+	}
+	.profile + .group-row {
+		border-top: var(--hairline) solid var(--line);
 	}
 	.profile-name,
 	.profile-goal {

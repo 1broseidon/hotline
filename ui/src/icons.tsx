@@ -51,6 +51,12 @@ export const CloseIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+export const TrashIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M3 4.5h10M6.5 4.5V3.25h3V4.5M4.5 4.5l.6 8.25h5.8l.6-8.25M6.75 7v3.5M9.25 7v3.5" />
+	</svg>
+);
+
 export const SidebarIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<rect x="2.25" y="3" width="11.5" height="10" rx="2" />

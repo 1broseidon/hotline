@@ -1934,3 +1934,22 @@ async fn a_fronted_call_does_not_repeat_the_teammates_bare_acknowledgement() {
     assert_eq!(*lock(&fake.spoken), ["The build is green."]);
     calls.end(&id).unwrap();
 }
+
+#[test]
+fn a_link_is_said_as_its_site_and_shown_in_full() {
+    assert_eq!(
+        speakable(
+            "Here it is: https://ketch.run (GitHub repo: https://github.com/1broseidon/ketch)"
+        ),
+        "Here it is: ketch.run (GitHub repo: github.com)"
+    );
+    assert_eq!(
+        speakable("See www.example.com/docs?x=1."),
+        "See example.com."
+    );
+    assert_eq!(
+        speakable("Check main.rs in v1.2."),
+        "Check main.rs in v1.2."
+    );
+    assert!(!speech_ready("Here it is: https://ketch.run"));
+}

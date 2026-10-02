@@ -1529,6 +1529,7 @@ impl Calls {
             if interrupted.is_cancelled() || ended.is_cancelled() {
                 return Ok(());
             }
+            let sentence = &speakable(sentence);
             if streaming {
                 tokio::select! {
                     _ = interrupted.cancelled() => return Ok(()),
@@ -1865,6 +1866,25 @@ fn speech_ready(text: &str) -> bool {
         && text.chars().count() <= 320
         && sentences(text).len() <= 2
         && !text.contains(['`', '#', '*', '\n', '[', ']', '|'])
+        && speakable(text) == text
+}
+
+/// What is sent to speech: a link is said as its site, never spelled out
+/// character by character. The line shown on screen keeps the full link.
+fn speakable(text: &str) -> String {
+    static LINK: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)\b(?:https?://|www\.)[^\s<>()]+").expect("fixed link regex")
+    });
+    LINK.replace_all(text, |link: &regex::Captures| {
+        let whole = &link[0];
+        // Punctuation that ends the sentence is not part of the link.
+        let link = whole.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        let rest = link.split_once("://").map_or(link, |(_, rest)| rest);
+        let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+        let host = host.strip_prefix("www.").unwrap_or(host);
+        format!("{host}{}", &whole[link.len()..])
+    })
+    .into_owned()
 }
 
 fn goodbye(text: &str) -> bool {

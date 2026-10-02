@@ -1315,8 +1315,11 @@ impl Calls {
             }
             failure.map_or(Ok(()), Err)
         };
+        // Speaking over the voice drops what it was about to say; a handoff it
+        // already made stands, as accepted work does without a front.
         let (produced, spoken) = tokio::select! {
             _ = context.cancel.cancelled() => return Ok(()),
+            _ = speech_cancel.cancelled() => return Ok(()),
             done = async { tokio::join!(produce, consume) } => done,
         };
         if [&produced, &spoken]

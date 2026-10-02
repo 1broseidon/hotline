@@ -140,6 +140,10 @@ impl Dispatcher for Fake {
         output: mpsc::Sender<String>,
     ) -> Result<(), String> {
         lock(&self.fronted).push(front.clone());
+        let gate = lock(&self.answer_gate).clone();
+        if let Some(gate) = gate {
+            gate.acquire().await.unwrap().forget();
+        }
         let plan = lock(&self.front).clone().unwrap();
         let (line, hand) = plan?;
         if hand {
@@ -1835,5 +1839,29 @@ async fn work_handed_off_earlier_still_reports_in_first_person_after_a_later_que
     .await;
     assert_eq!(fake.first_person.load(Ordering::SeqCst), 1);
     assert_eq!(fake.narrations.load(Ordering::SeqCst), 0);
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn speaking_over_a_thinking_front_frees_the_call_for_the_next_turn() {
+    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("On it.".into(), true))).await;
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    *lock(&fake.answer_gate) = Some(gate.clone());
+    utterance(&calls, &id, 1).unwrap();
+    event(&mut rx, |e| matches!(e, VoiceEvent::Heard { .. })).await;
+    while lock(&fake.fronted).is_empty() {
+        tokio::task::yield_now().await;
+    }
+    calls.interrupt(&id).unwrap();
+    // The front never finishes, yet the call takes the next turn.
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while utterance(&calls, &id, 2).is_err() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(handed(&calls, &id).is_empty());
+    gate.add_permits(2);
     calls.end(&id).unwrap();
 }

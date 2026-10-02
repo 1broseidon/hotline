@@ -1,5 +1,32 @@
 [
   {
+    "target": "crates/hotline-core/src/voice/speech/xai.rs",
+    "kind": "package",
+    "scope": "package",
+    "callerProfile": [
+      "sdk-client"
+    ],
+    "riskClass": "R2",
+    "surfacePattern": "Existing Speech::speak_chunks progressive WAV output, from speech/mod.rs and speech/xai.rs",
+    "obligations": [
+      "same independently playable PCM16 WAV format",
+      "ordered lossless sample output and nonempty final clip",
+      "bounded staging buffer and receiver backpressure",
+      "receiver cancellation interrupts pending provider body reads",
+      "same budget reservations and fallback behavior",
+      "committed direct reply provenance unchanged"
+    ],
+    "brief": "Publish a 200 ms first xAI speech clip after retaining one complete PCM16 sample, instead of waiting for one second of audio. Later clips retain their half-second tail.",
+    "contracts": [
+      "docs/voice-calls.md"
+    ],
+    "verification": [
+      "cargo test -p hotline-core voice::speech::xai::tests",
+      "make check",
+      "live iPhone capture-end to playback-start measurement remains required"
+    ]
+  },
+  {
     "target": "crates/hotline-core/src/voice",
     "kind": "websocket service",
     "scope": "service",

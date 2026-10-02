@@ -95,6 +95,7 @@ type Results = {
 	"voice.status": VoiceStatus;
 	"voice.call_start": VoiceCall;
 	"voice.utterance": null;
+	"voice.audio": null;
 	"voice.interrupt": null;
 	"voice.hold": null;
 	"voice.call_end": null;

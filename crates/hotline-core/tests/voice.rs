@@ -291,10 +291,14 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
     assert_eq!(delivery["event"]["personaId"], mack);
     assert_eq!(
         delivery["event"]["text"],
-        format!(
-            "Mack says: {}",
-            reply.split_whitespace().collect::<Vec<_>>().join(" ")
-        )
+        if expected_bubbles == 1 {
+            reply.trim().to_string()
+        } else {
+            format!(
+                "Mack says: {}",
+                reply.split_whitespace().collect::<Vec<_>>().join(" ")
+            )
+        }
     );
     assert_eq!(narrated["event"]["text"], delivery["event"]["text"]);
     loop {
@@ -440,4 +444,161 @@ async fn provider(reply: &'static str) -> String {
         axum::serve(listener, app).await.unwrap();
     });
     url
+}
+
+#[tokio::test]
+async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching() {
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        hotline_core::desk::Desk::open_with_voice_services(
+            root.path(),
+            common::store(),
+            Some(services()),
+        )
+        .unwrap(),
+    );
+    let log = desk.log.clone();
+    let door = Door::bind(log.clone(), "direct-test".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=direct-test"))
+        .await
+        .unwrap();
+    let provider = provider("The checks passed.").await;
+    send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Direct fixture","baseUrl":provider,"api":"chat_completions","models":["test"]}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
+    send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let persona = until(&mut socket, |f| f["id"] == 91).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(
+        &mut socket,
+        json!({"id":92,"cmd":"session.start","params":{"personaId":persona}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 92).await["ok"], true);
+    send(
+        &mut socket,
+        json!({"id":93,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    assert!(
+        until(&mut socket, |f| f["id"] == 93).await["result"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "voiceDirectCalls")
+    );
+    let call = Uuid::new_v4().to_string();
+    send(&mut socket, json!({"id":1,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
+    assert_eq!(
+        until(&mut socket, |f| f["id"] == 1).await["result"]["personaId"],
+        persona
+    );
+    send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
+    until(&mut socket, |f| f["snapshot"].is_array()).await;
+    send(&mut socket, json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":1,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390}})).await;
+    let heard = until(&mut socket, |f| f["event"]["type"] == "heard").await;
+    let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
+    assert_eq!(delivery["event"]["personaId"], persona);
+    assert_eq!(delivery["event"]["text"], "The checks passed.");
+    let said = until(&mut socket, |f| f["event"]["type"] == "said").await;
+    assert_eq!(said["event"]["text"], "The checks passed.");
+    let clip = until(&mut socket, |f| f["event"]["type"] == "clip").await;
+    assert_eq!(clip["event"]["final"], true);
+    let tape = log.load(&hotline_core::log::StreamId::Tape(persona));
+    assert_eq!(
+        tape.iter().filter(|v| v["kind"] == "chapter").count(),
+        1,
+        "{tape:?}"
+    );
+    let user = tape.iter().find(|v| v["kind"] == "user").unwrap();
+    assert_eq!(user["text"], heard["event"]["text"]);
+    assert!(
+        user["id"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("voice:{call}:1:agent:"))
+    );
+    assert!(
+        !log.load(&hotline_core::log::StreamId::Tape(
+            hotline_core::voice::TAPE_ID.into()
+        ))
+        .iter()
+        .any(|v| matches!(v["kind"].as_str(), Some("user" | "agent")))
+    );
+    send(
+        &mut socket,
+        json!({"id":4,"cmd":"voice.call_start","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(
+        until(&mut socket, |f| f["id"] == 4).await["ok"],
+        false,
+        "a live target cannot silently change to desk"
+    );
+    send(&mut socket, json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string(),"personaId":"missing"}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 5).await["ok"], false);
+    send(
+        &mut socket,
+        json!({"id":6,"cmd":"voice.hold","params":{"callId":call,"hold":true}}),
+    )
+    .await;
+    assert_eq!(
+        until(&mut socket, |f| f["id"] == 6).await["ok"],
+        true,
+        "invalid target did not replace the existing call"
+    );
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher() {
+    let root = tempfile::tempdir().unwrap();
+    let desk =
+        Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
+    let door = Door::bind(desk.log.clone(), "readiness-test".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=readiness-test"))
+        .await
+        .unwrap();
+    send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"}}}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 2).await["ok"], true);
+    send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let persona = until(&mut socket, |f| f["id"] == 3).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(
+        &mut socket,
+        json!({"id":4,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 4).await;
+    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["directAvailable"], true);
+    send(
+        &mut socket,
+        json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 5).await["ok"], false);
+    let call = Uuid::new_v4().to_string();
+    send(&mut socket, json!({"id":6,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
+    let started = until(&mut socket, |f| f["id"] == 6).await;
+    assert_eq!(started["ok"], true);
+    assert_eq!(started["result"]["personaId"], persona);
+    send(
+        &mut socket,
+        json!({"id":7,"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], true);
+    socket.close(None).await.unwrap();
+    server.abort();
 }

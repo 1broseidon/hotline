@@ -7,7 +7,7 @@ import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
 import { Titlebar } from "./ui/Titlebar";
 import { CallFloat } from "./components/Call";
-import { closeCall, startCall, useCall, useCallSnapshot, useVoiceAvailable } from "./voice/call";
+import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import type { SettingsSection } from "./components/Settings";
 import { Teammate } from "./components/Teammate";
@@ -429,7 +429,7 @@ export function App() {
 	const call = useCall();
 	const callPhase = useCallSnapshot(call).phase;
 	const calling = call !== null && callPhase !== "ended";
-	const voice = useVoiceAvailable(connection);
+	const { available: voice, directCalls } = useVoiceSupport(connection);
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
@@ -521,6 +521,9 @@ export function App() {
 							entry={selected}
 							models={models}
 							onSaid={setSaid}
+							onCall={directCalls ? () => void startCall(nameOf, {
+								personaId: selected.persona.id, name: selected.persona.name, avatarHash: selected.persona.avatar?.hash,
+							}) : undefined}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -584,7 +587,11 @@ export function App() {
 				{(floatWork !== null || call !== null) && (
 					<div className="float-stack">
 						{floatWork}
-						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={select} />}
+						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={(personaId) => {
+							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
+							try { localStorage.setItem(deskKey(SELECTED_KEY, call.deskId), personaId); } catch { /* Private mode. */ }
+							setActiveDesk(call.deskId);
+						}} />}
 					</div>
 				)}
 				</div>

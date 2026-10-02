@@ -27,7 +27,7 @@ export interface CallAudio {
 /** A block of the mic is this many frames: ~43ms at 48 kHz. */
 const BLOCK = 2048;
 
-export function webAudio(events: { onIdle(): void; onLost(): void }): CallAudio {
+export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?(): void }): CallAudio {
 	let ctx: AudioContext | null = null;
 	let stream: MediaStream | null = null;
 	let source: MediaStreamAudioSourceNode | null = null;
@@ -36,13 +36,23 @@ export function webAudio(events: { onIdle(): void; onLost(): void }): CallAudio 
 	let player: ClipPlayer | null = null;
 	let reader: ((block: Float32Array, rate: number) => void) | null = null;
 	let closing = false;
+	let micGeneration = 0;
+	let quietUntil = 0;
 
 	const takeMic = async () => {
 		const context = ctx;
 		if (!context) throw new Error("closed");
-		stream = await navigator.mediaDevices.getUserMedia({
+		const generation = ++micGeneration;
+		const next = await navigator.mediaDevices.getUserMedia({
 			audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
 		});
+		if (closing || ctx !== context || generation !== micGeneration) {
+			for (const track of next.getTracks()) track.stop();
+			return;
+		}
+		source?.disconnect();
+		for (const track of stream?.getTracks() ?? []) { track.onended = null; track.stop(); }
+		stream = next;
 		// A mic unplugged or taken by the system mid-call.
 		for (const track of stream.getAudioTracks()) {
 			track.onended = () => {
@@ -54,6 +64,7 @@ export function webAudio(events: { onIdle(): void; onLost(): void }): CallAudio 
 	};
 
 	const dropMic = () => {
+		micGeneration++;
 		source?.disconnect();
 		source = null;
 		for (const track of stream?.getTracks() ?? []) {
@@ -78,9 +89,11 @@ export function webAudio(events: { onIdle(): void; onLost(): void }): CallAudio 
 			analyser.fftSize = 1024;
 			out.connect(analyser);
 			analyser.connect(context.destination);
-			player = new ClipPlayer(context, out, events.onIdle);
+			player = new ClipPlayer(context, out, events.onIdle, events.onStarted);
 			processor = context.createScriptProcessor(BLOCK, 1, 1);
-			processor.onaudioprocess = (event) => reader?.(event.inputBuffer.getChannelData(0), context.sampleRate);
+			processor.onaudioprocess = (event) => {
+				if (context.currentTime >= quietUntil) reader?.(event.inputBuffer.getChannelData(0), context.sampleRate);
+			};
 			// A script processor only runs while it leads somewhere; this gain is silent.
 			const sink = context.createGain();
 			sink.gain.value = 0;
@@ -127,7 +140,10 @@ export function webAudio(events: { onIdle(): void; onLost(): void }): CallAudio 
 				osc.start(at);
 				osc.stop(at + length + 0.02);
 			});
-			return 0.02 + (notes.length - 1) * step + length;
+			const duration = 0.02 + (notes.length - 1) * step + length;
+			// Keep our own cue and its short speaker tail out of the detector and pre-roll.
+			quietUntil = context.currentTime + duration + 0.12;
+			return duration;
 		},
 		close() {
 			closing = true;

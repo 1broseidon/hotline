@@ -1,9 +1,9 @@
 import type { FileChunk } from "./generated/contract";
 import { wire } from "./wire";
 
-type Read = (personaId: string, hash: string, offset: number) => Promise<FileChunk>;
+export type AvatarRead = (personaId: string, hash: string, offset: number) => Promise<FileChunk>;
 
-const readOverWire: Read = (personaId, hash, offset) => wire.command("avatar.read", { personaId, hash, offset });
+const readOverWire: AvatarRead = (personaId, hash, offset) => wire.command("avatar.read", { personaId, hash, offset });
 
 /**
  * A teammate's picture as a URL the page can draw. A picture is named by the
@@ -12,7 +12,7 @@ const readOverWire: Read = (personaId, hash, offset) => wire.command("avatar.rea
  */
 const pictures = new Map<string, Promise<string>>();
 
-export function avatarUrl(personaId: string, hash: string, read: Read = readOverWire): Promise<string> {
+export function avatarUrl(personaId: string, hash: string, read: AvatarRead = readOverWire): Promise<string> {
 	const known = pictures.get(hash);
 	if (known !== undefined) return known;
 	const fetched = fetchAvatar(personaId, hash, read);
@@ -23,7 +23,7 @@ export function avatarUrl(personaId: string, hash: string, read: Read = readOver
 	return fetched;
 }
 
-async function fetchAvatar(personaId: string, hash: string, read: Read): Promise<string> {
+async function fetchAvatar(personaId: string, hash: string, read: AvatarRead): Promise<string> {
 	const parts: Uint8Array<ArrayBuffer>[] = [];
 	let type = "image/png";
 	let offset: number | undefined = 0;

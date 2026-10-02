@@ -4,6 +4,7 @@
 
 use super::catalog::{self, Found};
 use super::google::{self, Google};
+use super::xai::{self, Xai};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechSet, TurnClock};
 use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
 use crate::session::ProviderAuth;
@@ -38,9 +39,8 @@ struct Row {
 }
 
 /// The one table of what each provider hears and says by default, chosen for
-/// a short first sound. xAI is left out because its speech is `/v1/tts` and
-/// `/v1/stt`, not the OpenAI shape (its voice is reachable through OpenRouter),
-/// and Mistral's voice answers with base64 in JSON, so Mistral only listens.
+/// a short first sound. xAI has its own `/v1/stt` and `/v1/tts` adapter.
+/// Mistral's voice answers with base64 in JSON, so Mistral only listens.
 const ROWS: &[Row] = &[
     Row {
         provider_id: "openai",
@@ -87,6 +87,14 @@ const ROWS: &[Row] = &[
         listen: "voxtral-mini-latest",
         speak: None,
         voices: &[],
+    },
+    Row {
+        provider_id: xai::PROVIDER_ID,
+        name: "xAI",
+        base_url: xai::BASE_URL,
+        listen: xai::LISTEN_MODEL,
+        speak: Some((xai::SPEAK_MODEL, "eve", AudioFormat::Wav, 15_000)),
+        voices: &["eve", "ara", "rex", "sal", "leo"],
     },
 ];
 
@@ -149,6 +157,15 @@ fn listening(connection: &Connection, pick: Option<&Choice>) -> Option<String> {
 /// default. A custom connection with neither has no voice.
 fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> {
     let named_model = pick.and_then(|pick| pick.model_id.clone());
+    // The native TTS route chooses a voice, not a model. Never report a
+    // different model as selected when the provider cannot honor that pick.
+    if connection.provider_id == xai::PROVIDER_ID
+        && named_model
+            .as_deref()
+            .is_some_and(|model| model != xai::SPEAK_MODEL)
+    {
+        return None;
+    }
     let named_voice = pick.and_then(|pick| pick.voice.clone());
     let default = match row(&connection.provider_id) {
         Some(row) => {
@@ -477,6 +494,11 @@ fn listener(
     model: &str,
     clock: &TurnClock,
 ) -> Result<Arc<dyn Speech>, String> {
+    if connection.provider_id == xai::PROVIDER_ID {
+        return Ok(Arc::new(
+            Xai::listener(connection.endpoint(), model)?.with_clock(clock),
+        ));
+    }
     if connection.provider_id == google::PROVIDER_ID {
         let key = connection.key.as_deref().unwrap_or_default();
         return Ok(Arc::new(
@@ -493,6 +515,11 @@ fn speaker(
     voice: &Speaking,
     clock: &TurnClock,
 ) -> Result<Arc<dyn Speech>, String> {
+    if connection.provider_id == xai::PROVIDER_ID {
+        return Ok(Arc::new(
+            Xai::speaker(connection.endpoint(), &voice.model, &voice.voice)?.with_clock(clock),
+        ));
+    }
     if connection.provider_id == google::PROVIDER_ID {
         let key = connection.key.as_deref().unwrap_or_default();
         return Ok(Arc::new(
@@ -534,9 +561,9 @@ fn cannot(connection: &Connection, job: &str) -> String {
 /// The sentence when a call cannot start for want of a provider.
 fn nothing_can(hears: bool, speaks: bool) -> String {
     match (hears, speaks) {
-        (false, false) => "None of your connected providers can hear or speak yet. Connect OpenAI, Google, Groq or OpenRouter in Settings and voice will use it, with no new key.".into(),
-        (false, true) => "None of your connected providers can turn speech into text. Connect OpenAI, Google, Groq, OpenRouter or Mistral in Settings.".into(),
-        _ => "Your connected providers can hear but not speak. Connect OpenAI, Google, Groq or OpenRouter in Settings.".into(),
+        (false, false) => "None of your connected providers can hear or speak yet. Connect OpenAI, Google, Groq, OpenRouter or xAI in Settings and voice will use it, with no new key.".into(),
+        (false, true) => "None of your connected providers can turn speech into text. Connect OpenAI, Google, Groq, OpenRouter, xAI or Mistral in Settings.".into(),
+        _ => "Your connected providers can hear but not speak. Connect OpenAI, Google, Groq, OpenRouter or xAI in Settings.".into(),
     }
 }
 
@@ -635,6 +662,41 @@ mod tests {
         let set = resolve_from(&[connected("openai")], &VoiceSettings::default()).unwrap();
         assert!(set.fallback_tts.is_none());
         assert_eq!(set.stt.id().model_id, "gpt-4o-mini-transcribe");
+    }
+
+    #[test]
+    fn native_xai_listens_live_and_speaks_wav_with_the_connected_api_key() {
+        let set = resolve_from(&[connected("xai")], &VoiceSettings::default()).unwrap();
+        assert_eq!(
+            ids(&set),
+            (
+                id("xai", xai::LISTEN_MODEL, None),
+                id("xai", xai::SPEAK_MODEL, Some("eve")),
+                None,
+            )
+        );
+        assert!(set.stt.supports_live_input());
+        assert!(!set.tts.supports_live_input());
+        assert_eq!(set.tts.output_mime(), "audio/wav");
+    }
+
+    #[test]
+    fn native_xai_speech_does_not_treat_subscription_login_as_a_paid_api_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let auth = ProviderAuth::Login {
+            token_dir: dir.path().into(),
+        };
+        assert!(connection("xai", &auth, dir.path()).is_none());
+        assert!(connection("xai", &ProviderAuth::ApiKey("test-key".into()), dir.path()).is_some());
+    }
+
+    #[test]
+    fn native_xai_tts_never_claims_an_unsupported_model_pick() {
+        let settings = VoiceSettings {
+            tts: Some(pick("xai", Some("another-model"), None)),
+            ..VoiceSettings::default()
+        };
+        assert!(resolve_from(&[connected("xai")], &settings).is_err());
     }
 
     #[test]
@@ -839,8 +901,17 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let vault = vault_in(root.path());
         vault.create("anthropic", "Claude", "sk-ant").unwrap();
-        vault.create("xai", "Grok", "xai-key").unwrap();
         assert!(resolve(&vault, &VoiceSettings::default()).is_err());
+    }
+
+    #[test]
+    fn a_vault_with_native_xai_can_hear_live_and_speak() {
+        let root = tempfile::tempdir().unwrap();
+        let vault = vault_in(root.path());
+        vault.create("xai", "Grok", "xai-key").unwrap();
+        let set = resolve(&vault, &VoiceSettings::default()).unwrap();
+        assert!(set.stt.supports_live_input());
+        assert_eq!(set.tts.id().provider_id, "xai");
     }
 
     fn found(listen: &[&str], speak: &[(&str, &[&str])]) -> Found {

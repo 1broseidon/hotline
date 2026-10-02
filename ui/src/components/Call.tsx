@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon } from "../icons";
 import { HotlineMark } from "../ui/HotlineMark";
-import { type Call as CallSession, type CallPhase, closeCall, startCall, useCallSnapshot } from "../voice/call";
+import { Avatar } from "../ui/Avatar";
+import { type Call as CallSession, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
 
 const WORDS: Record<CallPhase, string> = {
 	connecting: "Calling",
@@ -15,12 +16,9 @@ const WORDS: Record<CallPhase, string> = {
 };
 
 /**
- * A call with the desk, floating over whatever is open: you talk to the
- * room, not to one teammate, so the call stays put while you move between
- * them, and the composer stays free if you'd rather type. It is voice both
- * ways and nothing else — no transcript; what the teammates did lands in
- * their own conversations. The mark is the call: it swells with whoever is
- * talking, and pressing it while the desk speaks cuts in.
+ * The chosen desk or teammate stays on the line while the window moves
+ * between conversations. Pressing the face while they speak cuts in;
+ * work and the transcript stay in the teammate's own conversation.
  */
 export function CallFloat({
 	call,
@@ -50,9 +48,10 @@ export function CallFloat({
 	}, [live]);
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
 	return (
-		<aside className="call-float" aria-label="Call with the desk">
+		<aside className="call-float" aria-label={`Call with ${call.target?.name ?? "the desk"}`}>
 			<div className="call-top">
 				<span className="instrument min-w-0 flex-1 truncate">
+					{call.target !== undefined && <>{call.target.name} · </>}
 					{/* Only the state is announced; the clock would be read out every second. */}
 					<span aria-live="polite">{WORDS[state.phase]}</span>
 					{live && state.phase !== "connecting" && <> · <Clock clock={state.clock} /></>}
@@ -75,7 +74,8 @@ export function CallFloat({
 					if (speaking) call.interrupt();
 				}}
 			>
-				<HotlineMark width={44} />
+				{call.target === undefined ? <HotlineMark width={44} /> :
+					<Avatar id={call.target.personaId} name={call.target.name} hash={call.target.avatarHash} size={44} read={call.readAvatar} />}
 			</button>
 
 			{state.cards.map((card) => (
@@ -88,7 +88,7 @@ export function CallFloat({
 						onOpenTeammate(card.personaId);
 					}}
 				>
-					<span className="min-w-0 flex-1 truncate">{names(card.personaId) ?? "A teammate"} needs you</span>
+					<span className="min-w-0 flex-1 truncate">{call.nameOf(card.personaId) ?? names(card.personaId) ?? "A teammate"} needs you</span>
 				</button>
 			))}
 
@@ -121,7 +121,7 @@ export function CallFloat({
 					className="call-button call-button-start"
 					title="Call again"
 					aria-label="Call again"
-					onClick={() => void startCall(names)}
+					onClick={() => void restartCall(call)}
 				>
 					<PhoneIcon />
 				</button>

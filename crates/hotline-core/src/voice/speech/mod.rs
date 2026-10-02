@@ -18,6 +18,7 @@ mod google;
 mod openai_shape;
 mod providers;
 mod wav;
+mod xai;
 
 pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
@@ -26,7 +27,7 @@ pub use providers::{options, resolve};
 
 use async_trait::async_trait;
 use std::fmt;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 /// One playable piece of audio and what it is.
@@ -34,6 +35,14 @@ use std::time::{Duration, Instant};
 pub struct Clip {
     pub mime: String,
     pub bytes: Vec<u8>,
+}
+
+/// One ordered piece of a spoken reply. The final marker lets a caller
+/// publish immediately instead of holding a playable clip for lookahead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpeechChunk {
+    pub clip: Clip,
+    pub final_chunk: bool,
 }
 
 /// Which provider, model and voice an adapter speaks with. A listening
@@ -61,6 +70,8 @@ pub enum SpeechError {
     UnsupportedFormat(String),
     /// There was nothing to say.
     NothingToSay,
+    /// The call stopped, or its caller stopped accepting audio.
+    Cancelled,
     /// The provider could not be reached, or did not answer in time.
     Unreachable { provider_id: String },
     /// The provider answered with an error status.
@@ -77,6 +88,7 @@ impl fmt::Display for SpeechError {
                 write!(f, "Audio of type {mime} is not one Hotline can transcribe.")
             }
             SpeechError::NothingToSay => write!(f, "There was nothing to say."),
+            SpeechError::Cancelled => write!(f, "The voice call was cancelled."),
             SpeechError::Unreachable { provider_id } => {
                 write!(f, "{provider_id} could not be reached.")
             }
@@ -103,8 +115,39 @@ pub trait Speech: Send + Sync {
     }
     /// The words in one clip (`audio/wav` or `audio/mp4`); empty when nobody spoke.
     async fn transcribe(&self, clip: Clip) -> Result<String, SpeechError>;
+    /// Whether this listener accepts live mono PCM16 instead of a finished clip.
+    fn supports_live_input(&self) -> bool {
+        false
+    }
+    /// PCM16 little-endian mono frames. Closing `input` finalizes the utterance;
+    /// dropping this future cancels the provider connection and pending work.
+    async fn transcribe_live(
+        &self,
+        _input: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        _sample_rate: u32,
+    ) -> Result<String, SpeechError> {
+        Err(SpeechError::UnsupportedFormat("live PCM".into()))
+    }
     /// One sentence to one playable clip.
     async fn speak(&self, text: &str) -> Result<Clip, SpeechError>;
+    /// Ordered, independently playable clips. A bounded `output` applies
+    /// backpressure; dropping its receiver or this future cancels synthesis.
+    /// Providers without streaming support retain their whole-clip behavior.
+    async fn speak_chunks(
+        &self,
+        text: &str,
+        output: tokio::sync::mpsc::Sender<SpeechChunk>,
+    ) -> Result<(), SpeechError> {
+        if output.is_closed() {
+            return Err(SpeechError::Cancelled);
+        }
+        tokio::select! {
+            _ = output.closed() => Err(SpeechError::Cancelled),
+            clip = self.speak(text) => {
+                output.send(SpeechChunk { clip: clip?, final_chunk: true }).await.map_err(|_| SpeechError::Cancelled)
+            }
+        }
+    }
 }
 
 /// What the owner's connected providers give the desk: one adapter to hear,
@@ -218,12 +261,19 @@ impl TurnClock {
 /// The client every adapter shares its shape of. A key must never follow a
 /// redirect to another server, and a call that hangs is a call that failed.
 pub(crate) fn http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| "Could not prepare the speech connection.".to_string())
+    // Authorization belongs to each request, so a process-wide pool can be
+    // reused when each new call resolves fresh credentials and adapters.
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|_| "Could not prepare the speech connection.".to_string())
+        })
+        .clone()
 }
 
 /// Sends a request, reads the body up to `limit` bytes, and logs how long the

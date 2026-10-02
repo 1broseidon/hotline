@@ -44,6 +44,7 @@ pub struct Context {
     pub room: Arc<dyn RoomHandle>,
     pub cancel: CancellationToken,
     heard: bool,
+    origin: Option<super::Origin>,
     handoffs: Arc<AtomicUsize>,
     schedules: Arc<Mutex<std::collections::HashSet<String>>>,
 }
@@ -55,8 +56,16 @@ impl Context {
             room,
             cancel,
             heard: false,
+            origin: None,
             handoffs: Arc::new(AtomicUsize::new(0)),
             schedules: Arc::default(),
+        }
+    }
+
+    pub(crate) fn with_origin(&self, origin: super::Origin) -> Self {
+        Self {
+            origin: Some(origin),
+            ..self.clone()
         }
     }
 
@@ -168,12 +177,18 @@ impl Context {
                     if context.cancel.is_cancelled() {
                         return Err("The call ended before the handoff landed.".to_string());
                     }
-                    crate::wire::commands::VOICE_COMMAND
-                        .scope(
-                            (),
-                            crate::wire::commands::run(command, &context.log, &context.room),
-                        )
-                        .await
+                    let prompt = crate::wire::commands::VOICE_COMMAND.scope(
+                        (),
+                        crate::wire::commands::run(command, &context.log, &context.room),
+                    );
+                    match &context.origin {
+                        Some(origin) => {
+                            crate::wire::commands::CALL_ORIGIN
+                                .scope(origin.clone(), prompt)
+                                .await
+                        }
+                        None => prompt.await,
+                    }
                 };
                 let result = tokio::select! {
                     _ = context.cancel.cancelled() => Err("The call ended before the handoff landed.".to_string()),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { avatarUrl } from "../avatars";
+import { type AvatarRead, avatarUrl } from "../avatars";
 
 /**
  * A teammate's face: its picture in the circle when it has one (`hash` is the
@@ -16,6 +16,7 @@ export function Avatar({
 	size = 28,
 	hash,
 	busy = false,
+	read,
 }: {
 	id: string;
 	name: string;
@@ -23,8 +24,10 @@ export function Avatar({
 	hash?: string | undefined;
 	/** Something is on its way: a session starting, a picture being drawn. A ring turns around the face. */
 	busy?: boolean;
+	/** A pinned desk, for pictures drawn after the window switches desks. */
+	read?: AvatarRead | undefined;
 }) {
-	const url = usePicture(id, hash);
+	const url = usePicture(id, hash, read);
 	const face = (
 		<span
 			aria-hidden="true"
@@ -49,12 +52,12 @@ export function Avatar({
 }
 
 /** The picture's URL once it has arrived; undefined before, and if it cannot be read. */
-function usePicture(personaId: string, hash: string | undefined): string | undefined {
+function usePicture(personaId: string, hash: string | undefined, read?: AvatarRead): string | undefined {
 	const [loaded, setLoaded] = useState<{ hash: string; url: string } | undefined>(undefined);
 	useEffect(() => {
 		if (hash === undefined) return;
 		let gone = false;
-		avatarUrl(personaId, hash).then(
+		avatarUrl(personaId, hash, read).then(
 			(url) => {
 				if (!gone) setLoaded({ hash, url });
 			},
@@ -63,7 +66,7 @@ function usePicture(personaId: string, hash: string | undefined): string | undef
 		return () => {
 			gone = true;
 		};
-	}, [personaId, hash]);
+	}, [personaId, hash, read]);
 	return hash !== undefined && loaded?.hash === hash ? loaded.url : undefined;
 }
 

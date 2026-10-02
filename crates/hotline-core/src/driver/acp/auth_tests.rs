@@ -4,6 +4,7 @@ use acp::{
     AuthenticateRequest, AuthenticateResponse, InitializeResponse, NewSessionResponse,
     PromptResponse, StopReason,
 };
+use agent_client_protocol::schema::v1::SessionNotification;
 use std::sync::atomic::AtomicUsize;
 use tokio_util::sync::CancellationToken;
 

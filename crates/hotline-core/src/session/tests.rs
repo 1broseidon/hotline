@@ -5408,6 +5408,115 @@ mod runs {
         assert_eq!(tape[0]["ts"], 5, "the line keeps its place");
         assert_eq!(run_stream(&room, "r7")[0]["status"], "cancelled");
     }
+
+    /// A harness's own subagent: the harness does the work and says so, and
+    /// the room writes it down the way it writes its own runs — a line on the
+    /// tape, a stream of its own, a row on the roster while it goes.
+    #[tokio::test]
+    async fn a_harness_subagent_is_written_as_a_run() {
+        use crate::driver::SubagentReport;
+        let room = room("harness-run", Fake::new(Scripted::new(Vec::new())));
+        let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+        room.watch_subagents("ada".to_string(), received);
+        let child = || "child-1".to_string();
+        reports
+            .send(SubagentReport::Started {
+                child: child(),
+                title: "Test investigator".to_string(),
+                task: "Run the tests and report.".to_string(),
+            })
+            .unwrap();
+        for update in worked()
+            .into_iter()
+            .filter(|update| !matches!(update, Update::Turn { .. }))
+        {
+            reports
+                .send(SubagentReport::Update {
+                    child: child(),
+                    update,
+                })
+                .unwrap();
+        }
+        // Another child's ending is not this one's.
+        reports
+            .send(SubagentReport::Ended {
+                child: "child-2".to_string(),
+                status: SubagentStatus::Done,
+            })
+            .unwrap();
+        let settled = async |status: &str| {
+            for _ in 0..500 {
+                let tape = tape(&room, "ada");
+                if tape.first().is_some_and(|line| line["status"] == status)
+                    && (status != "running"
+                        || run_stream(&room, tape[0]["runId"].as_str().unwrap()).len() >= 4)
+                {
+                    return tape;
+                }
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            panic!("the run never got to {status}: {:?}", tape(&room, "ada"));
+        };
+        let tape = settled("running").await;
+        assert_eq!(kinds(&tape), ["subagent"]);
+        assert_eq!(tape[0]["title"], "Test investigator");
+        let run_id = tape[0]["runId"].as_str().unwrap().to_string();
+        let listed = room.subagents("ada");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].run_id, run_id);
+
+        reports
+            .send(SubagentReport::Ended {
+                child: child(),
+                status: SubagentStatus::Done,
+            })
+            .unwrap();
+        let tape = settled("done").await;
+        assert_eq!(kinds(&tape), ["subagent"], "none of the run's words");
+        assert!(room.subagents("ada").is_empty());
+        let stream = run_stream(&room, &run_id);
+        assert_eq!(
+            kinds(&stream),
+            ["subagent", "user", "agent", "tool", "agent"]
+        );
+        assert_eq!(stream[1]["text"], "Run the tests and report.");
+        assert_eq!(stream[3]["status"], "completed");
+    }
+
+    /// A harness that stops reporting — restarted, gone — leaves no run
+    /// drawn running forever.
+    #[tokio::test]
+    async fn a_harness_subagent_nobody_heard_end_is_cancelled() {
+        use crate::driver::SubagentReport;
+        let room = room("harness-gone", Fake::new(Scripted::new(Vec::new())));
+        let (reports, received) = tokio::sync::mpsc::unbounded_channel();
+        room.watch_subagents("ada".to_string(), received);
+        reports
+            .send(SubagentReport::Started {
+                child: "child-1".to_string(),
+                title: "Explorer".to_string(),
+                task: String::new(),
+            })
+            .unwrap();
+        drop(reports);
+        for _ in 0..500 {
+            if tape(&room, "ada")
+                .first()
+                .is_some_and(|line| line["status"] == "cancelled")
+            {
+                assert!(room.subagents("ada").is_empty());
+                let run_id = tape(&room, "ada")[0]["runId"].as_str().unwrap().to_string();
+                assert_eq!(
+                    kinds(&run_stream(&room, &run_id)),
+                    ["subagent"],
+                    "no empty task"
+                );
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        panic!("the run was left running: {:?}", tape(&room, "ada"));
+    }
 }
 
 /// A teammate handing the person a file (BRO-98), through its own tool.

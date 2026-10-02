@@ -1007,6 +1007,7 @@ impl Room {
         // after publication below.
         let info_updates = driver.subscribe_info();
         let unprompted = driver.subscribe_unprompted();
+        let subagents = driver.subscribe_subagents();
         let reported = match driver.start(&persona).await {
             Ok(reported) => reported,
             Err(error) => {
@@ -1081,6 +1082,9 @@ impl Room {
         }
         if let Some(unprompted) = unprompted {
             self.watch_unprompted(&session, unprompted);
+        }
+        if let Some(subagents) = subagents {
+            self.watch_subagents(persona.id.clone(), subagents);
         }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.

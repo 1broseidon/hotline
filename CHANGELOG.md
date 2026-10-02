@@ -32,6 +32,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   as it works. The header clears when the run finishes; its line in the
   conversation keeps how it went and still opens it. The roster row carries
   `subagents`, so a phone can show the same.
+- A Claude or Codex teammate's subagents can show as runs of their own:
+  the same line, header button and work card as a Hotline Agent subagent,
+  with the subagent's own steps instead of one tool call on the teammate's
+  turn. Hotline offers ACP's draft subagent capability, and an adapter that
+  takes it gets this. Claude's and Codex's current adapter releases do not
+  read it yet, so their subagents stay tool calls until the adapters update.
 - A teammate's face in the rail turns a ring while something is on its way:
   its session starting, which can take a while when an agent is first
   downloaded, or its picture being drawn. The roster row carries `drawing`,

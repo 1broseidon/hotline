@@ -4389,10 +4389,13 @@ impl Room {
             && !text.trim().is_empty()
         {
             // narration::Voice has committed this as an acknowledgement or report.
-            // Direct callers hear it now rather than waiting for tool work to end.
+            // Direct callers hear it now rather than waiting for tool work to end,
+            // unless the call has a voice of its own that already acknowledged
+            // it and answers how it is going; then only the turn's reply is said.
             if let Some(origin) = lock(&session.voice_origin).clone()
                 && origin.direct
                 && let Some(voice) = lock(&self.voice).upgrade()
+                && !voice.fronted(&origin)
             {
                 let name = self
                     .persona(&session.persona_id)

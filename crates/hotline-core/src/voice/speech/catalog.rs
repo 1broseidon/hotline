@@ -105,6 +105,7 @@ fn curated_voices(provider_id: &str, model: &str) -> &'static [&'static str] {
         "google" => GOOGLE_VOICES,
         "groq" if model.contains("arabic") => GROQ_ARABIC_VOICES,
         "groq" => GROQ_ENGLISH_VOICES,
+        "xai" | "xai-subscription" => &["eve", "ara", "rex", "sal", "leo"],
         _ => &[],
     }
 }
@@ -187,6 +188,11 @@ pub(super) fn write(root: &Path, provider_id: &str, found: &Found) {
 /// stamped as fresh. A provider with no models of the kinds we can drive
 /// counts as a failure, so the built-in default stands.
 async fn fetch(endpoint: &Endpoint) -> Option<Found> {
+    // Subscription voice uses refreshing OAuth at call time, never an API
+    // key or an unauthenticated model-list request during settings discovery.
+    if endpoint.provider_id == super::xai::SUBSCRIPTION_PROVIDER_ID {
+        return None;
+    }
     let client = reqwest::Client::builder()
         .timeout(FETCH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())

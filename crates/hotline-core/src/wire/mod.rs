@@ -631,12 +631,19 @@ impl Seat {
     fn capabilities_for(self, room: &dyn RoomHandle) -> Vec<&'static str> {
         let mut capabilities = self.capabilities();
         if matches!(self, Seat::Owner | Seat::Desk)
-            && room
-                .voice()
-                .is_some_and(|voice| voice.status().direct_available)
+            && let Some(voice) = room.voice()
         {
-            capabilities.push("voice");
-            capabilities.push("voiceDirectCalls");
+            let audio = voice.status().direct_available;
+            let text = voice
+                .status_for(crate::contract::VoiceInputMode::Text)
+                .direct_available;
+            if audio || text {
+                capabilities.push("voice");
+                capabilities.push("voiceDirectCalls");
+            }
+            if text {
+                capabilities.push("voiceTextInput");
+            }
         }
         capabilities
     }

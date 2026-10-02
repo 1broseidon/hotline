@@ -7,7 +7,8 @@ pub mod settings;
 pub mod speech;
 
 use crate::contract::{
-    VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceModel, VoiceState, VoiceStatus,
+    VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceModel, VoiceState,
+    VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -15,7 +16,7 @@ use dispatcher::{Context, Dispatcher, ProviderDispatcher};
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
 use settings::VoiceSettings;
-use speech::{Clip, SpeechId, SpeechSet};
+use speech::{Clip, SpeechId, SpeechOutput, SpeechSet};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -39,6 +40,45 @@ const BUDGET_LINE: &str = "The voice budget is unavailable or spent. Chat carrie
 pub struct Services {
     pub speech: SpeechSet,
     pub dispatcher: Arc<dyn Dispatcher>,
+}
+
+/// Text input carries no remote listener, even when an audio listener is configured.
+#[derive(Clone)]
+struct CallSpeech {
+    stt: Option<Arc<dyn speech::Speech>>,
+    tts: Arc<dyn speech::Speech>,
+    fallback_tts: Option<Arc<dyn speech::Speech>>,
+}
+
+impl CallSpeech {
+    fn audio(speech: SpeechSet) -> Self {
+        Self {
+            stt: Some(speech.stt),
+            tts: speech.tts,
+            fallback_tts: speech.fallback_tts,
+        }
+    }
+    fn output(speech: SpeechOutput) -> Self {
+        Self {
+            stt: None,
+            tts: speech.tts,
+            fallback_tts: speech.fallback_tts,
+        }
+    }
+}
+
+enum TranscriptSource {
+    Audio { duration: u32, bytes: usize },
+    Device,
+}
+
+impl TranscriptSource {
+    fn permits_goodbye(&self) -> bool {
+        match self {
+            Self::Audio { duration, bytes } => speech::plausible_goodbye(*duration, *bytes),
+            Self::Device => true,
+        }
+    }
 }
 
 /// Internal provenance; never accepted from a session command's parameters.
@@ -94,7 +134,8 @@ struct Call {
     output: String,
     target: Option<String>,
     stream_audio: bool,
-    speech_services: SpeechSet,
+    input_mode: VoiceInputMode,
+    speech_services: CallSpeech,
     input: Option<Input>,
     spoken_events: VecDeque<String>,
     connection_bound: bool,
@@ -140,6 +181,11 @@ struct Delivery {
 }
 
 enum Work {
+    Text {
+        seq: u32,
+        text: String,
+        speech: CancellationToken,
+    },
     Live {
         seq: u32,
         input: Mutex<Option<mpsc::Receiver<Vec<u8>>>>,
@@ -218,13 +264,6 @@ impl Calls {
     fn settings(&self) -> VoiceSettings {
         VoiceSettings::from_log(&self.log)
     }
-    fn services(&self) -> Result<Services, String> {
-        Ok(Services {
-            speech: self.resolve_speech()?,
-            dispatcher: self.dispatcher()?,
-        })
-    }
-
     fn dispatcher(&self) -> Result<Arc<dyn Dispatcher>, String> {
         if let Some(services) = &self.injected {
             return Ok(services.dispatcher.clone());
@@ -238,8 +277,12 @@ impl Calls {
     }
 
     pub fn status(&self) -> VoiceStatus {
+        self.status_for(VoiceInputMode::Audio)
+    }
+
+    pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let budget = self.ledger.balance();
-        let speech = self.resolve_speech();
+        let speech = self.resolve_speech(input_mode);
         let dispatcher = self.dispatcher();
         let budget_error = self.ledger.check().err().map(|e| e.to_string());
         let direct_available = speech.is_ok() && budget_error.is_none();
@@ -250,17 +293,20 @@ impl Calls {
             .or_else(|| dispatcher.as_ref().err().cloned())
             .or(budget_error);
         VoiceStatus {
-            capabilities: vec!["voiceDirectCalls".into()],
+            capabilities: vec!["voiceDirectCalls".into(), "voiceTextInput".into()],
             available: unavailable.is_none(),
             direct_available,
             unavailable,
-            stt: speech.as_ref().ok().map(|s| model(s.stt.id())),
+            stt: speech
+                .as_ref()
+                .ok()
+                .and_then(|s| s.stt.as_ref().map(|s| model(s.id()))),
             tts: speech.as_ref().ok().map(|s| model(s.tts.id())),
             fallback_tts: speech
                 .as_ref()
                 .ok()
                 .and_then(|s| s.fallback_tts.as_ref().map(|s| model(s.id()))),
-            dispatcher: dispatcher.as_ref().ok().map(|s| s.id()),
+            dispatcher: dispatcher.as_ref().ok().map(|d| d.id()),
             budget: VoiceBudget {
                 day_usd: budget.day_usd,
                 month_usd: budget.month_usd,
@@ -285,6 +331,17 @@ impl Calls {
         stream_audio: bool,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        self.start_with_input(id, target, stream_audio, VoiceInputMode::Audio, room)
+    }
+
+    pub fn start_with_input(
+        self: &Arc<Self>,
+        id: &str,
+        target: Option<String>,
+        stream_audio: bool,
+        input_mode: VoiceInputMode,
+        room: Arc<dyn RoomHandle>,
+    ) -> Result<VoiceCall, String> {
         if let Some(target) = &target
             && !crate::room::roster(&self.log)
                 .iter()
@@ -295,19 +352,17 @@ impl Calls {
         Uuid::parse_str(id).map_err(|_| "A voice call needs a UUID.".to_string())?;
         let mut calls = lock(&self.calls);
         if let Some(call) = calls.iter().find(|call| call.id == id)
-            && (call.target != target || call.stream_audio != stream_audio)
+            && (call.target != target
+                || call.stream_audio != stream_audio
+                || call.input_mode != input_mode)
         {
-            return Err("A call cannot change its target or audio mode.".into());
+            return Err("A call cannot change its target or input/output mode.".into());
         }
         if !calls.iter().any(|call| call.id == id) {
             // Direct calls do not need a separate routing model.
-            let speech_services = if let Some(services) = &self.injected {
-                services.speech.clone()
-            } else {
-                speech::resolve(&self.vault, &self.settings())?
-            };
+            let speech_services = self.resolve_speech(input_mode)?;
             if target.is_none() {
-                self.services()?;
+                self.dispatcher()?;
             }
             self.ledger.check().map_err(|e| e.to_string())?;
             for call in calls
@@ -326,6 +381,7 @@ impl Calls {
                 output: speech_services.tts.output_mime().into(),
                 target: target.clone(),
                 stream_audio,
+                input_mode,
                 speech_services,
                 input: None,
                 spoken_events: VecDeque::new(),
@@ -352,13 +408,20 @@ impl Calls {
         Ok(VoiceCall {
             call_id: id.into(),
             persona_id: target,
+            input_mode,
             input: {
-                let mut input = vec!["audio/wav".into(), "audio/mp4".into()];
+                let mut input = if input_mode == VoiceInputMode::Text {
+                    vec!["text/plain".into()]
+                } else {
+                    vec!["audio/wav".into(), "audio/mp4".into()]
+                };
                 if stream_audio
-                    && calls
-                        .iter()
-                        .find(|c| c.id == id)
-                        .is_some_and(|c| c.speech_services.stt.supports_live_input())
+                    && calls.iter().find(|c| c.id == id).is_some_and(|c| {
+                        c.speech_services
+                            .stt
+                            .as_ref()
+                            .is_some_and(|s| s.supports_live_input())
+                    })
                 {
                     input.push("audio/pcm".into());
                 }
@@ -503,8 +566,52 @@ impl Calls {
             return Err("That voice clip is empty or too large.".into());
         }
         let duration = validate_audio(mime, &bytes, duration)?;
-        let services = self.resolve_speech()?;
+        self.queue_utterance(id, seq, VoiceInputMode::Audio, |speech| Work::Utterance {
+            seq,
+            clip: Clip {
+                mime: mime.into(),
+                bytes,
+            },
+            duration,
+            speech,
+        })
+    }
+
+    /// Only a finalized device transcript enters the paid response pipeline.
+    pub fn text(&self, id: &str, seq: u32, text: &str) -> Result<(), String> {
+        if text.len() > 32_000 || text.chars().count() > 8_000 {
+            return Err("A voice transcript may contain at most 8,000 characters.".into());
+        }
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("A finalized voice transcript cannot be empty.".into());
+        }
+        self.queue_utterance(id, seq, VoiceInputMode::Text, |speech| Work::Text {
+            seq,
+            text: text.into(),
+            speech,
+        })
+    }
+
+    fn queue_utterance(
+        &self,
+        id: &str,
+        seq: u32,
+        input_mode: VoiceInputMode,
+        work: impl FnOnce(CancellationToken) -> Work,
+    ) -> Result<(), String> {
         self.change(id, |call| {
+            if call.input_mode != input_mode {
+                return Err(match call.input_mode {
+                    VoiceInputMode::Text => {
+                        "This call accepts finalized text, not microphone audio."
+                    }
+                    VoiceInputMode::Audio => {
+                        "This call accepts microphone audio, not device transcripts."
+                    }
+                }
+                .into());
+            }
             if call.state == VoiceState::Held {
                 return Err("Resume the call before speaking.".into());
             }
@@ -515,17 +622,9 @@ impl Calls {
                 return Err("The previous utterance is still being handled.".into());
             }
             let speech = CancellationToken::new();
-            call.speech_services = services;
+            call.speech_services = self.resolve_speech(input_mode)?;
             call.work
-                .try_send(Work::Utterance {
-                    seq,
-                    clip: Clip {
-                        mime: mime.into(),
-                        bytes,
-                    },
-                    duration,
-                    speech: speech.clone(),
-                })
+                .try_send(work(speech.clone()))
                 .map_err(|_| "The voice call is busy. Try again shortly.".to_string())?;
             call.input = None;
             call.speech.cancel();
@@ -541,27 +640,50 @@ impl Calls {
         })
     }
 
-    fn resolve_speech(&self) -> Result<SpeechSet, String> {
-        self.injected
-            .as_ref()
-            .map(|s| Ok(s.speech.clone()))
-            .unwrap_or_else(|| speech::resolve(&self.vault, &self.settings()))
+    fn resolve_speech(&self, input_mode: VoiceInputMode) -> Result<CallSpeech, String> {
+        if let Some(services) = &self.injected {
+            return Ok(match input_mode {
+                VoiceInputMode::Audio => CallSpeech::audio(services.speech.clone()),
+                VoiceInputMode::Text => CallSpeech::output(SpeechOutput {
+                    tts: services.speech.tts.clone(),
+                    fallback_tts: services.speech.fallback_tts.clone(),
+                }),
+            });
+        }
+        match input_mode {
+            VoiceInputMode::Audio => {
+                speech::resolve(&self.vault, &self.settings()).map(CallSpeech::audio)
+            }
+            VoiceInputMode::Text => {
+                speech::resolve_output(&self.vault, &self.settings()).map(CallSpeech::output)
+            }
+        }
     }
 
-    fn speech_for(&self, id: &str) -> Result<SpeechSet, String> {
+    fn speech_for(&self, id: &str) -> Result<CallSpeech, String> {
         self.change(id, |call| {
             // Connection revocation ends the call; disconnected providers may not
             // continue to use a key retained by its current sentence adapters.
-            if self.injected.is_none()
-                && !self
-                    .vault
-                    .provider_auth()
-                    .contains_key(&call.speech_services.tts.id().provider_id)
-            {
+            if !self.connected(call.speech_services.tts.as_ref()) {
                 return Err("The voice provider is no longer connected.".into());
             }
             Ok(call.speech_services.clone())
         })
+    }
+
+    fn connected(&self, speech: &dyn speech::Speech) -> bool {
+        if self.injected.is_some() {
+            return true;
+        }
+        let auth = self.vault.provider_auth();
+        if speech.is_subscription() {
+            matches!(
+                auth.get("xai"),
+                Some(crate::session::ProviderAuth::StoredLogin { .. })
+            )
+        } else {
+            auth.contains_key(&speech.id().provider_id)
+        }
     }
 
     pub fn audio(
@@ -581,16 +703,18 @@ impl Calls {
         if bytes.len() > 32_768 || bytes.len() % 2 != 0 || (bytes.is_empty() && !last) {
             return Err("Send at most 32 KiB of PCM16 per chunk.".into());
         }
-        let services = if index == 0 {
-            Some(self.resolve_speech()?)
-        } else {
-            None
-        };
         self.change(id, |call| {
             if call.state == VoiceState::Held {
                 return Err("Resume the call before speaking.".into());
             }
-            if !call.stream_audio || !call.speech_services.stt.supports_live_input() {
+            if call.input_mode != VoiceInputMode::Audio
+                || !call.stream_audio
+                || !call
+                    .speech_services
+                    .stt
+                    .as_ref()
+                    .is_some_and(|s| s.supports_live_input())
+            {
                 return Err("This call does not accept live PCM.".into());
             }
             if index == 0 {
@@ -600,11 +724,16 @@ impl Calls {
                 {
                     return Err("Start a new, increasing voice sequence with audio.".into());
                 }
-                let services = services.expect("first chunk resolves speech");
-                if !services.stt.supports_live_input() {
+                let services = self.resolve_speech(VoiceInputMode::Audio)?;
+                let stt = services
+                    .stt
+                    .as_ref()
+                    .filter(|s| s.supports_live_input())
+                    .cloned()
+                    .ok_or("The voice provider no longer accepts live PCM.")?;
+                if !self.connected(stt.as_ref()) {
                     return Err("The voice provider no longer accepts live PCM.".into());
                 }
-                let stt = services.stt.clone();
                 let work_slot = call
                     .work
                     .try_reserve()
@@ -727,6 +856,17 @@ impl Calls {
                 break;
             };
             let result = match &next {
+                Work::Text { seq, text, speech } => {
+                    self.respond(
+                        &id,
+                        &context.for_utterance(),
+                        *seq,
+                        text.clone(),
+                        TranscriptSource::Device,
+                        speech,
+                    )
+                    .await
+                }
                 Work::Live {
                     seq,
                     input,
@@ -749,8 +889,10 @@ impl Calls {
                                 &context.for_utterance(),
                                 *seq,
                                 text,
-                                bytes / 32,
-                                bytes as usize,
+                                TranscriptSource::Audio {
+                                    duration: bytes / 32,
+                                    bytes: bytes as usize,
+                                },
                                 speech,
                             )
                             .await
@@ -803,6 +945,7 @@ impl Calls {
                     } else {
                         let speech = match &next {
                             Work::Utterance { speech, .. }
+                            | Work::Text { speech, .. }
                             | Work::Live { speech, .. }
                             | Work::Delivery(_, speech)
                             | Work::Notice(_, speech) => Some(speech),
@@ -824,7 +967,10 @@ impl Calls {
                 self.push(delivery, &delivery.text);
             }
             let _ = self.change(&id, |call| {
-                if matches!(next, Work::Utterance { .. } | Work::Live { .. }) {
+                if matches!(
+                    next,
+                    Work::Utterance { .. } | Work::Live { .. } | Work::Text { .. }
+                ) {
                     call.input = None;
                     call.utterance_pending = false;
                     if call.target.is_none() {
@@ -861,33 +1007,42 @@ impl Calls {
         speech_cancel: &CancellationToken,
     ) -> Result<(), String> {
         let services = self.speech_for(id)?;
+        let stt = services
+            .stt
+            .as_ref()
+            .ok_or("This call does not have a remote transcription provider.")?;
         let bytes = clip.bytes.len();
         let billable_ms = speech::billable_ms(&clip.mime, bytes, duration);
         self.pay(
             Kind::Stt,
-            ledger::stt_usd(&services.stt.id().provider_id, billable_ms as f64 / 1000.0),
+            ledger::stt_usd(&stt.id().provider_id, billable_ms as f64 / 1000.0),
         )?;
         let text = tokio::select! {
             _ = context.cancel.cancelled() => return Ok(()),
             _ = speech_cancel.cancelled() => return Ok(()),
-            text = services.stt.transcribe(clip) => text.map_err(|e| e.to_string())?,
+            text = stt.transcribe(clip) => text.map_err(|e| e.to_string())?,
         };
         if context.cancel.is_cancelled() {
             return Ok(());
         }
-        self.respond(id, context, seq, text, duration, bytes, speech_cancel)
-            .await
+        self.respond(
+            id,
+            context,
+            seq,
+            text,
+            TranscriptSource::Audio { duration, bytes },
+            speech_cancel,
+        )
+        .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn respond(
         &self,
         id: &str,
         context: &Context,
         seq: u32,
         text: String,
-        duration: u32,
-        bytes: usize,
+        source: TranscriptSource,
         speech_cancel: &CancellationToken,
     ) -> Result<(), String> {
         if context.cancel.is_cancelled() || speech_cancel.is_cancelled() {
@@ -908,7 +1063,7 @@ impl Calls {
         if target.is_none() {
             self.record("user", &text)?;
         }
-        if goodbye(&text) && speech::plausible_goodbye(duration, bytes) {
+        if goodbye(&text) && source.permits_goodbye() {
             if self
                 .say(id, "Goodbye.", speech_cancel, &context.cancel)
                 .await
@@ -961,18 +1116,13 @@ impl Calls {
                 }
             };
         }
-        let services = self.services()?;
+        let dispatcher = self.dispatcher()?;
         let context = context.with_origin(origin);
         let (output, mut answers) = mpsc::channel(8);
         let produce = async {
             tokio::time::timeout(
                 Duration::from_secs(60),
-                services.dispatcher.answer_stream(
-                    context.clone(),
-                    &text,
-                    self.ledger.clone(),
-                    output,
-                ),
+                dispatcher.answer_stream(context.clone(), &text, self.ledger.clone(), output),
             )
             .await
             .map_err(|_| "The voice dispatcher timed out.".to_string())?
@@ -1020,14 +1170,12 @@ impl Calls {
         if delivery.text.len() > 32_000 {
             return Ok(fallback());
         }
-        let Ok(services) = self.services() else {
+        let Ok(dispatcher) = self.dispatcher() else {
             return Ok(fallback());
         };
         let result = tokio::time::timeout(
             Duration::from_secs(30),
-            services
-                .dispatcher
-                .narrate(&delivery.name, &delivery.text, self.ledger.clone()),
+            dispatcher.narrate(&delivery.name, &delivery.text, self.ledger.clone()),
         )
         .await;
         match result {
@@ -1090,7 +1238,7 @@ impl Calls {
             .map_err(|_| BUDGET_ERROR.to_string())
     }
 
-    async fn synthesize(&self, speech: &SpeechSet, text: &str) -> Result<Clip, String> {
+    async fn synthesize(&self, speech: &CallSpeech, text: &str) -> Result<Clip, String> {
         self.pay(
             Kind::Tts,
             ledger::tts_usd(&speech.tts.id().provider_id, text.chars().count()),
@@ -1098,7 +1246,11 @@ impl Calls {
         let clip = match speech.tts.speak(text).await {
             Ok(clip) => Ok(clip),
             Err(error) => match &speech.fallback_tts {
+                Some(_) if speech.tts.is_subscription() => Err(error.to_string()),
                 Some(fallback) => {
+                    if !self.connected(fallback.as_ref()) {
+                        return Err("The fallback voice provider is no longer connected.".into());
+                    }
                     self.pay(
                         Kind::Tts,
                         ledger::tts_usd(&fallback.id().provider_id, text.chars().count()),
@@ -1188,7 +1340,7 @@ impl Calls {
         &self,
         id: &str,
         line: &str,
-        services: &SpeechSet,
+        services: &CallSpeech,
         text: &str,
         index: &mut u32,
         final_sentence: bool,
@@ -1251,16 +1403,14 @@ impl Calls {
         }
         // A replacement after audible output would repeat words. Only an attempt
         // that produced no usable chunks may use the configured paid fallback.
-        if !published && let Some(fallback) = &services.fallback_tts {
+        if !published
+            && !services.tts.is_subscription()
+            && let Some(fallback) = &services.fallback_tts
+        {
             if interrupted.is_cancelled() {
                 return Ok(());
             }
-            if self.injected.is_none()
-                && !self
-                    .vault
-                    .provider_auth()
-                    .contains_key(&fallback.id().provider_id)
-            {
+            if !self.connected(fallback.as_ref()) {
                 return Err("The fallback voice provider is no longer connected.".into());
             }
             self.pay(
@@ -1372,7 +1522,8 @@ impl Calls {
         // Text-only desks retain their ordinary push and incur no voice cost.
         if origin.is_some_and(|origin| origin.direct)
             || !from_voice
-            || self.services().is_err()
+            || self.resolve_speech(VoiceInputMode::Text).is_err()
+            || self.dispatcher().is_err()
             || self.ledger.check().is_err()
         {
             return false;

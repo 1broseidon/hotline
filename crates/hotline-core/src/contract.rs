@@ -2145,9 +2145,21 @@ pub struct VoiceCall {
     pub call_id: String,
     pub input: Vec<String>,
     pub output: String,
+    #[serde(default)]
+    pub input_mode: VoiceInputMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub persona_id: Option<String>,
+}
+
+/// Omission preserves remote audio transcription for existing callers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum VoiceInputMode {
+    #[default]
+    Audio,
+    Text,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -2229,7 +2241,10 @@ pub enum VoiceEvent {
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub enum Command {
     #[serde(rename = "voice.status")]
-    VoiceStatus {},
+    VoiceStatus {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_mode: Option<VoiceInputMode>,
+    },
     #[serde(rename = "voice.call_start")]
     VoiceCallStart {
         call_id: String,
@@ -2237,6 +2252,15 @@ pub enum Command {
         persona_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stream_audio: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_mode: Option<VoiceInputMode>,
+    },
+    /// One finalized on-device transcript; partial recognition is never submitted.
+    #[serde(rename = "voice.text")]
+    VoiceText {
+        call_id: String,
+        seq: u32,
+        text: String,
     },
     /// Negotiated PCM16 little-endian mono, 16 kHz. Empty final commits.
     #[serde(rename = "voice.audio")]
@@ -3025,6 +3049,39 @@ mod tests {
     use crate::store::{chapters, previews, search};
     use serde_json::{Value, json};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn voice_input_mode_is_additive_and_legacy_calls_keep_audio() {
+        for value in [
+            json!({"cmd":"voice.status","params":{}}),
+            json!({"cmd":"voice.call_start","params":{"callId":"fixture"}}),
+        ] {
+            let command = serde_json::from_value::<Command>(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(command).unwrap(), value);
+        }
+        let old_reply: VoiceCall = serde_json::from_value(json!({
+            "callId":"fixture", "input":["audio/wav"], "output":"audio/wav"
+        }))
+        .unwrap();
+        assert_eq!(old_reply.input_mode, VoiceInputMode::Audio);
+        let text_start = serde_json::from_value::<Command>(json!({
+            "cmd":"voice.call_start", "params":{"callId":"fixture","inputMode":"text"}
+        }))
+        .unwrap();
+        assert!(matches!(
+            text_start,
+            Command::VoiceCallStart {
+                input_mode: Some(VoiceInputMode::Text),
+                ..
+            }
+        ));
+        assert!(
+            serde_json::from_value::<Command>(json!({
+                "cmd":"voice.call_start", "params":{"callId":"fixture","inputMode":"partial"}
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn direct_voice_readiness_is_an_additive_optional_field() {

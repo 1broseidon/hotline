@@ -421,6 +421,40 @@ and leaves due schedules durable; dropping it after failure resumes the room.
 User data stays outside replaced application assets. Development builds never
 check or install updates.
 
+### Voice calls: desk first, teammate second
+
+A call belongs to one owner connection and its selected desk. The desk is the
+primary entry point; an optional teammate target reuses that teammate's real
+session, tape and standing grants. Call and utterance ids correlate replies,
+so unrelated work or an old reply never speaks on a direct call. Hold, hangup,
+interrupt and connection revocation cancel voice input and output; an agent
+instruction already accepted by the session keeps working.
+
+Audio remains the default input for existing clients. It requires a remote
+transcription provider and accepts whole WAV/AAC clips, or negotiated PCM.
+An owner with `voiceTextInput` may request `inputMode: "text"` on `voice.status`
+and `voice.call_start`; the latter echoes that mode and advertises only
+`text/plain`. This mode resolves speaking independently of transcription.
+The phone commits one finalized on-device transcript with
+`voice.text {callId, seq, text}`; partial recognition never becomes an
+instruction. Empty or oversized text, repeated sequences, another input mode,
+hold and an unfinished preceding turn are refused before work is queued.
+There is no remote STT request or STT budget reservation for device text.
+Dispatcher and speaking costs keep their existing budget and ledger rules.
+
+A finalized transcript that is wholly a goodbye speaks `Goodbye.` and ends
+either kind of call. Audio goodbye still requires enough genuine audio to
+avoid a tiny hallucinated farewell. Replies use progressive independently
+playable clips when negotiated, with ordinary whole-clip output preserved.
+Clients cannot silently switch a text call to a paid audio provider; input
+mode stays fixed for that call and a fallback requires an explicit new call.
+
+Grok subscription speech is a separate, explicit provider choice backed by the
+stored xAI login. Automatic speech keeps selecting API providers. A missing
+login or subscription refusal returns an error; it never selects a paid speech
+fallback. Subscription STT and TTS record zero estimated paid API spend, while
+the desk dispatcher and agent work retain their ordinary spending rules.
+
 ### 7. Skills, as files every harness reads
 
 A skill is a procedure a teammate reads when the task calls for it: how to

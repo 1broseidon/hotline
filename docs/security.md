@@ -100,7 +100,8 @@ decision for George, not a bug fix.
 ## Voice calls
 
 Desk and direct teammate calls use the existing owner/local desk seat; a
-companion cannot start, upload audio to, or subscribe to either kind of call.
+companion cannot start, upload audio or device text to, or subscribe to either
+kind of call.
 The core validates a target against the living roster before replacing a
 call, and rejects a changed target on a reused call ID. Direct messages use
 `Room.start`/`Room.prompt`, so the existing harness, chapter, workspace,
@@ -116,14 +117,25 @@ narration remains thoughts. Holding, interrupting and disconnecting cancel
 speech and unfinished input, while accepted teammate work retains the
 ordinary session lifecycle. No action runs on a partial transcript.
 
+Negotiated `inputMode: "text"` accepts one finalized `voice.text` transcript
+instead of remote STT. It uses the same owner-seat handler, connection-bound
+call, increasing utterance sequence, unfinished-turn gate, cancellation tokens,
+internal origin and existing session grants as audio. The core rejects blank
+text, more than 8,000 characters/32,000 UTF-8 bytes, duplicate commits and input
+from the wrong mode before dispatch. Text carries no caller-supplied origin,
+new agent tools or authority. It requires output configuration only, reserves
+no remote STT spend, and retains dispatcher/TTS budget gates.
+
 Live PCM is negotiated, ordered and capped at 20 seconds/640,000 bytes,
 with 32 KiB frames, bounded queues and deadlines. Provider keys stay on the
-desk. Native xAI speech requires an API key; subscription logins do not
-silently authorize a paid speech fallback.
+desk. Paid xAI speech requires an API key; the separate explicit Grok
+subscription choice requires its stored login and never uses a paid speech
+fallback. Both output paths check fallback credential revocation before use.
 
 Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
-headless `tests/voice.rs` direct-call and dispatcher-unavailable readiness tests,
-and the direct origin, live commit,
+headless `tests/voice.rs::device_text_reuses_the_direct_agent_session_and_call_origin`,
+direct-call and dispatcher-unavailable readiness tests, and the finalized-text
+replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commit,
 cancellation and streaming failure tests in `voice::tests` and
 `session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
 live provider and iPhone compatibility still require device verification.
@@ -504,6 +516,7 @@ extend; when a change adds a boundary, it adds a row.
 
 | Must hold | Proof | Needs |
 | --- | --- | --- |
+| Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`, `text_input_keeps_budget_gating_before_dispatch` | — |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `tools/workspace.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
 | A revoked workspace handle refuses reads and writes | `tools/workspace.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
@@ -1054,6 +1067,12 @@ desk and owner seats in `wire::Seat`; companions receive `forbidden`. The hidden
 `voice-dispatcher` tape is also refused as a companion subscription. No microphone
 audio is written to the tape: only transcriptions and spoken text are indexed.
 
+`voice.text` is an additive finalized-transcript input on an explicitly
+negotiated text call; omitted input mode retains audio. The same socket-bound
+call cancellation, monotonically increasing sequence and pending-turn gate
+apply. There is no remote transcription request or STT reservation for text,
+and it adds no permission, grant or caller-controlled origin.
+
 The dispatcher executes a fixed command allowlist in `voice::dispatcher::Context`.
 It cannot answer permission/human/passkey cards, edit policies, read arbitrary
 files, or change credentials. Text handoffs use the ordinary session commands;
@@ -1081,7 +1100,8 @@ Proofs: `voice::tests::voice_schedules_require_a_grant_and_cannot_escape_the_cal
 `a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup`,
 `session::tests::only_the_reply_to_a_voice_handoff_gets_a_summarised_push`,
 `wire::tests::voice_is_owner_only_through_the_real_handler`, the voice
-state-machine tests, `voice::dispatcher::tests`, and the WebSocket scripted client
+state-machine text/sequence/cancellation/accounting tests,
+`voice::dispatcher::tests`, and the WebSocket scripted client
 in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.

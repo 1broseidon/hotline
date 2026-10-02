@@ -16,6 +16,11 @@ reports the primary TTS format for the call descriptor (default `audio/wav`).
 `transcribe` takes `audio/wav` (16 kHz mono PCM16) and `audio/mp4` (AAC); any
 other type is refused before a request.
 
+Negotiated device-text calls use `resolve_output` to select `tts` and optional
+`fallback_tts` without an STT adapter. They accept a finalized transcript and
+make no remote transcription request or STT reservation. Audio remains the
+default input mode.
+
 Adapters can additionally accept live input through `transcribe_live` and
 produce progressive output through `speak_chunks`. The call negotiates
 these paths explicitly; existing providers and callers retain whole clips.
@@ -42,6 +47,7 @@ what the picker shows when a provider cannot be asked what else it offers.
 | `groq` | `whisper-large-v3-turbo` | `canopylabs/orpheus-v1-english`, voice `hannah`, WAV |
 | `mistral` | `voxtral-mini-latest` | none |
 | `xai` API key | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
+| explicit `xai-subscription` login | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
 | a custom `openai-compatible` connection | its first model named `whisper` or `transcribe` | its first model named `tts` or `speech`, voice `alloy`, MP3 |
 
 The OpenAI, Groq, OpenRouter, Mistral and custom rows share one adapter: a
@@ -64,6 +70,15 @@ That route chooses a voice rather than a model; `grok-voice-tts-1.0` identifies
 the speech job in settings. Voices are `eve`, `ara`, `rex`, `sal`, and `leo`.
 Returned 24 kHz PCM is wrapped into a whole WAV or independently playable
 progressive WAV chunks. API keys travel in Authorization headers.
+
+The separate **Grok subscription** choice uses the existing stored xAI OAuth
+login. It must be selected explicitly as `xai-subscription`; it is excluded
+from automatic speech selection and never falls back to paid API-key speech.
+Each request resolves fresh stored credentials and retries once after a
+rejected bearer. Sign-in and entitlement failures are typed voice errors.
+The voice ledger adds no API speech cost for this selection; provider-side
+subscription limits still apply. Live STT retains finalized partial segments
+when the completion frame omits text, without dispatching interim recognition.
 
 ### What the picker offers
 
@@ -91,13 +106,15 @@ its own first voice.
 
 Not covered: Mistral's voice, which answers with base64 inside JSON. A custom
 connection counts only if it lists a speech model or the owner names one.
-xAI subscription logins do not substitute for this API-key speech connection.
+xAI subscription logins use their own explicit speech choice, independently
+of the API-key connection.
 
 ## Choosing
 
 Each job goes to the first connected provider that can do it, in the order the
 credentials were created; the fallback is the next connected provider that can
-speak. `settings.voice` overrides any of it:
+speak. Subscription speech is selected explicitly and has no paid fallback.
+`settings.voice` overrides any of it:
 
 ```json
 { "dayUsd": 2, "monthUsd": 20,
@@ -125,6 +142,9 @@ A direct teammate call resolves speech and budget without the dispatcher.
 reports direct readiness. Speech selections remain visible when only the
 dispatcher is unavailable. The desktop's secondary call control uses direct
 readiness and retains the desk's availability check for its primary call.
+`voice.status` accepts `inputMode: "text"` to assess output-only readiness;
+omission assesses audio readiness. A direct text call needs output and budget,
+while a desk text call also needs the dispatcher.
 
 ## Timing
 

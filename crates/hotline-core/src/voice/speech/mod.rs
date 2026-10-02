@@ -23,7 +23,7 @@ mod xai;
 pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
-pub use providers::{options, resolve};
+pub use providers::{options, resolve, resolve_output};
 
 use async_trait::async_trait;
 use std::fmt;
@@ -64,6 +64,10 @@ impl fmt::Display for SpeechId {
 /// body: a provider's error text can echo what was said.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SpeechError {
+    /// A subscription login is missing, revoked or no longer accepted.
+    SignInRequired { provider_id: String },
+    /// The subscription cannot use the requested speech capability.
+    Entitlement { provider_id: String, status: u16 },
     /// The adapter was built for the other job.
     WrongJob,
     /// A clip in a format the adapter does not take.
@@ -83,6 +87,28 @@ pub enum SpeechError {
 impl fmt::Display for SpeechError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            SpeechError::SignInRequired { provider_id } => {
+                let name = if provider_id == "xai-subscription" {
+                    "Grok"
+                } else {
+                    provider_id
+                };
+                write!(f, "Sign in to {name} again to use voice.")
+            }
+            SpeechError::Entitlement {
+                provider_id,
+                status,
+            } => {
+                let name = if provider_id == "xai-subscription" {
+                    "Grok"
+                } else {
+                    provider_id
+                };
+                write!(
+                    f,
+                    "Your {name} subscription cannot use voice (HTTP {status})."
+                )
+            }
             SpeechError::WrongJob => write!(f, "This voice was not set up for that."),
             SpeechError::UnsupportedFormat(mime) => {
                 write!(f, "Audio of type {mime} is not one Hotline can transcribe.")
@@ -109,6 +135,10 @@ impl std::error::Error for SpeechError {}
 pub trait Speech: Send + Sync {
     /// Provider, model and voice.
     fn id(&self) -> SpeechId;
+    /// Subscription adapters do not incur an additional metered speech charge.
+    fn is_subscription(&self) -> bool {
+        false
+    }
     /// Primary output advertised at call start; every clip still names its type.
     fn output_mime(&self) -> &str {
         "audio/wav"
@@ -155,6 +185,13 @@ pub trait Speech: Send + Sync {
 #[derive(Clone)]
 pub struct SpeechSet {
     pub stt: Arc<dyn Speech>,
+    pub tts: Arc<dyn Speech>,
+    pub fallback_tts: Option<Arc<dyn Speech>>,
+}
+
+/// Speaking does not require a transcription provider when the device supplies text.
+#[derive(Clone)]
+pub struct SpeechOutput {
     pub tts: Arc<dyn Speech>,
     pub fallback_tts: Option<Arc<dyn Speech>>,
 }

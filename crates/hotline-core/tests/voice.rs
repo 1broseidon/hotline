@@ -448,6 +448,15 @@ async fn provider(reply: &'static str) -> String {
 
 #[tokio::test]
 async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching() {
+    direct_call_uses_existing_conversation(false).await;
+}
+
+#[tokio::test]
+async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
+    direct_call_uses_existing_conversation(true).await;
+}
+
+async fn direct_call_uses_existing_conversation(device_text: bool) {
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         hotline_core::desk::Desk::open_with_voice_services(
@@ -491,14 +500,32 @@ async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching(
             .any(|v| v == "voiceDirectCalls")
     );
     let call = Uuid::new_v4().to_string();
-    send(&mut socket, json!({"id":1,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
+    let mut params = json!({"callId":call,"personaId":persona,"streamAudio":true});
+    if device_text {
+        params["inputMode"] = json!("text");
+    }
+    send(
+        &mut socket,
+        json!({"id":1,"cmd":"voice.call_start","params":params}),
+    )
+    .await;
+    let started = until(&mut socket, |f| f["id"] == 1).await;
+    assert_eq!(started["result"]["personaId"], persona);
     assert_eq!(
-        until(&mut socket, |f| f["id"] == 1).await["result"]["personaId"],
-        persona
+        started["result"]["inputMode"],
+        if device_text { "text" } else { "audio" }
     );
+    if device_text {
+        assert_eq!(started["result"]["input"], json!(["text/plain"]));
+    }
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
     until(&mut socket, |f| f["snapshot"].is_array()).await;
-    send(&mut socket, json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":1,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390}})).await;
+    let input = if device_text {
+        json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR"}})
+    } else {
+        json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":1,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390}})
+    };
+    send(&mut socket, input.clone()).await;
     let heard = until(&mut socket, |f| f["event"]["type"] == "heard").await;
     let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
     assert_eq!(delivery["event"]["personaId"], persona);
@@ -507,6 +534,10 @@ async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching(
     assert_eq!(said["event"]["text"], "The checks passed.");
     let clip = until(&mut socket, |f| f["event"]["type"] == "clip").await;
     assert_eq!(clip["event"]["final"], true);
+    let mut replay = input;
+    replay["id"] = json!(7);
+    send(&mut socket, replay).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], false);
     let tape = log.load(&hotline_core::log::StreamId::Tape(persona));
     assert_eq!(
         tape.iter().filter(|v| v["kind"] == "chapter").count(),
@@ -514,6 +545,7 @@ async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching(
         "{tape:?}"
     );
     let user = tape.iter().find(|v| v["kind"] == "user").unwrap();
+    assert_eq!(tape.iter().filter(|v| v["kind"] == "user").count(), 1);
     assert_eq!(user["text"], heard["event"]["text"]);
     assert!(
         user["id"]

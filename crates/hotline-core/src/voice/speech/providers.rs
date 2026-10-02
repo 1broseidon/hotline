@@ -5,8 +5,9 @@
 use super::catalog::{self, Found};
 use super::google::{self, Google};
 use super::xai::{self, Xai};
-use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechSet, TurnClock};
+use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechOutput, SpeechSet, TurnClock};
 use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
+use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
 use crate::voice::settings::{Choice, VoiceSettings};
@@ -96,6 +97,14 @@ const ROWS: &[Row] = &[
         speak: Some((xai::SPEAK_MODEL, "eve", AudioFormat::Wav, 15_000)),
         voices: &["eve", "ara", "rex", "sal", "leo"],
     },
+    Row {
+        provider_id: xai::SUBSCRIPTION_PROVIDER_ID,
+        name: "Grok subscription",
+        base_url: xai::BASE_URL,
+        listen: xai::LISTEN_MODEL,
+        speak: Some((xai::SPEAK_MODEL, "eve", AudioFormat::Wav, 15_000)),
+        voices: &["eve", "ara", "rex", "sal", "leo"],
+    },
 ];
 
 fn row(provider_id: &str) -> Option<&'static Row> {
@@ -109,6 +118,7 @@ struct Connection {
     name: String,
     base_url: String,
     key: Option<String>,
+    login: Option<CredentialFile>,
     /// A custom connection's model ids, which are all we know of what it serves.
     models: Vec<String>,
     /// The room's data root, where what the provider offers is cached.
@@ -159,10 +169,12 @@ fn speaking(connection: &Connection, pick: Option<&Choice>) -> Option<Speaking> 
     let named_model = pick.and_then(|pick| pick.model_id.clone());
     // The native TTS route chooses a voice, not a model. Never report a
     // different model as selected when the provider cannot honor that pick.
-    if connection.provider_id == xai::PROVIDER_ID
-        && named_model
-            .as_deref()
-            .is_some_and(|model| model != xai::SPEAK_MODEL)
+    if matches!(
+        connection.provider_id.as_str(),
+        xai::PROVIDER_ID | xai::SUBSCRIPTION_PROVIDER_ID
+    ) && named_model
+        .as_deref()
+        .is_some_and(|model| model != xai::SPEAK_MODEL)
     {
         return None;
     }
@@ -237,7 +249,7 @@ pub async fn options(vault: &Vault) -> Options {
     let connections = connections(vault);
     let endpoints: Vec<_> = connections
         .iter()
-        .filter(|connection| row(&connection.provider_id).is_some())
+        .filter(|connection| connection.login.is_none() && row(&connection.provider_id).is_some())
         .map(Connection::endpoint)
         .collect();
     let found: HashMap<String, Found> = catalog::discover_all(Some(vault.root()), &endpoints)
@@ -351,6 +363,9 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
         stt,
         tts,
         automatic_stt: connections.iter().find_map(|connection| {
+            if connection.login.is_some() {
+                return None;
+            }
             let model = listening(connection, None)?;
             Some(CapabilityPick {
                 provider_id: connection.provider_id.clone(),
@@ -361,6 +376,9 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
             })
         }),
         automatic_tts: connections.iter().find_map(|connection| {
+            if connection.login.is_some() {
+                return None;
+            }
             let voice = speaking(connection, None)?;
             Some(CapabilityPick {
                 provider_id: connection.provider_id.clone(),
@@ -392,6 +410,25 @@ fn connections(vault: &Vault) -> Vec<Connection> {
 }
 
 fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Connection> {
+    // This row is derived only from the real xAI stored login, never a key
+    // someone saved under the subscription's display/configuration id.
+    if provider_id == xai::SUBSCRIPTION_PROVIDER_ID {
+        return None;
+    }
+    if provider_id == xai::PROVIDER_ID
+        && let ProviderAuth::StoredLogin { tokens } = auth
+    {
+        let row = row(xai::SUBSCRIPTION_PROVIDER_ID)?;
+        return Some(Connection {
+            provider_id: row.provider_id.into(),
+            name: row.name.into(),
+            base_url: row.base_url.into(),
+            key: None,
+            login: Some(tokens.clone()),
+            models: Vec::new(),
+            root: Some(root.to_path_buf()),
+        });
+    }
     if let Some(row) = row(provider_id) {
         let key = match auth {
             ProviderAuth::ApiKey(key) => key.clone(),
@@ -406,6 +443,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
             name: row.name.to_string(),
             base_url: row.base_url.to_string(),
             key: Some(key),
+            login: None,
             models: Vec::new(),
             root: Some(root.to_path_buf()),
         });
@@ -421,6 +459,7 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
             name: name.clone(),
             base_url: base_url.clone(),
             key: api_key.clone(),
+            login: None,
             models: config.models.clone(),
             root: None,
         }),
@@ -439,6 +478,72 @@ pub fn resolve(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechSet, Str
     resolve_from(&connections(vault), settings)
 }
 
+/// A text call needs a voice, with no speech-input provider or credential.
+pub fn resolve_output(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechOutput, String> {
+    output_from(&connections(vault), settings, &TurnClock::default())
+}
+
+fn chosen_voice<'a>(
+    connections: &'a [Connection],
+    settings: &VoiceSettings,
+) -> Result<Option<(&'a Connection, Speaking)>, String> {
+    match &settings.tts {
+        Some(pick) => {
+            let connection = named(connections, pick)?;
+            let voice =
+                speaking(connection, Some(pick)).ok_or_else(|| cannot(connection, "speak"))?;
+            Ok(Some((connection, voice)))
+        }
+        None => Ok(connections
+            .iter()
+            .filter(|connection| connection.login.is_none())
+            .find_map(|connection| Some((connection, speaking(connection, None)?)))),
+    }
+}
+
+fn output_from(
+    connections: &[Connection],
+    settings: &VoiceSettings,
+    clock: &TurnClock,
+) -> Result<SpeechOutput, String> {
+    let Some((connection, voice)) = chosen_voice(connections, settings)? else {
+        return Err(nothing_can(true, false));
+    };
+    output_for(connections, settings, connection, &voice, clock)
+}
+
+fn output_for(
+    connections: &[Connection],
+    settings: &VoiceSettings,
+    speak_from: &Connection,
+    voice: &Speaking,
+    clock: &TurnClock,
+) -> Result<SpeechOutput, String> {
+    // A fallback that cannot be used never prevents a call from starting.
+    let fallback = if speak_from.login.is_some() {
+        // Choosing the subscription never authorizes a paid API fallback.
+        None
+    } else {
+        match &settings.fallback_tts {
+            Some(pick) => named(connections, pick)
+                .ok()
+                .filter(|connection| connection.login.is_none())
+                .and_then(|connection| Some((connection, speaking(connection, Some(pick))?))),
+            None => connections
+                .iter()
+                .filter(|connection| connection.provider_id != speak_from.provider_id)
+                .filter(|connection| connection.login.is_none())
+                .find_map(|connection| Some((connection, speaking(connection, None)?))),
+        }
+    };
+    Ok(SpeechOutput {
+        tts: speaker(speak_from, voice, clock)?,
+        fallback_tts: fallback
+            .map(|(connection, voice)| speaker(connection, &voice, clock))
+            .transpose()?,
+    })
+}
+
 fn resolve_from(connections: &[Connection], settings: &VoiceSettings) -> Result<SpeechSet, String> {
     let hearing = match &settings.stt {
         Some(pick) => {
@@ -449,43 +554,21 @@ fn resolve_from(connections: &[Connection], settings: &VoiceSettings) -> Result<
         }
         None => connections
             .iter()
+            .filter(|connection| connection.login.is_none())
             .find_map(|connection| Some((connection, listening(connection, None)?))),
     };
-    let voice = match &settings.tts {
-        Some(pick) => {
-            let connection = named(connections, pick)?;
-            let voice =
-                speaking(connection, Some(pick)).ok_or_else(|| cannot(connection, "speak"))?;
-            Some((connection, voice))
-        }
-        None => connections
-            .iter()
-            .find_map(|connection| Some((connection, speaking(connection, None)?))),
-    };
+    let voice = chosen_voice(connections, settings)?;
     let (Some((hear_from, model)), Some((speak_from, voice))) = (&hearing, &voice) else {
         return Err(nothing_can(hearing.is_some(), voice.is_some()));
     };
 
-    // A fallback that cannot be used is no fallback: it is never the reason
-    // a call cannot start.
-    let fallback = match &settings.fallback_tts {
-        Some(pick) => named(connections, pick)
-            .ok()
-            .and_then(|connection| Some((connection, speaking(connection, Some(pick))?))),
-        None => connections
-            .iter()
-            .filter(|connection| connection.provider_id != speak_from.provider_id)
-            .find_map(|connection| Some((connection, speaking(connection, None)?))),
-    };
-
     // One stopwatch for the set: the ears start it and the voices stop it.
     let clock = TurnClock::default();
+    let output = output_for(connections, settings, speak_from, voice, &clock)?;
     Ok(SpeechSet {
         stt: listener(hear_from, model, &clock)?,
-        tts: speaker(speak_from, voice, &clock)?,
-        fallback_tts: fallback
-            .map(|(connection, voice)| speaker(connection, &voice, &clock))
-            .transpose()?,
+        tts: output.tts,
+        fallback_tts: output.fallback_tts,
     })
 }
 
@@ -494,10 +577,15 @@ fn listener(
     model: &str,
     clock: &TurnClock,
 ) -> Result<Arc<dyn Speech>, String> {
-    if connection.provider_id == xai::PROVIDER_ID {
-        return Ok(Arc::new(
-            Xai::listener(connection.endpoint(), model)?.with_clock(clock),
-        ));
+    if matches!(
+        connection.provider_id.as_str(),
+        xai::PROVIDER_ID | xai::SUBSCRIPTION_PROVIDER_ID
+    ) {
+        let adapter = Xai::listener(connection.endpoint(), model)?.with_clock(clock);
+        return Ok(Arc::new(match &connection.login {
+            Some(tokens) => adapter.with_subscription(tokens.clone())?,
+            None => adapter,
+        }));
     }
     if connection.provider_id == google::PROVIDER_ID {
         let key = connection.key.as_deref().unwrap_or_default();
@@ -515,10 +603,16 @@ fn speaker(
     voice: &Speaking,
     clock: &TurnClock,
 ) -> Result<Arc<dyn Speech>, String> {
-    if connection.provider_id == xai::PROVIDER_ID {
-        return Ok(Arc::new(
-            Xai::speaker(connection.endpoint(), &voice.model, &voice.voice)?.with_clock(clock),
-        ));
+    if matches!(
+        connection.provider_id.as_str(),
+        xai::PROVIDER_ID | xai::SUBSCRIPTION_PROVIDER_ID
+    ) {
+        let adapter =
+            Xai::speaker(connection.endpoint(), &voice.model, &voice.voice)?.with_clock(clock);
+        return Ok(Arc::new(match &connection.login {
+            Some(tokens) => adapter.with_subscription(tokens.clone())?,
+            None => adapter,
+        }));
     }
     if connection.provider_id == google::PROVIDER_ID {
         let key = connection.key.as_deref().unwrap_or_default();
@@ -582,6 +676,7 @@ mod tests {
                 .map_or("http://localhost:9000/v1", |row| row.base_url)
                 .to_string(),
             key: Some("test-key".to_string()),
+            login: None,
             models: Vec::new(),
             root: None,
         }
@@ -594,6 +689,7 @@ mod tests {
             base_url: "https://gateway.example/v1/openai".to_string(),
             key: None,
             models: models.iter().map(|model| model.to_string()).collect(),
+            login: None,
             root: None,
         }
     }
@@ -688,6 +784,76 @@ mod tests {
         };
         assert!(connection("xai", &auth, dir.path()).is_none());
         assert!(connection("xai", &ProviderAuth::ApiKey("test-key".into()), dir.path()).is_some());
+        assert!(
+            connection(
+                xai::SUBSCRIPTION_PROVIDER_ID,
+                &ProviderAuth::ApiKey("test-key".into()),
+                dir.path()
+            )
+            .is_none()
+        );
+    }
+
+    fn subscription(root: &Path) -> Connection {
+        let tokens = crate::credentials::CredentialFiles::new(
+            root.into(),
+            crate::credentials::default_store(),
+        )
+        .file(root.join("auth.json"));
+        connection("xai", &ProviderAuth::StoredLogin { tokens }, root).unwrap()
+    }
+
+    #[test]
+    fn subscription_voice_is_offered_but_requires_an_explicit_choice() {
+        let dir = tempfile::tempdir().unwrap();
+        let connections = [subscription(dir.path())];
+        let options = options_from(&connections, &HashMap::new());
+        assert_eq!(options.stt[0].provider_id, xai::SUBSCRIPTION_PROVIDER_ID);
+        assert_eq!(options.tts[0].provider_name, "Grok subscription");
+        assert!(options.automatic_stt.is_none());
+        assert!(options.automatic_tts.is_none());
+        assert!(resolve_from(&connections, &VoiceSettings::default()).is_err());
+        assert!(
+            output_from(
+                &connections,
+                &VoiceSettings::default(),
+                &TurnClock::default()
+            )
+            .is_err()
+        );
+        let settings = VoiceSettings {
+            stt: Some(pick(xai::SUBSCRIPTION_PROVIDER_ID, None, None)),
+            tts: Some(pick(xai::SUBSCRIPTION_PROVIDER_ID, None, Some("ara"))),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&connections, &settings).unwrap();
+        assert!(set.stt.is_subscription());
+        assert!(set.stt.supports_live_input());
+        assert!(set.tts.is_subscription());
+        assert_eq!(set.tts.id().voice.as_deref(), Some("ara"));
+        assert!(set.fallback_tts.is_none());
+    }
+
+    #[test]
+    fn explicit_subscription_never_uses_a_paid_fallback_or_changes_automatic() {
+        let dir = tempfile::tempdir().unwrap();
+        let connections = [subscription(dir.path()), connected("openai")];
+        let options = options_from(&connections, &HashMap::new());
+        assert_eq!(options.automatic_tts.unwrap().provider_id, "openai");
+        let automatic = resolve_from(&connections, &VoiceSettings::default()).unwrap();
+        assert_eq!(automatic.tts.id().provider_id, "openai");
+        assert!(automatic.fallback_tts.is_none());
+        let settings = VoiceSettings {
+            tts: Some(pick(xai::SUBSCRIPTION_PROVIDER_ID, None, None)),
+            fallback_tts: Some(pick("openai", None, None)),
+            // A text call must not consult a selected STT provider at all.
+            stt: Some(pick("disconnected", None, None)),
+            ..VoiceSettings::default()
+        };
+        let output = output_from(&connections, &settings, &TurnClock::default()).unwrap();
+        assert!(output.tts.is_subscription());
+        assert!(output.fallback_tts.is_none());
+        assert!(resolve_from(&connections, &settings).is_err());
     }
 
     #[test]

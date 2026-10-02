@@ -4384,10 +4384,19 @@ async fn voice_is_owner_only_through_the_real_handler() {
     let call = uuid::Uuid::new_v4().to_string();
     for (command, params) in [
         ("voice.status", json!({})),
+        ("voice.status", json!({"inputMode":"text"})),
         ("voice.call_start", json!({"callId":call})),
         (
             "voice.call_start",
             json!({"callId":call,"personaId":"ada","streamAudio":true}),
+        ),
+        (
+            "voice.call_start",
+            json!({"callId":call,"inputMode":"text"}),
+        ),
+        (
+            "voice.text",
+            json!({"callId":call,"seq":1,"text":"Check the PR."}),
         ),
         (
             "voice.audio",
@@ -4436,6 +4445,20 @@ async fn voice_is_owner_only_through_the_real_handler() {
         .await;
         assert_eq!(allowed["ok"], true, "{allowed}");
     }
+    for seat in [Seat::Desk, Seat::Owner] {
+        let text_call = uuid::Uuid::new_v4().to_string();
+        let started = remote_control_answer(seat, &room, &desk.log,
+            json!({"id":4,"cmd":"voice.call_start","params":{"callId":text_call,"inputMode":"text"}})).await;
+        assert_eq!(started["ok"], true, "{started}");
+        assert_eq!(started["result"]["inputMode"], "text");
+        assert_eq!(started["result"]["input"], json!(["text/plain"]));
+        let committed = remote_control_answer(seat, &room, &desk.log,
+            json!({"id":5,"cmd":"voice.text","params":{"callId":text_call,"seq":1,"text":"Check the PR."}})).await;
+        assert_eq!(committed["ok"], true, "{committed}");
+        let replay = remote_control_answer(seat, &room, &desk.log,
+            json!({"id":6,"cmd":"voice.text","params":{"callId":text_call,"seq":1,"text":"Check the PR."}})).await;
+        assert_eq!(replay["ok"], false, "{replay}");
+    }
     assert!(
         Seat::Owner
             .capabilities_for(room.as_ref())
@@ -4445,6 +4468,16 @@ async fn voice_is_owner_only_through_the_real_handler() {
         !Seat::Phone
             .capabilities_for(room.as_ref())
             .contains(&"voiceDirectCalls")
+    );
+    assert!(
+        Seat::Owner
+            .capabilities_for(room.as_ref())
+            .contains(&"voiceTextInput")
+    );
+    assert!(
+        !Seat::Phone
+            .capabilities_for(room.as_ref())
+            .contains(&"voiceTextInput")
     );
 }
 

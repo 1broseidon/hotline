@@ -42,17 +42,25 @@ pub(crate) async fn run(
             .capability_options()
             .await
             .map(|options| json!(options)),
-        Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
+        Command::VoiceStatus { input_mode } => Ok(json!(
+            voice(room)?.status_for(input_mode.unwrap_or_default())
+        )),
         Command::VoiceCallStart {
             call_id,
             persona_id,
             stream_audio,
-        } => Ok(json!(voice(room)?.start_target(
+            input_mode,
+        } => Ok(json!(voice(room)?.start_with_input(
             &call_id,
             persona_id,
             stream_audio.unwrap_or_default(),
+            input_mode.unwrap_or_default(),
             room.clone()
         )?)),
+        Command::VoiceText { call_id, seq, text } => {
+            voice(room)?.text(&call_id, seq, &text)?;
+            Ok(Value::Null)
+        }
         Command::VoiceAudio {
             call_id,
             seq,

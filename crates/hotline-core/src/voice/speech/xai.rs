@@ -38,6 +38,7 @@ const EVENT_LIMIT: usize = 4096;
 const TRANSCRIPT_LIMIT: usize = 1 << 20;
 const AUDIO_LIMIT: usize = 20 << 20;
 const TEXT_LIMIT: usize = 15_000;
+const FIRST_CLIP_PCM_BYTES: usize = OUTPUT_RATE as usize * 2 / 5; // 200 ms of mono PCM16.
 const CLIP_PCM_BYTES: usize = OUTPUT_RATE as usize; // Half a second of mono PCM16.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const FINAL_TIMEOUT: Duration = Duration::from_secs(15);
@@ -606,6 +607,7 @@ impl Xai {
         )?;
         let mut pcm = Vec::new();
         let mut received = 0;
+        let mut first_clip = true;
         while let Some(chunk) = response.chunk().await.map_err(|_| self.unreachable())? {
             if chunk.is_empty() {
                 continue;
@@ -617,12 +619,21 @@ impl Xai {
             received += chunk.len();
             for part in chunk.chunks(CLIP_PCM_BYTES) {
                 pcm.extend_from_slice(part);
-                // Keep one half-second back so the final clip includes the
-                // tail, rather than making a tiny network-sized audio file.
-                // Processing a large network chunk in batches also keeps
-                // the PCM staging buffer under three half-seconds.
-                while pcm.len() >= CLIP_PCM_BYTES * 2 {
-                    let bytes: Vec<u8> = pcm.drain(..CLIP_PCM_BYTES).collect();
+                loop {
+                    let clip_bytes = if first_clip {
+                        FIRST_CLIP_PCM_BYTES
+                    } else {
+                        CLIP_PCM_BYTES
+                    };
+                    // Start playback after 200 ms, keeping one complete sample
+                    // for a nonempty final clip if the body ends here. Later
+                    // clips keep a half-second tail to limit file overhead.
+                    let tail_bytes = if first_clip { 2 } else { CLIP_PCM_BYTES };
+                    if pcm.len() < clip_bytes + tail_bytes {
+                        break;
+                    }
+                    let bytes: Vec<u8> = pcm.drain(..clip_bytes).collect();
+                    first_clip = false;
                     self.clock.first_clip(&self.id());
                     output
                         .send(SpeechChunk {

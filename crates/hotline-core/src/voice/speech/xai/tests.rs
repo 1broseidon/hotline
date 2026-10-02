@@ -856,6 +856,79 @@ async fn native_tts_asks_for_pcm_and_wraps_a_whole_clip_without_sending_a_model_
 }
 
 #[tokio::test]
+async fn streamed_tts_publishes_200ms_without_waiting_for_more_audio_or_body_completion() {
+    let (body_tx, body_rx) = mpsc::channel::<Bytes>(4);
+    let body_rx = Arc::new(Mutex::new(Some(body_rx)));
+    let app = Router::new().fallback(move || {
+        let rx = body_rx.lock().unwrap().take().unwrap();
+        async move {
+            let body = Body::from_stream(stream::unfold(rx, |mut rx| async move {
+                rx.recv()
+                    .await
+                    .map(|bytes| (Ok::<_, std::io::Error>(bytes), rx))
+            }));
+            ([(header::CONTENT_TYPE, "audio/pcm")], body)
+        }
+    });
+    let (url, _server) = http_server(app).await;
+    let pcm: Vec<u8> = (0..FIRST_CLIP_PCM_BYTES + 2)
+        .map(|n| (n % 251) as u8)
+        .collect();
+    let voice = speaker(&url);
+    let (clips_tx, mut clips_rx) = mpsc::channel(1);
+    let task = tokio::spawn(async move { voice.speak_chunks("Hello desk.", clips_tx).await });
+    // A network fragment may end halfway through a PCM16 sample.
+    for part in [
+        &pcm[..3],
+        &pcm[3..FIRST_CLIP_PCM_BYTES + 1],
+        &pcm[FIRST_CLIP_PCM_BYTES + 1..],
+    ] {
+        body_tx.send(Bytes::copy_from_slice(part)).await.unwrap();
+    }
+    let first = timeout(Duration::from_secs(2), clips_rx.recv())
+        .await
+        .expect("the first clip must not wait for the withheld body tail")
+        .unwrap();
+    assert_eq!(first.clip.mime, "audio/wav");
+    assert_eq!(
+        first.clip.bytes,
+        wav::pcm16_wav(&pcm[..FIRST_CLIP_PCM_BYTES], OUTPUT_RATE)
+    );
+    assert_eq!(
+        (first.clip.bytes.len() - 44) * 1000 / (OUTPUT_RATE as usize * 2),
+        200
+    );
+    assert!(!first.final_chunk);
+    assert!(!task.is_finished(), "the provider body is still open");
+    drop(body_tx);
+    let last = timeout(Duration::from_secs(2), clips_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        last.clip.bytes,
+        wav::pcm16_wav(&pcm[FIRST_CLIP_PCM_BYTES..], OUTPUT_RATE)
+    );
+    assert!(last.final_chunk);
+    task.await.unwrap().unwrap();
+    assert!(clips_rx.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn tts_short_and_exact_startup_length_bodies_keep_one_nonempty_final_clip() {
+    for size in [2, FIRST_CLIP_PCM_BYTES] {
+        let pcm = vec![7; size];
+        let (url, _, _server) = answering(StatusCode::OK, "audio/pcm", pcm.clone()).await;
+        let (tx, mut rx) = mpsc::channel(1);
+        speaker(&url).speak_chunks("Hello.", tx).await.unwrap();
+        let chunk = rx.recv().await.unwrap();
+        assert_eq!(chunk.clip.bytes, wav::pcm16_wav(&pcm, OUTPUT_RATE));
+        assert!(chunk.final_chunk);
+        assert!(rx.recv().await.is_none());
+    }
+}
+
+#[tokio::test]
 async fn streamed_tts_reblocks_network_fragments_into_ordered_wavs_before_the_response_ends() {
     let (body_tx, body_rx) = mpsc::channel::<Bytes>(4);
     let body_rx = Arc::new(Mutex::new(Some(body_rx)));
@@ -883,7 +956,7 @@ async fn streamed_tts_reblocks_network_fragments_into_ordered_wavs_before_the_re
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(&first.clip.bytes[44..], &pcm[..24_000]);
+    assert_eq!(&first.clip.bytes[44..], &pcm[..FIRST_CLIP_PCM_BYTES]);
     assert!(!first.final_chunk);
     assert!(!task.is_finished(), "the provider body is still open");
     body_tx
@@ -912,10 +985,16 @@ async fn streamed_tts_reblocks_network_fragments_into_ordered_wavs_before_the_re
             .iter()
             .map(|clip| clip.bytes.len() - 44)
             .collect::<Vec<_>>(),
-        vec![24_000, 24_000, 24_000, 24_010]
+        vec![
+            FIRST_CLIP_PCM_BYTES,
+            24_000,
+            24_000,
+            pcm.len() - FIRST_CLIP_PCM_BYTES - 48_000,
+        ]
     );
     for clip in &clips {
         assert_eq!(clip.mime, "audio/wav");
+        assert_eq!((clip.bytes.len() - 44) % 2, 0);
         assert_eq!(&clip.bytes[..4], b"RIFF");
         assert_eq!(
             u32::from_le_bytes(clip.bytes[24..28].try_into().unwrap()),
@@ -977,7 +1056,7 @@ async fn cancellation_also_stops_waiting_for_the_rest_of_a_provider_body() {
     let (tx, mut rx) = mpsc::channel(1);
     let task = tokio::spawn(async move { voice.speak_chunks("Hello desk.", tx).await });
     body_tx
-        .send(Bytes::from(vec![0; CLIP_PCM_BYTES * 2]))
+        .send(Bytes::from(vec![0; FIRST_CLIP_PCM_BYTES + 2]))
         .await
         .unwrap();
     timeout(Duration::from_secs(2), rx.recv())
@@ -1023,7 +1102,7 @@ async fn a_late_pcm_error_never_marks_an_incomplete_utterance_final() {
     let (tx, mut rx) = mpsc::channel(2);
     assert_eq!(voice.speak_chunks("Hello.", tx).await, Err(malformed()));
     let chunk = rx.recv().await.unwrap();
-    assert_eq!(chunk.clip.bytes.len() - 44, CLIP_PCM_BYTES);
+    assert_eq!(chunk.clip.bytes.len() - 44, FIRST_CLIP_PCM_BYTES);
     assert!(!chunk.final_chunk);
     assert!(rx.recv().await.is_none());
 }

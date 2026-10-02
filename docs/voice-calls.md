@@ -15,7 +15,7 @@ not cancel accepted teammate work.
 | `voiceTextInput`, `voice.status.inputMode`, `voice.call_start.inputMode` | Additive; omission retains audio. A text call echoes `inputMode: "text"` and accepts `text/plain`. | Output-only readiness needs no STT configuration. A retained call ID cannot switch target or input mode. |
 | `voice.text` | One finalized device transcript `{callId,seq,text}` per turn on a negotiated text call. | Owner/local desk, opening connection, increasing sequence, pending-turn gate and cancellation remain enforced. Nonblank, at most 8,000 characters/32,000 UTF-8 bytes. No remote STT request or spend. |
 | `voice.audio` | Negotiated by `audio/pcm` in the call's input list. Existing WAV/AAC utterances remain available. | PCM16 little endian, mono, 16 kHz. At most 32 KiB per chunk and 20 seconds per turn. Sequence and chunk index increase. Empty final chunk commits. No partial transcript can dispatch work. |
-| `clip` events | Existing independently playable WAV/MP3 clips, increasing indices; last chunk has `final: true`. | Bounded producer channel; cancellation drops provider work and rejects stale output. Whole-clip fallback for other providers/clients. |
+| `clip` events | Existing independently playable WAV/MP3 clips, increasing indices; last chunk has `final: true`. Native xAI starts with a 200 ms clip, then keeps half-second chunks and the final tail. | Bounded producer channel; cancellation drops provider work and rejects stale output. Whole-clip fallback for other providers/clients. |
 | Direct replies | Committed acknowledgement/report messages only; with a dispatcher, the turn's final reply only, retold in the first person when long. | Internal call/turn origin follows queued or accepted steering inputs. Unrelated agent output cannot enter a direct call. Replies to any of the call's last 16 handed-off turns are accepted. |
 | Direct front | With a dispatcher, the dispatcher model answers as the teammate and hands work to the session through `hand_to_session`. | At most one handoff per utterance. Status questions reach no session. A front failure before handoff forwards the words unchanged. |
 
@@ -29,6 +29,13 @@ Other providers retain their existing whole-clip adapters. The separate explicit
 credentials per request, and retries once after a rejected bearer. It is never
 selected automatically and cannot use a paid speech fallback. Provider-side
 subscription limits remain applicable.
+
+Progressive xAI output publishes the first 200 ms once one further PCM16 sample
+is buffered. It no longer waits for a full second of audio before publishing.
+The retained sample keeps the final clip nonempty when the response ends at the
+first boundary; shorter responses still publish one whole final clip. Later
+chunks retain a half-second tail. This changes clip duration (R2), with the same
+WAV format, ordering, final marker, budget and cancellation contracts.
 
 Server logs measure accepted utterance to first audio publication. Client
 timing measures the end of capture to playback start. Provider and device

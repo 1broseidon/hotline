@@ -1119,6 +1119,15 @@ async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, S
         .collect())
 }
 
+/// Both rustls backends are compiled in (reqwest asks for aws-lc-rs, other
+/// dependencies bring ring), so rustls cannot choose a process default on its
+/// own. reqwest names its provider, but WebSocket TLS such as Grok's live
+/// transcription asks for the default and panics without one. The desk picks
+/// aws-lc-rs, the one its HTTP already uses, unless something already chose.
+pub(crate) fn install_crypto_provider() {
+    let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 #[cfg(test)]
 mod tests {
     use super::Desk;
@@ -1407,13 +1416,4 @@ mod tests {
         assert_eq!(retried["ok"], true, "{retried}");
         assert!(agents.tools.lock().unwrap().len() > built);
     }
-}
-
-/// Both rustls backends are compiled in (reqwest asks for aws-lc-rs, other
-/// dependencies bring ring), so rustls cannot choose a process default on its
-/// own. reqwest names its provider, but WebSocket TLS such as Grok's live
-/// transcription asks for the default and panics without one. The desk picks
-/// aws-lc-rs, the one its HTTP already uses, unless something already chose.
-pub(crate) fn install_crypto_provider() {
-    let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
 }

@@ -1981,6 +1981,27 @@
 		font-size: var(--text-xs);
 		color: var(--ink-3);
 	}
+	/* A subagent's run in the card: the task it was handed at the head, and
+	 * what it said between its steps in the reading voice, small. */
+	.work-task {
+		margin: 2px 6px 8px;
+		padding: 8px 10px;
+		border-radius: var(--radius-card);
+		background: var(--canvas);
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.work-said {
+		margin: 6px 6px;
+		font-size: var(--text-sm);
+	}
+	.work-notice {
+		margin: 6px 6px;
+		font-size: var(--text-sm);
+		color: var(--warn);
+	}
 	.work-newest {
 		position: absolute;
 		bottom: 20px;

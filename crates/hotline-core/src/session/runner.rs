@@ -31,7 +31,8 @@ use super::{
     CLOCK, Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index, timed,
 };
 use crate::contract::{
-    NoticeLevel, Persona, Reach, SessionInfo, SubagentStatus, ToolStatus, TranscriptEvent,
+    NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
+    TranscriptEvent,
 };
 use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, Update};
 use crate::log::StreamId;
@@ -408,6 +409,15 @@ impl Running {
         };
         room.write(&self.persona_id, &marker);
         room.append_run(&self.run_id, marker);
+        room.list_subagent(
+            &self.persona_id,
+            RunningSubagent {
+                run_id: self.run_id.clone(),
+                title: self.title.clone(),
+                started_at: self.started,
+            },
+            status == SubagentStatus::Running,
+        );
     }
 
     /// Stops what is left of the run and writes how it ended.

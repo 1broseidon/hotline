@@ -783,7 +783,7 @@ const Row = memo(function Row({
 
 		/* Work the teammate handed to a subagent: one quiet line that fills
 		 * in as the run goes, the way a peer thread is one. Pressing it opens
-		 * the run in the inspector's place. */
+		 * the run in the work card; while it runs the band names it too. */
 		case "subagent":
 			return (
 				<button

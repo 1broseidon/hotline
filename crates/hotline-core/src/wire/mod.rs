@@ -219,6 +219,11 @@ pub trait RoomHandle: Send + Sync + 'static {
         false
     }
 
+    /// The subagents this teammate has running, for the roster row.
+    fn subagents(&self, _persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
+        Vec::new()
+    }
+
     /// Text as an agent writes it, for a tape subscription to forward. Never
     /// written to a tape: the durable line lands when the message is whole.
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta>;
@@ -1779,6 +1784,7 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),
         drawing: room.drawing(&persona.id),
+        subagents: room.subagents(&persona.id),
         session,
         preview,
         latest,

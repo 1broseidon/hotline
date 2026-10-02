@@ -411,6 +411,10 @@ impl RoomHandle for Desk {
         self.room.drawing(persona_id)
     }
 
+    fn subagents(&self, persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
+        self.room.subagents(persona_id)
+    }
+
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
         self.room.subscribe_deltas()
     }

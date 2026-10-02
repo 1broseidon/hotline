@@ -882,7 +882,22 @@ waiting: boolean,
  * Its picture is being drawn: the face shows it is on its way rather
  * than leaving the initial looking final.
  */
-drawing: boolean, session: SessionInfo, };
+drawing: boolean, 
+/**
+ * Subagents this teammate has running, oldest first, so the
+ * conversation can show them without scrolling back to their lines.
+ * Absent when there are none.
+ */
+subagents?: Array<RunningSubagent>, session: SessionInfo, };
+
+/**
+ * A subagent still running, as its teammate's roster row lists it.
+ */
+export type RunningSubagent = { runId: string, 
+/**
+ * The short label the teammate gave the task.
+ */
+title: string, startedAt: number, };
 
 /**
  * What probing one runtime found, for the window's settings: a state the

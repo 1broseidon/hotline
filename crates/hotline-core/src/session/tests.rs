@@ -5168,6 +5168,10 @@ mod runs {
             .await;
         assert_eq!(outcome.end, RunEnd::Done);
         assert_eq!(outcome.report, "The winch is jammed.");
+        assert!(
+            room.subagents("ada").is_empty(),
+            "a finished run leaves the row"
+        );
 
         // The run's stream opens on its own line, then the task, and the
         // report is what it said once the work was done, not its opening.
@@ -5269,10 +5273,20 @@ mod runs {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
         assert_eq!(tape(&room, "ada")[0]["status"], "running");
+        // The roster row lists the run while it runs, wherever its line has
+        // scrolled to on the tape.
+        let listed = room.subagents("ada");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].run_id, "r3");
+        assert_eq!(listed[0].title, "Check the crane");
 
         cancel.cancel();
         let outcome = running.await.unwrap();
         assert_eq!(outcome.end, RunEnd::Cancelled);
+        assert!(
+            room.subagents("ada").is_empty(),
+            "a stopped run leaves the row"
+        );
         assert!(outcome.report.contains("stopped"), "{}", outcome.report);
         assert!(agents.cancel_count() >= 1, "the agent was told to stop");
         let stream = run_stream(&room, "r3");

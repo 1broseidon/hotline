@@ -16,6 +16,11 @@ reports the primary TTS format for the call descriptor (default `audio/wav`).
 `transcribe` takes `audio/wav` (16 kHz mono PCM16) and `audio/mp4` (AAC); any
 other type is refused before a request.
 
+Adapters can additionally accept live input through `transcribe_live` and
+produce progressive output through `speak_progressive`. The call negotiates
+these paths explicitly; existing providers and callers retain whole clips.
+Only a finalized live transcript enters the desk or teammate's session.
+
 The fallback is the desk's to use: when the voice fails it asks `fallback_tts`,
 once (`Calls::synthesize`), and reserves the second call's cost like the first.
 Each clip carries its own type: `audio/wav` where the provider can make one,
@@ -36,6 +41,7 @@ what the picker shows when a provider cannot be asked what else it offers.
 | `openrouter` | `openai/whisper-large-v3-turbo` | `x-ai/grok-voice-tts-1.0`, voice `eve`, MP3 |
 | `groq` | `whisper-large-v3-turbo` | `canopylabs/orpheus-v1-english`, voice `hannah`, WAV |
 | `mistral` | `voxtral-mini-latest` | none |
+| `xai` API key | `grok-voice-transcribe-2.0` | native `/v1/tts`, voice `eve`, WAV |
 | a custom `openai-compatible` connection | its first model named `whisper` or `transcribe` | its first model named `tts` or `speech`, voice `alloy`, MP3 |
 
 The OpenAI, Groq, OpenRouter, Mistral and custom rows share one adapter: a
@@ -50,6 +56,14 @@ inline (`audio/mp4` goes as `audio/m4a`), and speaks with `generateContent` on
 the TTS model, sending the words and nothing else: Gemini TTS reads any style
 instruction aloud. It returns raw PCM at the rate its mime type names, which is
 wrapped as a WAV. The key travels in `x-goog-api-key`, never the URL.
+
+xAI has its own native adapter. Whole-clip STT uses multipart `POST /v1/stt`;
+live STT uses `wss://api.x.ai/v1/stt` with mono PCM16 at 16 kHz. TTS sends
+`text`, `voice_id`, `language: "auto"`, and a PCM output format to `POST /v1/tts`.
+That route chooses a voice rather than a model; `grok-voice-tts-1.0` identifies
+the speech job in settings. Voices are `eve`, `ara`, `rex`, `sal`, and `leo`.
+Returned 24 kHz PCM is wrapped into a whole WAV or independently playable
+progressive WAV chunks. API keys travel in Authorization headers.
 
 ### What the picker offers
 
@@ -75,10 +89,9 @@ empty for want of a network. Starting a call never asks: it resolves from
 settings, the defaults and the cache. A model picked without a voice speaks in
 its own first voice.
 
-Not covered: xAI, whose speech is `/v1/tts` and `/v1/stt` and not the OpenAI
-shape (its voice is reachable through OpenRouter), and Mistral's voice, which
-answers with base64 inside JSON. A custom connection counts only if it lists a
-speech model or the owner names one.
+Not covered: Mistral's voice, which answers with base64 inside JSON. A custom
+connection counts only if it lists a speech model or the owner names one.
+xAI subscription logins do not substitute for this API-key speech connection.
 
 ## Choosing
 
@@ -106,6 +119,12 @@ id says `tts`, `embed`, `whisper`, `transcribe`, `image` or `audio` is never
 picked, because a gateway lists those beside its chat models. `provider` alone
 picks that provider's quickest; `model` is taken as given. A provider that is
 not connected is an error, like the speech choices above.
+
+A direct teammate call resolves speech and budget without the dispatcher.
+`VoiceStatus.available` remains desk readiness; `directAvailable` separately
+reports direct readiness. Speech selections remain visible when only the
+dispatcher is unavailable. The desktop's secondary call control uses direct
+readiness and retains the desk's availability check for its primary call.
 
 ## Timing
 

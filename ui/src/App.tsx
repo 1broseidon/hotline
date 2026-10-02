@@ -522,7 +522,7 @@ export function App() {
 							entry={selected}
 							models={models}
 							onSaid={setSaid}
-							onCall={voice && directCalls ? () => void startCall(nameOf, {
+							onCall={directCalls ? () => void startCall(nameOf, {
 								personaId: selected.persona.id, name: selected.persona.name, avatarHash: selected.persona.avatar?.hash,
 							}) : undefined}
 							roster={roster}

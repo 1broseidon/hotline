@@ -4449,6 +4449,97 @@ async fn voice_is_owner_only_through_the_real_handler() {
 }
 
 #[tokio::test]
+async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speech_and_budget() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    desk.credential_create("openai", "Speech fixture", "unused-test-key")
+        .unwrap();
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"voice", "value":{"dispatcher":{"provider":"not-connected"}}
+                }),
+            ),
+        )
+        .unwrap();
+    let answer = remote_control_answer(
+        Seat::Owner,
+        &room,
+        &desk.log,
+        json!({"id":1,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    assert_eq!(answer["ok"], true);
+    assert_eq!(answer["result"]["available"], false);
+    assert_eq!(answer["result"]["directAvailable"], true);
+    assert_eq!(answer["result"]["stt"]["providerId"], "openai");
+    assert_eq!(answer["result"]["tts"]["providerId"], "openai");
+    assert!(answer["result"].get("dispatcher").is_none());
+    for seat in [Seat::Owner, Seat::Desk] {
+        let capabilities = seat.capabilities_for(room.as_ref());
+        assert!(capabilities.contains(&"voice"));
+        assert!(capabilities.contains(&"voiceDirectCalls"));
+    }
+    assert!(
+        !Seat::Phone
+            .capabilities_for(room.as_ref())
+            .contains(&"voiceDirectCalls")
+    );
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"spending", "value":{"dayUsd":0,"monthUsd":0}
+                }),
+            ),
+        )
+        .unwrap();
+    assert!(!desk.voice().unwrap().status().direct_available);
+    assert!(
+        !Seat::Owner
+            .capabilities_for(room.as_ref())
+            .contains(&"voice")
+    );
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"spending", "value":{"dayUsd":2,"monthUsd":20}
+                }),
+            ),
+        )
+        .unwrap();
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                json!({
+                    "id":"voice", "value":{"stt":{"provider":"not-connected"}}
+                }),
+            ),
+        )
+        .unwrap();
+    assert!(!desk.voice().unwrap().status().direct_available);
+    assert!(
+        !Seat::Owner
+            .capabilities_for(room.as_ref())
+            .contains(&"voiceDirectCalls")
+    );
+}
+
+#[tokio::test]
 async fn cookie_push_is_operator_only_through_the_real_handler() {
     let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
     let root = tempfile::tempdir().unwrap();

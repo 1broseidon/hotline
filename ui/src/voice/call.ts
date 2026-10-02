@@ -119,9 +119,10 @@ export type CallTarget = { personaId: string; name: string; avatarHash?: string 
 export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined };
 
 export function supportsDirectCalls(status: unknown): boolean {
-	return typeof status === "object" && status !== null &&
-		Array.isArray((status as { capabilities?: unknown }).capabilities) &&
-		(status as { capabilities: unknown[] }).capabilities.includes("voiceDirectCalls");
+	if (typeof status !== "object" || status === null) return false;
+	const value = status as { capabilities?: unknown; directAvailable?: unknown; available?: unknown };
+	return Array.isArray(value.capabilities) && value.capabilities.includes("voiceDirectCalls") &&
+		(value.directAvailable ?? value.available) === true;
 }
 
 export class Call {
@@ -215,7 +216,9 @@ export class Call {
 			if (this.target !== undefined) {
 				const status = await this.transport.command("voice.status", {});
 				if (this.ended) return;
-				if (!supportsDirectCalls(status)) throw new Error("This desk needs an update before it can call a teammate directly.");
+				if (!supportsDirectCalls(status)) throw new Error(
+					(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
+				);
 			}
 			const response = await this.transport.command("voice.call_start", {
 				callId: this.id,

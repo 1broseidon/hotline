@@ -105,6 +105,8 @@ The core validates a target against the living roster before replacing a
 call, and rejects a changed target on a reused call ID. Direct messages use
 `Room.start`/`Room.prompt`, so the existing harness, chapter, workspace,
 capability lease and revocation checks remain the enforcement points.
+Direct-call readiness depends on speech and budget, independently of the desk
+dispatcher; advertising it does not widen the owner/local desk seat.
 
 Voice origin is assigned by the core, carried in opaque user event IDs, and
 restored when queued input runs or the driver accepts steering. Ordinary
@@ -120,7 +122,8 @@ desk. Native xAI speech requires an API key; subscription logins do not
 silently authorize a paid speech fallback.
 
 Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
-headless `tests/voice.rs` direct-call test, and the direct origin, live commit,
+headless `tests/voice.rs` direct-call and dispatcher-unavailable readiness tests,
+and the direct origin, live commit,
 cancellation and streaming failure tests in `voice::tests` and
 `session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
 live provider and iPhone compatibility still require device verification.

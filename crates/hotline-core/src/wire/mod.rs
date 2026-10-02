@@ -626,7 +626,9 @@ impl Seat {
     fn capabilities_for(self, room: &dyn RoomHandle) -> Vec<&'static str> {
         let mut capabilities = self.capabilities();
         if matches!(self, Seat::Owner | Seat::Desk)
-            && room.voice().is_some_and(|voice| voice.status().available)
+            && room
+                .voice()
+                .is_some_and(|voice| voice.status().direct_available)
         {
             capabilities.push("voice");
             capabilities.push("voiceDirectCalls");

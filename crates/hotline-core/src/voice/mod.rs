@@ -219,13 +219,17 @@ impl Calls {
         VoiceSettings::from_log(&self.log)
     }
     fn services(&self) -> Result<Services, String> {
-        if let Some(services) = &self.injected {
-            return Ok(services.clone());
-        }
         Ok(Services {
-            speech: speech::resolve(&self.vault, &self.settings())?,
-            dispatcher: ProviderDispatcher::resolve(self.vault.clone(), &self.log)?,
+            speech: self.resolve_speech()?,
+            dispatcher: self.dispatcher()?,
         })
+    }
+
+    fn dispatcher(&self) -> Result<Arc<dyn Dispatcher>, String> {
+        if let Some(services) = &self.injected {
+            return Ok(services.dispatcher.clone());
+        }
+        ProviderDispatcher::resolve(self.vault.clone(), &self.log)
     }
 
     /// What voice has spent so far against its caps, from its own tally.
@@ -235,23 +239,28 @@ impl Calls {
 
     pub fn status(&self) -> VoiceStatus {
         let budget = self.ledger.balance();
-        let services = self.services();
-        let unavailable = services
+        let speech = self.resolve_speech();
+        let dispatcher = self.dispatcher();
+        let budget_error = self.ledger.check().err().map(|e| e.to_string());
+        let direct_available = speech.is_ok() && budget_error.is_none();
+        let unavailable = speech
             .as_ref()
             .err()
             .cloned()
-            .or_else(|| self.ledger.check().err().map(|e| e.to_string()));
+            .or_else(|| dispatcher.as_ref().err().cloned())
+            .or(budget_error);
         VoiceStatus {
             capabilities: vec!["voiceDirectCalls".into()],
             available: unavailable.is_none(),
+            direct_available,
             unavailable,
-            stt: services.as_ref().ok().map(|s| model(s.speech.stt.id())),
-            tts: services.as_ref().ok().map(|s| model(s.speech.tts.id())),
-            fallback_tts: services
+            stt: speech.as_ref().ok().map(|s| model(s.stt.id())),
+            tts: speech.as_ref().ok().map(|s| model(s.tts.id())),
+            fallback_tts: speech
                 .as_ref()
                 .ok()
-                .and_then(|s| s.speech.fallback_tts.as_ref().map(|s| model(s.id()))),
-            dispatcher: services.as_ref().ok().map(|s| s.dispatcher.id()),
+                .and_then(|s| s.fallback_tts.as_ref().map(|s| model(s.id()))),
+            dispatcher: dispatcher.as_ref().ok().map(|s| s.id()),
             budget: VoiceBudget {
                 day_usd: budget.day_usd,
                 month_usd: budget.month_usd,

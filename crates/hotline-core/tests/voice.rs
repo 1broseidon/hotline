@@ -553,3 +553,52 @@ async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching(
     socket.close(None).await.unwrap();
     server.abort();
 }
+
+#[tokio::test]
+async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher() {
+    let root = tempfile::tempdir().unwrap();
+    let desk =
+        Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
+    let door = Door::bind(desk.log.clone(), "readiness-test".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=readiness-test"))
+        .await
+        .unwrap();
+    send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"}}}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 2).await["ok"], true);
+    send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let persona = until(&mut socket, |f| f["id"] == 3).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(
+        &mut socket,
+        json!({"id":4,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 4).await;
+    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["directAvailable"], true);
+    send(
+        &mut socket,
+        json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 5).await["ok"], false);
+    let call = Uuid::new_v4().to_string();
+    send(&mut socket, json!({"id":6,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
+    let started = until(&mut socket, |f| f["id"] == 6).await;
+    assert_eq!(started["ok"], true);
+    assert_eq!(started["result"]["personaId"], persona);
+    send(
+        &mut socket,
+        json!({"id":7,"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], true);
+    socket.close(None).await.unwrap();
+    server.abort();
+}

@@ -700,6 +700,7 @@ impl Room {
                 scheduled: None,
                 ring: None,
                 receipt: None,
+                client: None,
             },
         );
 
@@ -1462,6 +1463,7 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             scheduled: None,
             ring,
             receipt,
+            client: None,
         },
         other => other,
     }
@@ -1710,6 +1712,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             scheduled,
             ring,
             receipt,
+            client,
         } => TranscriptEvent::User {
             id,
             ts,
@@ -1720,6 +1723,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             scheduled,
             ring,
             receipt: Some(higher(receipt, rung)),
+            client,
         },
         TranscriptEvent::Agent {
             id,

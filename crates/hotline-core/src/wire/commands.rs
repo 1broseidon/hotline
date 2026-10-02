@@ -27,6 +27,14 @@ pub(crate) fn voice_origin() -> Option<crate::voice::Origin> {
     CALL_ORIGIN.try_with(Clone::clone).ok()
 }
 
+// Set by the door a message came in at, never by the message: which of the
+// person's apps wrote it.
+tokio::task_local! { pub(crate) static PROMPT_CLIENT: crate::contract::Client; }
+
+pub(crate) fn prompt_client() -> Option<crate::contract::Client> {
+    PROMPT_CLIENT.try_with(|client| *client).ok()
+}
+
 pub(crate) fn from_voice() -> bool {
     VOICE_COMMAND.try_with(|()| ()).is_ok()
 }

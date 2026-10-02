@@ -1192,6 +1192,7 @@ mod receipts {
             scheduled: None,
             ring: None,
             receipt: None,
+            client: None,
         }
     }
 

@@ -996,14 +996,24 @@ where
             None | Some(Ok(Message::Close(_))) => break Ok(()),
             Some(Err(error)) => break Err(error),
             Some(Ok(Message::Text(text))) => {
-                let answer = answer(
-                    &text,
-                    seat,
-                    &log,
-                    &room,
-                    &sender,
-                    &mut subscriptions,
-                    phone.as_ref(),
+                // The person is at this computer in the desktop app, or
+                // away from it on a paired device; a message carries which.
+                let client = if seat.is_remote() {
+                    crate::contract::Client::Phone
+                } else {
+                    crate::contract::Client::Desktop
+                };
+                let answer = commands::PROMPT_CLIENT.scope(
+                    client,
+                    answer(
+                        &text,
+                        seat,
+                        &log,
+                        &room,
+                        &sender,
+                        &mut subscriptions,
+                        phone.as_ref(),
+                    ),
                 );
                 if seat.is_remote() {
                     // Revocation cannot wait for a driver or computer to answer.

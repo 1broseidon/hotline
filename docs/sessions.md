@@ -229,6 +229,20 @@ schedule firing, Hotline's own nudge, a subagent's brief and a colleague's
 question alike, and the seeded conversation carries each line's own time.
 The tape keeps the words alone; the time is already the event's `ts`.
 
+A person's message also says which of their apps wrote it, when the door it
+came in at knows: `[Fri 2 Oct 2026, 16:20 · desktop] …` for the desktop app
+on this machine (the local wire seat), `· phone` for a paired device (the
+phone, or another desk reaching this one). A voice call's turns carry the app
+the call was started from. The tape stores it as the user event's `client`,
+which no client draws, so a restart's rebuilt history keeps it too. The
+preamble's clock sentence tells the agent what each means and to act on it
+without saying so: at the desktop, "my browser" is this machine's default
+browser, opened with the Hotline tool `open_link` (the system opener:
+`xdg-open`, `open`, or `url.dll` on Windows), which refuses unless the
+person's latest message came from the desktop and the link is http(s); away,
+browsing happens on the teammate's own computer and comes back as a link,
+screenshot or file.
+
 On each turn it is given:
 
 | kind | what | how |

@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, MoreIcon, PhoneIcon, ProgressRing, WarningIcon } from "../icons";
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { useTape } from "../tape";
@@ -58,12 +58,14 @@ export function Conversation({
 	dock,
 	models,
 	onSaid,
+	onCall,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
 	models: ConfigChoice[];
 	/** Where the band's model or effort picker hands a refusal. */
 	onSaid(said: string | null): void;
+	onCall?: (() => void) | undefined;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
@@ -313,6 +315,11 @@ export function Conversation({
 				<span className="min-w-0 flex-1" />
 
 				<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
+				{onCall !== undefined && (
+					<button type="button" className="control btn-icon" title={`Call ${persona.name}`} aria-label={`Call ${persona.name}`} onClick={onCall}>
+						<PhoneIcon />
+					</button>
+				)}
 
 				{jobs.length > 0 && !narrow && (
 					<button

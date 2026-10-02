@@ -97,6 +97,34 @@ decision for George, not a bug fix.
   for Hotline Agent's tools and no per-path ACLs. A capability is standing or
   it is absent.
 
+## Voice calls
+
+Desk and direct teammate calls use the existing owner/local desk seat; a
+companion cannot start, upload audio to, or subscribe to either kind of call.
+The core validates a target against the living roster before replacing a
+call, and rejects a changed target on a reused call ID. Direct messages use
+`Room.start`/`Room.prompt`, so the existing harness, chapter, workspace,
+capability lease and revocation checks remain the enforcement points.
+
+Voice origin is assigned by the core, carried in opaque user event IDs, and
+restored when queued input runs or the driver accepts steering. Ordinary
+wire prompt parameters cannot claim it. Only committed agent messages from
+the chosen persona and current call turn can enter a direct call; tool
+narration remains thoughts. Holding, interrupting and disconnecting cancel
+speech and unfinished input, while accepted teammate work retains the
+ordinary session lifecycle. No action runs on a partial transcript.
+
+Live PCM is negotiated, ordered and capped at 20 seconds/640,000 bytes,
+with 32 KiB frames, bounded queues and deadlines. Provider keys stay on the
+desk. Native xAI speech requires an API key; subscription logins do not
+silently authorize a paid speech fallback.
+
+Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
+headless `tests/voice.rs` direct-call test, and the direct origin, live commit,
+cancellation and streaming failure tests in `voice::tests` and
+`session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
+live provider and iPhone compatibility still require device verification.
+
 ## Generated images (BRO-174)
 
 `generate_image` is available to teammate sessions on Hotline Agent and ACP,

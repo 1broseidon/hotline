@@ -4386,6 +4386,14 @@ async fn voice_is_owner_only_through_the_real_handler() {
         ("voice.status", json!({})),
         ("voice.call_start", json!({"callId":call})),
         (
+            "voice.call_start",
+            json!({"callId":call,"personaId":"ada","streamAudio":true}),
+        ),
+        (
+            "voice.audio",
+            json!({"callId":call,"seq":1,"index":0,"data":"AAA=","final":true}),
+        ),
+        (
             "voice.utterance",
             json!({"callId":call,"seq":1,"mimeType":"audio/wav","data":"","durationMs":100}),
         ),
@@ -4431,12 +4439,12 @@ async fn voice_is_owner_only_through_the_real_handler() {
     assert!(
         Seat::Owner
             .capabilities_for(room.as_ref())
-            .contains(&"voice")
+            .contains(&"voiceDirectCalls")
     );
     assert!(
         !Seat::Phone
             .capabilities_for(room.as_ref())
-            .contains(&"voice")
+            .contains(&"voiceDirectCalls")
     );
 }
 

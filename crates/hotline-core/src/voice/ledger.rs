@@ -347,6 +347,7 @@ const PRICES: &[(&str, f64, f64)] = &[
     ("openrouter", 0.006, 0.03),
     ("groq", 0.001, 0.022),
     ("mistral", 0.006, 0.03),
+    ("xai", 0.10 / 60.0, 0.015),
 ];
 
 /// Whisper's price, and a premium voice's, for a provider not in the table.
@@ -362,6 +363,16 @@ fn price(provider_id: &str) -> (f64, f64) {
 /// The cost of transcribing a clip of this many seconds.
 pub fn stt_usd(provider_id: &str, seconds: f64) -> f64 {
     price(provider_id).0 * seconds.max(0.0) / 60.0
+}
+
+/// The cost of accepting live audio. xAI prices WebSocket transcription
+/// separately from batch uploads; all other providers retain their rate.
+pub fn stt_live_usd(provider_id: &str, seconds: f64) -> f64 {
+    if provider_id == "xai" {
+        0.20 * seconds.max(0.0) / 3600.0
+    } else {
+        stt_usd(provider_id, seconds)
+    }
 }
 
 /// The cost of speaking this many characters.
@@ -728,5 +739,23 @@ mod tests {
         assert!((tts_usd("custom-1234", 1000) - 0.03).abs() < 1e-9);
         assert!((stt_usd("custom-1234", 60.0) - 0.006).abs() < 1e-9);
         assert_eq!(stt_usd("openai", -3.0), 0.0);
+    }
+
+    #[test]
+    fn native_xai_streaming_and_batch_prices_are_distinct_and_other_rates_stay_the_same() {
+        assert!((stt_usd("xai", 3600.0) - 0.10).abs() < 1e-9);
+        assert!((stt_live_usd("xai", 3600.0) - 0.20).abs() < 1e-9);
+        assert!((tts_usd("xai", 1_000_000) - 15.0).abs() < 1e-9);
+        for provider in [
+            "openai",
+            "google",
+            "openrouter",
+            "groq",
+            "mistral",
+            "custom-1234",
+        ] {
+            assert_eq!(stt_live_usd(provider, 10.0), stt_usd(provider, 10.0));
+        }
+        assert_eq!(stt_live_usd("xai", -3.0), 0.0);
     }
 }

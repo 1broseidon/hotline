@@ -2032,6 +2032,8 @@ pub struct VoiceBudget {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct VoiceStatus {
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     pub available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
@@ -2139,6 +2141,9 @@ pub struct VoiceCall {
     pub call_id: String,
     pub input: Vec<String>,
     pub output: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub persona_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -2222,7 +2227,22 @@ pub enum Command {
     #[serde(rename = "voice.status")]
     VoiceStatus {},
     #[serde(rename = "voice.call_start")]
-    VoiceCallStart { call_id: String },
+    VoiceCallStart {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        persona_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stream_audio: Option<bool>,
+    },
+    /// Negotiated PCM16 little-endian mono, 16 kHz. Empty final commits.
+    #[serde(rename = "voice.audio")]
+    VoiceAudio {
+        call_id: String,
+        seq: u32,
+        index: u32,
+        data: String,
+        r#final: bool,
+    },
     #[serde(rename = "voice.utterance")]
     VoiceUtterance {
         call_id: String,

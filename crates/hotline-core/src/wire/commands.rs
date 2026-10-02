@@ -21,6 +21,11 @@ use uuid::Uuid;
 
 // Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
 tokio::task_local! { pub(crate) static VOICE_COMMAND: (); }
+tokio::task_local! { pub(crate) static CALL_ORIGIN: crate::voice::Origin; }
+
+pub(crate) fn voice_origin() -> Option<crate::voice::Origin> {
+    CALL_ORIGIN.try_with(Clone::clone).ok()
+}
 
 pub(crate) fn from_voice() -> bool {
     VOICE_COMMAND.try_with(|()| ()).is_ok()
@@ -38,8 +43,25 @@ pub(crate) async fn run(
             .await
             .map(|options| json!(options)),
         Command::VoiceStatus {} => Ok(json!(voice(room)?.status())),
-        Command::VoiceCallStart { call_id } => {
-            Ok(json!(voice(room)?.start(&call_id, room.clone())?))
+        Command::VoiceCallStart {
+            call_id,
+            persona_id,
+            stream_audio,
+        } => Ok(json!(voice(room)?.start_target(
+            &call_id,
+            persona_id,
+            stream_audio.unwrap_or_default(),
+            room.clone()
+        )?)),
+        Command::VoiceAudio {
+            call_id,
+            seq,
+            index,
+            data,
+            r#final,
+        } => {
+            voice(room)?.audio(&call_id, seq, index, &data, r#final)?;
+            Ok(Value::Null)
         }
         Command::VoiceUtterance {
             call_id,

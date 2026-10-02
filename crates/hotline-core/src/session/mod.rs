@@ -362,6 +362,7 @@ struct Session {
     /// before it read it is the one case a read tick would lie about.
     unread: Mutex<Vec<String>>,
     active_handoff: Mutex<Option<String>>,
+    voice_origin: Mutex<Option<crate::voice::Origin>>,
     dispatched_deliveries: Mutex<std::collections::HashSet<String>>,
     /// The window a quiet schedule is holding this teammate's voice with.
     quiet: Mutex<Option<QuietWindow>>,
@@ -1056,6 +1057,7 @@ impl Room {
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             active_handoff: Mutex::new(None),
+            voice_origin: Mutex::new(None),
             dispatched_deliveries: Mutex::new(Default::default()),
             quiet: Mutex::new(None),
             glance: Mutex::new(None),
@@ -2267,7 +2269,9 @@ impl Room {
                     text: text.to_string(),
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,
-                    steer: !crate::wire::commands::from_voice(),
+                    steer: !crate::wire::commands::from_voice()
+                        || crate::wire::commands::voice_origin()
+                            .is_some_and(|origin| origin.direct),
                     said: None,
                     unprompted: None,
                 },
@@ -2398,7 +2402,9 @@ impl Room {
     /// a turn that fails must not lose the message that started it.
     async fn say(self: &Arc<Self>, session: &Arc<Session>, sending: Sending) {
         // The opaque event ID carries provenance through queued turns and restarts.
-        let id = if crate::wire::commands::from_voice() {
+        let id = if let Some(origin) = crate::wire::commands::voice_origin() {
+            origin.event_id(&new_id())
+        } else if crate::wire::commands::from_voice() {
             format!("voice:{}", new_id())
         } else {
             new_id()
@@ -3998,6 +4004,10 @@ impl Room {
                 turns.running = false;
                 break;
             }
+            *lock(&session.voice_origin) = wired
+                .said
+                .as_deref()
+                .and_then(crate::voice::Origin::from_event_id);
             let mut handoff = wired
                 .said
                 .as_ref()
@@ -4088,8 +4098,9 @@ impl Room {
             // the next update says whether it was narration or the report.
             let mut voice = narration::Voice::new();
             let mut asked = false;
+            let mut steered_inputs = Vec::new();
             loop {
-                self.steer_waiting(&session);
+                self.steer_waiting(&session, &mut steered_inputs);
                 let update = tokio::select! {
                     biased;
                     () = session.input_ready.notified() => continue,
@@ -4174,8 +4185,19 @@ impl Room {
                 }
             }
             for (text, attachments) in session.driver.take_unconsumed().into_iter().rev() {
-                let mut wire = Wired::words(text);
-                wire.attachments = attachments;
+                // Drivers return the input's contents, not its tape identity.
+                // Match from the end because replay is requeued in reverse;
+                // identical inputs must keep their original order and origin.
+                let wire = if let Some(index) = steered_inputs
+                    .iter()
+                    .rposition(|wire| wire.text == text && wire.attachments == attachments)
+                {
+                    steered_inputs.remove(index)
+                } else {
+                    let mut wire = Wired::words(text);
+                    wire.attachments = attachments;
+                    wire
+                };
                 lock(&session.turns).waiting.push_front(wire);
             }
             if let (Some(run), Some(note)) = (
@@ -4224,7 +4246,7 @@ impl Room {
         lock(&session.turns).waiting.push_front(wire);
     }
 
-    fn steer_waiting(&self, session: &Arc<Session>) {
+    fn steer_waiting(&self, session: &Arc<Session>, steered_inputs: &mut Vec<Wired>) {
         if !session.capability.is_current() || !self.current_session(session) {
             return;
         }
@@ -4238,10 +4260,19 @@ impl Room {
             {
                 break;
             }
+            *lock(&session.voice_origin) = wire
+                .said
+                .as_deref()
+                .and_then(crate::voice::Origin::from_event_id);
             if let Some(said) = wire.said.clone() {
                 lock(&session.unread).push(said);
             }
-            turns.waiting.remove(index);
+            steered_inputs.push(
+                turns
+                    .waiting
+                    .remove(index)
+                    .expect("steered input is queued"),
+            );
             steered = true;
         }
         drop(turns);
@@ -4319,6 +4350,18 @@ impl Room {
             && !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
             && !text.trim().is_empty()
         {
+            // narration::Voice has committed this as an acknowledgement or report.
+            // Direct callers hear it now rather than waiting for tool work to end.
+            if let Some(origin) = lock(&session.voice_origin).clone()
+                && origin.direct
+                && let Some(voice) = lock(&self.voice).upgrade()
+            {
+                let name = self
+                    .persona(&session.persona_id)
+                    .map(|p| p.name)
+                    .unwrap_or_else(|_| "Hotline".into());
+                voice.delivery(&session.persona_id, id, &name, text, true, Some(&origin));
+            }
             *lock(&session.glance) = Some(Glance {
                 event_id: id.clone(),
                 text: text.trim().to_string(),
@@ -4369,7 +4412,14 @@ impl Room {
             .map(|persona| persona.name)
             .unwrap_or_else(|_| "Hotline".to_string());
         if let Some(voice) = lock(&self.voice).upgrade()
-            && voice.delivery(&session.persona_id, &event_id, &name, &text, from_voice)
+            && voice.delivery(
+                &session.persona_id,
+                &event_id,
+                &name,
+                &text,
+                from_voice,
+                lock(&session.voice_origin).as_ref(),
+            )
         {
             return;
         }

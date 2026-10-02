@@ -625,8 +625,11 @@ impl Seat {
 
     fn capabilities_for(self, room: &dyn RoomHandle) -> Vec<&'static str> {
         let mut capabilities = self.capabilities();
-        if self == Seat::Owner && room.voice().is_some_and(|voice| voice.status().available) {
+        if matches!(self, Seat::Owner | Seat::Desk)
+            && room.voice().is_some_and(|voice| voice.status().available)
+        {
             capabilities.push("voice");
+            capabilities.push("voiceDirectCalls");
         }
         capabilities
     }
@@ -1239,7 +1242,7 @@ async fn answer(
                             status
                         })
                     }
-                    (Command::VoiceCallStart { call_id }, _) => {
+                    (Command::VoiceCallStart { call_id, .. }, _) => {
                         let call_id = call_id.clone();
                         let result = commands::run(command, log, room).await;
                         if result.is_ok()

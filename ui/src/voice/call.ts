@@ -1,17 +1,15 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { activeDeskId, allDesks, watchDesks, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
-import type { VoiceEndReason, VoiceEvent } from "../generated/contract";
+import type { FileChunk, VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { TurnDetector } from "./turn";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
+import { PcmTurn } from "./stream";
 
 /**
- * A call with the desk (BRO-146, the wire contract in BRO-168). You talk to
- * the desk, not to a teammate: the window hears a turn, sends it as one WAV,
- * and plays back the dispatcher's sentences as they come. It lives outside
- * React so a call carries on while you move between conversations; the
- * pane only draws it.
+ * A call belongs to its chosen desk and optional teammate. It lives outside
+ * React so switching conversations or desks does not retarget the call.
  */
 
 export type CallPhase =
@@ -69,8 +67,7 @@ const wireTransport: CallTransport = {
  * A call belongs to the desk it was placed on: moving to another desk in
  * the window leaves it talking to the first, and hanging up reaches it.
  */
-function deskTransport(): CallTransport {
-	const deskId = activeDeskId();
+function deskTransport(deskId: string | null): CallTransport {
 	if (deskId === null) return wireTransport;
 	const one = wireFor(deskId);
 	return {
@@ -118,6 +115,15 @@ const WORKING_EVERY_MS = 1800;
 
 type Names = (personaId: string) => string | undefined;
 
+export type CallTarget = { personaId: string; name: string; avatarHash?: string | undefined };
+export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined };
+
+export function supportsDirectCalls(status: unknown): boolean {
+	return typeof status === "object" && status !== null &&
+		Array.isArray((status as { capabilities?: unknown }).capabilities) &&
+		(status as { capabilities: unknown[] }).capabilities.includes("voiceDirectCalls");
+}
+
 export class Call {
 	readonly id = crypto.randomUUID();
 	private snapshot: CallSnapshot = { phase: "connecting", lines: [], cards: [], clock: { base: 0, since: null } };
@@ -130,6 +136,12 @@ export class Call {
 	private rate = 48_000;
 	private heard = false;
 	private seq = 0;
+	private pcm = false;
+	private input: PcmTurn | null = null;
+	private endpoint: { at: number; seq: number } | null = null;
+	/** A progressive output line can temporarily drain before its final chunk arrives. */
+	private readonly outputLines = new Set<string>();
+	private holdGeneration = 0;
 	private unsubscribe: (() => void) | null = null;
 	private unwatch: (() => void) | null = null;
 	/** Whether the desk has made the call; before it, there is nothing to hang up there. */
@@ -142,6 +154,7 @@ export class Call {
 	/** Sentences from a turn that was cut in on: their late clips are not played. */
 	private readonly muted = new Set<string>();
 	private readonly seen = new Set<string>();
+	private readonly clipIndices = new Map<string, number>();
 	private pendingFrom: string | undefined;
 	/** The desk has ended the call; this waits for the last clip to finish first. */
 	private closing: EndReason | null = null;
@@ -156,8 +169,9 @@ export class Call {
 		private readonly names: Names = () => undefined,
 		audio?: CallAudio,
 		private readonly now: () => number = () => performance.now(),
+		private readonly options: CallOptions = {},
 	) {
-		this.audio = audio ?? webAudio({ onIdle: () => this.settle(), onLost: () => void this.micLost() });
+		this.audio = audio ?? webAudio({ onIdle: () => this.settle(), onLost: () => void this.micLost(), onStarted: () => this.audible() });
 		this.detector = new TurnDetector(this.now());
 	}
 
@@ -166,6 +180,13 @@ export class Call {
 	get current(): CallSnapshot {
 		return this.snapshot;
 	}
+
+	get target(): CallTarget | undefined { return this.options.target; }
+	get deskId(): string | null | undefined { return this.options.deskId; }
+	nameOf(personaId: string): string | undefined { return this.names(personaId); }
+	readonly readAvatar = (personaId: string, hash: string, offset: number): Promise<FileChunk> =>
+		this.transport.command("avatar.read", { personaId, hash, offset }) as Promise<FileChunk>;
+	redial(): Call { return new Call(this.transport, this.names, undefined, undefined, this.options); }
 
 	watch(listener: () => void): () => void {
 		this.listeners.add(listener);
@@ -191,18 +212,31 @@ export class Call {
 		if (this.ended) return;
 		// The call exists once the desk has answered call_start; only then can it be watched.
 		try {
-			await this.transport.command("voice.call_start", { callId: this.id });
+			if (this.target !== undefined) {
+				const status = await this.transport.command("voice.status", {});
+				if (this.ended) return;
+				if (!supportsDirectCalls(status)) throw new Error("This desk needs an update before it can call a teammate directly.");
+			}
+			const response = await this.transport.command("voice.call_start", {
+				callId: this.id,
+				streamAudio: true,
+				...(this.target !== undefined ? { personaId: this.target.personaId } : {}),
+			}) as { input?: string[]; personaId?: string } | null;
+			this.started = true;
+			if (this.target !== undefined && response?.personaId !== this.target.personaId) {
+				throw new Error("The desk did not connect the call to the chosen teammate.");
+			}
+			this.pcm = response?.input?.includes("audio/pcm") === true;
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return;
 		}
-		this.started = true;
 		if (this.ended) {
 			// Hung up while the desk was answering: tell it, now that it knows the call.
 			void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
 			return;
 		}
-		this.unsubscribe = this.transport.subscribe(
+		const unsubscribe = this.transport.subscribe(
 			{ call: this.id },
 			{
 				// A snapshot is where the call stands, never audio to play again.
@@ -212,7 +246,11 @@ export class Call {
 				event: (item) => this.receive(item as CallEvent),
 			},
 		);
-		this.unwatch = this.transport.onConnection?.((state) => this.connection(state)) ?? null;
+		if (this.ended) { unsubscribe(); return; }
+		this.unsubscribe = unsubscribe;
+		const unwatch = this.transport.onConnection?.((state) => this.connection(state)) ?? null;
+		if (this.ended) { unwatch?.(); return; }
+		this.unwatch = unwatch;
 		this.set({ clock: { base: 0, since: Date.now() } });
 		this.audio.chime("connect");
 		this.settle();
@@ -230,7 +268,13 @@ export class Call {
 		if (this.closing !== null) return this.end(this.closing);
 		void this.transport.command("voice.hold", { callId: this.id, hold: on }).catch(() => {});
 		if (on) {
+			this.holdGeneration++;
 			this.held = true;
+			this.cancelInput();
+			this.endpoint = null;
+			this.awaiting = false;
+			this.outputLines.clear();
+			for (const id of this.seen) this.muted.add(id);
 			this.audio.stopPlayback();
 			// Let the microphone go, so the system's mic light says so too.
 			this.audio.closeMic();
@@ -238,12 +282,14 @@ export class Call {
 			this.settle();
 			return;
 		}
+		const generation = ++this.holdGeneration;
 		try {
 			await this.audio.reopenMic();
 		} catch {
 			this.fail("Hotline can't hear the microphone any more. Call again when it's back.");
 			return;
 		}
+		if (this.ended || generation !== this.holdGeneration) return;
 		this.held = false;
 		this.resumeClock();
 		this.settle();
@@ -256,6 +302,8 @@ export class Call {
 		if (this.closing !== null) return this.end(this.closing);
 		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
+		this.outputLines.clear();
+		this.endpoint = null;
 		this.audio.stopPlayback();
 		this.awaiting = false;
 		// Work the desk has not finished keeps it thinking; it says when it can listen.
@@ -274,10 +322,12 @@ export class Call {
 		switch (event.type) {
 			case "state":
 				this.awaiting = false;
+				// The producer is finished at these authoritative states, including a failed partial TTS stream.
+				if (event.state === "listening" || event.state === "ended") this.outputLines.clear();
 				if (event.state === "ended") {
 					const reason = event.reason ?? "error";
 					// A goodbye, a spent budget or a failure is said before the line goes: let the last sentence finish.
-					if ((reason === "goodbye" || reason === "budget" || reason === "error") && this.audio.playing) this.closing = reason;
+					if ((reason === "goodbye" || reason === "budget" || reason === "error") && (this.audio.playing || this.outputLines.size > 0)) this.closing = reason;
 					else this.end(reason);
 					return;
 				}
@@ -291,22 +341,39 @@ export class Call {
 				this.pendingFrom = this.names(event.personaId) ?? "A teammate";
 				return;
 			case "said": {
-				this.seen.add(event.id);
+				this.remember(event.id);
 				const from = this.pendingFrom;
 				this.pendingFrom = undefined;
 				this.line({ kind: "desk", id: event.id, text: event.text, ...(from ? { from } : {}) });
 				return;
 			}
 			case "clip":
-				this.seen.add(event.id);
+				if (!this.seen.has(event.id) && event.index !== 0) return;
+				this.remember(event.id);
+				if (event.index !== (this.clipIndices.get(event.id) ?? 0)) return;
+				this.clipIndices.set(event.id, event.index + 1);
 				if (this.held || this.muted.has(event.id)) return;
-				this.audio.play(event.mimeType, event.data);
+				if (event.final) this.outputLines.delete(event.id);
+				else this.outputLines.add(event.id);
+				try { if (event.data !== "") this.audio.play(event.mimeType, event.data); }
+				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
 				this.settle();
 				return;
 			case "card":
 				if (this.snapshot.cards.some((card) => card.requestId === event.requestId)) return;
 				this.set({ cards: [...this.snapshot.cards, { personaId: event.personaId, requestId: event.requestId, kind: event.kind }] });
 				return;
+		}
+	}
+
+	private remember(id: string): void {
+		this.seen.add(id);
+		while (this.seen.size > 128) {
+			const oldest = this.seen.values().next().value!;
+			this.seen.delete(oldest);
+			this.muted.delete(oldest);
+			this.clipIndices.delete(oldest);
+			this.outputLines.delete(oldest);
 		}
 	}
 
@@ -317,16 +384,15 @@ export class Call {
 	 */
 	settle(): void {
 		if (this.ended) return;
-		if (this.closing !== null && !this.audio.playing) return this.end(this.closing);
+		if (this.closing !== null && !this.audio.playing && this.outputLines.size === 0) return this.end(this.closing);
 		// Until the desk has made the call and it is watched, it is still connecting.
 		if (this.unsubscribe === null) return;
 		if (this.held) return this.set({ phase: "held" });
 		if (this.audio.playing) return this.set({ phase: "speaking" });
-		if (this.awaiting || this.desk === "thinking" || this.desk === "speaking") return this.set({ phase: "thinking" });
+		if (this.awaiting || this.outputLines.size > 0 || this.desk === "thinking" || this.desk === "speaking") return this.set({ phase: "thinking" });
 		const phase = this.snapshot.phase;
 		if (phase === "listening" || phase === "hearing") return;
-		this.frames = [];
-		this.heard = false;
+		this.cancelInput();
 		this.detector.reset(this.now());
 		this.set({ phase: "listening" });
 	}
@@ -357,7 +423,10 @@ export class Call {
 		this.rate = rate;
 		const level = rms(block);
 		this.level = level;
-		this.frames.push(block.slice());
+		if (this.input !== null) {
+			if (this.input.push(block)) { this.send(); return; }
+			if (this.ended) return;
+		} else this.frames.push(block.slice());
 		if (!this.heard) {
 			const keep = Math.ceil(((PREROLL_MS / 1000) * rate) / block.length);
 			while (this.frames.length > keep) this.frames.shift();
@@ -367,11 +436,18 @@ export class Call {
 				case "start":
 					this.heard = true;
 					this.set({ phase: "hearing" });
+					if (this.pcm) {
+						const seq = ++this.seq;
+						this.input = new PcmTurn(rate,
+							(chunk) => this.transport.command("voice.audio", { callId: this.id, seq, ...chunk }),
+							(error) => this.streamFailed(error));
+						for (const frame of this.frames) this.input.push(frame);
+						this.frames = [];
+					}
 					break;
 				case "drop":
 					// Silence, or a steady noise taken for speech until the floor caught up: nothing to send.
-					this.frames = [];
-					this.heard = false;
+					this.cancelInput();
 					if (this.snapshot.phase === "hearing") this.set({ phase: "listening" });
 					break;
 				case "end":
@@ -379,16 +455,31 @@ export class Call {
 					return;
 			}
 		}
+		if (this.heard && !this.pcm && this.frames.reduce((sum, frame) => sum + frame.length, 0) >= rate * 20) this.send();
 	}
 
 	private send(): void {
+		this.endpoint = { at: this.now(), seq: this.input !== null ? this.seq : this.seq + 1 };
+		if (this.input !== null) {
+			const input = this.input;
+			this.awaiting = true;
+			this.settle();
+			this.audio.chime("think");
+			void input.finish().then(() => {
+				if (this.input === input) this.input = null;
+				if (!this.ended && this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
+			}).catch(() => {}); // Transport errors end the call through streamFailed; cancellation is silent.
+			return;
+		}
 		const rate = this.rate;
-		const total = this.frames.reduce((sum, block) => sum + block.length, 0);
+		const total = Math.min(this.frames.reduce((sum, block) => sum + block.length, 0), rate * 20);
 		const joined = new Float32Array(total);
 		let at = 0;
 		for (const block of this.frames) {
-			joined.set(block, at);
-			at += block.length;
+			const slice = block.subarray(0, total - at);
+			joined.set(slice, at);
+			at += slice.length;
+			if (at === total) break;
 		}
 		this.frames = [];
 		this.heard = false;
@@ -409,10 +500,31 @@ export class Call {
 				if (this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
 			})
 			.catch((error: unknown) => {
+				if (this.ended || this.held) return;
+				this.endpoint = null;
 				this.awaiting = false;
 				this.set({ trouble: error instanceof Error ? error.message : String(error) });
 				this.settle();
 			});
+	}
+
+	private cancelInput(): void {
+		this.input?.cancel();
+		this.input = null;
+		this.frames = [];
+		this.heard = false;
+	}
+
+	private streamFailed(error: unknown): void {
+		if (this.ended || this.held) return;
+		this.fail(error instanceof Error ? error.message : String(error));
+	}
+
+	private audible(): void {
+		if (this.endpoint === null || this.ended || this.held) return;
+		const { at, seq } = this.endpoint;
+		this.endpoint = null;
+		console.info("Hotline voice endpoint to audible start", { seq, durationMs: Math.round(this.now() - at) });
 	}
 
 	// ------------------------------------------------------------- the rest
@@ -448,12 +560,19 @@ export class Call {
 	}
 
 	private fail(trouble: string): void {
+		if (this.ended) return;
+		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
 		this.set({ trouble });
 		this.end("error");
 	}
 
 	private end(reason: EndReason): void {
 		if (this.ended) return;
+		this.holdGeneration++;
+		this.cancelInput();
+		this.outputLines.clear();
+		this.endpoint = null;
+		this.audio.closeMic();
 		this.pauseClock();
 		const words = ENDED_WORDS[reason];
 		this.set({ phase: "ended", ended: reason, ...(words && !this.snapshot.trouble ? { trouble: words } : {}) });
@@ -491,9 +610,20 @@ export function currentCall(): Call | null {
 	return active;
 }
 
-export async function startCall(names?: Names): Promise<Call> {
+export async function startCall(names?: Names, target?: CallTarget): Promise<Call> {
 	active?.hangUp();
-	const call = new Call(deskTransport(), names);
+	const deskId = activeDeskId();
+	const call = new Call(deskTransport(deskId), names, undefined, undefined, { deskId, target });
+	active = call;
+	for (const holder of holders) holder();
+	await call.start();
+	return call;
+}
+
+/** Retry the original desk and target, even after the window moved elsewhere. */
+export async function restartCall(previous: Call): Promise<Call> {
+	active?.hangUp();
+	const call = previous.redial();
 	active = call;
 	for (const holder of holders) holder();
 	await call.start();
@@ -531,22 +661,22 @@ export function useCallSnapshot(call: Call | null): CallSnapshot {
  * speech provider it can use. A desk from before voice refuses the command,
  * and that is a no, not an error.
  */
-export function useVoiceAvailable(connection: string): boolean {
-	const [available, setAvailable] = useState(false);
+export function useVoiceSupport(connection: string): { available: boolean; directCalls: boolean } {
+	const [support, setSupport] = useState({ available: false, directCalls: false });
 	useEffect(() => {
-		if (connection !== "open") return;
+		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;
 		wireTransport
 			.command("voice.status", {})
 			.then((status) => {
-				if (current) setAvailable((status as { available?: boolean } | null)?.available === true);
+				if (current) setSupport({ available: (status as { available?: boolean } | null)?.available === true, directCalls: supportsDirectCalls(status) });
 			})
 			.catch(() => {
-				if (current) setAvailable(false);
+				if (current) setSupport({ available: false, directCalls: false });
 			});
 		return () => {
 			current = false;
 		};
 	}, [connection]);
-	return available;
+	return support;
 }

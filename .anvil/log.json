@@ -1,0 +1,34 @@
+[
+  {
+    "target": "crates/hotline-core/src/voice",
+    "kind": "websocket service",
+    "scope": "service",
+    "callerProfile": [
+      "desktop",
+      "owner phone"
+    ],
+    "riskClass": "R2",
+    "surfacePattern": "Existing noun.verb commands and ephemeral call subscription, from contract.rs and wire/commands.rs",
+    "obligations": [
+      "owner/local desk seat enforcement",
+      "backward compatible WAV/AAC defaults",
+      "target echo and capability negotiation",
+      "bounded ordered PCM and audio queues",
+      "no actions before committed transcription",
+      "revocation and speech cancellation",
+      "existing real agent session and grants",
+      "generated contract sync",
+      "latency without transcript logging"
+    ],
+    "brief": "Reduce live call latency and add secondary direct agent calls without changing accepted agent work lifecycle. Native xAI streaming is negotiated; other providers retain whole-clip speech.",
+    "contracts": [
+      "docs/voice-calls.md",
+      "crates/hotline-core/src/contract.rs"
+    ],
+    "verification": [
+      "make check",
+      "make verify",
+      "mobile npm run check"
+    ]
+  }
+]

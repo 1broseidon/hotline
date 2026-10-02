@@ -1,74 +1,99 @@
 import { fromBase64 } from "./wav";
 
-/**
- * The desk's voice: whole clips, one per sentence, played back to back in
- * the order they came. Decoding runs ahead of playback so the gap between
- * sentences is the clip's own silence, not a decode.
- */
+export const MAX_QUEUED_CLIPS = 128;
+const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+
+/** Decode ahead and schedule consecutive clips on the audio clock, including progressive WAV chunks. */
 export class ClipPlayer {
-	private queue: Promise<AudioBuffer | null>[] = [];
-	private current: AudioBufferSourceNode | null = null;
-	private playing = false;
+	private readonly sources = new Set<AudioBufferSourceNode>();
+	private queue: Promise<{ buffer: AudioBuffer; bytes: number } | null>[] = [];
+	private decoding = false;
+	private nextAt = 0;
 	private generation = 0;
+	private queuedBytes = 0;
+	private readonly startTimers = new Set<ReturnType<typeof setTimeout>>();
 
 	constructor(
 		private readonly ctx: AudioContext,
 		private readonly out: AudioNode,
 		private readonly onIdle: () => void,
+		private readonly onStarted: () => void = () => {},
 	) {}
 
 	get busy(): boolean {
-		return this.playing || this.queue.length > 0;
+		return this.decoding || this.queue.length > 0 || this.sources.size > 0;
 	}
 
 	push(mimeType: string, data: string): void {
+		if (this.queue.length + this.sources.size + Number(this.decoding) >= MAX_QUEUED_CLIPS || data.length > MAX_QUEUED_BYTES * 4 / 3 + 4) {
+			throw new Error("The desk sent more voice audio than Hotline can play. Call again.");
+		}
 		const bytes = fromBase64(data);
+		if (this.queuedBytes + bytes.length > MAX_QUEUED_BYTES) throw new Error("The desk sent more voice audio than Hotline can play. Call again.");
+		this.queuedBytes += bytes.length;
+		const generation = this.generation;
 		const decoding = this.ctx
 			.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer)
 			.catch((error: unknown) => {
+				if (generation === this.generation) this.queuedBytes -= bytes.length;
 				console.error(`Hotline could not play a ${mimeType} clip: ${String(error)}`);
 				return null;
 			});
-		this.queue.push(decoding);
-		if (!this.playing) void this.next(this.generation);
+		// Keep the encoded size with its buffer, so completed sources free the byte budget.
+		this.queue.push(decoding.then((buffer) => buffer === null ? null : { buffer, bytes: bytes.length }));
+		if (!this.decoding) void this.schedule(this.generation);
 	}
 
 	/** Stops the sentence in flight and forgets the rest. */
 	stop(): void {
 		this.generation++;
 		this.queue = [];
-		if (this.current) {
-			this.current.onended = null;
+		this.decoding = false;
+		this.nextAt = 0;
+		this.queuedBytes = 0;
+		for (const timer of this.startTimers) clearTimeout(timer);
+		this.startTimers.clear();
+		for (const source of this.sources) {
+			source.onended = null;
 			try {
-				this.current.stop();
+				source.stop();
 			} catch {
 				/* never started */
 			}
+			source.disconnect();
 		}
-		this.current = null;
-		this.playing = false;
+		this.sources.clear();
 	}
 
-	private async next(generation: number): Promise<void> {
-		const decoding = this.queue.shift();
-		if (!decoding) {
-			this.playing = false;
-			this.onIdle();
-			return;
-		}
-		this.playing = true;
-		const buffer = await decoding;
-		if (generation !== this.generation) return;
-		if (!buffer) return this.next(generation);
-		const source = this.ctx.createBufferSource();
-		source.buffer = buffer;
-		source.connect(this.out);
-		source.onended = () => {
+	private async schedule(generation: number): Promise<void> {
+		this.decoding = true;
+		while (generation === this.generation && this.queue.length > 0) {
+			const clip = await this.queue.shift()!;
 			if (generation !== this.generation) return;
-			this.current = null;
-			void this.next(generation);
-		};
-		this.current = source;
-		source.start();
+			if (clip === null) continue;
+			const { buffer, bytes } = clip;
+			const source = this.ctx.createBufferSource();
+			source.buffer = buffer;
+			source.connect(this.out);
+			const at = Math.max(this.ctx.currentTime, this.nextAt);
+			this.nextAt = at + buffer.duration;
+			this.sources.add(source);
+			source.onended = () => {
+				if (generation !== this.generation) return;
+				this.sources.delete(source);
+				this.queuedBytes -= bytes;
+				source.disconnect();
+				if (!this.busy) this.onIdle();
+			};
+			source.start(at);
+			const timer = setTimeout(() => {
+				this.startTimers.delete(timer);
+				if (generation === this.generation) this.onStarted();
+			}, Math.max(0, at - this.ctx.currentTime) * 1000);
+			this.startTimers.add(timer);
+		}
+		if (generation !== this.generation) return;
+		this.decoding = false;
+		if (!this.busy) this.onIdle();
 	}
 }

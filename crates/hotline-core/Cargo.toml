@@ -23,7 +23,7 @@ grep-regex = "0.1.14"
 regex = "1"
 globset = "0.4.20"
 futures-util = "0.3.34"
-tokio-tungstenite = "0.30"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
 ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
 # Pinned: these features are the SDK's own "unstable", and a minor release

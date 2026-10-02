@@ -24,6 +24,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- A subagent a teammate has running shows in the conversation's header, so
+  you no longer scroll back to its line to find it. One is named, several
+  are counted in a menu, and pressing one opens its run in the work card,
+  the floating card a turn's steps open in, instead of the old side pane:
+  the task it was handed, its steps and what it said, following the newest
+  as it works. The header clears when the run finishes; its line in the
+  conversation keeps how it went and still opens it. The roster row carries
+  `subagents`, so a phone can show the same.
 - A teammate's face in the rail turns a ring while something is on its way:
   its session starting, which can take a while when an agent is first
   downloaded, or its picture being drawn. The roster row carries `drawing`,

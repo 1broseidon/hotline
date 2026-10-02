@@ -15,7 +15,6 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
 import { Starters, untouched } from "./Starters";
-import type { OpenSubagent } from "./Subagent";
 import type { OpenThread } from "./Thread";
 import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
 
@@ -55,6 +54,7 @@ export function Conversation({
 	onOpenSubagent,
 	onOpenWork,
 	workOpen,
+	runOpen,
 	dock,
 	models,
 	onSaid,
@@ -77,15 +77,19 @@ export function Conversation({
 	onDelete(): void;
 	onPick(personaId: string, eventId: string): void;
 	onOpenThread(thread: OpenThread): void;
-	onOpenSubagent(run: OpenSubagent): void;
+	/** Opens a subagent's run in the work card. */
+	onOpenSubagent(run: { runId: string; title: string }): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
+	/** Which subagent's run is open in the work card, if any. */
+	runOpen: string | undefined;
 	/** The work card, docked under the composer when the window is too narrow for it to float. */
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
+	const subagents = entry.subagents ?? [];
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
@@ -313,6 +317,39 @@ export function Conversation({
 				<span className="min-w-0 flex-1" />
 
 				<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
+
+				{/* Subagents still running, wherever their lines have scrolled to:
+				 * one is named, several are counted, and each opens its run in
+				 * the work card. They leave the band when they finish; their
+				 * lines in the conversation keep how each went. */}
+				{subagents.length === 1 ? (
+					<button
+						type="button"
+						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
+						title="Open the subagent's run"
+						aria-label={`Subagent working: ${subagents[0]!.title}`}
+						aria-pressed={runOpen === subagents[0]!.runId}
+						onClick={() => onOpenSubagent({ runId: subagents[0]!.runId, title: subagents[0]!.title })}
+					>
+						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+						<span className="truncate">{narrow ? "Subagent" : `Subagent · ${subagents[0]!.title}`}</span>
+					</button>
+				) : subagents.length > 1 ? (
+					<MenuButton
+						className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
+						label={`${subagents.length} subagents working`}
+						entries={subagents.map((run) => ({
+							kind: "item",
+							id: run.runId,
+							text: run.title,
+							checked: runOpen === run.runId,
+							onSelect: () => onOpenSubagent({ runId: run.runId, title: run.title }),
+						}))}
+					>
+						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+						{`${subagents.length} subagents`}
+					</MenuButton>
+				) : null}
 
 				{jobs.length > 0 && !narrow && (
 					<button

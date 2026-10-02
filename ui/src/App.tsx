@@ -12,8 +12,7 @@ import { WindowEdges } from "./ui/WindowEdges";
 import type { SettingsSection } from "./components/Settings";
 import { Teammate } from "./components/Teammate";
 import { Shortcuts } from "./components/Shortcuts";
-import { Subagent, type OpenSubagent } from "./components/Subagent";
-import { Work, type OpenWork } from "./components/Work";
+import { sameWork, Work, type OpenWork } from "./components/Work";
 import { Thread, type OpenThread } from "./components/Thread";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
@@ -38,7 +37,7 @@ const SettingsRail = lazy(() => import("./components/Settings").then((module) =>
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
-type Aside = { kind: "thread"; thread: OpenThread } | { kind: "subagent"; run: OpenSubagent };
+type Aside = { kind: "thread"; thread: OpenThread };
 
 /**
  * The window for the active desk. Switching desks remounts all of it, so the
@@ -70,12 +69,12 @@ export function App() {
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
-	/* What stands in the inspector's place: a peer thread or a subagent's
-	 * run, opened from its line in the conversation. */
+	/* What stands in the inspector's place: a peer thread, opened from its
+	 * line in the conversation. */
 	const [aside, setAside] = useState<Aside | null>(null);
 	/* The work card each teammate has open, by persona: it belongs to them,
 	 * so it goes when you leave them and is there again when you come back. */
-	const [works, setWorks] = useState<Record<string, string | null>>({});
+	const [works, setWorks] = useState<Record<string, OpenWork>>({});
 	const workOf = selectedId !== null && selectedId in works ? works[selectedId]! : undefined;
 	const closeWork = useCallback((personaId: string) => {
 		setWorks((was) => {
@@ -275,12 +274,12 @@ export function App() {
 		setAside(next);
 	}, []);
 	const openThread = useCallback((thread: OpenThread) => openAside({ kind: "thread", thread }), [openAside]);
-	const openSubagent = useCallback((run: OpenSubagent) => openAside({ kind: "subagent", run }), [openAside]);
-	/* A caption or the mark, pressed again with its work already open, closes it. */
+	/* A caption, the mark or a subagent, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
-			if (works[work.personaId] === work.blockId && work.personaId in works) closeWork(work.personaId);
-			else setWorks((was) => ({ ...was, [work.personaId]: work.blockId }));
+			const was = works[work.personaId];
+			if (was !== undefined && sameWork(was, work)) closeWork(work.personaId);
+			else setWorks((all) => ({ ...all, [work.personaId]: work }));
 		},
 		[works, closeWork],
 	);
@@ -441,10 +440,10 @@ export function App() {
 
 	/* The work card shows only on its own teammate's conversation: not over
 	 * Settings or another pane, and not on a teammate who has none open. */
-	const workCard = (entry: RosterEntry, blockId: string | null) => (
+	const workCard = (entry: RosterEntry, open: OpenWork) => (
 		<Work
 			key={`work-${entry.persona.id}`}
-			open={{ personaId: entry.persona.id, blockId }}
+			open={open}
 			name={entry.persona.name}
 			live={entry.session.state === "thinking"}
 			docked={dockWork}
@@ -538,23 +537,16 @@ export function App() {
 								setFocus({ eventId, at: Date.now() });
 							}}
 							onOpenThread={openThread}
-							onOpenSubagent={openSubagent}
+							onOpenSubagent={(run) => openWork({ personaId: selected.persona.id, ...run })}
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
-							workOpen={workOf}
+							workOpen={workOf !== undefined && "blockId" in workOf ? workOf.blockId : undefined}
+							runOpen={workOf !== undefined && "runId" in workOf ? workOf.runId : undefined}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{aside?.kind === "thread" ? (
 							<Thread
 								key={`thread-${aside.thread.key}`}
 								open={aside.thread}
-								selfId={selected.persona.id}
-								selfName={selected.persona.name}
-								onClose={() => setAside(null)}
-							/>
-						) : aside?.kind === "subagent" ? (
-							<Subagent
-								key={`run-${aside.run.runId}`}
-								open={aside.run}
 								selfId={selected.persona.id}
 								selfName={selected.persona.name}
 								onClose={() => setAside(null)}

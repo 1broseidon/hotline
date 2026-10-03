@@ -1996,3 +1996,70 @@ fn a_teammate_voice_applies_only_to_the_model_it_was_picked_from() {
         .is_none()
     );
 }
+
+#[tokio::test]
+async fn the_voice_remembers_the_call_and_the_session_is_told_what_it_missed() {
+    let (_root, fake, calls, id, mut rx) =
+        fronted_call(Ok(("What's on your mind?".into(), false))).await;
+    utterance(&calls, &id, 1).unwrap();
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "What's on your mind?"),
+    )
+    .await;
+    event(&mut rx, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Listening,
+                ..
+            }
+        )
+    })
+    .await;
+    *lock(&fake.front) = Some(Ok(("On it.".into(), true)));
+    *lock(&fake.transcript) = "Please run the tests.".into();
+    utterance(&calls, &id, 2).unwrap();
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
+    )
+    .await;
+    let fronted = lock(&fake.fronted).clone();
+    assert!(fronted[0].call.is_empty());
+    let texts: Vec<_> = fronted[1]
+        .call
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(texts, ["Can you check the build?", "What's on your mind?"]);
+    let exchange = calls.change(&id, |call| Ok(call.exchange.clone())).unwrap();
+    // The handoff told the session everything up to the exact words.
+    assert!(
+        lock(&exchange)
+            .unseen()
+            .iter()
+            .all(|line| line.text == "On it.")
+    );
+    calls.end(&id).unwrap();
+}
+
+#[test]
+fn a_scheduled_prompt_is_not_the_person_speaking() {
+    let root = tempfile::tempdir().unwrap();
+    let log = Log::open(root.path());
+    let tape = StreamId::Tape("ada".into());
+    for event in [
+        json!({"kind":"user","id":"1","text":"Fix the typo."}),
+        json!({"kind":"user","id":"2","text":"Remind George to test it.","scheduled":{"jobId":"j","kind":"schedule","name":"Reminder"}}),
+        json!({"kind":"delivery","id":"3","text":"Done with the review.","cause":{"kind":"peer","name":"Mack","personaId":"m","threadKey":"t","status":"done","about":"review"}}),
+    ] {
+        log.append(&tape, &event).unwrap();
+    }
+    let seen = recent(&log, "ada");
+    assert_eq!(seen[0]["kind"], "message from a teammate");
+    assert_eq!(seen[0]["from"], "Mack");
+    assert_eq!(seen[1]["kind"], "scheduled prompt");
+    assert_eq!(seen[1]["job"], "Reminder");
+    assert_eq!(seen[2]["kind"], "user");
+}

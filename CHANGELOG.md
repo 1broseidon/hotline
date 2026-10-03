@@ -20,6 +20,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate's Threads and found by `search_thread`. A teammate can have two at a
   time, and they never have its computer.
 
+### Changed
+
+- A direct call's voice now talks as the teammate: it remembers what was said
+  on the call, knows the teammate's goal, its project's `AGENTS.md` and its
+  last chapter's note, and speaks to you as "you". A scheduled prompt in the
+  conversation is no longer mistaken for something you said. When it passes
+  work on, the teammate is also told what was said on the call that it had not
+  heard, ahead of your words, without that showing in the conversation.
+- Without a chosen voice model, the desk now picks a mid-tier fast model
+  (flash, mini, fast) ahead of the lightest ones, which were too thin to hold
+  a conversation.
+
 ## [0.31.1] - 2026-10-02
 
 ### Added

@@ -701,6 +701,40 @@ async fn a_cancelled_turn_leaves_its_line_sent() {
     assert_eq!(events[0]["receipt"], "sent");
 }
 
+/// What a voice call said before a handoff is heard by the agent ahead of the
+/// person's words, and never shown as theirs.
+#[tokio::test]
+async fn a_handoff_tells_the_agent_the_call_but_the_tape_shows_only_the_words() {
+    let agents = Fake::new(Scripted::new(spoken_turn()));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("call-heard", agents);
+    room.start("ada").await.unwrap();
+    crate::wire::commands::CALL_HEARD
+        .scope(
+            Some(
+                "Earlier on this voice call:\nThe person: hi\n\nThe person now says, by voice:"
+                    .into(),
+            ),
+            room.prompt("ada", "Check the build.", None, None),
+        )
+        .await
+        .unwrap();
+    for _ in 0..200 {
+        if !lock(&prompts).is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let heard = lock(&prompts).clone();
+    assert!(
+        heard[0].starts_with("Earlier on this voice call:"),
+        "{heard:?}"
+    );
+    assert!(heard[0].ends_with("\nCheck the build."), "{heard:?}");
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(events[0]["text"], "Check the build.");
+}
+
 /// The agent's reaction lands on the person's last message and nowhere else.
 #[tokio::test]
 async fn a_reaction_lands_on_the_last_thing_the_person_said() {

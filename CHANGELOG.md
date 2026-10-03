@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- A teammate's drawn picture has character: the house style asks for two to
+  four taste decisions that tell one story about who it is (a mood in the
+  eyes, a marking, hair, what it wears, one small accent) instead of a plain
+  jacket and no pins or props, and teammates are told to name theirs when
+  they draw themselves.
+
 ## [0.31.1] - 2026-10-02
 
 ### Added

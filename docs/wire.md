@@ -138,11 +138,12 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; refused past two live per teammate |
-| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; past two running agents the idlest thread is parked, and it is refused only while both are mid-turn |
+| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
-| `side.archive` | `{sideId}` | none; archiving an archived thread is also none |
-| `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then archived newest first |
+| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
+| `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
+| `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only for every seat |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |

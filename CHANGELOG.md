@@ -11,14 +11,23 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Added
 
 - While a teammate is busy, you can start a side thread with the same
-  teammate for another task: type `/side <task>` in the composer, or choose
-  "Start a side thread" under More. It runs in parallel in its own context, you
-  chat with the teammate in it from the work card, and it archives when the
-  teammate says it is done, when you press Archive, or after a few hours of
-  quiet. A chip next to the subagents shows it while it runs, the conversation
-  keeps a one-line result with Open, and archived threads are listed under the
-  teammate's Threads and found by `search_thread`. A teammate can have two at a
-  time, and they never have its computer.
+  teammate for another topic: type `/side <task>` in the composer, or choose
+  "Start a side thread" under More. It runs in parallel in its own context, so
+  nothing it does reaches the main conversation, and you chat with the teammate
+  in it from the work card for as long as the topic lasts. A chip next to the
+  subagents shows it while it runs, and the teammate does not close it on its
+  own: it archives when you say you are done or press Archive.
+- A side thread is no longer lost when it goes quiet. After a few hours, or a
+  restart, it is parked: still open, listed under the teammate's Threads, and
+  saying something in it brings it back where it left off. An archived thread
+  has a Continue button that reopens it, with the teammate's own memory of it
+  when its agent can resume, and from the thread's transcript when it cannot.
+- When a side thread is archived, the conversation keeps its title and a
+  one-line outcome with Open, and a closing note (goal, what got done, what is
+  still open, key files) is written for `search_thread` to find.
+- A teammate runs at most two side threads at a time. Only running agents count:
+  starting a third parks the one you have left alone longest, and parked and
+  archived threads take no place.
 
 ## [0.31.1] - 2026-10-02
 

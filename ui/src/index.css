@@ -2020,22 +2020,12 @@
 	.dock-edge::after {
 		inset: 8px 3px 8px auto;
 	}
-	/* A page in the pane (a thread, a settings section) fills it under its
-	 * own band; the settings pages bring a pane of their own, which here is
-	 * the pane they are in. */
+	/* A page in the pane (a thread) fills it under its own band. */
 	.dock-page {
 		display: flex;
 		min-height: 0;
 		flex: 1;
 		flex-direction: column;
-	}
-	.dock .pane {
-		border-radius: 0;
-		background: none;
-		box-shadow: none;
-	}
-	.dock .pane-column {
-		padding: 8px 12px 32px;
 	}
 	/* A side thread in the list: the status dot leads the row. Running
 	 * breathes in the accent, waiting on you is the warning colour, parked is

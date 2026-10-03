@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
-import { Rail, RAIL_FACES, RailEdge, unreadOf, useRailSize } from "./components/Rail";
+import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
+import type { SettingsSection } from "./components/Settings";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
@@ -29,8 +30,13 @@ import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
 
 
+/* Settings is opened now and then, not at launch: it loads on first open,
+ * which keeps its nine sections out of the startup bundle. */
+const Settings = lazy(() => import("./components/Settings").then((module) => ({ default: module.Settings })));
+const SettingsRail = lazy(() => import("./components/Settings").then((module) => ({ default: module.SettingsRail })));
+
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
+type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
 type Aside = { kind: "thread"; thread: OpenThread };
@@ -79,8 +85,9 @@ export function App() {
 		});
 	}, []);
 	const [pane, setPane] = useState<Pane>(null);
-	/* The right-hand pane: this teammate's side threads and Settings, one at
-	 * a time, beside the conversation or over it in a window too narrow. */
+	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+	/* The right-hand pane: this teammate's side threads, beside the
+	 * conversation or over it in a window too narrow. */
 	const [dock, setDock] = useState<DockState | null>(null);
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
 	const setDockWidth = useCallback((width: number) => setDockWidthState(clampDock(width)), []);
@@ -213,7 +220,7 @@ export function App() {
 		setFocusSchedules(false);
 		setAside(null);
 		// A thread open in the right-hand pane belongs to the teammate who left.
-		setDock((was) => (was !== null && was.view === "threads" && was.side !== null ? { ...was, side: null } : was));
+		setDock((was) => (was !== null && was.side !== null ? { ...was, side: null } : was));
 		saveSelected(selectedId);
 	}, [selectedId]);
 
@@ -292,14 +299,11 @@ export function App() {
 	}, []);
 	const closeDock = useCallback(() => setDock(null), []);
 	const openSide = useCallback(
-		(side: { sideId: string; title: string }) => openDock({ view: "threads", side, section: null }),
+		(side: { sideId: string; title: string }) => openDock({ side }),
 		[openDock],
 	);
-	const openSideList = useCallback(() => openDock({ view: "threads", side: null, section: null }), [openDock]);
-	const toggleSettings = useCallback(() => {
-		if (dock?.view === "settings") closeDock();
-		else openDock({ view: "settings", side: null, section: null });
-	}, [dock, openDock, closeDock]);
+	const openSideList = useCallback(() => openDock({ side: null }), [openDock]);
+
 	/* A caption, the mark or a subagent, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
@@ -340,11 +344,10 @@ export function App() {
 					closePane();
 					return;
 				}
-				if (dock !== null && (dock.view === "settings" || !(event.target as HTMLElement | null)?.closest("textarea, input"))) {
-					// One step back, then out: a page to its list, the list to the window.
+				if (dock !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
+					// One step back, then out: a thread to the list, the list to the window.
 					event.preventDefault();
-					if (dock.view === "threads" && dock.side !== null) setDock({ ...dock, side: null });
-					else if (dock.view === "settings" && dock.section !== null) setDock({ ...dock, section: null });
+					if (dock.side !== null) setDock({ ...dock, side: null });
 					else closeDock();
 					return;
 				}
@@ -372,7 +375,7 @@ export function App() {
 			}
 			if (chord === "settings") {
 				event.preventDefault();
-				if (takeChord()) toggleSettings();
+				if (takeChord()) togglePane("settings");
 				return;
 			}
 			if (chord === "teammate") {
@@ -401,7 +404,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, dock, inspector, aside, workOf, closeWork, searchOpen, select, closePane, closeDock, togglePane, toggleSettings, toggleInspector, toggleRail]);
+	}, [roster, selectedId, pane, dock, inspector, aside, workOf, closeWork, searchOpen, select, closePane, closeDock, togglePane, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -410,7 +413,7 @@ export function App() {
 				return;
 			}
 			if (id === "settings") {
-				if (takeChord()) toggleSettings();
+				if (takeChord()) togglePane("settings");
 				return;
 			}
 			if (id === "new-teammate") {
@@ -444,7 +447,7 @@ export function App() {
 				if (entry) select(entry.persona.id);
 			}
 		});
-	}, [roster, selectedId, pane, select, togglePane, toggleSettings, toggleInspector, toggleRail]);
+	}, [roster, selectedId, pane, select, togglePane, toggleInspector, toggleRail]);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
@@ -467,9 +470,12 @@ export function App() {
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
+	/* Settings' sections have no faces to fall back to: they stand at the
+	 * names' width, and at the narrowest of it in a narrow window. */
+	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
-	const dockOverlay = dock !== null && dockOverlays(mainWidth, dockWidth);
+	const dockOverlay = dock !== null && pane !== "settings" && dockOverlays(mainWidth, dockWidth);
 
 
 	/* The work card shows only on its own teammate's conversation: not over
@@ -502,7 +508,11 @@ export function App() {
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
-			{!railSize.open ? null : (
+			{!railSize.open ? null : pane === "settings" ? (
+				<Suspense fallback={null}>
+					<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />
+				</Suspense>
+			) : (
 			<Rail
 				entries={roster}
 				loaded={rosterLoaded}
@@ -511,7 +521,7 @@ export function App() {
 				connection={connection}
 				onSelect={select}
 				onNew={() => togglePane("new-teammate")}
-				onSettings={toggleSettings}
+				onSettings={() => togglePane("settings")}
 				onEdit={(id) => {
 					select(id);
 					setInspector(true);
@@ -530,7 +540,11 @@ export function App() {
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0" data-call={call !== null ? "" : undefined}>
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
-				{pane === "shortcuts" ? (
+				{pane === "settings" ? (
+					<Suspense fallback={null}>
+						<Settings section={settingsSection} onAddDesk={() => togglePane("add-desk")} />
+					</Suspense>
+				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (
 					<About onClose={closePane} />
@@ -572,7 +586,7 @@ export function App() {
 							runOpen={workOf !== undefined && "runId" in workOf ? workOf.runId : undefined}
 							onOpenSide={openSide}
 							onOpenSideList={openSideList}
-							sideOpen={dock?.view === "threads" ? dock.side?.sideId : undefined}
+							sideOpen={dock?.side?.sideId}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{aside?.kind === "thread" ? (
@@ -612,7 +626,7 @@ export function App() {
 						</div>
 					</div>
 				)}
-					{dock !== null && (
+					{dock !== null && pane !== "settings" && (
 						<Dock
 							state={dock}
 							onState={setDock}
@@ -622,12 +636,11 @@ export function App() {
 							width={dockWidth}
 							onWidth={setDockWidth}
 							overlay={dockOverlay}
-							onAddDesk={() => togglePane("add-desk")}
 						/>
 					)}
 					{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
 				{(floatWork !== null || call !== null) && (
-					<div className="float-stack" style={dock !== null && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
+					<div className="float-stack" style={dock !== null && pane !== "settings" && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
 						{floatWork}
 						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }

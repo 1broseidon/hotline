@@ -1,9 +1,8 @@
-import { type CSSProperties, lazy, type RefObject, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { Attachment, RunningSide, SideThreadSummary, TranscriptEvent } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
-import { SETTINGS_SECTIONS, type SettingsSection } from "../settingsSections";
 import {
 	clampDock,
 	DOCK_MAX,
@@ -17,30 +16,18 @@ import {
 	sideState,
 } from "../dock";
 import { useSide } from "../tape";
-import { BackLabel, Band } from "../ui/Band";
-import { onTablistKey } from "../ui/Menu";
+import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Composer } from "./Composer";
 import { FollowWindow, SidePieceRows, sidePieces } from "./Work";
 
-/* Settings loads on first open, which keeps its sections out of the startup bundle. */
-const Settings = lazy(() => import("./Settings").then((module) => ({ default: module.Settings })));
-
-/**
- * What the right-hand pane shows: one of two views, and in each the page
- * that is open in it (a side thread, a settings section) or none, which is
- * the view's list.
- */
-export type DockState = {
-	view: "threads" | "settings";
-	side: { sideId: string; title: string } | null;
-	section: SettingsSection | null;
-};
+/** What the right-hand pane shows: the list, or one side thread open in it. */
+export type DockState = { side: { sideId: string; title: string } | null };
 
 /**
  * The right-hand pane: this teammate's side threads as a list, like the
- * team on the left, and Settings, one at a time. A row opens its thread in
+ * team on the left. A row opens its thread in
  * the pane with a way back to the list; the pane's edge is dragged to size
  * it, and in a window too narrow for it beside the conversation it lies over
  * the conversation instead (`overlay`).
@@ -54,7 +41,6 @@ export function Dock({
 	width,
 	onWidth,
 	overlay,
-	onAddDesk,
 }: {
 	state: DockState;
 	onState(next: DockState): void;
@@ -66,7 +52,6 @@ export function Dock({
 	width: number;
 	onWidth(width: number): void;
 	overlay: boolean;
-	onAddDesk(): void;
 }) {
 	const root = useRef<HTMLElement>(null);
 	/* Opening the pane moves focus into it, and closing it puts focus back
@@ -81,65 +66,36 @@ export function Dock({
 	const { list, reload } = useSideList(teammate?.id, sides);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
-	const setView = (view: DockState["view"]) => onState({ view, side: null, section: null });
-	const atList = state.view === "threads" ? state.side === null : state.section === null;
+	const atList = state.side === null;
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label={state.view === "threads" ? "Side threads" : "Settings"}>
-				{atList && <DockBand view={state.view} onView={setView} onClose={onClose} />}
-				{state.view === "threads" ? (
-					state.side === null ? (
-						<SideList teammate={teammate} sides={sides} list={list} opened={opened} onOpen={(side) => onState({ ...state, side })} />
-					) : (
-						<SideThread
-							key={state.side.sideId}
-							side={state.side}
-							name={teammate?.name ?? "The teammate"}
-							working={sides.find((one) => one.sideId === state.side?.sideId)?.working ?? false}
-							onChanged={reload}
-							onBack={() => onState({ ...state, side: null })}
-							onClose={onClose}
-						/>
-					)
-				) : state.section === null ? (
-					<SectionList onOpen={(section) => onState({ ...state, section })} />
+			<aside ref={root} className="dock" aria-label="Side threads">
+				{atList && <DockBand onClose={onClose} />}
+				{state.side === null ? (
+					<SideList teammate={teammate} sides={sides} list={list} opened={opened} onOpen={(side) => onState({ side })} />
 				) : (
-					<BackLabel.Provider value="Back to settings">
-						<div className="dock-page">
-							<Suspense fallback={null}>
-								<Settings section={state.section} onBack={() => onState({ ...state, section: null })} onAddDesk={onAddDesk} />
-							</Suspense>
-						</div>
-					</BackLabel.Provider>
+					<SideThread
+						key={state.side.sideId}
+						side={state.side}
+						name={teammate?.name ?? "The teammate"}
+						working={sides.find((one) => one.sideId === state.side?.sideId)?.working ?? false}
+						onChanged={reload}
+						onBack={() => onState({ side: null })}
+						onClose={onClose}
+					/>
 				)}
 			</aside>
 		</div>
 	);
 }
 
-/** The pane's header: the switch between its two views, and the way out. */
-function DockBand({ view, onView, onClose }: { view: DockState["view"]; onView(view: DockState["view"]): void; onClose(): void }) {
+/** The pane's header: what it holds, and the way out. */
+function DockBand({ onClose }: { onClose(): void }) {
 	return (
 		<Band>
-			<div className="segmented ml-1" role="tablist" aria-label="Right pane" onKeyDown={onTablistKey}>
-				{(["threads", "settings"] as const).map((one) => (
-					<button
-						key={one}
-						type="button"
-						role="tab"
-						className="segment"
-						aria-selected={view === one}
-						tabIndex={view === one ? 0 : -1}
-						data-autofocus={view === one || undefined}
-						onClick={() => onView(one)}
-					>
-						{one === "threads" ? "Threads" : "Settings"}
-					</button>
-				))}
-			</div>
-			<span className="flex-1" />
+			<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Side threads</h2>
 			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 				<CloseIcon />
 			</button>
@@ -214,7 +170,7 @@ function SideList({
 		return () => window.clearInterval(tick);
 	}, []);
 	// Back from a thread, the row it was opened from has focus again; else the switch.
-	useFocusOnOpen(root, ["[data-restore]", "[role=tab][aria-selected=true]"], list !== undefined || teammate === null);
+	useFocusOnOpen(root, ["[data-restore]", ".dock .control"], list !== undefined || teammate === null);
 	const { open, archived } = groupSides(list ?? []);
 
 	const row = (side: SideThreadSummary) => {
@@ -273,25 +229,6 @@ function SideList({
 					</>
 				)}
 			</div>
-		</Scroll>
-	);
-}
-
-/* ------------------------------------------------------- the settings list */
-
-function SectionList({ onOpen }: { onOpen(section: SettingsSection): void }) {
-	const root = useRef<HTMLDivElement>(null);
-	useFocusOnOpen(root, "[role=tab][aria-selected=true]");
-	return (
-		<Scroll>
-			<nav ref={root} aria-label="Settings" className="px-2 pb-3">
-				{SETTINGS_SECTIONS.map((one) => (
-					<button key={one.id} type="button" className="rail-row" onClick={() => onOpen(one.id)}>
-						<span className="block min-w-0 flex-1 truncate font-medium text-ink">{one.title}</span>
-						<ChevronRightIcon className="shrink-0 text-ink-3" />
-					</button>
-				))}
-			</nav>
 		</Scroll>
 	);
 }

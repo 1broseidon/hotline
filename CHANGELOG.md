@@ -8,17 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
-### Changed
-
-- Settings is in the right-hand pane instead of taking over the conversation and
-  the team list: the sections are a list in the pane and each opens with a back
-  arrow. The team stays where it is while you change settings.
-
 ### Added
 
 - Side threads live in a pane docked on the right, not in the floating work
-  card. The pane has two views, Threads and Settings, with a small switch in its
-  header. Threads lists the open teammate's side threads: title, a dot for
+  card. The pane lists the open teammate's side threads: title, a dot for
   running, waiting on you, parked or archived, the last line and when, with the
   archived ones folded at the bottom. A row opens the thread inside the pane,
   with a back arrow, its own composer, Archive, and Continue on an archived one;
@@ -30,7 +23,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   step it, double-click puts it back), and the width is remembered. In a window
   too narrow for the team, the conversation and the pane side by side, the pane
   lies over the conversation instead of squeezing it. Escape steps back from a
-  thread or a settings section to the list, then closes the pane.
+  thread to the list, then closes the pane.
 - While a teammate is busy, you can start a side thread with the same
   teammate for another topic: type `/side <task>` in the composer, or choose
   "Start a side thread" under More. It runs in parallel in its own context, so

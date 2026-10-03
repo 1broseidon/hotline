@@ -2030,6 +2030,13 @@
 	/* A side thread in the list: the status dot leads the row. Running
 	 * breathes in the accent, waiting on you is the warning colour, parked is
 	 * a ring, archived is dim. */
+	/* A line under a thread, above its composer: parked, archived, refused. */
+	.dock-note {
+		flex-shrink: 0;
+		padding: 0 24px 8px;
+		font-size: var(--text-sm);
+		color: var(--ink-3);
+	}
 	.dock-row {
 		align-items: flex-start;
 	}

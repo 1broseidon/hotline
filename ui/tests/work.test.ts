@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TranscriptEvent } from "../src/generated/contract";
-import { runPieces, sameWork, sidePieces } from "../src/components/Work";
+import { runPieces, sameWork } from "../src/components/Work";
 import { sideCommand } from "../src/components/Conversation";
 import { sideLine } from "../src/components/Transcript";
 
@@ -36,36 +36,6 @@ describe("pressing what opened a card", () => {
 		expect(sameWork({ personaId: "p", runId: "r1", title: "x" }, { personaId: "p", runId: "r1", title: "y" })).toBe(true);
 		expect(sameWork({ personaId: "p", runId: "r1", title: "x" }, { personaId: "p", blockId: null })).toBe(false);
 		expect(sameWork({ personaId: "p", blockId: null }, { personaId: "p", runId: "r1", title: "x" })).toBe(false);
-	});
-});
-
-describe("a side thread's lines", () => {
-	test("shows what the person said, steps between words, cards, and what is still arriving", () => {
-		const pieces = sidePieces(
-			[
-				line("side", "side:s1", { status: "live" }),
-				line("user", "u1"),
-				line("agent", "a1"),
-				line("tool", "c1", { title: "read", status: "completed" }),
-				line("permission", "perm:r1", { title: "Run it?", options: [], requestId: "r1" }),
-				line("agent", "a2"),
-				line("turn", "t1", { stopReason: "end_turn" }),
-				line("user", "u2"),
-			],
-			[
-				{ messageId: "m9", kind: "agent", text: "Working on" },
-				{ messageId: "m8", kind: "thought", text: "hmm" },
-			],
-		);
-		expect(pieces.map((piece) => `${piece.kind}:${piece.id}`)).toEqual([
-			"person:u1",
-			"said:a1",
-			"steps:c1",
-			"permission:perm:r1",
-			"said:a2",
-			"person:u2",
-			"said:live:m9",
-		]);
 	});
 });
 

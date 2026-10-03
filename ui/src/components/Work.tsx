@@ -2,9 +2,8 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { TranscriptEvent } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowDownIcon, CloseIcon } from "../icons";
-import { type Streaming, useRun, useTape } from "../tape";
+import { useRun, useTape } from "../tape";
 import { Band } from "../ui/Band";
-import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { runEnding, type Step, StepRows, stepRuns, stepsSummary, subagentState, type SubagentEvent } from "./Transcript";
 
@@ -138,95 +137,6 @@ function RunWork({
 			{pieces.length === 0 && running && <p className="work-empty">The subagent is getting started.</p>}
 		</WorkCard>
 	);
-}
-
-type PermissionEvent = Extract<TranscriptEvent, { kind: "permission" }>;
-
-/** A permission card raised inside a side thread: answered by side id. */
-export function SideAsk({ sideId, event }: { sideId: string; event: PermissionEvent }) {
-	const [failed, setFailed] = useState<string | null>(null);
-	if (event.decision !== undefined) {
-		return <p className="work-notice selectable">{`${event.title} · ${event.decidedOptionName ?? event.decision}`}</p>;
-	}
-	return (
-		<div className="work-said selectable">
-			<p>{event.title}</p>
-			<div className="mt-1.5 flex flex-wrap gap-1.5">
-				{event.options.map((option) => (
-					<button
-						key={option.optionId}
-						type="button"
-						className="control btn btn-sm"
-						onClick={() =>
-							void wire
-								.command("side.answer_permission", { sideId, requestId: event.requestId, optionId: option.optionId })
-								.catch((error: unknown) => setFailed(error instanceof Error ? error.message : String(error)))
-						}
-					>
-						{option.name}
-					</button>
-				))}
-			</div>
-			{failed !== null && <p className="work-notice">{failed}</p>}
-		</div>
-	);
-}
-
-/** A side thread's lines, drawn the way the work card draws a run's. */
-export function SidePieceRows({ sideId, pieces, settled }: { sideId: string; pieces: SidePiece[]; settled: boolean }) {
-	return pieces.map((piece) =>
-		piece.kind === "steps" ? (
-			<StepRows key={piece.id} items={piece.items} settled={settled} />
-		) : piece.kind === "said" ? (
-			<div key={piece.id} className="work-said selectable">
-				<Markdown text={piece.text} />
-			</div>
-		) : piece.kind === "person" ? (
-			<p key={piece.id} className="work-task selectable">
-				{piece.text}
-			</p>
-		) : piece.kind === "permission" ? (
-			<SideAsk key={piece.id} sideId={sideId} event={piece.event} />
-		) : (
-			<p key={piece.id} className="work-notice selectable">
-				{piece.text}
-			</p>
-		),
-	);
-}
-
-/**
- * A side thread's lines: what the person said, the teammate's steps gathered
- * between what it said, its cards and notices, and whatever is still
- * arriving. The thread's own marker and turn ends are the pane's business.
- */
-export type SidePiece =
-	| RunPiece
-	| { kind: "person"; id: string; text: string }
-	| { kind: "permission"; id: string; event: PermissionEvent };
-
-export function sidePieces(events: TranscriptEvent[], streaming: Streaming[] = []): SidePiece[] {
-	const pieces: SidePiece[] = [];
-	const rest: TranscriptEvent[] = [];
-	const flush = () => {
-		pieces.push(...runPieces(rest.splice(0)));
-	};
-	for (const event of events) {
-		if (event.kind === "user") {
-			flush();
-			if (event.text.trim() !== "") pieces.push({ kind: "person", id: event.id, text: event.text });
-		} else if (event.kind === "permission") {
-			flush();
-			pieces.push({ kind: "permission", id: event.id, event });
-		} else {
-			rest.push(event);
-		}
-	}
-	flush();
-	for (const live of streaming) {
-		if (live.kind === "agent" && live.text.trim() !== "") pieces.push({ kind: "said", id: `live:${live.messageId}`, text: live.text });
-	}
-	return pieces;
 }
 
 type RunPiece = { kind: "steps"; id: string; items: Step[] } | { kind: "said" | "notice"; id: string; text: string };

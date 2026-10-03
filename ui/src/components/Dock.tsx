@@ -1,4 +1,4 @@
-import { type CSSProperties, type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment, RunningSide, SideThreadSummary, TranscriptEvent } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
@@ -20,7 +20,7 @@ import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { Composer } from "./Composer";
-import { FollowWindow, SidePieceRows, sidePieces } from "./Work";
+import { Transcript } from "./Transcript";
 
 /** What the right-hand pane shows: the list, or one side thread open in it. */
 export type DockState = { side: { sideId: string; title: string } | null };
@@ -46,7 +46,7 @@ export function Dock({
 	onState(next: DockState): void;
 	onClose(): void;
 	/** Whose side threads the Threads view lists; none when nobody is open. */
-	teammate: { id: string; name: string } | null;
+	teammate: { id: string; name: string; avatarHash?: string | undefined } | null;
 	/** That teammate's side threads that are live now, from the roster. */
 	sides: RunningSide[];
 	width: number;
@@ -80,6 +80,7 @@ export function Dock({
 						key={state.side.sideId}
 						side={state.side}
 						name={teammate?.name ?? "The teammate"}
+						avatarHash={teammate?.avatarHash}
 						working={sides.find((one) => one.sideId === state.side?.sideId)?.working ?? false}
 						onChanged={reload}
 						onBack={() => onState({ side: null })}
@@ -154,7 +155,7 @@ function SideList({
 	opened,
 	onOpen,
 }: {
-	teammate: { id: string; name: string } | null;
+	teammate: { id: string; name: string; avatarHash?: string | undefined } | null;
 	sides: RunningSide[];
 	list: SideThreadSummary[] | undefined;
 	/** The row a thread was last opened from. */
@@ -246,6 +247,7 @@ function SideList({
 function SideThread({
 	side,
 	name,
+	avatarHash,
 	working,
 	onChanged,
 	onBack,
@@ -253,6 +255,7 @@ function SideThread({
 }: {
 	side: { sideId: string; title: string };
 	name: string;
+	avatarHash: string | undefined;
 	/** A turn of this thread is running, as the roster says. */
 	working: boolean;
 	/** The thread was archived or continued: the list reads itself again. */
@@ -260,12 +263,13 @@ function SideThread({
 	onBack(): void;
 	onClose(): void;
 }) {
-	const { events, streaming, loaded } = useSide(side.sideId);
+	const { events, streaming } = useSide(side.sideId);
 	const marker = events.find((event): event is Extract<TranscriptEvent, { kind: "side" }> => event.kind === "side");
 	const archived = marker?.status === "archived";
 	const parked = marker?.status === "parked";
 	const title = marker?.title ?? side.title;
-	const pieces = sidePieces(events, streaming);
+	// The marker is the thread's own line in the main conversation; here the thread is the page.
+	const lines = useMemo(() => events.filter((event) => event.kind !== "side"), [events]);
 	const [refused, setRefused] = useState<string | null>(null);
 	const root = useRef<HTMLDivElement>(null);
 	// The composer is where this page is for; an archived one has Continue.
@@ -310,26 +314,31 @@ function SideThread({
 					<CloseIcon />
 				</button>
 			</Band>
-			<p className="instrument px-4 pb-1 pt-0.5" role="status">
-				{archived ? "archived" : working ? "working" : parked ? "parked" : "side thread"}
-			</p>
-			<FollowWindow following={side.sideId} count={events.length + streaming.length}>
-				<SidePieceRows sideId={side.sideId} pieces={pieces} settled={!working || archived} />
-				{pieces.length === 0 && !archived && <p className="work-empty">{loaded ? `${name} is getting started.` : ""}</p>}
-			</FollowWindow>
+			<div className="relative flex min-h-0 flex-1 flex-col">
+				<Transcript
+					personaId={side.sideId}
+					sideId={side.sideId}
+					name={name}
+					avatarHash={avatarHash}
+					events={lines}
+					streaming={streaming}
+					live={working && !archived}
+					focus={null}
+				/>
+			</div>
 			{archived ? (
 				<>
-					{marker?.result !== undefined && <p className="work-notice selectable px-2" style={{ color: "var(--ink-2)" }}>{marker.result}</p>}
-					{refused !== null && <p className="work-notice selectable px-2">{refused}</p>}
+					{marker?.result !== undefined && <p className="dock-note selectable">{marker.result}</p>}
+					{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 				</>
 			) : (
 				<>
 					{parked && (
-						<p className="work-notice selectable px-2" style={{ color: "var(--ink-3)" }}>
+						<p className="dock-note selectable">
 							Parked: no agent is running. Saying something here picks it back up where it left off.
 						</p>
 					)}
-					{refused !== null && <p className="work-notice selectable px-2">{refused}</p>}
+					{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 					<Composer
 						embedded
 						personaId={side.sideId}

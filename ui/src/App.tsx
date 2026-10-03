@@ -631,7 +631,7 @@ export function App() {
 							state={dock}
 							onState={setDock}
 							onClose={closeDock}
-							teammate={selected === null ? null : { id: selected.persona.id, name: selected.persona.name }}
+							teammate={selected === null ? null : { id: selected.persona.id, name: selected.persona.name, avatarHash: selected.persona.avatar?.hash }}
 							sides={selected?.sides ?? []}
 							width={dockWidth}
 							onWidth={setDockWidth}

@@ -91,6 +91,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
+| `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
 | `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
@@ -298,6 +299,14 @@ teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
+
+`pinnedTeammates` is the desk's pinned teammates: a list of up to three
+persona ids, in the order they sit at the top of the team. `persona.pin` is
+how it is written; a patch that names it is held to the same rules (a list of
+ids, repeats dropped, more than three refused). Deleting a teammate takes its
+pin with it, and a stored list that names someone no longer on the team reads
+as if they were not in it. Companion phones cannot read settings, so the
+roster carries each teammate's slot as `pin`.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
@@ -666,6 +675,7 @@ and the live sessions. Each row is a `RosterEntry`:
   "preview": {"from": "me", "text": "morning", "at": 5},
   "latest": 5,
   "activity": "read note.txt",
+  "pin": 0,
   "session": { "personaId": "…", "state": "thinking", … }
 }
 ```
@@ -675,7 +685,9 @@ for a user line and `"them"` for an agent line; only those two kinds
 count. `latest` is that line's `at`, kept beside it so the window can count
 unread without opening every tape. `activity` is the title of the tool
 still running, only while the session is thinking — absent, not null, when
-there is none. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
+there is none. `pin` is the teammate's 0-based slot among the desk's pinned
+teammates, absent when it is not pinned; the affected rows are sent again when
+the `pinnedTeammates` setting changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls

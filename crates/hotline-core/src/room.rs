@@ -83,8 +83,60 @@ pub(crate) fn normalize_setting(key: &str, value: &Value) -> Result<Value, Strin
             settings.validate()?;
             Ok(json!(settings))
         }
+        "pinnedTeammates" => {
+            let ids = value
+                .as_array()
+                .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+                .filter(|ids| ids.iter().all(|id| !id.is_empty()))
+                .ok_or("Pinned teammates must be a list of teammate ids.")?;
+            let mut unique: Vec<&str> = Vec::new();
+            for id in ids {
+                if !unique.contains(&id) {
+                    unique.push(id);
+                }
+            }
+            if unique.len() > MAX_PINS {
+                return Err(too_many_pins());
+            }
+            Ok(json!(unique))
+        }
         _ => Ok(value.clone()),
     }
+}
+
+/// How many teammates a desk can pin. Three faces fit a phone's header and
+/// the desktop rail's width, and a fourth would stop being a favourite.
+pub const MAX_PINS: usize = 3;
+
+pub(crate) fn too_many_pins() -> String {
+    format!("A desk pins up to {MAX_PINS} teammates. Unpin one first.")
+}
+
+/// The pinned teammates, in order, out of the `pinnedTeammates` setting's
+/// stored value.
+///
+/// Read leniently and settled against who is on the team, so a stored list
+/// that names a teammate who is gone, repeats one, or runs long (an older
+/// or hand-edited stream) still reads as pins that can be shown.
+pub(crate) fn settled_pins(value: Option<&Value>, team: &[Persona]) -> Vec<String> {
+    let mut pins: Vec<String> = Vec::new();
+    for id in value.and_then(Value::as_array).into_iter().flatten() {
+        let Some(id) = id.as_str() else { continue };
+        if team.iter().any(|persona| persona.id == id) && !pins.iter().any(|pin| pin == id) {
+            pins.push(id.to_string());
+        }
+    }
+    pins.truncate(MAX_PINS);
+    pins
+}
+
+/// The desk's pinned teammates, in the order they sit.
+pub fn pinned_teammates(log: &Log) -> Vec<String> {
+    let events = log.load(&StreamId::Room);
+    settled_pins(
+        settings_from_events(&events).get("pinnedTeammates"),
+        &personas(&events),
+    )
 }
 
 /// The one id every `models` event shares.
@@ -617,6 +669,29 @@ mod tests {
         // than the contract spells it fails on one side or the other.
         assert_eq!(roster(&log), [ada]);
         assert_eq!(log.load(&StreamId::Room), [written]);
+    }
+
+    #[test]
+    fn pins_are_validated_as_a_setting_and_settled_against_the_team() {
+        assert_eq!(
+            normalize_setting("pinnedTeammates", &json!(["a", "b", "a"])).unwrap(),
+            json!(["a", "b"])
+        );
+        for bad in [
+            json!("a"),
+            json!([1]),
+            json!([""]),
+            json!(["a", "b", "c", "d"]),
+        ] {
+            assert!(normalize_setting("pinnedTeammates", &bad).is_err(), "{bad}");
+        }
+        // A hand-written list that names a stranger or repeats one still reads.
+        let team = [persona("a", "A"), persona("b", "B")];
+        assert_eq!(
+            settled_pins(Some(&json!(["x", "b", "b", "a"])), &team),
+            vec!["b".to_string(), "a".to_string()]
+        );
+        assert!(settled_pins(None, &team).is_empty());
     }
 
     #[test]

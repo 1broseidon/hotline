@@ -23,6 +23,7 @@ import { COMPUTER_STATUS_EVERY_MS } from "../computer";
 import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { firstLine, useRoomSettings } from "../room";
+import { MAX_PINS } from "../pins";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -155,6 +156,17 @@ export function Teammate({
 	const chooseCwd = async () => {
 		const dir = await chooseFolder(persona.cwd);
 		if (dir !== null && dir !== persona.cwd) save({ cwd: dir });
+	};
+
+	const pinned = roster.some((entry) => entry.persona.id === persona.id && entry.pin != null);
+	const pinCount = roster.filter((entry) => entry.pin != null).length;
+	const togglePin = async () => {
+		setRefusal(null);
+		try {
+			await wire.command("persona.pin", pinned ? { id: persona.id } : { id: persona.id, slot: pinCount });
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		}
 	};
 
 	const remove = async () => {
@@ -355,9 +367,18 @@ export function Teammate({
 
 					<Threads personaId={persona.id} onOpen={onOpenThread} />
 
-					<div className="border-t border-line pt-3">
+					<div className="flex items-center gap-1 border-t border-line pt-3">
 						<button type="button" className="control btn-danger -ml-2.5" disabled={busy} onClick={() => void remove()}>
 							Remove teammate…
+						</button>
+						<button
+							type="button"
+							className="control btn-quiet ml-auto"
+							disabled={busy || (!pinned && pinCount >= MAX_PINS)}
+							title={!pinned && pinCount >= MAX_PINS ? `${MAX_PINS} teammates are pinned. Unpin one first.` : "Pinned teammates sit at the top of the team, on every device"}
+							onClick={() => void togglePin()}
+						>
+							{pinned ? "Unpin" : "Pin to top"}
 						</button>
 					</div>
 

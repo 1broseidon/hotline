@@ -51,7 +51,7 @@ export function Work(props: {
 	onClose(): void;
 }) {
 	const { open, sides = [], ...rest } = props;
-	if ("sideId" in open) return <SideWork open={open} working={sides.find((one) => one.sideId === open.sideId)?.working ?? false} {...rest} />;
+	if ("sideId" in open) return <SideWork key={open.sideId} open={open} working={sides.find((one) => one.sideId === open.sideId)?.working ?? false} {...rest} />;
 	return "runId" in open ? <RunWork open={open} {...rest} /> : <TurnWork open={open} {...rest} />;
 }
 

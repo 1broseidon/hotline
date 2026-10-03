@@ -819,8 +819,8 @@ impl Room {
         for stream in streams {
             let events = self.log.load(&stream);
             let mut settled = crate::log::expire_orphaned_permissions(&events, now);
-            if let StreamId::Tape(persona_id) = &stream {
-                settled.extend(self.settle_orphaned_sides(persona_id, &events));
+            if matches!(stream, StreamId::Tape(_)) {
+                settled.extend(self.settle_orphaned_sides(&events));
             }
             if matches!(stream, StreamId::Tape(_)) {
                 for marker in runner::settle_orphaned_subagents(&events) {
@@ -2099,7 +2099,6 @@ impl Room {
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
         self.drop_peer_sessions(persona_id);
-        self.drop_sides(persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
         let computers = self.computers.clone();
@@ -2110,11 +2109,20 @@ impl Room {
     }
 
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
+    ///
+    /// The person stopping a teammate ends its side threads with it: they are
+    /// its agent, and nothing is left to answer in them.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
-        self.stop_with_capability(persona_id);
+        self.stop_session(persona_id);
         self.drop_sides(persona_id);
-        self.revoke_exchanges(persona_id);
         Ok(())
+    }
+
+    /// The main session's stop alone, for a chapter swap: a side thread has a
+    /// conversation of its own and goes on through one.
+    fn stop_session(&self, persona_id: &str) {
+        self.stop_with_capability(persona_id);
+        self.revoke_exchanges(persona_id);
     }
 
     /// A chapter restart captures its replacement authority in the same
@@ -3777,7 +3785,7 @@ impl Room {
             .filter(|title| !title.is_empty())
             .unwrap_or("the previous chapter");
 
-        self.stop(persona_id)?;
+        self.stop_session(persona_id);
         if let Some(open) = open {
             self.close_marker(
                 persona_id,

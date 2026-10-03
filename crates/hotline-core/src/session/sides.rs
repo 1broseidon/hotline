@@ -649,7 +649,7 @@ impl Room {
     /// Side threads a previous process left live: their agents died with it,
     /// so each is archived as stopped, on the tape and on its own stream, and
     /// a card it left open is expired.
-    pub(super) fn settle_orphaned_sides(&self, persona_id: &str, events: &[Value]) -> Vec<Value> {
+    pub(super) fn settle_orphaned_sides(&self, events: &[Value]) -> Vec<Value> {
         let now = now_ms();
         let mut settled = Vec::new();
         for event in events {
@@ -676,7 +676,6 @@ impl Room {
                     eprintln!("could not settle the side thread {side_id}: {error}");
                 }
             }
-            let _ = persona_id;
             settled.push(marker);
         }
         settled
@@ -1307,7 +1306,7 @@ mod tests {
         let agents = Fake::new(Scripted::new(vec![turn()]));
         let room = room("side-chapter", agents);
         let summary = room.start_side("ada", "Task").await.unwrap();
-        room.stop_with_capability("ada");
+        room.stop_session("ada");
         assert_eq!(room.sides("ada").len(), 1);
         room.prompt_side(&summary.side_id, "still here?", None)
             .await

@@ -446,6 +446,13 @@ impl RoomHandle for Desk {
             .archive_side(side_id, crate::contract::SideEnd::Person, None)
     }
 
+    async fn side_continue(
+        &self,
+        side_id: &str,
+    ) -> Result<crate::contract::SideThreadSummary, String> {
+        self.room.continue_side(side_id).await
+    }
+
     fn side_list(&self, persona_id: &str) -> Vec<crate::contract::SideThreadSummary> {
         self.room.side_threads(persona_id)
     }

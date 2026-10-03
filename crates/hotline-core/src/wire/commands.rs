@@ -518,6 +518,10 @@ pub(crate) async fn run(
             .map(|()| Value::Null),
         Command::SideCancel { side_id } => room.side_cancel(&side_id).map(|()| Value::Null),
         Command::SideArchive { side_id } => room.side_archive(&side_id).map(|()| Value::Null),
+        Command::SideContinue { side_id } => room
+            .side_continue(&side_id)
+            .await
+            .map(|summary| json!(summary)),
         Command::SideList { persona_id } => Ok(json!(room.side_list(&persona_id))),
         Command::SideAnswerPermission {
             side_id,

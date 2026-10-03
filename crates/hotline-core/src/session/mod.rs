@@ -729,6 +729,7 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });
+        room.sides.attach(&room);
         room.settle_tapes();
         room.reconcile_exchanges();
         // What the person said that was still waiting when the last desk

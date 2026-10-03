@@ -106,10 +106,13 @@ sidecar. No sidecar, no invented one.
 A side thread is a stream of its own, `sides/<sideId>.jsonl`, with no segments
 and no sidecar, named by a UUID the room mints and checked like a run id. It
 holds, in order of first appearance, the thread's `side` marker (rewritten as
-the thread goes, so it is also where the owner, title and status are read from
-when the thread is archived), the person's lines, and what the teammate said
-and did. The one trace it leaves on the tape is the same `side` marker. Only an
-archived marker is offered to the search index, as one message. See
+the thread goes, so it is also where the owner, title, status and saved agent
+session are read from when the thread is parked, archived or continued), the
+person's lines, and what the teammate said and did. A thread that is continued
+goes on appending to the same stream. The one trace it leaves on the tape is the
+same `side` marker. Only an archived marker is offered to the search index, as
+one message (title, result and closing note), and it replaces that message each
+time the marker is rewritten. See
 [sessions.md](sessions.md#side-threads).
 
 ## Runs

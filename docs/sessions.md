@@ -1076,11 +1076,19 @@ listing threads and marking them read is [wire.md](wire.md).
 
 ## Side threads
 
-A side thread is the same teammate borrowed for a second task while it is busy
-with the first. The person starts one beside the main conversation, it runs in
-parallel in a context of its own, they talk with the teammate in it as they
-would anywhere, and it is archived when it is done. It is the exception: nothing
-in the main path starts one by itself, and it has no button of its own.
+A side thread is the same teammate borrowed for a second conversation while it
+is busy with the first. The person starts one beside the main conversation, it
+runs in parallel in a context of its own, and they talk with the teammate in it
+as they would anywhere. It is a working session on a topic, not an errand: the
+main conversation can work on one repository while a side thread triages five
+over an afternoon. What makes it "side" is that it never pollutes the main
+context, not that it is short-lived. It is the exception: nothing in the main
+path starts one by itself, and it has no button of its own.
+
+A thread is **live** (an agent is running it), **parked** (open, its agent let
+go of) or **archived** (ended on purpose, read-only until continued). Parking
+and archiving lose nothing: the stream is kept whole and a new agent is built
+from it.
 
 `session/sides.rs` owns it. Four records come out of one:
 
@@ -1093,24 +1101,50 @@ in the main path starts one by itself, and it has no button of its own.
   tape's.
 - **The marker.** One `side` event on the teammate's tape (id `side:<sideId>`),
   rewritten as the thread goes and heading the stream too. `live` reads
-  "Started a side thread"; `archived` carries `result` (one line), `archivedBy`
-  (`agent`, `person`, `idle` or `stopped`) and `archivedAt`, and is drawn as the
-  result with Open. The indexer reads an archived marker as one message of the
-  teammate's ("Side thread: title. result"), so `search_thread` finds the
-  thread and a hit opens the marker.
+  "Started a side thread"; `parked` is the same thread with no agent;
+  `archived` carries `result` (one line), `archivedBy` (`agent`, `person` or
+  `stopped`; `idle` only on threads written before parking existed) and
+  `archivedAt`, and is drawn as the title and result with Open. Once an agent
+  has completed a turn the marker also holds its `sessionId` and `backendId`,
+  written the way `sessionCheckpoints` is, and an archived one holds the
+  closing `note`. The indexer reads an archived marker as one message of the
+  teammate's ("Side thread: title. result" and the note), replaced each time the
+  marker is rewritten, so `search_thread` finds the thread by what it did and a
+  hit opens the marker.
 - **The roster entry.** `RosterEntry.sides`, like `subagents`: `{sideId, title,
   startedAt, working}` while live. Nothing about it survives a restart.
 - **The driver.** A second agent for the teammate, started the way a peer session
-  is, on either harness: no checkpoint is reopened and no history is seeded, so
-  it can never land in the main conversation.
+  is, on either harness: the teammate's own checkpoint is never reopened and the
+  main tape never seeds it, so it can never land in the main conversation.
 
-What the thread is told: the person's task is its first message. Its preamble
+What a new thread is told: the person's task is its first message. Its preamble
 holds who the teammate is, a brief (a second, parallel context; another thread
-of itself may be writing in the same folder, so keep to the files the task needs
+of itself may be writing in the same folder, so keep to the files the topic needs
 and never undo work it did not do; no computer, no files, no colleagues, no
-schedules), and the main conversation's background: the handoff note of the
-chapter that closed before the current one, if there is one, and the last few
-lines. Not the transcript.
+schedules; a working session that may span many requests, closed with
+`archive_thread` only when the person says they are done or says yes to a
+suggestion to wrap up, never nudged after each answer), and the main
+conversation's background: the handoff note of the chapter that closed before
+the current one, if there is one, and the last few lines. Not the transcript.
+
+**Parking and continuing.** The idle sweep (three hours, never a thread with a
+turn running) and a restart park a thread instead of archiving it. A restart
+leaves live markers behind; at start `settle_tapes` marks them `parked` and
+expires their open cards. A line said to a parked thread (`side.prompt`) brings
+it back by itself; an archived one is refused until `side.continue`, which also
+works on a parked one. Both build a new agent from the *current* teammate, so the
+folder and grants are exactly what the teammate has now, never wider, with no
+computer. How it remembers depends on the harness:
+
+- **ACP.** The marker's `sessionId` is handed to the child as a checkpoint
+  (`session/resume`, else `session/load`) when it was issued by the backend the
+  teammate runs on now. If the child does not report `contextRestored`, it is
+  started over with a compact transcript of the thread in the preamble instead,
+  and recall is never claimed. A fresh session's id is saved after its first
+  completed turn, not before, and withdrawn after a failed turn or a session the
+  driver calls invalid.
+- **Hotline Agent.** It has no session of its own: the thread's stream seeds its
+  history, the way the tape seeds a chapter.
 
 **Shared and not.** The working folder, MCP grants and skills are the
 teammate's. The computer is not: two agents driving one desktop is a fight
@@ -1129,18 +1163,29 @@ stops the turn and drops the queue and the thread stays live.
 `archive_thread` takes effect when the turn it was called in ends, so the last
 message lands first.
 
-**Limits and ending.** At most two are live per teammate (`MAX_LIVE`); a third is
-refused with a sentence. A thread nobody has spoken in for three hours is
-archived by the idle sweep (never one with a turn running). The thread holds its
-own capability lease, not the teammate's session's, so a chapter rotating in the
-main conversation does not end it. What ends the teammate's authority does: the
-person stopping it, a policy change (`invalidate`), room-wide invalidation, and
-removal each archive its threads as `stopped`, revoking the lease and the agent.
-A restart leaves live markers behind; at start `settle_tapes` archives them as
-`stopped` and expires their open cards. An archived thread is read-only.
+**Limits and ending.** At most two *agents* run per teammate (`MAX_LIVE`);
+parked and archived threads take no place. Starting or bringing back a thread
+with both places taken parks the one used least recently, since parking loses
+nothing; it is refused (with a sentence) only when both are mid-turn and there
+is nothing to let go of. The thread holds its own capability lease, not the
+teammate's session's, so a chapter rotating in the main conversation does not end
+it. What ends the teammate's authority does: the person stopping it, a policy
+change (`invalidate`), room-wide invalidation, and removal each archive its
+threads as `stopped`, revoking the lease and the agent; the person can continue
+them under the teammate's next policy.
+
+**The closing note.** Archiving (by the person, the teammate, or a stop) writes
+the archived marker at once, then in the background asks the same summariser a
+chapter's note is written by (`Room::note`) for a note over the thread's stream:
+goal, outcome, open loops, decisions, key files. The marker is rewritten with
+the note, the note's short title, and its outcome as the one-line `result`
+unless the teammate wrote one with `archive_thread`. A marker that has moved on
+meanwhile (continued, or archived again) is left alone. With no model, the
+thread is archived without a note and the result is the teammate's last words.
 
 The wire is `side.start`, `side.prompt`, `side.cancel`, `side.archive`,
-`side.list` and `side.answer_permission`; phones may use all of them.
+`side.continue`, `side.list` and `side.answer_permission`; phones may use all of
+them. A `SideThreadSummary` and the marker gained `parked` as a status.
 
 ## Checkpoints
 

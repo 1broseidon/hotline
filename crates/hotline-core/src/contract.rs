@@ -1227,8 +1227,9 @@ pub enum TranscriptEvent {
     /// One line on the main tape, written again under the same id as the
     /// thread goes, that opens the thread's own transcript at `sides/<sideId>`.
     /// Nothing the thread says is on this tape. While `status` is `live` the
-    /// line reads "Started a side thread"; once `archived` it is a one-line
-    /// `result` with an Open.
+    /// line reads "Started a side thread"; `parked` is the same thread with
+    /// its agent let go of, still open; once `archived` it is a one-line
+    /// `result` with an Open, and `note` holds the closing handoff note.
     Side {
         id: String,
         /// When the thread started. The line keeps its place as it is rewritten.
@@ -1247,6 +1248,18 @@ pub enum TranscriptEvent {
         archived_by: Option<SideEnd>,
         #[serde(skip_serializing_if = "Option::is_none")]
         archived_at: Option<i64>,
+        /// Once archived: the closing handoff note (goal, what got done,
+        /// what is still open, key files), when a model could write one.
+        /// What `search_thread` finds the thread by.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+        /// The agent's own id for the thread's conversation, written after
+        /// its first turn, and the harness that issued it. What lets a parked
+        /// or archived thread be reopened with recall.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        backend_id: Option<String>,
     },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
@@ -1643,7 +1656,12 @@ pub enum SubagentStatus {
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum SideStatus {
+    /// An agent is running it.
     Live,
+    /// Still open, with its agent let go of: nobody spoke in it for a few
+    /// hours, or the desk restarted. Saying something in it brings it back.
+    Parked,
+    /// Ended on purpose. Read-only until it is continued.
     Archived,
 }
 
@@ -1656,14 +1674,15 @@ pub enum SideEnd {
     Agent,
     /// The person pressed Archive.
     Person,
-    /// Nobody spoke in it for a few hours.
+    /// Nobody spoke in it for a few hours. Threads written before parking
+    /// existed carry it; now such a thread is parked, not archived.
     Idle,
     /// The teammate was stopped, its policy changed, it was removed, or the
     /// desk restarted, so the thread's agent is gone.
     Stopped,
 }
 
-/// One side thread, as a list of them is read: live ones and archived ones.
+/// One side thread, as a list of them is read: live, parked and archived.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -2844,12 +2863,14 @@ pub enum Command {
     ScheduleSetQuiet { id: String, quiet: bool },
     /// Starts a side thread with this teammate: a second conversation, in its
     /// own context and in parallel with the main one, about the task in
-    /// `text`. Answers the new thread's `SideThreadSummary`. Refused when the
-    /// teammate already has two live.
+    /// `text`. Answers the new thread's `SideThreadSummary`. With two already
+    /// live, the one least recently used is parked to make room; refused only
+    /// when both are mid-turn.
     #[serde(rename = "side.start")]
     SideStart { persona_id: String, text: String },
-    /// Says something in a live side thread. Returns at once; the teammate's
-    /// answer arrives on the thread's `{"side": sideId}` subscription.
+    /// Says something in a side thread. A parked thread is brought back first.
+    /// Returns at once; the teammate's answer arrives on the thread's
+    /// `{"side": sideId}` subscription.
     #[serde(rename = "side.prompt")]
     SidePrompt {
         side_id: String,
@@ -2865,8 +2886,13 @@ pub enum Command {
     /// main conversation's marker becomes a one-line result with Open.
     #[serde(rename = "side.archive")]
     SideArchive { side_id: String },
-    /// Every side thread this teammate has had, live first, then archived
-    /// newest first.
+    /// Brings an archived or parked side thread back: a new agent, resuming
+    /// the saved session when the harness can and reading the thread's own
+    /// transcript when it cannot. Answers the thread's `SideThreadSummary`.
+    #[serde(rename = "side.continue")]
+    SideContinue { side_id: String },
+    /// Every side thread this teammate has had: live first, then parked, then
+    /// archived, each newest first.
     #[serde(rename = "side.list")]
     SideList { persona_id: String },
     /// Answers a permission card raised inside a side thread.

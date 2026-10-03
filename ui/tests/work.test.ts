@@ -99,9 +99,13 @@ describe("a side thread's line in the conversation", () => {
 		expect(sideLine(marker({ status: "live" })).text).toBe("Started a side thread · Fix the CI badge");
 	});
 
-	test("becomes the one-line result once archived, and says when nobody ended it", () => {
-		expect(sideLine(marker({ status: "archived", archivedBy: "agent", result: "Badge is green." })).text).toBe("Side thread · Badge is green.");
-		expect(sideLine(marker({ status: "archived", archivedBy: "stopped", result: "Half done." })).text).toBe("Side thread · Half done. · stopped");
+	test("becomes its title and a one-line result once archived, and says when nobody ended it", () => {
+		expect(sideLine(marker({ status: "archived", archivedBy: "agent", result: "Badge is green." })).text).toBe("Side thread · Fix the CI badge · Badge is green.");
+		expect(sideLine(marker({ status: "archived", archivedBy: "stopped", result: "Half done." })).text).toBe("Side thread · Fix the CI badge · Half done. · stopped");
 		expect(sideLine(marker({ status: "archived", archivedBy: "person" })).text).toBe("Side thread · Fix the CI badge · archived");
+	});
+
+	test("says it is parked while its agent is let go of and the thread is open", () => {
+		expect(sideLine(marker({ status: "parked" })).text).toBe("Side thread · Fix the CI badge · parked");
 	});
 });

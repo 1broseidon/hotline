@@ -170,7 +170,7 @@ fn side_descriptors() -> Vec<Tool> {
         .collect();
     tools.push(Tool::new(
         ARCHIVE_THREAD,
-        "Say that this side thread is finished, and archive it. Call it when the task you were given here is done, or the person says to wrap up, after you have told them the outcome in your reply. `summary` is one short line of what came of it: it is what the person sees beside the thread afterwards. The thread is archived when your current turn ends, so write your last message first and do not start anything after this call. Do not call it while there is work left or a question open.",
+        "End this side thread, archiving it. Call it only when the person says they are done with this thread, or after you suggested wrapping up and they said yes: the thread is a working session on a topic and may run through many requests, so finishing one is not a reason. Tell them the outcome in your reply first. `summary` is one short line of what came of the thread: it is what the person sees beside it afterwards. The thread is archived when your current turn ends, so write your last message first and do not start anything after this call. Never call it while there is work left or a question open.",
         schema(json!({
             "type": "object",
             "properties": {

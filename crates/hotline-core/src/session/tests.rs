@@ -41,6 +41,8 @@ pub(super) struct Scripted {
     /// The agent's own id for the conversation, when this script is standing
     /// in for a child that issues one.
     session_id: Arc<Mutex<Option<String>>>,
+    /// Whether that child says it reopened the conversation it was handed.
+    restored: Arc<Mutex<bool>>,
     /// Permission requests this driver is waiting on, by request id.
     waiting: Arc<Mutex<Vec<String>>>,
     /// How many times the room asked this driver to stop, which is how a
@@ -80,6 +82,7 @@ impl Scripted {
             attachments: Arc::new(Mutex::new(Vec::new())),
             reaches: Arc::new(Mutex::new(Vec::new())),
             session_id: Arc::new(Mutex::new(None)),
+            restored: Arc::new(Mutex::new(false)),
             waiting: Arc::new(Mutex::new(Vec::new())),
             cancels: Arc::new(Mutex::new(0)),
             info_changes: None,
@@ -128,6 +131,7 @@ impl Scripted {
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),
             session_id: lock(&self.session_id).clone(),
+            context_restored: *lock(&self.restored),
             ..DriverInfo::default()
         }
     }
@@ -304,6 +308,18 @@ impl Fake {
         *lock(&self.driver.cancels)
     }
 
+    /// Makes the agents stand in for a child that issues this session id, and
+    /// says whether it reopens a conversation it is asked to.
+    pub(super) fn reporting(&self, session_id: &str, restored: bool) {
+        *lock(&self.driver.session_id) = Some(session_id.to_string());
+        *lock(&self.driver.restored) = restored;
+    }
+
+    /// Each teammate view an agent was built for, in order.
+    pub(super) fn views(&self) -> Vec<Persona> {
+        lock(&self.views).clone()
+    }
+
     /// Makes the driver treat this permission request as one it is waiting on.
     pub(super) fn awaiting(&self, request_id: &str) {
         lock(&self.driver.waiting).push(request_id.to_string());
@@ -373,7 +389,7 @@ impl ProviderKeys for DeskKeys {
 }
 
 /// The JSON a summariser answers with, as a model would write it.
-fn note_json(title: &str) -> Result<String, String> {
+pub(super) fn note_json(title: &str) -> Result<String, String> {
     Ok(format!(
         r#"{{"title": "{title}", "goal": "Get the crane moving", "outcome": "It moved.",
             "open_loops": ["oil the winch"], "decisions": [], "files": ["crane.log"],

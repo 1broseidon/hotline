@@ -196,7 +196,9 @@ type Results = {
 	"side.prompt": null;
 	"side.cancel": null;
 	"side.archive": null;
-	/** Live threads first, then archived ones, newest first. */
+	/** A parked or archived thread, back with an agent. */
+	"side.continue": SideThreadSummary;
+	/** Live threads first, then parked, then archived, each newest first. */
 	"side.list": SideThreadSummary[];
 	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */

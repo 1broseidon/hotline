@@ -150,8 +150,10 @@ function RunWork({
 /**
  * A side thread: the same teammate in a second conversation, in the card.
  * What the person said, what the teammate said and did, and below it a
- * composer, because unlike a run this one is answerable. Archive ends it;
- * once archived the card is the thread, read-only, with nothing to type into.
+ * composer, because unlike a run this one is answerable. A parked thread is
+ * answerable too: saying something in it brings its agent back. Archive ends
+ * it; once archived the card is the thread, read-only, with a Continue where
+ * the composer was.
  */
 function SideWork({
 	open,
@@ -170,6 +172,7 @@ function SideWork({
 	const { events, streaming, loaded } = useSide(open.sideId);
 	const marker = events.find((event): event is Extract<TranscriptEvent, { kind: "side" }> => event.kind === "side");
 	const archived = marker?.status === "archived";
+	const parked = marker?.status === "parked";
 	const title = marker?.title ?? open.title;
 	const pieces = sidePieces(events, streaming);
 	const [refused, setRefused] = useState<string | null>(null);
@@ -184,20 +187,28 @@ function SideWork({
 		setRefused(null);
 		void wire.command("side.archive", { sideId: open.sideId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
 	};
+	const resume = () => {
+		setRefused(null);
+		void wire.command("side.continue", { sideId: open.sideId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
+	};
 
 	return (
 		<WorkCard
 			label={`Side thread with ${name}: ${title}`}
 			heading={title}
 			working={working && !archived}
-			detail={archived ? "archived" : working ? "working" : "side thread"}
+			detail={archived ? "archived" : working ? "working" : parked ? "parked" : "side thread"}
 			docked={docked}
 			tall
 			following={open.sideId}
 			count={events.length + streaming.length}
 			onClose={onClose}
 			actions={
-				!archived && (
+				archived ? (
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Bring this side thread back, with what it remembers" onClick={resume}>
+						Continue
+					</button>
+				) : (
 					<button type="button" className="control btn-quiet px-2 text-sm" title="Archive this side thread" onClick={archive}>
 						Archive
 					</button>
@@ -205,7 +216,10 @@ function SideWork({
 			}
 			footer={
 				archived ? (
-					marker?.result !== undefined && <p className="work-notice selectable">{marker.result}</p>
+					<>
+						{marker?.result !== undefined && <p className="work-notice selectable">{marker.result}</p>}
+						{refused !== null && <p className="work-notice selectable">{refused}</p>}
+					</>
 				) : (
 					<>
 						{refused !== null && <p className="work-notice selectable">{refused}</p>}

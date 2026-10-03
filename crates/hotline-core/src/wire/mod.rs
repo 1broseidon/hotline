@@ -256,6 +256,14 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
+    /// Brings a parked or archived side thread back.
+    async fn side_continue(
+        &self,
+        _side_id: &str,
+    ) -> Result<crate::contract::SideThreadSummary, String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
     fn side_list(&self, _persona_id: &str) -> Vec<crate::contract::SideThreadSummary> {
         Vec::new()
     }
@@ -665,6 +673,7 @@ impl Seat {
                     | Command::SidePrompt { .. }
                     | Command::SideCancel { .. }
                     | Command::SideArchive { .. }
+                    | Command::SideContinue { .. }
                     | Command::SideList { .. }
                     | Command::SideAnswerPermission { .. }
                 )

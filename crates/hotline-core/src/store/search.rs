@@ -354,7 +354,9 @@ fn text_of(event: &Value, key: &str) -> Option<String> {
 /// what `search_thread` can find of it is its marker once it is archived: the
 /// task and what came of it, standing in as one message of the teammate's.
 /// The marker's id is the line's id, so a hit opens the very line that
-/// carries the thread's Open.
+/// carries the thread's Open. The marker is written again when the closing
+/// note lands, and when a continued thread is archived a second time, so the
+/// row is rewritten in place rather than kept from the first.
 fn side_line(event: &Value) -> Option<Value> {
     if event.get("kind").and_then(Value::as_str) != Some("side")
         || event.get("status").and_then(Value::as_str) != Some("archived")
@@ -369,11 +371,17 @@ fn side_line(event: &Value) -> Option<Value> {
         .get("result")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    // The closing note is the thread's handoff: goal, what got done, what is
+    // still open, the files that matter.
+    let note = event
+        .get("note")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     Some(serde_json::json!({
         "kind": "agent",
         "id": event.get("id")?,
         "ts": event.get("archivedAt").or_else(|| event.get("ts"))?,
-        "text": format!("Side thread: {title}. {result}").trim().to_string(),
+        "text": format!("Side thread: {title}. {result}\n{note}").trim().to_string(),
     }))
 }
 
@@ -384,6 +392,7 @@ fn index_message(
     event: &Value,
 ) -> rusqlite::Result<()> {
     let synthetic = side_line(event);
+    let replaces = synthetic.is_some();
     let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
         .get("kind")
@@ -409,8 +418,21 @@ fn index_message(
             |row| row.get::<_, i64>(0),
         )
         .optional()?;
-    let Some(row_id) = row_id else {
-        return Ok(());
+    let row_id = match row_id {
+        Some(row_id) => row_id,
+        None if replaces => {
+            let row_id = database.query_row(
+                "SELECT id FROM message_ids WHERE persona_id = ? AND event_id = ?",
+                rusqlite::params![
+                    persona_id,
+                    event.get("id").and_then(Value::as_str).unwrap_or_default()
+                ],
+                |row| row.get::<_, i64>(0),
+            )?;
+            database.execute("DELETE FROM messages WHERE rowid = ?", [row_id])?;
+            row_id
+        }
+        None => return Ok(()),
     };
     database.execute(
         "INSERT INTO messages (rowid, persona_id, event_id, chapter_id, kind, ts, text) VALUES (?, ?, ?, ?, ?, ?, ?)",

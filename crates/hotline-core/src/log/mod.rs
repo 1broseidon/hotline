@@ -7,7 +7,7 @@
 //! keeps its place, so the fold is the whole state of a stream, and a
 //! compaction is that fold written back over the file.
 //!
-//! Four streams, one rule for all of them:
+//! Five streams, one rule for all of them:
 //!
 //! - [`StreamId::Room`] is the room itself — the roster, the settings, the
 //!   schedules — in `room.jsonl`. One file, no epochs.
@@ -19,6 +19,9 @@
 //!   `threads/<key>.jsonl` beside a sidecar naming the two sides.
 //! - [`StreamId::Run`] is one subagent's run, in `runs/<id>.jsonl`: the task
 //!   it was handed and everything it did with it. Nobody replicates it.
+//! - [`StreamId::Side`] is one side thread, in `sides/<id>.jsonl`: a second
+//!   conversation with a teammate, led by the person, kept apart from its
+//!   tape. Its first line is the thread's own marker, rewritten as it goes.
 //!
 //! [`Log`] is the only door to all four, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
@@ -61,6 +64,7 @@ pub enum StreamId {
     Tape(String),
     Thread(String),
     Run(String),
+    Side(String),
 }
 
 /// One write, as replication sees it: which bytes landed where. The bytes are
@@ -436,6 +440,12 @@ impl Log {
                 fs::create_dir_all(crate::paths::runs_dir(&self.root))?;
                 Ok((file, 1))
             }
+            StreamId::Side(id) => {
+                let file = crate::paths::side_path(&self.root, id)
+                    .ok_or_else(|| io::Error::other(format!("Invalid side id: {id}")))?;
+                fs::create_dir_all(crate::paths::sides_dir(&self.root))?;
+                Ok((file, 1))
+            }
         }
     }
 
@@ -451,6 +461,9 @@ impl Log {
                 .collect(),
             StreamId::Thread(key) => thread::file(&self.root, key).into_iter().collect(),
             StreamId::Run(id) => crate::paths::run_path(&self.root, id).into_iter().collect(),
+            StreamId::Side(id) => crate::paths::side_path(&self.root, id)
+                .into_iter()
+                .collect(),
         }
     }
 }

@@ -48,11 +48,13 @@ mod peers;
 mod quiet;
 pub(crate) mod runner;
 pub(crate) mod schedule;
+mod sides;
 mod stopping;
 pub use stopping::Stopped;
 
 pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
+pub use sides::MAX_LIVE as MAX_LIVE_SIDES;
 
 use crate::computer::Computer;
 use crate::contract::{
@@ -591,6 +593,8 @@ pub struct Room {
     schedule_mutations: Mutex<()>,
     /// The sessions teammates answer each other out of.
     peers: peers::Peers,
+    /// The side threads that are live: second conversations with a teammate.
+    sides: sides::Sides,
     /// A `request_human` wait, by the card's action id. The tool parks on
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
@@ -711,6 +715,7 @@ impl Room {
             schedule_changed: Arc::new(Notify::new()),
             schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
+            sides: sides::Sides::default(),
             human_waits: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
             exchange_lock: Mutex::new(()),
@@ -814,6 +819,9 @@ impl Room {
         for stream in streams {
             let events = self.log.load(&stream);
             let mut settled = crate::log::expire_orphaned_permissions(&events, now);
+            if let StreamId::Tape(persona_id) = &stream {
+                settled.extend(self.settle_orphaned_sides(persona_id, &events));
+            }
             if matches!(stream, StreamId::Tape(_)) {
                 for marker in runner::settle_orphaned_subagents(&events) {
                     if let Some(run_id) = marker.get("runId").and_then(Value::as_str)
@@ -2029,6 +2037,7 @@ impl Room {
             }
         }
         self.drop_peer_sessions(persona_id);
+        self.drop_sides(persona_id);
         self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
@@ -2074,6 +2083,7 @@ impl Room {
             self.revoke_exchanges(persona_id);
         }
         self.peers.invalidate_all();
+        self.drop_all_sides();
         self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
@@ -2089,6 +2099,7 @@ impl Room {
     pub fn forget(&self, persona_id: &str) {
         let _ = self.stop(persona_id);
         self.drop_peer_sessions(persona_id);
+        self.drop_sides(persona_id);
         lock(&self.capabilities).remove(persona_id);
         lock(&self.starts).remove(persona_id);
         let computers = self.computers.clone();
@@ -2101,6 +2112,7 @@ impl Room {
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
         self.stop_with_capability(persona_id);
+        self.drop_sides(persona_id);
         self.revoke_exchanges(persona_id);
         Ok(())
     }
@@ -4830,6 +4842,7 @@ fn sweep_idle_chapters(room: Weak<Room>) {
                     // nothing to arm when a message lands and nothing to
                     // cancel when a teammate is deleted.
                     room.sweep_peers(now_ms());
+                    room.sweep_sides(now_ms());
                     room.expire_stale_asks(now_ms());
                     room.sweep_computers().await;
                 }

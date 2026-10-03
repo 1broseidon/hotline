@@ -99,6 +99,12 @@ impl Scripted {
         (self, sender)
     }
 
+    /// What a cancel produces, in place of the rest of the script.
+    pub(super) fn on_cancel(mut self, updates: Vec<Update>) -> Self {
+        self.on_cancel = updates;
+        self
+    }
+
     pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
         self.gate = Some(gate);
         self
@@ -296,6 +302,11 @@ pub(super) struct Fake {
 impl Fake {
     pub(super) fn cancel_count(&self) -> usize {
         *lock(&self.driver.cancels)
+    }
+
+    /// Makes the driver treat this permission request as one it is waiting on.
+    pub(super) fn awaiting(&self, request_id: &str) {
+        lock(&self.driver.waiting).push(request_id.to_string());
     }
 
     /// Every line any driver in this room has been handed, in order.
@@ -1602,6 +1613,9 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
             StreamDelta::AgentDelta { message_id, .. } => format!("agent:{message_id}"),
             StreamDelta::ThoughtDelta { message_id, .. } => format!("thought:{message_id}"),
             StreamDelta::ComputerPull { .. } => "pull".to_string(),
+            StreamDelta::SideAgentDelta { .. } | StreamDelta::SideThoughtDelta { .. } => {
+                "side".to_string()
+            }
         });
     }
     assert_eq!(

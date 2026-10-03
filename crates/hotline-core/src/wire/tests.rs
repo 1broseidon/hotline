@@ -1675,6 +1675,107 @@ async fn a_tape_carries_the_deltas_nobody_writes_down() {
 }
 
 #[tokio::test]
+async fn a_side_thread_carries_only_its_own_deltas_and_never_the_teammates() {
+    let quiet = Arc::new(Quiet::new());
+    let deltas = quiet.deltas.clone();
+    let (_root, _log, port) = door_with("side-ephemeral", quiet);
+
+    let mut socket = desk(port).await;
+    ask(&mut socket, json!({ "id": 1, "sub": { "side": "s1" } })).await;
+    assert_eq!(heard(&mut socket).await, json!({ "id": 1, "ok": true }));
+    assert_eq!(
+        heard(&mut socket).await,
+        json!({ "sub": 1, "snapshot": [] })
+    );
+
+    // The teammate's main words, and another thread's, are not this one's.
+    let _ = deltas.send(StreamDelta::AgentDelta {
+        persona_id: "ada".to_string(),
+        message_id: "m1".to_string(),
+        text: "main".to_string(),
+    });
+    let _ = deltas.send(StreamDelta::SideAgentDelta {
+        side_id: "s2".to_string(),
+        message_id: "m2".to_string(),
+        text: "other".to_string(),
+    });
+    let _ = deltas.send(StreamDelta::SideAgentDelta {
+        side_id: "s1".to_string(),
+        message_id: "m3".to_string(),
+        text: "hel".to_string(),
+    });
+    assert_eq!(
+        heard(&mut socket).await,
+        json!({
+            "sub": 1,
+            "ephemeral": { "type": "side_agent_delta", "sideId": "s1", "messageId": "m3", "text": "hel" }
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_tape_subscription_never_hears_a_side_threads_deltas() {
+    let quiet = Arc::new(Quiet::new());
+    let deltas = quiet.deltas.clone();
+    let (_root, _log, port) = door_with("side-not-on-tape", quiet);
+
+    let mut socket = desk(port).await;
+    ask(&mut socket, json!({ "id": 1, "sub": { "tape": "ada" } })).await;
+    assert_eq!(heard(&mut socket).await, json!({ "id": 1, "ok": true }));
+    assert_eq!(
+        heard(&mut socket).await,
+        json!({ "sub": 1, "snapshot": [] })
+    );
+    let _ = deltas.send(StreamDelta::SideAgentDelta {
+        side_id: "ada".to_string(),
+        message_id: "m1".to_string(),
+        text: "side".to_string(),
+    });
+    let _ = deltas.send(StreamDelta::AgentDelta {
+        persona_id: "ada".to_string(),
+        message_id: "m2".to_string(),
+        text: "main".to_string(),
+    });
+    assert_eq!(
+        heard(&mut socket).await["ephemeral"]["text"],
+        "main",
+        "the side thread's words stayed out of the main tape"
+    );
+}
+
+#[tokio::test]
+async fn a_phone_may_run_side_threads_the_way_it_runs_a_conversation() {
+    for command in [
+        Command::SideStart {
+            persona_id: "ada".to_string(),
+            text: "x".to_string(),
+        },
+        Command::SidePrompt {
+            side_id: "s".to_string(),
+            text: "x".to_string(),
+            attachments: None,
+        },
+        Command::SideCancel {
+            side_id: "s".to_string(),
+        },
+        Command::SideArchive {
+            side_id: "s".to_string(),
+        },
+        Command::SideList {
+            persona_id: "ada".to_string(),
+        },
+        Command::SideAnswerPermission {
+            side_id: "s".to_string(),
+            request_id: "r".to_string(),
+            option_id: "o".to_string(),
+        },
+    ] {
+        assert!(Seat::Phone.permits(&command), "{command:?}");
+    }
+    assert!(Seat::Phone.permits_sub(&Target::Side("s".to_string())));
+}
+
+#[tokio::test]
 async fn human_answer_is_a_command_the_wire_can_read() {
     let (_root, _log, port) = door("human-answer");
     let mut socket = desk(port).await;

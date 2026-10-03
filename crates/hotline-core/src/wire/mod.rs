@@ -224,6 +224,51 @@ pub trait RoomHandle: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// The side threads this teammate has live, for the roster row.
+    fn sides(&self, _persona_id: &str) -> Vec<crate::contract::RunningSide> {
+        Vec::new()
+    }
+
+    /// Starts a side thread: a second conversation with this teammate.
+    async fn side_start(
+        &self,
+        _persona_id: &str,
+        _text: &str,
+    ) -> Result<crate::contract::SideThreadSummary, String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    /// Says something in a live side thread.
+    async fn side_prompt(
+        &self,
+        _side_id: &str,
+        _text: &str,
+        _attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    fn side_cancel(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    fn side_archive(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    fn side_list(&self, _persona_id: &str) -> Vec<crate::contract::SideThreadSummary> {
+        Vec::new()
+    }
+
+    async fn side_answer_permission(
+        &self,
+        _side_id: &str,
+        _request_id: &str,
+        _option_id: &str,
+    ) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
     /// Text as an agent writes it, for a tape subscription to forward. Never
     /// written to a tape: the durable line lands when the message is whole.
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta>;
@@ -612,6 +657,16 @@ impl Seat {
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
+                    // A side thread is a conversation with a teammate the
+                    // person already talks to from the phone; starting,
+                    // speaking in, stopping and archiving one grant nothing
+                    // a prompt and a cancel do not.
+                    | Command::SideStart { .. }
+                    | Command::SidePrompt { .. }
+                    | Command::SideCancel { .. }
+                    | Command::SideArchive { .. }
+                    | Command::SideList { .. }
+                    | Command::SideAnswerPermission { .. }
                 )
             }
         }
@@ -665,6 +720,7 @@ impl Seat {
                         Target::Tape(_)
                             | Target::Thread(_)
                             | Target::Run(_)
+                            | Target::Side(_)
                             | Target::View(ViewName::Roster)
                             | Target::Schedules(_)
                     )
@@ -1529,12 +1585,13 @@ fn subscribe(
         Target::Tape(persona_id) => StreamId::Tape(persona_id),
         Target::Thread(key) => StreamId::Thread(key),
         Target::Run(id) => StreamId::Run(id),
+        Target::Side(id) => StreamId::Side(id),
     };
 
     reply(sender, id, Ok(Value::Null));
     let events = log.subscribe(&stream);
     let deltas = match &stream {
-        StreamId::Tape(_) => Some(room.subscribe_deltas()),
+        StreamId::Tape(_) | StreamId::Side(_) => Some(room.subscribe_deltas()),
         _ => None,
     };
     let forward = stream_events(
@@ -1741,6 +1798,10 @@ async fn stream_events(
         StreamId::Tape(persona_id) => persona_id.clone(),
         _ => String::new(),
     };
+    let side_id = match &stream {
+        StreamId::Side(side_id) => side_id.clone(),
+        _ => String::new(),
+    };
     if !send(
         &sender,
         json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat) }),
@@ -1776,7 +1837,7 @@ async fn stream_events(
             delta = delta => match delta {
                 // The phone draws words; a download ring is the desk's.
                 Ok(StreamDelta::ComputerPull { .. }) if seat == Seat::Phone => {}
-                Ok(delta) if delta_persona(&delta) == persona_id => {
+                Ok(delta) if delta_is_for(&delta, &persona_id, &side_id) => {
                     if !send(&sender, json!({ "sub": id, "ephemeral": delta })) {
                         return;
                     }
@@ -1790,11 +1851,16 @@ async fn stream_events(
     }
 }
 
-fn delta_persona(delta: &StreamDelta) -> &str {
+/// Whether a delta belongs to the stream this subscription is on: a tape's
+/// by teammate, a side thread's by side id. Never the other way round, so a
+/// side thread's words cannot land in the teammate's main conversation.
+fn delta_is_for(delta: &StreamDelta, persona_id: &str, side_id: &str) -> bool {
     match delta {
-        StreamDelta::AgentDelta { persona_id, .. }
-        | StreamDelta::ThoughtDelta { persona_id, .. }
-        | StreamDelta::ComputerPull { persona_id, .. } => persona_id,
+        StreamDelta::AgentDelta { persona_id: id, .. }
+        | StreamDelta::ThoughtDelta { persona_id: id, .. }
+        | StreamDelta::ComputerPull { persona_id: id, .. } => id == persona_id,
+        StreamDelta::SideAgentDelta { side_id: id, .. }
+        | StreamDelta::SideThoughtDelta { side_id: id, .. } => !side_id.is_empty() && id == side_id,
     }
 }
 
@@ -1816,6 +1882,7 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
         waiting: waiting_on(&tail),
         drawing: room.drawing(&persona.id),
         subagents: room.subagents(&persona.id),
+        sides: room.sides(&persona.id),
         session,
         preview,
         latest,

@@ -1074,6 +1074,74 @@ startup those cards expire with the tapes.
 Deleting a teammate stops every peer session it is a side of. The wire for
 listing threads and marking them read is [wire.md](wire.md).
 
+## Side threads
+
+A side thread is the same teammate borrowed for a second task while it is busy
+with the first. The person starts one beside the main conversation, it runs in
+parallel in a context of its own, they talk with the teammate in it as they
+would anywhere, and it is archived when it is done. It is the exception: nothing
+in the main path starts one by itself, and it has no button of its own.
+
+`session/sides.rs` owns it. Four records come out of one:
+
+- **The stream.** `sides/<sideId>.jsonl` (`StreamId::Side`, subscribed to as
+  `{"side": "<sideId>"}`): the task, what each side said, tool calls and cards.
+  Never on the teammate's tape, so the main conversation is not interrupted and
+  the teammate's main context never reads it. Live words arrive as
+  `side_agent_delta` / `side_thought_delta`, addressed by side id; a tape
+  subscription never receives them and a side subscription never receives a
+  tape's.
+- **The marker.** One `side` event on the teammate's tape (id `side:<sideId>`),
+  rewritten as the thread goes and heading the stream too. `live` reads
+  "Started a side thread"; `archived` carries `result` (one line), `archivedBy`
+  (`agent`, `person`, `idle` or `stopped`) and `archivedAt`, and is drawn as the
+  result with Open. The indexer reads an archived marker as one message of the
+  teammate's ("Side thread: title. result"), so `search_thread` finds the
+  thread and a hit opens the marker.
+- **The roster entry.** `RosterEntry.sides`, like `subagents`: `{sideId, title,
+  startedAt, working}` while live. Nothing about it survives a restart.
+- **The driver.** A second agent for the teammate, started the way a peer session
+  is, on either harness: no checkpoint is reopened and no history is seeded, so
+  it can never land in the main conversation.
+
+What the thread is told: the person's task is its first message. Its preamble
+holds who the teammate is, a brief (a second, parallel context; another thread
+of itself may be writing in the same folder, so keep to the files the task needs
+and never undo work it did not do; no computer, no files, no colleagues, no
+schedules), and the main conversation's background: the handoff note of the
+chapter that closed before the current one, if there is one, and the last few
+lines. Not the transcript.
+
+**Shared and not.** The working folder, MCP grants and skills are the
+teammate's. The computer is not: two agents driving one desktop is a fight
+nobody wins, so a side thread never has it (the same rule as a subagent run) and
+is told so. Its tools are the side variant of the teammate's
+(`TeammateTools::for_side`): `search_thread` and `list_chapters` read the main
+conversation; `react` and `open_link` act on this thread; `archive_thread
+{summary}` ends it. There are no chapter tools, no schedules, no colleagues, and
+no `send_file`, `generate_image` or `request_human`, which post to the main tape:
+the person is in the thread, so the teammate asks them there. Permission cards
+are answered by side id (`side.answer_permission`).
+
+**Turns.** A line said in a thread is written to its stream and handed to the
+agent at once, or queued behind the turn in flight; it does not steer. Cancel
+stops the turn and drops the queue and the thread stays live.
+`archive_thread` takes effect when the turn it was called in ends, so the last
+message lands first.
+
+**Limits and ending.** At most two are live per teammate (`MAX_LIVE`); a third is
+refused with a sentence. A thread nobody has spoken in for three hours is
+archived by the idle sweep (never one with a turn running). The thread holds its
+own capability lease, not the teammate's session's, so a chapter rotating in the
+main conversation does not end it. What ends the teammate's authority does: the
+person stopping it, a policy change (`invalidate`), room-wide invalidation, and
+removal each archive its threads as `stopped`, revoking the lease and the agent.
+A restart leaves live markers behind; at start `settle_tapes` archives them as
+`stopped` and expires their open cards. An archived thread is read-only.
+
+The wire is `side.start`, `side.prompt`, `side.cancel`, `side.archive`,
+`side.list` and `side.answer_permission`; phones may use all of them.
+
 ## Checkpoints
 
 An ACP session id is opaque to the agent that issued it. The teammate's

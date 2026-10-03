@@ -1635,7 +1635,9 @@ impl ChildAgent {
         // given nothing and still gets no ledger at all; one that initialized
         // and then refused `session/new` keeps the ledger it was handed,
         // because the rows were declared to it whether or not it went on.
-        self.publish_ledger(persona, serving);
+        if !self.teammate.in_side() {
+            self.publish_ledger(persona, serving);
+        }
         if let Err(error) = self.open_session(&connection, persona, capabilities).await {
             let failure = auth::failure(&self.live, &error, "acp_start");
             if failure.kind == super::failure::Kind::AgentAuth && failure.sign_in.is_some() {

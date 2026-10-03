@@ -1222,6 +1222,32 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         elapsed_ms: Option<i64>,
     },
+    /// A side thread this teammate has going: a second conversation with the
+    /// same teammate about another task, running in parallel with this one.
+    /// One line on the main tape, written again under the same id as the
+    /// thread goes, that opens the thread's own transcript at `sides/<sideId>`.
+    /// Nothing the thread says is on this tape. While `status` is `live` the
+    /// line reads "Started a side thread"; once `archived` it is a one-line
+    /// `result` with an Open.
+    Side {
+        id: String,
+        /// When the thread started. The line keeps its place as it is rewritten.
+        ts: i64,
+        side_id: String,
+        persona_id: String,
+        /// The task, shortened to a label.
+        title: String,
+        status: SideStatus,
+        /// Once archived: what the thread came to, in a line. Absent when
+        /// nothing was said worth keeping.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result: Option<String>,
+        /// Once archived: who ended it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        archived_by: Option<SideEnd>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        archived_at: Option<i64>,
+    },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.
@@ -1612,6 +1638,55 @@ pub enum SubagentStatus {
     Cancelled,
 }
 
+/// Whether a side thread is still going.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SideStatus {
+    Live,
+    Archived,
+}
+
+/// Who or what ended a side thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SideEnd {
+    /// The teammate said it was done (`archive_thread`).
+    Agent,
+    /// The person pressed Archive.
+    Person,
+    /// Nobody spoke in it for a few hours.
+    Idle,
+    /// The teammate was stopped, its policy changed, it was removed, or the
+    /// desk restarted, so the thread's agent is gone.
+    Stopped,
+}
+
+/// One side thread, as a list of them is read: live ones and archived ones.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SideThreadSummary {
+    pub side_id: String,
+    pub persona_id: String,
+    pub title: String,
+    pub status: SideStatus,
+    pub started_at: i64,
+    /// The newest line in the thread.
+    pub last_at: i64,
+    /// A turn of the thread is running right now. Always false once archived.
+    pub working: bool,
+    /// A permission card in the thread is waiting for an answer.
+    pub waiting: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_by: Option<SideEnd>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<i64>,
+}
+
 /// An outside MCP agent holding a seat in this room, rather than a teammate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
@@ -1830,6 +1905,19 @@ pub enum StreamDelta {
     },
     ThoughtDelta {
         persona_id: String,
+        message_id: String,
+        text: String,
+    },
+    /// Text arriving in a side thread. Addressed by side id, because a side
+    /// thread is a second conversation with the same teammate and its words
+    /// must never land in the main one. Subscribe to `{"side": "<sideId>"}`.
+    SideAgentDelta {
+        side_id: String,
+        message_id: String,
+        text: String,
+    },
+    SideThoughtDelta {
+        side_id: String,
         message_id: String,
         text: String,
     },
@@ -2754,6 +2842,40 @@ pub enum Command {
     ScheduleCancel { id: String },
     #[serde(rename = "schedule.set_quiet")]
     ScheduleSetQuiet { id: String, quiet: bool },
+    /// Starts a side thread with this teammate: a second conversation, in its
+    /// own context and in parallel with the main one, about the task in
+    /// `text`. Answers the new thread's `SideThreadSummary`. Refused when the
+    /// teammate already has two live.
+    #[serde(rename = "side.start")]
+    SideStart { persona_id: String, text: String },
+    /// Says something in a live side thread. Returns at once; the teammate's
+    /// answer arrives on the thread's `{"side": sideId}` subscription.
+    #[serde(rename = "side.prompt")]
+    SidePrompt {
+        side_id: String,
+        text: String,
+        #[serde(default)]
+        attachments: Option<Vec<Attachment>>,
+    },
+    /// Stops the turn in flight in a side thread and drops what waited behind
+    /// it. The thread stays live.
+    #[serde(rename = "side.cancel")]
+    SideCancel { side_id: String },
+    /// Archives a side thread: its agent is stopped, its chip goes, and the
+    /// main conversation's marker becomes a one-line result with Open.
+    #[serde(rename = "side.archive")]
+    SideArchive { side_id: String },
+    /// Every side thread this teammate has had, live first, then archived
+    /// newest first.
+    #[serde(rename = "side.list")]
+    SideList { persona_id: String },
+    /// Answers a permission card raised inside a side thread.
+    #[serde(rename = "side.answer_permission")]
+    SideAnswerPermission {
+        side_id: String,
+        request_id: String,
+        option_id: String,
+    },
     /// Every thread this teammate has with another teammate, newest first.
     /// The events of one of them are a `{"thread": "<key>"}` subscription,
     /// which is a stream like any other.
@@ -2923,6 +3045,8 @@ pub enum Target {
     Thread(String),
     /// One subagent run's own transcript, by run id.
     Run(String),
+    /// One side thread's own transcript and live words, by side id.
+    Side(String),
     View(ViewName),
     /// One teammate's scheduled jobs and loops, by persona id, as
     /// `ScheduleEntry`s: the whole list on opening and the whole list again
@@ -3025,6 +3149,11 @@ pub struct RosterEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<RunningSubagent>>", optional)]
     pub subagents: Vec<RunningSubagent>,
+    /// Side threads this teammate has live, oldest first. Absent when there
+    /// are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<RunningSide>>", optional)]
+    pub sides: Vec<RunningSide>,
     pub session: SessionInfo,
 }
 
@@ -3037,6 +3166,18 @@ pub struct RunningSubagent {
     /// The short label the teammate gave the task.
     pub title: String,
     pub started_at: i64,
+}
+
+/// A side thread still live, as its teammate's roster row lists it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct RunningSide {
+    pub side_id: String,
+    pub title: String,
+    pub started_at: i64,
+    /// A turn of the thread is running right now.
+    pub working: bool,
 }
 
 /// With `default`, absence is None; a present null is Some(None).

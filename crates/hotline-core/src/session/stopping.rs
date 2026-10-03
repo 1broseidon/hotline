@@ -101,6 +101,7 @@ impl Room {
         let mut shut = self.shut_within(drain).await;
         let mut interrupted = Vec::new();
         if shut.is_none() {
+            self.interrupt_sides();
             for session in &sessions {
                 if !lock(&session.turns).running {
                     continue;

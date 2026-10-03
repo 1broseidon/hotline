@@ -496,6 +496,30 @@ pub(crate) async fn run(
             room.schedule_set_quiet(&id, quiet).map(|()| Value::Null)
         }
 
+        Command::SideStart { persona_id, text } => room
+            .side_start(&persona_id, &text)
+            .await
+            .map(|summary| json!(summary)),
+        Command::SidePrompt {
+            side_id,
+            text,
+            attachments,
+        } => room
+            .side_prompt(&side_id, &text, attachments)
+            .await
+            .map(|()| Value::Null),
+        Command::SideCancel { side_id } => room.side_cancel(&side_id).map(|()| Value::Null),
+        Command::SideArchive { side_id } => room.side_archive(&side_id).map(|()| Value::Null),
+        Command::SideList { persona_id } => Ok(json!(room.side_list(&persona_id))),
+        Command::SideAnswerPermission {
+            side_id,
+            request_id,
+            option_id,
+        } => room
+            .side_answer_permission(&side_id, &request_id, &option_id)
+            .await
+            .map(|()| Value::Null),
+
         Command::PeersList { persona_id } => Ok(json!(room.peer_threads(&persona_id))),
         Command::PeersMarkRead { key, event_ids } => {
             Ok(json!(room.mark_peer_read(&key, &event_ids)))

@@ -40,7 +40,9 @@ use crate::contract::{
     NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
     TranscriptEvent,
 };
-use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, SubagentReport, Update};
+use crate::driver::{
+    CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
+};
 use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
@@ -82,11 +84,34 @@ pub(super) async fn drive(
     text: String,
     reach: Reach,
     cancel: Option<&CancellationToken>,
+    write: impl FnMut(TranscriptEvent, bool),
+) -> Driven {
+    drive_with(
+        driver,
+        timed(now_ms(), &text),
+        Vec::new(),
+        reach,
+        cancel,
+        |_, _, _, _| {},
+        write,
+    )
+    .await
+}
+
+/// [`drive`] for a conversation somebody is watching: the line is handed over
+/// already stamped, with its attachments, and `delta` is told the words as
+/// they arrive (kind, message id, text, and whether the reply is being held
+/// back as narration) so they can be shown before the message is whole.
+pub(super) async fn drive_with(
+    driver: &dyn Driver,
+    wire_text: String,
+    attachments: Vec<crate::contract::Attachment>,
+    reach: Reach,
+    cancel: Option<&CancellationToken>,
+    mut delta: impl FnMut(MessageKind, &str, &str, bool),
     mut write: impl FnMut(TranscriptEvent, bool),
 ) -> Driven {
-    let mut updates = driver
-        .prompt(timed(now_ms(), &text), Vec::new(), reach)
-        .await;
+    let mut updates = driver.prompt(wire_text, attachments, reach).await;
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
@@ -108,6 +133,15 @@ pub(super) async fn drive(
             None => (voice.finish(), true),
         };
         for update in batch {
+            if let Update::Delta {
+                kind,
+                message_id,
+                text,
+            } = &update
+            {
+                let muted = *kind == MessageKind::Agent && voice.mutes_deltas();
+                delta(*kind, message_id, text, muted);
+            }
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
             for event in event_of(update, &mut in_flight) {

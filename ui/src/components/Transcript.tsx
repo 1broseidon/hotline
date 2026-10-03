@@ -805,8 +805,9 @@ const Row = memo(function Row({
 			);
 
 		/* A side thread the person started beside this conversation: one quiet
-		 * line, "Started a side thread" while it runs, a one-line result once
-		 * it is archived. Either way it opens the thread in the work card. */
+		 * line, "Started a side thread" while it runs, a title and a one-line
+		 * result once it is archived. Either way it opens the thread in the
+		 * work card. */
 		case "side": {
 			const line = sideLine(event);
 			return (
@@ -837,14 +838,16 @@ export type SideEvent = Extract<TranscriptEvent, { kind: "side" }>;
 
 /**
  * What a side thread's line in the conversation says: while it runs, that it
- * started; once archived, what came of it in one line, and how it ended when
- * nobody said it was done.
+ * started; parked, that it is waiting to be picked up; once archived, its
+ * title and what came of it in one line, and how it ended when nobody said it
+ * was done.
  */
 export function sideLine(event: SideEvent): { text: string } {
 	if (event.status === "live") return { text: `Started a side thread · ${event.title}` };
+	if (event.status === "parked") return { text: `Side thread · ${event.title} · parked` };
 	const ending = event.archivedBy === "stopped" ? "stopped" : event.archivedBy === "idle" ? "archived, idle" : "";
-	const said = event.result !== undefined && event.result !== "" ? event.result : `${event.title} · archived`;
-	return { text: `Side thread · ${said}${ending !== "" && event.result !== undefined ? ` · ${ending}` : ""}` };
+	const outcome = event.result !== undefined && event.result !== "" ? event.result : "archived";
+	return { text: `Side thread · ${event.title} · ${outcome}${ending !== "" && event.result !== undefined ? ` · ${ending}` : ""}` };
 }
 
 /** What opens a thread: a peer marker is one, and a delivery names one. */

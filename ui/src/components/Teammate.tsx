@@ -1594,24 +1594,33 @@ function Threads({
 	onOpenSide(side: { sideId: string; title: string }): void;
 }) {
 	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
-	/* Side threads that have ended sit beside the peer threads, and nowhere
-	 * else: a live one is a chip in the conversation's band. Read again when
+	/* Side threads that are not running sit beside the peer threads, and
+	 * nowhere else: a live one is a chip in the conversation's band. Parked
+	 * ones are still open and archived ones can be continued. Read again when
 	 * one starts or ends. */
-	const [archived, setArchived] = useState<SideThreadSummary[]>([]);
+	const [kept, setKept] = useState<SideThreadSummary[]>([]);
+	const [refused, setRefused] = useState<string | null>(null);
 	useEffect(() => {
 		let cancelled = false;
 		void wire
 			.command("side.list", { personaId })
 			.then((list) => {
-				if (!cancelled) setArchived(list.filter((side) => side.status === "archived"));
+				if (!cancelled) setKept(list.filter((side) => side.status !== "live"));
 			})
 			.catch(() => {
-				if (!cancelled) setArchived([]);
+				if (!cancelled) setKept([]);
 			});
 		return () => {
 			cancelled = true;
 		};
 	}, [personaId, liveSides]);
+	const resumeSide = (side: SideThreadSummary) => {
+		setRefused(null);
+		void wire
+			.command("side.continue", { sideId: side.sideId })
+			.then(() => onOpenSide({ sideId: side.sideId, title: side.title }))
+			.catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
+	};
 	const [seen, setSeen] = useState(loadThreadSeen);
 	const [open, setOpen] = useState(false);
 
@@ -1652,7 +1661,7 @@ function Threads({
 
 	const isUnread = (thread: PeerThreadSummary) => thread.lastAt > (seen[thread.threadKey] ?? 0);
 	const unread = threads.filter(isUnread).length;
-	const total = threads.length + archived.length;
+	const total = threads.length + kept.length;
 
 	const openThread = (thread: PeerThreadSummary) => {
 		setSeen((current) => {
@@ -1708,20 +1717,35 @@ function Threads({
 						);
 					})}
 				{open &&
-					archived.map((side) => (
-						<button
-							key={side.sideId}
-							type="button"
-							className={`${NESTED} group-row-choice w-full text-left`}
-							onClick={() => onOpenSide({ sideId: side.sideId, title: side.title })}
-						>
-							<span className="group-row-text">
+					kept.map((side) => (
+						<div key={side.sideId} className={`${NESTED} group-row-choice`}>
+							<button
+								type="button"
+								className="group-row-text text-left"
+								onClick={() => onOpenSide({ sideId: side.sideId, title: side.title })}
+							>
 								<span className="group-row-title">{side.title}</span>
-								<span className="group-row-detail">{side.result ?? "Side thread, archived"}</span>
-							</span>
+								<span className="group-row-detail">
+									{side.status === "parked"
+										? `Parked · ${side.waiting ? "waiting on you" : "say something to pick it up"}`
+										: (side.result ?? "Side thread, archived")}
+								</span>
+							</button>
 							<span className="shrink-0 text-xs text-ink-3">{threadStamp(side.archivedAt ?? side.lastAt)}</span>
-						</button>
+							{side.status === "archived" && (
+								<button type="button" className="control btn-quiet px-2 text-sm" title="Bring this side thread back" onClick={() => resumeSide(side)}>
+									Continue
+								</button>
+							)}
+						</div>
 					))}
+				{open && refused !== null && (
+					<div className={NESTED}>
+						<span className="group-row-detail text-danger" style={{ whiteSpace: "normal" }}>
+							{refused}
+						</span>
+					</div>
+				)}
 			</div>
 		</section>
 	);

@@ -45,6 +45,7 @@ export function Composer({
 	onCancel,
 	onClearReply,
 	onDraftChange,
+	embedded = false,
 }: {
 	personaId: string;
 	name: string;
@@ -57,6 +58,12 @@ export function Composer({
 	onCancel(): void;
 	onClearReply(): void;
 	onDraftChange?(hasContent: boolean): void;
+	/**
+	 * Inside a card rather than under a conversation: tighter, and it leaves
+	 * file drops to the conversation's own composer, which is the one a drop
+	 * on the window is meant for.
+	 */
+	embedded?: boolean;
 }) {
 	const [text, setText] = useState("");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -86,6 +93,7 @@ export function Composer({
 	// A drop or the picker is how a path becomes a chip. The field never
 	// parses what was typed or pasted, so a path you meant as words stays words.
 	useEffect(() => {
+		if (embedded) return;
 		let cancelled = false;
 		let stop: (() => void) | undefined;
 		// getCurrentWebview() throws in a browser tab before a promise exists,
@@ -114,7 +122,7 @@ export function Composer({
 			cancelled = true;
 			stop?.();
 		};
-	}, []);
+	}, [embedded]);
 
 	// Chips belong to the window, not only the field, so Escape puts them
 	// down even when the field is not focused — and it does so before the
@@ -175,7 +183,7 @@ export function Composer({
 	return (
 		/* Positioned, so it paints over the scroller before it, which is
 		   positioned too and would otherwise sit on the pill's top edge. */
-		<div className="relative shrink-0 px-6 pb-4">
+		<div className={embedded ? "relative shrink-0 px-2 pb-2" : "relative shrink-0 px-6 pb-4"}>
 			<div className="composer mx-auto w-full max-w-[46rem]">
 				<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
 					<PlusIcon />

@@ -416,6 +416,51 @@ impl RoomHandle for Desk {
         self.room.subagents(persona_id)
     }
 
+    fn sides(&self, persona_id: &str) -> Vec<crate::contract::RunningSide> {
+        self.room.sides(persona_id)
+    }
+
+    async fn side_start(
+        &self,
+        persona_id: &str,
+        text: &str,
+    ) -> Result<crate::contract::SideThreadSummary, String> {
+        self.room.start_side(persona_id, text).await
+    }
+
+    async fn side_prompt(
+        &self,
+        side_id: &str,
+        text: &str,
+        attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
+        self.room.prompt_side(side_id, text, attachments).await
+    }
+
+    fn side_cancel(&self, side_id: &str) -> Result<(), String> {
+        self.room.cancel_side(side_id)
+    }
+
+    fn side_archive(&self, side_id: &str) -> Result<(), String> {
+        self.room
+            .archive_side(side_id, crate::contract::SideEnd::Person, None)
+    }
+
+    fn side_list(&self, persona_id: &str) -> Vec<crate::contract::SideThreadSummary> {
+        self.room.side_threads(persona_id)
+    }
+
+    async fn side_answer_permission(
+        &self,
+        side_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        self.room
+            .answer_side_permission(side_id, request_id, option_id)
+            .await
+    }
+
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
         self.room.subscribe_deltas()
     }

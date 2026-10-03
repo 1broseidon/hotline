@@ -138,6 +138,12 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; refused past two live per teammate |
+| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription |
+| `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
+| `side.archive` | `{sideId}` | none; archiving an archived thread is also none |
+| `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then archived newest first |
+| `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only for every seat |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
 | `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
@@ -620,14 +626,15 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 ## Subscriptions
 
 `sub` is a `Target`: `"room"`, `{"tape": "<personaId>"}`,
-`{"thread": "<key>"}`, `{"view": "roster"}`, or
-`{"schedules": "<personaId>"}`.
+`{"thread": "<key>"}`, `{"run": "<runId>"}`, `{"side": "<sideId>"}`,
+`{"view": "roster"}`, or `{"schedules": "<personaId>"}`.
 
 | target | snapshot | then |
 | --- | --- | --- |
 | `"room"` | the room stream's fold | each room event as it lands |
 | `{"tape": id}` | that tape's fold | each tape event; `ephemeral` for streaming deltas |
 | `{"thread": key}` | that thread's fold | each thread event |
+| `{"side": id}` | that side thread's fold, headed by its `side` marker | each event; `ephemeral` for its streaming deltas |
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
 | `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
@@ -639,7 +646,9 @@ written down:
 ```
 
 `type` is `agent_delta` or `thought_delta`. A delta for another teammate
-is ignored. A closed delta channel is not recovered: the durable line
+is ignored. A side subscription forwards `side_agent_delta` /
+`side_thought_delta` carrying `sideId` instead of `personaId`, for that side
+alone; a tape never receives them. A closed delta channel is not recovered: the durable line
 carries the characters anyway.
 
 A view row that goes away:

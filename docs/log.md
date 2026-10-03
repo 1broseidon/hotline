@@ -9,7 +9,7 @@ to say where its bytes landed, and two of those at once would be told an
 offset that is already taken. Opening a log touches nothing: a stream's
 file is made when something is appended to it.
 
-Four streams, one rule for all of them:
+Five streams, one rule for all of them:
 
 | Stream | File | One per |
 | --- | --- | --- |
@@ -17,6 +17,7 @@ Four streams, one rule for all of them:
 | `Tape(id)` | `transcripts/<id>/<epoch>.jsonl` | teammate |
 | `Thread(key)` | `threads/<key>.jsonl` | pair |
 | `Run(id)` | `runs/<id>.jsonl` | subagent run |
+| `Side(id)` | `sides/<id>.jsonl` | side thread |
 
 A subscriber is handed every event appended after it asked. History is
 `Log::load`, not replayed on subscribe. A stream nobody is still
@@ -99,6 +100,17 @@ here is left alone. A thread whose sides are both strangers is skipped.
 
 A label for a side the roster cannot resolve is written onto an existing
 sidecar. No sidecar, no invented one.
+
+## Side threads
+
+A side thread is a stream of its own, `sides/<sideId>.jsonl`, with no segments
+and no sidecar, named by a UUID the room mints and checked like a run id. It
+holds, in order of first appearance, the thread's `side` marker (rewritten as
+the thread goes, so it is also where the owner, title and status are read from
+when the thread is archived), the person's lines, and what the teammate said
+and did. The one trace it leaves on the tape is the same `side` marker. Only an
+archived marker is offered to the search index, as one message. See
+[sessions.md](sessions.md#side-threads).
 
 ## Runs
 

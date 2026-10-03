@@ -77,7 +77,7 @@ class TapeStore {
 	private readers = 0;
 	private unsub: (() => void) | null = null;
 	private linger: ReturnType<typeof setTimeout> | null = null;
-	private queued: Exclude<StreamDelta, { type: "computer_pull" }>[] = [];
+	private queued: TextDelta[] = [];
 	private frame: number | null = null;
 
 	constructor(
@@ -149,6 +149,8 @@ class TapeStore {
 					this.set({ pulling: delta.status === "pulling" ? { done: delta.layersDone, total: delta.layersTotal } : null });
 					return;
 				}
+				// A side thread's words are its own: never drawn into the main talk.
+				if (delta.type === "side_agent_delta" || delta.type === "side_thought_delta") return;
 				this.queued.push(delta);
 				this.frame ??= requestAnimationFrame(this.flush);
 			},
@@ -281,6 +283,40 @@ export function useRun(runId: string): { events: TranscriptEvent[] } {
 }
 
 /**
+ * A side thread: a stream like a run, folded by id, with the words arriving
+ * as the teammate writes them. It opens on its own marker line, rewritten as
+ * the thread goes, which is how the card knows whether it is still live.
+ * Deltas are for this side id alone; the main tape never hears them.
+ */
+export function useSide(sideId: string): { events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean } {
+	const [state, setState] = useState<{ events: TranscriptEvent[]; streaming: Streaming[]; loaded: boolean }>({
+		events: [],
+		streaming: [],
+		loaded: false,
+	});
+
+	useEffect(() => {
+		setState({ events: [], streaming: [], loaded: false });
+		return watchWhenOpen<TranscriptEvent, StreamDelta>(activeWire(), { side: sideId }, {
+			snapshot: (items) => setState({ events: fold(items), streaming: [], loaded: true }),
+			event: (item) =>
+				setState((known) => ({
+					events: merge(known.events, item),
+					streaming: settle(known.streaming, item),
+					loaded: true,
+				})),
+			ephemeral: (delta) => {
+				if (delta.type !== "side_agent_delta" && delta.type !== "side_thought_delta") return;
+				if (delta.sideId !== sideId) return;
+				setState((known) => ({ ...known, streaming: append(known.streaming, delta) }));
+			},
+		});
+	}, [sideId]);
+
+	return state;
+}
+
+/**
  * Subscribe only once the socket is open.
  *
  * The race: a restored teammate mounts Conversation in the same turn as
@@ -365,8 +401,11 @@ function settle(live: Streaming[], item: TranscriptEvent): Streaming[] {
 	return next;
 }
 
-function append(live: Streaming[], delta: Exclude<StreamDelta, { type: "computer_pull" }>): Streaming[] {
-	const kind = delta.type === "agent_delta" ? "agent" : "thought";
+/** Words arriving, whichever stream they are for: a tape's or a side thread's. */
+type TextDelta = Extract<StreamDelta, { type: "agent_delta" | "thought_delta" | "side_agent_delta" | "side_thought_delta" }>;
+
+function append(live: Streaming[], delta: TextDelta): Streaming[] {
+	const kind = delta.type === "agent_delta" || delta.type === "side_agent_delta" ? "agent" : "thought";
 	const at = live.findIndex((one) => one.messageId === delta.messageId);
 	if (at === -1) return [...live, { messageId: delta.messageId, kind, text: delta.text }];
 	const next = live.slice();

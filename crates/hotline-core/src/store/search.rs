@@ -348,12 +348,43 @@ fn text_of(event: &Value, key: &str) -> Option<String> {
 }
 
 /// One message, if it is one and it said anything.
+/// An archived side thread, as the line of the conversation it leaves behind.
+///
+/// A side thread's own words are on its own stream and never on the tape, so
+/// what `search_thread` can find of it is its marker once it is archived: the
+/// task and what came of it, standing in as one message of the teammate's.
+/// The marker's id is the line's id, so a hit opens the very line that
+/// carries the thread's Open.
+fn side_line(event: &Value) -> Option<Value> {
+    if event.get("kind").and_then(Value::as_str) != Some("side")
+        || event.get("status").and_then(Value::as_str) != Some("archived")
+    {
+        return None;
+    }
+    let title = event
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let result = event
+        .get("result")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some(serde_json::json!({
+        "kind": "agent",
+        "id": event.get("id")?,
+        "ts": event.get("archivedAt").or_else(|| event.get("ts"))?,
+        "text": format!("Side thread: {title}. {result}").trim().to_string(),
+    }))
+}
+
 fn index_message(
     database: &Connection,
     persona_id: &str,
     chapter_id: Option<&str>,
     event: &Value,
 ) -> rusqlite::Result<()> {
+    let synthetic = side_line(event);
+    let event = synthetic.as_ref().unwrap_or(event);
     let kind = event
         .get("kind")
         .and_then(Value::as_str)
@@ -575,7 +606,7 @@ impl Indexer {
                 .insert(persona_id.to_string(), id.filter(|_| still_open));
             return stamp(&self.database, self.log.root(), persona_id);
         }
-        if kind != "user" && kind != "agent" {
+        if kind != "user" && kind != "agent" && kind != "side" {
             return Ok(());
         }
         if !self.open_chapters.contains_key(persona_id) {

@@ -446,6 +446,7 @@ export function App() {
 			open={open}
 			name={entry.persona.name}
 			live={entry.session.state === "thinking"}
+			sides={entry.sides ?? []}
 			docked={dockWork}
 			onClose={() => closeWork(entry.persona.id)}
 		/>
@@ -544,6 +545,8 @@ export function App() {
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
 							workOpen={workOf !== undefined && "blockId" in workOf ? workOf.blockId : undefined}
 							runOpen={workOf !== undefined && "runId" in workOf ? workOf.runId : undefined}
+							onOpenSide={(side) => openWork({ personaId: selected.persona.id, ...side })}
+							sideOpen={workOf !== undefined && "sideId" in workOf ? workOf.sideId : undefined}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{aside?.kind === "thread" ? (
@@ -569,6 +572,8 @@ export function App() {
 										setInspector(false);
 									}}
 									onOpenThread={openThread}
+									sides={selected.sides ?? []}
+									onOpenSide={(side) => openWork({ personaId: selected.persona.id, ...side })}
 								/>
 							)
 						)}

@@ -57,6 +57,9 @@ const TOOL_CHARS: usize = 240;
 /// is all there is, so it is longer.
 const WAKE_MESSAGES: usize = 4;
 const WAKE_CHARS: usize = 2_000;
+/// How much of the main conversation's tail a side thread is shown.
+const SIDE_MESSAGES: usize = 6;
+const SIDE_CHARS: usize = 3_000;
 const NO_NOTE_MESSAGES: usize = 12;
 const NO_NOTE_CHARS: usize = 6_000;
 
@@ -390,6 +393,39 @@ pub(super) fn wake_block(events: &[Value], now: i64) -> Option<String> {
         now,
         quoted,
     ))
+}
+
+/// What a side thread is told about the main conversation it was started
+/// beside: the handoff note of the chapter that closed before the current one,
+/// if there is one, and the last few things said, so it knows the situation
+/// without the transcript. Both are quoted data, fenced like the wake block's.
+/// `None` when nothing has been said at all.
+pub(super) fn side_context(events: &[Value], now: i64) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(previous) = previous_chapter(events) {
+        let note = string(previous, "note");
+        if !note.is_empty() {
+            let title = match string(previous, "title") {
+                "" => "untitled",
+                title => title,
+            };
+            parts.push(format!(
+                "The previous chapter of that conversation, \"{title}\", ended {}. Its handoff note:\n{}",
+                ago(now - number(previous, "endedAt").or_else(|| number(previous, "ts")).unwrap_or(now)),
+                crate::fence::fenced("hotline_previous_chapter", note),
+            ));
+        }
+    }
+    if let Some(quoted) = quoted_tail(events, SIDE_MESSAGES, SIDE_CHARS) {
+        parts.push(format!(
+            "The last things said in the main conversation:\n{}",
+            crate::fence::fenced("hotline_conversation_history", &quoted)
+        ));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("\n"))
 }
 
 /// The wake block's body: a note, an optional quoted tail, and the fences

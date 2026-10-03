@@ -59,8 +59,8 @@ export function Composer({
 	onClearReply(): void;
 	onDraftChange?(hasContent: boolean): void;
 	/**
-	 * Inside a card rather than under a conversation: tighter, and it leaves
-	 * file drops to the conversation's own composer, which is the one a drop
+	 * Inside another composer's window (a side thread's): the same size and
+	 * place as the conversation's, and it leaves file drops to the conversation's own composer, which is the one a drop
 	 * on the window is meant for.
 	 */
 	embedded?: boolean;
@@ -183,7 +183,7 @@ export function Composer({
 	return (
 		/* Positioned, so it paints over the scroller before it, which is
 		   positioned too and would otherwise sit on the pill's top edge. */
-		<div className={embedded ? "relative shrink-0 px-2 pb-2" : "relative shrink-0 px-6 pb-4"}>
+		<div className="relative shrink-0 px-6 pb-4">
 			<div className="composer mx-auto w-full max-w-[46rem]">
 				<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
 					<PlusIcon />

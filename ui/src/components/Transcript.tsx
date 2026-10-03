@@ -82,10 +82,13 @@ export function Transcript({
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
+	sideId,
 	more = false,
 	onEarlier,
 }: {
 	personaId: string;
+	/** Set when this is a side thread's transcript: a permission is answered to it, not to the main session. */
+	sideId?: string;
 	name: string;
 	/** The teammate's picture, when it has one. */
 	avatarHash?: string | undefined;
@@ -318,6 +321,7 @@ export function Transcript({
 							) : (
 								<Row
 									personaId={personaId}
+									{...(sideId !== undefined ? { sideId } : {})}
 									ownerName={name}
 									event={block.event}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
@@ -630,6 +634,7 @@ export function retryForNotice(events: TranscriptEvent[], noticeId: string,
  */
 const Row = memo(function Row({
 	personaId,
+	sideId,
 	ownerName,
 	event,
 	quote,
@@ -647,6 +652,7 @@ const Row = memo(function Row({
 	onJump,
 }: {
 	personaId: string;
+	sideId?: string;
 	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
@@ -731,7 +737,7 @@ const Row = memo(function Row({
 			);
 
 		case "permission":
-			return <Permission personaId={personaId} event={event} />;
+			return <Permission personaId={personaId} {...(sideId !== undefined ? { sideId } : {})} event={event} />;
 
 		case "plan":
 			return <Plan entries={event.entries} />;
@@ -1548,9 +1554,11 @@ function EditLines({ text }: { text: string }) {
  */
 function Permission({
 	personaId,
+	sideId,
 	event,
 }: {
 	personaId: string;
+	sideId?: string;
 	event: Extract<TranscriptEvent, { kind: "permission" }>;
 }) {
 	const [answering, setAnswering] = useState(false);
@@ -1559,9 +1567,10 @@ function Permission({
 	const answer = (optionId: string) => {
 		if (answering || event.decision !== undefined) return;
 		setAnswering(true);
-		void wire
-			.command("session.answer_permission", { personaId, requestId: event.requestId, optionId })
-			.catch(() => setAnswering(false));
+		void (sideId !== undefined
+			? wire.command("side.answer_permission", { sideId, requestId: event.requestId, optionId })
+			: wire.command("session.answer_permission", { personaId, requestId: event.requestId, optionId })
+		).catch(() => setAnswering(false));
 	};
 
 	return (

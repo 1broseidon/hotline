@@ -1188,7 +1188,7 @@ The wire is `side.start`, `side.prompt`, `side.cancel`, `side.archive`,
 them. A `SideThreadSummary` and the marker gained `parked` as a status.
 
 The desk lists a teammate's side threads in a pane docked on the right of the
-window, beside Settings (`ui/src/components/Dock.tsx`): rows of title, status
+window (`ui/src/components/Dock.tsx`): rows of title, status
 dot, `preview` (an archived one shows its `result`) and time, the archived
 folded below, and a thread opens inside the pane with its own composer. A
 parked thread says so there, and saying something wakes it.

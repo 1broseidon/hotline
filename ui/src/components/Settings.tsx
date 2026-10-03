@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
 import { openLink, pinnedComputerImage } from "../native";
-import { chordKeys } from "../chords";
-import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
+import { ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
@@ -20,6 +19,7 @@ import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
 import { UseFor } from "./UseFor";
 import { tagsFor } from "../useFor";
+import { SETTINGS_SECTIONS as SECTIONS, type SettingsSection } from "../settingsSections";
 
 import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
@@ -29,73 +29,11 @@ import { DesksSection } from "./DesksSection";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "desks" | "providers" | "tools" | "skills" | "computer" | "secrets" | "remote" | "updates" | "import";
-
-const SECTIONS: { id: SettingsSection; title: string }[] = [
-	{ id: "general", title: "General" },
-	{ id: "desks", title: "Desks" },
-	{ id: "providers", title: "Providers" },
-	{ id: "tools", title: "Tools" },
-	{ id: "skills", title: "Skills" },
-	{ id: "computer", title: "Computer" },
-	{ id: "secrets", title: "Secrets" },
-	{ id: "remote", title: "Remote" },
-	{ id: "updates", title: "Updates" },
-	{ id: "import", title: "Import" },
-];
+export type { SettingsSection };
 
 /**
- * The rail while settings are open: the sections stand where the team
- * stood, one row each, and the band carries the way back where the team's
- * plus was. Settings is a place you go, not a card over the room, so the
- * room steps aside until you come back.
- */
-export function SettingsRail({
-	section,
-	onSection,
-	onBack,
-	width,
-}: {
-	section: SettingsSection;
-	onSection(section: SettingsSection): void;
-	onBack(): void;
-	/** The rail's dragged width: settings' menu stands where the rail does. */
-	width?: number | undefined;
-}) {
-	return (
-		<nav aria-label="Settings" className="rail flex flex-col" style={width !== undefined ? { width } : undefined}>
-			<Band>
-				<button
-					type="button"
-					className="control btn-icon -ml-1"
-					title={`Back (${chordKeys("close")})`}
-					aria-label="Back to the team"
-					onClick={onBack}
-				>
-					<ArrowLeftIcon />
-				</button>
-				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Settings</h1>
-			</Band>
-			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
-				{SECTIONS.map((one) => (
-					<button
-						key={one.id}
-						type="button"
-						className="rail-row"
-						aria-current={section === one.id ? "true" : undefined}
-						onClick={() => onSection(one.id)}
-					>
-						<span className="block min-w-0 flex-1 truncate font-medium text-ink">{one.title}</span>
-					</button>
-				))}
-			</div>
-		</nav>
-	);
-}
-
-/**
- * The room's settings, as a pane in the conversation's place: one section
- * at a time, chosen in the rail, each a column of grouped rows. What a
+ * The room's settings, in the right-hand pane: one section at a time, chosen
+ * from the pane's list, each a column of grouped rows. What a
  * teammate is, is not here; that is the teammate's own pane.
  */
 export function Settings({ section, onBack, onAddDesk }: { section: SettingsSection; onBack?: () => void; onAddDesk?: () => void }) {

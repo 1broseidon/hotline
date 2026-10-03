@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon } from "../icons";
 import { toggleMaximize } from "../native";
@@ -17,14 +17,21 @@ export function Band({ children }: { children: ReactNode }) {
 	);
 }
 
+/**
+ * Where a back key goes, for the screen reader: the team by default, or what
+ * a pane that holds its own pages says (the right-hand pane's list).
+ */
+export const BackLabel = createContext("Back to the team");
+
 /** The step back to the rail, at the head of a band in a narrow window. */
 export function BackKey({ onBack }: { onBack(): void }) {
+	const label = useContext(BackLabel);
 	return (
 		<button
 			type="button"
 			className="control btn-icon -ml-1"
 			title={`Back (${chordKeys("close")})`}
-			aria-label="Back to the team"
+			aria-label={label}
 			onClick={onBack}
 		>
 			<ArrowLeftIcon />

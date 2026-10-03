@@ -1140,7 +1140,12 @@ working: boolean,
 /**
  * A permission card in the thread is waiting for an answer.
  */
-waiting: boolean, result?: string, archivedBy?: SideEnd, archivedAt?: number, };
+waiting: boolean, 
+/**
+ * The newest thing said in the thread, in a line: the teammate's last
+ * words, or what the person asked when it has said none yet.
+ */
+preview?: string, result?: string, archivedBy?: SideEnd, archivedAt?: number, };
 
 /**
  * One skill as the catalog lists it. `invalid` is absent when the folder is

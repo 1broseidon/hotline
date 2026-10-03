@@ -1266,6 +1266,7 @@ impl Room {
             last_at: last_at(&events).max(side.started),
             working: side.working(),
             waiting: waiting_on(&events),
+            preview: preview_line(&events),
             result: None,
             archived_by: None,
             archived_at: None,
@@ -1331,6 +1332,7 @@ impl Room {
             last_at: last_at(&events).max(ts),
             working: false,
             waiting: false,
+            preview: preview_line(&events),
             result,
             archived_by,
             archived_at,
@@ -1347,6 +1349,20 @@ fn last_words(events: &[Value]) -> Option<String> {
         .and_then(|event| event.get("text").and_then(Value::as_str))
         .map(|text| cut(text, RESULT_CHARS))
         .filter(|text| !text.is_empty())
+}
+
+/// The newest thing said in a thread, as a line for a list: the teammate's
+/// last words, else the person's latest.
+fn preview_line(events: &[Value]) -> Option<String> {
+    last_words(events).or_else(|| {
+        events
+            .iter()
+            .rev()
+            .filter(|event| event["kind"] == "user")
+            .find_map(|event| event.get("text").and_then(Value::as_str))
+            .map(|text| cut(text, RESULT_CHARS))
+            .filter(|text| !text.is_empty())
+    })
 }
 
 /// The one line a closing note says about how it came out.
@@ -1387,6 +1403,21 @@ mod tests {
             id: id.to_string(),
             text: text.to_string(),
         }
+    }
+
+    #[test]
+    fn a_list_previews_the_teammates_last_words_else_what_was_asked() {
+        let asked = serde_json::json!({"kind": "user", "text": "  fix the\nCI badge "});
+        let said = serde_json::json!({"kind": "agent", "text": "Done, it was the cache."});
+        assert_eq!(preview_line(&[]), None);
+        assert_eq!(
+            preview_line(&[asked.clone()]).as_deref(),
+            Some("fix the CI badge")
+        );
+        assert_eq!(
+            preview_line(&[asked, said]).as_deref(),
+            Some("Done, it was the cache.")
+        );
     }
 
     fn turn() -> Update {

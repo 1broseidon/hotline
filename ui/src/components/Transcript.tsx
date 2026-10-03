@@ -103,7 +103,7 @@ export function Transcript({
 	onRetryMessage?(message: Extract<TranscriptEvent, { kind: "user" }>): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
-	/** Opens a side thread's card from its line. */
+	/** Opens a side thread in the right-hand pane from its line. */
 	onOpenSide?(event: SideEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
@@ -662,7 +662,7 @@ const Row = memo(function Row({
 	onReact?(target: ReactTarget, emoji: string): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
-	/** Opens a side thread's card from its line. */
+	/** Opens a side thread in the right-hand pane from its line. */
 	onOpenSide?(event: SideEvent): void;
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;

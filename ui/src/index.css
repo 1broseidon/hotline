@@ -1679,7 +1679,8 @@
 		touch-action: none;
 		z-index: 1;
 	}
-	.rail-edge::after {
+	.rail-edge::after,
+	.dock-edge::after {
 		content: "";
 		position: absolute;
 		inset: 8px auto 8px 3px;
@@ -1690,10 +1691,14 @@
 	}
 	.rail-edge:hover::after,
 	.rail-edge:focus-visible::after,
-	.rail-edge[data-dragging]::after {
+	.rail-edge[data-dragging]::after,
+	.dock-edge:hover::after,
+	.dock-edge:focus-visible::after,
+	.dock-edge[data-dragging]::after {
 		background: var(--line-strong);
 	}
-	.rail-edge:focus-visible {
+	.rail-edge:focus-visible,
+	.dock-edge:focus-visible {
 		outline: none;
 	}
 	html[data-resizing],
@@ -1777,7 +1782,8 @@
 	 * along the top. What scrolls inside it fades under the band and above
 	 * the composer instead of hitting a line. */
 	.pane,
-	.inspector {
+	.inspector,
+	.dock {
 		display: flex;
 		min-width: 0;
 		min-height: 0;
@@ -1976,6 +1982,88 @@
 		width: 320px;
 		flex-shrink: 0;
 	}
+	/* The right-hand pane: side threads and Settings. Its slot is as wide as
+	 * you dragged it, and its edge sits in the gutter beside it, as the
+	 * team's does. Where it would leave the conversation too narrow it lies
+	 * over it instead, at the window's right, on the menus' float shadow. */
+	.dock-slot {
+		position: relative;
+		display: flex;
+		width: var(--dock-width);
+		min-width: 0;
+		flex-shrink: 0;
+	}
+	.dock-slot[data-overlay] {
+		position: absolute;
+		inset: 0 0 0 auto;
+		z-index: 30;
+		width: min(var(--dock-width), 100%);
+	}
+	.dock-slot[data-overlay] .dock {
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-float);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.dock {
+		flex: 1;
+	}
+	.dock-edge {
+		position: absolute;
+		inset: 0 auto 0 -8px;
+		z-index: 1;
+		width: 8px;
+		cursor: col-resize;
+		touch-action: none;
+	}
+	.dock-edge::after {
+		inset: 8px 3px 8px auto;
+	}
+	/* A page in the pane (a thread, a settings section) fills it under its
+	 * own band; the settings pages bring a pane of their own, which here is
+	 * the pane they are in. */
+	.dock-page {
+		display: flex;
+		min-height: 0;
+		flex: 1;
+		flex-direction: column;
+	}
+	.dock .pane {
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
+	}
+	.dock .pane-column {
+		padding: 8px 12px 32px;
+	}
+	/* A side thread in the list: the status dot leads the row. Running
+	 * breathes in the accent, waiting on you is the warning colour, parked is
+	 * a ring, archived is dim. */
+	.dock-row {
+		align-items: flex-start;
+	}
+	.dock-dot {
+		flex-shrink: 0;
+		width: 8px;
+		height: 8px;
+		margin-top: 6px;
+		border-radius: 50%;
+		background: var(--ink-4);
+	}
+	.dock-dot[data-state="running"] {
+		background: var(--accent);
+	}
+	.dock-dot[data-state="waiting"] {
+		background: var(--warn);
+	}
+	.dock-dot[data-state="idle"] {
+		background: var(--ink-2);
+	}
+	.dock-dot[data-state="parked"] {
+		background: none;
+		box-shadow: inset 0 0 0 1.5px var(--ink-3);
+	}
 	/* A turn's work floats in the window's corner, over the conversation
 	 * rather than beside it: a translucent card you glance at and close,
 	 * with the steps in the instrument voice, following the newest. */
@@ -2010,14 +2098,6 @@
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line);
-	}
-	/* A side thread is a conversation, not a glance: taller, and its composer
-	 * sits inside the card under the window. */
-	.work-float.work-side {
-		height: min(560px, calc(100% - 68px));
-	}
-	.work-float.work-side.work-docked {
-		height: min(420px, 60vh);
 	}
 	.work-window {
 		min-height: 0;

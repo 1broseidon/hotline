@@ -64,6 +64,7 @@ export function Conversation({
 	onOpenThread,
 	onOpenSubagent,
 	onOpenSide,
+	onOpenSideList,
 	onOpenWork,
 	workOpen,
 	runOpen,
@@ -94,15 +95,17 @@ export function Conversation({
 	onOpenThread(thread: OpenThread): void;
 	/** Opens a subagent's run in the work card. */
 	onOpenSubagent(run: { runId: string; title: string }): void;
-	/** Opens a side thread in the work card. */
+	/** Opens a side thread in the right-hand pane. */
 	onOpenSide(side: { sideId: string; title: string }): void;
+	/** Opens the right-hand pane on this teammate's list of side threads. */
+	onOpenSideList(): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
 	/** Which subagent's run is open in the work card, if any. */
 	runOpen: string | undefined;
-	/** Which side thread is open in the work card, if any. */
+	/** Which side thread is open in the right-hand pane, if any. */
 	sideOpen: string | undefined;
 	/** The work card, docked under the composer when the window is too narrow for it to float. */
 	dock?: ReactNode;
@@ -322,6 +325,7 @@ export function Conversation({
 			detail: `Another topic with ${persona.name}, in parallel`,
 			onSelect: () => setRefill({ text: "/side ", attachments: [], nonce: Date.now() }),
 		},
+		{ kind: "item", id: "side-list", text: "Side threads", detail: "Running, parked and archived", onSelect: onOpenSideList },
 		{ kind: "item", id: "reveal", text: onServer() ? "Show working directory on the server" : "Reveal working directory", onSelect: () => showPath(persona.cwd) },
 		{ kind: "rule" },
 		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },

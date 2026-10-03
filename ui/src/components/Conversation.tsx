@@ -16,7 +16,7 @@ import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
 import { Starters, untouched } from "./Starters";
 import type { OpenThread } from "./Thread";
-import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
+import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type SideEvent, type SubagentEvent, type ThreadRef } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -33,6 +33,17 @@ import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyT
  */
 /** A message on screen before the core has written it down. */
 type Saying = { text: string; at: number; replyTo?: string };
+
+/**
+ * `/side <task>` in the composer starts a side thread instead of saying
+ * something: a second conversation with this teammate, for another task,
+ * while it is busy with the first. `null` when the words are not that
+ * command; an empty task when there is none after it.
+ */
+export function sideCommand(text: string): { task: string } | null {
+	const found = /^\/side(?:\s+([\s\S]*))?$/i.exec(text.trim());
+	return found === null ? null : { task: (found[1] ?? "").trim() };
+}
 
 /** The words and files a refused send hands back to the composer. */
 export type Refill = { text: string; attachments: Attachment[]; nonce: number };
@@ -52,9 +63,11 @@ export function Conversation({
 	onPick,
 	onOpenThread,
 	onOpenSubagent,
+	onOpenSide,
 	onOpenWork,
 	workOpen,
 	runOpen,
+	sideOpen,
 	dock,
 	models,
 	onSaid,
@@ -81,17 +94,22 @@ export function Conversation({
 	onOpenThread(thread: OpenThread): void;
 	/** Opens a subagent's run in the work card. */
 	onOpenSubagent(run: { runId: string; title: string }): void;
+	/** Opens a side thread in the work card. */
+	onOpenSide(side: { sideId: string; title: string }): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
 	/** Which subagent's run is open in the work card, if any. */
 	runOpen: string | undefined;
+	/** Which side thread is open in the work card, if any. */
+	sideOpen: string | undefined;
 	/** The work card, docked under the composer when the window is too narrow for it to float. */
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
 	const subagents = entry.subagents ?? [];
+	const sides = entry.sides ?? [];
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useTape(personaId);
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
@@ -106,8 +124,32 @@ export function Conversation({
 	const [refused, setRefused] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
+	/* A side thread starts on its own; nothing about it touches the main
+	 * conversation's line or session. A refusal hands the words back. */
+	const startSide = useCallback(
+		(text: string, task: string, attachments: Attachment[]) => {
+			const at = Date.now();
+			const refuse = (sentence: string) => {
+				setRefill({ text, attachments, nonce: at });
+				setRefused(sentence);
+			};
+			if (task === "") return refuse("Say what the side thread is for, like /side fix the CI badge.");
+			if (attachments.length > 0) return refuse("Start the side thread first, then attach files inside it.");
+			setRefused(null);
+			void wire.command("side.start", { personaId, text: task }).then(
+				(summary) => onOpenSide({ sideId: summary.sideId, title: summary.title }),
+				(error: unknown) => refuse(error instanceof Error ? error.message : String(error)),
+			);
+		},
+		[personaId, onOpenSide],
+	);
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
+			const side = sideCommand(text);
+			if (side !== null) {
+				startSide(text, side.task, attachments);
+				return;
+			}
 			const answered = replying;
 			const at = Date.now();
 			setSaying({ text, at, ...(answered ? { replyTo: answered.eventId } : {}) });
@@ -141,7 +183,7 @@ export function Conversation({
 					},
 				);
 		},
-		[personaId, replying, session.state],
+		[personaId, replying, session.state, startSide],
 	);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */
@@ -241,6 +283,7 @@ export function Conversation({
 		[onOpenThread],
 	);
 	const openSubagentOf = useCallback((event: SubagentEvent) => onOpenSubagent({ runId: event.runId, title: event.title }), [onOpenSubagent]);
+	const openSideOf = useCallback((event: SideEvent) => onOpenSide({ sideId: event.sideId, title: event.title }), [onOpenSide]);
 	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
@@ -271,6 +314,14 @@ export function Conversation({
 			detail: resumeBlocked ?? "The chapter immediately before this one",
 			disabled: chapterBusy || resumeBlocked !== null,
 			onSelect: resumeChapter,
+		},
+		{
+			kind: "item",
+			id: "side",
+			text: "Start a side thread",
+			detail: sides.length >= 2 ? "Two are already going" : `Another task with ${persona.name}, in parallel`,
+			disabled: sides.length >= 2,
+			onSelect: () => setRefill({ text: "/side ", attachments: [], nonce: Date.now() }),
 		},
 		{ kind: "item", id: "reveal", text: onServer() ? "Show working directory on the server" : "Reveal working directory", onSelect: () => showPath(persona.cwd) },
 		{ kind: "rule" },
@@ -353,6 +404,38 @@ export function Conversation({
 					</MenuButton>
 				) : null}
 
+				{/* Side threads still live: a chip each, next to the subagents.
+				 * They leave the band when archived; the conversation's own line
+				 * keeps what came of each. */}
+				{sides.length === 1 ? (
+					<button
+						type="button"
+						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
+						title="Open the side thread"
+						aria-label={`Side thread: ${sides[0]!.title}`}
+						aria-pressed={sideOpen === sides[0]!.sideId}
+						onClick={() => onOpenSide({ sideId: sides[0]!.sideId, title: sides[0]!.title })}
+					>
+						<span className="truncate">{narrow ? "Side" : `Side: ${sides[0]!.title}`}</span>
+						{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					</button>
+				) : sides.length > 1 ? (
+					<MenuButton
+						className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
+						label={`${sides.length} side threads`}
+						entries={sides.map((side) => ({
+							kind: "item",
+							id: side.sideId,
+							text: side.title,
+							checked: sideOpen === side.sideId,
+							onSelect: () => onOpenSide({ sideId: side.sideId, title: side.title }),
+						}))}
+					>
+						{`${sides.length} side threads`}
+						{sides.some((side) => side.working) && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					</MenuButton>
+				) : null}
+
 				{jobs.length > 0 && !narrow && (
 					<button
 						type="button"
@@ -424,6 +507,7 @@ export function Conversation({
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={openThreadOf}
 					onOpenSubagent={openSubagentOf}
+					onOpenSide={openSideOf}
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 				/>

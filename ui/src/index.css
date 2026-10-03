@@ -2011,6 +2011,14 @@
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line);
 	}
+	/* A side thread is a conversation, not a glance: taller, and its composer
+	 * sits inside the card under the window. */
+	.work-float.work-side {
+		height: min(560px, calc(100% - 68px));
+	}
+	.work-float.work-side.work-docked {
+		height: min(420px, 60vh);
+	}
 	.work-window {
 		min-height: 0;
 		flex: 1;

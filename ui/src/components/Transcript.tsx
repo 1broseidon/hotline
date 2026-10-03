@@ -78,6 +78,7 @@ export function Transcript({
 	onRetryMessage,
 	onOpenThread,
 	onOpenSubagent,
+	onOpenSide,
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
@@ -102,6 +103,8 @@ export function Transcript({
 	onRetryMessage?(message: Extract<TranscriptEvent, { kind: "user" }>): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
+	/** Opens a side thread's card from its line. */
+	onOpenSide?(event: SideEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
 	/**
@@ -327,6 +330,7 @@ export function Transcript({
 									{...(onReact !== undefined ? { onReact } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenSubagent !== undefined ? { onOpenSubagent } : {})}
+									{...(onOpenSide !== undefined ? { onOpenSide } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
 									onJump={onJump}
 								/>
@@ -638,6 +642,7 @@ const Row = memo(function Row({
 	onRetry,
 	onOpenThread,
 	onOpenSubagent,
+	onOpenSide,
 	onOpenScreen,
 	onJump,
 }: {
@@ -657,6 +662,8 @@ const Row = memo(function Row({
 	onReact?(target: ReactTarget, emoji: string): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenSubagent?(event: SubagentEvent): void;
+	/** Opens a side thread's card from its line. */
+	onOpenSide?(event: SideEvent): void;
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;
 }) {
@@ -797,6 +804,24 @@ const Row = memo(function Row({
 				</button>
 			);
 
+		/* A side thread the person started beside this conversation: one quiet
+		 * line, "Started a side thread" while it runs, a one-line result once
+		 * it is archived. Either way it opens the thread in the work card. */
+		case "side": {
+			const line = sideLine(event);
+			return (
+				<button
+					type="button"
+					className="rule-line rule-line-plain w-full"
+					aria-label={`${line.text}. Open the side thread`}
+					onClick={() => onOpenSide?.(event)}
+				>
+					<span className="min-w-0 truncate">{line.text}</span>
+					<span className="shrink-0">· Open</span>
+				</button>
+			);
+		}
+
 		case "computer_frame":
 			return <ComputerFrame dataUrl={event.dataUrl} />;
 
@@ -808,6 +833,19 @@ const Row = memo(function Row({
 });
 
 export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
+export type SideEvent = Extract<TranscriptEvent, { kind: "side" }>;
+
+/**
+ * What a side thread's line in the conversation says: while it runs, that it
+ * started; once archived, what came of it in one line, and how it ended when
+ * nobody said it was done.
+ */
+export function sideLine(event: SideEvent): { text: string } {
+	if (event.status === "live") return { text: `Started a side thread · ${event.title}` };
+	const ending = event.archivedBy === "stopped" ? "stopped" : event.archivedBy === "idle" ? "archived, idle" : "";
+	const said = event.result !== undefined && event.result !== "" ? event.result : `${event.title} · archived`;
+	return { text: `Side thread · ${said}${ending !== "" && event.result !== undefined ? ` · ${ending}` : ""}` };
+}
 
 /** What opens a thread: a peer marker is one, and a delivery names one. */
 export type ThreadRef = {

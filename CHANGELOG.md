@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- While a teammate is busy, you can start a side thread with the same
+  teammate for another task: type `/side <task>` in the composer, or choose
+  "Start a side thread" under More. It runs in parallel in its own context, you
+  chat with the teammate in it from the work card, and it archives when the
+  teammate says it is done, when you press Archive, or after a few hours of
+  quiet. A chip next to the subagents shows it while it runs, the conversation
+  keeps a one-line result with Open, and archived threads are listed under the
+  teammate's Threads and found by `search_thread`. A teammate can have two at a
+  time, and they never have its computer.
+
 ## [0.31.1] - 2026-10-02
 
 ### Added

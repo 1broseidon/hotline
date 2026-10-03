@@ -32,6 +32,7 @@ import type {
 	ScheduledJob,
 	SessionInfo,
 	SharedSecret,
+	SideThreadSummary,
 	SkillEntry,
 	StreamDelta,
 	Target,
@@ -190,6 +191,14 @@ type Results = {
 	"schedule.cancel": null;
 	"schedule.set_quiet": null;
 	"peers.list": PeerThreadSummary[];
+	/** The new thread, already running its first turn. */
+	"side.start": SideThreadSummary;
+	"side.prompt": null;
+	"side.cancel": null;
+	"side.archive": null;
+	/** Live threads first, then archived ones, newest first. */
+	"side.list": SideThreadSummary[];
+	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
 	"computer.capacity": ComputerCapacity;

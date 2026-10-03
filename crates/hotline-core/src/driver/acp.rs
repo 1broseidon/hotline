@@ -135,7 +135,7 @@ const PERMISSION_VERBS: &[(&str, &str)] = &[
 ];
 
 /// The marker that says a file in a teammate's workspace is Hotline's to rewrite.
-const MANAGED_MARKER: &str = "<!-- managed by Hotline -->";
+pub(crate) const MANAGED_MARKER: &str = "<!-- managed by Hotline -->";
 
 /// Writes the teammate's identity where the agent will read it.
 ///

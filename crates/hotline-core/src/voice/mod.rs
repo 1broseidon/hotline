@@ -1,6 +1,7 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
+pub mod exchange;
 pub mod ledger;
 pub mod metering;
 pub mod settings;
@@ -13,6 +14,7 @@ use crate::contract::{
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use dispatcher::{Context, Dispatcher, Front, ProviderDispatcher};
+use exchange::{Exchange, Speaker};
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
 use settings::VoiceSettings;
@@ -154,6 +156,9 @@ struct Call {
     /// voice answers some turns itself, so a reply can belong to an earlier
     /// turn than the latest.
     handed: Arc<Mutex<VecDeque<u32>>>,
+    /// What was said on a direct call, which its voice converses from and
+    /// its session is told.
+    exchange: Arc<Mutex<Exchange>>,
 }
 
 impl Call {
@@ -402,6 +407,7 @@ impl Calls {
                 utterance_pending: false,
                 first_clip_started: None,
                 handed: Arc::default(),
+                exchange: Arc::default(),
             });
             let this = self.clone();
             let id = id.to_string();
@@ -1241,13 +1247,24 @@ impl Calls {
             .into_iter()
             .find(|persona| persona.id == target)
             .ok_or("That teammate is no longer in the room.")?;
-        let (work, notices, handed) = self.change(id, |call| {
+        let (work, notices, handed, exchange) = self.change(id, |call| {
             Ok((
                 call.work.clone(),
                 call.deliveries.clone(),
                 call.handed.clone(),
+                call.exchange.clone(),
             ))
         })?;
+        // What was said before this turn is the voice's conversation and, for
+        // a handoff, what its session has not been told. The person's words
+        // join the call's record now, so a reply that is never spoken still
+        // leaves them remembered.
+        let (earlier, unseen) = {
+            let mut exchange = lock(&exchange);
+            let earlier = (exchange.lines(), exchange.unseen());
+            exchange.push(Speaker::Person, &text);
+            earlier
+        };
         let handed_off = Arc::new(std::sync::atomic::AtomicBool::new(false));
         // Read here, in the call's scope: the voice may run its tool elsewhere.
         let client = crate::wire::commands::prompt_client();
@@ -1258,10 +1275,13 @@ impl Calls {
             let name = persona.name.clone();
             let text = text.clone();
             let cancel = context.cancel.clone();
+            let exchange = exchange.clone();
+            let preamble = exchange::handoff_preamble(&unseen);
             Arc::new(move || {
                 if handed_off.swap(true, Ordering::SeqCst) {
                     return Ok(serde_json::json!({"status": "already handed"}));
                 }
+                lock(&exchange).told();
                 {
                     let mut handed = lock(&handed);
                     if handed.len() >= 16 {
@@ -1277,6 +1297,7 @@ impl Calls {
                 let cancel = cancel.clone();
                 let work = work.clone();
                 let notices = notices.clone();
+                let preamble = preamble.clone();
                 // Accepted work outlives what the voice says about it; only
                 // the call ending stops a handoff still waiting to land.
                 tokio::spawn(async move {
@@ -1287,8 +1308,11 @@ impl Calls {
                             .map_err(|_| "The teammate did not start in time.".to_string())??;
                         let prompt = crate::wire::commands::VOICE_COMMAND.scope(
                             (),
-                            crate::wire::commands::CALL_ORIGIN
-                                .scope(origin, room.prompt(&target, &text, None, None)),
+                            crate::wire::commands::CALL_ORIGIN.scope(
+                                origin,
+                                crate::wire::commands::CALL_HEARD
+                                    .scope(preamble, room.prompt(&target, &text, None, None)),
+                            ),
                         );
                         let prompt = async move {
                             match client {
@@ -1331,6 +1355,15 @@ impl Calls {
                 crate::contract::SessionState::Thinking | crate::contract::SessionState::Starting
             ),
             recent: recent(&self.log, target),
+            call: earlier,
+            standing: {
+                let cwd = persona.cwd.clone();
+                tokio::task::spawn_blocking(move || workspace_instructions(&cwd))
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            note: chapter_note(&self.log, target),
             hand_off: hand_off.clone(),
         };
         let (output, mut answers) = mpsc::channel(8);
@@ -1485,7 +1518,8 @@ impl Calls {
             self.push(delivery, &delivery.text);
             return Ok(());
         }
-        self.say(id, &text, speech, &context.cancel).await
+        self.say_as(id, &text, Speaker::Relayed, speech, &context.cancel)
+            .await
     }
 
     fn record(&self, kind: &str, text: &str) -> Result<String, String> {
@@ -1539,12 +1573,30 @@ impl Calls {
         interrupted: &CancellationToken,
         ended: &CancellationToken,
     ) -> Result<(), String> {
+        self.say_as(id, text, Speaker::Voice, interrupted, ended)
+            .await
+    }
+
+    /// Speaks a line, and on a direct call remembers it as `speaker`'s.
+    async fn say_as(
+        &self,
+        id: &str,
+        text: &str,
+        speaker: Speaker,
+        interrupted: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
         let sentences = sentences(text);
         if sentences.is_empty() {
             return Err("The dispatcher returned no words.".into());
         }
         let text = sentences.join(" ");
-        let line = if self.change(id, |call| Ok(call.target.is_some()))? {
+        let line = if self.change(id, |call| {
+            if call.target.is_some() {
+                lock(&call.exchange).push(speaker, &text);
+            }
+            Ok(call.target.is_some())
+        })? {
             Uuid::new_v4().to_string()
         } else {
             self.record("agent", &text)?
@@ -1875,7 +1927,10 @@ impl Calls {
 }
 
 /// A teammate's conversation as its voice reads it: the newest lines first,
-/// each cut short, with tool steps as their titles.
+/// each cut short, with tool steps as their titles. A line is called a user's
+/// only when the person said it: a schedule's prompt, a colleague's message
+/// and an answer that came back are named for what they are, so the voice
+/// never takes them for the person's words.
 fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
     let clip = |text: &str| text.chars().take(600).collect::<String>();
     log.load(&crate::log::StreamId::Tape(persona.into()))
@@ -1884,8 +1939,30 @@ fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
         .filter_map(|event| {
             let kind = event["kind"].as_str()?.to_string();
             match kind.as_str() {
+                "user" if event.get("scheduled").is_some_and(|run| !run.is_null()) => {
+                    Some(serde_json::json!({
+                        "kind": "scheduled prompt",
+                        "job": clip(event["scheduled"]["name"].as_str().unwrap_or_default()),
+                        "text": clip(event["text"].as_str()?),
+                    }))
+                }
                 "user" | "agent" => {
                     Some(serde_json::json!({"kind": kind, "text": clip(event["text"].as_str()?)}))
+                }
+                "delivery" => {
+                    let cause = &event["cause"];
+                    let from = clip(cause["name"].as_str().unwrap_or_default());
+                    let (kind, from) = match cause["kind"].as_str() {
+                        Some("peer") => ("message from a teammate", Some(from)),
+                        Some("handoff") => ("work handed over by a teammate", Some(from)),
+                        Some("answer") => ("the person's answer to a request", None),
+                        _ => ("delivery", None),
+                    };
+                    Some(serde_json::json!({
+                        "kind": kind,
+                        "from": from,
+                        "text": clip(event["text"].as_str().unwrap_or_default()),
+                    }))
                 }
                 "tool" => Some(serde_json::json!({
                     "kind": "step",
@@ -1898,6 +1975,53 @@ fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
         })
         .take(24)
         .collect()
+}
+
+/// The workspace's own `AGENTS.md`, when a person wrote it: the standing
+/// instructions of the project the teammate works in. The one Hotline writes
+/// holds only the name and goal the voice is already given, and a link out of
+/// the workspace is never followed.
+fn workspace_instructions(cwd: &str) -> Option<String> {
+    use std::io::Read;
+    let path = std::path::Path::new(cwd).join("AGENTS.md");
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&path)
+        .ok()?
+        .take(32_768)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let text = text.trim();
+    if text.is_empty() || text.starts_with(crate::driver::acp::MANAGED_MARKER) {
+        return None;
+    }
+    Some(text.chars().take(4_000).collect())
+}
+
+/// What the teammate's last handoff note says: the open chapter's, which a
+/// reopened chapter carries, else the one that just ended.
+fn chapter_note(log: &Log, persona: &str) -> Option<String> {
+    use crate::store::chapters;
+    let events = log.load(&crate::log::StreamId::Tape(persona.into()));
+    let noted = |chapter: &&serde_json::Value| {
+        chapter["note"]
+            .as_str()
+            .is_some_and(|note| !note.trim().is_empty())
+    };
+    let chapter = chapters::open_chapter(&events)
+        .filter(noted)
+        .or_else(|| chapters::previous_chapter(&events).filter(noted))?;
+    let note = chapter["note"].as_str()?.trim();
+    let note: String = note.chars().take(1_500).collect();
+    Some(
+        match chapter["title"].as_str().filter(|title| !title.is_empty()) {
+            Some(title) => format!("{title}: {note}"),
+            None => note,
+        },
+    )
 }
 
 fn speech_ready(text: &str) -> bool {

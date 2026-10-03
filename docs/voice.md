@@ -131,10 +131,12 @@ owner did not choose. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
 `dispatcher` names the chat model that routes what was said. Without it the
-desk takes the quickest chat model of the room's default provider: a model whose
-id says `tts`, `embed`, `whisper`, `transcribe`, `image` or `audio` is never
+desk takes the best-suited quick chat model of the room's default provider: a
+middle-tier one (`flash`, `mini`, `small`, `fast`) first, because the lightest
+tier (`flash-lite`, `nano`, `luna`, `haiku`, `instant`) is too thin to hold a
+conversation, then a light one, then any other. A model whose id says `tts`, `embed`, `whisper`, `transcribe`, `image` or `audio` is never
 picked, because a gateway lists those beside its chat models. `provider` alone
-picks that provider's quickest; `model` is taken as given. A provider that is
+picks by the same order within that provider; `model` is taken as given. A provider that is
 not connected is an error, like the speech choices above.
 
 A direct teammate call resolves speech and budget without the dispatcher.
@@ -148,15 +150,26 @@ while a desk text call also needs the dispatcher.
 
 When the dispatcher is ready, a direct call answers in the teammate's own
 voice before the teammate does anything. The dispatcher's model speaks as the
-teammate, in the first person, from the teammate's name, goal, whether it is
-working, and the newest 24 entries of its conversation. A question about how
-the work is going is answered from that conversation and reaches no session.
+teammate, in the first person, and converses: the system prompt carries the
+teammate's name and goal and the workspace's own `AGENTS.md` when a person
+wrote one (up to 4000 characters; the file Hotline writes is skipped, and a
+linked file is never followed). The call's own exchange (what the person said,
+what the voice said, and the reports it relayed; the newest 30 lines) is sent as
+real user and assistant turns, so the voice keeps the thread of the call. Each
+message also carries, as data, whether the teammate is working, the note its
+latest chapter closed with and the newest 24 entries of its conversation. A
+scheduled prompt, a colleague's message or an answer to a request is named for
+what it is in that data, never as something the person said. A question about
+how the work is going is answered from that and reaches no session.
 A request for work calls the front's one tool, `hand_to_session`, which hands
-the words to the teammate's session exactly as a call without a front would,
-at most once per utterance; the front then says a short acknowledgement. The
-front never claims work is done and never answers an approval. If the front
-fails before it decides, the words are handed over unchanged. A handoff that
-cannot start the teammate or reach its session is reported on the call.
+the words to the teammate's session as a call without a front would, at most
+once per utterance; the front then says a short acknowledgement. The session
+hears the call lines it has not yet been told (the person's and the voice's,
+not its own relayed reports) ahead of the person's exact words, framed as the
+call's; the conversation shows only the words. The front never claims work is
+done and never answers an approval. If the front fails before it decides, the
+words are handed over unchanged. A handoff that cannot start the teammate or
+reach its session is reported on the call.
 
 While the front speaks for the call, the teammate's own interim
 acknowledgements are not spoken, nor a turn that ends on a bare one; its

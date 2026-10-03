@@ -2274,7 +2274,12 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    text: text.to_string(),
+                    // A voice call's earlier lines are for the agent alone;
+                    // the conversation shows only what the person said.
+                    text: match crate::wire::commands::call_heard() {
+                        Some(heard) => format!("{heard}\n{text}"),
+                        None => text.to_string(),
+                    },
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,
                     steer: !crate::wire::commands::from_voice()

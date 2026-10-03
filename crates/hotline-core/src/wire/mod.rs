@@ -1805,7 +1805,12 @@ fn send(sender: &Outbox, frame: Value) -> bool {
 
 /// One roster row, joined out of the room stream, the tape's tail and the
 /// live session.
-fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract::Persona) -> Value {
+fn roster_entry(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona: crate::contract::Persona,
+    pins: &[String],
+) -> Value {
     let tail = previews::tail(log.root(), &persona.id);
     let preview: Option<Preview> = previews::preview_reaching(log.root(), &persona.id, &tail)
         .and_then(|preview| serde_json::from_value(preview).ok());
@@ -1815,6 +1820,10 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
         activity: activity_on(&tail, &session),
         waiting: waiting_on(&tail),
         drawing: room.drawing(&persona.id),
+        pin: pins
+            .iter()
+            .position(|pin| *pin == persona.id)
+            .and_then(|slot| u8::try_from(slot).ok()),
         subagents: room.subagents(&persona.id),
         session,
         preview,

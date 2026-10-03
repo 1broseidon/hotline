@@ -1109,6 +1109,118 @@ async fn the_roster_is_one_row_per_living_teammate_and_a_tombstone_takes_one_awa
 }
 
 #[tokio::test]
+async fn pinning_orders_the_desks_pins_and_the_roster_rows_carry_their_slot() {
+    let (_root, log, port) = door("pins");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    let cy = create(&mut socket, 3, "Cy").await;
+    let di = create(&mut socket, 4, "Di").await;
+
+    ask(&mut socket, json!({ "id": 5, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert!(snapshot["snapshot"][0]["pin"].is_null(), "{snapshot}");
+
+    let pin = |id: i64, who: &Value, slot: Value| json!({ "id": id, "cmd": "persona.pin", "params": { "id": who["id"], "slot": slot } });
+    ask(&mut socket, pin(6, &ada, json!(0))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 6).await["result"],
+        json!([ada["id"]])
+    );
+    let row = heard_where(&mut socket, |f| f["event"]["persona"]["id"] == ada["id"]).await;
+    assert_eq!(row["event"]["pin"], 0, "{row}");
+
+    // Inserting at a slot shifts the rest along; a slot past the end appends.
+    ask(&mut socket, pin(7, &bob, json!(0))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 7).await["result"],
+        json!([bob["id"], ada["id"]])
+    );
+    let row = heard_where(&mut socket, |f| {
+        f["event"]["persona"]["id"] == ada["id"] && f["event"]["pin"] == 1
+    })
+    .await;
+    assert_eq!(row["event"]["pin"], 1, "{row}");
+    ask(&mut socket, pin(8, &cy, json!(9))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 8).await["result"],
+        json!([bob["id"], ada["id"], cy["id"]])
+    );
+
+    // A fourth is refused and says why; moving a pinned one is not a fourth.
+    ask(&mut socket, pin(9, &di, json!(0))).await;
+    let refused = heard_where(&mut socket, |f| f["id"] == 9).await;
+    assert_eq!(refused["ok"], false);
+    assert_eq!(
+        refused["error"],
+        "A desk pins up to 3 teammates. Unpin one first."
+    );
+    ask(&mut socket, pin(10, &cy, json!(0))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 10).await["result"],
+        json!([cy["id"], bob["id"], ada["id"]])
+    );
+
+    ask(&mut socket, pin(11, &bob, Value::Null)).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 11).await["result"],
+        json!([cy["id"], ada["id"]])
+    );
+    let row = heard_where(&mut socket, |f| {
+        f["event"]["persona"]["id"] == bob["id"] && f["event"]["pin"].is_null()
+    })
+    .await;
+    assert!(row["event"]["pin"].is_null(), "{row}");
+    assert_eq!(
+        room::pinned_teammates(&log),
+        vec![cy["id"].as_str().unwrap(), ada["id"].as_str().unwrap()]
+    );
+
+    ask(&mut socket, pin(12, &json!({ "id": "nobody" }), json!(0))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 12).await["error"],
+        "There is no teammate nobody."
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_pinned_teammate_frees_its_slot() {
+    let (_root, log, port) = door("pins-delete");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    for (id, who) in [(3, &ada), (4, &bob)] {
+        ask(
+            &mut socket,
+            json!({ "id": id, "cmd": "persona.pin", "params": { "id": who["id"], "slot": 9 } }),
+        )
+        .await;
+        assert_eq!(
+            heard_where(&mut socket, |f| f["id"] == id).await["ok"],
+            true
+        );
+    }
+    ask(
+        &mut socket,
+        json!({ "id": 5, "cmd": "persona.delete", "params": { "id": ada["id"] } }),
+    )
+    .await;
+    assert_eq!(heard_where(&mut socket, |f| f["id"] == 5).await["ok"], true);
+    assert_eq!(room::settings(&log)["pinnedTeammates"], json!([bob["id"]]));
+}
+
+#[test]
+fn only_a_desk_or_owner_seat_may_pin() {
+    let pin = Command::PersonaPin {
+        id: "ada".to_string(),
+        slot: Some(0),
+    };
+    assert!(Seat::Desk.permits(&pin));
+    assert!(Seat::Owner.permits(&pin));
+    assert!(!Seat::Phone.permits(&pin));
+}
+
+#[tokio::test]
 async fn a_line_in_a_tape_is_the_rosters_preview_of_that_teammate() {
     let (_root, log, port) = door("roster-preview");
     let mut socket = desk(port).await;

@@ -1698,6 +1698,10 @@ pub struct SideThreadSummary {
     pub working: bool,
     /// A permission card in the thread is waiting for an answer.
     pub waiting: bool,
+    /// The newest thing said in the thread, in a line: the teammate's last
+    /// words, or what the person asked when it has said none yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -143,7 +143,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
 | `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
-| `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first |
+| `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only for every seat |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |

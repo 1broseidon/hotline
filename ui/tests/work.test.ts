@@ -39,15 +39,7 @@ describe("pressing what opened a card", () => {
 	});
 });
 
-describe("a side thread in the work card", () => {
-	test("is the same work only for the same side thread", () => {
-		const side = (sideId: string) => ({ personaId: "p", sideId, title: "t" });
-		expect(sameWork(side("s1"), side("s1"))).toBe(true);
-		expect(sameWork(side("s1"), side("s2"))).toBe(false);
-		expect(sameWork(side("s1"), { personaId: "p", runId: "s1", title: "t" })).toBe(false);
-		expect(sameWork({ personaId: "p", blockId: null }, side("s1"))).toBe(false);
-	});
-
+describe("a side thread's lines", () => {
 	test("shows what the person said, steps between words, cards, and what is still arriving", () => {
 		const pieces = sidePieces(
 			[

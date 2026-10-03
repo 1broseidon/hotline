@@ -1,12 +1,10 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Attachment, RunningSide, TranscriptEvent } from "../generated/contract";
+import type { TranscriptEvent } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowDownIcon, CloseIcon } from "../icons";
-import { carry } from "../serverFiles";
-import { type Streaming, useRun, useSide, useTape } from "../tape";
+import { type Streaming, useRun, useTape } from "../tape";
 import { Band } from "../ui/Band";
 import { wire } from "../wire";
-import { Composer } from "./Composer";
 import { Markdown } from "./Markdown";
 import { runEnding, type Step, StepRows, stepRuns, stepsSummary, subagentState, type SubagentEvent } from "./Transcript";
 
@@ -16,12 +14,10 @@ import { runEnding, type Step, StepRows, stepRuns, stepsSummary, subagentState, 
  */
 export type OpenWork =
 	| { personaId: string; blockId: string | null }
-	| { personaId: string; runId: string; title: string }
-	| { personaId: string; sideId: string; title: string };
+	| { personaId: string; runId: string; title: string };
 
 /** The same work: pressing what opened a card, with it open, closes it. */
 export function sameWork(a: OpenWork, b: OpenWork): boolean {
-	if ("sideId" in a) return "sideId" in b && a.sideId === b.sideId;
 	if ("runId" in a) return "runId" in b && a.runId === b.runId;
 	return "blockId" in b && a.blockId === b.blockId;
 }
@@ -46,12 +42,9 @@ export function Work(props: {
 	live: boolean;
 	/** Under the composer rather than floating over the conversation. */
 	docked?: boolean;
-	/** The teammate's live side threads, for whether the open one is working. */
-	sides?: RunningSide[];
 	onClose(): void;
 }) {
-	const { open, sides = [], ...rest } = props;
-	if ("sideId" in open) return <SideWork key={open.sideId} open={open} working={sides.find((one) => one.sideId === open.sideId)?.working ?? false} {...rest} />;
+	const { open, ...rest } = props;
 	return "runId" in open ? <RunWork open={open} {...rest} /> : <TurnWork open={open} {...rest} />;
 }
 
@@ -147,124 +140,10 @@ function RunWork({
 	);
 }
 
-/**
- * A side thread: the same teammate in a second conversation, in the card.
- * What the person said, what the teammate said and did, and below it a
- * composer, because unlike a run this one is answerable. A parked thread is
- * answerable too: saying something in it brings its agent back. Archive ends
- * it; once archived the card is the thread, read-only, with a Continue where
- * the composer was.
- */
-function SideWork({
-	open,
-	name,
-	working,
-	docked = false,
-	onClose,
-}: {
-	open: { personaId: string; sideId: string; title: string };
-	name: string;
-	/** A turn of this thread is running, as the roster says. */
-	working: boolean;
-	docked?: boolean;
-	onClose(): void;
-}) {
-	const { events, streaming, loaded } = useSide(open.sideId);
-	const marker = events.find((event): event is Extract<TranscriptEvent, { kind: "side" }> => event.kind === "side");
-	const archived = marker?.status === "archived";
-	const parked = marker?.status === "parked";
-	const title = marker?.title ?? open.title;
-	const pieces = sidePieces(events, streaming);
-	const [refused, setRefused] = useState<string | null>(null);
-
-	const send = (text: string, attachments: Attachment[]) => {
-		setRefused(null);
-		void carry(attachments)
-			.then((carried) => wire.command("side.prompt", { sideId: open.sideId, text, ...(carried.length > 0 ? { attachments: carried } : {}) }))
-			.catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
-	};
-	const archive = () => {
-		setRefused(null);
-		void wire.command("side.archive", { sideId: open.sideId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
-	};
-	const resume = () => {
-		setRefused(null);
-		void wire.command("side.continue", { sideId: open.sideId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
-	};
-
-	return (
-		<WorkCard
-			label={`Side thread with ${name}: ${title}`}
-			heading={title}
-			working={working && !archived}
-			detail={archived ? "archived" : working ? "working" : parked ? "parked" : "side thread"}
-			docked={docked}
-			tall
-			following={open.sideId}
-			count={events.length + streaming.length}
-			onClose={onClose}
-			actions={
-				archived ? (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Bring this side thread back, with what it remembers" onClick={resume}>
-						Continue
-					</button>
-				) : (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Archive this side thread" onClick={archive}>
-						Archive
-					</button>
-				)
-			}
-			footer={
-				archived ? (
-					<>
-						{marker?.result !== undefined && <p className="work-notice selectable">{marker.result}</p>}
-						{refused !== null && <p className="work-notice selectable">{refused}</p>}
-					</>
-				) : (
-					<>
-						{refused !== null && <p className="work-notice selectable">{refused}</p>}
-						<Composer
-							embedded
-							personaId={open.sideId}
-							name={name}
-							state={working ? "thinking" : "ready"}
-							replyQuote={null}
-							onSend={send}
-							onCancel={() => void wire.command("side.cancel", { sideId: open.sideId }).catch(() => undefined)}
-							onClearReply={() => undefined}
-						/>
-					</>
-				)
-			}
-		>
-			{pieces.map((piece) =>
-				piece.kind === "steps" ? (
-					<StepRows key={piece.id} items={piece.items} settled={!working || archived} />
-				) : piece.kind === "said" ? (
-					<div key={piece.id} className="work-said selectable">
-						<Markdown text={piece.text} />
-					</div>
-				) : piece.kind === "person" ? (
-					<p key={piece.id} className="work-task selectable">
-						{piece.text}
-					</p>
-				) : piece.kind === "permission" ? (
-					<SideAsk key={piece.id} sideId={open.sideId} event={piece.event} />
-				) : (
-					<p key={piece.id} className="work-notice selectable">
-						{piece.text}
-					</p>
-				),
-			)}
-			{pieces.length === 0 && !archived && <p className="work-empty">{loaded ? `${name} is getting started.` : ""}</p>}
-		</WorkCard>
-	);
-}
-
 type PermissionEvent = Extract<TranscriptEvent, { kind: "permission" }>;
 
 /** A permission card raised inside a side thread: answered by side id. */
-function SideAsk({ sideId, event }: { sideId: string; event: PermissionEvent }) {
+export function SideAsk({ sideId, event }: { sideId: string; event: PermissionEvent }) {
 	const [failed, setFailed] = useState<string | null>(null);
 	if (event.decision !== undefined) {
 		return <p className="work-notice selectable">{`${event.title} · ${event.decidedOptionName ?? event.decision}`}</p>;
@@ -293,10 +172,33 @@ function SideAsk({ sideId, event }: { sideId: string; event: PermissionEvent }) 
 	);
 }
 
+/** A side thread's lines, drawn the way the work card draws a run's. */
+export function SidePieceRows({ sideId, pieces, settled }: { sideId: string; pieces: SidePiece[]; settled: boolean }) {
+	return pieces.map((piece) =>
+		piece.kind === "steps" ? (
+			<StepRows key={piece.id} items={piece.items} settled={settled} />
+		) : piece.kind === "said" ? (
+			<div key={piece.id} className="work-said selectable">
+				<Markdown text={piece.text} />
+			</div>
+		) : piece.kind === "person" ? (
+			<p key={piece.id} className="work-task selectable">
+				{piece.text}
+			</p>
+		) : piece.kind === "permission" ? (
+			<SideAsk key={piece.id} sideId={sideId} event={piece.event} />
+		) : (
+			<p key={piece.id} className="work-notice selectable">
+				{piece.text}
+			</p>
+		),
+	);
+}
+
 /**
  * A side thread's lines: what the person said, the teammate's steps gathered
  * between what it said, its cards and notices, and whatever is still
- * arriving. The thread's own marker and turn ends are the card's business.
+ * arriving. The thread's own marker and turn ends are the pane's business.
  */
 export type SidePiece =
 	| RunPiece
@@ -356,9 +258,6 @@ function WorkCard({
 	following: followKey,
 	count,
 	onClose,
-	actions,
-	footer,
-	tall = false,
 	children,
 }: {
 	label: string;
@@ -370,12 +269,41 @@ function WorkCard({
 	following: string | undefined;
 	count: number;
 	onClose(): void;
-	/** What sits in the band before Close: a side thread's Archive. */
-	actions?: ReactNode;
-	/** Under the window, inside the card: a side thread's composer. */
-	footer?: ReactNode;
-	/** Room for a conversation rather than a glance. */
-	tall?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<aside className={docked ? "work-float work-docked" : "work-float"} aria-label={label}>
+			<Band>
+				<div className="min-w-0 flex-1 pl-1">
+					<h2 className="flex items-center gap-2 truncate text-lg font-semibold">
+						{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+						<span className="truncate">{heading}</span>
+					</h2>
+				</div>
+				{detail !== undefined && <span className="instrument shrink-0 pr-1">{detail}</span>}
+				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
+					<CloseIcon />
+				</button>
+			</Band>
+			<FollowWindow following={followKey} count={count}>
+				{children}
+			</FollowWindow>
+		</aside>
+	);
+}
+
+/**
+ * The window a card or the side-thread pane reads through: it follows the
+ * newest line until you scroll back, and offers a way down again.
+ */
+export function FollowWindow({
+	following: followKey,
+	count,
+	children,
+}: {
+	/** What the window is following: a new one starts at its newest. */
+	following: string | undefined;
+	count: number;
 	children: ReactNode;
 }) {
 	const frame = useRef<HTMLDivElement>(null);
@@ -389,47 +317,31 @@ function WorkCard({
 	useEffect(() => setFollowing(true), [followKey]);
 
 	return (
-		<aside className={`${docked ? "work-float work-docked" : "work-float"}${tall ? " work-side" : ""}`} aria-label={label}>
-			<Band>
-				<div className="min-w-0 flex-1 pl-1">
-					<h2 className="flex items-center gap-2 truncate text-lg font-semibold">
-						{working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-						<span className="truncate">{heading}</span>
-					</h2>
-				</div>
-				{detail !== undefined && <span className="instrument shrink-0 pr-1">{detail}</span>}
-				{actions}
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
-					<CloseIcon />
-				</button>
-			</Band>
-			<div className="relative flex min-h-0 flex-1 flex-col">
-				<div
-					ref={frame}
-					className="work-window"
-					onScroll={(scroll) => {
-						const el = scroll.currentTarget;
-						const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
-						if (atEnd !== following) setFollowing(atEnd);
+		<div className="relative flex min-h-0 flex-1 flex-col">
+			<div
+				ref={frame}
+				className="work-window"
+				onScroll={(scroll) => {
+					const el = scroll.currentTarget;
+					const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK;
+					if (atEnd !== following) setFollowing(atEnd);
+				}}
+			>
+				{children}
+			</div>
+			{!following && count > 0 && (
+				<button
+					type="button"
+					className="control btn btn-sm work-newest gap-1"
+					onClick={() => {
+						setFollowing(true);
+						frame.current?.scrollTo({ top: frame.current.scrollHeight, behavior: "smooth" });
 					}}
 				>
-					{children}
-				</div>
-				{!following && count > 0 && (
-					<button
-						type="button"
-						className="control btn btn-sm work-newest gap-1"
-						onClick={() => {
-							setFollowing(true);
-							frame.current?.scrollTo({ top: frame.current.scrollHeight, behavior: "smooth" });
-						}}
-					>
-						<ArrowDownIcon />
-						Newest
-					</button>
-				)}
-			</div>
-			{footer}
-		</aside>
+					<ArrowDownIcon />
+					Newest
+				</button>
+			)}
+		</div>
 	);
 }

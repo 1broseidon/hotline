@@ -1,15 +1,16 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
-import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
+import { Rail, RAIL_FACES, RailEdge, unreadOf, useRailSize } from "./components/Rail";
+import { Dock, type DockState } from "./components/Dock";
+import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
 import { CallFloat } from "./components/Call";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
-import type { SettingsSection } from "./components/Settings";
 import { Teammate } from "./components/Teammate";
 import { Shortcuts } from "./components/Shortcuts";
 import { sameWork, Work, type OpenWork } from "./components/Work";
@@ -27,14 +28,9 @@ import { syncWatches, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
 
-/* Settings is opened now and then, not at launch: it loads on first open,
- * which keeps its nine sections out of the startup bundle. */
-const Settings = lazy(() => import("./components/Settings").then((module) => ({ default: module.Settings })));
-const SettingsRail = lazy(() => import("./components/Settings").then((module) => ({ default: module.SettingsRail })));
-
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
+type Pane = "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /** What can stand in the inspector's place beside a conversation. */
 type Aside = { kind: "thread"; thread: OpenThread };
@@ -83,7 +79,13 @@ export function App() {
 		});
 	}, []);
 	const [pane, setPane] = useState<Pane>(null);
-	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+	/* The right-hand pane: this teammate's side threads and Settings, one at
+	 * a time, beside the conversation or over it in a window too narrow. */
+	const [dock, setDock] = useState<DockState | null>(null);
+	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
+	const setDockWidth = useCallback((width: number) => setDockWidthState(clampDock(width)), []);
+	useEffect(() => saveDockWidth(dockWidth), [dockWidth]);
+	const [mainWidth, setMainWidth] = useState(Infinity);
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
@@ -94,7 +96,10 @@ export function App() {
 	useLayoutEffect(() => {
 		const el = mainRef.current;
 		if (el === null) return;
-		const observer = new ResizeObserver(() => setDockWork(el.clientWidth < WORK_DOCK_BELOW));
+		const observer = new ResizeObserver(() => {
+			setDockWork(el.clientWidth < WORK_DOCK_BELOW);
+			setMainWidth(el.clientWidth);
+		});
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, []);
@@ -207,6 +212,8 @@ export function App() {
 		setSearchOpen(false);
 		setFocusSchedules(false);
 		setAside(null);
+		// A thread open in the right-hand pane belongs to the teammate who left.
+		setDock((was) => (was !== null && was.view === "threads" && was.side !== null ? { ...was, side: null } : was));
 		saveSelected(selectedId);
 	}, [selectedId]);
 
@@ -260,6 +267,7 @@ export function App() {
 		(schedules = false) => {
 			if (selectedId === null) return;
 			setPane(null);
+			setDock(null);
 			setSearchOpen(false);
 			setAside(null);
 			setFocusSchedules(schedules);
@@ -269,11 +277,29 @@ export function App() {
 	);
 	const openAside = useCallback((next: Aside) => {
 		setPane(null);
+		setDock(null);
 		setSearchOpen(false);
 		setInspector(false);
 		setAside(next);
 	}, []);
 	const openThread = useCallback((thread: OpenThread) => openAside({ kind: "thread", thread }), [openAside]);
+	/* The right-hand pane takes the inspector's place: one of them at a time. */
+	const openDock = useCallback((next: DockState) => {
+		setSearchOpen(false);
+		setInspector(false);
+		setAside(null);
+		setDock(next);
+	}, []);
+	const closeDock = useCallback(() => setDock(null), []);
+	const openSide = useCallback(
+		(side: { sideId: string; title: string }) => openDock({ view: "threads", side, section: null }),
+		[openDock],
+	);
+	const openSideList = useCallback(() => openDock({ view: "threads", side: null, section: null }), [openDock]);
+	const toggleSettings = useCallback(() => {
+		if (dock?.view === "settings") closeDock();
+		else openDock({ view: "settings", side: null, section: null });
+	}, [dock, openDock, closeDock]);
 	/* A caption, the mark or a subagent, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
@@ -314,6 +340,14 @@ export function App() {
 					closePane();
 					return;
 				}
+				if (dock !== null && (dock.view === "settings" || !(event.target as HTMLElement | null)?.closest("textarea, input"))) {
+					// One step back, then out: a page to its list, the list to the window.
+					event.preventDefault();
+					if (dock.view === "threads" && dock.side !== null) setDock({ ...dock, side: null });
+					else if (dock.view === "settings" && dock.section !== null) setDock({ ...dock, section: null });
+					else closeDock();
+					return;
+				}
 				if (aside !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
 					event.preventDefault();
 					setAside(null);
@@ -338,7 +372,7 @@ export function App() {
 			}
 			if (chord === "settings") {
 				event.preventDefault();
-				if (takeChord()) togglePane("settings");
+				if (takeChord()) toggleSettings();
 				return;
 			}
 			if (chord === "teammate") {
@@ -367,7 +401,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, inspector, aside, workOf, closeWork, searchOpen, select, closePane, togglePane, toggleInspector, toggleRail]);
+	}, [roster, selectedId, pane, dock, inspector, aside, workOf, closeWork, searchOpen, select, closePane, closeDock, togglePane, toggleSettings, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -376,7 +410,7 @@ export function App() {
 				return;
 			}
 			if (id === "settings") {
-				if (takeChord()) togglePane("settings");
+				if (takeChord()) toggleSettings();
 				return;
 			}
 			if (id === "new-teammate") {
@@ -410,7 +444,7 @@ export function App() {
 				if (entry) select(entry.persona.id);
 			}
 		});
-	}, [roster, selectedId, pane, select, togglePane, toggleInspector, toggleRail]);
+	}, [roster, selectedId, pane, select, togglePane, toggleSettings, toggleInspector, toggleRail]);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
@@ -433,9 +467,9 @@ export function App() {
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
-	/* Settings' sections have no faces to fall back to: they stand at the
-	 * names' width, and at the narrowest of it in a narrow window. */
-	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
+	/* The right-hand pane lies over the conversation once it would leave it
+	 * too narrow to read beside it. */
+	const dockOverlay = dock !== null && dockOverlays(mainWidth, dockWidth);
 
 
 	/* The work card shows only on its own teammate's conversation: not over
@@ -446,12 +480,11 @@ export function App() {
 			open={open}
 			name={entry.persona.name}
 			live={entry.session.state === "thinking"}
-			sides={entry.sides ?? []}
 			docked={dockWork}
 			onClose={() => closeWork(entry.persona.id)}
 		/>
 	);
-	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork ? workCard(selected, workOf) : null;
+	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
 	return (
 		<div className="flex h-full flex-col">
@@ -469,11 +502,7 @@ export function App() {
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
-			{!railSize.open ? null : pane === "settings" ? (
-				<Suspense fallback={null}>
-					<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />
-				</Suspense>
-			) : (
+			{!railSize.open ? null : (
 			<Rail
 				entries={roster}
 				loaded={rosterLoaded}
@@ -482,7 +511,7 @@ export function App() {
 				connection={connection}
 				onSelect={select}
 				onNew={() => togglePane("new-teammate")}
-				onSettings={() => togglePane("settings")}
+				onSettings={toggleSettings}
 				onEdit={(id) => {
 					select(id);
 					setInspector(true);
@@ -500,12 +529,8 @@ export function App() {
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0" data-call={call !== null ? "" : undefined}>
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
-				<div className="flex min-h-0 min-w-0 flex-1 gap-2">
-				{pane === "settings" ? (
-					<Suspense fallback={null}>
-						<Settings section={settingsSection} onAddDesk={() => togglePane("add-desk")} />
-					</Suspense>
-				) : pane === "shortcuts" ? (
+				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
+				{pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
 				) : pane === "about" ? (
 					<About onClose={closePane} />
@@ -545,8 +570,9 @@ export function App() {
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
 							workOpen={workOf !== undefined && "blockId" in workOf ? workOf.blockId : undefined}
 							runOpen={workOf !== undefined && "runId" in workOf ? workOf.runId : undefined}
-							onOpenSide={(side) => openWork({ personaId: selected.persona.id, ...side })}
-							sideOpen={workOf !== undefined && "sideId" in workOf ? workOf.sideId : undefined}
+							onOpenSide={openSide}
+							onOpenSideList={openSideList}
+							sideOpen={dock?.view === "threads" ? dock.side?.sideId : undefined}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{aside?.kind === "thread" ? (
@@ -572,8 +598,6 @@ export function App() {
 										setInspector(false);
 									}}
 									onOpenThread={openThread}
-									sides={selected.sides ?? []}
-									onOpenSide={(side) => openWork({ personaId: selected.persona.id, ...side })}
 								/>
 							)
 						)}
@@ -588,9 +612,22 @@ export function App() {
 						</div>
 					</div>
 				)}
-				{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
+					{dock !== null && (
+						<Dock
+							state={dock}
+							onState={setDock}
+							onClose={closeDock}
+							teammate={selected === null ? null : { id: selected.persona.id, name: selected.persona.name }}
+							sides={selected?.sides ?? []}
+							width={dockWidth}
+							onWidth={setDockWidth}
+							overlay={dockOverlay}
+							onAddDesk={() => togglePane("add-desk")}
+						/>
+					)}
+					{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
 				{(floatWork !== null || call !== null) && (
-					<div className="float-stack">
+					<div className="float-stack" style={dock !== null && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
 						{floatWork}
 						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }

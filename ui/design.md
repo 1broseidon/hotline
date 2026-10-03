@@ -83,13 +83,13 @@ does not squeeze its rows; it drops to faces, 52px, each name and line
 waiting on a hover card on the menus' surface; dragged past the faces
 it closes. The key in the left corner of the titlebar and Ctrl/⌘+B close
 and open it; closed, its edge stays in the window's left gutter so it
-can be pulled back out, and it returns at the width it had. Settings'
-sections stand in the same place at the same width.
+can be pulled back out, and it returns at the width it had. The right-hand pane (below) is its
+mirror on the other side.
 
 A window narrower than 720px keeps the pane and shows the rail as faces
 only beside it, opened and closed from the same titlebar key; it is
 never dragged there, and there is no view of the rail alone and no back
-key. Settings' sections stand at the rail's narrowest beside their pane.
+key.
 The band's schedule line folds into the More menu, one press further
 away, rather than a band that clips it. The inspector has its own, wider
 cut-off, because it needs the conversation beside it and the rail does not:
@@ -115,12 +115,28 @@ seconds while the pane is open — Open desktop and Stop while it runs,
 Remove once it has stopped. A capture on the tape is a thumbnail card that
 grows when pressed; it is evidence beside the words, not a message.
 
-Settings, New teammate, Keyboard shortcuts and About are panes in the
-conversation's place. Settings also takes the rail: its sections stand
-where the team stood, one row each, and the band carries the way back
-where the team's plus was — it is a place you go, and the room steps
-aside until you return. The inspector and a peer thread are panes beside
+New teammate, Keyboard shortcuts and About are panes in the
+conversation's place. The inspector and a peer thread are panes beside
 the conversation.
+
+The **right-hand pane** is the one place for two things that sit beside a
+conversation: the open teammate's side threads and Settings. A switch in
+its band, Threads and Settings, chooses one; each is a list, and a row
+opens its page in the pane under a band of its own with a back arrow.
+Threads rows are a status dot (breathing accent running, warning waiting
+on you, a ring parked, dim archived), the title over the last line, and a
+relative time; the archived fold under a disclosure. An open thread is a
+transcript with its own composer, Archive in the band and Continue in its
+place once archived, and a parked thread says it is parked and that
+saying something wakes it. Like the rail, its edge is the gutter beside
+it, dragged between 300 and 560px, remembered, put back to 360px by a
+double-click, and stepped by the arrows on the keyboard. It is not shown
+with the inspector or a peer thread: one of the three stands there. When
+the conversation would be left under 396px beside it, the pane lies over
+the conversation at the window's right on the menus' float shadow instead
+of squeezing it. Escape steps back one page, then closes; the work card,
+for a turn's steps and subagent runs, stays a floating card and moves
+left of the pane.
 
 ## Theme
 

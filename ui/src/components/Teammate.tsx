@@ -5,8 +5,6 @@ import type {
 	ComputerStatus,
 	McpPolicy,
 	PeerThreadSummary,
-	RunningSide,
-	SideThreadSummary,
 	Persona,
 	PersonaComputer,
 	PolicyMode,
@@ -64,8 +62,6 @@ export function Teammate({
 	onClose,
 	onDeleted,
 	onOpenThread,
-	sides,
-	onOpenSide,
 }: {
 	persona: Persona;
 	session: SessionInfo;
@@ -75,9 +71,6 @@ export function Teammate({
 	onClose(): void;
 	onDeleted(): void;
 	onOpenThread(thread: OpenThread): void;
-	/** The side threads that are live now: when one ends, the archived list is read again. */
-	sides: RunningSide[];
-	onOpenSide(side: { sideId: string; title: string }): void;
 }) {
 	const servers = useRoomSettings().mcpServers;
 	const [name, setName] = useState(persona.name);
@@ -360,7 +353,7 @@ export function Teammate({
 						focus={focusSchedules}
 					/>
 
-					<Threads personaId={persona.id} onOpen={onOpenThread} liveSides={sides.length} onOpenSide={onOpenSide} />
+					<Threads personaId={persona.id} onOpen={onOpenThread} />
 
 					<div className="border-t border-line pt-3">
 						<button type="button" className="control btn-danger -ml-2.5" disabled={busy} onClick={() => void remove()}>
@@ -1578,49 +1571,13 @@ function groupedByOrigin(rows: ToolLedgerRow[]): [string, ToolLedgerRow[]][] {
 const THREAD_SEEN_KEY = "hotline.threads.seen";
 
 /**
- * This teammate's side conversations, behind one row that counts them.
+ * This teammate's conversations with other teammates, behind one row that
+ * counts them; their side threads are in the right-hand pane.
  * Unread is lastAt against the latest the window has shown, the same way
  * the rail counts a tape.
  */
-function Threads({
-	personaId,
-	onOpen,
-	liveSides,
-	onOpenSide,
-}: {
-	personaId: string;
-	onOpen(thread: OpenThread): void;
-	liveSides: number;
-	onOpenSide(side: { sideId: string; title: string }): void;
-}) {
+function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: OpenThread): void }) {
 	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
-	/* Side threads that are not running sit beside the peer threads, and
-	 * nowhere else: a live one is a chip in the conversation's band. Parked
-	 * ones are still open and archived ones can be continued. Read again when
-	 * one starts or ends. */
-	const [kept, setKept] = useState<SideThreadSummary[]>([]);
-	const [refused, setRefused] = useState<string | null>(null);
-	useEffect(() => {
-		let cancelled = false;
-		void wire
-			.command("side.list", { personaId })
-			.then((list) => {
-				if (!cancelled) setKept(list.filter((side) => side.status !== "live"));
-			})
-			.catch(() => {
-				if (!cancelled) setKept([]);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [personaId, liveSides]);
-	const resumeSide = (side: SideThreadSummary) => {
-		setRefused(null);
-		void wire
-			.command("side.continue", { sideId: side.sideId })
-			.then(() => onOpenSide({ sideId: side.sideId, title: side.title }))
-			.catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
-	};
 	const [seen, setSeen] = useState(loadThreadSeen);
 	const [open, setOpen] = useState(false);
 
@@ -1661,7 +1618,7 @@ function Threads({
 
 	const isUnread = (thread: PeerThreadSummary) => thread.lastAt > (seen[thread.threadKey] ?? 0);
 	const unread = threads.filter(isUnread).length;
-	const total = threads.length + kept.length;
+	const total = threads.length;
 
 	const openThread = (thread: PeerThreadSummary) => {
 		setSeen((current) => {
@@ -1716,36 +1673,6 @@ function Threads({
 							</button>
 						);
 					})}
-				{open &&
-					kept.map((side) => (
-						<div key={side.sideId} className={`${NESTED} group-row-choice`}>
-							<button
-								type="button"
-								className="group-row-text text-left"
-								onClick={() => onOpenSide({ sideId: side.sideId, title: side.title })}
-							>
-								<span className="group-row-title">{side.title}</span>
-								<span className="group-row-detail">
-									{side.status === "parked"
-										? `Parked · ${side.waiting ? "waiting on you" : "say something to pick it up"}`
-										: (side.result ?? "Side thread, archived")}
-								</span>
-							</button>
-							<span className="shrink-0 text-xs text-ink-3">{threadStamp(side.archivedAt ?? side.lastAt)}</span>
-							{side.status === "archived" && (
-								<button type="button" className="control btn-quiet px-2 text-sm" title="Bring this side thread back" onClick={() => resumeSide(side)}>
-									Continue
-								</button>
-							)}
-						</div>
-					))}
-				{open && refused !== null && (
-					<div className={NESTED}>
-						<span className="group-row-detail text-danger" style={{ whiteSpace: "normal" }}>
-							{refused}
-						</span>
-					</div>
-				)}
 			</div>
 		</section>
 	);

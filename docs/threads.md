@@ -9,7 +9,7 @@ They differ only in policy. The decision and its trade-offs are in
 design and the plan.
 
 This describes the target. Until the phases below land, each kind still runs
-on its own code. [Today](#today) is the map of that code. Phases 1 to 3 have
+on its own code. [Today](#today) is the map of that code. Phases 1 to 4 have
 landed: [what is built](#built-so-far) says where, and where it differs from
 what is written here.
 
@@ -159,7 +159,8 @@ DM is ported last, because it has the most to lose.
 4. **One lifecycle.** One sweep, one restart settle, one closing note, and
    the link marker with typed delivery provenance.
    *Done when:* the four settle functions and four sweeps are one each, and
-   the turn loop has no id-prefix parsing for the ported kinds.
+   the turn loop has no id-prefix parsing for the ported kinds. **Done**, for
+   sides and runs, with the others hooked in.
 5. **Calls are threads.** Persist the call transcript to `calls/<id>.jsonl`,
    index it, link it to the DM, and let a closed call be read back.
    *Done when:* a call's lines survive a restart and `search_thread` finds
@@ -272,10 +273,62 @@ Where this differs from the design above:
   side-thread tests cover a reopened session and a refused one; the selection
   rule is a pure function with its own test.
 
+**Phase 4.** `session/lifecycle.rs` holds the lifecycle once. `Room::sweep`
+applies each kind's `idle` policy (`Policy::idle`): a side thread is parked
+there, and a run has none. It calls `sweep_chapters` and `sweep_peers` for the
+DM and the pairs. `Room::settle` replaces `settle_tapes`,
+`settle_orphaned_sides` and `settle_orphaned_subagents`: it expires dead cards on
+every tape and pair, moves each live thread by the kind's `restart` policy, and
+calls `reconcile_exchanges`. `Room::queue_closing_note` is the one closing-note
+path, read from the kind's `closing_note` policy. `thread::Link` is the `link`
+event a thread leaves on its parent and heads its own stream with, written by
+`Room::write_link` under one id and rewritten as the thread goes; `Link::read`
+also reads the old `side` and `subagent` markers, and `Link::wire` turns a link
+back into one on its way to a client. A delivery carries `from:
+{thread, kind, request}` (`DeliveryFrom`).
+
+Where this differs from the design above:
+
+- **The link is the stored model; clients are sent the old markers.** Phones on
+  current builds read `side` and `subagent` and nothing else of a thread, so
+  `Link::wire` (a tape's snapshot, its pages and live events, and a thread's own
+  stream) sends the shape each kind has always had. A wire change would have
+  left those phones with no marker at all. The contract has no `link`; it moves
+  with the wire in phase 8, when `thread.*` is added and the markers can go.
+- **A link's fields are the design's plus what the marker held.** `thread` and
+  `kind` of the design are `thread` and `threadKind`, since the event's own
+  `kind` is `link`. `state` is `live`, `parked` or `closed`, `end` says how, and
+  `outcome` is the one line. The saved session (`sessionId`, `backendId`), the
+  closing `note` and a run's `elapsedMs` ride on it, because the thread's own
+  record is read from it.
+- **An old marker keeps its id.** A thread started before links is rewritten as
+  a link under the id it has (`side:<id>`, `subagent:<id>`), so it is replaced in
+  place. New threads are `link:<kind>:<key>`.
+- **`xthread:` and `exchange-paused:` are untouched** (phase 6).
+- **No id-prefix parsing could be removed.** The kinds ported so far, sides and
+  runs, deliver nothing into a DM by id; every producer of `voice:`,
+  `handoff:`, `exchange-result:` and `human-answer:` is a kind ported in phases
+  5 to 7. The delivery is written with `from` now (`delivery_from`, for the
+  pair's and the person's answers), so those reads move onto it with their
+  producers. `run_turns` says so where it reads the ids.
+- **`recover_exchanges` is started with the sweep, not called from the settle.**
+  It is async and waits the first sweep's delay for the rooms to come up;
+  `reconcile_exchanges` is called from the settle.
+- **The live handles are not one yet.** `LiveSide` and `Running` each hold
+  their own driver and lease and close through `end_side` and `Running::settle`.
+  They write the same link and take the same note, but a single close waits for
+  the DM and pairs to have handles of their own (phases 6 and 7).
+- **A run in the sweep is listed, not handled.** The sweep walks the runs on the
+  roster and finds `Idle::Never`. A call's row (`Close` at ten minutes) is set,
+  and the voice's own clock still ends a call, until phase 5.
+- **`Room::me`** is the room's own weak handle, replacing the one `Sides` kept
+  for the closing note.
+
 ## Today
 
 The map this design replaces, as of `qa/sides-voice` (main, plus side
-threads, resumable side threads, and the call voice with memory).
+threads, resumable side threads, and the call voice with memory), updated for
+the phases built so far.
 
 | Concern | DM | Side | Pair | Call | Run |
 | --- | --- | --- | --- | --- | --- |
@@ -284,9 +337,9 @@ threads, resumable side threads, and the call voice with memory).
 | Agent builder | `start_now` | `bring_up` | `peer_session` | dispatcher front | `run_to_end` |
 | Turn loop | `run_turns` + `Turns` | `run_side_turns` + `Turns` | `drive` | voice `run` | `drive_with` |
 | Resume | persona checkpoints | marker `sessionId` | reseed from thread | none | none |
-| Idle | `sweep_chapters` | `sweep_sides` (3 h) | `sweep_peers` (10 min) | own loop (10 min) | — |
-| Restart | `settle_tapes` | `settle_orphaned_sides` | `reconcile_exchanges` + `recover_exchanges` | lost | `settle_orphaned_subagents` |
-| Marker | — | `side:` | `xthread:`, `exchange-paused:` | `voice:` id grammar | `subagent:` |
+| Idle | `sweep_chapters` | `Room::sweep` (3 h) | `sweep_peers` (10 min) | own loop (10 min) | `Room::sweep` (none) |
+| Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | lost | `Room::settle` |
+| Marker | — | link | `xthread:`, `exchange-paused:` | `voice:` id grammar | link |
 | Cards answered by | `session.answer_permission` | `side.answer_permission` | nobody | never | nobody (expired) |
 | Push / waiting | yes | yes | no | fallback push | no |
 | Search | indexed | indexed | no | desk calls only | indexed |

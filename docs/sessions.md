@@ -182,15 +182,18 @@ Its report is what it said after its last tool call; a run that ends on an
 error or a cancel says so and keeps what it had said.
 
 A run writes to its own stream, `runs/<runId>.jsonl`, the way a tape is
-written. On the teammate's tape it leaves one `subagent` line, rewritten as
-the run goes from `running` to `done`, `failed` or `cancelled`; pressing it
+written. On the teammate's tape it leaves one link (see
+[Thread links](#thread-links)), rewritten as the run goes from live to closed
+`done`, `failed` or `cancelled`, which a client is sent as a `subagent` line
+going from `running` to the same three; pressing it
 opens the run in the work card, the same floating card a turn's steps open
 in. While a run is going, the teammate's roster row lists it in `subagents`
 (`Room::subagents`), so the conversation's band names it and opens it from
 there however far its line has scrolled up. The run id is the job id and the
 tool call's id. Stop, revocation or any other end of the teammate's turn
 cancels its runs and waits for them to settle; a run the process died under
-is settled as `cancelled` on the next start. The authority rules are
+is settled as `cancelled` on the next start, by the one settle
+([Lifecycle](#lifecycle)). The authority rules are
 [security.md](security.md#grant-lifecycle).
 
 An ACP harness's own subagents become runs too. Hotline offers
@@ -1110,8 +1113,10 @@ from it.
   `side_agent_delta` / `side_thought_delta`, addressed by side id; a tape
   subscription never receives them and a side subscription never receives a
   tape's.
-- **The marker.** One `side` event on the teammate's tape (id `side:<sideId>`),
-  rewritten as the thread goes and heading the stream too. `live` reads
+- **The marker.** One link on the teammate's tape (id `link:side:<sideId>`; a
+  thread started before links keeps its `side:<sideId>`), rewritten as the
+  thread goes and heading the stream too. A client is sent it as a `side` event
+  ([Thread links](#thread-links)), and these are that event's words. `live` reads
   "Started a side thread"; `parked` is the same thread with no agent;
   `archived` carries `result` (one line), `archivedBy` (`agent`, `person` or
   `stopped`; `idle` only on threads written before parking existed) and
@@ -1143,8 +1148,8 @@ the current one, if there is one, and the last few lines. Not the transcript.
 
 **Parking and continuing.** The idle sweep (three hours, never a thread with a
 turn running) and a restart park a thread instead of archiving it. A restart
-leaves live markers behind; at start `settle_tapes` marks them `parked` and
-expires their open cards. A line said to a parked thread (`side.prompt`) brings
+leaves live markers behind; at start the one settle (`Room::settle`) parks them
+and expires their open cards. A line said to a parked thread (`side.prompt`) brings
 it back by itself; an archived one is refused until `side.continue`, which also
 works on a parked one. Both build a new agent from the *current* teammate, so the
 folder and grants are exactly what the teammate has now, never wider, with no
@@ -1192,7 +1197,9 @@ them under the teammate's next policy.
 
 **The closing note.** Archiving (by the person, the teammate, or a stop) writes
 the archived marker at once, then in the background asks the same summariser a
-chapter's note is written by (`Room::note`) for a note over the thread's stream:
+chapter's note is written by (`Room::note`, through `Room::queue_closing_note`,
+which is the thread-level mechanism and reads the kind's `closing_note` policy)
+for a note over the thread's stream:
 goal, outcome, open loops, decisions, key files. The marker is rewritten with
 the note, the note's short title, and its outcome as the one-line `result`
 unless the teammate wrote one with `archive_thread`. A marker that has moved on
@@ -1208,6 +1215,76 @@ window (`ui/src/components/Dock.tsx`): rows of title, status
 dot, `preview` (an archived one shows its `result`) and time, the archived
 folded below, and a thread opens inside the pane with its own composer. A
 parked thread says so there, and saying something wakes it.
+
+## Thread links
+
+A thread that hangs off another leaves one `link` event on its parent, and the
+same line heads its own stream. It is rewritten under the same id as the thread
+goes, so the parent holds one line per child however many times it changed:
+
+```json
+{"kind": "link", "id": "link:side:7f3", "ts": 1760000000000,
+ "thread": "7f3", "threadKind": "side", "personaId": "ada",
+ "title": "Fix the CI badge", "state": "closed", "end": "agent",
+ "outcome": "It was the cache.", "at": 1760000900000}
+```
+
+`state` is `live`, `parked` or `closed`, and `end` says how a closed thread
+ended (`person`, `agent`, `idle`, `stopped`, and for a run `done`, `failed` or
+`cancelled`). A closing `note`, the agent's `sessionId` and `backendId`, and a
+run's `elapsedMs` are optional. `session/lifecycle.rs` writes it
+(`Room::write_link`), `thread::Link` is the type, and the thread store, the
+search index and the settle read it. It replaces the `side:<id>` and
+`subagent:<id>` marker ids for every new write; `xthread:` and
+`exchange-paused:` are the pair's, and move in phase 6.
+
+**Compatibility.** A link is the stored model, not what a client is sent. The
+phone and the window on a current build draw `side` and `subagent` events and
+nothing else of a thread, so the wire turns a link back into the marker its kind
+has always had (`Link::wire`, applied to a tape's snapshot, its pages and its
+live events, and to a side thread's or a run's own stream). A phone sees the
+same shape under the same field names; only the id of a thread's line is
+`link:...` for a thread started after this change. The markers already on disk
+are read as the links they stand for (`Link::read`), render as they were, and are
+searched and resumed as before. When such a thread next changes, its line is
+rewritten as a link *under the id it already has*, so it is replaced in place and
+never joined by a second line. The contract does not include `link`: it is never
+sent.
+
+**Deliveries.** A delivery carries where it came from as a field,
+`from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A
+delivery written before the field has none. The turn loop still reads the prefix
+of the id a line was written under (`voice:`, `handoff:`, `exchange-result:`,
+`human-answer:`), because every producer of those is a kind that is ported in a
+later phase; the reads move onto `from` with them. Sides and runs deliver nothing
+into a DM by id.
+
+## Lifecycle
+
+A thread is live, parked or closed, and what moves it is the same few things for
+every kind, bar what the kind's `Policy` says (`thread/policy.rs`): its `idle`
+(`Idle::Park`, `Close`, `Chapters` or `Never`), its `restart` (`Resume`, `Park`
+or `Close`) and whether closing writes a note. `session/lifecycle.rs` holds each
+once:
+
+- **The sweep.** `Room::sweep` runs on the room's minute and applies every
+  kind's idle policy: a side thread is parked after three hours with nobody
+  speaking in it and no turn running, and a run has no idle (it ends with its
+  work). The DM's chapter sweep (`sweep_chapters`) and the peer session's quiet
+  clock (`sweep_peers`) are called from it, to be ported with their kinds. A
+  call's own ten-minute clock is still the voice's.
+- **The settle.** `Room::settle` runs as the room opens, before anything is
+  served. It expires a card the last process left open on any tape or pair, moves
+  every thread a link says was left live by its kind's restart policy (a side
+  thread is parked, a run is closed as cancelled), compacts, syncs the index and
+  then calls `reconcile_exchanges` for the pairs. `recover_exchanges`, which
+  needs the runtime and the first sweep's delay, is still started with the sweep.
+- **The closing note.** `Room::queue_closing_note` is the one path: sides use it
+  now, and a call's row is set for phase 5.
+
+What is not shared yet: a live side thread (`LiveSide`) and a run (`Running`)
+each hold their own driver and lease, and close through `end_side` and
+`Running::settle`.
 
 ## Checkpoints
 

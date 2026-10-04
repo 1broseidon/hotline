@@ -245,7 +245,13 @@ device pixel, and green as the one signal colour; `ui/src/ui` holds its
 components (Avatar, Band, Menu). A colour or a face is always a token,
 never a literal in a component. Settings, New
 Teammate, Keyboard shortcuts and About are panes that replace the
-conversation, not a card over it. While Settings is open the rail is its
+conversation, not a card over it. Up to three teammates can be pinned
+(`persona.pin`, stored as the room setting `pinnedTeammates` and carried on the
+roster as `pin`): they leave the list and sit at the top of the rail as larger
+faces with the name under each, stacked above a hairline in the faces-only
+rail, with the same status, unread and busy marks. They reorder by dragging, or
+Move left / right in the row's context menu, and the Teammate 1–9 chords
+count pins first. While Settings is open the rail is its
 sections — General, Providers, Tools, Computer, Updates, Import — with a back key in its band
 where the team's plus was, and the pane shows one section at a time. The
 teammate inspector sits beside the

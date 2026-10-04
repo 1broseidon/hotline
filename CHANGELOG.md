@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Pin up to three teammates to the top of the team. Pinned teammates sit above
+  the list as larger faces with their names under them, keep their status,
+  unread and working marks, and reorder by dragging (or Move left / right in
+  the context menu). Pin or unpin from a teammate's right-click menu or the
+  foot of its pane. The pins live on the desk, so every device shows the same
+  ones, and Ctrl+1 to 9 count them first.
+
 ### Changed
 
 - A teammate's drawn picture has character: the house style asks for two to

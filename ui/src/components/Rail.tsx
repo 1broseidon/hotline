@@ -1,5 +1,6 @@
 import { type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
+import { MAX_PINS, nudged, railOrder } from "../pins";
 import { SettingsIcon, MoreIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
@@ -36,6 +37,7 @@ export function Rail({
 	onSettings,
 	onEdit,
 	onDelete,
+	onPin,
 	onHelp,
 	width,
 	compact = false,
@@ -52,6 +54,8 @@ export function Rail({
 	onSettings(): void;
 	onEdit(personaId: string): void;
 	onDelete(personaId: string, name: string): void;
+	/** Pin at a slot, or unpin with null. */
+	onPin(personaId: string, slot: number | null): void;
 	onHelp(id: "shortcuts" | "about" | "github" | "add-desk"): void;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
@@ -59,6 +63,9 @@ export function Rail({
 	compact?: boolean;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
+	/* The pinned face being dragged, and the slot it would drop into. */
+	const [drag, setDrag] = useState<{ id: string; over: number | null } | null>(null);
+	const { pinned, rest } = railOrder(entries);
 	const showTip = (row: HTMLElement | null, name = "", line = "") => {
 		if (row === null) {
 			setTip(null);
@@ -90,19 +97,47 @@ export function Rail({
 						own conversation.
 					</p>
 				) : (
-					entries.map((entry, index) => (
-						<Row
-							key={entry.persona.id}
-							entry={entry}
-							shortcut={index < 9 ? index + 1 : null}
-							active={entry.persona.id === selectedId}
-							unread={unreadOf(entry, selectedId, seen)}
-							onSelect={() => onSelect(entry.persona.id)}
-							onEdit={() => onEdit(entry.persona.id)}
-							onDelete={() => onDelete(entry.persona.id, entry.persona.name)}
-							{...(compact ? { onTip: showTip } : {})}
-						/>
-					))
+					<>
+						{pinned.length > 0 && (
+							<div className={compact ? "rail-pins rail-pins-stacked" : "rail-pins"} role="group" aria-label="Pinned">
+								{pinned.map((entry, slot) => (
+									<PinTile
+										key={entry.persona.id}
+										entry={entry}
+										slot={slot}
+										count={pinned.length}
+										shortcut={slot < 9 ? slot + 1 : null}
+										active={entry.persona.id === selectedId}
+										unread={unreadOf(entry, selectedId, seen)}
+										dragging={drag?.id === entry.persona.id}
+										over={drag !== null && drag.id !== entry.persona.id && drag.over === slot}
+										compact={compact}
+										onSelect={() => onSelect(entry.persona.id)}
+										onEdit={() => onEdit(entry.persona.id)}
+										onDelete={() => onDelete(entry.persona.id, entry.persona.name)}
+										onPin={onPin}
+										onDrag={setDrag}
+										onTip={showTip}
+									/>
+								))}
+							</div>
+						)}
+						{rest.map((entry, index) => (
+							<Row
+								key={entry.persona.id}
+								entry={entry}
+								shortcut={pinned.length + index < 9 ? pinned.length + index + 1 : null}
+								active={entry.persona.id === selectedId}
+								unread={unreadOf(entry, selectedId, seen)}
+								full={pinned.length >= MAX_PINS}
+								onSelect={() => onSelect(entry.persona.id)}
+								onEdit={() => onEdit(entry.persona.id)}
+								onDelete={() => onDelete(entry.persona.id, entry.persona.name)}
+								onPin={() => onPin(entry.persona.id, pinned.length)}
+								{...(compact ? { onTip: showTip } : {})}
+							/>
+						))}
+					</>
 				)}
 			</div>
 
@@ -160,30 +195,30 @@ function Row({
 	shortcut,
 	active,
 	unread,
+	full,
 	onSelect,
 	onEdit,
 	onDelete,
+	onPin,
 	onTip,
 }: {
 	entry: RosterEntry;
 	shortcut: number | null;
 	active: boolean;
 	unread: boolean;
+	/** The desk already has its three pins. */
+	full: boolean;
 	onSelect(): void;
 	onEdit(): void;
 	onDelete(): void;
+	onPin(): void;
 	/** Faces only: the row shows its name and line on a card while hovered or focused. */
 	onTip?: (row: HTMLElement | null, name?: string, line?: string) => void;
 }) {
 	const vital = VITAL[entry.session.state];
-	const { preview, activity } = entry;
-	const working = entry.session.state === "thinking" && activity !== undefined;
+	const working = entry.session.state === "thinking" && entry.activity !== undefined;
 	const busy = entry.session.state === "starting" || entry.drawing;
-	const line = working
-		? activity
-		: preview
-			? `${preview.from === "me" ? "You: " : ""}${oneLine(preview.text)}`
-			: vital.label || oneLine(entry.persona.goal);
+	const line = lineOf(entry);
 	return (
 		<button
 			type="button"
@@ -202,7 +237,7 @@ function Row({
 				: {})}
 			onContextMenu={(event) => {
 				event.preventDefault();
-				void popupTeammateMenu({ onOpen: onSelect, onEdit, onDelete });
+				void popupTeammateMenu({ onOpen: onSelect, onEdit, onDelete, pin: { pinned: false, full, onToggle: onPin } });
 			}}
 		>
 			{unread && onTip === undefined && (
@@ -254,6 +289,131 @@ function Row({
 					{line}
 				</span>
 			</span>
+			)}
+		</button>
+	);
+}
+
+/** What a row says under the name: the tool running, the last line, or the goal. */
+function lineOf(entry: RosterEntry): string {
+	const vital = VITAL[entry.session.state];
+	const { preview, activity } = entry;
+	if (entry.session.state === "thinking" && activity !== undefined) return activity;
+	return preview
+		? `${preview.from === "me" ? "You: " : ""}${oneLine(preview.text)}`
+		: vital.label || oneLine(entry.persona.goal);
+}
+
+/**
+ * A pinned teammate: a larger face with the name under it, carrying what its
+ * row did — the vital, the unread dot, the busy ring. In the faces-only rail
+ * the tiles stack and the name waits on the hover card. Dragged along the
+ * row to reorder; the menu's Move left / right does the same for the keyboard
+ * and for a window that does not hand the page its drag events.
+ */
+function PinTile({
+	entry,
+	slot,
+	count,
+	shortcut,
+	active,
+	unread,
+	dragging,
+	over,
+	compact,
+	onSelect,
+	onEdit,
+	onDelete,
+	onPin,
+	onDrag,
+	onTip,
+}: {
+	entry: RosterEntry;
+	slot: number;
+	count: number;
+	shortcut: number | null;
+	active: boolean;
+	unread: boolean;
+	dragging: boolean;
+	over: boolean;
+	compact: boolean;
+	onSelect(): void;
+	onEdit(): void;
+	onDelete(): void;
+	onPin(personaId: string, slot: number | null): void;
+	onDrag(drag: { id: string; over: number | null } | null): void;
+	onTip(row: HTMLElement | null, name?: string, line?: string): void;
+}) {
+	const { persona } = entry;
+	const vital = VITAL[entry.session.state];
+	const busy = entry.session.state === "starting" || entry.drawing;
+	const line = lineOf(entry);
+	const left = nudged(slot, -1, count);
+	const right = nudged(slot, 1, count);
+	return (
+		<button
+			type="button"
+			data-teammate-row
+			data-pin={slot}
+			draggable
+			aria-current={active ? "true" : undefined}
+			aria-label={`${persona.name}, pinned${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}`}
+			title={compact || shortcut === null ? undefined : `${persona.name} (${chordKeys("teammate-seat").replace("1–9", String(shortcut))})`}
+			className="rail-pin group"
+			data-dragging={dragging || undefined}
+			data-over={over || undefined}
+			onClick={onSelect}
+			onMouseEnter={compact ? (event) => onTip(event.currentTarget, persona.name, line) : undefined}
+			onFocus={compact ? (event) => onTip(event.currentTarget, persona.name, line) : undefined}
+			onMouseLeave={compact ? () => onTip(null) : undefined}
+			onBlur={compact ? () => onTip(null) : undefined}
+			onDragStart={(event) => {
+				event.dataTransfer.setData("text/plain", persona.id);
+				event.dataTransfer.effectAllowed = "move";
+				onTip(null);
+				onDrag({ id: persona.id, over: null });
+			}}
+			onDragOver={(event) => {
+				event.preventDefault();
+				event.dataTransfer.dropEffect = "move";
+				onDrag({ id: event.dataTransfer.getData("text/plain") || persona.id, over: slot });
+			}}
+			onDrop={(event) => {
+				event.preventDefault();
+				const id = event.dataTransfer.getData("text/plain");
+				onDrag(null);
+				if (id !== "" && id !== persona.id) onPin(id, slot);
+			}}
+			onDragEnd={() => onDrag(null)}
+			onContextMenu={(event) => {
+				event.preventDefault();
+				void popupTeammateMenu({
+					onOpen: onSelect,
+					onEdit,
+					onDelete,
+					pin: {
+						pinned: true,
+						full: true,
+						onToggle: () => onPin(persona.id, null),
+						...(left !== null ? { onLeft: () => onPin(persona.id, left) } : {}),
+						...(right !== null ? { onRight: () => onPin(persona.id, right) } : {}),
+					},
+				});
+			}}
+		>
+			<span className="relative flex">
+				<Avatar id={persona.id} name={persona.name} size={compact ? 36 : 52} hash={persona.avatar?.hash} busy={busy} />
+				{unread && <span aria-hidden="true" className="rail-face-unread" />}
+				{vital.color !== null && (
+					<span
+						aria-hidden="true"
+						className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+						style={{ background: vital.color }}
+					/>
+				)}
+			</span>
+			{!compact && (
+				<span className={`rail-pin-name text-sm ${unread ? "font-semibold text-ink" : "font-medium text-ink-2"}`}>{persona.name}</span>
 			)}
 		</button>
 	);

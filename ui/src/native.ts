@@ -246,12 +246,20 @@ export async function popupTeammateMenu(actions: {
 	onOpen(): void;
 	onEdit(): void;
 	onDelete(): void;
+	/** Pin or unpin, and while pinned, move along the row. Pin is disabled when the desk has its three. */
+	pin: { pinned: boolean; full: boolean; onToggle(): void; onLeft?(): void; onRight?(): void };
 }): Promise<void> {
 	try {
+		const { pin } = actions;
 		const menu = await Menu.new({
 			items: [
 				{ id: "open", text: "Open", action: actions.onOpen },
 				{ id: "edit", text: "Edit", action: actions.onEdit },
+				{ item: "Separator" as const },
+				{ id: "pin", text: pin.pinned ? "Unpin" : "Pin to top", enabled: pin.pinned || !pin.full, action: pin.onToggle },
+				...(pin.onLeft !== undefined ? [{ id: "pin-left", text: "Move left", action: pin.onLeft }] : []),
+				...(pin.onRight !== undefined ? [{ id: "pin-right", text: "Move right", action: pin.onRight }] : []),
+				{ item: "Separator" as const },
 				{ id: "delete", text: "Delete", action: actions.onDelete },
 			],
 		});

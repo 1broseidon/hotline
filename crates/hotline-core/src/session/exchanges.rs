@@ -64,6 +64,16 @@ struct Pair {
     paused: bool,
     requests: Vec<Request>,
 }
+
+/// Whether an `exchange_pair` record has a request an agent is answering now,
+/// as the room stream says it: running, or waiting on the person.
+pub(crate) fn answering(record: &serde_json::Value) -> bool {
+    serde_json::from_value::<Pair>(record.clone()).is_ok_and(|pair| {
+        pair.requests
+            .iter()
+            .any(|request| matches!(request.phase, Phase::Running | Phase::WaitingHuman))
+    })
+}
 impl Room {
     fn exchange_pairs(&self) -> Vec<Pair> {
         self.log

@@ -105,22 +105,12 @@ pub const TOOL_NAMES: [&str; 17] = [
 /// messages a colleague, schedules or moves a chapter is on its list.
 const RUN_TOOLS: [&str; 2] = [SEARCH_THREAD, LIST_CHAPTERS];
 
-/// What a side thread is given of these, and one tool of its own. It is the
-/// same teammate in a second, parallel conversation, so it may read the main
-/// conversation (`search_thread`, `list_chapters`), react to the person's
-/// message in *its* thread, open a link, and say that it is done
-/// (`archive_thread`). It has no chapter tools, because chapters belong to the
-/// main conversation; no schedules, because a job would wake the main one; no
-/// colleagues, because their answers arrive on the main tape; and no
-/// `send_file`, `generate_image` or `request_human`, which post to the main
-/// tape too: the person is in this thread, so it asks them here.
-const SIDE_TOOLS: [&str; 5] = [
-    SEARCH_THREAD,
-    LIST_CHAPTERS,
-    REACT,
-    OPEN_LINK,
-    ARCHIVE_THREAD,
-];
+/// What a work thread is not given of these: the chapter moves. Chapters
+/// belong to the DM, so a thread that rotated one would close the person's main
+/// conversation under them. Everything else is the teammate's own, so a
+/// teammate that works in several threads at once has the same hands in each;
+/// the thread's own `archive_thread` is added.
+const WORK_WITHOUT: [&str; 2] = [RESUME_CHAPTER, NEW_CHAPTER];
 
 /// What the search may be asked for at once, and what it settles on when the
 /// agent does not say. The previous edition's numbers, so a teammate that moves
@@ -161,16 +151,16 @@ fn listing() -> ListToolsResult {
         .with_cache_scope(CacheScope::Private)
 }
 
-/// The tools a side thread is shown: the subset of [`descriptors`] its brief
-/// allows, and `archive_thread`.
-fn side_descriptors() -> Vec<Tool> {
+/// The tools a work thread is shown: [`descriptors`] less [`WORK_WITHOUT`],
+/// and `archive_thread`.
+fn work_descriptors() -> Vec<Tool> {
     let mut tools: Vec<Tool> = descriptors()
         .into_iter()
-        .filter(|tool| SIDE_TOOLS.contains(&tool.name.as_ref()))
+        .filter(|tool| !WORK_WITHOUT.contains(&tool.name.as_ref()))
         .collect();
     tools.push(Tool::new(
         ARCHIVE_THREAD,
-        "End this side thread, archiving it. Call it only when the person says they are done with this thread, or after you suggested wrapping up and they said yes: the thread is a working session on a topic and may run through many requests, so finishing one is not a reason. Tell them the outcome in your reply first. `summary` is one short line of what came of the thread: it is what the person sees beside it afterwards. The thread is archived when your current turn ends, so write your last message first and do not start anything after this call. Never call it while there is work left or a question open.",
+        "End this work thread, archiving it. Call it only when the person says they are done with this thread, or after you suggested wrapping up and they said yes: the thread is a working session on a topic and may run through many requests, so finishing one is not a reason. A thread a colleague handed you ends by itself when you finish what they asked: do not call it there. Tell them the outcome in your reply first. `summary` is one short line of what came of the thread: it is what the person sees beside it afterwards. The thread is archived when your current turn ends, so write your last message first and do not start anything after this call. Never call it while there is work left or a question open.",
         schema(json!({
             "type": "object",
             "properties": {
@@ -437,9 +427,10 @@ pub struct TeammateTools {
     /// no conversation of its own for an answer to come back into, so a
     /// message it sends a third teammate waits for the reply.
     peer: bool,
-    /// The side thread these are for: [`SIDE_TOOLS`] and nothing else, and
-    /// what they post goes to that thread rather than the teammate's tape.
-    side: Option<String>,
+    /// The work thread these are for: the teammate's tools less
+    /// [`WORK_WITHOUT`], and what they post, the cards they raise and the
+    /// answers they wait for are that thread's rather than the DM's.
+    work: Option<String>,
 }
 
 impl TeammateTools {
@@ -451,19 +442,20 @@ impl TeammateTools {
             subagents: false,
             run: false,
             peer: false,
-            side: None,
+            work: None,
         }
     }
 
-    /// Narrows these to one side thread's: see [`SIDE_TOOLS`].
-    pub(crate) fn for_side(mut self, side_id: impl Into<String>) -> Self {
-        self.side = Some(side_id.into());
+    /// Makes these one work thread's: see [`WORK_WITHOUT`]. Subagent runs hang
+    /// off the DM's tape, so a thread starts none.
+    pub(crate) fn for_work(mut self, thread_id: impl Into<String>) -> Self {
+        self.work = Some(thread_id.into());
         self.subagents = false;
         self
     }
 
-    pub(crate) fn in_side(&self) -> bool {
-        self.side.is_some()
+    pub(crate) fn in_work(&self) -> bool {
+        self.work.is_some()
     }
 
     /// Marks these as a peer session's: see [`TeammateTools::peer`].
@@ -529,8 +521,10 @@ impl TeammateTools {
         if self.run && !RUN_TOOLS.contains(&name) {
             return Err(format!("A subagent has no tool called '{name}'."));
         }
-        if self.side.is_some() && !SIDE_TOOLS.contains(&name) {
-            return Err(format!("A side thread has no tool called '{name}'."));
+        if self.work.is_some() && WORK_WITHOUT.contains(&name) {
+            return Err(format!(
+                "A work thread has no '{name}': chapters belong to the main conversation."
+            ));
         }
         let room = self
             .room
@@ -577,6 +571,9 @@ impl TeammateTools {
                     .start_fresh_chapter(&self.persona_id, ChapterClose::Agent)
                     .await?;
                 Ok(json!({ "closed": true, "title": closed.title }).to_string())
+            }
+            COMPUTER_STATUS if self.work.is_some() => {
+                Ok(room.computer_in_a_thread(&self.persona_id))
             }
             COMPUTER_STATUS => {
                 let wait = arguments
@@ -641,8 +638,13 @@ impl TeammateTools {
                     message,
                     intent,
                     self.capability.clone(),
+                    self.work.as_deref(),
                 )?;
-                let note = "Accepted into the durable exchange queue. Their answer will arrive as a delivery matching this requestId. Carry on, or end your reply to wait. A paused pair waits for the person; do not resend or poll.";
+                let note = if self.work.is_some() {
+                    "Accepted into the durable exchange queue. Their answer will arrive in this thread as a delivery matching this requestId. Carry on, or end your reply to wait. A paused pair waits for the person; do not resend or poll."
+                } else {
+                    "Accepted into the durable exchange queue. Their answer will arrive as a delivery matching this requestId. Carry on, or end your reply to wait. A paused pair waits for the person; do not resend or poll."
+                };
                 Ok(json!({
                     "sent": true,
                     "to": sent.to,
@@ -666,14 +668,14 @@ impl TeammateTools {
                         .request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
                         .await;
                 }
-                room.ask_human(&self.persona_id, reason)
+                room.ask_human(&self.persona_id, reason, self.work.as_deref())
             }
             REACT => {
                 let emoji = arguments
                     .get("emoji")
                     .and_then(Value::as_str)
                     .ok_or_else(|| "react needs an `emoji`.".to_string())?;
-                match &self.side {
+                match &self.work {
                     Some(side_id) => room.react_side(side_id, emoji)?,
                     None => room.react(&self.persona_id, emoji)?,
                 }
@@ -711,24 +713,30 @@ impl TeammateTools {
                     .get("caption")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                room.send_file(&self.persona_id, source, caption, self.capability.clone())
-                    .await
+                room.send_file(
+                    &self.persona_id,
+                    source,
+                    caption,
+                    self.capability.clone(),
+                    self.work.as_deref(),
+                )
+                .await
             }
             OPEN_LINK => {
                 let link = arguments
                     .get("url")
                     .and_then(Value::as_str)
                     .ok_or_else(|| "open_link needs a `url`.".to_string())?;
-                match &self.side {
+                match &self.work {
                     Some(side_id) => room.open_link_side(side_id, link).await,
                     None => room.open_link(&self.persona_id, link).await,
                 }
             }
             ARCHIVE_THREAD => {
                 let side_id = self
-                    .side
+                    .work
                     .as_deref()
-                    .ok_or_else(|| "archive_thread is for side threads.".to_string())?;
+                    .ok_or_else(|| "archive_thread is for work threads.".to_string())?;
                 let summary = arguments
                     .get("summary")
                     .and_then(Value::as_str)
@@ -742,8 +750,13 @@ impl TeammateTools {
                 Ok("Archiving. This thread closes when your current turn ends, so finish your last message now and do not start anything else.".to_string())
             }
             GENERATE_IMAGE => {
-                room.generate_image(&self.persona_id, arguments, self.capability.clone())
-                    .await
+                room.generate_image(
+                    &self.persona_id,
+                    arguments,
+                    self.capability.clone(),
+                    self.work.as_deref(),
+                )
+                .await
             }
             SET_AVATAR => {
                 room.set_avatar(&self.persona_id, arguments, self.capability.clone())
@@ -837,8 +850,8 @@ impl TeammateTools {
 
     /// The same set, registered on a Rig agent.
     pub fn as_dynamic(&self) -> Vec<rig::tool::DynamicTool> {
-        let tools = if self.side.is_some() {
-            side_descriptors()
+        let tools = if self.work.is_some() {
+            work_descriptors()
         } else {
             descriptors()
         };
@@ -1029,10 +1042,10 @@ impl ServerHandler for TeammateTools {
         // The one moment Hotline can see an ACP child take these tools. Until it
         // happens the ledger says "declared", which is the honest word for
         // handed over and unobserved.
-        if self.side.is_some() {
-            // A side thread's listing is not the teammate's: the ledger says
+        if self.work.is_some() {
+            // A work thread's listing is not the teammate's: the ledger says
             // what the teammate's own session was handed.
-            return Ok(ListToolsResult::with_all_items(side_descriptors())
+            return Ok(ListToolsResult::with_all_items(work_descriptors())
                 .with_ttl_ms(0)
                 .with_cache_scope(CacheScope::Private));
         }

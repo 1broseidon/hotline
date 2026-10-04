@@ -45,6 +45,7 @@ impl Room {
         persona_id: &str,
         arguments: &Value,
         capability: Option<CapabilityLease>,
+        home: Option<&str>,
     ) -> Result<String, String> {
         let started = Instant::now();
         let args: Arguments = serde_json::from_value(arguments.clone()).map_err(|_| {
@@ -59,7 +60,7 @@ impl Room {
         let name = image_name(args.name.as_deref(), &args.prompt)?;
         let styled =
             imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect, persona_id)?;
-        if self.is_quiet(persona_id) {
+        if home.is_none() && self.is_quiet(persona_id) {
             return Err("This is a quiet scheduled run; make the image when you are talking with the person.".into());
         }
         let persona = self.persona(persona_id)?;
@@ -129,6 +130,7 @@ impl Room {
             Source::GeneratedImage(file_name),
             "",
             capability,
+            home,
         )
         .await?;
         let mut result = json!({

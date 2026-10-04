@@ -4855,6 +4855,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
+            thread: None,
         },
     );
     room.write(
@@ -4867,6 +4868,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
+            thread: None,
         },
     );
 

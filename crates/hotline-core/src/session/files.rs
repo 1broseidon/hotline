@@ -63,6 +63,7 @@ impl Room {
         source: Source,
         caption: &str,
         capability: Option<CapabilityLease>,
+        home: Option<&str>,
     ) -> Result<String, String> {
         let persona = self.persona(persona_id)?;
         let caption = caption.trim();
@@ -71,7 +72,8 @@ impl Room {
                 "A caption is at most {MAX_CAPTION_CHARS} characters; say the rest in your reply."
             ));
         }
-        if self.is_quiet(persona_id) {
+        // A quiet scheduled run holds the DM's voice, not a thread's.
+        if home.is_none() && self.is_quiet(persona_id) {
             return Err(QUIET.to_string());
         }
         let generated = matches!(&source, Source::GeneratedImage(_));
@@ -148,7 +150,7 @@ impl Room {
             sent::discard(root, persona_id, &id);
             return Err(refused);
         }
-        if let Err(refused) = self.post_file(persona_id, event) {
+        if let Err(refused) = self.post_file(persona_id, home, event) {
             sent::discard(root, persona_id, &id);
             return Err(refused);
         }
@@ -185,7 +187,18 @@ impl Room {
     /// Writes the file's message through the same stamps and quiet window as
     /// every line the room writes down, and says whether it landed: the
     /// teammate is about to be told the person has the file.
-    fn post_file(&self, persona_id: &str, event: TranscriptEvent) -> Result<(), String> {
+    fn post_file(
+        &self,
+        persona_id: &str,
+        home: Option<&str>,
+        event: TranscriptEvent,
+    ) -> Result<(), String> {
+        // In a work thread the file is a line of that thread, through the same
+        // write path as the rest of what the thread says.
+        if let Some(thread) = home {
+            self.write_home(persona_id, Some(thread), &event);
+            return Ok(());
+        }
         let session = lock(&self.sessions).get(persona_id).cloned();
         let event = match &session {
             Some(session) => stamped(session, event, now_ms()),

@@ -78,6 +78,19 @@ impl<T> Turns<T> {
 pub(super) struct Line {
     pub text: String,
     pub attachments: Vec<Attachment>,
+    /// Set when the turn this line starts is a handoff's: the exchange's
+    /// request it answers. Said by whoever produced the line, never read back
+    /// off an id.
+    pub handoff: Option<HandoffLine>,
+}
+
+/// The handoff a turn of a work thread belongs to.
+pub(super) struct HandoffLine {
+    /// The exchange request that opened the thread.
+    pub request: String,
+    /// The card this line is the person's answer to, when the handoff had
+    /// stopped to wait on one.
+    pub answer: Option<String>,
 }
 
 /// The agent a turn is for, and the thread and teammate it answers as.

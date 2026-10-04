@@ -1635,7 +1635,7 @@ impl ChildAgent {
         // given nothing and still gets no ledger at all; one that initialized
         // and then refused `session/new` keeps the ledger it was handed,
         // because the rows were declared to it whether or not it went on.
-        if !self.teammate.in_side() {
+        if !self.teammate.in_work() {
             self.publish_ledger(persona, serving);
         }
         if let Err(error) = self.open_session(&connection, persona, capabilities).await {

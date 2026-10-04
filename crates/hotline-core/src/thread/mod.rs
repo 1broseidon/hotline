@@ -18,7 +18,7 @@ mod link;
 mod policy;
 mod store;
 
-pub use link::Link;
+pub use link::{Link, Opener};
 pub use policy::{
     Answer, Idle, Lease, Policy, QUIET_MS, Restart, SIDE_IDLE_MS, Seed, Surface, Tools,
 };
@@ -36,9 +36,13 @@ use ts_rs::TS;
 pub enum ThreadKind {
     /// The person and a teammate: the teammate's tape.
     Dm,
-    /// A second, parallel conversation with a teammate, led by the person.
+    /// A work thread: a second, parallel conversation with a teammate, with
+    /// its own context and the teammate's full tools. The person opens one
+    /// beside the DM (a side thread), and a teammate opens one on another by
+    /// handing it work. "Side" is the name it is stored and sent under.
     Side,
-    /// Two teammates talking to each other, by an ask or a handoff.
+    /// Two teammates talking to each other: an ask. A handoff is a work thread
+    /// on the teammate it was handed to.
     Pair,
     /// A voice call with a teammate, kept in `calls/<id>.jsonl`.
     Call,

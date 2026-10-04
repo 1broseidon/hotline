@@ -1,12 +1,12 @@
 //! The one way an agent is built for a thread.
 //!
-//! A side thread and a subagent run are answered by a fresh agent of their
+//! A work thread and a subagent run are answered by a fresh agent of their
 //! teammate, and what differs between them is the kind's [`Policy`], not the
 //! code that builds it. [`Room::thread_agent`] reads the row: it makes the
 //! teammate's folder, writes `AGENTS.md` for a child, takes the computer away
-//! or grants it, serves the kind's tools under the kind's lease, and tells the
-//! agent what the kind says it should know of the conversation it joins. Then
-//! it starts the agent.
+//! or grants it (through a lease the teammate's threads share), serves the
+//! kind's tools under the kind's lease, and tells the agent what the kind says
+//! it should know of the conversation it joins. Then it starts the agent.
 //!
 //! **Resume** is one mechanism here. A thread whose record holds a session id
 //! the teammate's harness issued asks the child to reopen it. If the child
@@ -20,11 +20,13 @@
 //! still built on their own; each moves onto this when its phase lands, which is
 //! why the policy has a row for them.
 
-use super::{Room, chapters, now_ms, said, without_computer};
-use crate::contract::{Persona, Reach, SessionCheckpoint};
+use super::{Driving, Room, chapters, now_ms, said, without_computer};
+use crate::contract::{Persona, Reach, SessionCheckpoint, SharedSecret};
 use crate::driver::{CapabilityEpoch, CapabilityLease, Driver, HOTLINE_BACKEND_ID, acp};
 use crate::mcp::server::TeammateTools;
-use crate::thread::{AgentBinding, Lease, Policy, ThreadId, ThreadKind, ThreadStore, Tools};
+use crate::thread::{
+    AgentBinding, Lease, Opener, Policy, ThreadId, ThreadKind, ThreadStore, Tools,
+};
 use std::sync::Arc;
 
 /// What a thread's agent is built for.
@@ -33,6 +35,12 @@ pub(super) struct Opening {
     /// The teammate as this thread sees it. The builder takes the rest off it:
     /// the teammate's own session, and the computer when the kind has none.
     pub persona: Persona,
+    /// What the thread is called, which is what another thread is told it is
+    /// busy with when it asks for the computer this one has.
+    pub title: String,
+    /// The teammate that handed the work over, when one did: the agent is told
+    /// who asked, and what they are for.
+    pub opener: Option<Opener>,
     /// The thread's authority, made by [`lease_of`] before the agent is.
     pub lease: CapabilityLease,
 }
@@ -124,6 +132,8 @@ impl Room {
         let Opening {
             thread,
             persona,
+            title,
+            opener,
             lease,
         } = opening;
         let policy = Policy::of(thread.kind);
@@ -134,7 +144,7 @@ impl Room {
                 persona.name, persona.cwd
             )
         })?;
-        let view = own_view(persona, policy);
+        let mut view = own_view(persona, policy);
         // An ACP session takes no system prompt, so who it is has to be on
         // disk before the child is started.
         if !in_process {
@@ -142,8 +152,22 @@ impl Room {
                 |error| format!("{}'s AGENTS.md could not be written: {error}", view.name),
             )?;
         }
+        // The computer is the teammate's, shared through a lease. A thread that
+        // cannot be given it goes on without, as the DM does: it is told so.
         let extra_mcp = if policy.computer {
-            self.grant_computer(&view).await?
+            let driving = Driving::new(
+                format!("{}:{}", thread.kind.name(), thread.key),
+                format!("the thread \"{title}\""),
+                &lease,
+            );
+            match self.grant_computer(&view, &driving).await {
+                Ok(servers) => servers,
+                Err(reason) => {
+                    eprintln!("{}'s computer is not in this thread: {reason}", view.name);
+                    view = without_computer(view);
+                    Vec::new()
+                }
+            }
         } else {
             Vec::new()
         };
@@ -174,13 +198,17 @@ impl Room {
             in_process,
         );
 
+        let opened_by = opener.and_then(|opener| self.persona(&opener.persona_id).ok());
+        let stored = self.stored_secrets();
         let build = |view: &Persona, transcript: Option<String>| {
             self.agents.agent(
                 view,
                 preamble_of(
                     thread.kind,
-                    &view.clone(),
+                    view,
                     reach,
+                    &stored,
+                    opened_by.as_ref(),
                     context.clone(),
                     transcript,
                 ),
@@ -230,13 +258,15 @@ fn preamble_of(
     kind: ThreadKind,
     persona: &Persona,
     reach: Option<Reach>,
+    stored: &[SharedSecret],
+    opener: Option<&Persona>,
     context: Option<String>,
     transcript: Option<String>,
 ) -> String {
     match kind {
         ThreadKind::Run => super::runner::run_preamble(persona, reach),
         // The kinds not built here yet have their own preambles until they are.
-        _ => super::sides::side_preamble(persona, reach, context, transcript),
+        _ => super::sides::work_preamble(persona, reach, stored, opener, context, transcript),
     }
 }
 
@@ -250,7 +280,7 @@ fn tools_of(
     let tools = TeammateTools::new(room, persona_id).with_capability(lease.clone());
     match Policy::of(thread.kind).tools {
         Tools::Teammate => tools.with_subagents(),
-        Tools::Side => tools.for_side(thread.key.clone()),
+        Tools::Work => tools.for_work(thread.key.clone()),
         Tools::Run => tools.for_run(),
         Tools::Peer => tools.for_peer(),
         Tools::None => tools,
@@ -326,7 +356,10 @@ mod tests {
                 .computer
                 .is_some_and(|computer| computer.enabled)
         };
-        assert!(!computer(ThreadKind::Side));
+        assert!(
+            computer(ThreadKind::Side),
+            "a work thread shares it through the lease"
+        );
         assert!(!computer(ThreadKind::Run));
         assert!(computer(ThreadKind::Dm));
     }
@@ -371,11 +404,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_main_conversation_and_a_pair_are_granted_the_computer() {
-        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Call] {
+    fn only_conversations_and_a_pair_are_granted_the_computer() {
+        for kind in [ThreadKind::Run, ThreadKind::Call] {
             assert!(!Policy::of(kind).computer, "{kind:?}");
         }
-        assert!(Policy::of(ThreadKind::Dm).computer);
+        for kind in [ThreadKind::Dm, ThreadKind::Side, ThreadKind::Pair] {
+            assert!(Policy::of(kind).computer, "{kind:?}");
+        }
     }
 
     #[test]
@@ -406,7 +441,7 @@ mod tests {
             "a run is told nothing of any conversation, its own task included"
         );
         let tools = agents.tools();
-        assert!(tools[0].in_run() && !tools[0].in_side());
+        assert!(tools[0].in_run() && !tools[0].in_work());
         assert!(
             lock(&agents.preambles)[0].starts_with("You are a subagent"),
             "a run's preamble is the worker's, not the teammate's"
@@ -430,6 +465,6 @@ mod tests {
             "a child is told who it is by a file, before it starts"
         );
         let tools = agents.tools();
-        assert!(tools[0].in_side() && !tools[0].in_run());
+        assert!(tools[0].in_work() && !tools[0].in_run());
     }
 }

@@ -183,8 +183,8 @@ impl Room {
         for stream in streams {
             let events = self.log.load(&stream);
             let mut settled = crate::log::expire_orphaned_permissions(&events, now);
-            if matches!(stream, StreamId::Tape(_)) {
-                settled.extend(self.settle_links(&events, now, &mut closed));
+            if let StreamId::Tape(owner) = &stream {
+                settled.extend(self.settle_links(owner, &events, now, &mut closed));
             }
             for event in settled {
                 if let Err(error) = self.log.append(&stream, &event) {
@@ -213,10 +213,23 @@ impl Room {
     /// The threads a tape holds a link for that the last process left live:
     /// each is moved as its kind's restart policy says, on the thread's own
     /// stream (after expiring a card it left open) and, returned, on the tape.
-    fn settle_links(&self, events: &[Value], now: i64, closed: &mut Vec<ThreadId>) -> Vec<Value> {
+    fn settle_links(
+        &self,
+        owner: &str,
+        events: &[Value],
+        now: i64,
+        closed: &mut Vec<ThreadId>,
+    ) -> Vec<Value> {
         let mut settled = Vec::new();
         for link in events.iter().filter_map(Link::read) {
-            if link.state != ThreadState::Live {
+            // A thread a colleague handed this teammate's tape is that
+            // colleague's to settle, from its own.
+            if link.state != ThreadState::Live
+                || link
+                    .persona_id
+                    .as_deref()
+                    .is_some_and(|whose| whose != owner)
+            {
                 continue;
             }
             let state = match Policy::of(link.thread.kind).restart {
@@ -284,6 +297,13 @@ impl Room {
         let threads = self.threads();
         if Policy::of(link.thread.kind).surface.link {
             threads.write(&ThreadId::dm(persona_id), persona_id, &event);
+            // A thread a colleague opened is on the colleague's tape too, under
+            // an id of its own, so each DM shows how the work is going.
+            if let Some(opener) = &link.opener {
+                let mut copy = event.clone();
+                copy["id"] = format!("{}@{}", link.id, opener.persona_id).into();
+                threads.write(&ThreadId::dm(&opener.persona_id), &opener.persona_id, &copy);
+            }
         }
         threads.write(&link.thread, persona_id, &event);
     }
@@ -309,6 +329,7 @@ impl Room {
             note: None,
             binding: None,
             elapsed_ms: None,
+            opener: None,
         });
     }
 
@@ -344,6 +365,7 @@ impl Room {
             note: None,
             binding: None,
             elapsed_ms: None,
+            opener: None,
         });
         self.queue_closing_note(&thread, false);
     }
@@ -537,6 +559,7 @@ mod tests {
             note: None,
             binding: None,
             elapsed_ms: None,
+            opener: None,
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
@@ -718,6 +741,7 @@ mod tests {
             note: None,
             binding: None,
             elapsed_ms: None,
+            opener: None,
         };
         let tape = StreamId::Tape("ada".into());
         let stream = call.stream().unwrap();

@@ -24,7 +24,9 @@
 //! changes, so it is replaced in place and never doubled.
 
 use super::{AgentBinding, End, ThreadId, ThreadKind, ThreadState};
-use crate::contract::{CallStatus, SideEnd, SideStatus, SubagentStatus, TranscriptEvent};
+use crate::contract::{
+    CallStatus, SideEnd, SideOpener, SideStatus, SubagentStatus, TranscriptEvent,
+};
 use serde_json::{Value, json};
 
 /// The `kind` of a link line.
@@ -53,6 +55,35 @@ pub struct Link {
     pub binding: Option<AgentBinding>,
     /// How long a run ran, once it has stopped.
     pub elapsed_ms: Option<i64>,
+    /// The teammate that opened the thread, when one did. A handoff is a work
+    /// thread on the teammate it was handed to, and its link is on the
+    /// sender's tape as well as the owner's. Absent when the person opened it.
+    pub opener: Option<Opener>,
+}
+
+/// A teammate that opened a thread on another, and what it is called.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Opener {
+    pub persona_id: String,
+    pub name: String,
+}
+
+impl From<Opener> for SideOpener {
+    fn from(opener: Opener) -> Self {
+        Self {
+            persona_id: opener.persona_id,
+            name: opener.name,
+        }
+    }
+}
+
+impl From<SideOpener> for Opener {
+    fn from(opener: SideOpener) -> Self {
+        Self {
+            persona_id: opener.persona_id,
+            name: opener.name,
+        }
+    }
 }
 
 impl End {
@@ -149,6 +180,18 @@ impl Link {
                 .map(|binding| Value::from(binding.backend_id.clone())),
         );
         put("elapsedMs", self.elapsed_ms.map(Value::from));
+        put(
+            "openerId",
+            self.opener
+                .as_ref()
+                .map(|opener| Value::from(opener.persona_id.clone())),
+        );
+        put(
+            "openerName",
+            self.opener
+                .as_ref()
+                .map(|opener| Value::from(opener.name.clone())),
+        );
         line
     }
 
@@ -190,6 +233,9 @@ impl Link {
                     session_id,
                 }),
             elapsed_ms: event.get("elapsedMs").and_then(Value::as_i64),
+            opener: text("openerId")
+                .zip(text("openerName"))
+                .map(|(persona_id, name)| Opener { persona_id, name }),
         })
     }
 
@@ -208,6 +254,7 @@ impl Link {
                 note,
                 session_id,
                 backend_id,
+                opened_by,
             } => Some(Self {
                 id,
                 ts,
@@ -231,6 +278,7 @@ impl Link {
                         session_id,
                     }),
                 elapsed_ms: None,
+                opener: opened_by.map(Opener::from),
             }),
             TranscriptEvent::Subagent {
                 id,
@@ -256,6 +304,7 @@ impl Link {
                 note: None,
                 binding: None,
                 elapsed_ms,
+                opener: None,
             }),
             _ => None,
         }
@@ -295,6 +344,7 @@ impl Link {
                     .binding
                     .as_ref()
                     .map(|binding| binding.backend_id.clone()),
+                opened_by: self.opener.clone().map(SideOpener::from),
             }),
             ThreadKind::Run => Some(TranscriptEvent::Subagent {
                 id: self.id.clone(),
@@ -359,6 +409,7 @@ mod tests {
                 session_id: "sess".into(),
             }),
             elapsed_ms: None,
+            opener: None,
         }
     }
 
@@ -378,6 +429,7 @@ mod tests {
             note: None,
             binding: None,
             elapsed_ms: Some(40),
+            opener: None,
         };
         assert_eq!(Link::read(&run.event()), Some(run));
     }

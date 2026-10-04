@@ -63,6 +63,17 @@ async fn done(room: &Room, id: &str) {
     })
     .await;
 }
+/// The work thread a handoff runs in, once it has one.
+fn work_thread(room: &Room, id: &str) -> String {
+    room.exchange_pair("ada~bob")
+        .and_then(|p| {
+            p.requests
+                .iter()
+                .find(|r| r.id == id)
+                .and_then(|r| r.thread.clone())
+        })
+        .expect("the handoff opened a work thread")
+}
 fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
     Request {
         id: id.into(),
@@ -79,6 +90,8 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         started: false,
         result_consumed: false,
         human_actions: vec![],
+        thread: None,
+        reply_thread: None,
     }
 }
 fn seed(room: &Room, request: Request, count: i64, paused: bool) {
@@ -94,7 +107,7 @@ fn seed(room: &Room, request: Request, count: i64, paused: bool) {
 }
 
 #[tokio::test]
-async fn handoff_uses_main_context_and_returns_the_matching_request_without_another_tool_call() {
+async fn a_handoff_runs_in_its_own_thread_and_returns_the_matching_request_to_the_senders_dm() {
     let (room, agents) = setup("handoff-context-result");
     room.write_value(
         "bob",
@@ -103,13 +116,23 @@ async fn handoff_uses_main_context_and_returns_the_matching_request_without_anot
     room.allow_sender("bob", "ada").unwrap();
     let id = send(&room, "handoff").await;
     done(&room, &id).await;
-    let target = room
-        .tape("bob")
-        .into_iter()
+    let thread = work_thread(&room, &id);
+    // The brief lands in the work thread, with its provenance, not in bob's DM.
+    let stream = room.log.load(&StreamId::Side(thread.clone()));
+    let brief = stream
+        .iter()
         .find(|v| v["cause"]["kind"] == "handoff")
-        .unwrap();
-    assert_eq!(target["cause"]["requestId"], id);
-    assert_eq!(target["receipt"], "read");
+        .expect("the brief is in the thread");
+    assert_eq!(brief["cause"]["requestId"], id);
+    assert_eq!(brief["from"]["kind"], "dm");
+    assert_eq!(brief["from"]["thread"], "ada");
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|v| v["cause"]["kind"] != "handoff"),
+        "a handoff never lands in the target's main conversation"
+    );
+    // The result returns to the sender's DM, from the work thread.
     let answer = room
         .tape("ada")
         .into_iter()
@@ -118,11 +141,22 @@ async fn handoff_uses_main_context_and_returns_the_matching_request_without_anot
     assert_eq!(answer["text"], "result-0");
     assert_eq!(answer["cause"]["status"], "done");
     assert_eq!(answer["cause"]["threadKey"], "ada~bob");
-    assert!(
-        lock(&agents.seeds)[0]
-            .iter()
-            .any(|s| format!("{s:?}").contains("recipient main context"))
-    );
+    // The thread has the target's context, and both DMs carry a link marker.
+    let preambles = lock(&agents.preambles).clone();
+    let preamble = preambles
+        .iter()
+        .find(|p| p.contains("This is a work thread"))
+        .expect("the thread has the work brief");
+    assert!(preamble.contains("recipient main context"), "{preamble}");
+    for owner in ["ada", "bob"] {
+        assert!(
+            room.tape(owner)
+                .iter()
+                .any(|v| v["kind"] == "link" && v["thread"] == thread.as_str()),
+            "{owner} has a marker: {:?}",
+            room.tape(owner)
+        );
+    }
     assert_eq!(room.log.load(&StreamId::Pair("ada~bob".into())).len(), 2);
 }
 
@@ -374,7 +408,7 @@ async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask(
 }
 
 #[tokio::test]
-async fn handoff_waits_behind_the_persons_turn_and_stop_does_not_cancel_that_turn() {
+async fn a_handoff_runs_beside_the_persons_turn_and_stop_leaves_that_turn_alone() {
     let log = scratch("handoff-turn-boundary");
     enrol(&log, &persona("ada"));
     enrol(&log, &persona("bob"));
@@ -394,35 +428,23 @@ async fn handoff_waits_behind_the_persons_turn_and_stop_does_not_cancel_that_tur
         .unwrap();
     until(|| agents.prompts().len() == 1).await;
     let id = send(&room, "handoff").await;
-    until(|| {
-        room.tape("bob")
-            .iter()
-            .any(|v| v["cause"]["requestId"] == id)
-    })
-    .await;
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    assert_eq!(agents.prompts().len(), 1);
-    assert_eq!(agents.cancel_count(), 0);
+    // It does not wait for the person's turn: it has a thread of its own.
+    until(|| agents.prompts().len() == 2).await;
+    assert!(room.mid_turn("bob"), "the person's turn is still going");
+    let thread = work_thread(&room, &id);
+    assert_eq!(room.sides("bob").len(), 1);
     room.stop_exchange("ada", "bob").unwrap();
     assert_eq!(
-        agents.cancel_count(),
-        0,
-        "the person's work is not this handoff"
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        Phase::Stopped
     );
-    gate.add_permits(1);
+    assert!(room.sides("bob").is_empty(), "{thread} closed");
+    assert!(
+        room.mid_turn("bob"),
+        "stopping the handoff is not stopping the person"
+    );
+    gate.add_permits(10);
     until(|| !room.mid_turn("bob")).await;
-    assert_eq!(
-        agents.prompts().len(),
-        1,
-        "stopped handoff never reaches the driver"
-    );
-    room.stop("bob").unwrap();
-    room.start("bob").await.unwrap();
-    assert_eq!(
-        crate::session::tests::words(lock(&agents.seeds).last().unwrap().clone()),
-        [crate::driver::rig::Said::User("the person's work".into())],
-        "a stopped queued handoff must not reappear in the restarted main history"
-    );
 }
 
 #[tokio::test]
@@ -670,11 +692,12 @@ async fn nested_handoff(active: bool, expire_dependency_only: bool) {
         assert!(agents.drivers["cara"].cancels() > 0);
         until(|| !room.mid_turn("cara")).await;
     } else {
-        assert_eq!(agents.drivers["cara"].cancels(), 0);
-        assert!(room.mid_turn("cara"));
+        // The handoff had its own thread beside the person's turn, and
+        // stopping it closed that thread (this fake shares one driver between
+        // threads, so it cannot tell whose turn a cancel reached).
+        assert!(room.sides("cara").is_empty());
         agents.drivers["cara"].updates.add_permits(2);
         until(|| !room.mid_turn("cara")).await;
-        assert_eq!(agents.drivers["cara"].prompts(), 1);
     }
 }
 #[tokio::test]
@@ -866,12 +889,16 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
     room.allow_sender("bob", "ada").unwrap();
     let id = send(&room, "handoff").await;
     until(|| agents.prompts().len() == 1).await;
+    // The handoff runs in its own work thread; its tools are that thread's.
+    let thread = work_thread(&room, &id);
     TeammateTools::new(&room, "bob")
+        .for_work(thread.clone())
         .call("request_human", &json!({"reason":"Approve the deployment"}))
         .await
         .unwrap();
     let action = room
-        .tape("bob")
+        .log
+        .load(&StreamId::Side(thread))
         .iter()
         .find(|v| v["kind"] == "human_action")
         .unwrap()["actionId"]

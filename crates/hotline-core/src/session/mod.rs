@@ -82,6 +82,7 @@ use crate::mcp::server::TeammateTools;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
+use crate::thread::{ThreadId, ThreadKind};
 use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
@@ -369,7 +370,6 @@ struct Session {
     /// word. Taking the wire is not enough: a prompt the model errored on
     /// before it read it is the one case a read tick would lie about.
     unread: Mutex<Vec<String>>,
-    active_handoff: Mutex<Option<String>>,
     voice_origin: Mutex<Option<crate::voice::Origin>>,
     dispatched_deliveries: Mutex<std::collections::HashSet<String>>,
     /// The window a quiet schedule is holding this teammate's voice with.
@@ -597,6 +597,9 @@ pub struct Room {
     exchange_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
+    /// Who is driving each teammate's computer: one thread at a time, whichever
+    /// of the teammate's threads asked first (`computer/gate.rs`).
+    computer_leases: Arc<crate::computer::gate::Leases>,
     /// The phones paired with this desk, told when a reply lands or a card
     /// needs the person.
     push: crate::push::Push,
@@ -713,6 +716,7 @@ impl Room {
             exchange_lock: Mutex::new(()),
             exchange_workers: Mutex::new(Default::default()),
             exchange_leases: Mutex::new(Default::default()),
+            computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,
             vault,
@@ -901,7 +905,13 @@ impl Room {
         // come up at all (Docker not running, an image that will not pull),
         // starts the teammate without it. The agent is told which, and the
         // tape says so too — never a silent absence.
-        let (persona, extra_mcp, computer_note) = match self.computer_at_start(&persona).await {
+        let (persona, extra_mcp, computer_note) = match self
+            .computer_at_start(
+                &persona,
+                &Driving::new("dm", "the main conversation", &capability),
+            )
+            .await
+        {
             ComputerAtStart::NotWanted => (persona, Vec::new(), None),
             ComputerAtStart::Attached(extra_mcp) => (persona, extra_mcp, None),
             ComputerAtStart::Downloading => (
@@ -1001,7 +1011,6 @@ impl Room {
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
-            active_handoff: Mutex::new(None),
             voice_origin: Mutex::new(None),
             dispatched_deliveries: Mutex::new(Default::default()),
             quiet: Mutex::new(None),
@@ -1056,7 +1065,11 @@ impl Room {
     /// goes ahead without it: the pull fills its bar on the tape, and once
     /// it lands the session restarts with the computer after the turn in
     /// flight (see [`Room::attach_computer_when_idle`]).
-    async fn computer_at_start(self: &Arc<Self>, persona: &Persona) -> ComputerAtStart {
+    async fn computer_at_start(
+        self: &Arc<Self>,
+        persona: &Persona,
+        driving: &Driving,
+    ) -> ComputerAtStart {
         if !persona
             .computer
             .as_ref()
@@ -1100,7 +1113,7 @@ impl Room {
             result = &mut bringing_up => match result {
                 Ok(Ok(ready)) => {
                     lock(&self.computer_setups).remove(&persona.id);
-                    match self.finish_grant(persona, &ready).await {
+                    match self.finish_grant(persona, &ready, driving).await {
                         Ok(extra_mcp) => ComputerAtStart::Attached(extra_mcp),
                         Err(reason) => ComputerAtStart::Unavailable(reason),
                     }
@@ -1220,6 +1233,30 @@ impl Room {
         });
     }
 
+    /// What `computer_status` answers in a work thread: the thread was built
+    /// with the computer or without it, and a download that is still going is
+    /// the DM's to watch.
+    pub(crate) fn computer_in_a_thread(&self, persona_id: &str) -> String {
+        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+            persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        });
+        if enabled {
+            json!({
+                "state": "attached",
+                "note": "Your computer is attached, shared with your other threads: one drives it at a time, and a call says who has it when it is busy. If it did not start for this thread, its `computer__` tools are absent; work without it and say so.",
+            })
+        } else {
+            json!({
+                "state": "none",
+                "note": "You have no computer in this thread.",
+            })
+        }
+        .to_string()
+    }
+
     /// What `computer_status` answers: where this teammate's computer is,
     /// waiting up to `wait` for a download in progress to finish.
     pub(crate) async fn computer_setup_status(&self, persona_id: &str, wait: Duration) -> Value {
@@ -1297,6 +1334,7 @@ impl Room {
     pub(super) async fn grant_computer(
         &self,
         persona: &Persona,
+        driving: &Driving,
     ) -> Result<Vec<mcp::McpServer>, String> {
         if !persona
             .computer
@@ -1318,7 +1356,7 @@ impl Room {
                 self.pull_reporter(&persona.id),
             )
             .await?;
-        self.finish_grant(persona, &ready).await
+        self.finish_grant(persona, &ready, driving).await
     }
 
     /// The rest of the grant, once the computer is up: its guide as the
@@ -1327,6 +1365,7 @@ impl Room {
         &self,
         persona: &Persona,
         ready: &crate::computer::Ready,
+        driving: &Driving,
     ) -> Result<Vec<mcp::McpServer>, String> {
         let ready = ready.clone();
         // The guide the running release serves is the teammate's
@@ -1357,7 +1396,22 @@ impl Room {
             ),
         }
         self.hand_secrets(persona, &ready).await;
-        Ok(vec![crate::computer::mcp_server(&ready)])
+        // The agent is handed a gate in front of the computer, not the
+        // computer: the teammate's threads take turns at it.
+        let lease = driving.lease.clone();
+        let gate = crate::computer::gate::serve(
+            &ready,
+            self.computer_leases.clone(),
+            &persona.id,
+            driving.holder.clone(),
+            move || lease.is_current(),
+        )
+        .await
+        .map_err(|error| format!("{}'s computer could not be shared: {error}", persona.name))?;
+        Ok(vec![crate::computer::mcp_server(&crate::computer::Ready {
+            url: gate.url,
+            token: gate.token,
+        })])
     }
 
     /// Hands a running computer the secrets its teammate is granted — the
@@ -2331,11 +2385,12 @@ impl Room {
             .and_then(|v| v["ts"].as_i64())
             .unwrap_or_else(now_ms);
         let wire = peers::delivery_wire(&cause, &text);
+        let from = self.delivery_source(persona_id, &cause);
         if existing.is_none() {
             let event = TranscriptEvent::Delivery {
                 id: id.into(),
                 ts,
-                from: Some(peers::delivery_from(persona_id, &cause)),
+                from: Some(from.clone()),
                 cause,
                 text,
                 receipt: Some(Receipt::Sent),
@@ -2347,6 +2402,7 @@ impl Room {
         }
         let mut wired = Wired::words(timed(ts, &wire));
         wired.said = Some(id.into());
+        wired.from = Some(from);
         lock(&session.dispatched_deliveries).insert(id.into());
         self.dispatch(session, wired);
         Ok(())
@@ -2837,6 +2893,7 @@ impl Room {
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: None,
+                thread: None,
             },
         );
         self.push.notify(
@@ -2861,7 +2918,12 @@ impl Room {
     /// and the person's answer comes back to the teammate as a delivery
     /// whenever they give it (see [`Room::answer_human`]). The card is the
     /// record, so it outlives the turn, a stop, and a restart.
-    pub fn ask_human(&self, persona_id: &str, reason: &str) -> Result<String, String> {
+    pub fn ask_human(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        home: Option<&str>,
+    ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
         if reason.len() < 3 {
@@ -2869,9 +2931,10 @@ impl Room {
         }
         let reason: String = reason.chars().take(500).collect();
         let action_id = new_id();
-        self.link_handoff_human(persona_id, &action_id)?;
-        self.write(
+        self.link_handoff_human(home, &action_id)?;
+        self.write_home(
             persona_id,
+            home,
             &TranscriptEvent::HumanAction {
                 id: format!("human:{action_id}"),
                 ts: now_ms(),
@@ -2880,9 +2943,11 @@ impl Room {
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: Some(true),
+                thread: home.map(str::to_string),
             },
         );
-        self.push.notify(
+        self.push.notify_in(
+            home,
             &self.needs_you(persona_id),
             &reason,
             persona_id,
@@ -2941,17 +3006,19 @@ impl Room {
             reason,
             status: HumanActionStatus::Pending,
             delivers: Some(true),
+            thread,
             ..
         }) = self.human_card(persona_id, action_id)
         else {
             return Err("That request is no longer waiting for an answer.".to_string());
         };
         self.supersede_human(persona_id, action_id, status, note.clone());
-        self.deliver_answer(persona_id, action_id, &reason, status, note);
+        self.deliver_answer(persona_id, action_id, &reason, status, note, thread);
         Ok(())
     }
 
-    /// An answer, or the lack of one, on its way to the teammate that asked.
+    /// An answer, or the lack of one, on its way to the teammate that asked: to
+    /// the work thread the card was raised in, or the teammate's DM.
     fn deliver_answer(
         self: &Arc<Self>,
         persona_id: &str,
@@ -2959,18 +3026,15 @@ impl Room {
         reason: &str,
         status: HumanActionStatus,
         note: Option<String>,
+        thread: Option<String>,
     ) {
-        let cause = DeliveryCause::Answer {
-            action_id: action_id.to_string(),
-            status,
-            about: peers::about(reason),
-        };
         let room = self.clone();
         let persona_id = persona_id.to_string();
-        let delivery_id = format!("human-answer:{action_id}");
+        let action_id = action_id.to_string();
+        let reason = reason.to_string();
         tokio::spawn(async move {
             if let Err(error) = room
-                .deliver_identified(&persona_id, &delivery_id, cause, note.unwrap_or_default())
+                .hand_over_answer(&persona_id, &action_id, &reason, status, note, thread)
                 .await
             {
                 eprintln!("an answer to {persona_id}'s request could not be delivered: {error}");
@@ -2978,18 +3042,80 @@ impl Room {
         });
     }
 
+    /// Hands the person's answer to a card to the agent that raised it: in its
+    /// work thread when the card was raised in one (waking it if it was parked,
+    /// and carrying on a handoff that was waiting behind it), else in its DM.
+    /// Handing over the same answer twice delivers it once.
+    pub(super) async fn hand_over_answer(
+        self: &Arc<Self>,
+        persona_id: &str,
+        action_id: &str,
+        reason: &str,
+        status: HumanActionStatus,
+        note: Option<String>,
+        thread: Option<String>,
+    ) -> Result<(), String> {
+        let cause = DeliveryCause::Answer {
+            action_id: action_id.to_string(),
+            status,
+            about: peers::about(reason),
+        };
+        let delivery_id = format!("human-answer:{action_id}");
+        let text = note.unwrap_or_default();
+        match thread {
+            Some(thread) => {
+                let handoff = self.handoff_awaiting(persona_id, action_id).map(|request| {
+                    turns::HandoffLine {
+                        request,
+                        answer: Some(action_id.to_string()),
+                    }
+                });
+                self.deliver_into_work(
+                    &thread,
+                    &delivery_id,
+                    cause,
+                    DeliveryFrom::new(&ThreadId::side(&thread), Some(action_id.to_string())),
+                    text,
+                    handoff,
+                )
+                .await
+            }
+            None => {
+                self.deliver_identified(persona_id, &delivery_id, cause, text)
+                    .await
+            }
+        }
+    }
+
+    /// One line onto a work thread of the teammate's, or onto its tape when
+    /// the card or the line belongs to no thread.
+    pub(super) fn write_home(&self, persona_id: &str, home: Option<&str>, event: &TranscriptEvent) {
+        match home {
+            Some(thread) => {
+                self.threads()
+                    .write(&ThreadId::side(thread), persona_id, event);
+            }
+            None => self.write(persona_id, event),
+        }
+    }
+
     /// Cards that deliver and have waited [`ASK_TTL`] without an answer:
     /// expired, and the teammate told, so neither the card nor the
     /// teammate's "waiting on you" stays up forever.
     pub(super) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
         for persona in crate::room::roster(&self.log) {
-            for event in self.tape(&persona.id) {
+            let cards = self
+                .tape(&persona.id)
+                .into_iter()
+                .chain(self.cards_in_work(&persona.id));
+            for event in cards {
                 let Ok(TranscriptEvent::HumanAction {
                     ts,
                     action_id,
                     reason,
                     status: HumanActionStatus::Pending,
                     delivers: Some(true),
+                    thread,
                     ..
                 }) = serde_json::from_value::<TranscriptEvent>(event)
                 else {
@@ -3015,6 +3141,7 @@ impl Room {
                     &reason,
                     HumanActionStatus::Expired,
                     None,
+                    thread,
                 );
             }
         }
@@ -3092,13 +3219,15 @@ impl Room {
             id,
             reason,
             delivers,
+            thread,
             ..
         } = card
         else {
             return;
         };
-        self.write(
+        self.write_home(
             persona_id,
+            thread.as_deref(),
             &TranscriptEvent::HumanAction {
                 id,
                 ts: now_ms(),
@@ -3107,14 +3236,18 @@ impl Room {
                 status,
                 note,
                 delivers,
+                thread: thread.clone(),
             },
         );
     }
 
+    /// The card this request raised, on the tape or in one of the teammate's
+    /// work threads.
     fn human_card(&self, persona_id: &str, action_id: &str) -> Option<TranscriptEvent> {
         let id = Value::from(format!("human:{action_id}"));
         self.tape(persona_id)
             .into_iter()
+            .chain(self.cards_in_work(persona_id))
             .find(|event| event.get("id") == Some(&id))
             .and_then(|event| serde_json::from_value(event).ok())
     }
@@ -4027,57 +4160,25 @@ impl Room {
                 turns.running = false;
                 break;
             }
-            // TODO(threads phases 6-7): what a line is, and where it came from,
-            // is still read off the prefix of the id it was written under for
-            // `handoff:` and `exchange-result:` (the pair exchanges, phase 6)
-            // and `human-answer:` (the DM's own cards, phase 7). Each delivery
-            // already carries its source as a field (`DeliveryFrom`), so a
-            // read moves onto it when its producer is ported. A direct call's
-            // turn says which call thread it came from (`Wired::from`), and
-            // only the desk's calls, which are no thread, are read off the id.
+            // What a line is, and where it came from, is a field of it. The
+            // desk's own calls, which are no thread, are the one origin still
+            // read off the id they were written under.
             *lock(&session.voice_origin) = call_origin(&wired);
-            let mut handoff = wired
-                .said
-                .as_ref()
-                .and_then(|id| id.strip_prefix("handoff:"))
-                .map(str::to_string);
-            if handoff.as_ref().is_some_and(|id| !self.handoff_live(id)) {
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            if let Some((id, action)) = wired
-                .said
-                .as_deref()
-                .and_then(|said| self.handoff_answer(&session.persona_id, said))
-            {
-                if let Err(error) = self.resume_handoff_answer(&id, &action).await {
-                    eprintln!("handoff answer not started: {error}");
-                    next = lock(&session.turns).next_line();
-                    continue;
-                }
-                handoff = Some(id);
-            }
+            // A result that came back from a colleague is heard once: it is
+            // consumed as its turn begins, and one the exchange has since
+            // stopped is never heard.
             if wired
-                .said
+                .from
                 .as_ref()
-                .and_then(|id| id.strip_prefix("exchange-result:"))
-                .is_some_and(|id| !self.begin_exchange_result(id))
+                .filter(|from| matches!(from.kind, ThreadKind::Pair | ThreadKind::Side))
+                .and_then(|from| from.request.as_deref())
+                .is_some_and(|request| {
+                    self.is_exchange_request(request) && !self.begin_exchange_result(request)
+                })
             {
                 next = lock(&session.turns).next_line();
                 continue;
             }
-            *lock(&session.active_handoff) = handoff.clone();
-            if let Some(id) = &handoff
-                && let Err(error) = self.begin_handoff(id)
-            {
-                eprintln!("handoff not started: {error}");
-                *lock(&session.active_handoff) = None;
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            let mut handoff_replies = Vec::new();
-            let mut handoff_finished = false;
-            let mut handoff_failed = false;
             self.set_state(&session, SessionState::Thinking);
             let reach = self.reach_of(&session.persona_id);
             if !session.capability.is_current() || !self.current_session(&session) {
@@ -4146,21 +4247,6 @@ impl Room {
                         boundary.finish(None);
                         continue;
                     }
-                    if let Update::Message {
-                        kind: MessageKind::Agent,
-                        text,
-                        ..
-                    } = &update
-                    {
-                        handoff_replies.push(text.clone());
-                    }
-                    if let Update::Turn { stop_reason, .. } = &update {
-                        handoff_finished = true;
-                        handoff_failed |= matches!(
-                            stop_reason.as_str(),
-                            "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
-                        );
-                    }
                     asked |= matches!(update, Update::Permission { .. });
                     self.record(&session, update, &mut in_flight, &voice);
                 }
@@ -4170,26 +4256,9 @@ impl Room {
             // and a card nobody is behind. A line it was still holding is the
             // last thing it said.
             for update in voice.finish() {
-                if let Update::Message {
-                    kind: MessageKind::Agent,
-                    text,
-                    ..
-                } = &update
-                {
-                    handoff_replies.push(text.clone());
-                }
                 self.record(&session, update, &mut in_flight, &voice);
             }
-            if let Some(id) = handoff {
-                let failed = handoff_failed || !handoff_finished;
-                let reply = if failed && handoff_replies.is_empty() {
-                    "The handoff turn ended without a result; inspect before retrying.".to_string()
-                } else {
-                    handoff_replies.join("\n\n")
-                };
-                self.finish_handoff(&id, reply, failed);
-            }
-            *lock(&session.active_handoff) = None;
+            self.let_go_of_computer(&session.persona_id, "dm");
             self.fail_in_flight(&session, &mut in_flight);
             self.send_glance(
                 &session,
@@ -5133,6 +5202,40 @@ enum ComputerSetup {
     /// Downloaded and up: joins the session when its turn ends.
     Ready,
     Failed(String),
+}
+
+/// Which agent is being handed the teammate's computer, and the authority it
+/// holds it under. The computer is shared by the teammate's threads one at a
+/// time ([`crate::computer::gate`]), and its gate ends with this lease.
+pub(super) struct Driving {
+    holder: crate::computer::gate::Holder,
+    lease: CapabilityLease,
+}
+
+impl Driving {
+    /// `key` is what the thread holds the computer under, and `title` is what
+    /// another thread is told it is busy with.
+    pub(super) fn new(
+        key: impl Into<String>,
+        title: impl Into<String>,
+        lease: &CapabilityLease,
+    ) -> Self {
+        Self {
+            holder: crate::computer::gate::Holder {
+                key: key.into(),
+                title: title.into(),
+            },
+            lease: lease.clone(),
+        }
+    }
+}
+
+impl Room {
+    /// A thread's turn is over: it has no more use for the teammate's computer
+    /// until it is next asked something.
+    pub(super) fn let_go_of_computer(&self, persona_id: &str, key: &str) {
+        self.computer_leases.release(persona_id, key);
+    }
 }
 
 /// What a start does about the teammate's computer.

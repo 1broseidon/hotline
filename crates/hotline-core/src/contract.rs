@@ -1133,6 +1133,11 @@ pub enum TranscriptEvent {
         /// settles it. Absent on a card a tool is waiting on.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delivers: Option<bool>,
+        /// The work thread the card was raised in, when it was raised in one:
+        /// the card is on that thread's stream and not on the tape, and the
+        /// answer goes back to that thread's agent. Absent on the tape's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<String>,
     },
     /// A site asked the teammate's browser to make a passkey, under an
     /// arming the person started for that site: the request waits in the
@@ -1272,6 +1277,11 @@ pub enum TranscriptEvent {
         session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         backend_id: Option<String>,
+        /// The teammate that opened the thread, when one did: a handoff is a
+        /// thread on the teammate it was handed to, and the line is on both
+        /// teammates' tapes. Absent when the person opened it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opened_by: Option<SideOpener>,
     },
     /// A voice call with this teammate: one quiet line on the tape, written
     /// again under the same id as the call goes, that stands for the call
@@ -1781,6 +1791,18 @@ pub struct SideThreadSummary {
     pub archived_by: Option<SideEnd>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<i64>,
+    /// The teammate that opened it, when one did: "from Mack" on the row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opened_by: Option<SideOpener>,
+}
+
+/// A teammate that opened a work thread on another by handing it work.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SideOpener {
+    pub persona_id: String,
+    pub name: String,
 }
 
 /// An outside MCP agent holding a seat in this room, rather than a teammate.

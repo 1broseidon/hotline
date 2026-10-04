@@ -741,6 +741,7 @@ impl Room {
             }
         }
         *lock(&session.last_used) = now_ms();
+        self.let_go_of_computer(&target.id, &format!("pair:{key}"));
 
         if !session.valid() {
             self.mark(&session, &caller, &target, PeerStatus::Failed);
@@ -1235,7 +1236,16 @@ impl Room {
                 })?;
         }
         let flip = thread_participants(key).is_some_and(|(user_side, _)| user_side != caller.id);
-        let extra_mcp = self.grant_computer(&view).await?;
+        let extra_mcp = self
+            .grant_computer(
+                &view,
+                &super::Driving::new(
+                    format!("pair:{key}"),
+                    format!("a request from {}", caller.name),
+                    &target_capability,
+                ),
+            )
+            .await?;
         caller_capability.check()?;
         target_capability.check()?;
         peer_caller_capability.check()?;

@@ -44,8 +44,9 @@ pub struct Seed {
 pub enum Tools {
     /// All of them, with subagents.
     Teammate,
-    /// A side thread's own set, addressed by its id.
-    Side,
+    /// A work thread's: the teammate's tools, but the chapter moves, which
+    /// belong to the DM, and `archive_thread`, addressed by the thread's id.
+    Work,
     /// A subagent run's: its teammate's conversation to read, no subagents.
     Run,
     /// What a peer session answers a colleague with.
@@ -114,8 +115,9 @@ pub struct Policy {
     /// Whether closing the thread writes a note through the chapter
     /// summariser. A run's report is a job result, so it has none.
     pub closing_note: bool,
-    /// Whether the agent gets the teammate's computer. Two agents driving one
-    /// desktop is a fight nobody wins, so only the main conversation does.
+    /// Whether the agent is handed the teammate's computer. The teammate has
+    /// one, so threads share it through a lease: one drives it at a time
+    /// (`computer/gate.rs`), and the thread's lease ending ends its hold.
     pub computer: bool,
 }
 
@@ -138,7 +140,7 @@ impl Policy {
                 ..Self::asked_of_the_person()
             },
             ThreadKind::Side => Self {
-                tools: Tools::Side,
+                tools: Tools::Work,
                 lease: Lease::Independent,
                 idle: Idle::Park(SIDE_IDLE_MS),
                 restart: Restart::Park,
@@ -151,7 +153,7 @@ impl Policy {
                     parent_tail: true,
                     own_history: true,
                 },
-                computer: false,
+                computer: true,
                 ..Self::asked_of_the_person()
             },
             ThreadKind::Pair => Self {

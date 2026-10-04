@@ -1137,6 +1137,11 @@ export type Side = "me" | "them";
 export type SideEnd = "agent" | "person" | "idle" | "stopped";
 
 /**
+ * A teammate that opened a work thread on another by handing it work.
+ */
+export type SideOpener = { personaId: string, name: string, };
+
+/**
  * Whether a side thread is still going.
  */
 export type SideStatus = "live" | "parked" | "archived";
@@ -1161,7 +1166,11 @@ waiting: boolean,
  * The newest thing said in the thread, in a line: the teammate's last
  * words, or what the person asked when it has said none yet.
  */
-preview?: string, result?: string, archivedBy?: SideEnd, archivedAt?: number, };
+preview?: string, result?: string, archivedBy?: SideEnd, archivedAt?: number, 
+/**
+ * The teammate that opened it, when one did: "from Mack" on the row.
+ */
+openedBy?: SideOpener, };
 
 /**
  * One skill as the catalog lists it. `invalid` is absent when the folder is
@@ -1380,7 +1389,13 @@ note?: string,
  * nothing was parked on it; only the person, or a day going by,
  * settles it. Absent on a card a tool is waiting on.
  */
-delivers?: boolean, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
+delivers?: boolean, 
+/**
+ * The work thread the card was raised in, when it was raised in one:
+ * the card is on that thread's stream and not on the tape, and the
+ * answer goes back to that thread's agent. Absent on the tape's own.
+ */
+thread?: string, } | { "kind": "passkey_ask", id: string, ts: number, askId: string, 
 /**
  * The name the passkey is stored under once made.
  */
@@ -1444,7 +1459,13 @@ note?: string,
  * its first turn, and the harness that issued it. What lets a parked
  * or archived thread be reopened with recall.
  */
-sessionId?: string, backendId?: string, } | { "kind": "call", id: string, 
+sessionId?: string, backendId?: string, 
+/**
+ * The teammate that opened the thread, when one did: a handoff is a
+ * thread on the teammate it was handed to, and the line is on both
+ * teammates' tapes. Absent when the person opened it.
+ */
+openedBy?: SideOpener, } | { "kind": "call", id: string, 
 /**
  * When the call started. The line keeps its place as it is rewritten.
  */

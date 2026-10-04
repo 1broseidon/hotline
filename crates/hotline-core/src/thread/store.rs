@@ -126,7 +126,15 @@ impl ThreadStore {
                 thread: ThreadId::dm(&persona_id),
                 event: Some(link.id),
             }),
-            participants: vec![Participant::Person, Participant::Persona(persona_id)],
+            // A teammate that handed the work over is in the thread too: the
+            // result goes back to it.
+            participants: [Participant::Person, Participant::Persona(persona_id)]
+                .into_iter()
+                .chain(
+                    link.opener
+                        .map(|opener| Participant::Persona(opener.persona_id)),
+                )
+                .collect(),
             state: link.state,
             title: Some(link.title),
             binding: link.binding,

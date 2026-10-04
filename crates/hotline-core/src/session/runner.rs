@@ -302,7 +302,13 @@ impl Room {
                     report: "The subagent was stopped before it started.".to_string(),
                 });
             }
-            built = self.thread_agent(Opening { thread: thread.clone(), persona: view, lease }) => built?,
+            built = self.thread_agent(Opening {
+                thread: thread.clone(),
+                persona: view,
+                title: spec.title.clone(),
+                opener: None,
+                lease,
+            }) => built?,
         };
         // The run settles its own agent, however it ends.
         agent.keep();
@@ -319,6 +325,7 @@ impl Room {
                 Line {
                     text: timed(now_ms(), &brief(&agent.view.name, &spec.task)),
                     attachments: Vec::new(),
+                    handoff: None,
                 },
                 reach,
                 Some(cancel),
@@ -552,6 +559,7 @@ impl Running {
             note: None,
             binding: None,
             elapsed_ms,
+            opener: None,
         });
         room.list_subagent(
             &self.persona_id,

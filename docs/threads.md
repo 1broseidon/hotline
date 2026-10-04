@@ -107,16 +107,19 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 
 ## Kinds as policy
 
-| | DM | Side | Pair (ask) | Pair (handoff) | Call | Run |
-| --- | --- | --- | --- | --- | --- | --- |
-| Parent | — | DM | both DMs | both DMs | DM | DM |
-| Agent | main session | fresh teammate | target's peer agent | none: delivers into the target's DM | voice front, hands off to the DM | child agent |
-| Lease | the teammate's | without computer | dual, scoped | the target's | none of its own | scoped child |
-| Idle | chapters (setting) | park at 3 h | park at 10 min | n/a | end at 10 min | ends with the run |
-| Restart | resume | park | park; cut-off told to the sender | requeue or fail | close, transcript kept | cancel |
-| Limit | one | two live, park the idlest | one turn in flight per pair | queued | one call | job limits |
-| Cards | person | person, pushed | person, pushed (today: none) | in the target's DM | signalled, never answered by voice | expire |
-| Search | indexed | indexed | indexed (today: no) | in the DMs | indexed (today: lost) | indexed |
+| | DM | Side (work thread) | Pair (ask) | Call | Run |
+| --- | --- | --- | --- | --- | --- |
+| Parent | — | DM, and the opener's DM when a teammate opened it | both DMs | DM | DM |
+| Agent | main session | the teammate's own agent, full tools | target's peer agent | voice front, hands off to the DM | child agent |
+| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | none of its own | scoped child |
+| Idle | chapters (setting) | park at 3 h | park at 10 min (`Room::sweep` row) | end at 10 min | ends with the run |
+| Restart | resume | park | park; cut-off told to the sender | close, transcript kept | cancel |
+| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one call | job limits |
+| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | signalled, never answered by voice | expire |
+| Search | indexed | indexed | indexed under both teammates | indexed | indexed |
+
+A handoff is a side thread: opened by a teammate instead of the person, with the
+sender as its opener. Its result returns to the opener as a delivery.
 
 Chapters stay specific to the DM. A side thread long enough to need chapters
 should become a teammate.
@@ -165,10 +168,16 @@ DM is ported last, because it has the most to lose.
    index it, link it to the DM, and let a closed call be read back.
    *Done when:* a call's lines survive a restart and `search_thread` finds
    them. **Done**, for direct calls.
-6. **Pairs are threads.** Port asks and handoffs. Give peer cards an answer
-   path, index pair threads, and fold read receipts into the shared unread.
-   *Done when:* a card raised in a peer turn can be answered, and pair
-   threads are searchable.
+6. **Work threads, and pairs on the shared path.** Handoffs and side threads
+   become one kind: a work thread, opened by the person or a teammate, served by
+   the target's own agent with the full toolset, sharing its computer through a
+   lease, and returning its note to the opener. Asks stay lightweight pair
+   threads, written, indexed and answered through the shared path.
+   *Done when:* a handoff runs in its own thread while the target's DM answers
+   the person, its result returns to the sender's DM, the computer lease
+   serializes two threads, a card raised in a peer turn can be answered, and
+   pair threads are searchable. **Done.** Peer read receipts stay a pair-stream
+   concern (see below).
 7. **The DM is a thread.** Move the main session onto the runtime and the
    lifecycle, keeping chapters as DM policy.
    *Done when:* `run_turns` is the shared turn loop.
@@ -360,6 +369,70 @@ Where this differs from the design above:
 - **A call that settles has no `parked` state.** Its restart row is `Close`
   (stopped), as designed; there is nothing to resume.
 
+**Phase 6.** Work threads (BRO-201).
+
+- **One kind.** `ThreadKind::Side` is the work thread: the name stays as the
+  stored and wire name so every old link, marker and phone build keeps working.
+  The policy's tool variant is `Tools::Work`. A `Link` gained an optional
+  `opener` (`openerId`/`openerName`); the `side` marker and `SideThreadSummary`
+  gained an additive `openedBy`. A teammate's handoff opens a work thread on the
+  target (`dispatch_handoff`, `Sides::bring_up`) and never lands in the target's
+  DM; the brief arrives as a `Delivery` with cause handoff whose
+  `DeliveryFrom` is the sender's DM and the request. `write_link` also writes a
+  copy of the link on the opener's tape (`<id>@<opener>`), so both DMs carry a
+  marker with title, state and outcome.
+- **Result.** When the handoff turn ends and no human gate is open, the thread
+  closes (`End::Agent` or `End::Failed`) and the result is delivered to the
+  sender's DM, or to the sender's work thread when it was sent from one
+  (`reply_thread`), from the work thread (`delivery_source`). The `handoff:` and
+  `exchange-result:` ids are only idempotency keys; the turn loop reads
+  `Wired::from`. `Stop` on the exchange cancels and closes the thread.
+- **Tools.** The same teammate tools as the main session, bar `new_chapter` and
+  `resume_chapter`, plus `archive_thread`. `request_human` raises its card in
+  the thread, pushed with the thread's id; `send_file`, `generate_image` and
+  `message_teammate` post and reply there. Schedules and loops stay with the
+  persona and wake the DM.
+- **Cap.** `MAX_LIVE` is 3 live work threads per teammate, operator- and
+  teammate-opened together; parked ones do not count. At the cap the idlest
+  non-working thread parks. A handoff arriving at a teammate whose places are
+  all mid-turn stays `Queued` (`Sides::has_room`, polled by the exchange
+  worker): nothing is interrupted or refused, and a person's thread is never
+  parked for a colleague's request while it is working.
+- **Computer lease.** `computer/gate.rs` puts a loopback proxy in front of the
+  teammate's computer MCP URL, one per agent. `tools/call` takes the
+  teammate's lease (`Leases::take`), waiting up to 20 s and otherwise telling the
+  caller who has it; `tools/list` and `initialize` pass through. A thread keeps
+  it until its turn ends, until it has been idle 30 s with no call in flight, or
+  until its capability lease is revoked (the gate then closes). The main DM and
+  peer sessions take part under the keys `dm` and `pair:<key>`. It never widens a
+  grant: the gate only forwards to the URL the thread was already granted.
+- **Asks.** `Threads::write` takes Pair. A peer card is pushed and counted for
+  the answering teammate (`threads_waiting`), and `peers.answer_permission`
+  (owner seat only) answers it while the turn is behind it. Pair lines are
+  indexed under both teammates, tagged `pair:<key>`, and a rebuild finds them
+  from the `peer` markers on the tape. `sweep_peers` is a Pair row of
+  `Room::sweep`.
+
+Where this differs from the design above:
+
+- **Read receipts are not in the shared unread.** They are a per-message state
+  on the pair stream the peer pane draws; folding them in would change the
+  stream's shape for no new behaviour. They stay with `peers.mark_read`.
+- **Queue, not park, for a handoff at a full teammate.** Parking a person's
+  working thread for a colleague would break the first rule of the phase.
+- **The old `Pair (handoff)` kind is gone.** Pair now means asks only, with the
+  exchange bookkeeping (`exchange_pair` phases, `EXCHANGE_CAP`, first-contact
+  approval) as pair policy. A handoff saved before this phase (no `thread`)
+  that was waiting on a human is failed back to the sender on startup.
+- **A result for a work-thread sender returns to that thread** and not the DM.
+
+Notes for phase 7: the main session still builds in `start_now` and runs in
+`run_turns`; moving it onto `thread_agent` and the lifecycle should keep the
+`Driving` computer holder (key `dm`) and make `run_turns` the shared loop for
+`run_side_turns` too. The only prefix-style reads left are producers
+(`handoff:`, `exchange-result:` ids and `xthread:` markers). `exchange-paused:`
+is untouched.
+
 ## Today
 
 The map this design replaces, as of `qa/sides-voice` (main, plus side
@@ -369,16 +442,16 @@ the phases built so far.
 | Concern | DM | Side | Pair | Call | Run |
 | --- | --- | --- | --- | --- | --- |
 | Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | `Call`; desk calls on a `voice-dispatcher` tape | `Run` |
-| Write helper | `write_value` | `Threads::write` | `write_thread`, `exchange_thread_line` | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
+| Write helper | `write_value` | `Threads::write` | `Threads::write` (`write_thread`) | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
 | Agent builder | `start_now` | `bring_up` | `peer_session` | dispatcher front | `run_to_end` |
 | Turn loop | `run_turns` + `Turns` | `run_side_turns` + `Turns` | `drive` | voice `run` | `drive_with` |
 | Resume | persona checkpoints | marker `sessionId` | reseed from thread | `Exchange::from_thread` | none |
-| Idle | `sweep_chapters` | `Room::sweep` (3 h) | `sweep_peers` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
+| Idle | `sweep_chapters` | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
 | Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |
-| Cards answered by | `session.answer_permission` | `side.answer_permission` | nobody | never | nobody (expired) |
-| Push / waiting | yes | yes | no | fallback push | no |
-| Search | indexed | indexed | no | indexed | indexed |
+| Cards answered by | `session.answer_permission` | `side.answer_permission` | `peers.answer_permission` | never | nobody (expired) |
+| Push / waiting | yes | yes | yes | fallback push | no |
+| Search | indexed | indexed | indexed | indexed | indexed |
 | Desktop hook | `useTape` | `useSide` | `useThread` | `voice/call.ts` | `useRun` |
 | Phone hook | team state | `use-side` (unreleased) | `use-peer-thread` | `voice/call.ts` | `use-run` |
 

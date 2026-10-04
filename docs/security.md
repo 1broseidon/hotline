@@ -42,7 +42,7 @@ it.
 | MCP gateway | `mcpPolicy` | `none` | Each selected server's own capabilities, wherever it reaches. Hotline connects it as the client; it is not inside the shell sandbox. `all` includes servers added later. An imported or invalid policy grants nothing. |
 | Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. |
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
-| Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. |
+| Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. Its threads share it through an exclusive lease, below. |
 | Secrets | `computer.secrets` | none | Named values from the operator's store (see below), in the environment of every job that computer runs. The computer redacts each value from what its tools answer and nothing returns one. A record from before the field, or a name nobody ticked, grants nothing. |
 | ACP harness | `backendId` other than `hotline` | Hotline Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Hotline's sandbox. Hotline's file callbacks for it stay in the workspace whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
 
@@ -1105,3 +1105,18 @@ state-machine text/sequence/cancellation/accounting tests,
 in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
+
+## One computer, several threads
+
+A teammate's work threads, its main conversation and a colleague's ask all
+reach the same computer, so they take turns. The computer's MCP URL is handed to
+each agent through a loopback gate (`computer/gate.rs`) with a token of its own;
+the gate replaces it with the real bearer only when it forwards. `tools/call`
+takes the teammate's exclusive lease: a second thread waits up to 20 s and is
+then told the computer is busy and which thread has it, never queued silently.
+The hold ends with the holder's turn, after 30 s without a call (never while a
+call is in flight), or when the thread's capability lease is revoked (it
+closes, parks, is stopped, or the teammate's authority changes), at which point
+the gate closes too. The gate forwards only to the URL the thread was already
+granted, so a thread never has a computer wider than the teammate's grants, and a
+teammate's lease never covers another teammate's computer.

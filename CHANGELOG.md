@@ -10,6 +10,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- A handoff to a teammate no longer lands in their main chat. It opens its own
+  work thread on them, with their full tools and the context of who sent it, so
+  the person can keep talking to that teammate while it works. The result comes
+  back to the sender's chat, both chats show a marker for the thread, and a
+  handoff's row in the side-thread pane says "from Mack". A teammate may have
+  three work threads at once; a handoff to one that is fully busy waits its
+  turn. Threads share the teammate's computer one at a time, and one that finds
+  it in use is told who has it.
+- A permission card raised while a colleague is answering a teammate can now be
+  answered, and what two teammates said to each other is found by
+  `search_thread`.
+
 - Side threads live in a pane docked on the right, not in the floating work
   card. The pane lists the open teammate's side threads: title, a dot for
   running, waiting on you, parked or archived, the last line and when, with the

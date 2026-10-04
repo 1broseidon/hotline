@@ -138,7 +138,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; past two running agents the idlest thread is parked, and it is refused only while both are mid-turn |
+| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner seat only |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
 | `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
 | `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
@@ -582,7 +583,9 @@ that loads a thread. `peers.mark_read` says that
 those messages have been read and answers how many actually moved: an id
 naming nothing, an event that is not a message, and a message that is
 already read all move nothing, which is what makes a repeated receipt
-harmless. A message's `receipt` is `sent` when it enters the thread and
+harmless. `peers.answer_permission` answers a permission card in a peer
+thread (`perm:<requestId>` on the pair stream) and is refused once its turn is
+over. A message's `receipt` is `sent` when it enters the thread and
 `read` once the recipient's session has proved a turn on it; nothing ever
 un-reads a message.
 

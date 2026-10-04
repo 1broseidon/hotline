@@ -1033,12 +1033,16 @@ caller may be mid-turn on its own tape while the exchange runs: nothing
 touches the caller's session until the answer is delivered.
 
 **Ask or hand off** (`session/exchanges.rs`). `message_teammate` takes
-`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated side
-session above; Handoff puts the request on the pair's thread and delivers
-it into the recipient's own conversation behind its current turn. The
-`handoff` cause keeps the sender, thread, and `requestId`. The recipient's
-final reply returns automatically as a correlated peer delivery, even when
-the sender has moved on. Neither intent expands the recipient's permissions.
+`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated peer
+session above; Handoff opens a **work thread** on the recipient (see
+[Side threads](#side-threads)) with the sender as its opener, and never lands
+in the recipient's main conversation, which stays open to the person. The
+brief arrives in the thread as a delivery whose `handoff` cause keeps the
+sender, thread and `requestId` and whose `from` is the sender's DM. The
+thread's final reply returns automatically as a correlated peer delivery to the
+sender's DM (or to the work thread the sender was in), even when the sender has
+moved on, from the work thread. A handoff to a recipient whose three work
+threads are all mid-turn stays queued until one is free. Neither intent expands the recipient's permissions.
 There is no link record, roster link, or chapter-scoped relationship.
 
 The existing collaboration card now explains both intents. A legacy grant
@@ -1080,10 +1084,13 @@ is `sent` when it enters the thread and `read` when the recipient's
 session proves it took it into a turn. Nothing un-reads a message. The
 agent is never told a tick exists.
 
-Nothing can answer a permission card raised inside a peer turn, because no
-seat is shown one. The card is still written to the thread and the marker
-goes to `waiting`, so a reader can see what the thread is stopped on. On
-startup those cards expire with the tapes.
+A permission card raised inside a peer turn is the person's to answer. The
+card is written to the thread through the shared write path, pushed, counted in
+the answering teammate's `waiting`, and the marker goes to `waiting`; the owner
+seat answers it with `peers.answer_permission {key, requestId, optionId}` while
+the turn is still behind it. A card the turn left open expires when the turn
+ends, and on startup with the tapes. Pair lines are searchable by both
+teammates (`pair:<key>` hits).
 
 Deleting a teammate stops every peer session it is a side of. The wire for
 listing threads and marking them read is [wire.md](wire.md).
@@ -1091,13 +1098,18 @@ listing threads and marking them read is [wire.md](wire.md).
 ## Side threads
 
 A side thread is the same teammate borrowed for a second conversation while it
-is busy with the first. The person starts one beside the main conversation, it
-runs in parallel in a context of its own, and they talk with the teammate in it
-as they would anywhere. It is a working session on a topic, not an errand: the
+is busy with the first, and the one kind of thread a teammate works in beside
+its main conversation: the **work thread**. The person starts one beside the
+main conversation, or a colleague hands work to the teammate (`message_teammate`
+with intent handoff), and it runs in parallel in a context of its own, served by
+the teammate's own agent with the full toolset. The opener is a participant
+and the person talks with the teammate in it as they would anywhere. (Stored and
+on the wire it is still `side`.) It is a working session on a topic, not an errand: the
 main conversation can work on one repository while a side thread triages five
 over an afternoon. What makes it "side" is that it never pollutes the main
-context, not that it is short-lived. It is the exception: nothing in the main
-path starts one by itself, and it has no button of its own.
+context, not that it is short-lived. It has no button of its own; a handoff
+from a colleague opens one with the colleague as its opener (`opener`, and
+`openedBy` on the marker and the summary), and the dock row says "from Mack".
 
 A thread is **live** (an agent is running it), **parked** (open, its agent let
 go of) or **archived** (ended on purpose, read-only until continued). Parking
@@ -1113,7 +1125,9 @@ from it.
   `side_agent_delta` / `side_thought_delta`, addressed by side id; a tape
   subscription never receives them and a side subscription never receives a
   tape's.
-- **The marker.** One link on the teammate's tape (id `link:side:<sideId>`; a
+- **The marker.** One link on the teammate's tape (and, for a handoff, a copy
+  on the opener's tape under `<id>@<opener>`, so both DMs show title, state and
+  outcome) (id `link:side:<sideId>`; a
   thread started before links keeps its `side:<sideId>`), rewritten as the
   thread goes and heading the stream too. A client is sent it as a `side` event
   ([Thread links](#thread-links)), and these are that event's words. `live` reads
@@ -1136,15 +1150,16 @@ from it.
   conversation. A subagent run is built by the same function under the run
   kind's policy.
 
-What a new thread is told: the person's task is its first message. Its preamble
-holds who the teammate is, a brief (a second, parallel context; another thread
-of itself may be writing in the same folder, so keep to the files the topic needs
-and never undo work it did not do; no computer, no files, no colleagues, no
-schedules; a working session that may span many requests, closed with
-`archive_thread` only when the person says they are done or says yes to a
-suggestion to wrap up, never nudged after each answer), and the main
-conversation's background: the handoff note of the chapter that closed before
-the current one, if there is one, and the last few lines. Not the transcript.
+What a new thread is told: the person's task, or the handoff brief, is its first
+message. Its preamble holds who the teammate is, a brief (a second, parallel
+context; another thread of itself may be writing in the same folder, so keep to
+the files the topic needs and never undo work it did not do; the computer is
+shared and one thread drives at a time; no chapter tools; for a handoff, who
+sent it and why, and that ending the turn returns the result; for an operator's
+thread, a working session closed with `archive_thread` only when the person says
+they are done), and the main conversation's background: the handoff note of the
+chapter that closed before the current one, if there is one, and the last few
+lines. Not the transcript.
 
 **Parking and continuing.** The idle sweep (three hours, never a thread with a
 turn running) and a restart park a thread instead of archiving it. A restart
@@ -1152,8 +1167,8 @@ leaves live markers behind; at start the one settle (`Room::settle`) parks them
 and expires their open cards. A line said to a parked thread (`side.prompt`) brings
 it back by itself; an archived one is refused until `side.continue`, which also
 works on a parked one. Both build a new agent from the *current* teammate, so the
-folder and grants are exactly what the teammate has now, never wider, with no
-computer. How it remembers depends on the harness:
+folder and grants are exactly what the teammate has now, never wider, and the
+computer is taken through the lease below. How it remembers depends on the harness:
 
 - **ACP.** The marker's `sessionId` is handed to the child as a checkpoint
   (`session/resume`, else `session/load`) when it was issued by the backend the
@@ -1166,15 +1181,22 @@ computer. How it remembers depends on the harness:
   history, the way the tape seeds a chapter.
 
 **Shared and not.** The working folder, MCP grants and skills are the
-teammate's. The computer is not: two agents driving one desktop is a fight
-nobody wins, so a side thread never has it (the same rule as a subagent run) and
-is told so. Its tools are the side variant of the teammate's
-(`TeammateTools::for_side`): `search_thread` and `list_chapters` read the main
-conversation (and `search_thread` the teammate's other threads and runs too); `react` and `open_link` act on this thread; `archive_thread
-{summary}` ends it. There are no chapter tools, no schedules, no colleagues, and
-no `send_file`, `generate_image` or `request_human`, which post to the main tape:
-the person is in the thread, so the teammate asks them there. Permission cards
-are answered by side id (`side.answer_permission`).
+teammate's, and so is the computer, through an exclusive lease: a loopback gate
+(`computer/gate.rs`) in front of the computer's MCP URL lets one thread drive at
+a time. `tools/call` takes the lease, waiting up to 20 s and otherwise answering
+that the computer is busy and who has it; the main DM and peer sessions take
+part under the same lease. A thread keeps it until its turn ends, 30 s without a
+call, or its capability lease is revoked (close, park, stop). A thread never
+holds a computer wider than the teammate's grants. Its tools are the work
+variant of the teammate's (`TeammateTools::for_work`): all of them but
+`new_chapter` and `resume_chapter`, plus `archive_thread {summary}`.
+`search_thread` and `list_chapters` read the main conversation (and
+`search_thread` the teammate's other threads and runs too); `react` and
+`open_link` act on this thread; `send_file`, `generate_image` and
+`request_human` post in the thread, and `request_human` pushes to the person
+(answered by side id, `side.answer_permission`, or `human.answer`);
+`message_teammate` replies come back to the thread. Schedules and loops are the
+teammate's and wake the main conversation.
 
 **Turns.** A line said in a thread is written to its stream and handed to the
 agent at once, or queued behind the turn in flight (the same `Turns` queue the
@@ -1184,11 +1206,12 @@ stops the turn and drops the queue and the thread stays live.
 `archive_thread` takes effect when the turn it was called in ends, so the last
 message lands first.
 
-**Limits and ending.** At most two *agents* run per teammate (`MAX_LIVE`);
-parked and archived threads take no place. Starting or bringing back a thread
-with both places taken parks the one used least recently, since parking loses
-nothing; it is refused (with a sentence) only when both are mid-turn and there
-is nothing to let go of. The thread holds its own capability lease, not the
+**Limits and ending.** At most three *agents* run per teammate (`MAX_LIVE`),
+operator- and teammate-opened together; parked and archived threads take no
+place. Starting or bringing back a thread with every place taken parks the one
+used least recently, since parking loses nothing; the person's start is refused
+(with a sentence) only when all are mid-turn and there is nothing to let go of,
+and a colleague's handoff then waits queued. The thread holds its own capability lease, not the
 teammate's session's, so a chapter rotating in the main conversation does not end
 it. What ends the teammate's authority does: the person stopping it, a policy
 change (`invalidate`), room-wide invalidation, and removal each archive its
@@ -1256,10 +1279,11 @@ not know the kind skips it, as the phone does.
 `from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A
 delivery written before the field has none. A direct call's turn says which call
 it came from (`from`), and the turn loop reads that; only the desk's calls, which
-are no thread, are still read off the `voice:` id. It still reads the prefix of
-the id for `handoff:`, `exchange-result:` and `human-answer:`, because every
-producer of those is a kind that is ported in a later phase; the reads move onto
-`from` with them. Sides and runs deliver nothing into a DM by id.
+are no thread, are still read off the `voice:` id. A result
+returned from an exchange names its request in `from`, and the turn loop reads
+that; the `handoff:` and `exchange-result:` ids are only idempotency keys. A work
+thread's result goes to the opener by `from` too. `human-answer:` is still read
+off the id.
 
 ## Lifecycle
 

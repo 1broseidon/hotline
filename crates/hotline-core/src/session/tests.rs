@@ -315,6 +315,11 @@ impl Fake {
         *lock(&self.driver.restored) = restored;
     }
 
+    /// The tools each agent was handed, in order.
+    pub(super) fn tools(&self) -> Vec<TeammateTools> {
+        lock(&self.tools).clone()
+    }
+
     /// Each teammate view an agent was built for, in order.
     pub(super) fn views(&self) -> Vec<Persona> {
         lock(&self.views).clone()

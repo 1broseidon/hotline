@@ -34,6 +34,7 @@
 //! tools, the workspace, or the harness invalidate old handles and queued
 //! work before a live session is rebuilt.
 
+mod agent;
 pub(crate) mod avatar;
 mod chapters;
 mod escalation;
@@ -51,6 +52,7 @@ pub(crate) mod schedule;
 mod sides;
 mod stopping;
 mod threads;
+mod turns;
 pub use stopping::Stopped;
 
 pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
@@ -83,11 +85,12 @@ use async_trait::async_trait;
 use chrono::{Local, TimeZone};
 use quiet::QuietWindow;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::{Mutex as TokioMutex, Notify, broadcast, mpsc, oneshot, watch};
+use turns::Turns;
 
 /// How much of a tool's output the transcript keeps. The model was given all
 /// of it; this is the size of the bubble.
@@ -472,43 +475,6 @@ impl Wired {
 /// runs it. Shared only so the line it rides on stays cloneable.
 #[derive(Clone)]
 struct Unprompted(Arc<Mutex<Option<mpsc::Receiver<Update>>>>);
-
-/// The lines waiting for a teammate, and whether a driver is already taking
-/// them.
-///
-/// The two are one fact and so they are one lock. Held apart, there was a
-/// moment in which the driver had looked at an empty queue and not yet let go
-/// of the turn: a line dispatched into it was filed behind a turn that was
-/// already over, and the teammate then sat on it until the next thing said
-/// shook it loose.
-#[derive(Default)]
-struct Turns {
-    waiting: VecDeque<Wired>,
-    running: bool,
-}
-
-impl Turns {
-    /// Queues the line behind the turn in flight, or claims the driver for it.
-    ///
-    /// `Some` is the caller's to run: it holds the claim from here until
-    /// [`Turns::next_line`] gives it back.
-    fn claim(&mut self, wire: Wired) -> Option<Wired> {
-        if self.running {
-            self.waiting.push_back(wire);
-            return None;
-        }
-        self.running = true;
-        Some(wire)
-    }
-
-    /// The next line for whoever holds the claim — or, when there is none, the
-    /// release of that claim, in the same breath as the look.
-    fn next_line(&mut self) -> Option<Wired> {
-        let next = self.waiting.pop_front();
-        self.running = next.is_some();
-        next
-    }
-}
 
 /// Every session in the room, and the one place their words are written down.
 /// What a teammate's computer is armed to make: the name the passkey will

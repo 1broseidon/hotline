@@ -23,6 +23,10 @@
 //! ([`Room::watch_subagents`]): the harness does the work, and the room keeps
 //! the marker and the transcript the same way it does for its own.
 //!
+//! A run's agent is built by [`Room::thread_agent`] under the run kind's
+//! policy, and its one turn is [`super::threads::Threads::turn`], the turn
+//! a side thread's agent takes.
+//!
 //! A run's lines are written through [`super::threads::Threads::write`], which
 //! indexes what it said for `search_thread` and expires a permission card it
 //! raises: nobody is looking at a run to answer one.
@@ -36,6 +40,8 @@
 //! its policy or deleting it revokes every run it has going, and a run can
 //! never hold more than its parent did.
 
+use super::agent::{Opening, lease_of};
+use super::turns::{Line, Seat};
 use super::{
     CLOCK, PendingTool, Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index,
     timed,
@@ -47,9 +53,8 @@ use crate::contract::{
 use crate::driver::{
     CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
 };
-use crate::mcp::server::TeammateTools;
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
-use crate::thread::ThreadId;
+use crate::thread::{ThreadId, ThreadKind};
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -286,21 +291,11 @@ impl Room {
         if persona.backend_id != HOTLINE_BACKEND_ID {
             return Err("Only a Hotline Agent teammate runs subagents.".to_string());
         }
-        let lease = spec.capability.scoped();
+        let lease = lease_of(ThreadKind::Run, &spec.capability);
         running.lease = Some(lease.clone());
-        let view = run_view(persona, &self.info(&spec.persona_id));
-        let reach = view.reach.unwrap_or_default();
-        let driver = self.agents.agent(
-            &view,
-            run_preamble(&view, reach),
-            Vec::new(),
-            TeammateTools::new(self, &view.id)
-                .for_run()
-                .with_capability(lease.clone()),
-            Vec::new(),
-        )?;
-        running.driver = Some(driver.clone());
-        tokio::select! {
+        let view = on_the_sessions_model(persona, &self.info(&spec.persona_id));
+        let thread = ThreadId::run(&spec.run_id);
+        let mut agent = tokio::select! {
             biased;
             () = cancel.cancelled() => {
                 return Ok(RunOutcome {
@@ -308,26 +303,29 @@ impl Room {
                     report: "The subagent was stopped before it started.".to_string(),
                 });
             }
-            started = driver.start(&view) => { started?; }
-        }
-        lease.check()?;
-        let driven = drive(
-            driver.as_ref(),
-            brief(&view.name, &spec.task),
-            reach,
-            Some(cancel),
-            |event, _| {
-                let written =
-                    self.threads()
-                        .write(&ThreadId::run(&spec.run_id), &spec.persona_id, &event);
-                // A card in a run has nobody to answer it, so the agent is
-                // told no rather than left waiting on it.
-                for refusal in written.refused {
-                    refusal.deliver(driver.as_ref());
-                }
-            },
-        )
-        .await;
+            built = self.thread_agent(Opening { thread: thread.clone(), persona: view, lease }) => built?,
+        };
+        // The run settles its own agent, however it ends.
+        agent.keep();
+        running.driver = Some(agent.driver.clone());
+        let reach = agent.view.reach.unwrap_or_default();
+        let driven = self
+            .threads()
+            .turn(
+                Seat {
+                    thread: &thread,
+                    persona_id: &spec.persona_id,
+                    driver: agent.driver.as_ref(),
+                },
+                Line {
+                    text: timed(now_ms(), &brief(&agent.view.name, &spec.task)),
+                    attachments: Vec::new(),
+                },
+                reach,
+                Some(cancel),
+                || true,
+            )
+            .await;
         Ok(outcome_of(driven))
     }
 
@@ -481,16 +479,9 @@ fn outcome_of(driven: Driven) -> RunOutcome {
     }
 }
 
-/// The teammate as a run sees it: its record, on the model and effort its
-/// session is using right now, with no conversation to reopen and no
-/// computer. Two agents driving one desktop at once is a fight nobody wins,
-/// so the desktop stays with the teammate.
-fn run_view(mut persona: Persona, session: &SessionInfo) -> Persona {
-    persona.session_checkpoints = Vec::new();
-    persona.last_session_id = None;
-    if let Some(computer) = persona.computer.as_mut() {
-        computer.enabled = false;
-    }
+/// The teammate as a run is started for it: on the model and effort its
+/// session is using right now, which its record may not say.
+fn on_the_sessions_model(mut persona: Persona, session: &SessionInfo) -> Persona {
     if let Some(model) = session.current_model_id.clone() {
         persona.model_id = Some(model);
     }
@@ -508,7 +499,7 @@ fn run_view(mut persona: Persona, session: &SessionInfo) -> Persona {
 /// A subagent's whole system prompt. It is not the teammate's: no name to
 /// answer to, no goal, no house style for chat — a worker's brief, plus the
 /// facts of the place it works in.
-fn run_preamble(persona: &Persona, reach: Reach) -> String {
+pub(super) fn run_preamble(persona: &Persona, reach: Option<Reach>) -> String {
     let name = &persona.name;
     format!(
         "You are a subagent working for {name}, a teammate in Hotline. {name} handed you one task, and your last message is returned to them as your report. You are not {name}, and you are not talking with the person {name} works for: nobody reads this conversation while you work, and you cannot ask anyone a question. Where something is unclear, make the sensible choice, say which choice you made, and carry on.\n\n\
@@ -518,7 +509,7 @@ fn run_preamble(persona: &Persona, reach: Reach) -> String {
          {}\n\n\
          Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left for {name} to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing {name} reads.",
         persona.cwd,
-        reach_sentence(Some(reach)),
+        reach_sentence(reach),
         skills_index(persona),
     )
 }
@@ -680,7 +671,7 @@ pub(crate) fn settle_orphaned_subagents(events: &[Value]) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{PersonaComputer, SessionConfig};
+    use crate::contract::SessionConfig;
     use crate::session::idle_info;
     use crate::session::tests::persona;
 
@@ -693,18 +684,9 @@ mod tests {
     }
 
     #[test]
-    fn a_run_takes_the_effort_its_teammate_is_on_and_leaves_the_computer_behind() {
+    fn a_run_takes_the_effort_its_teammate_is_on() {
         let mut ada = persona("ada");
         ada.effort_id = Some("low".to_string());
-        ada.computer = Some(PersonaComputer {
-            cpus: None,
-            enabled: true,
-            image: None,
-            memory: None,
-            pids: None,
-            mounts: None,
-            secrets: None,
-        });
         let mut session = idle_info("ada");
         session.configs = vec![SessionConfig {
             id: "effort".to_string(),
@@ -713,10 +695,9 @@ mod tests {
             current_id: Some("high".to_string()),
             options: Vec::new(),
         }];
-        let view = run_view(ada, &session);
+        let view = on_the_sessions_model(ada, &session);
         assert_eq!(view.effort_id.as_deref(), Some("high"));
         assert_eq!(view.model_id, None, "no live model, so the record's stands");
-        assert!(!view.computer.unwrap().enabled);
     }
 
     #[test]

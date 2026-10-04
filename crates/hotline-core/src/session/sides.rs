@@ -37,9 +37,10 @@
 //! - **The roster entry.** [`RunningSide`], while it is live, which is what the
 //!   conversation header draws its chip from. Like a subagent, nothing about
 //!   it survives a restart; the marker does.
-//! - **The driver.** A second agent for the teammate, started the way a peer
-//!   session is: no checkpoint of the teammate's reopened, so it never lands in
-//!   the main conversation, on either harness. A new thread is told the
+//! - **The driver.** A second agent for the teammate, built by
+//!   [`Room::thread_agent`] like any thread's: no checkpoint of the teammate's
+//!   reopened, so it never lands in the main conversation, on either harness.
+//!   Its turns run on the shared [`super::turns::Turns`]. A new thread is told the
 //!   person's task, the main conversation's last handoff note and its last few
 //!   lines, and that another thread of itself is working in the same folder.
 //!   One that is brought back reopens its own saved session when the harness
@@ -57,23 +58,18 @@
 //! fight nobody wins, so a thread never has it and is told so; the working
 //! folder is shared, and it is told that too.
 
-use super::{
-    CLOCK, Room, chapters, lock, new_id, now_ms, pacing, reach_sentence, said, skills_index,
-    timed_from,
-};
+use super::agent::{Opening, lease_of};
+use super::turns::{Line, Seat, Turns};
+use super::{CLOCK, Room, lock, new_id, now_ms, pacing, reach_sentence, skills_index, timed_from};
 use crate::contract::{
-    Attachment, NoticeLevel, PermissionOption, Persona, RunningSide, SessionCheckpoint, SideEnd,
-    SideStatus, SideThreadSummary, StreamDelta, TranscriptEvent,
+    Attachment, NoticeLevel, PermissionOption, RunningSide, SideEnd, SideStatus, SideThreadSummary,
+    TranscriptEvent,
 };
-use crate::driver::rig::Said;
-use crate::driver::{
-    CapabilityEpoch, CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, acp,
-};
+use crate::driver::{CapabilityLease, Driver};
 use crate::log::StreamId;
-use crate::mcp::server::TeammateTools;
-use crate::thread::ThreadId;
+use crate::thread::{ThreadId, ThreadKind};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -105,7 +101,7 @@ fn side_brief(name: &str) -> String {
 /// A side thread's whole system prompt: who the teammate is, where it works,
 /// the brief, and what it needs to know of the conversation it was started
 /// beside.
-fn side_preamble(
+pub(super) fn side_preamble(
     persona: &crate::contract::Persona,
     reach: Option<crate::contract::Reach>,
     context: Option<String>,
@@ -143,18 +139,6 @@ fn side_preamble(
     }
 }
 
-/// One line the person said, waiting for the turn in flight to end.
-struct Queued {
-    text: String,
-    attachments: Vec<Attachment>,
-}
-
-#[derive(Default)]
-struct Turns {
-    running: bool,
-    queue: VecDeque<Queued>,
-}
-
 /// One live side thread.
 pub(super) struct LiveSide {
     id: String,
@@ -167,7 +151,7 @@ pub(super) struct LiveSide {
     /// The thread's own authority. Revoking it ends every tool handle the
     /// agent holds.
     capability: CapabilityLease,
-    turns: Mutex<Turns>,
+    turns: Mutex<Turns<Line>>,
     /// When the person last said something, or the teammate last finished.
     last_used: Mutex<i64>,
     /// Set once the thread is archived; nothing more is written after it.
@@ -301,17 +285,6 @@ impl Drop for Reserved<'_> {
     }
 }
 
-/// Stops a driver that was started for a thread that never went live.
-struct Starting(Option<Arc<dyn Driver>>);
-
-impl Drop for Starting {
-    fn drop(&mut self) {
-        if let Some(driver) = self.0.take() {
-            driver.invalidate();
-        }
-    }
-}
-
 /// A task as a label: its first line, flattened and cut.
 fn title_of(text: &str) -> String {
     let line = text
@@ -372,17 +345,13 @@ impl Mark<'_> {
 }
 
 /// What a thread is brought up from: a task that has never run, or a thread
-/// that ran before and is being reopened.
-struct Opening {
+/// that ran before and is being reopened. What it said before, and the session
+/// it saved, are on its own stream and marker, and the agent's builder reads
+/// them there.
+struct Start {
     side_id: String,
     title: String,
     started: i64,
-    /// Everything the thread has on its stream, oldest first. Nothing for a
-    /// new one.
-    earlier: Vec<Value>,
-    /// The session id the marker held, if it was issued by the harness the
-    /// teammate runs on now.
-    saved: Option<String>,
 }
 
 /// How a live thread comes to an end.
@@ -413,12 +382,10 @@ impl Room {
         let live = self
             .bring_up(
                 persona_id,
-                Opening {
+                Start {
                     side_id: new_id(),
                     title: title_of(text),
                     started: now_ms(),
-                    earlier: Vec::new(),
-                    saved: None,
                 },
             )
             .await?;
@@ -441,13 +408,13 @@ impl Room {
     ///
     /// A new thread has a fresh context. One that ran before reopens its own
     /// saved session when the harness can, and when it cannot (or never saved
-    /// one) is given the thread's own stream: as history for Hotline Agent, as
-    /// a compact transcript in the brief for a child. The main conversation's
-    /// session is never touched, so it can never land there.
+    /// one) is given the thread's own stream: see [`Room::thread_agent`]. The
+    /// main conversation's session is never touched, so it can never land
+    /// there.
     async fn bring_up(
         self: &Arc<Self>,
         persona_id: &str,
-        opening: Opening,
+        start: Start,
     ) -> Result<Arc<LiveSide>, String> {
         let persona = self.persona(persona_id)?;
         let persona_lease = self.capability_lease(persona_id);
@@ -460,93 +427,30 @@ impl Room {
             persona_id,
         };
 
-        std::fs::create_dir_all(&persona.cwd).map_err(|error| {
-            format!(
-                "{}'s working directory {} could not be made: {error}",
-                persona.name, persona.cwd
-            )
-        })?;
-        let lease = CapabilityEpoch::default().lease();
-        let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
-
-        // The thread is its own conversation: an agent that reopened the
-        // teammate's saved session would answer inside the main one. And the
-        // computer stays where it is. Whatever the teammate is granted now is
-        // what the thread gets, however long ago it began.
-        let mut view = super::without_computer(persona);
-        view.session_checkpoints = Vec::new();
-        view.last_session_id = None;
-        if !in_process {
-            acp::materialize_agents_md_with_capability(&view, Some(lease.clone())).map_err(
-                |error| format!("{}'s AGENTS.md could not be written: {error}", view.name),
-            )?;
-        }
-        let reach = in_process.then(|| view.reach.unwrap_or_default());
-        let context = chapters::side_context(&self.tape(persona_id), now_ms());
-        let has_history = !opening.earlier.is_empty();
-        let history = if in_process {
-            said(&opening.earlier)
-        } else {
-            Vec::new()
-        };
-        let transcript = || chapters::serialize_chapter(&opening.earlier);
-
-        // Only a child has a session of its own to reopen.
-        let reopening = opening.saved.clone().filter(|_| !in_process);
-        let mut checkpointed = view.clone();
-        if let Some(session_id) = &reopening {
-            checkpointed.session_checkpoints = vec![SessionCheckpoint {
-                backend_id: view.backend_id.clone(),
-                session_id: session_id.clone(),
-            }];
-        }
-        let mut driver = self.side_agent(
-            &checkpointed,
-            side_preamble(
-                &view,
-                reach,
-                context.clone(),
-                (has_history && reopening.is_none()).then(transcript),
-            ),
-            history.clone(),
-            &lease,
-            &opening.side_id,
-        )?;
-        let mut starting = Starting(Some(driver.clone()));
-        let mut info = driver.start(&checkpointed).await?;
-        lease.check()?;
-        if reopening.is_some() && !info.context_restored {
-            // The harness would not reopen it. The thread is not lost: the
-            // agent is started over from what the thread said.
-            starting.0 = None;
-            driver.invalidate();
-            driver = self.side_agent(
-                &view,
-                side_preamble(&view, reach, context, Some(transcript())),
-                history,
-                &lease,
-                &opening.side_id,
-            )?;
-            starting.0 = Some(driver.clone());
-            info = driver.start(&view).await?;
-            lease.check()?;
-        }
-
-        let restored = reopening.is_some() && info.context_restored;
+        // The thread is its own authority, not the session's: whatever the
+        // teammate is granted now is what it gets, however long ago it began.
+        let lease = lease_of(ThreadKind::Side, &persona_lease);
+        let mut agent = self
+            .thread_agent(Opening {
+                thread: ThreadId::side(&start.side_id),
+                persona,
+                lease: lease.clone(),
+            })
+            .await?;
         let live = Arc::new(LiveSide {
-            id: opening.side_id,
+            id: start.side_id,
             persona_id: persona_id.to_string(),
-            title: opening.title,
-            started: opening.started,
-            backend_id: view.backend_id.clone(),
-            driver,
+            title: start.title,
+            started: start.started,
+            backend_id: agent.view.backend_id.clone(),
+            driver: agent.driver.clone(),
             capability: lease,
             turns: Mutex::new(Turns::default()),
             last_used: Mutex::new(now_ms()),
             closed: AtomicBool::new(false),
             archive_note: Mutex::new(None),
-            reported: Mutex::new(info.session_id),
-            saved: Mutex::new(opening.saved.filter(|_| restored)),
+            reported: Mutex::new(agent.reported.clone()),
+            saved: Mutex::new(agent.resumed.clone()),
         });
         {
             // Publication and revocation share this lock, so a stop or policy
@@ -557,31 +461,11 @@ impl Room {
             let mut inner = lock(&self.sides.inner);
             inner.live.insert(live.id.clone(), live.clone());
         }
-        starting.0 = None;
+        agent.keep();
 
         self.mark_side(&live, SideStatus::Live, None, None);
         let _ = self.info_changes.send(self.info(persona_id));
         Ok(live)
-    }
-
-    /// A thread's agent, built but not started.
-    fn side_agent(
-        self: &Arc<Self>,
-        view: &Persona,
-        preamble: String,
-        history: Vec<Said>,
-        lease: &CapabilityLease,
-        side_id: &str,
-    ) -> Result<Arc<dyn Driver>, String> {
-        self.agents.agent(
-            view,
-            preamble,
-            history,
-            TeammateTools::new(self, &view.id)
-                .with_capability(lease.clone())
-                .for_side(side_id.to_string()),
-            Vec::new(),
-        )
     }
 
     /// Brings a thread whose agent is gone back from its marker. A parked
@@ -613,23 +497,17 @@ impl Room {
             persona_id,
             title,
             ts,
-            session_id,
-            backend_id,
             ..
         }) = serde_json::from_value::<TranscriptEvent>(marker)
         else {
             return Err("That side thread could not be read.".to_string());
         };
-        let persona = self.persona(&persona_id)?;
-        let saved = session_id.filter(|_| backend_id.as_deref() == Some(&persona.backend_id));
         self.bring_up(
             &persona_id,
-            Opening {
+            Start {
                 side_id: side_id.to_string(),
                 title,
                 started: ts,
-                earlier: self.log.load(&StreamId::Side(side_id.to_string())),
-                saved,
             },
         )
         .await
@@ -663,7 +541,7 @@ impl Room {
     /// it. The thread stays live.
     pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
-        lock(&side.turns).queue.clear();
+        lock(&side.turns).clear();
         side.driver.cancel();
         Ok(())
     }
@@ -904,7 +782,7 @@ impl Room {
             if !side.working() {
                 continue;
             }
-            lock(&side.turns).queue.clear();
+            lock(&side.turns).clear();
             side.driver.cancel();
             side.say(self, &TranscriptEvent::Notice {
                     id: new_id(),
@@ -984,18 +862,13 @@ impl Room {
                 client,
             },
         );
-        let queued = Queued {
+        let queued = Line {
             text: timed_from(ts, client, text),
             attachments: attachments.unwrap_or_default(),
         };
-        {
-            let mut turns = lock(&side.turns);
-            if turns.running {
-                turns.queue.push_back(queued);
-                return;
-            }
-            turns.running = true;
-        }
+        let Some(queued) = lock(&side.turns).claim(queued) else {
+            return;
+        };
         let Ok(working) = self.lease() else {
             lock(&side.turns).running = false;
             return;
@@ -1010,41 +883,28 @@ impl Room {
     }
 
     /// Drives the thread's turns, one after another, until none is waiting.
-    async fn run_side_turns(self: Arc<Self>, side: Arc<LiveSide>, first: Queued) {
+    async fn run_side_turns(self: Arc<Self>, side: Arc<LiveSide>, first: Line) {
+        let thread = ThreadId::side(&side.id);
         let mut next = Some(first);
-        while let Some(queued) = next.take() {
+        while let Some(line) = next.take() {
             if side.closed.load(Ordering::SeqCst) || side.capability.check().is_err() {
                 break;
             }
             let reach = self.reach_of(&side.persona_id);
-            let driven = super::runner::drive_with(
-                side.driver.as_ref(),
-                queued.text,
-                queued.attachments,
-                reach,
-                None,
-                |kind, message_id, text, muted| {
-                    if side.closed.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    let (side_id, message_id, text) =
-                        (side.id.clone(), message_id.to_string(), text.to_string());
-                    let _ = self.deltas.send(match kind {
-                        MessageKind::Agent if !muted => StreamDelta::SideAgentDelta {
-                            side_id,
-                            message_id,
-                            text,
-                        },
-                        _ => StreamDelta::SideThoughtDelta {
-                            side_id,
-                            message_id,
-                            text,
-                        },
-                    });
-                },
-                |event, _| side.say(&self, &event),
-            )
-            .await;
+            let driven = self
+                .threads()
+                .turn(
+                    Seat {
+                        thread: &thread,
+                        persona_id: &side.persona_id,
+                        driver: side.driver.as_ref(),
+                    },
+                    line,
+                    reach,
+                    None,
+                    || !side.closed.load(Ordering::SeqCst),
+                )
+                .await;
             *lock(&side.last_used) = now_ms();
             if side.closed.load(Ordering::SeqCst) {
                 break;
@@ -1057,8 +917,7 @@ impl Room {
                     crate::log::expire_orphaned_permissions(&self.log.load(&stream), now_ms())
                 {
                     if expired.get("kind").and_then(Value::as_str) == Some("permission") {
-                        self.threads()
-                            .write(&ThreadId::side(&side.id), &side.persona_id, &expired);
+                        self.threads().write(&thread, &side.persona_id, &expired);
                     }
                 }
             }
@@ -1066,11 +925,7 @@ impl Room {
                 self.finish_side(&side, SideEnd::Agent, Some(summary));
                 break;
             }
-            let mut turns = lock(&side.turns);
-            match turns.queue.pop_front() {
-                Some(line) => next = Some(line),
-                None => turns.running = false,
-            }
+            next = lock(&side.turns).next_line();
         }
         lock(&side.turns).running = false;
         let _ = self.info_changes.send(self.info(&side.persona_id));
@@ -1092,7 +947,7 @@ impl Room {
             return;
         }
         self.sides.remove(&side.id);
-        lock(&side.turns).queue.clear();
+        lock(&side.turns).clear();
         side.capability.revoke();
         side.driver.invalidate();
         let stream = StreamId::Side(side.id.clone());
@@ -1391,8 +1246,10 @@ fn waiting_on(events: &[Value]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::SessionCheckpoint;
-    use crate::driver::Update;
+    use crate::contract::{SessionCheckpoint, StreamDelta};
+    use crate::driver::rig::Said;
+    use crate::driver::{MessageKind, Update};
+    use crate::mcp::server::TeammateTools;
     use crate::session::tests::{Fake, Scripted, enrol, persona, scratch};
     use std::time::Duration;
     use tokio::sync::Semaphore;

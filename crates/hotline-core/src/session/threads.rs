@@ -25,7 +25,7 @@ use serde_json::Value;
 
 /// The write path, over one room.
 pub(super) struct Threads<'a> {
-    room: &'a Room,
+    pub(super) room: &'a Room,
 }
 
 impl Room {

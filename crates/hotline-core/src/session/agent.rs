@@ -521,6 +521,27 @@ mod tests {
     }
 
     #[test]
+    fn the_dm_holds_the_computer_under_dm_and_the_rest_under_their_kind_and_key() {
+        assert_eq!(lease_key(&ThreadId::dm("ada")), "dm");
+        assert_eq!(lease_key(&ThreadId::side("s1")), "side:s1");
+        assert_eq!(lease_key(&ThreadId::pair("a-b")), "pair:a-b");
+    }
+
+    #[test]
+    fn only_the_dm_resumes_a_checkpoint_seeds_from_its_chapter_and_does_not_wait_for_a_download() {
+        let dm = Policy::of(ThreadKind::Dm);
+        assert_eq!(dm.resume, Resume::Checkpoint);
+        assert!(dm.seed.chapters && !dm.seed.own_history);
+        assert_eq!(dm.computer, Computer::Download);
+        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Pair] {
+            let policy = Policy::of(kind);
+            assert_ne!(policy.resume, Resume::Checkpoint, "{kind:?}");
+            assert!(!policy.seed.chapters, "{kind:?}");
+            assert_ne!(policy.computer, Computer::Download, "{kind:?}");
+        }
+    }
+
+    #[test]
     fn a_thread_leases_what_its_kind_says() {
         let parent = CapabilityEpoch::default().lease();
         let side = lease_of(ThreadKind::Side, &parent);

@@ -4182,6 +4182,32 @@ async fn the_wake_block_carries_the_previous_chapters_note() {
     );
 }
 
+/// The DM's row of the room's one sweep is its chapters.
+#[tokio::test]
+async fn the_rooms_sweep_closes_a_stale_chapter_as_the_dms_idle_row() {
+    let log = scratch("chapter-room-sweep");
+    enrol(&log, &persona("ada"));
+    let stale = now_ms() - 10 * 3_600_000;
+    write_tape(
+        &log,
+        "ada",
+        &[
+            json!({"kind": "chapter", "id": "c-ada", "ts": stale, "backendId": "hotline"}),
+            spoken("user", "u1", stale + 1_000, "did the crane jam?"),
+            spoken("agent", "a1", stale + 2_000, "It jammed."),
+        ],
+    );
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::answering(Scripted::new(Vec::new()), note_json("Crane jam")),
+    );
+
+    room.sweep(now_ms(), &mut HashMap::new()).await;
+
+    assert_eq!(markers(&room, "ada")[0]["closedBy"], "idle");
+}
+
 /// The idle clock: a chapter nobody has said anything in for longer than the
 /// room allows closes itself, and one that is still warm is left alone.
 #[tokio::test]

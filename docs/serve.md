@@ -132,9 +132,9 @@ credentials in `--public-url` or its query string.
 A served desk is also a relay for desktops paired with it as owners, so a
 phone reaches a desktop through the server instead of over a VPN. On the
 desktop, add the server as an owner (Add a server, with `hotline pair --link`
-from the server), then turn on Remote and
-choose the server under **Relay**. The desktop dials out to the server and
-stands in there; nothing listens on the desktop's network for it.
+from the server), then turn on Remote and choose the server under **Relay**.
+The desktop dials out to the server and stands in there, so the server never
+needs a way into the desktop's network.
 
 Phones paired after that get the relay address in the QR code. Phones paired
 before learn it the next time they connect directly. A phone dials the relay

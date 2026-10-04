@@ -17,7 +17,7 @@
 mod policy;
 mod store;
 
-pub use policy::{Answer, Policy, Surface};
+pub use policy::{Answer, Lease, Policy, Seed, Surface, Tools};
 pub use store::ThreadStore;
 
 use crate::log::StreamId;

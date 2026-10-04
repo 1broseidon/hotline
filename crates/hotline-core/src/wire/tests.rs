@@ -4218,6 +4218,7 @@ async fn remote_controls_are_denied_to_companions() {
             ("remote.configure", json!({"enabled":true,"host":"all"})),
             ("remote.devices", json!({})),
             ("remote.revoke", json!({"deviceId":"any"})),
+            ("remote.relay", json!({"deskId":"any"})),
             ("remote.pairing", json!({})),
             ("remote.pairing", json!({"role":"companion"})),
             ("remote.pairing", json!({"legacy":true})),

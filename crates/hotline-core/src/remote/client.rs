@@ -24,6 +24,9 @@ pub struct PairedDesk {
     pub name: String,
     pub url: String,
     pub desk_key: String,
+    /// The desk's address on its relay, tried when its own does not answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -112,6 +115,7 @@ impl Client {
             name: reply["deskName"].as_str().unwrap_or(&payload.name).into(),
             url: payload.url.clone(),
             desk_key: payload.desk_key.clone(),
+            relay: payload.relay.clone(),
         })
     }
 
@@ -120,13 +124,6 @@ impl Client {
         desk: &PairedDesk,
         persona: Option<&str>,
     ) -> Result<Connection, OpenError> {
-        let key = decode_key(&desk.desk_key)?;
-        let bytes = self
-            .store
-            .get(&identity_slot(&desk.desk_key))
-            .map_err(storage)?
-            .ok_or("This desk's device key is missing. Pair this device again.")?;
-        let identity = read_identity(&bytes, &key)?;
         let (path, payload) = match persona {
             Some(id) => {
                 if id.is_empty()
@@ -143,7 +140,37 @@ impl Client {
             }
             None => ("v2".into(), String::new()),
         };
-        let (channel, response) = handshake(&desk.url, &path, &identity, &payload).await?;
+        self.sealed(desk, &path, &payload).await
+    }
+
+    /// Stands in for this computer's own desk, `desk_id`, on `desk`'s relay.
+    pub(super) async fn host_relay(
+        &self,
+        desk: &PairedDesk,
+        desk_id: &str,
+    ) -> Result<Connection, OpenError> {
+        let payload = json!({"purpose":"relay","deskId":desk_id}).to_string();
+        self.sealed(desk, "v2/relay", &payload).await
+    }
+
+    async fn sealed(
+        &self,
+        desk: &PairedDesk,
+        path: &str,
+        payload: &str,
+    ) -> Result<Connection, OpenError> {
+        let key = decode_key(&desk.desk_key)?;
+        let bytes = self
+            .store
+            .get(&identity_slot(&desk.desk_key))
+            .map_err(storage)?
+            .ok_or("This desk's device key is missing. Pair this device again.")?;
+        let identity = read_identity(&bytes, &key)?;
+        let opened = handshake(&desk.url, path, &identity, payload).await;
+        let (channel, response) = match (opened, &desk.relay) {
+            (Err(_), Some(relay)) => handshake(relay, path, &identity, payload).await?,
+            (opened, _) => opened?,
+        };
         // handshake() returns this payload only after Noise verifies the
         // pinned responder. Network/TLS/unauthenticated failures cannot revoke.
         if response == sealed::DEVICE_REJECTED {
@@ -216,44 +243,51 @@ fn endpoint(base: &str, path: &str) -> Result<url::Url, String> {
     Ok(url)
 }
 
+/// A WebSocket to `base`/`path` over TLS that accepts any certificate: the
+/// trust is whatever travels inside it, a pinned Noise key or a capability
+/// already delivered under one.
+pub(super) async fn dial(base: &str, path: &str) -> Result<Socket, String> {
+    let url = endpoint(base, path)?;
+    let host = url.host_str().ok_or("Invalid desk URL.")?;
+    let stream = TcpStream::connect((
+        host.trim_matches(['[', ']']),
+        url.port_or_known_default().unwrap_or(443),
+    ))
+    .await
+    .map_err(|_| "The desk is unreachable.")?;
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(|_| "TLS is unavailable.")?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoiseIdentity(provider)))
+        .with_no_client_auth();
+    let name = rustls::pki_types::ServerName::try_from(host.trim_matches(['[', ']']).to_owned())
+        .map_err(|_| "Invalid desk hostname.")?;
+    let stream = TlsConnector::from(Arc::new(config))
+        .connect(name, stream)
+        .await
+        .map_err(|_| "Could not open TLS to the desk.")?;
+    let mut target = url.clone();
+    target.set_scheme("wss").map_err(|_| "Invalid desk URL.")?;
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(65535))
+        .max_frame_size(Some(65535));
+    let (socket, _) =
+        tokio_tungstenite::client_async_with_config(target.as_str(), stream, Some(config))
+            .await
+            .map_err(|_| "The desk refused the connection.")?;
+    Ok(socket)
+}
+
 async fn handshake(
     base: &str,
     path: &str,
     identity: &Identity,
     payload: &str,
 ) -> Result<(Connection, Vec<u8>), String> {
-    let url = endpoint(base, path)?;
     tokio::time::timeout(Duration::from_secs(10), async {
-        let host = url.host_str().ok_or("Invalid desk URL.")?;
-        let stream = TcpStream::connect((
-            host.trim_matches(['[', ']']),
-            url.port_or_known_default().unwrap_or(443),
-        ))
-        .await
-        .map_err(|_| "The desk is unreachable.")?;
-        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
-        let config = rustls::ClientConfig::builder_with_provider(provider.clone())
-            .with_safe_default_protocol_versions()
-            .map_err(|_| "TLS is unavailable.")?
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(NoiseIdentity(provider)))
-            .with_no_client_auth();
-        let name =
-            rustls::pki_types::ServerName::try_from(host.trim_matches(['[', ']']).to_owned())
-                .map_err(|_| "Invalid desk hostname.")?;
-        let stream = TlsConnector::from(Arc::new(config))
-            .connect(name, stream)
-            .await
-            .map_err(|_| "Could not open TLS to the desk.")?;
-        let mut target = url.clone();
-        target.set_scheme("wss").map_err(|_| "Invalid desk URL.")?;
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(65535))
-            .max_frame_size(Some(65535));
-        let (mut socket, _): (Socket, _) =
-            tokio_tungstenite::client_async_with_config(target.as_str(), stream, Some(config))
-                .await
-                .map_err(|_| "The desk refused the connection.")?;
+        let mut socket = dial(base, path).await?;
         let mut noise = sealed::initiator(&identity.private, &identity.desk)?;
         let mut buffer = [0; 4096];
         let n = noise

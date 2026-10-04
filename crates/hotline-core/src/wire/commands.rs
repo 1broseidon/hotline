@@ -144,6 +144,7 @@ pub(crate) async fn run(
         }
         Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
         Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
+        Command::RemoteRelay { desk_id } => Ok(json!(remote(room)?.relay_through(desk_id)?)),
         Command::RemotePairing {
             role,
             id,

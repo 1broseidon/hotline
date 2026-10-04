@@ -604,6 +604,7 @@ mod tests {
             name: "Studio".into(),
             url: "https://studio.example:9443".into(),
             desk_key: "k".into(),
+            relay: None,
         }
     }
 

@@ -131,9 +131,18 @@ async fn handle(
         return Ok(error(StatusCode::NOT_FOUND, "not_found"));
     };
     if request.method() == "GET"
-        && (path == "/v2" || path == "/v2/pair" || path.starts_with("/v2/computer/"))
+        && (path == "/v2"
+            || path == "/v2/pair"
+            || path == "/v2/relay"
+            || path.starts_with("/v2/computer/"))
     {
         return Ok(sealed_door(remote, request, slot, &path).await);
+    }
+    if request.method() == "GET"
+        && remote.served.is_some()
+        && let Some(route) = super::relay::Route::of(&path)
+    {
+        return Ok(relay_door(remote, request, slot, route).await);
     }
     // Served listeners have no bearer or manual pairing surface, including
     // when an old desktop grant remains on disk for a later desktop launch.
@@ -359,118 +368,268 @@ async fn sealed_door(
     slot: Arc<admission::Permit>,
     path: &str,
 ) -> Response<Full<Bytes>> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    struct ComputerBinding {
-        purpose: String,
-        persona_id: String,
-    }
-
-    let pairing = path == "/v2/pair";
-    let persona = path
-        .strip_prefix("/v2")
-        .and_then(computer_path)
-        .map(str::to_owned);
-    if (!pairing && path != "/v2" && persona.is_none()) || (pairing && !remote.pairing_open()) {
+    let Some(purpose) = Purpose::of(&remote, path) else {
         return error(StatusCode::NOT_FOUND, "not_found");
-    }
+    };
+    let upgraded = hyper::upgrade::on(&mut request);
+    let Ok(reply) = create_response(&request.map(|_| ())) else {
+        return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
+    };
+    tokio::spawn(async move {
+        let socket = async {
+            let upgraded = upgraded.await.ok()?;
+            Some(
+                WebSocketStream::from_raw_socket(
+                    TokioIo::new(upgraded),
+                    Role::Server,
+                    Some(handshake_config()),
+                )
+                .await,
+            )
+        };
+        let socket = tokio::select! {
+            biased;
+            _ = slot.expired() => return,
+            socket = socket => socket,
+        };
+        if let Some(socket) = socket {
+            sealed_session(remote, socket, purpose, Seat::Direct(slot)).await;
+        }
+    });
+    reply.map(|_| Full::new(Bytes::new()))
+}
+
+/// A relay's two doors: a visitor for a desk standing in here, or that desk
+/// dialing back with the capability it was handed. Neither holds an
+/// admission seat once joined; the relay bounds each desk's visits instead.
+async fn relay_door(
+    remote: Arc<Remote>,
+    mut request: Request<Incoming>,
+    slot: Arc<admission::Permit>,
+    route: super::relay::Route,
+) -> Response<Full<Bytes>> {
+    use super::relay::{Route, Visit};
+    let visit = match &route {
+        Route::Visit { desk, .. } => match remote.relay.visit(desk) {
+            Visit::Offline => return error(StatusCode::NOT_FOUND, "desk_offline"),
+            Visit::Busy => return error(StatusCode::SERVICE_UNAVAILABLE, "desk_busy"),
+            Visit::Admitted(notify, permit) => Some((notify, permit)),
+        },
+        Route::Accept(_) => None,
+    };
     let cancel = remote.state.lock().unwrap().cancel.clone();
     let upgraded = hyper::upgrade::on(&mut request);
     let Ok(reply) = create_response(&request.map(|_| ())) else {
         return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
     };
     tokio::spawn(async move {
-        // The same deadline covers TCP acceptance through both Noise messages. The
-        // initial WebSocket cap prevents allocation of an unbounded handshake.
-        let handshake = async {
-            let upgraded = upgraded.await.ok()?;
-            let config = WebSocketConfig::default()
-                .max_message_size(Some(65535))
-                .max_frame_size(Some(65535));
-            let mut socket = WebSocketStream::from_raw_socket(
-                TokioIo::new(upgraded),
-                Role::Server,
-                Some(config),
-            )
-            .await;
-            let (private, _) = remote.noise_keys().ok()?;
-            let mut noise = sealed::responder(&private).ok()?;
-            let Message::Binary(first) = socket.next().await?.ok()? else {
-                return None;
-            };
-            if first.len() > 4096 {
-                return None;
-            }
-            let mut payload = [0u8; 4096];
-            let size = noise.read_message(&first, &mut payload).ok()?;
-            let public = noise.get_remote_static()?.to_vec();
-            let (phone, answer) = if pairing {
-                let role = remote.claim_v2(&public, &payload[..size]).ok()?;
-                (
-                    None,
-                    serde_json::to_vec(&json!({"role": role, "deskName": desktop_name(), "deskId": remote.status_desktop_id()})).ok()?,
-                )
-            } else {
-                // A TLS proxy can rewrite the HTTP target, but not this
-                // authenticated Noise payload. Bind it before looking up or
-                // connecting to any computer; ordinary wire payloads stay empty.
-                if let Some(persona) = persona.as_deref() {
-                    let binding: ComputerBinding = serde_json::from_slice(&payload[..size]).ok()?;
-                    if binding.purpose != "computer" || binding.persona_id != persona {
-                        return None;
-                    }
-                } else if size != 0 {
-                    return None;
-                }
-                let phone = remote.authenticate_v2(&public);
-                // Disabling Remote also refuses authentication, but does not
-                // revoke saved grants. Do not turn shutdown into a key refusal.
-                if phone.is_none() && cancel.is_cancelled() {
-                    return None;
-                }
-                let answer = if phone.is_some() {
-                    Vec::new()
-                } else {
-                    // Message 1 decrypted successfully: the initiator knows the
-                    // desk key. Seal the refusal under that same Noise identity.
-                    sealed::DEVICE_REJECTED.to_vec()
-                };
-                (phone, answer)
-            };
-            let mut response = [0u8; 4096];
-            let size = noise.write_message(&answer, &mut response).ok()?;
-            socket
-                .send(Message::Binary(response[..size].to_vec().into()))
-                .await
-                .ok()?;
-            if pairing || phone.is_none() {
-                return None;
-            }
-            let state = noise.into_transport_mode().ok()?;
-            let phone = phone?;
-            if phone.cancel.is_cancelled() || !slot.authenticate(&phone.id) {
-                return None;
-            }
-            Some((super::channel::Channel::new(socket, state), phone))
-        };
-        let established = tokio::select! {
+        let upgraded = tokio::select! {
             biased;
             _ = cancel.cancelled() => return,
             _ = slot.expired() => return,
-            result = handshake => result,
+            upgraded = upgraded => upgraded,
         };
-        let Some((socket, phone)) = established else {
+        let Ok(upgraded) = upgraded else {
             return;
         };
-        let _slot = slot;
-        if let Some(persona) = persona {
+        drop(slot);
+        let socket = WebSocketStream::from_raw_socket(
+            TokioIo::new(upgraded),
+            Role::Server,
+            Some(super::relay::record_config()),
+        )
+        .await;
+        match (route, visit) {
+            (Route::Visit { path, .. }, Some((notify, permit))) => {
+                super::relay::arrive(remote.relay.clone(), socket, notify, permit, path).await
+            }
+            (Route::Accept(capability), _) => {
+                super::relay::accept(&remote.relay, &capability, socket, cancel).await
+            }
+            _ => {}
+        }
+    });
+    reply.map(|_| Full::new(Bytes::new()))
+}
+
+/// The initial WebSocket cap prevents allocation of an unbounded handshake.
+pub(super) fn handshake_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(65535))
+        .max_frame_size(Some(65535))
+}
+
+/// What a sealed socket is for, from its path. Pairing needs an open window;
+/// hosting a relay is a served desk's door only.
+#[derive(Clone)]
+pub(super) enum Purpose {
+    Wire,
+    Pair,
+    Computer(String),
+    Relay,
+}
+impl Purpose {
+    pub(super) fn of(remote: &Remote, path: &str) -> Option<Self> {
+        match path {
+            "/v2" => Some(Self::Wire),
+            "/v2/pair" => remote.pairing_open().then_some(Self::Pair),
+            "/v2/relay" => remote.served.is_some().then_some(Self::Relay),
+            _ => path
+                .strip_prefix("/v2")
+                .and_then(computer_path)
+                .map(|persona| Self::Computer(persona.to_owned())),
+        }
+    }
+}
+
+/// Where a sealed session sits. A direct socket holds an admission seat; a
+/// socket the desk dialed out to its relay for a visitor has no TCP peer of
+/// its own, only the relay's bound on visits and the same handshake deadline.
+pub(super) enum Seat {
+    Direct(Arc<admission::Permit>),
+    Relayed {
+        _visit: tokio::sync::OwnedSemaphorePermit,
+    },
+}
+impl Seat {
+    async fn expired(&self, deadline: tokio::time::Instant) {
+        match self {
+            Self::Direct(slot) => slot.expired().await,
+            Self::Relayed { .. } => tokio::time::sleep_until(deadline).await,
+        }
+    }
+    fn authenticate(&self, device: &str) -> bool {
+        match self {
+            Self::Direct(slot) => slot.authenticate(device),
+            Self::Relayed { .. } => true,
+        }
+    }
+}
+
+/// Both Noise messages, then the session the path asked for. The same code
+/// answers a phone on the desk's own listener and one carried by a relay,
+/// which sees only these ciphertexts.
+pub(super) async fn sealed_session<S>(
+    remote: Arc<Remote>,
+    mut socket: WebSocketStream<S>,
+    purpose: Purpose,
+    seat: Seat,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Binding {
+        purpose: String,
+        #[serde(default)]
+        persona_id: Option<String>,
+        #[serde(default)]
+        desk_id: Option<String>,
+    }
+
+    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    // The same deadline covers TCP acceptance through both Noise messages.
+    let handshake = async {
+        let (private, _) = remote.noise_keys().ok()?;
+        let mut noise = sealed::responder(&private).ok()?;
+        let Message::Binary(first) = socket.next().await?.ok()? else {
+            return None;
+        };
+        if first.len() > 4096 {
+            return None;
+        }
+        let mut payload = [0u8; 4096];
+        let size = noise.read_message(&first, &mut payload).ok()?;
+        let public = noise.get_remote_static()?.to_vec();
+        let mut desk = None;
+        let (phone, answer) = if let Purpose::Pair = purpose {
+            let role = remote.claim_v2(&public, &payload[..size]).ok()?;
+            (
+                None,
+                serde_json::to_vec(&json!({"role": role, "deskName": desktop_name(), "deskId": remote.status_desktop_id()})).ok()?,
+            )
+        } else {
+            // A TLS proxy or a relay can rewrite the HTTP target, but not
+            // this authenticated Noise payload. Bind it before looking up or
+            // connecting to anything; ordinary wire payloads stay empty.
+            match &purpose {
+                Purpose::Wire if size != 0 => return None,
+                Purpose::Wire | Purpose::Pair => {}
+                Purpose::Computer(persona) => {
+                    let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
+                    if binding.purpose != "computer"
+                        || binding.persona_id.as_ref() != Some(persona)
+                        || binding.desk_id.is_some()
+                    {
+                        return None;
+                    }
+                }
+                Purpose::Relay => {
+                    let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
+                    if binding.purpose != "relay" || binding.persona_id.is_some() {
+                        return None;
+                    }
+                    desk = Some(binding.desk_id.filter(|id| super::relay::valid_desk(id))?);
+                }
+            }
+            let phone = remote.authenticate_v2(&public);
+            // Disabling Remote also refuses authentication, but does not
+            // revoke saved grants. Do not turn shutdown into a key refusal.
+            if phone.is_none() && cancel.is_cancelled() {
+                return None;
+            }
+            // Only an owner's device may stand in for a desk on the relay.
+            let refused = phone.as_ref().is_none_or(|phone| {
+                matches!(purpose, Purpose::Relay) && phone.role != DeviceRole::Owner
+            });
+            let answer = if !refused {
+                Vec::new()
+            } else {
+                // Message 1 decrypted successfully: the initiator knows the
+                // desk key. Seal the refusal under that same Noise identity.
+                sealed::DEVICE_REJECTED.to_vec()
+            };
+            (phone.filter(|_| !refused), answer)
+        };
+        let mut response = [0u8; 4096];
+        let size = noise.write_message(&answer, &mut response).ok()?;
+        socket
+            .send(Message::Binary(response[..size].to_vec().into()))
+            .await
+            .ok()?;
+        let phone = phone?;
+        let state = noise.into_transport_mode().ok()?;
+        if phone.cancel.is_cancelled() || !seat.authenticate(&phone.id) {
+            return None;
+        }
+        Some((super::channel::Channel::new(socket, state), phone, desk))
+    };
+    let established = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return,
+        _ = seat.expired(deadline) => return,
+        result = handshake => result,
+    };
+    let Some((socket, phone, desk)) = established else {
+        return;
+    };
+    let _seat = seat;
+    match purpose {
+        Purpose::Computer(persona) => {
             let revoked = phone.cancel.clone();
             tokio::select! {
                 biased;
                 _ = revoked.cancelled() => {},
                 _ = sealed_computer(remote.clone(), socket, &persona) => {},
             }
-        } else {
+        }
+        Purpose::Relay => {
+            if let Some(desk) = desk {
+                super::relay::host(remote, socket, phone, desk).await;
+            }
+        }
+        Purpose::Wire | Purpose::Pair => {
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.
             let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
@@ -483,8 +642,7 @@ async fn sealed_door(
             )
             .await;
         }
-    });
-    reply.map(|_| Full::new(Bytes::new()))
+    }
 }
 
 /// A viewer uses the very same sealed connection, but its plaintext frame is

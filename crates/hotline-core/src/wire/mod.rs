@@ -1062,6 +1062,9 @@ where
             "type": "hello",
             "protocolVersion": 2,
             "desktopId": desktop_id,
+            // Every address the desk answers on, a relay's included, so a
+            // phone paired before the relay was chosen learns of it here.
+            "endpoints": phone.endpoints(),
             "mode": "team",
             "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
         }).to_string())) => result?,

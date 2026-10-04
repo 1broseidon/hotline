@@ -25,6 +25,11 @@ pub struct PairingPayload {
     pub role: DeviceRole,
     pub expires_at: i64,
     pub name: String,
+    /// The desk's address on its relay, when it stands in on one: the same
+    /// desk and key, reached through a desk that carries sealed records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relay: Option<String>,
 }
 impl PairingPayload {
     pub fn link(&self) -> Result<String, String> {
@@ -110,6 +115,7 @@ impl Remote {
         let (_, public) = self.noise_keys()?;
         let mut s = self.state.lock().unwrap();
         let endpoint = s.endpoints.first().ok_or("Enable remote access first.")?;
+        let relay = s.relay.url.clone();
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret).map_err(message)?;
         let secret = URL_SAFE_NO_PAD.encode(secret);
@@ -121,8 +127,10 @@ impl Remote {
             role,
             expires_at: now() + 120_000,
             name: desktop_name(),
+            relay: relay.clone(),
         };
-        let query = url::form_urlencoded::Serializer::new(String::new())
+        let mut query = url::form_urlencoded::Serializer::new(String::new());
+        query
             .append_pair("v", "2")
             .append_pair("k", &URL_SAFE_NO_PAD.encode(public))
             .append_pair("u", endpoint)
@@ -136,8 +144,11 @@ impl Remote {
                 },
             )
             .append_pair("e", &payload.expires_at.to_string())
-            .append_pair("n", &payload.name)
-            .finish();
+            .append_pair("n", &payload.name);
+        if let Some(relay) = &relay {
+            query.append_pair("a", relay);
+        }
+        let query = query.finish();
         let url = format!("hotline://pair?{query}");
         let code = qrcode::QrCode::new(url.as_bytes()).map_err(message)?;
         let pairing = SealedPairing {

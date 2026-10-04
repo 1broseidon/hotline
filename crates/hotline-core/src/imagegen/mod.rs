@@ -294,16 +294,27 @@ pub struct ImageSet {
 /// one kind look like one set without every agent inventing the words.
 pub const STYLES: &[&str] = &["avatar"];
 
-/// One finished crew portrait: it shows the model the finish, the framing
-/// and the eyes every teammate shares, never the head, which is each one's own.
+/// One finished crew portrait: it shows the model the finish and the framing
+/// every teammate shares, never the head, which is each one's own.
 const CREW: &[u8] = include_bytes!("house-avatar.jpg");
 
 const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, one of the Hotline crew. \
-From the first reference image take ONLY the finish, framing and eyes: a premium matte vinyl designer \
+From the first reference image take ONLY the finish and framing: a premium matte vinyl designer \
 collectible, a front-facing head-and-shoulders bust with the head filling most of the frame, soft even \
-studio light, a plain charcoal jacket, and two raised cream eye domes with short, black, horizontal slot \
-pupils. Adult and quietly playful, never human, never felt, plush or chibi. No props, no hands, no pins, \
-badges, logos or text.";
+studio light. Its eyes are the crew's: two raised cream eye domes with short, black, horizontal slot \
+pupils. The lids, their angle and how open they are may carry its mood; the domes stay cream and the \
+pupils stay slots. Adult and with attitude, never human, never felt, plush or chibi. No hands, logos or text.";
+
+/// What makes a crew member someone rather than a mascot: a few taste
+/// decisions that tell one story, which the teammate's own words name.
+const CHARACTER: &str = "Character: it should look like someone, not a mascot. Two to four taste \
+decisions, chosen from its name and its job, that tell one story about who it is. Draw from: a mood in \
+the eyes (half-lidded, wide, wry, one lid lower than the other); a marking or texture on the skin (a \
+tattoo, freckles, a scar, a pattern); hair, a tuft or a crest; what it wears in place of a plain jacket \
+(a hood, a work shirt, a knit, a collar); and at most one small accent (a pin, an earring, glasses, a \
+headset). Fewer, bolder choices beat many small ones. Nothing covers the eye domes, and every choice \
+still reads in a 32-pixel circle. Anything the prompt asks for wins over these, and further reference \
+images are the teammate's own: follow them for its head, colour and look.";
 
 const FRAMING: &str = "The background is one flat solid colour filling the entire square edge to edge, \
 like the reference: no circle, frame, border or vignette. Must read clearly as a small circle 32 pixels wide.";
@@ -427,10 +438,8 @@ pub fn styled(
                     "{AVATAR}\n\nHead: do NOT copy the reference's head. The outline of the head is what makes \
 this teammate recognisable, so draw {head}.\n\nColour: its skin is {name} ({body}), on a flat pale \
 {background} background. If its name is a thing with a colour of its own (a fruit, a flower, a stone, a \
-colour word), use that colour and a pale tint of it instead. Requested colours win.\n\nSignature: one \
-item that suits who it is, such as headwear, glasses, a headset, a scarf or a different collar, worn so it \
-never covers the eye domes. Anything the prompt asks for wins over these defaults, and further reference \
-images are the teammate's own: follow them for its head, colour and signature.\n\n{FRAMING}\n\nWho it is: {prompt}"
+colour word), use that colour and a pale tint of it instead. Requested colours win.\n\n{CHARACTER}\n\n\
+{FRAMING}\n\nWho it is: {prompt}"
                 ),
                 aspect: Aspect::Square,
                 references: vec![Reference {
@@ -495,11 +504,12 @@ mod style_tests {
         let subject = "Frankie, a blue engineer with a notebook";
         let styled = styled(Some("avatar"), subject, Aspect::Wide, "frankie").unwrap();
         for instruction in [
-            "take ONLY the finish, framing and eyes",
+            "take ONLY the finish and framing",
             "head-and-shoulders bust",
             "cream eye domes",
             "never human",
-            "no pins",
+            "Two to four taste decisions",
+            "at most one small accent",
             "do NOT copy the reference's head",
             head("frankie"),
             "Requested colours win",

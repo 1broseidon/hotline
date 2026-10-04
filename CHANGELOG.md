@@ -45,6 +45,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- A permission card in a side thread now reaches your phone as a push, like
+  one in the main conversation, and marks the teammate as waiting on you in
+  the team list. Answering it from the notification works in the thread. A
+  teammate's `search_thread` now also finds what was said in its side threads
+  and subagent runs, naming the thread.
 - A direct call's voice now talks as the teammate: it remembers what was said
   on the call, knows the teammate's goal, its project's `AGENTS.md` and its
   last chapter's note, and speaks to you as "you". A scheduled prompt in the
@@ -54,6 +59,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - Without a chosen voice model, the desk now picks a mid-tier fast model
   (flash, mini, fast) ahead of the lightest ones, which were too thin to hold
   a conversation.
+
+### Fixed
+
+- A permission card raised in a subagent run is refused at once instead of
+  waiting for a button nobody could press: the run's agent is told no and goes
+  on.
 
 ## [0.31.1] - 2026-10-02
 

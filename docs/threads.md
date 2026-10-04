@@ -9,7 +9,9 @@ They differ only in policy. The decision and its trade-offs are in
 design and the plan.
 
 This describes the target. Until the phases below land, each kind still runs
-on its own code. [Today](#today) is the map of that code.
+on its own code. [Today](#today) is the map of that code. Phases 1 and 2 have
+landed: [what is built](#built-so-far) says where, and where it differs from
+what is written here.
 
 ## The model
 
@@ -113,8 +115,8 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 | Idle | chapters (setting) | park at 3 h | park at 10 min | n/a | end at 10 min | ends with the run |
 | Restart | resume | park | park; cut-off told to the sender | requeue or fail | close, transcript kept | cancel |
 | Limit | one | two live, park the idlest | one turn in flight per pair | queued | one call | job limits |
-| Cards | person | person, pushed | person, pushed (today: none) | in the target's DM | signalled, never answered by voice | expire (today: no resolver) |
-| Search | indexed | indexed | indexed (today: no) | in the DMs | indexed (today: lost) | indexed (today: no) |
+| Cards | person | person, pushed | person, pushed (today: none) | in the target's DM | signalled, never answered by voice | expire |
+| Search | indexed | indexed | indexed (today: no) | in the DMs | indexed (today: lost) | indexed |
 
 Chapters stay specific to the DM. A side thread long enough to need chapters
 should become a teammate.
@@ -145,11 +147,11 @@ DM is ported last, because it has the most to lose.
    `ThreadLink`, `AgentBinding` and `ThreadStore` over the existing records.
    Rename the pair stream to `Pair` in code.
    *Done when:* every existing stream can be listed and loaded as a `Thread`
-   with no behaviour change.
+   with no behaviour change. **Done.**
 2. **One write path.** `Threads::write` with indexing, cards, push, call
    mirror, unread and waiting, applied first to sides and runs.
    *Done when:* side cards push to the phone and set the roster's `waiting`,
-   and run cards expire instead of hanging.
+   and run cards expire instead of hanging. **Done.**
 3. **One runtime.** Merge the agent builders, `Turns` and the turn loops, and
    put resume behind one mechanism. Port sides first, then runs.
    *Done when:* there is one `Turns` and the side and run builders are gone.
@@ -179,6 +181,59 @@ DM is ported last, because it has the most to lose.
     capability so older desks keep working.
     *Done when:* the phone opens any kind of thread in one sheet.
 
+## Built so far
+
+**Phase 1.** `crates/hotline-core/src/thread/` holds `Thread`, `ThreadId`,
+`ThreadKind`, `ThreadState`, `End`, `ThreadLink`, `AgentBinding`,
+`Participant`, `Policy` and `ThreadStore`. `ThreadStore::load`, `list` and
+`all` fold the records each kind keeps and write nothing. The pair stream is
+`StreamId::Pair` in code, with the same files.
+
+**Phase 2.** `Threads::write` is in `session/threads.rs`, beside the room
+whose fields it touches. Sides and runs write through it (`write_side` and
+`append_run` are gone, and so are the direct appends of their markers). The
+search index tags a line from a thread (`message_threads`), keeps it across a
+rebuild, and offers it to `search_thread`.
+
+Where this differs from the design above:
+
+- **`ThreadStore` is a struct, not a trait.** It has one implementation, and a
+  trait can be cut from it when a second reads a different record.
+- **`AgentBinding` has no save time.** No record keeps one, and nothing reads
+  it. **`note` is the marker's text**, not a chapter-shaped `Note`, until the
+  closing note is shared in phase 4.
+- **`ThreadId` carries the kind**, so a `Thread` has no `kind` field of its
+  own; `thread.kind()` reads it.
+- **A pair has no parent**, because the model has one and a pair hangs off two
+  DMs. A run's parent is found from the marker on the teammate's tape, since
+  the run's own marker does not name its owner.
+- **A record's word is the state.** A side or run a dead process left `Live`
+  loads as `Live`, a pair is `Live` while its `exchange_pair` has a request
+  running, and a DM is always `Live`. The room's settle still parks the
+  orphans. The store cannot tell a stopped DM from a running one.
+- **`write` takes the teammate too**: `write(thread, persona_id, event)`. A
+  run's id does not say whose it is, and the index, the push and the roster row
+  are all the teammate's.
+- **`Policy` holds only what the write path reads**: `answer` and `surface`
+  (push, call mirror, index). The other policies arrive with the phases that
+  read them.
+- **The DM, pairs and calls are not on the write path yet.** `write` hands a DM
+  to the tape's own door and refuses the other two with a log line. Each is
+  ported in its own phase.
+- **Only a permission is routed as a card.** The other cards (`request_human`,
+  a passkey) are written to the tape by the session that parks on them, not by
+  a thread's agent.
+- **Unread is not written.** A client counts it against each thread's newest
+  line; a write's part is to land that line and wake the roster row. What the
+  server could own is the phase 6 read receipts.
+- **The window's search stays on the tape.** `search.thread` and `search.all`
+  do not offer a thread's lines, because a hit there could not open: phase 9
+  gives it somewhere to go. The agent's `search_thread` offers them, with a
+  `thread` field on the hit.
+- **The call mirror is the existing `voice.card`.** A card in a side thread
+  reaches a live call the way one on the tape does; the mirror is not tested
+  at the call level yet.
+
 ## Today
 
 The map this design replaces, as of `qa/sides-voice` (main, plus side
@@ -186,17 +241,17 @@ threads, resumable side threads, and the call voice with memory).
 
 | Concern | DM | Side | Pair | Call | Run |
 | --- | --- | --- | --- | --- | --- |
-| Stream | `Tape` | `Side` | `Thread(key)` + sidecar + `exchange_pair` on Room | memory (`Exchange`); desk calls on a `voice-dispatcher` tape | `Run` |
-| Write helper | `write_value` | `write_side` | `write_thread`, `exchange_thread_line` | `voice_record` | `append_run` |
+| Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | memory (`Exchange`); desk calls on a `voice-dispatcher` tape | `Run` |
+| Write helper | `write_value` | `Threads::write` | `write_thread`, `exchange_thread_line` | `voice_record` | `Threads::write` |
 | Agent builder | `start_now` | `bring_up` | `peer_session` | dispatcher front | `run_to_end` |
 | Turn loop | `run_turns` + `Turns` | `run_side_turns` + `Turns` | `drive` | voice `run` | `drive_with` |
 | Resume | persona checkpoints | marker `sessionId` | reseed from thread | none | none |
 | Idle | `sweep_chapters` | `sweep_sides` (3 h) | `sweep_peers` (10 min) | own loop (10 min) | — |
 | Restart | `settle_tapes` | `settle_orphaned_sides` | `reconcile_exchanges` + `recover_exchanges` | lost | `settle_orphaned_subagents` |
 | Marker | — | `side:` | `xthread:`, `exchange-paused:` | `voice:` id grammar | `subagent:` |
-| Cards answered by | `session.answer_permission` | `side.answer_permission` | nobody | never | nobody |
-| Push / waiting | yes | no | no | fallback push | no |
-| Search | indexed | archived marker only | no | desk calls only | no |
+| Cards answered by | `session.answer_permission` | `side.answer_permission` | nobody | never | nobody (expired) |
+| Push / waiting | yes | yes | no | fallback push | no |
+| Search | indexed | indexed | no | desk calls only | indexed |
 | Desktop hook | `useTape` | `useSide` | `useThread` | `voice/call.ts` | `useRun` |
 | Phone hook | team state | `use-side` (unreleased) | `use-peer-thread` | `voice/call.ts` | `use-run` |
 

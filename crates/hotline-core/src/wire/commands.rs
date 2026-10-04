@@ -6,14 +6,15 @@
 //! asked of the [`RoomHandle`], because a running agent and a vault are not
 //! things to reimplement behind a door.
 
-use super::RoomHandle;
+use super::{RoomHandle, threads};
 use crate::contract::{
     Command, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach, SessionInfo,
-    SessionState,
+    SessionState, ThreadAnswer,
 };
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
+use crate::thread::ThreadId;
 use crate::{paths, room};
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
@@ -33,6 +34,15 @@ tokio::task_local! { pub(crate) static CALL_HEARD: Option<String>; }
 
 pub(crate) fn call_heard() -> Option<String> {
     CALL_HEARD.try_with(Clone::clone).ok().flatten()
+}
+
+// Set by the door a message came in at, never by the message: whether this
+// socket declared `threads2`, for the commands whose answer carries lines a
+// thread's link is one of.
+tokio::task_local! { pub(crate) static THREADS2: bool; }
+
+pub(crate) fn threads2() -> bool {
+    THREADS2.try_with(|declared| *declared).unwrap_or(false)
 }
 
 // Set by the door a message came in at, never by the message: which of the
@@ -372,14 +382,17 @@ pub(crate) async fn run(
             reply_to,
             attachments,
         } => {
-            room.prompt(&persona_id, &text, reply_to, attachments)
-                .await?;
-            if let Ok(persona) = living(log, &persona_id) {
-                remember_model(log, room, &persona).await?;
-            }
-            Ok(Value::Null)
+            threads::prompt(
+                log,
+                room,
+                &ThreadId::dm(persona_id),
+                &text,
+                reply_to,
+                attachments,
+            )
+            .await
         }
-        Command::SessionCancel { persona_id } => room.cancel(&persona_id).map(|()| Value::Null),
+        Command::SessionCancel { persona_id } => threads::cancel(room, &ThreadId::dm(persona_id)),
         Command::SessionSetModel {
             persona_id,
             model_id,
@@ -404,10 +417,18 @@ pub(crate) async fn run(
             persona_id,
             request_id,
             option_id,
-        } => room
-            .answer_permission(&persona_id, &request_id, &option_id)
+        } => {
+            threads::answer(
+                log,
+                room,
+                &ThreadId::dm(persona_id),
+                ThreadAnswer::Permission {
+                    request_id,
+                    option_id,
+                },
+            )
             .await
-            .map(|()| Value::Null),
+        }
         Command::TeammatesExchangeStop { a, b } => room.stop_exchange(&a, &b).map(|()| Value::Null),
         Command::TeammatesExchangeResume { a, b } => {
             room.resume_exchange(&a, &b).map(|()| Value::Null)
@@ -417,9 +438,19 @@ pub(crate) async fn run(
             action_id,
             status,
             note,
-        } => room
-            .answer_human(&persona_id, &action_id, status, note)
-            .map(|()| Value::Null),
+        } => {
+            threads::answer(
+                log,
+                room,
+                &ThreadId::dm(persona_id),
+                ThreadAnswer::Human {
+                    action_id,
+                    status,
+                    note,
+                },
+            )
+            .await
+        }
 
         Command::SearchThread {
             persona_id,
@@ -432,16 +463,13 @@ pub(crate) async fn run(
             before,
             limit,
             through,
-        } => {
-            living(log, &persona_id)?;
-            Ok(super::tape_page(
-                log,
-                &persona_id,
-                &before,
-                limit,
-                through.as_deref(),
-            ))
-        }
+        } => threads::page(
+            log,
+            &ThreadId::dm(persona_id),
+            &before,
+            limit,
+            through.as_deref(),
+        ),
         Command::FileRead {
             persona_id,
             event_id,
@@ -512,12 +540,19 @@ pub(crate) async fn run(
             side_id,
             text,
             attachments,
-        } => room
-            .side_prompt(&side_id, &text, attachments)
+        } => {
+            threads::prompt(
+                log,
+                room,
+                &ThreadId::side(side_id),
+                &text,
+                None,
+                attachments,
+            )
             .await
-            .map(|()| Value::Null),
-        Command::SideCancel { side_id } => room.side_cancel(&side_id).map(|()| Value::Null),
-        Command::SideArchive { side_id } => room.side_archive(&side_id).map(|()| Value::Null),
+        }
+        Command::SideCancel { side_id } => threads::cancel(room, &ThreadId::side(side_id)),
+        Command::SideArchive { side_id } => threads::close(room, &ThreadId::side(side_id)),
         Command::SideContinue { side_id } => room
             .side_continue(&side_id)
             .await
@@ -527,10 +562,18 @@ pub(crate) async fn run(
             side_id,
             request_id,
             option_id,
-        } => room
-            .side_answer_permission(&side_id, &request_id, &option_id)
+        } => {
+            threads::answer(
+                log,
+                room,
+                &ThreadId::side(side_id),
+                ThreadAnswer::Permission {
+                    request_id,
+                    option_id,
+                },
+            )
             .await
-            .map(|()| Value::Null),
+        }
 
         Command::PeersList { persona_id } => Ok(json!(room.peer_threads(&persona_id))),
         Command::PeersMarkRead { key, event_ids } => {
@@ -540,10 +583,45 @@ pub(crate) async fn run(
             key,
             request_id,
             option_id,
-        } => room
-            .peers_answer_permission(&key, &request_id, &option_id)
+        } => {
+            threads::answer(
+                log,
+                room,
+                &ThreadId::pair(key),
+                ThreadAnswer::Permission {
+                    request_id,
+                    option_id,
+                },
+            )
             .await
-            .map(|()| Value::Null),
+        }
+
+        Command::ClientHello { .. } => {
+            Err("A hello is read at the door, on the socket it names.".into())
+        }
+        Command::ThreadList { persona_id } => threads::list(log, room, persona_id.as_deref(), true),
+        Command::ThreadOpen { persona_id, text } => {
+            threads::open(log, room, &persona_id, &text).await
+        }
+        Command::ThreadPrompt {
+            thread,
+            text,
+            reply_to,
+            attachments,
+        } => threads::prompt(log, room, &thread, &text, reply_to, attachments).await,
+        Command::ThreadCancel { thread } => threads::cancel(room, &thread),
+        Command::ThreadPark { thread } => threads::park(room, &thread),
+        Command::ThreadClose { thread } => threads::close(room, &thread),
+        Command::ThreadContinue { thread } => threads::resume(log, room, &thread).await,
+        Command::ThreadAnswer { thread, answer } => {
+            threads::answer(log, room, &thread, answer).await
+        }
+        Command::ThreadPage {
+            thread,
+            before,
+            limit,
+            through,
+        } => threads::page(log, &thread, &before, limit, through.as_deref()),
 
         Command::ComputerCapacity {} => Ok(json!(room.computer_capacity().await)),
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),
@@ -1239,7 +1317,7 @@ pub(crate) fn welcome(
     }
 }
 
-fn living(log: &Log, id: &str) -> Result<Persona, String> {
+pub(super) fn living(log: &Log, id: &str) -> Result<Persona, String> {
     room::roster(log)
         .into_iter()
         .find(|persona| persona.id == id)
@@ -1347,7 +1425,7 @@ async fn set_config(
 /// teammate itself, so the band can name the model before the child is
 /// started again. A harness picks its own default and only says so once
 /// running; without this the teammate at rest has no model at all.
-async fn remember_model(
+pub(super) async fn remember_model(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     persona: &Persona,

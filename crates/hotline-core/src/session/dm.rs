@@ -30,7 +30,7 @@ use super::{
     Glance, PendingTool, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms,
     quiet, schedule, timed,
 };
-use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, StreamDelta, TranscriptEvent};
+use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEvent};
 use crate::driver::{MessageKind, Update};
 use crate::room;
 use crate::thread::{ThreadId, ThreadKind};
@@ -315,20 +315,13 @@ impl Witness for Heard<'_> {
         let muted = muted
             || (kind == MessageKind::Agent
                 && quiet::mutes_deltas(lock(&self.session.quiet).as_ref(), now_ms()));
-        let persona_id = self.session.persona_id.clone();
-        let (message_id, text) = (message_id.to_string(), text.to_string());
-        let _ = self.room.deltas.send(match kind {
-            MessageKind::Agent if !muted => StreamDelta::AgentDelta {
-                persona_id,
-                message_id,
-                text,
-            },
-            _ => StreamDelta::ThoughtDelta {
-                persona_id,
-                message_id,
-                text,
-            },
-        });
+        let _ = self.room.deltas.send(super::turns::delta_of(
+            &ThreadId::dm(&self.session.persona_id),
+            kind,
+            message_id,
+            text,
+            muted,
+        ));
     }
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {

@@ -16,9 +16,9 @@
 use super::runner::{Driven, Witness, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
-use crate::contract::{Attachment, Reach, StreamDelta, TranscriptEvent};
+use crate::contract::{Attachment, DeltaKind, Reach, StreamDelta, TranscriptEvent};
 use crate::driver::{Driver, MessageKind, Update};
-use crate::thread::{ThreadId, ThreadKind};
+use crate::thread::ThreadId;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -139,9 +139,13 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         if !(self.open)() {
             return;
         }
-        if let Some(delta) = delta_of(self.seat.thread, kind, message_id, text, muted) {
-            let _ = self.threads.room.deltas.send(delta);
-        }
+        let _ = self.threads.room.deltas.send(delta_of(
+            self.seat.thread,
+            kind,
+            message_id,
+            text,
+            muted,
+        ));
     }
 
     fn write(&mut self, event: TranscriptEvent, _asked: bool) {
@@ -290,32 +294,25 @@ impl Room {
     }
 }
 
-/// The live words of a thread, as the wire addresses them. Only a side thread
-/// is shown live: the window has no view of a run's words as they come.
-fn delta_of(
+/// The live words of a thread, as the wire addresses them: by the thread's id,
+/// for every kind. The wire turns it into the older per-kind deltas for a
+/// client that does not know this one.
+pub(super) fn delta_of(
     thread: &ThreadId,
     kind: MessageKind,
     message_id: &str,
     text: &str,
     muted: bool,
-) -> Option<StreamDelta> {
-    if thread.kind != ThreadKind::Side {
-        return None;
+) -> StreamDelta {
+    StreamDelta::ThreadDelta {
+        thread: thread.clone(),
+        message_id: message_id.to_string(),
+        kind: match kind {
+            MessageKind::Agent if !muted => DeltaKind::Text,
+            _ => DeltaKind::Thought,
+        },
+        text: text.to_string(),
     }
-    let (side_id, message_id, text) =
-        (thread.key.clone(), message_id.to_string(), text.to_string());
-    Some(match kind {
-        MessageKind::Agent if !muted => StreamDelta::SideAgentDelta {
-            side_id,
-            message_id,
-            text,
-        },
-        _ => StreamDelta::SideThoughtDelta {
-            side_id,
-            message_id,
-            text,
-        },
-    })
 }
 
 #[cfg(test)]
@@ -340,17 +337,30 @@ mod tests {
     }
 
     #[test]
-    fn only_a_side_thread_is_shown_its_words_live() {
+    fn every_kind_is_shown_its_words_live_by_its_thread() {
         let live =
             |thread: &ThreadId, muted| delta_of(thread, MessageKind::Agent, "m1", "hel", muted);
-        assert!(matches!(
-            live(&ThreadId::side("s1"), false),
-            Some(StreamDelta::SideAgentDelta { .. })
-        ));
+        for thread in [
+            ThreadId::side("s1"),
+            ThreadId::run("r1"),
+            ThreadId::dm("ada"),
+        ] {
+            assert_eq!(
+                live(&thread, false),
+                StreamDelta::ThreadDelta {
+                    thread: thread.clone(),
+                    message_id: "m1".to_string(),
+                    kind: DeltaKind::Text,
+                    text: "hel".to_string(),
+                }
+            );
+        }
         assert!(matches!(
             live(&ThreadId::side("s1"), true),
-            Some(StreamDelta::SideThoughtDelta { .. })
+            StreamDelta::ThreadDelta {
+                kind: DeltaKind::Thought,
+                ..
+            }
         ));
-        assert!(live(&ThreadId::run("r1"), false).is_none());
     }
 }

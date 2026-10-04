@@ -26,7 +26,7 @@
 //!   is indexed under the teammate, so `search_thread` can find it, naming the
 //!   thread. Written through [`super::threads::Threads::write`], so a card
 //!   raised in it reaches the phone and the roster's `waiting`. Live words arrive as
-//!   [`StreamDelta::SideAgentDelta`], addressed by side id.
+//!   [`StreamDelta::ThreadDelta`], addressed by the thread's id.
 //! - **The marker.** One [`TranscriptEvent::Side`] line on the teammate's tape,
 //!   written again under the same id as the thread goes: "started a side
 //!   thread", then a title and one-line result with Open once it is archived,
@@ -664,6 +664,27 @@ impl Room {
         }
     }
 
+    /// Lets go of a side thread's agent and keeps the thread open, as the
+    /// sweep does for one nobody has spoken in: saying something in it brings
+    /// an agent back. Parking one that is parked already is answered as done,
+    /// and an archived one is refused, since it is not open.
+    pub fn park_side_thread(&self, side_id: &str) -> Result<(), String> {
+        if let Some(side) = self.sides.get(side_id) {
+            self.park_side(&side);
+            return Ok(());
+        }
+        match self
+            .link_of(&ThreadId::side(side_id))
+            .map(|link| link.state)
+        {
+            Some(ThreadState::Parked) => Ok(()),
+            Some(ThreadState::Closed(_)) => {
+                Err("That side thread is archived, so it cannot be parked.".to_string())
+            }
+            Some(ThreadState::Live) | None => Err("There is no such side thread.".to_string()),
+        }
+    }
+
     /// The teammate saying it is done. The thread is archived when the turn
     /// it said so in ends, so its last message lands first.
     pub(crate) fn request_side_archive(&self, side_id: &str, summary: &str) -> Result<(), String> {
@@ -1224,7 +1245,7 @@ fn last_words(events: &[Value]) -> Option<String> {
 
 /// The newest thing said in a thread, as a line for a list: the teammate's
 /// last words, else the person's latest.
-fn preview_line(events: &[Value]) -> Option<String> {
+pub(crate) fn preview_line(events: &[Value]) -> Option<String> {
     last_words(events).or_else(|| {
         events
             .iter()
@@ -1267,7 +1288,7 @@ pub(super) fn waiting_on(events: &[Value]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{SessionCheckpoint, StreamDelta};
+    use crate::contract::{DeltaKind, SessionCheckpoint, StreamDelta};
     use crate::driver::rig::Said;
     use crate::driver::{MessageKind, Update};
     use crate::mcp::server::TeammateTools;
@@ -1464,9 +1485,10 @@ mod tests {
         }
         assert_eq!(
             seen,
-            [StreamDelta::SideAgentDelta {
-                side_id: summary.side_id,
+            [StreamDelta::ThreadDelta {
+                thread: ThreadId::side(summary.side_id),
                 message_id: "m1".to_string(),
+                kind: DeltaKind::Text,
                 text: "Hel".to_string(),
             }]
         );
@@ -1714,6 +1736,29 @@ mod tests {
             room.archive_side(&summary.side_id, SideEnd::Person, None)
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn the_person_parks_a_live_thread_and_only_an_open_one() {
+        let agents = Fake::new(Scripted::new(vec![say("m1", "Done for now."), turn()]));
+        let room = room("side-park", agents.clone());
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        let id = summary.side_id;
+        settled(&room, &id).await;
+
+        room.park_side_thread(&id).unwrap();
+        assert!(room.sides("ada").is_empty(), "the agent is let go of");
+        assert_eq!(tape(&room)[0]["status"], "parked");
+        assert!(tape(&room)[0].get("archivedBy").is_none());
+        room.park_side_thread(&id)
+            .expect("parking a parked thread is not an error");
+
+        room.archive_side(&id, SideEnd::Person, None).unwrap();
+        assert!(
+            room.park_side_thread(&id).is_err(),
+            "an archived one is not open"
+        );
+        assert!(room.park_side_thread("ghost").is_err());
     }
 
     #[tokio::test]

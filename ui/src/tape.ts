@@ -151,6 +151,8 @@ class TapeStore {
 				}
 				// A side thread's words are its own: never drawn into the main talk.
 				if (delta.type === "side_agent_delta" || delta.type === "side_thought_delta") return;
+				// The window has not declared `threads2` yet, so it is sent none.
+				if (delta.type === "thread_delta") return;
 				this.queued.push(delta);
 				this.frame ??= requestAnimationFrame(this.flush);
 			},

@@ -450,6 +450,10 @@ impl RoomHandle for Desk {
             .archive_side(side_id, crate::contract::SideEnd::Person, None)
     }
 
+    fn side_park(&self, side_id: &str) -> Result<(), String> {
+        self.room.park_side_thread(side_id)
+    }
+
     async fn side_continue(
         &self,
         side_id: &str,

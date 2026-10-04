@@ -15,11 +15,12 @@
 //!
 //! `threadKind` and not `kind`, because the event's own `kind` is `link`.
 //!
-//! A link is the stored model and not what a client is sent. Phones on
-//! current builds draw `side` and `subagent` markers and nothing else of a
-//! thread, so [`Link::wire`] turns a link back into the marker its kind has
-//! always had on its way out, and the markers already on disk are read by
-//! [`Link::read`] as the links they stand for. A tape can hold both: an old
+//! A link is the stored model and not always what a client is sent. Phones on
+//! builds before `threads2` draw `side` and `subagent` markers and nothing else
+//! of a thread, so [`Link::wire`] turns a link back into the marker its kind
+//! has always had on its way out; a client that declared `threads2` is sent
+//! the link itself by [`Link::threads2`]. The markers already on disk are read
+//! by [`Link::read`] as the links they stand for. A tape can hold both: an old
 //! marker is rewritten as a link under its own id the next time its thread
 //! changes, so it is replaced in place and never doubled.
 
@@ -375,9 +376,18 @@ impl Link {
         }
     }
 
-    /// An event as a client is sent it. A link becomes the marker its kind
-    /// has always had, so a phone or a window that does not know links draws
-    /// the thread as before; everything else is passed on as it is.
+    /// An event as a client that declared `threads2` is sent it: every link
+    /// as the one `link` shape, including the markers written before links
+    /// existed, so such a client draws a thread from one kind of line. A
+    /// marker keeps its id, so the line it is rewritten as replaces it.
+    /// Everything else is passed on as it is.
+    pub fn threads2(event: Value) -> Value {
+        Self::read(&event).map_or(event, |link| link.event())
+    }
+
+    /// An event as a client that did not is sent it. A link becomes the marker
+    /// its kind has always had, so a phone or a window that does not know
+    /// links draws the thread as before; everything else is passed on as it is.
     pub fn wire(event: Value) -> Value {
         if event.get("kind").and_then(Value::as_str) != Some(KIND) {
             return event;
@@ -458,6 +468,32 @@ mod tests {
         .unwrap();
         assert_eq!(run.thread, ThreadId::run("r1"));
         assert_eq!(run.state, ThreadState::Closed(End::Cancelled));
+    }
+
+    #[test]
+    fn a_threads2_client_is_sent_every_link_as_one_shape() {
+        let link = closed_side();
+        let sent = Link::threads2(link.event());
+        assert_eq!(sent, link.event());
+        let typed: TranscriptEvent = serde_json::from_value(sent).unwrap();
+        assert!(matches!(
+            typed,
+            TranscriptEvent::Link {
+                thread_kind: ThreadKind::Side,
+                end: Some(End::Agent),
+                ..
+            }
+        ));
+        let old = Link::threads2(json!({
+            "kind": "subagent", "id": "subagent:r1", "ts": 1, "runId": "r1",
+            "title": "Look it up", "status": "cancelled"
+        }));
+        assert_eq!(old["kind"], "link");
+        assert_eq!(old["id"], "subagent:r1", "the marker's id is kept");
+        assert_eq!(old["threadKind"], "run");
+        assert_eq!(old["end"], "cancelled");
+        let said = json!({"kind": "agent", "id": "a", "ts": 1, "text": "hi"});
+        assert_eq!(Link::threads2(said.clone()), said);
     }
 
     #[test]

@@ -38,6 +38,7 @@ import type {
 	Target,
 	TeammateToolLedger,
 	ThreadSearchHit,
+	ThreadSummary,
 	TranscriptEvent,
 	Welcome,
 	VoiceCall,
@@ -204,6 +205,21 @@ type Results = {
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
 	"peers.answer_permission": null;
+	/** What this core can do for the seat; declares `threads2` when it names it. */
+	"client.hello": { capabilities: string[] };
+	/** Every kind of thread as one list: live first, then parked, then closed. */
+	"thread.list": ThreadSummary[];
+	/** The new work thread, already running its first turn. */
+	"thread.open": ThreadSummary;
+	"thread.prompt": null;
+	"thread.cancel": null;
+	"thread.park": null;
+	"thread.close": null;
+	/** The thread, live again. */
+	"thread.continue": ThreadSummary;
+	"thread.answer": null;
+	/** Older lines of any thread than its window, oldest first. */
+	"thread.page": { events: TranscriptEvent[]; more: boolean };
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;

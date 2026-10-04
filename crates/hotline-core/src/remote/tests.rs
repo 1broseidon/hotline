@@ -675,7 +675,8 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
             "personaEdit",
             "schedules",
             "threads",
-            "runs"
+            "runs",
+            "threads2"
         ])
     );
 

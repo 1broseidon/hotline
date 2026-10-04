@@ -52,6 +52,7 @@ mod quiet;
 pub(crate) mod runner;
 pub(crate) mod schedule;
 mod sides;
+pub(crate) use sides::preview_line;
 mod stopping;
 mod threads;
 mod turns;

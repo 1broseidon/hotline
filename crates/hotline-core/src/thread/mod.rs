@@ -11,8 +11,9 @@
 //! [`Policy`] value. The one write path that applies the policy is
 //! `Room::threads().write`, beside the room it touches.
 //!
-//! None of it is on the wire yet, and no stream moves: a thread is a view over
-//! the files that were there before it.
+//! No stream moves: a thread is a view over the files that were there before
+//! it. A [`ThreadId`] is on the wire, in `thread.*` and `{"threadId": …}`
+//! (`docs/wire.md`).
 
 mod link;
 mod policy;
@@ -73,7 +74,8 @@ impl ThreadKind {
 /// Which thread: its kind and the key its stream is named by. A teammate's id
 /// for a DM, the minted id for a side thread, run or call, and the pair key
 /// (see [`crate::paths::thread_key`]) for a pair.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
 pub struct ThreadId {
     pub kind: ThreadKind,
     pub key: String,
@@ -156,7 +158,9 @@ pub enum ThreadState {
 }
 
 /// How a closed thread ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts", rename = "ThreadEnd")]
 pub enum End {
     /// The person ended it.
     Person,

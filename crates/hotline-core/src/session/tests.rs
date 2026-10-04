@@ -7,8 +7,8 @@
 
 use super::*;
 use crate::contract::{
-    AttachmentKind, ChapterStatus, HumanAnswer, McpPolicy, PermissionOption, PersonaComputer,
-    PolicyMode, ScheduledJob, SessionCheckpoint,
+    AttachmentKind, ChapterStatus, DeltaKind, HumanAnswer, McpPolicy, PermissionOption,
+    PersonaComputer, PolicyMode, ScheduledJob, SessionCheckpoint,
 };
 use crate::driver::{DriverInfo, Escalate};
 use crate::mcp::server::TeammateTools;
@@ -651,14 +651,16 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
     assert_eq!(
         streamed,
         [
-            StreamDelta::ThoughtDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m1".to_string(),
+                kind: DeltaKind::Thought,
                 text: "let me look".to_string(),
             },
-            StreamDelta::ThoughtDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m2".to_string(),
+                kind: DeltaKind::Thought,
                 text: "one file".to_string(),
             },
         ]
@@ -1676,12 +1678,17 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
     let mut streamed = Vec::new();
     while let Ok(delta) = deltas.try_recv() {
         streamed.push(match delta {
-            StreamDelta::AgentDelta { message_id, .. } => format!("agent:{message_id}"),
-            StreamDelta::ThoughtDelta { message_id, .. } => format!("thought:{message_id}"),
-            StreamDelta::ComputerPull { .. } => "pull".to_string(),
-            StreamDelta::SideAgentDelta { .. } | StreamDelta::SideThoughtDelta { .. } => {
-                "side".to_string()
-            }
+            StreamDelta::ThreadDelta {
+                message_id,
+                kind: DeltaKind::Text,
+                ..
+            } => format!("agent:{message_id}"),
+            StreamDelta::ThreadDelta {
+                message_id,
+                kind: DeltaKind::Thought,
+                ..
+            } => format!("thought:{message_id}"),
+            other => panic!("the room broadcast {other:?} to the DM"),
         });
     }
     assert_eq!(
@@ -3329,14 +3336,16 @@ async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
     assert_eq!(
         streamed,
         [
-            StreamDelta::ThoughtDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m-quiet".to_string(),
+                kind: DeltaKind::Thought,
                 text: "No change — staying silent per protocol.".to_string(),
             },
-            StreamDelta::AgentDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m-loud".to_string(),
+                kind: DeltaKind::Text,
                 text: "It moved.".to_string(),
             },
         ]

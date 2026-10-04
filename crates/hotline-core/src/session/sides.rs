@@ -528,7 +528,7 @@ impl Room {
             )
             .await?;
         if !text.is_empty() {
-            self.say_in_side(&live, text, None);
+            self.say_in_side(&live, text, None, None);
         }
         Ok(self.side_summary(&live))
     }
@@ -664,6 +664,19 @@ impl Room {
         text: &str,
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
+        self.prompt_side_replying(side_id, text, None, attachments)
+            .await
+    }
+
+    /// Says something in a side thread in answer to one of its lines, which
+    /// `reply_to` names, as a reply in the main conversation does.
+    pub async fn prompt_side_replying(
+        self: &Arc<Self>,
+        side_id: &str,
+        text: &str,
+        reply_to: Option<String>,
+        attachments: Option<Vec<Attachment>>,
+    ) -> Result<(), String> {
         let _working = self.working()?;
         let text = text.trim();
         let attachments = attachments.filter(|attachments| !attachments.is_empty());
@@ -674,7 +687,7 @@ impl Room {
             Ok(side) => side,
             Err(_) => self.wake_side(side_id, false).await?,
         };
-        self.say_in_side(&side, text, attachments);
+        self.say_in_side(&side, text, reply_to, attachments);
         Ok(())
     }
 
@@ -960,6 +973,7 @@ impl Room {
         self: &Arc<Self>,
         side: &Arc<LiveSide>,
         text: &str,
+        reply_to: Option<String>,
         attachments: Option<Vec<Attachment>>,
     ) {
         let ts = now_ms();
@@ -974,7 +988,7 @@ impl Room {
                 text: text.to_string(),
                 attachments: attachments.clone(),
                 reactions: None,
-                reply_to: None,
+                reply_to,
                 scheduled: None,
                 ring: None,
                 receipt: None,
@@ -1477,11 +1491,18 @@ mod tests {
         let stored = room.log.load(&StreamId::Tape("ada".to_string()));
         assert_eq!(stored.last().unwrap()["title"], "Fix the CI badge");
 
-        // A later line does not rename it.
-        room.prompt_side(&summary.side_id, "Also the README", None)
+        // A later line does not rename it, and a reply keeps what it answers.
+        room.prompt_side_replying(&summary.side_id, "Also the README", Some("m1".into()), None)
             .await
             .unwrap();
         assert_eq!(room.sides("ada")[0].title, "Fix the CI badge");
+        let stream = side_stream(&room, &summary.side_id);
+        let said = stream
+            .iter()
+            .rfind(|event| event["kind"] == "user")
+            .unwrap();
+        assert_eq!(said["text"], "Also the README");
+        assert_eq!(said["replyTo"], "m1");
     }
 
     #[tokio::test]

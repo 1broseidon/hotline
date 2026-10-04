@@ -60,7 +60,8 @@ pub(super) async fn prompt(
             Ok(Value::Null)
         }
         ThreadKind::Side => {
-            room.side_prompt(&thread.key, text, attachments).await?;
+            room.side_prompt(&thread.key, text, reply_to, attachments)
+                .await?;
             Ok(Value::Null)
         }
         _ => Err(not_here(thread, "Speaking")),

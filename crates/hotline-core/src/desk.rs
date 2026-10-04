@@ -436,9 +436,12 @@ impl RoomHandle for Desk {
         &self,
         side_id: &str,
         text: &str,
+        reply_to: Option<String>,
         attachments: Option<Vec<crate::contract::Attachment>>,
     ) -> Result<(), String> {
-        self.room.prompt_side(side_id, text, attachments).await
+        self.room
+            .prompt_side_replying(side_id, text, reply_to, attachments)
+            .await
     }
 
     fn side_cancel(&self, side_id: &str) -> Result<(), String> {

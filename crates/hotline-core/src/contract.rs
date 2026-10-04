@@ -2621,7 +2621,9 @@ pub enum Command {
     },
     /// A paired phone supplies a stable operation id; retries never run twice.
     /// `replyTo` is the id of the message this one answers, as on
-    /// `session.prompt`.
+    /// `session.prompt`. `thread` says it in one of the teammate's work
+    /// threads instead of the main conversation, with the same files and
+    /// replies; absent, it is the main conversation.
     #[serde(rename = "mobile.prompt")]
     MobilePrompt {
         operation_id: String,
@@ -2631,6 +2633,8 @@ pub enum Command {
         attachment_ids: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<ThreadId>,
     },
     #[serde(rename = "mobile.attachment")]
     MobileAttachment { upload: MobileAttachmentChunk },

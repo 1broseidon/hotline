@@ -247,11 +247,13 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
-    /// Says something in a live side thread.
+    /// Says something in a live side thread, in answer to `reply_to` when it
+    /// names one of the thread's lines.
     async fn side_prompt(
         &self,
         _side_id: &str,
         _text: &str,
+        _reply_to: Option<String>,
         _attachments: Option<Vec<crate::contract::Attachment>>,
     ) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
@@ -1337,6 +1339,7 @@ async fn answer(
                             text,
                             attachment_ids,
                             reply_to,
+                            thread,
                         },
                         Some(phone),
                     ) => {
@@ -1347,6 +1350,7 @@ async fn answer(
                                 text,
                                 attachment_ids,
                                 reply_to.as_deref(),
+                                thread.as_ref(),
                             )
                             .await
                     }

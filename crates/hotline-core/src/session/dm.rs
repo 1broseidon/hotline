@@ -120,10 +120,7 @@ impl Occupant for Session {
         let escalation = quiet_run
             .as_ref()
             .map(|_| Arc::new(escalation::Escalation::new()));
-        let from_voice = wired
-            .said
-            .as_deref()
-            .is_some_and(|id| id.starts_with("voice:"));
+        let from_voice = wired.spoken;
         let source = if let Some(unprompted) = &wired.unprompted {
             let Some(updates) = lock(&unprompted.0).take() else {
                 return Begin::Skip;

@@ -1054,7 +1054,7 @@ impl Room {
         lock(&side.turns).clear();
         side.capability.revoke();
         side.driver.invalidate();
-        self.let_go_of_computer(&side.persona_id, &format!("side:{}", side.id));
+        self.let_go_of_computer(&side.persona_id, &super::agent::lease_key(&side.thread()));
         let stream = StreamId::Side(side.id.clone());
         let events = self.log.load(&stream);
         for expired in crate::log::expire_orphaned_permissions(&events, now_ms()) {

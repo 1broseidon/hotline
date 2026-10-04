@@ -452,25 +452,25 @@ struct Wired {
     /// The thread this line came from, when it came from one: a direct call's
     /// turn is its call thread's. Read in place of the prefix of `said`.
     from: Option<DeliveryFrom>,
+    /// The call this line was said on, when it was: a direct call's is also
+    /// `from`, and a desk call, which is no thread, is only this.
+    voice: Option<crate::voice::Origin>,
+    /// Whether it was said by voice, which decides how the reply is told.
+    spoken: bool,
     /// Work the agent took up by itself between turns. Nothing is said to
     /// the driver; the turn is these updates.
     unprompted: Option<Unprompted>,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
-/// it came from, or, for the desk's own calls, which are no thread, the id it
-/// was written under.
+/// it came from, or, for the desk's own calls, which are no thread, the call
+/// its producer named.
 fn call_origin(wired: &Wired) -> Option<crate::voice::Origin> {
     wired
         .from
         .as_ref()
         .and_then(crate::voice::Origin::from_delivery)
-        .or_else(|| {
-            wired
-                .said
-                .as_deref()
-                .and_then(crate::voice::Origin::from_event_id)
-        })
+        .or_else(|| wired.voice.clone())
 }
 
 impl Wired {
@@ -482,6 +482,8 @@ impl Wired {
             steer: false,
             said: None,
             from: None,
+            voice: None,
+            spoken: false,
             unprompted: None,
         }
     }
@@ -1114,7 +1116,7 @@ impl Room {
 
     /// Brings a computer that finished downloading into its teammate's
     /// session, between turns. A turn in flight is never cut short for it:
-    /// the end of the turn calls this again (see `run_turns`). With no
+    /// the end of the turn calls this again (see [`Room::run_queue`]). With no
     /// session running there is nothing to restart; the next start finds
     /// the computer up and grants it at once.
     fn attach_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
@@ -2211,6 +2213,9 @@ impl Room {
                             .is_some_and(|origin| origin.direct),
                     said: None,
                     from: crate::wire::commands::voice_origin().and_then(|origin| origin.from()),
+                    voice: crate::wire::commands::voice_origin(),
+                    spoken: crate::wire::commands::from_voice()
+                        || crate::wire::commands::voice_origin().is_some(),
                     unprompted: None,
                 },
                 attachments,
@@ -3364,7 +3369,7 @@ impl Room {
 
     /// Swaps in a computer whose new release has downloaded, between turns.
     /// A turn in flight keeps the old computer to its end, which calls this
-    /// again (see `run_turns`). The swap is the old container going and the
+    /// again (see [`Room::run_queue`]). The swap is the old container going and the
     /// session reattaching, which makes and grants the new one.
     fn swap_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
         if !lock(&self.computer_swaps)

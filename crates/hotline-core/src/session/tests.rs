@@ -2826,7 +2826,7 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
         "the swap waits for that turn instead"
     );
 
-    // The turn ends; what `run_turns` does next swaps the computer in.
+    // The turn ends; what the turn loop does next swaps the computer in.
     lock(&session.turns).running = false;
     room.swap_computer_when_idle("ada");
     let swapped = tokio::time::timeout(Duration::from_secs(10), async {
@@ -3097,7 +3097,7 @@ async fn a_download_starts_the_teammate_at_once_and_the_computer_joins_after_the
     );
     assert!(!still.computer);
 
-    // The turn ends; what `run_turns` does next brings the computer in.
+    // The turn ends; what the turn loop does next brings the computer in.
     lock(&session.turns).running = false;
     desk.room.attach_computer_when_idle("ada");
     let attached = tokio::time::timeout(Duration::from_secs(10), async {

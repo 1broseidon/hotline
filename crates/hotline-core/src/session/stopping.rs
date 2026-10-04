@@ -260,6 +260,10 @@ impl Room {
                 steer: line.steer,
                 said: Some(line.said.clone()),
                 from: None,
+                // A line kept across a stop is known by the id it was written
+                // under: the one place the id of a spoken line is still read.
+                voice: crate::voice::Origin::from_event_id(&line.said),
+                spoken: line.said.starts_with("voice:"),
                 unprompted: None,
             },
         );
